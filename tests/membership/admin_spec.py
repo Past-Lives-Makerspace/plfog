@@ -16,6 +16,12 @@ from membership.admin import (
     SpaceAdmin,
 )
 from membership.models import Lease, Member, MembershipPlan, Space
+from tests.membership.factories import (
+    LeaseFactory,
+    MemberFactory,
+    MembershipPlanFactory,
+    SpaceFactory,
+)
 
 User = get_user_model()
 
@@ -115,61 +121,61 @@ def describe_LeaseAdmin():
 @pytest.mark.django_db
 def describe_admin_member_computed_fields():
     def it_displays_member_total_monthly_spend():
-        plan = MembershipPlan.objects.create(
+        plan = MembershipPlanFactory(
             name="Basic Plan",
             monthly_price=Decimal("100.00"),
         )
-        member = Member.objects.create(
+        member = MemberFactory(
             full_legal_name="Test User",
             email="test@example.com",
             membership_plan=plan,
             join_date=date(2024, 1, 1),
         )
         member_admin = admin.site._registry[Member]
-        factory = RequestFactory()
-        request = factory.get("/admin/membership/member/")
+        rf = RequestFactory()
+        request = rf.get("/admin/membership/member/")
         annotated_member = member_admin.get_queryset(request).get(pk=member.pk)
         result = member_admin.total_monthly_spend_display(annotated_member)
         assert result == "$100.00"
 
     def it_displays_member_total_monthly_spend_with_leases():
-        plan = MembershipPlan.objects.create(
+        plan = MembershipPlanFactory(
             name="Lease Spend Plan",
             monthly_price=Decimal("100.00"),
         )
-        member = Member.objects.create(
+        member = MemberFactory(
             full_legal_name="Lease Spender",
             email="lease-spend@example.com",
             membership_plan=plan,
             join_date=date(2024, 1, 1),
         )
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-SPEND",
-            space_type="studio",
-            status="occupied",
+            space_type=Space.SpaceType.STUDIO,
+            status=Space.Status.OCCUPIED,
         )
         today = timezone.now().date()
-        Lease.objects.create(
+        LeaseFactory(
             member=member,
             space=space,
-            lease_type="month_to_month",
+            lease_type=Lease.LeaseType.MONTH_TO_MONTH,
             base_price=Decimal("200.00"),
             monthly_rent=Decimal("200.00"),
             start_date=today,
         )
         member_admin = admin.site._registry[Member]
-        factory = RequestFactory()
-        request = factory.get("/admin/membership/member/")
+        rf = RequestFactory()
+        request = rf.get("/admin/membership/member/")
         annotated_member = member_admin.get_queryset(request).get(pk=member.pk)
         result = member_admin.total_monthly_spend_display(annotated_member)
         assert result == "$300.00"
 
     def it_displays_member_display_name():
-        plan = MembershipPlan.objects.create(
+        plan = MembershipPlanFactory(
             name="Display Name Plan",
             monthly_price=Decimal("75.00"),
         )
-        member = Member.objects.create(
+        member = MemberFactory(
             full_legal_name="John Smith",
             preferred_name="Johnny",
             email="johnny@example.com",
@@ -181,25 +187,25 @@ def describe_admin_member_computed_fields():
         assert result == "Johnny"
 
     def it_displays_membership_plan_member_count():
-        plan = MembershipPlan.objects.create(
+        plan = MembershipPlanFactory(
             name="Counted Plan",
             monthly_price=Decimal("100.00"),
         )
-        Member.objects.create(
+        MemberFactory(
             full_legal_name="Count Member 1",
             email="count1@example.com",
             membership_plan=plan,
             join_date=date(2024, 1, 1),
         )
-        Member.objects.create(
+        MemberFactory(
             full_legal_name="Count Member 2",
             email="count2@example.com",
             membership_plan=plan,
             join_date=date(2024, 2, 1),
         )
         plan_admin = admin.site._registry[MembershipPlan]
-        factory = RequestFactory()
-        request = factory.get("/admin/membership/membershipplan/")
+        rf = RequestFactory()
+        request = rf.get("/admin/membership/membershipplan/")
         qs = plan_admin.get_queryset(request)
         annotated_plan = qs.get(pk=plan.pk)
         result = plan_admin.member_count(annotated_plan)
@@ -209,126 +215,126 @@ def describe_admin_member_computed_fields():
 @pytest.mark.django_db
 def describe_admin_space_computed_fields():
     def it_displays_space_full_price_with_manual_price():
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-001",
-            space_type="studio",
+            space_type=Space.SpaceType.STUDIO,
             manual_price=Decimal("500.00"),
-            status="available",
+            status=Space.Status.AVAILABLE,
         )
         space_admin = admin.site._registry[Space]
         result = space_admin.full_price_display(space)
         assert result == "$500.00"
 
     def it_displays_space_full_price_calculated_from_sqft():
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-002",
-            space_type="studio",
+            space_type=Space.SpaceType.STUDIO,
             size_sqft=Decimal("100.00"),
-            status="available",
+            status=Space.Status.AVAILABLE,
         )
         space_admin = admin.site._registry[Space]
         result = space_admin.full_price_display(space)
         assert result == "$375.00"
 
     def it_displays_space_full_price_dash_when_none():
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-003",
-            space_type="other",
-            status="available",
+            space_type=Space.SpaceType.OTHER,
+            status=Space.Status.AVAILABLE,
         )
         space_admin = admin.site._registry[Space]
         result = space_admin.full_price_display(space)
         assert result == "-"
 
     def it_displays_space_actual_revenue():
-        plan = MembershipPlan.objects.create(
+        plan = MembershipPlanFactory(
             name="Revenue Plan",
             monthly_price=Decimal("50.00"),
         )
-        member = Member.objects.create(
+        member = MemberFactory(
             full_legal_name="Revenue Member",
             email="revenue@example.com",
             membership_plan=plan,
             join_date=date(2024, 1, 1),
         )
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-020",
-            space_type="studio",
-            status="occupied",
+            space_type=Space.SpaceType.STUDIO,
+            status=Space.Status.OCCUPIED,
         )
         today = timezone.now().date()
-        Lease.objects.create(
+        LeaseFactory(
             member=member,
             space=space,
-            lease_type="month_to_month",
+            lease_type=Lease.LeaseType.MONTH_TO_MONTH,
             base_price=Decimal("300.00"),
             monthly_rent=Decimal("300.00"),
             start_date=today,
         )
         space_admin = admin.site._registry[Space]
-        factory = RequestFactory()
-        request = factory.get("/admin/membership/space/")
+        rf = RequestFactory()
+        request = rf.get("/admin/membership/space/")
         annotated_space = space_admin.get_queryset(request).get(pk=space.pk)
         result = space_admin.actual_revenue_display(annotated_space)
         assert result == "$300.00"
 
     def it_displays_space_vacancy_value():
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-021",
-            space_type="studio",
+            space_type=Space.SpaceType.STUDIO,
             manual_price=Decimal("400.00"),
-            status="available",
+            status=Space.Status.AVAILABLE,
         )
         space_admin = admin.site._registry[Space]
-        factory = RequestFactory()
-        request = factory.get("/admin/membership/space/")
+        rf = RequestFactory()
+        request = rf.get("/admin/membership/space/")
         annotated_space = space_admin.get_queryset(request).get(pk=space.pk)
         result = space_admin.vacancy_value_display(annotated_space)
         assert result == "$400.00"
 
     def it_displays_space_vacancy_value_zero_when_occupied():
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-022",
-            space_type="studio",
+            space_type=Space.SpaceType.STUDIO,
             manual_price=Decimal("400.00"),
-            status="occupied",
+            status=Space.Status.OCCUPIED,
         )
         space_admin = admin.site._registry[Space]
-        factory = RequestFactory()
-        request = factory.get("/admin/membership/space/")
+        rf = RequestFactory()
+        request = rf.get("/admin/membership/space/")
         annotated_space = space_admin.get_queryset(request).get(pk=space.pk)
         result = space_admin.vacancy_value_display(annotated_space)
         assert result == "$0.00"
 
     def it_displays_vacancy_value_subtracting_active_lease_rent():
-        plan = MembershipPlan.objects.create(
+        plan = MembershipPlanFactory(
             name="Vacancy Subtract Plan",
             monthly_price=Decimal("50.00"),
         )
-        member = Member.objects.create(
+        member = MemberFactory(
             full_legal_name="Partial Occupant",
             email="partial@example.com",
             membership_plan=plan,
             join_date=date(2024, 1, 1),
         )
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-023",
-            space_type="studio",
+            space_type=Space.SpaceType.STUDIO,
             manual_price=Decimal("600.00"),
-            status="available",
+            status=Space.Status.AVAILABLE,
         )
         today = timezone.now().date()
-        Lease.objects.create(
+        LeaseFactory(
             member=member,
             space=space,
-            lease_type="month_to_month",
+            lease_type=Lease.LeaseType.MONTH_TO_MONTH,
             base_price=Decimal("200.00"),
             monthly_rent=Decimal("200.00"),
             start_date=today,
         )
         space_admin = admin.site._registry[Space]
-        factory = RequestFactory()
-        request = factory.get("/admin/membership/space/")
+        rf = RequestFactory()
+        request = rf.get("/admin/membership/space/")
         annotated_space = space_admin.get_queryset(request).get(pk=space.pk)
         result = space_admin.vacancy_value_display(annotated_space)
         assert result == "$400.00"
@@ -337,25 +343,25 @@ def describe_admin_space_computed_fields():
 @pytest.mark.django_db
 def describe_admin_lease_and_inline_fields():
     def it_displays_lease_is_active_for_active_lease():
-        plan = MembershipPlan.objects.create(
+        plan = MembershipPlanFactory(
             name="Active Lease Plan",
             monthly_price=Decimal("50.00"),
         )
-        member = Member.objects.create(
+        member = MemberFactory(
             full_legal_name="Active Member",
             email="active@example.com",
             membership_plan=plan,
             join_date=date(2024, 1, 1),
         )
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-010",
-            space_type="studio",
-            status="occupied",
+            space_type=Space.SpaceType.STUDIO,
+            status=Space.Status.OCCUPIED,
         )
-        lease = Lease.objects.create(
+        lease = LeaseFactory(
             member=member,
             space=space,
-            lease_type="month_to_month",
+            lease_type=Lease.LeaseType.MONTH_TO_MONTH,
             base_price=Decimal("200.00"),
             monthly_rent=Decimal("200.00"),
             start_date=date(2024, 1, 1),
@@ -365,25 +371,25 @@ def describe_admin_lease_and_inline_fields():
         assert result is True
 
     def it_displays_lease_is_active_false_for_expired_lease():
-        plan = MembershipPlan.objects.create(
+        plan = MembershipPlanFactory(
             name="Expired Lease Plan",
             monthly_price=Decimal("50.00"),
         )
-        member = Member.objects.create(
+        member = MemberFactory(
             full_legal_name="Expired Member",
             email="expired@example.com",
             membership_plan=plan,
             join_date=date(2024, 1, 1),
         )
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-011",
-            space_type="storage",
-            status="available",
+            space_type=Space.SpaceType.STORAGE,
+            status=Space.Status.AVAILABLE,
         )
-        lease = Lease.objects.create(
+        lease = LeaseFactory(
             member=member,
             space=space,
-            lease_type="annual",
+            lease_type=Lease.LeaseType.ANNUAL,
             base_price=Decimal("100.00"),
             monthly_rent=Decimal("100.00"),
             start_date=date(2023, 1, 1),
@@ -394,25 +400,25 @@ def describe_admin_lease_and_inline_fields():
         assert result is False
 
     def it_displays_inline_member_is_active():
-        plan = MembershipPlan.objects.create(
+        plan = MembershipPlanFactory(
             name="Inline Member Plan",
             monthly_price=Decimal("50.00"),
         )
-        member = Member.objects.create(
+        member = MemberFactory(
             full_legal_name="Inline Member",
             email="inline-member@example.com",
             membership_plan=plan,
             join_date=date(2024, 1, 1),
         )
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-030",
-            space_type="studio",
-            status="occupied",
+            space_type=Space.SpaceType.STUDIO,
+            status=Space.Status.OCCUPIED,
         )
-        lease = Lease.objects.create(
+        lease = LeaseFactory(
             member=member,
             space=space,
-            lease_type="month_to_month",
+            lease_type=Lease.LeaseType.MONTH_TO_MONTH,
             base_price=Decimal("200.00"),
             monthly_rent=Decimal("200.00"),
             start_date=date(2024, 1, 1),
@@ -422,25 +428,25 @@ def describe_admin_lease_and_inline_fields():
         assert result is True
 
     def it_displays_inline_space_is_active():
-        plan = MembershipPlan.objects.create(
+        plan = MembershipPlanFactory(
             name="Inline Space Plan",
             monthly_price=Decimal("50.00"),
         )
-        member = Member.objects.create(
+        member = MemberFactory(
             full_legal_name="Inline Space Member",
             email="inline-space@example.com",
             membership_plan=plan,
             join_date=date(2024, 1, 1),
         )
-        space = Space.objects.create(
+        space = SpaceFactory(
             space_id="S-031",
-            space_type="studio",
-            status="occupied",
+            space_type=Space.SpaceType.STUDIO,
+            status=Space.Status.OCCUPIED,
         )
-        lease = Lease.objects.create(
+        lease = LeaseFactory(
             member=member,
             space=space,
-            lease_type="month_to_month",
+            lease_type=Lease.LeaseType.MONTH_TO_MONTH,
             base_price=Decimal("250.00"),
             monthly_rent=Decimal("250.00"),
             start_date=date(2024, 1, 1),
@@ -476,7 +482,7 @@ def admin_client():
 
 @pytest.fixture()
 def sample_plan():
-    return MembershipPlan.objects.create(
+    return MembershipPlanFactory(
         name="View Test Plan",
         monthly_price=Decimal("100.00"),
     )
@@ -484,7 +490,7 @@ def sample_plan():
 
 @pytest.fixture()
 def sample_member(sample_plan):
-    return Member.objects.create(
+    return MemberFactory(
         full_legal_name="View Test Member",
         email="viewtest@example.com",
         membership_plan=sample_plan,
@@ -494,19 +500,19 @@ def sample_member(sample_plan):
 
 @pytest.fixture()
 def sample_space():
-    return Space.objects.create(
+    return SpaceFactory(
         space_id="VT-001",
-        space_type="studio",
-        status="available",
+        space_type=Space.SpaceType.STUDIO,
+        status=Space.Status.AVAILABLE,
     )
 
 
 @pytest.fixture()
 def sample_lease(sample_member, sample_space):
-    return Lease.objects.create(
+    return LeaseFactory(
         member=sample_member,
         space=sample_space,
-        lease_type="month_to_month",
+        lease_type=Lease.LeaseType.MONTH_TO_MONTH,
         base_price=Decimal("300.00"),
         monthly_rent=Decimal("300.00"),
         start_date=date(2024, 6, 1),
@@ -563,8 +569,8 @@ def describe_admin_member_views():
                 "email": "postcreated@example.com",
                 "phone": "",
                 "membership_plan": sample_plan.pk,
-                "status": "active",
-                "role": "standard",
+                "status": Member.Status.ACTIVE,
+                "role": Member.Role.STANDARD,
                 "join_date": "2024-06-15",
                 "notes": "",
                 "emergency_contact_name": "",
@@ -601,8 +607,8 @@ def describe_admin_space_views():
             {
                 "space_id": "POST-S1",
                 "name": "",
-                "space_type": "studio",
-                "status": "available",
+                "space_type": Space.SpaceType.STUDIO,
+                "status": Space.Status.AVAILABLE,
                 "floorplan_ref": "",
                 "notes": "",
                 # Inline management form (required for inlines)
@@ -636,7 +642,7 @@ def describe_admin_lease_views():
             {
                 "member": sample_member.pk,
                 "space": sample_space.pk,
-                "lease_type": "month_to_month",
+                "lease_type": Lease.LeaseType.MONTH_TO_MONTH,
                 "base_price": "400.00",
                 "monthly_rent": "400.00",
                 "start_date": "2024-07-01",
