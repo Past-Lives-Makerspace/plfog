@@ -6,7 +6,7 @@ from django.contrib.sites.models import Site
 from django.db import models
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 
-from newplos.auto_admin import (
+from plfog.auto_admin import (
     EXCLUDED_APPS,
     HIDDEN_MODELS,
     create_model_admin,
@@ -21,7 +21,7 @@ from newplos.auto_admin import (
 
 def _make_model(name, fields, app_label="core", abstract=False):
     """Create an in-memory Django model for testing."""
-    attrs = {"__module__": "tests.newplos.auto_admin_spec"}
+    attrs = {"__module__": "tests.plfog.auto_admin_spec"}
     meta_attrs = {"app_label": app_label, "managed": False}
     if abstract:
         meta_attrs["abstract"] = True
@@ -355,10 +355,10 @@ def describe_register_all_models_counting():
         mock_config.name = "myapp"
 
         with (
-            patch("newplos.auto_admin.apps.get_models", return_value=[mock_model]),
-            patch("newplos.auto_admin.apps.get_app_config", return_value=mock_config),
-            patch("newplos.auto_admin.is_model_registered", return_value=False),
-            patch("newplos.auto_admin.admin.site.register"),
+            patch("plfog.auto_admin.apps.get_models", return_value=[mock_model]),
+            patch("plfog.auto_admin.apps.get_app_config", return_value=mock_config),
+            patch("plfog.auto_admin.is_model_registered", return_value=False),
+            patch("plfog.auto_admin.admin.site.register"),
         ):
             registered, skipped = register_all_models()
             assert registered == 1
@@ -393,13 +393,13 @@ def describe_register_all_models_counting():
 
         with (
             patch(
-                "newplos.auto_admin.apps.get_models",
+                "plfog.auto_admin.apps.get_models",
                 return_value=[good_model, excluded_model, registered_model],
             ),
-            patch("newplos.auto_admin.apps.get_app_config", side_effect=mock_get_config),
-            patch("newplos.auto_admin.is_model_registered", side_effect=mock_is_registered),
-            patch("newplos.auto_admin.admin.site.register"),
-            patch("newplos.auto_admin.create_model_admin", return_value=MagicMock()),
+            patch("plfog.auto_admin.apps.get_app_config", side_effect=mock_get_config),
+            patch("plfog.auto_admin.is_model_registered", side_effect=mock_is_registered),
+            patch("plfog.auto_admin.admin.site.register"),
+            patch("plfog.auto_admin.create_model_admin", return_value=MagicMock()),
         ):
             registered, skipped = register_all_models()
             assert registered == 1
@@ -417,10 +417,10 @@ def describe_register_all_models_skipping():
         mock_config.name = "django.contrib.auth"
 
         with (
-            patch("newplos.auto_admin.apps.get_models", return_value=[mock_model]),
-            patch("newplos.auto_admin.apps.get_app_config", return_value=mock_config),
-            patch("newplos.auto_admin.is_model_registered", return_value=False),
-            patch("newplos.auto_admin.admin.site.register") as mock_register,
+            patch("plfog.auto_admin.apps.get_models", return_value=[mock_model]),
+            patch("plfog.auto_admin.apps.get_app_config", return_value=mock_config),
+            patch("plfog.auto_admin.is_model_registered", return_value=False),
+            patch("plfog.auto_admin.admin.site.register") as mock_register,
         ):
             registered, skipped = register_all_models()
             assert registered == 0
@@ -437,10 +437,10 @@ def describe_register_all_models_skipping():
         mock_config.name = "myapp"
 
         with (
-            patch("newplos.auto_admin.apps.get_models", return_value=[mock_model]),
-            patch("newplos.auto_admin.apps.get_app_config", return_value=mock_config),
-            patch("newplos.auto_admin.is_model_registered", return_value=False),
-            patch("newplos.auto_admin.admin.site.register") as mock_register,
+            patch("plfog.auto_admin.apps.get_models", return_value=[mock_model]),
+            patch("plfog.auto_admin.apps.get_app_config", return_value=mock_config),
+            patch("plfog.auto_admin.is_model_registered", return_value=False),
+            patch("plfog.auto_admin.admin.site.register") as mock_register,
         ):
             registered, skipped = register_all_models()
             assert registered == 0
@@ -457,10 +457,10 @@ def describe_register_all_models_skipping():
         mock_config.name = "myapp"
 
         with (
-            patch("newplos.auto_admin.apps.get_models", return_value=[mock_model]),
-            patch("newplos.auto_admin.apps.get_app_config", return_value=mock_config),
-            patch("newplos.auto_admin.is_model_registered", return_value=True),
-            patch("newplos.auto_admin.admin.site.register") as mock_register,
+            patch("plfog.auto_admin.apps.get_models", return_value=[mock_model]),
+            patch("plfog.auto_admin.apps.get_app_config", return_value=mock_config),
+            patch("plfog.auto_admin.is_model_registered", return_value=True),
+            patch("plfog.auto_admin.admin.site.register") as mock_register,
         ):
             registered, skipped = register_all_models()
             assert registered == 0
@@ -479,11 +479,11 @@ def describe_register_all_models_registration():
         mock_config.name = "myapp"
 
         with (
-            patch("newplos.auto_admin.apps.get_models", return_value=[mock_model]),
-            patch("newplos.auto_admin.apps.get_app_config", return_value=mock_config),
-            patch("newplos.auto_admin.is_model_registered", return_value=False),
-            patch("newplos.auto_admin.admin.site.register") as mock_register,
-            patch("newplos.auto_admin.create_model_admin", return_value=MagicMock()) as mock_create,
+            patch("plfog.auto_admin.apps.get_models", return_value=[mock_model]),
+            patch("plfog.auto_admin.apps.get_app_config", return_value=mock_config),
+            patch("plfog.auto_admin.is_model_registered", return_value=False),
+            patch("plfog.auto_admin.admin.site.register") as mock_register,
+            patch("plfog.auto_admin.create_model_admin", return_value=MagicMock()) as mock_create,
         ):
             registered, skipped = register_all_models()
             assert registered == 1
@@ -523,32 +523,32 @@ def describe_hidden_models():
 def describe_unregister_hidden_models():
     def it_unregisters_all_registered_hidden_models():
         with (
-            patch("newplos.auto_admin.is_model_registered", return_value=True),
-            patch("newplos.auto_admin.admin.site.unregister") as mock_unregister,
+            patch("plfog.auto_admin.is_model_registered", return_value=True),
+            patch("plfog.auto_admin.admin.site.unregister") as mock_unregister,
         ):
             unregister_hidden_models()
             assert mock_unregister.call_count == len(HIDDEN_MODELS)
 
     def it_skips_models_that_are_not_registered():
         with (
-            patch("newplos.auto_admin.is_model_registered", return_value=False),
-            patch("newplos.auto_admin.admin.site.unregister") as mock_unregister,
+            patch("plfog.auto_admin.is_model_registered", return_value=False),
+            patch("plfog.auto_admin.admin.site.unregister") as mock_unregister,
         ):
             unregister_hidden_models()
             mock_unregister.assert_not_called()
 
     def it_returns_count_of_unregistered_models():
         with (
-            patch("newplos.auto_admin.is_model_registered", return_value=True),
-            patch("newplos.auto_admin.admin.site.unregister"),
+            patch("plfog.auto_admin.is_model_registered", return_value=True),
+            patch("plfog.auto_admin.admin.site.unregister"),
         ):
             count = unregister_hidden_models()
             assert count == len(HIDDEN_MODELS)
 
     def it_returns_zero_when_none_are_registered():
         with (
-            patch("newplos.auto_admin.is_model_registered", return_value=False),
-            patch("newplos.auto_admin.admin.site.unregister"),
+            patch("plfog.auto_admin.is_model_registered", return_value=False),
+            patch("plfog.auto_admin.admin.site.unregister"),
         ):
             count = unregister_hidden_models()
             assert count == 0
@@ -560,8 +560,8 @@ def describe_unregister_hidden_models():
             return model in registered
 
         with (
-            patch("newplos.auto_admin.is_model_registered", side_effect=mock_is_registered),
-            patch("newplos.auto_admin.admin.site.unregister"),
+            patch("plfog.auto_admin.is_model_registered", side_effect=mock_is_registered),
+            patch("plfog.auto_admin.admin.site.unregister"),
         ):
             count = unregister_hidden_models()
             assert count == 2
@@ -571,7 +571,7 @@ def describe_unregister_hidden_models():
         admin.site.register(Site, admin_class)
         try:
             assert is_model_registered(Site)
-            with patch("newplos.auto_admin.HIDDEN_MODELS", {Site}):
+            with patch("plfog.auto_admin.HIDDEN_MODELS", {Site}):
                 unregister_hidden_models()
             assert not is_model_registered(Site)
         finally:

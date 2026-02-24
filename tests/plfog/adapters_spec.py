@@ -1,4 +1,4 @@
-"""BDD-style tests for newplos.adapters module — auto-admin and admin redirect."""
+"""BDD-style tests for plfog.adapters module — auto-admin and admin redirect."""
 
 import logging
 from unittest.mock import MagicMock, patch
@@ -32,7 +32,7 @@ def _make_existing_social_login(user: User) -> MagicMock:
 
 def _patch_super_save_user(email: str, username: str):
     """Return a context manager that patches DefaultSocialAccountAdapter.save_user."""
-    from newplos.adapters import AutoAdminSocialAccountAdapter
+    from plfog.adapters import AutoAdminSocialAccountAdapter
 
     mock_user = User(email=email, username=username)
     mock_user.pk = 1
@@ -46,7 +46,7 @@ def _patch_super_save_user(email: str, username: str):
 
 def describe_save_user_with_empty_admin_domains():
     def it_does_not_grant_admin(rf, settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = []
         adapter = AutoAdminSocialAccountAdapter()
@@ -61,7 +61,7 @@ def describe_save_user_with_empty_admin_domains():
 
 def describe_save_user_with_matching_domain():
     def it_grants_admin_privileges(rf, settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -75,7 +75,7 @@ def describe_save_user_with_matching_domain():
         user.save.assert_called_once_with(update_fields=["is_staff", "is_superuser"])
 
     def it_does_not_grant_admin_when_domain_does_not_match(rf, settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -90,7 +90,7 @@ def describe_save_user_with_matching_domain():
 
 def describe_save_user_with_multiple_domains():
     def it_grants_admin_for_any_matching_domain(rf, settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["pastlives.space", "roaming-panda.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -105,7 +105,7 @@ def describe_save_user_with_multiple_domains():
 
 def describe_save_user_case_insensitivity():
     def it_matches_uppercase_email_domain(rf, settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["pastlives.space"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -120,7 +120,7 @@ def describe_save_user_case_insensitivity():
 
 def describe_maybe_grant_admin_edge_cases():
     def it_skips_user_with_empty_email(settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -134,7 +134,7 @@ def describe_maybe_grant_admin_edge_cases():
         user.save.assert_not_called()
 
     def it_skips_user_with_email_without_at_sign(settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -148,7 +148,7 @@ def describe_maybe_grant_admin_edge_cases():
         user.save.assert_not_called()
 
     def it_skips_user_with_none_email(settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -162,7 +162,7 @@ def describe_maybe_grant_admin_edge_cases():
         user.save.assert_not_called()
 
     def it_skips_when_admin_domains_not_configured(settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         if hasattr(settings, "ADMIN_DOMAINS"):
             delattr(settings, "ADMIN_DOMAINS")
@@ -179,7 +179,7 @@ def describe_maybe_grant_admin_edge_cases():
 
 def describe_maybe_grant_admin_matching():
     def it_sets_is_staff_and_is_superuser(settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -195,7 +195,7 @@ def describe_maybe_grant_admin_matching():
         user.save.assert_called_once_with(update_fields=["is_staff", "is_superuser"])
 
     def it_does_not_match_subdomains(settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -209,7 +209,7 @@ def describe_maybe_grant_admin_matching():
         user.save.assert_not_called()
 
     def it_skips_save_when_user_already_has_admin_privileges(settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -223,7 +223,7 @@ def describe_maybe_grant_admin_matching():
         user.save.assert_not_called()
 
     def it_upgrades_when_only_is_staff_is_true(settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -239,7 +239,7 @@ def describe_maybe_grant_admin_matching():
         user.save.assert_called_once_with(update_fields=["is_staff", "is_superuser"])
 
     def it_upgrades_when_only_is_superuser_is_true(settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -257,7 +257,7 @@ def describe_maybe_grant_admin_matching():
 
 def describe_maybe_grant_admin_logging():
     def it_logs_when_admin_is_granted(settings, caplog):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -267,14 +267,14 @@ def describe_maybe_grant_admin_logging():
         user.is_staff = False
         user.is_superuser = False
 
-        with caplog.at_level(logging.INFO, logger="newplos.adapters"):
+        with caplog.at_level(logging.INFO, logger="plfog.adapters"):
             adapter._maybe_grant_admin(user)
 
         assert "Auto-admin granted to admin@example.com" in caplog.text
         assert "domain: example.com" in caplog.text
 
     def it_does_not_log_when_already_admin(settings, caplog):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -284,7 +284,7 @@ def describe_maybe_grant_admin_logging():
         user.is_staff = True
         user.is_superuser = True
 
-        with caplog.at_level(logging.INFO, logger="newplos.adapters"):
+        with caplog.at_level(logging.INFO, logger="plfog.adapters"):
             adapter._maybe_grant_admin(user)
 
         assert "Auto-admin granted" not in caplog.text
@@ -294,7 +294,7 @@ def describe_pre_social_login():
     """Tests for the pre_social_login hook — promotes existing users on every login."""
 
     def it_upgrades_existing_user_with_matching_domain(rf, settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["roaming-panda.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -316,7 +316,7 @@ def describe_pre_social_login():
         assert user.is_superuser is True
 
     def it_does_not_upgrade_existing_user_with_non_matching_domain(rf, settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["roaming-panda.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -336,7 +336,7 @@ def describe_pre_social_login():
         assert user.is_superuser is False
 
     def it_skips_save_when_existing_user_already_has_admin(rf, settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["roaming-panda.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -362,7 +362,7 @@ def describe_pre_social_login():
 
         New users are handled by save_user() instead.
         """
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["example.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -379,7 +379,7 @@ def describe_pre_social_login():
         assert sociallogin.user.is_superuser is False
 
     def it_upgrades_with_multiple_admin_domains(rf, settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["pastlives.space", "roaming-panda.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -399,7 +399,7 @@ def describe_pre_social_login():
         assert user.is_superuser is True
 
     def it_handles_case_insensitive_email_domain(rf, settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["roaming-panda.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -419,7 +419,7 @@ def describe_pre_social_login():
         assert user.is_superuser is True
 
     def it_skips_when_admin_domains_is_empty(rf, settings):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = []
         adapter = AutoAdminSocialAccountAdapter()
@@ -439,7 +439,7 @@ def describe_pre_social_login():
         assert user.is_superuser is False
 
     def it_logs_promotion_for_existing_user(rf, settings, caplog):
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["roaming-panda.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -452,14 +452,14 @@ def describe_pre_social_login():
         )
 
         sociallogin = _make_existing_social_login(user)
-        with caplog.at_level(logging.INFO, logger="newplos.adapters"):
+        with caplog.at_level(logging.INFO, logger="plfog.adapters"):
             adapter.pre_social_login(request, sociallogin)
 
         assert "Auto-admin granted to mark@roaming-panda.com" in caplog.text
 
     def it_upgrades_user_with_only_is_staff(rf, settings):
         """User with is_staff=True but is_superuser=False should be upgraded."""
-        from newplos.adapters import AutoAdminSocialAccountAdapter
+        from plfog.adapters import AutoAdminSocialAccountAdapter
 
         settings.ADMIN_DOMAINS = ["roaming-panda.com"]
         adapter = AutoAdminSocialAccountAdapter()
@@ -494,7 +494,7 @@ def _make_request_with_user(rf: RequestFactory, *, is_staff: bool, is_superuser:
 def describe_AdminRedirectAccountAdapter():
     def describe_get_login_redirect_url():
         def it_redirects_staff_to_admin(rf):
-            from newplos.adapters import AdminRedirectAccountAdapter
+            from plfog.adapters import AdminRedirectAccountAdapter
 
             adapter = AdminRedirectAccountAdapter()
             request = _make_request_with_user(rf, is_staff=True, is_superuser=False)
@@ -504,7 +504,7 @@ def describe_AdminRedirectAccountAdapter():
             assert url == "/admin/"
 
         def it_redirects_non_staff_to_default(rf):
-            from newplos.adapters import AdminRedirectAccountAdapter
+            from plfog.adapters import AdminRedirectAccountAdapter
 
             adapter = AdminRedirectAccountAdapter()
             request = _make_request_with_user(rf, is_staff=False, is_superuser=False)
@@ -514,7 +514,7 @@ def describe_AdminRedirectAccountAdapter():
             assert url == "/"
 
         def it_redirects_staff_superuser_to_admin(rf):
-            from newplos.adapters import AdminRedirectAccountAdapter
+            from plfog.adapters import AdminRedirectAccountAdapter
 
             adapter = AdminRedirectAccountAdapter()
             request = _make_request_with_user(rf, is_staff=True, is_superuser=True)
@@ -524,7 +524,7 @@ def describe_AdminRedirectAccountAdapter():
             assert url == "/admin/"
 
         def it_redirects_superuser_without_staff_to_default(rf):
-            from newplos.adapters import AdminRedirectAccountAdapter
+            from plfog.adapters import AdminRedirectAccountAdapter
 
             adapter = AdminRedirectAccountAdapter()
             request = _make_request_with_user(rf, is_staff=False, is_superuser=True)
@@ -536,7 +536,7 @@ def describe_AdminRedirectAccountAdapter():
         def describe_custom_login_redirect_url():
             @override_settings(LOGIN_REDIRECT_URL="/dashboard/")
             def it_respects_custom_url_for_non_staff(rf):
-                from newplos.adapters import AdminRedirectAccountAdapter
+                from plfog.adapters import AdminRedirectAccountAdapter
 
                 adapter = AdminRedirectAccountAdapter()
                 request = _make_request_with_user(rf, is_staff=False, is_superuser=False)
@@ -547,7 +547,7 @@ def describe_AdminRedirectAccountAdapter():
 
             @override_settings(LOGIN_REDIRECT_URL="/dashboard/")
             def it_ignores_custom_url_for_staff(rf):
-                from newplos.adapters import AdminRedirectAccountAdapter
+                from plfog.adapters import AdminRedirectAccountAdapter
 
                 adapter = AdminRedirectAccountAdapter()
                 request = _make_request_with_user(rf, is_staff=True, is_superuser=False)

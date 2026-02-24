@@ -6,7 +6,7 @@ class CoreConfig(AppConfig):
     name = "core"
 
     def ready(self):
-        from newplos.auto_admin import register_all_models, unregister_hidden_models
+        from plfog.auto_admin import register_all_models, unregister_hidden_models
 
         register_all_models()
         unregister_hidden_models()

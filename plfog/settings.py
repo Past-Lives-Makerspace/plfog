@@ -1,4 +1,4 @@
-"""Django settings for newplos - Past Lives Makerspace."""
+"""Django settings for plfog - Past Lives Makerspace."""
 
 import os
 from pathlib import Path
@@ -66,7 +66,7 @@ MIDDLEWARE = [
     "allauth.account.middleware.AccountMiddleware",
 ]
 
-ROOT_URLCONF = "newplos.urls"
+ROOT_URLCONF = "plfog.urls"
 
 TEMPLATES = [
     {
@@ -84,7 +84,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "newplos.wsgi.application"
+WSGI_APPLICATION = "plfog.wsgi.application"
 
 # Database
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -140,8 +140,8 @@ ACCOUNT_SESSION_REMEMBER = True
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
 
-SOCIALACCOUNT_ADAPTER = "newplos.adapters.AutoAdminSocialAccountAdapter"
-ACCOUNT_ADAPTER = "newplos.adapters.AdminRedirectAccountAdapter"
+SOCIALACCOUNT_ADAPTER = "plfog.adapters.AutoAdminSocialAccountAdapter"
+ACCOUNT_ADAPTER = "plfog.adapters.AdminRedirectAccountAdapter"
 SOCIALACCOUNT_LOGIN_ON_GET = True
 
 # Auto-admin: comma-separated list of email domains that get admin privileges on social login.

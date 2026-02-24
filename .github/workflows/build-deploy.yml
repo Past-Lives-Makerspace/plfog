@@ -8,7 +8,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: roaming-panda-llc/newplos
+  IMAGE_NAME: roaming-panda-llc/plfog
 
 jobs:
   build-and-push:
@@ -54,4 +54,4 @@ jobs:
           token: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
           repository: roaming-panda-llc/agent_work
           event-type: deploy-app
-          client-payload: '{"app": "newplos", "sha": "${{ github.sha }}"}'
+          client-payload: '{"app": "plfog", "sha": "${{ github.sha }}"}'

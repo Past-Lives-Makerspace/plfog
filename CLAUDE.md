@@ -1,4 +1,4 @@
-# newplos - Past Lives Makerspace
+# plfog - Past Lives Makerspace
 
 Django app for membership and studio rental management at Past Lives Makerspace (Portland, OR).
 
@@ -16,4 +16,4 @@ BDD/spec style with pytest-describe. Test files named `*_spec.py`. Functions nam
 
 ## Settings
 
-All configuration via environment variables. See `newplos/settings.py` for available env vars.
+All configuration via environment variables. See `plfog/settings.py` for available env vars.

@@ -15,8 +15,8 @@ def describe_core_config():
     def describe_ready():
         def it_calls_register_all_models():
             with (
-                patch("newplos.auto_admin.register_all_models") as mock_register,
-                patch("newplos.auto_admin.unregister_hidden_models"),
+                patch("plfog.auto_admin.register_all_models") as mock_register,
+                patch("plfog.auto_admin.unregister_hidden_models"),
             ):
                 config = apps.get_app_config("core")
                 config.ready()
@@ -24,8 +24,8 @@ def describe_core_config():
 
         def it_calls_unregister_hidden_models():
             with (
-                patch("newplos.auto_admin.register_all_models"),
-                patch("newplos.auto_admin.unregister_hidden_models") as mock_unregister,
+                patch("plfog.auto_admin.register_all_models"),
+                patch("plfog.auto_admin.unregister_hidden_models") as mock_unregister,
             ):
                 config = apps.get_app_config("core")
                 config.ready()
@@ -41,8 +41,8 @@ def describe_core_config():
                 call_order.append("unregister_hidden_models")
 
             with (
-                patch("newplos.auto_admin.register_all_models", side_effect=record_register),
-                patch("newplos.auto_admin.unregister_hidden_models", side_effect=record_unregister),
+                patch("plfog.auto_admin.register_all_models", side_effect=record_register),
+                patch("plfog.auto_admin.unregister_hidden_models", side_effect=record_unregister),
             ):
                 config = apps.get_app_config("core")
                 config.ready()

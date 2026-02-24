@@ -1,4 +1,4 @@
-"""BDD-style tests for newplos.settings module branches."""
+"""BDD-style tests for plfog.settings module branches."""
 
 import importlib
 from unittest.mock import patch
@@ -21,7 +21,7 @@ def _reload_settings(monkeypatch, env_overrides=None):
             else:
                 monkeypatch.setenv(key, value)
 
-    from newplos import settings as settings_module
+    from plfog import settings as settings_module
 
     importlib.reload(settings_module)
     return settings_module
@@ -554,7 +554,7 @@ def describe_socialaccount_adapter_setting():
                 monkeypatch,
                 {"DJANGO_DEBUG": "True", "SENTRY_DSN": None},
             )
-            assert settings_module.SOCIALACCOUNT_ADAPTER == "newplos.adapters.AutoAdminSocialAccountAdapter"
+            assert settings_module.SOCIALACCOUNT_ADAPTER == "plfog.adapters.AutoAdminSocialAccountAdapter"
 
 
 def describe_account_adapter_setting():
@@ -564,7 +564,7 @@ def describe_account_adapter_setting():
                 monkeypatch,
                 {"DJANGO_DEBUG": "True", "SENTRY_DSN": None},
             )
-            assert settings_module.ACCOUNT_ADAPTER == "newplos.adapters.AdminRedirectAccountAdapter"
+            assert settings_module.ACCOUNT_ADAPTER == "plfog.adapters.AdminRedirectAccountAdapter"
 
 
 def describe_socialaccount_login_on_get():

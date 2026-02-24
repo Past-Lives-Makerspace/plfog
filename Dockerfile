@@ -19,4 +19,4 @@ RUN python manage.py collectstatic --noinput
 
 EXPOSE 8008
 
-CMD python manage.py migrate --noinput && gunicorn newplos.wsgi:application --bind 0.0.0.0:8008 --workers 2
+CMD python manage.py migrate --noinput && gunicorn plfog.wsgi:application --bind 0.0.0.0:8008 --workers 2

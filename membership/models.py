@@ -33,6 +33,9 @@ def _active_lease_q(prefix: str = "", today: date_type | None = None) -> Q:
 
 
 class MembershipPlan(models.Model):
+    # Queryset annotation (set by MembershipPlanAdmin.get_queryset)
+    member_count: int
+
     name = models.CharField(max_length=100, unique=True)
     monthly_price = models.DecimalField(max_digits=8, decimal_places=2)
     deposit_required = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
@@ -74,6 +77,9 @@ class MemberQuerySet(models.QuerySet):
 
 
 class Member(models.Model):
+    # Queryset annotation (set by MemberQuerySet.with_lease_totals)
+    total_monthly_rent: Decimal
+
     class Status(models.TextChoices):
         ACTIVE = "active", "Active"
         FORMER = "former", "Former"
@@ -187,6 +193,9 @@ class SpaceQuerySet(models.QuerySet):
 
 
 class Space(models.Model):
+    # Queryset annotation (set by SpaceQuerySet.with_revenue)
+    active_lease_rent_total: Decimal
+
     class SpaceType(models.TextChoices):
         STUDIO = "studio", "Studio"
         STORAGE = "storage", "Storage"

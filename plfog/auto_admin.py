@@ -2,7 +2,7 @@
 Auto-register all project models in Django admin with sensible defaults.
 
 Import and call register_all_models() in your admin.py or AppConfig.ready():
-    from newplos.auto_admin import register_all_models
+    from plfog.auto_admin import register_all_models
     register_all_models()
 """
 

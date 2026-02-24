@@ -39,7 +39,7 @@ jobs:
           DJANGO_SECRET_KEY: test-secret-key-for-ci
 
       - name: Run mutation tests
-        run: pytest --leela --target newplos/ --target core/ --target membership/
+        run: pytest --leela --target plfog/ --target core/ --target membership/
         env:
           DJANGO_SECRET_KEY: test-secret-key-for-ci
 
@@ -66,6 +66,6 @@ jobs:
         run: ruff format --check .
 
       - name: Mypy
-        run: mypy newplos/ core/ membership/
+        run: mypy plfog/ core/ membership/
         env:
           DJANGO_SECRET_KEY: test-secret-key-for-ci
