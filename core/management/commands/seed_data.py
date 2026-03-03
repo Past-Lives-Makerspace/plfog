@@ -204,7 +204,7 @@ class Command(BaseCommand):
             ("claire.dubois", "Claire", "Dubois", "claire.dubois@example.com"),
         ]
 
-        # Guild lead users (indices 20-33)
+        # Guild lead users (indices 20-34)
         guild_lead_user_data = [
             ("jenelle.giordano", "Jenelle", "Giordano", "jenelle.giordano@example.com"),
             ("jholtman", "J", "Holtman", "jholtman@example.com"),
@@ -215,6 +215,7 @@ class Command(BaseCommand):
             ("william.ottaviani", "William", "Ottaviani", "william.ottaviani@example.com"),
             ("cait.johnstone", "Cait", "Johnstone", "cait.johnstone@example.com"),
             ("deb.clough", "Deb", "Clough", "deb.clough@example.com"),
+            ("mira.glasser", "Mira", "Glasser", "mira.glasser@example.com"),
             ("patricia.fischer", "Patricia", "Fischer", "patricia.fischer@example.com"),
             ("brooke.sauvage", "Brooke", "Sauvage", "brooke.sauvage@example.com"),
             ("kate.visualarts", "Kate", "VisualArts", "kate.visualarts@example.com"),
@@ -300,7 +301,7 @@ class Command(BaseCommand):
                 drop_in,
                 120,
             ),
-            # Guild lead members (indices 20-33)
+            # Guild lead members (indices 20-34)
             (
                 20,
                 "Jenelle Giordano",
@@ -328,8 +329,9 @@ class Command(BaseCommand):
             ),
             (27, "Cait Johnstone", "Cait", "503-555-0208", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 450),
             (28, "Deb Clough", "Deb", "503-555-0209", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 400),
+            (29, "Mira Glasser", "Mira", "503-555-0215", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 400),
             (
-                29,
+                30,
                 "Patricia Fischer",
                 "Patricia",
                 "503-555-0210",
@@ -338,10 +340,10 @@ class Command(BaseCommand):
                 studio,
                 350,
             ),
-            (30, "Brooke Sauvage", "Brooke", "503-555-0211", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 300),
-            (31, "Kate VisualArts", "Kate", "503-555-0212", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 250),
-            (32, "Chris Ellwanger", "Chris", "503-555-0213", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 200),
-            (33, "Penina Finger", "Penina", "503-555-0214", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 150),
+            (31, "Brooke Sauvage", "Brooke", "503-555-0211", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 300),
+            (32, "Kate VisualArts", "Kate", "503-555-0212", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 250),
+            (33, "Chris Ellwanger", "Chris", "503-555-0213", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 200),
+            (34, "Penina Finger", "Penina", "503-555-0214", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 150),
         ]
 
         members = []
@@ -475,7 +477,7 @@ class Command(BaseCommand):
                     "and embedded systems. We host Arduino and Raspberry Pi workshops regularly."
                 ),
                 "icon": "memory",
-                "guild_lead": members[29],
+                "guild_lead": members[30],
             },
             {
                 "name": "Textiles",
@@ -485,7 +487,7 @@ class Command(BaseCommand):
                     "all fiber arts. We have industrial sewing machines, sergers, and a floor loom."
                 ),
                 "icon": "checkroom",
-                "guild_lead": members[30],
+                "guild_lead": members[31],
             },
             {
                 "name": "Visual Arts",
@@ -495,7 +497,7 @@ class Command(BaseCommand):
                     "for painters, illustrators, and mixed-media artists."
                 ),
                 "icon": "palette",
-                "guild_lead": members[31],
+                "guild_lead": members[32],
             },
             {
                 "name": "Woodworkers",
@@ -505,7 +507,7 @@ class Command(BaseCommand):
                     "We maintain a fully equipped shop with table saws, planers, jointers, and a CNC router."
                 ),
                 "icon": "handyman",
-                "guild_lead": members[32],
+                "guild_lead": members[33],
             },
             {
                 "name": "Writers",
@@ -515,7 +517,7 @@ class Command(BaseCommand):
                     "open-mic nights. We support fiction, nonfiction, poetry, and zine-making."
                 ),
                 "icon": "edit_note",
-                "guild_lead": members[33],
+                "guild_lead": members[34],
             },
         ]
 
@@ -543,7 +545,7 @@ class Command(BaseCommand):
     def _seed_guild_memberships(self, guilds: list, users: list) -> None:
         memberships = [
             # (guild_idx, user_idx, is_lead)
-            # Guild leads (user indices 20-33 map to guild indices 0-13)
+            # Guild leads (user indices 20-34 map to guild indices 0-13)
             (0, 20, True),  # Art Framing — Jenelle Giordano
             (1, 21, True),  # Ceramics — J Holtman
             (2, 22, True),  # Events — Jamie Lindner
@@ -552,12 +554,13 @@ class Command(BaseCommand):
             (5, 25, True),  # Leather — Shawn Fox
             (6, 26, True),  # Metalworkers — William Ottaviani
             (7, 27, True),  # Glass — Cait Johnstone
-            (8, 28, True),  # Prison Outreach — Deb Clough
-            (9, 29, True),  # Tech — Patricia Fischer
-            (10, 30, True),  # Textiles — Brooke Sauvage
-            (11, 31, True),  # Visual Arts — Kate VisualArts
-            (12, 32, True),  # Woodworkers — Chris Ellwanger
-            (13, 33, True),  # Writers — Penina Finger
+            (8, 28, True),  # Prison Outreach — Deb Clough (co-lead)
+            (8, 29, True),  # Prison Outreach — Mira Glasser (co-lead)
+            (9, 30, True),  # Tech — Patricia Fischer
+            (10, 31, True),  # Textiles — Brooke Sauvage
+            (11, 32, True),  # Visual Arts — Kate VisualArts
+            (12, 33, True),  # Woodworkers — Chris Ellwanger
+            (13, 34, True),  # Writers — Penina Finger
             # Regular members distributed across guilds
             (0, 0, False),  # Art Framing — Mia
             (0, 12, False),  # Art Framing — Tobias
@@ -626,11 +629,11 @@ class Command(BaseCommand):
 
     def _seed_guild_documents(self, guilds: list, users: list) -> None:
         docs_data = [
-            (12, "Woodworking Safety Handbook", users[32]),
-            (12, "Table Saw Operation Guide", users[32]),
+            (12, "Woodworking Safety Handbook", users[33]),
+            (12, "Table Saw Operation Guide", users[33]),
             (6, "Welding Safety Manual", users[26]),
             (1, "Kiln Temperature Schedules", users[21]),
-            (9, "Electronics Lab Rules", users[29]),
+            (9, "Electronics Lab Rules", users[30]),
             (7, "Glass Studio Safety Guide", users[27]),
         ]
         count = 0
@@ -1427,7 +1430,7 @@ class Command(BaseCommand):
                 "price": Decimal("75.00"),
                 "max_students": 8,
                 "guild_idx": 12,
-                "instructor_idx": 32,
+                "instructor_idx": 33,
                 "status": MakerClass.Status.PUBLISHED,
                 "session_offset": 7,
             },
@@ -1460,7 +1463,7 @@ class Command(BaseCommand):
                 "price": Decimal("45.00"),
                 "max_students": 10,
                 "guild_idx": 10,
-                "instructor_idx": 30,
+                "instructor_idx": 31,
                 "status": MakerClass.Status.PUBLISHED,
                 "session_offset": 5,
             },
@@ -1471,7 +1474,7 @@ class Command(BaseCommand):
                 "price": Decimal("55.00"),
                 "max_students": 12,
                 "guild_idx": 9,
-                "instructor_idx": 29,
+                "instructor_idx": 30,
                 "status": MakerClass.Status.PUBLISHED,
                 "session_offset": 21,
             },
@@ -1576,7 +1579,7 @@ class Command(BaseCommand):
                 60,
                 Decimal("25.00"),
                 [tools[0], tools[1]],
-                users[32],
+                users[33],
             ),
             (
                 6,
@@ -1603,7 +1606,7 @@ class Command(BaseCommand):
                 30,
                 Decimal("15.00"),
                 [tools[16], tools[17]],
-                users[30],
+                users[31],
             ),
             (
                 9,
@@ -1612,7 +1615,7 @@ class Command(BaseCommand):
                 60,
                 Decimal("25.00"),
                 [tools[20], tools[23]],
-                users[29],
+                users[30],
             ),
             (
                 7,
@@ -1855,7 +1858,7 @@ class Command(BaseCommand):
                 "recurrence_rule": "",
                 "is_published": True,
                 "guild": guilds[12],
-                "creator": users[32],
+                "creator": users[33],
             },
             {
                 "name": "Workshop Weekend",
@@ -2007,11 +2010,11 @@ class Command(BaseCommand):
     def _seed_tool_documents(self, tools: list, users: list) -> None:
         tool_ct = ContentType.objects.get_for_model(Tool)
         docs_data = [
-            (tools[0], "Table Saw Safety Manual", users[32]),
+            (tools[0], "Table Saw Safety Manual", users[33]),
             (tools[6], "MIG Welder Operation Guide", users[26]),
             (tools[10], "Plasma Cutter Safety Guide", users[26]),
             (tools[14], "Kiln Safety and Operation", users[21]),
-            (tools[23], "Laser Cutter Material Guidelines", users[29]),
+            (tools[23], "Laser Cutter Material Guidelines", users[30]),
         ]
         count = 0
         for tool, name, uploader in docs_data:

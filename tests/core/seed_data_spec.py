@@ -40,20 +40,20 @@ def describe_seed_data_command():
         assert Setting.objects.count() == 4
 
     def it_creates_admin_and_demo_users(seed_db):
-        assert User.objects.count() == 35
+        assert User.objects.count() == 36
         assert User.objects.filter(is_superuser=True).exists()
 
     def it_creates_membership_plans(seed_db):
         assert MembershipPlan.objects.count() == 4
 
     def it_creates_members(seed_db):
-        assert Member.objects.count() == 34
+        assert Member.objects.count() == 35
 
     def it_creates_guilds(seed_db):
         assert Guild.objects.count() == 14
 
     def it_creates_guild_memberships(seed_db):
-        assert GuildMembership.objects.count() == 39
+        assert GuildMembership.objects.count() == 40
 
     def it_creates_guild_votes(seed_db):
         assert GuildVote.objects.count() == 18
@@ -140,11 +140,11 @@ def describe_seed_data_idempotency():
         call_command("seed_data")
 
         assert Setting.objects.count() == 4
-        assert User.objects.count() == 35
+        assert User.objects.count() == 36
         assert MembershipPlan.objects.count() == 4
-        assert Member.objects.count() == 34
+        assert Member.objects.count() == 35
         assert Guild.objects.count() == 14
-        assert GuildMembership.objects.count() == 39
+        assert GuildMembership.objects.count() == 40
         assert GuildVote.objects.count() == 18
         assert GuildDocument.objects.count() == 6
         assert GuildWishlistItem.objects.count() == 17
@@ -179,11 +179,11 @@ def describe_seed_data_flush():
         call_command("seed_data", flush=True)
 
         assert Setting.objects.count() == 4
-        assert User.objects.count() == 35
+        assert User.objects.count() == 36
         assert MembershipPlan.objects.count() == 4
-        assert Member.objects.count() == 34
+        assert Member.objects.count() == 35
         assert Guild.objects.count() == 14
-        assert GuildMembership.objects.count() == 39
+        assert GuildMembership.objects.count() == 40
         assert GuildVote.objects.count() == 18
         assert GuildDocument.objects.count() == 6
         assert GuildWishlistItem.objects.count() == 17
