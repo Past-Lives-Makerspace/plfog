@@ -1,12 +1,14 @@
+import json as json_module
 from datetime import datetime, timedelta
 
 from django.contrib.auth.decorators import login_required
+from django.contrib.contenttypes.models import ContentType
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
-from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from education.models import ClassSession, ScheduledOrientation
-from membership.models import Guild
+from membership.models import FavoriteEvent, Guild
 from outreach.models import Event
 
 GUILD_COLOR_PALETTE = [
@@ -130,3 +132,27 @@ def calendar_events(request: HttpRequest) -> JsonResponse:
         )
 
     return JsonResponse(events_out, safe=False)
+
+
+@login_required
+@require_POST
+def favorites_toggle(request: HttpRequest) -> JsonResponse:
+    """Toggle a favorite for the authenticated user.
+
+    Accepts JSON body with ``content_type_id`` and ``object_id``.
+    Creates the FavoriteEvent if it does not exist; deletes it if it does.
+    Returns ``{"favorited": true/false}``.
+    """
+    data = json_module.loads(request.body)
+    ct = ContentType.objects.get(pk=data["content_type_id"])
+    obj_id = data["object_id"]
+
+    fav, created = FavoriteEvent.objects.get_or_create(
+        user=request.user,
+        content_type=ct,
+        object_id=obj_id,
+    )
+    if not created:
+        fav.delete()
+
+    return JsonResponse({"favorited": created})
