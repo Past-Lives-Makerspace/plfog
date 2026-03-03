@@ -226,6 +226,394 @@
 }
 
 /* ========================================
+   Guild Detail — Hero
+   ======================================== */
+.guild-hero {
+    position: relative;
+    margin-bottom: var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    min-height: 320px;
+    display: flex;
+    align-items: flex-end;
+}
+
+.guild-hero__image-wrap {
+    position: absolute;
+    inset: 0;
+}
+
+.guild-hero__image-wrap--placeholder {
+    background: linear-gradient(135deg, var(--color-navy) 0%, var(--color-navy-hover) 60%, #0b3a5c 100%);
+}
+
+.guild-hero__image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.guild-hero__overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        to top,
+        rgba(9, 46, 76, 0.95) 0%,
+        rgba(9, 46, 76, 0.6) 50%,
+        rgba(9, 46, 76, 0.2) 100%
+    );
+}
+
+.guild-hero__content {
+    position: relative;
+    z-index: 1;
+    padding: var(--spacing-xl) var(--spacing-lg) var(--spacing-lg);
+    width: 100%;
+}
+
+.guild-hero__icon {
+    display: block;
+    font-family: 'Material Icons', sans-serif;
+    font-style: normal;
+    font-size: 3rem;
+    color: var(--color-accent);
+    line-height: 1;
+    margin-bottom: var(--spacing-sm);
+    user-select: none;
+}
+
+.guild-hero__name {
+    font-family: var(--font-heading);
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--color-cream);
+    margin-bottom: var(--spacing-xs);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+}
+
+.guild-hero__intro {
+    font-size: 1.125rem;
+    font-weight: 300;
+    color: var(--color-soft-blue-bright);
+    margin-bottom: var(--spacing-sm);
+    max-width: 600px;
+    line-height: 1.6;
+}
+
+.guild-hero__lead {
+    font-size: 0.9rem;
+    font-weight: 400;
+    color: var(--color-text-muted);
+    margin-bottom: 0;
+}
+
+.guild-hero__lead-label {
+    font-weight: 700;
+    color: var(--color-accent);
+    margin-right: 0.375rem;
+}
+
+/* ========================================
+   Guild Detail — Shared Section Styles
+   ======================================== */
+.guild-section {
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
+    box-shadow: var(--shadow-sm);
+}
+
+.guild-section__heading {
+    font-family: var(--font-heading);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-subtle);
+    letter-spacing: -0.01em;
+}
+
+.guild-section__body {
+    color: var(--color-text-muted);
+    font-weight: 300;
+    line-height: 1.7;
+}
+
+/* ========================================
+   Guild Detail — About
+   ======================================== */
+.guild-about__text {
+    font-size: 1rem;
+    line-height: 1.8;
+    color: var(--color-text);
+}
+
+.guild-about__text p {
+    margin-bottom: var(--spacing-sm);
+}
+
+.guild-about__text p:last-child {
+    margin-bottom: 0;
+}
+
+/* ========================================
+   Guild Detail — Calendar
+   ======================================== */
+.guild-calendar-section .guild-section__body {
+    padding: 0;
+}
+
+.guild-calendar {
+    background-color: var(--color-bg);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+/* FullCalendar dark theme overrides */
+.guild-calendar .fc {
+    --fc-border-color: var(--border-subtle);
+    --fc-button-bg-color: var(--color-navy-light);
+    --fc-button-border-color: var(--border-light);
+    --fc-button-hover-bg-color: var(--color-navy-hover);
+    --fc-button-hover-border-color: var(--border-light);
+    --fc-button-active-bg-color: var(--color-accent);
+    --fc-button-active-border-color: var(--color-accent);
+    --fc-button-text-color: var(--color-cream);
+    --fc-today-bg-color: rgba(238, 180, 75, 0.08);
+    --fc-event-bg-color: var(--color-accent);
+    --fc-event-border-color: var(--color-accent);
+    --fc-event-text-color: var(--color-navy);
+    --fc-now-indicator-color: var(--color-accent);
+    --fc-page-bg-color: transparent;
+}
+
+.guild-calendar .fc-toolbar-title {
+    font-family: var(--font-heading);
+    color: var(--color-text);
+    font-size: 1.25rem;
+}
+
+.guild-calendar .fc-col-header-cell {
+    color: var(--color-text-muted);
+    font-weight: 400;
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.guild-calendar .fc-daygrid-day-number,
+.guild-calendar .fc-timegrid-slot-label {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+/* ========================================
+   Guild Detail — Members
+   ======================================== */
+.guild-members__count {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+}
+
+.guild-members__icon {
+    font-family: 'Material Icons', sans-serif;
+    font-style: normal;
+    font-size: 2rem;
+    color: var(--color-accent);
+    user-select: none;
+    line-height: 1;
+}
+
+.guild-members__total {
+    font-family: var(--font-heading);
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--color-text);
+    line-height: 1;
+}
+
+.guild-members__label {
+    font-size: 1rem;
+    color: var(--color-text-muted);
+    font-weight: 300;
+}
+
+.guild-members__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.guild-members__item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: var(--color-bg);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    color: var(--color-text);
+}
+
+.guild-members__priority {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.guild-members__priority--1 {
+    background-color: var(--color-accent);
+    color: var(--color-navy);
+}
+
+.guild-members__priority--2 {
+    background-color: var(--color-soft-blue-bright);
+    color: var(--color-navy);
+}
+
+.guild-members__priority--3 {
+    background-color: var(--border-light);
+    color: var(--color-text);
+}
+
+/* ========================================
+   Guild Detail — Studio Spaces
+   ======================================== */
+.guild-spaces__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.guild-spaces__item {
+    display: flex;
+    gap: var(--spacing-md);
+    background-color: var(--color-bg);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+}
+
+.guild-spaces__photo {
+    width: 160px;
+    height: 120px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.guild-spaces__info {
+    padding: var(--spacing-sm);
+    flex: 1;
+}
+
+.guild-spaces__name {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-xs);
+}
+
+.guild-spaces__details {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--spacing-2xs) var(--spacing-sm);
+    font-size: 0.875rem;
+}
+
+.guild-spaces__details dt {
+    color: var(--color-text-muted);
+    font-weight: 400;
+}
+
+.guild-spaces__details dd {
+    color: var(--color-text);
+    font-weight: 300;
+    margin: 0;
+}
+
+/* ========================================
+   Guild Detail — Gallery
+   ======================================== */
+.guild-gallery--placeholder {
+    min-height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed var(--border-subtle);
+    border-radius: var(--radius-md);
+}
+
+.guild-gallery__placeholder-text {
+    color: var(--color-text-muted);
+    font-style: italic;
+    font-size: 0.9rem;
+    margin-bottom: 0;
+}
+
+/* ========================================
+   Guild Detail — Join CTA
+   ======================================== */
+.guild-cta {
+    text-align: center;
+    border-color: var(--border-light);
+}
+
+.guild-cta__body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.guild-cta__description {
+    max-width: 480px;
+    font-size: 1rem;
+    color: var(--color-text-muted);
+    margin-bottom: 0;
+    line-height: 1.7;
+}
+
+.guild-cta__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: 0.75rem 1.5rem;
+    background-color: rgba(123, 200, 143, 0.12);
+    border: 1px solid rgba(123, 200, 143, 0.3);
+    border-radius: var(--radius-md);
+    color: var(--color-success);
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+.guild-cta__badge-icon {
+    font-family: 'Material Icons', sans-serif;
+    font-style: normal;
+    font-size: 1.25rem;
+    line-height: 1;
+    user-select: none;
+}
+
+/* ========================================
    Responsive Breakpoints
    ======================================== */
 

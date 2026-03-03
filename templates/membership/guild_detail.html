@@ -1,8 +1,184 @@
 {% extends "base.html" %}
+{% load static %}
+
 {% block title %}{{ guild.name }} — Past Lives Makerspace{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/guilds.css' %}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css">
+{% endblock %}
+
 {% block content %}
-<section class="guild-detail">
-    <h1>{{ guild.name }}</h1>
-    <p>{{ guild.intro }}</p>
+
+{# ============================================================ #}
+{# Hero Section #}
+{# ============================================================ #}
+<section class="guild-hero" aria-label="{{ guild.name }} hero">
+    {% if guild.cover_image %}
+    <div class="guild-hero__image-wrap">
+        <img src="{{ guild.cover_image.url }}" alt="{{ guild.name }} cover image" class="guild-hero__image">
+        <div class="guild-hero__overlay"></div>
+    </div>
+    {% else %}
+    <div class="guild-hero__image-wrap guild-hero__image-wrap--placeholder">
+        <div class="guild-hero__overlay"></div>
+    </div>
+    {% endif %}
+
+    <div class="guild-hero__content">
+        {% if guild.icon %}
+        <span class="guild-hero__icon" aria-hidden="true">{{ guild.icon }}</span>
+        {% endif %}
+        <h1 class="guild-hero__name">{{ guild.name }}</h1>
+        {% if guild.intro %}
+        <p class="guild-hero__intro">{{ guild.intro }}</p>
+        {% endif %}
+        {% if guild_lead %}
+        <p class="guild-hero__lead">
+            <span class="guild-hero__lead-label">Guild Lead:</span>
+            {{ guild_lead.display_name }}
+        </p>
+        {% endif %}
+    </div>
 </section>
+
+{# ============================================================ #}
+{# About Section #}
+{# ============================================================ #}
+{% if guild.description or guild.notes %}
+<section class="guild-section" aria-labelledby="about-heading">
+    <h2 class="guild-section__heading" id="about-heading">About</h2>
+    <div class="guild-section__body">
+        {% if guild.description %}
+        <div class="guild-about__text">{{ guild.description|linebreaks }}</div>
+        {% elif guild.notes %}
+        <div class="guild-about__text">{{ guild.notes|linebreaks }}</div>
+        {% endif %}
+    </div>
+</section>
+{% endif %}
+
+{# ============================================================ #}
+{# Calendar Section #}
+{# ============================================================ #}
+<section class="guild-section guild-calendar-section" aria-labelledby="calendar-heading">
+    <h2 class="guild-section__heading" id="calendar-heading">Schedule</h2>
+    <div class="guild-section__body">
+        <div id="guild-calendar" class="guild-calendar" data-guild="{{ guild.slug }}"></div>
+    </div>
+</section>
+
+{# ============================================================ #}
+{# Members / Votes Section #}
+{# ============================================================ #}
+<section class="guild-section guild-members-section" aria-labelledby="members-heading">
+    <h2 class="guild-section__heading" id="members-heading">Community Support</h2>
+    <div class="guild-section__body">
+        <div class="guild-members">
+            <div class="guild-members__count">
+                <span class="guild-members__icon" aria-hidden="true">how_to_vote</span>
+                <span class="guild-members__total">{{ vote_count }}</span>
+                <span class="guild-members__label">
+                    {% if vote_count == 1 %}vote{% else %}votes{% endif %}
+                </span>
+            </div>
+
+            {% if voters %}
+            <ul class="guild-members__list" aria-label="Members who voted for this guild">
+                {% for vote in voters %}
+                <li class="guild-members__item">
+                    <span class="guild-members__priority guild-members__priority--{{ vote.priority }}"
+                          title="Priority {{ vote.priority }}">
+                        {{ vote.priority }}
+                    </span>
+                    {{ vote.member.display_name }}
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+{# ============================================================ #}
+{# Studio / Space Section #}
+{# ============================================================ #}
+{% if spaces %}
+<section class="guild-section guild-spaces-section" aria-labelledby="spaces-heading">
+    <h2 class="guild-section__heading" id="spaces-heading">Studio Space</h2>
+    <div class="guild-section__body">
+        <ul class="guild-spaces__list">
+            {% for space in spaces %}
+            <li class="guild-spaces__item">
+                {% if space.photo %}
+                <img src="{{ space.photo.url }}" alt="{{ space }} photo" class="guild-spaces__photo">
+                {% endif %}
+                <div class="guild-spaces__info">
+                    <h3 class="guild-spaces__name">{{ space }}</h3>
+                    <dl class="guild-spaces__details">
+                        <dt>Type</dt>
+                        <dd>{{ space.get_space_type_display }}</dd>
+                        {% if space.size_sqft %}
+                        <dt>Size</dt>
+                        <dd>{{ space.size_sqft }} sq ft</dd>
+                        {% endif %}
+                        {% if space.width and space.depth %}
+                        <dt>Dimensions</dt>
+                        <dd>{{ space.width }}' &times; {{ space.depth }}'</dd>
+                        {% endif %}
+                    </dl>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</section>
+{% endif %}
+
+{# ============================================================ #}
+{# Gallery — Placeholder #}
+{# ============================================================ #}
+<section class="guild-section guild-gallery-section" aria-labelledby="gallery-heading">
+    <h2 class="guild-section__heading" id="gallery-heading">Gallery</h2>
+    <div class="guild-section__body">
+        <div class="guild-gallery guild-gallery--placeholder">
+            <p class="guild-gallery__placeholder-text">Photos coming soon.</p>
+        </div>
+    </div>
+</section>
+
+{# ============================================================ #}
+{# Join CTA Section #}
+{# ============================================================ #}
+<section class="guild-section guild-cta" aria-labelledby="cta-heading">
+    <h2 class="guild-section__heading" id="cta-heading">Support This Guild</h2>
+    <div class="guild-section__body guild-cta__body">
+        {% if not user.is_authenticated %}
+        <p class="guild-cta__description">
+            Sign in to vote for this guild and show your support for the Past Lives community.
+        </p>
+        <a href="{% url 'account_login' %}?next={{ request.path }}" class="btn btn--primary">
+            Sign in to vote
+        </a>
+        {% elif has_voted %}
+        <div class="guild-cta__badge" role="status">
+            <span class="guild-cta__badge-icon" aria-hidden="true">check_circle</span>
+            You voted for this guild
+        </div>
+        {% else %}
+        <p class="guild-cta__description">
+            Cast one of your three votes for {{ guild.name }} to help bring this guild to life.
+        </p>
+        <a href="{% url 'account_login' %}?next={{ request.path }}" class="btn btn--primary">
+            Vote for this guild
+        </a>
+        {% endif %}
+    </div>
+</section>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+<script src="{% static 'js/calendar.js' %}"></script>
 {% endblock %}
