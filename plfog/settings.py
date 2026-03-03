@@ -52,6 +52,8 @@ INSTALLED_APPS = [
     # Project apps
     "core",
     "membership",
+    "outreach",
+    "education",
 ]
 
 MIDDLEWARE = [
