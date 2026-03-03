@@ -23,6 +23,10 @@ if SENTRY_DSN:
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-key-change-in-production")
 DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() == "true"
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+# Render.com sets RENDER_EXTERNAL_HOSTNAME automatically; include it when present.
+_render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+if _render_hostname:
+    ALLOWED_HOSTS.append(_render_hostname)
 
 CSRF_TRUSTED_ORIGINS = (
     os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if os.environ.get("CSRF_TRUSTED_ORIGINS") else []
