@@ -1,6 +1,5 @@
 """Django settings for plfog - Past Lives Makerspace."""
 
-import logging
 import os
 from pathlib import Path
 
@@ -26,13 +25,12 @@ DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() == "true"
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 # Render.com sets RENDER_EXTERNAL_HOSTNAME automatically; include it when present.
 _render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-_logger = logging.getLogger("plfog.settings")
 if _render_hostname:
     ALLOWED_HOSTS.append(_render_hostname)
-    _logger.info("RENDER_EXTERNAL_HOSTNAME=%s added to ALLOWED_HOSTS", _render_hostname)
+    print(f"[plfog] RENDER_EXTERNAL_HOSTNAME={_render_hostname} added to ALLOWED_HOSTS")
 else:
-    _logger.warning("RENDER_EXTERNAL_HOSTNAME not set — Render hostname will NOT be in ALLOWED_HOSTS")
-_logger.info("Final ALLOWED_HOSTS=%s", ALLOWED_HOSTS)
+    print("[plfog] RENDER_EXTERNAL_HOSTNAME not set")
+print(f"[plfog] Final ALLOWED_HOSTS={ALLOWED_HOSTS}")
 
 CSRF_TRUSTED_ORIGINS = (
     os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if os.environ.get("CSRF_TRUSTED_ORIGINS") else []
