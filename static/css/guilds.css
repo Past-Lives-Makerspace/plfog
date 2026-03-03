@@ -1,0 +1,256 @@
+/* Guild List Page Styles
+ * Extends the Past Lives brand system defined in style.css.
+ * All colors and spacing tokens reference CSS custom properties
+ * declared in :root inside style.css.
+ */
+
+/* ========================================
+   Guild List Section
+   ======================================== */
+.guild-list {
+    padding: var(--spacing-lg) 0;
+}
+
+.guild-list__header {
+    text-align: center;
+    margin-bottom: var(--spacing-lg);
+}
+
+.guild-list__title {
+    font-family: var(--font-heading);
+    font-size: 3rem;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-xs);
+    letter-spacing: -0.02em;
+}
+
+.guild-list__subtitle {
+    font-family: var(--font-heading);
+    font-size: 1.125rem;
+    font-weight: 400;
+    font-style: italic;
+    color: var(--color-text-muted);
+    margin-bottom: 0;
+}
+
+/* ========================================
+   Search Bar
+   ======================================== */
+.guild-search-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: var(--spacing-lg);
+}
+
+.guild-search {
+    width: 100%;
+    max-width: 480px;
+    padding: 0.75rem 1.25rem;
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    font-weight: 300;
+    color: var(--color-text);
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.guild-search::placeholder {
+    color: rgba(150, 172, 187, 0.5);
+}
+
+.guild-search:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--border-focus);
+}
+
+/* ========================================
+   Guild Grid
+   ======================================== */
+.guild-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+}
+
+/* Empty state when search matches nothing */
+.guild-grid:empty::after {
+    content: "No guilds match your search.";
+    color: var(--color-text-muted);
+    font-style: italic;
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: var(--spacing-lg) 0;
+}
+
+/* ========================================
+   Guild Card
+   ======================================== */
+.guild-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
+}
+
+.guild-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--border-light);
+}
+
+/* ========================================
+   Card Image
+   ======================================== */
+.guild-card__image {
+    width: 100%;
+    height: 180px;
+    object-fit: cover;
+    display: block;
+    flex-shrink: 0;
+}
+
+.guild-card__image-placeholder {
+    width: 100%;
+    height: 180px;
+    background-color: var(--color-navy);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.guild-card__icon {
+    font-size: 3.5rem;
+    color: var(--color-accent);
+    /* Material Icons renders via ligature; ensure the font is available */
+    font-family: 'Material Icons', sans-serif;
+    font-style: normal;
+    user-select: none;
+}
+
+/* ========================================
+   Card Body
+   ======================================== */
+.guild-card__body {
+    padding: var(--spacing-md);
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: var(--spacing-xs);
+}
+
+.guild-card__name {
+    font-family: var(--font-heading);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--color-text);
+    margin-bottom: 0;
+    line-height: 1.3;
+}
+
+.guild-card__intro {
+    font-size: 0.9rem;
+    font-weight: 300;
+    color: var(--color-text-muted);
+    line-height: 1.6;
+    flex: 1;
+    /* Clamp to three lines to keep cards consistent height */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* ========================================
+   Card Meta (vote/member count)
+   ======================================== */
+.guild-card__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: 0.8rem;
+    font-weight: 400;
+    color: var(--color-text-muted);
+    padding-top: var(--spacing-xs);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.guild-card__meta-icon {
+    font-size: 1rem;
+    color: var(--color-accent);
+    font-family: 'Material Icons', sans-serif;
+    font-style: normal;
+    user-select: none;
+    line-height: 1;
+}
+
+/* ========================================
+   Card Link (CTA)
+   ======================================== */
+.guild-card__link {
+    display: inline-block;
+    margin-top: var(--spacing-sm);
+    padding: 0.5rem 1.25rem;
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    background-color: var(--color-accent);
+    color: var(--color-navy);
+    border-radius: var(--radius-sm);
+    text-align: center;
+    transition: background-color var(--transition-fast), transform 0.1s ease;
+    align-self: flex-start;
+}
+
+.guild-card__link:hover {
+    background-color: var(--color-accent-hover);
+    color: var(--color-navy);
+}
+
+.guild-card__link:active {
+    transform: translateY(1px);
+}
+
+.guild-card__link:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+/* ========================================
+   Responsive Breakpoints
+   ======================================== */
+
+/* Tablet — 2 columns */
+@media (max-width: 1024px) {
+    .guild-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .guild-list__title {
+        font-size: 2.5rem;
+    }
+}
+
+/* Mobile — single column */
+@media (max-width: 768px) {
+    .guild-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .guild-list__title {
+        font-size: 2rem;
+    }
+
+    .guild-search {
+        max-width: 100%;
+    }
+}
