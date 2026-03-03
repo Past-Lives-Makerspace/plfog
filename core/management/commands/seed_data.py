@@ -204,8 +204,28 @@ class Command(BaseCommand):
             ("claire.dubois", "Claire", "Dubois", "claire.dubois@example.com"),
         ]
 
+        # Guild lead users (indices 20-33)
+        guild_lead_user_data = [
+            ("jenelle.giordano", "Jenelle", "Giordano", "jenelle.giordano@example.com"),
+            ("jholtman", "J", "Holtman", "jholtman@example.com"),
+            ("jamie.lindner", "Jamie", "Lindner", "jamie.lindner@example.com"),
+            ("amber.terlouw", "Amber", "Terlouw", "amber.terlouw@example.com"),
+            ("kristin.shiga", "Kristin", "Shiga", "kristin.shiga@example.com"),
+            ("shawn.fox", "Shawn", "Fox", "shawn.fox@example.com"),
+            ("william.ottaviani", "William", "Ottaviani", "william.ottaviani@example.com"),
+            ("cait.johnstone", "Cait", "Johnstone", "cait.johnstone@example.com"),
+            ("deb.clough", "Deb", "Clough", "deb.clough@example.com"),
+            ("patricia.fischer", "Patricia", "Fischer", "patricia.fischer@example.com"),
+            ("brooke.sauvage", "Brooke", "Sauvage", "brooke.sauvage@example.com"),
+            ("kate.visualarts", "Kate", "VisualArts", "kate.visualarts@example.com"),
+            ("chris.ellwanger", "Chris", "Ellwanger", "chris.ellwanger@example.com"),
+            ("penina.finger", "Penina", "Finger", "penina.finger@example.com"),
+        ]
+
+        all_user_data = demo_user_data + guild_lead_user_data
+
         users = []
-        for username, first, last, email in demo_user_data:
+        for username, first, last, email in all_user_data:
             user, _ = User.objects.get_or_create(
                 username=username,
                 defaults={"email": email, "first_name": first, "last_name": last},
@@ -250,20 +270,21 @@ class Command(BaseCommand):
 
         member_data = [
             # (user_idx, full_legal_name, preferred_name, phone, status, role, plan, join_offset_days)
+            # Regular demo members (indices 0-19)
             (0, "Mia Chen", "Mia", "503-555-0101", Member.Status.ACTIVE, Member.Role.STANDARD, full_time, 400),
-            (1, "Jordan Walsh", "Jordan", "503-555-0102", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 600),
+            (1, "Jordan Walsh", "Jordan", "503-555-0102", Member.Status.ACTIVE, Member.Role.STANDARD, full_time, 600),
             (2, "Samuel Okafor", "Sam", "503-555-0103", Member.Status.ACTIVE, Member.Role.STANDARD, part_time, 300),
             (3, "Priya Nair", "Priya", "503-555-0104", Member.Status.ACTIVE, Member.Role.WORK_TRADE, part_time, 500),
             (4, "Eli Reyes", "Eli", "503-555-0105", Member.Status.ACTIVE, Member.Role.STANDARD, full_time, 250),
             (5, "Casey Burke", "Casey", "503-555-0106", Member.Status.ACTIVE, Member.Role.VOLUNTEER, drop_in, 180),
             (6, "Devon Huang", "Devon", "503-555-0107", Member.Status.ACTIVE, Member.Role.STANDARD, full_time, 450),
-            (7, "Anya Petrov", "Anya", "503-555-0108", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 700),
+            (7, "Anya Petrov", "Anya", "503-555-0108", Member.Status.ACTIVE, Member.Role.STANDARD, full_time, 700),
             (8, "Marcos Silva", "Marcos", "503-555-0109", Member.Status.ACTIVE, Member.Role.STANDARD, part_time, 320),
             (9, "Riley Nguyen", "Riley", "503-555-0110", Member.Status.ACTIVE, Member.Role.EMPLOYEE, full_time, 550),
             (10, "Alex Kim", "Alex", "503-555-0111", Member.Status.ACTIVE, Member.Role.STANDARD, drop_in, 90),
             (11, "Nadia Foster", "Nadia", "503-555-0112", Member.Status.ACTIVE, Member.Role.CONTRACTOR, full_time, 200),
             (12, "Tobias Grant", "Tobias", "503-555-0113", Member.Status.ACTIVE, Member.Role.STANDARD, part_time, 380),
-            (13, "Luna Martinez", "Luna", "503-555-0114", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 620),
+            (13, "Luna Martinez", "Luna", "503-555-0114", Member.Status.ACTIVE, Member.Role.STANDARD, full_time, 620),
             (14, "Felix Weber", "Felix", "503-555-0115", Member.Status.ACTIVE, Member.Role.STANDARD, full_time, 280),
             (15, "Imani Brooks", "Imani", "503-555-0116", Member.Status.FORMER, Member.Role.STANDARD, part_time, 800),
             (16, "Quinn Harris", "Quinn", "503-555-0117", Member.Status.FORMER, Member.Role.STANDARD, drop_in, 730),
@@ -279,6 +300,48 @@ class Command(BaseCommand):
                 drop_in,
                 120,
             ),
+            # Guild lead members (indices 20-33)
+            (
+                20,
+                "Jenelle Giordano",
+                "Jenelle",
+                "503-555-0201",
+                Member.Status.ACTIVE,
+                Member.Role.GUILD_LEAD,
+                studio,
+                800,
+            ),
+            (21, "J Holtman", "J", "503-555-0202", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 750),
+            (22, "Jamie Lindner", "Jamie", "503-555-0203", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 700),
+            (23, "Amber Terlouw", "Amber", "503-555-0204", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 650),
+            (24, "Kristin Shiga", "Kristin", "503-555-0205", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 600),
+            (25, "Shawn Fox", "Shawn", "503-555-0206", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 550),
+            (
+                26,
+                "William Ottaviani",
+                "William",
+                "503-555-0207",
+                Member.Status.ACTIVE,
+                Member.Role.GUILD_LEAD,
+                studio,
+                500,
+            ),
+            (27, "Cait Johnstone", "Cait", "503-555-0208", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 450),
+            (28, "Deb Clough", "Deb", "503-555-0209", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 400),
+            (
+                29,
+                "Patricia Fischer",
+                "Patricia",
+                "503-555-0210",
+                Member.Status.ACTIVE,
+                Member.Role.GUILD_LEAD,
+                studio,
+                350,
+            ),
+            (30, "Brooke Sauvage", "Brooke", "503-555-0211", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 300),
+            (31, "Kate VisualArts", "Kate", "503-555-0212", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 250),
+            (32, "Chris Ellwanger", "Chris", "503-555-0213", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 200),
+            (33, "Penina Finger", "Penina", "503-555-0214", Member.Status.ACTIVE, Member.Role.GUILD_LEAD, studio, 150),
         ]
 
         members = []
@@ -315,24 +378,14 @@ class Command(BaseCommand):
     def _seed_guilds(self, members: list) -> list:
         guilds_data = [
             {
-                "name": "Woodworking",
-                "intro": "Crafting functional art from raw timber.",
+                "name": "Art Framing",
+                "intro": "Preserving and presenting artwork with custom frames.",
                 "description": (
-                    "The Woodworking Guild is home to cabinet makers, furniture builders, and sculptors. "
-                    "We maintain a fully equipped shop with table saws, planers, jointers, and a CNC router."
+                    "The Art Framing Guild provides mat cutters, glass cutters, frame saws, and a "
+                    "mounting press. We build custom frames for paintings, prints, and photographs."
                 ),
-                "icon": "handyman",
-                "guild_lead": members[1],
-            },
-            {
-                "name": "Metalworking",
-                "intro": "Forging ideas in steel and aluminum.",
-                "description": (
-                    "Our Metalworking Guild covers welding (MIG, TIG, stick), plasma cutting, metal lathe, "
-                    "and metal casting. We work with steel, aluminum, brass, and copper."
-                ),
-                "icon": "precision_manufacturing",
-                "guild_lead": members[7],
+                "icon": "frame_inspect",
+                "guild_lead": members[20],
             },
             {
                 "name": "Ceramics",
@@ -342,37 +395,27 @@ class Command(BaseCommand):
                     "and two kilns. We fire earthenware, stoneware, and porcelain."
                 ),
                 "icon": "emoji_objects",
-                "guild_lead": members[13],
+                "guild_lead": members[21],
             },
             {
-                "name": "Textiles",
-                "intro": "Weaving community through fiber arts.",
+                "name": "Events",
+                "intro": "Bringing the community together through shared experiences.",
                 "description": (
-                    "From spinning and weaving to sewing and embroidery, the Textiles Guild supports "
-                    "all fiber arts. We have industrial sewing machines, sergers, and a floor loom."
+                    "The Events Guild organizes open houses, gallery nights, maker faires, and "
+                    "community gatherings. We coordinate volunteers, venues, and programming."
                 ),
-                "icon": "checkroom",
-                "guild_lead": members[3],
+                "icon": "event",
+                "guild_lead": members[22],
             },
             {
-                "name": "Electronics",
-                "intro": "Bridging the physical and digital worlds.",
+                "name": "Gardeners",
+                "intro": "Growing food and community in shared garden spaces.",
                 "description": (
-                    "The Electronics Guild specializes in microcontrollers, PCB design, soldering, "
-                    "and embedded systems. We host Arduino and Raspberry Pi workshops regularly."
+                    "The Gardeners Guild maintains raised beds, a greenhouse, and composting "
+                    "systems. We grow herbs, vegetables, and flowers for the makerspace community."
                 ),
-                "icon": "memory",
-                "guild_lead": members[9],
-            },
-            {
-                "name": "3D Printing",
-                "intro": "Turning digital designs into physical reality.",
-                "description": (
-                    "Our 3D Printing Guild operates FDM, resin, and SLS printers. We cover Fusion 360, "
-                    "Blender, and print farm management."
-                ),
-                "icon": "view_in_ar",
-                "guild_lead": members[4],
+                "icon": "yard",
+                "guild_lead": members[23],
             },
             {
                 "name": "Jewelry",
@@ -382,17 +425,97 @@ class Command(BaseCommand):
                     "and lapidary equipment. We work in silver, gold, bronze, and gemstones."
                 ),
                 "icon": "diamond",
-                "guild_lead": members[0],
+                "guild_lead": members[24],
             },
             {
-                "name": "Screen Printing",
-                "intro": "Pressing color onto fabric and paper.",
+                "name": "Leather",
+                "intro": "Crafting durable goods from hides and skins.",
                 "description": (
-                    "The Screen Printing Guild maintains a four-color press, exposure unit, and drying "
-                    "rack. We print on t-shirts, tote bags, posters, and more."
+                    "The Leather Guild maintains stitching horses, skivers, splitters, and stamping "
+                    "tools. We make bags, belts, wallets, and custom leather goods."
                 ),
-                "icon": "print",
-                "guild_lead": members[2],
+                "icon": "checkroom",
+                "guild_lead": members[25],
+            },
+            {
+                "name": "Metalworkers",
+                "intro": "Forging ideas in steel and aluminum.",
+                "description": (
+                    "The Metalworkers Guild covers welding (MIG, TIG, stick), plasma cutting, metal lathe, "
+                    "and metal casting. We work with steel, aluminum, brass, and copper."
+                ),
+                "icon": "precision_manufacturing",
+                "guild_lead": members[26],
+            },
+            {
+                "name": "Glass",
+                "intro": "Shaping light and color through molten glass.",
+                "description": (
+                    "The Glass Guild operates a glassblowing studio with a glory hole, annealer, "
+                    "and lampworking stations. We also do stained glass and fusing."
+                ),
+                "icon": "window",
+                "guild_lead": members[27],
+            },
+            {
+                "name": "Prison Outreach",
+                "intro": "Connecting makers inside and outside prison walls.",
+                "description": (
+                    "The Prison Outreach Guild coordinates art and craft programs with local "
+                    "correctional facilities, providing instruction and materials for incarcerated makers."
+                ),
+                "icon": "volunteer_activism",
+                "guild_lead": members[28],
+            },
+            {
+                "name": "Tech",
+                "intro": "Bridging the physical and digital worlds.",
+                "description": (
+                    "The Tech Guild specializes in microcontrollers, PCB design, soldering, 3D printing, "
+                    "and embedded systems. We host Arduino and Raspberry Pi workshops regularly."
+                ),
+                "icon": "memory",
+                "guild_lead": members[29],
+            },
+            {
+                "name": "Textiles",
+                "intro": "Weaving community through fiber arts.",
+                "description": (
+                    "From spinning and weaving to sewing and embroidery, the Textiles Guild supports "
+                    "all fiber arts. We have industrial sewing machines, sergers, and a floor loom."
+                ),
+                "icon": "checkroom",
+                "guild_lead": members[30],
+            },
+            {
+                "name": "Visual Arts",
+                "intro": "Exploring painting, drawing, and mixed media.",
+                "description": (
+                    "The Visual Arts Guild provides easels, a printmaking press, and studio space "
+                    "for painters, illustrators, and mixed-media artists."
+                ),
+                "icon": "palette",
+                "guild_lead": members[31],
+            },
+            {
+                "name": "Woodworkers",
+                "intro": "Crafting functional art from raw timber.",
+                "description": (
+                    "The Woodworkers Guild is home to cabinet makers, furniture builders, and sculptors. "
+                    "We maintain a fully equipped shop with table saws, planers, jointers, and a CNC router."
+                ),
+                "icon": "handyman",
+                "guild_lead": members[32],
+            },
+            {
+                "name": "Writers",
+                "intro": "Putting words on the page, together.",
+                "description": (
+                    "The Writers Guild offers a quiet writing room, weekly critique groups, and "
+                    "open-mic nights. We support fiction, nonfiction, poetry, and zine-making."
+                ),
+                "icon": "edit_note",
+                "guild_lead": members[33],
             },
         ]
 
@@ -420,33 +543,47 @@ class Command(BaseCommand):
     def _seed_guild_memberships(self, guilds: list, users: list) -> None:
         memberships = [
             # (guild_idx, user_idx, is_lead)
-            (0, 1, True),
-            (0, 0, False),
-            (0, 4, False),
-            (0, 6, False),
-            (1, 7, True),
-            (1, 8, False),
-            (1, 11, False),
-            (1, 14, False),
-            (2, 13, True),
-            (2, 2, False),
-            (2, 5, False),
-            (2, 12, False),
-            (3, 3, True),
-            (3, 10, False),
-            (3, 16, False),
-            (4, 9, True),
-            (4, 18, False),
-            (4, 19, False),
-            (5, 4, True),
-            (5, 6, False),
-            (5, 15, False),
-            (6, 0, True),
-            (6, 17, False),
-            (6, 12, False),
-            (7, 2, True),
-            (7, 8, False),
-            (7, 5, False),
+            # Guild leads (user indices 20-33 map to guild indices 0-13)
+            (0, 20, True),  # Art Framing — Jenelle Giordano
+            (1, 21, True),  # Ceramics — J Holtman
+            (2, 22, True),  # Events — Jamie Lindner
+            (3, 23, True),  # Gardeners — Amber Terlouw
+            (4, 24, True),  # Jewelry — Kristin Shiga
+            (5, 25, True),  # Leather — Shawn Fox
+            (6, 26, True),  # Metalworkers — William Ottaviani
+            (7, 27, True),  # Glass — Cait Johnstone
+            (8, 28, True),  # Prison Outreach — Deb Clough
+            (9, 29, True),  # Tech — Patricia Fischer
+            (10, 30, True),  # Textiles — Brooke Sauvage
+            (11, 31, True),  # Visual Arts — Kate VisualArts
+            (12, 32, True),  # Woodworkers — Chris Ellwanger
+            (13, 33, True),  # Writers — Penina Finger
+            # Regular members distributed across guilds
+            (0, 0, False),  # Art Framing — Mia
+            (0, 12, False),  # Art Framing — Tobias
+            (1, 2, False),  # Ceramics — Sam
+            (1, 5, False),  # Ceramics — Casey
+            (1, 13, False),  # Ceramics — Luna
+            (2, 1, False),  # Events — Jordan
+            (2, 3, False),  # Events — Priya
+            (3, 10, False),  # Gardeners — Alex
+            (4, 0, False),  # Jewelry — Mia
+            (4, 17, False),  # Jewelry — Zoe
+            (5, 6, False),  # Leather — Devon
+            (6, 7, False),  # Metalworkers — Anya
+            (6, 8, False),  # Metalworkers — Marcos
+            (6, 14, False),  # Metalworkers — Felix
+            (7, 11, False),  # Glass — Nadia
+            (9, 9, False),  # Tech — Riley
+            (9, 18, False),  # Tech — Raj
+            (9, 19, False),  # Tech — Claire
+            (10, 3, False),  # Textiles — Priya
+            (10, 16, False),  # Textiles — Quinn
+            (11, 4, False),  # Visual Arts — Eli
+            (12, 1, False),  # Woodworkers — Jordan
+            (12, 6, False),  # Woodworkers — Devon
+            (12, 4, False),  # Woodworkers — Eli
+            (13, 15, False),  # Writers — Imani
         ]
         count = 0
         for guild_idx, user_idx, is_lead in memberships:
@@ -464,12 +601,12 @@ class Command(BaseCommand):
 
     def _seed_guild_votes(self, members: list, guilds: list) -> None:
         votes_data = [
-            (0, [(1, guilds[0]), (2, guilds[6]), (3, guilds[3])]),
-            (2, [(1, guilds[7]), (2, guilds[2]), (3, guilds[4])]),
-            (4, [(1, guilds[5]), (2, guilds[0]), (3, guilds[1])]),
-            (5, [(1, guilds[3]), (2, guilds[7]), (3, guilds[2])]),
-            (8, [(1, guilds[1]), (2, guilds[0]), (3, guilds[5])]),
-            (10, [(1, guilds[4]), (2, guilds[5]), (3, guilds[6])]),
+            (0, [(1, guilds[0]), (2, guilds[4]), (3, guilds[10])]),  # Mia: Art Framing, Jewelry, Textiles
+            (2, [(1, guilds[1]), (2, guilds[7]), (3, guilds[9])]),  # Sam: Ceramics, Glass, Tech
+            (4, [(1, guilds[12]), (2, guilds[6]), (3, guilds[11])]),  # Eli: Woodworkers, Metalworkers, Visual Arts
+            (5, [(1, guilds[1]), (2, guilds[10]), (3, guilds[3])]),  # Casey: Ceramics, Textiles, Gardeners
+            (8, [(1, guilds[6]), (2, guilds[12]), (3, guilds[5])]),  # Marcos: Metalworkers, Woodworkers, Leather
+            (10, [(1, guilds[3]), (2, guilds[9]), (3, guilds[13])]),  # Alex: Gardeners, Tech, Writers
         ]
         count = 0
         for member_idx, priority_guilds in votes_data:
@@ -489,12 +626,12 @@ class Command(BaseCommand):
 
     def _seed_guild_documents(self, guilds: list, users: list) -> None:
         docs_data = [
-            (0, "Woodworking Safety Handbook", users[1]),
-            (0, "Table Saw Operation Guide", users[1]),
-            (1, "Welding Safety Manual", users[7]),
-            (2, "Kiln Temperature Schedules", users[13]),
-            (4, "Electronics Lab Rules", users[9]),
-            (5, "3D Printer Maintenance Log", users[4]),
+            (12, "Woodworking Safety Handbook", users[32]),
+            (12, "Table Saw Operation Guide", users[32]),
+            (6, "Welding Safety Manual", users[26]),
+            (1, "Kiln Temperature Schedules", users[21]),
+            (9, "Electronics Lab Rules", users[29]),
+            (7, "Glass Studio Safety Guide", users[27]),
         ]
         count = 0
         for guild_idx, name, uploader in docs_data:
@@ -519,29 +656,29 @@ class Command(BaseCommand):
     def _seed_guild_wishlist(self, guilds: list, users: list) -> None:
         wishlist_data = [
             (
-                0,
+                12,
                 "Festool Track Saw",
                 "Precision track saw for sheet goods",
                 "https://festool.com",
                 Decimal("800.00"),
                 False,
             ),
-            (0, "Drum Sander", "Wide drum sander for flattening slabs", "", Decimal("1200.00"), False),
-            (0, "Wood Moisture Meter", "Digital moisture meter for kiln-dried lumber", "", Decimal("60.00"), True),
-            (1, "TIG Welder", "Lincoln Electric TIG welder for aluminum work", "", Decimal("2500.00"), False),
-            (1, "Metal Bandsaw", "Horizontal/vertical metal cutting bandsaw", "", Decimal("900.00"), False),
-            (2, "Raku Kiln", "Propane-fired raku kiln for outdoor firings", "", Decimal("600.00"), False),
-            (2, "Slab Roller Replacement Canvas", "Replacement canvas set for slab roller", "", Decimal("80.00"), True),
-            (3, "Serger Machine", "Industrial serger for production sewing", "", Decimal("400.00"), False),
-            (3, "Dress Form Set", "Adjustable dress forms in multiple sizes", "", Decimal("350.00"), False),
-            (4, "Oscilloscope", "Four-channel digital oscilloscope", "", Decimal("500.00"), False),
-            (4, "SMD Rework Station", "Hot air rework station for SMD components", "", Decimal("150.00"), True),
-            (5, "Resin Printer", "High-resolution MSLA resin printer", "", Decimal("700.00"), False),
-            (5, "Filament Dryer", "Multi-spool filament drying cabinet", "", Decimal("200.00"), False),
-            (6, "Rolling Mill", "Electric rolling mill for metal sheet work", "", Decimal("1800.00"), False),
-            (6, "Hydraulic Press", "20-ton hydraulic press for metal forming", "", Decimal("3000.00"), False),
-            (7, "Exposure Unit", "UV exposure unit for screen burning", "", Decimal("800.00"), True),
-            (7, "Flash Dryer", "Infrared flash dryer for multi-color printing", "", Decimal("600.00"), False),
+            (12, "Drum Sander", "Wide drum sander for flattening slabs", "", Decimal("1200.00"), False),
+            (12, "Wood Moisture Meter", "Digital moisture meter for kiln-dried lumber", "", Decimal("60.00"), True),
+            (6, "TIG Welder", "Lincoln Electric TIG welder for aluminum work", "", Decimal("2500.00"), False),
+            (6, "Metal Bandsaw", "Horizontal/vertical metal cutting bandsaw", "", Decimal("900.00"), False),
+            (1, "Raku Kiln", "Propane-fired raku kiln for outdoor firings", "", Decimal("600.00"), False),
+            (1, "Slab Roller Replacement Canvas", "Replacement canvas set for slab roller", "", Decimal("80.00"), True),
+            (10, "Serger Machine", "Industrial serger for production sewing", "", Decimal("400.00"), False),
+            (10, "Dress Form Set", "Adjustable dress forms in multiple sizes", "", Decimal("350.00"), False),
+            (9, "Oscilloscope", "Four-channel digital oscilloscope", "", Decimal("500.00"), False),
+            (9, "SMD Rework Station", "Hot air rework station for SMD components", "", Decimal("150.00"), True),
+            (7, "Glass Annealer", "Programmable glass annealing kiln", "", Decimal("2200.00"), False),
+            (7, "Lampworking Torches", "Set of GTT lampworking torches", "", Decimal("800.00"), False),
+            (4, "Rolling Mill", "Electric rolling mill for metal sheet work", "", Decimal("1800.00"), False),
+            (4, "Hydraulic Press", "20-ton hydraulic press for metal forming", "", Decimal("3000.00"), False),
+            (5, "Leather Splitter", "Desktop leather splitting machine", "", Decimal("600.00"), True),
+            (0, "Mat Cutter", "Professional 48-inch mat cutter", "", Decimal("450.00"), False),
         ]
         count = 0
         for guild_idx, name, desc, link, cost, fulfilled in wishlist_data:
@@ -568,18 +705,18 @@ class Command(BaseCommand):
 
         # Studios S-101 to S-112
         studio_configs = [
-            ("S-101", "Woodworking Studio A", 400, Decimal("3.75"), Space.Status.OCCUPIED, guilds[0]),
-            ("S-102", "Woodworking Studio B", 350, Decimal("3.75"), Space.Status.OCCUPIED, guilds[0]),
-            ("S-103", "Metalworking Studio", 500, Decimal("3.50"), Space.Status.OCCUPIED, guilds[1]),
-            ("S-104", "Ceramics Studio", 380, Decimal("3.75"), Space.Status.OCCUPIED, guilds[2]),
-            ("S-105", "Textiles Studio", 320, Decimal("3.75"), Space.Status.OCCUPIED, guilds[3]),
-            ("S-106", "Electronics Lab", 280, Decimal("4.00"), Space.Status.OCCUPIED, guilds[4]),
-            ("S-107", "3D Printing Lab", 260, Decimal("4.00"), Space.Status.OCCUPIED, guilds[5]),
-            ("S-108", "Jewelry Studio", 240, Decimal("4.25"), Space.Status.OCCUPIED, guilds[6]),
-            ("S-109", "Screen Print Studio", 360, Decimal("3.50"), Space.Status.OCCUPIED, guilds[7]),
-            ("S-110", "Private Studio A", 200, Decimal("4.50"), Space.Status.OCCUPIED, None),
-            ("S-111", "Private Studio B", 180, Decimal("4.50"), Space.Status.AVAILABLE, None),
-            ("S-112", "Large Open Studio", 600, Decimal("3.25"), Space.Status.AVAILABLE, None),
+            ("S-101", "Woodworkers Workshop", 600, Decimal("3.75"), Space.Status.OCCUPIED, guilds[12]),
+            ("S-102", "Metalworkers Shop", 500, Decimal("3.50"), Space.Status.OCCUPIED, guilds[6]),
+            ("S-103", "Ceramics Studio", 400, Decimal("3.75"), Space.Status.OCCUPIED, guilds[1]),
+            ("S-104", "Glass Studio", 350, Decimal("3.75"), Space.Status.OCCUPIED, guilds[7]),
+            ("S-105", "Jewelry Studio", 250, Decimal("4.25"), Space.Status.OCCUPIED, guilds[4]),
+            ("S-106", "Textiles Studio", 300, Decimal("3.75"), Space.Status.OCCUPIED, guilds[10]),
+            ("S-107", "Leather Workshop", 280, Decimal("3.75"), Space.Status.OCCUPIED, guilds[5]),
+            ("S-108", "Art Framing Studio", 240, Decimal("4.00"), Space.Status.OCCUPIED, guilds[0]),
+            ("S-109", "Tech Lab", 260, Decimal("4.00"), Space.Status.OCCUPIED, guilds[9]),
+            ("S-110", "Visual Arts Gallery", 400, Decimal("3.50"), Space.Status.OCCUPIED, guilds[11]),
+            ("S-111", "Writers Room", 180, Decimal("4.50"), Space.Status.OCCUPIED, guilds[13]),
+            ("S-112", "Shared Open Workshop", 600, Decimal("3.25"), Space.Status.AVAILABLE, None),
         ]
         for sid, name, sqft, rate, status, guild in studio_configs:
             space, _ = Space.objects.get_or_create(
@@ -637,18 +774,29 @@ class Command(BaseCommand):
             )
             spaces.append(space)
 
-        # Desks D-401 to D-408
-        for i in range(1, 9):
-            sid = f"D-4{i:02d}"
-            status = Space.Status.OCCUPIED if i <= 6 else Space.Status.AVAILABLE
+        # Cubbies C-401 to C-426 (using DESK type for now)
+        cubby_configs = []
+        # Ceramics cubbies C-401 to C-412
+        for i in range(1, 13):
+            cubby_configs.append((f"C-4{i:02d}", f"Ceramics Cubby {i}", guilds[1]))
+        # Glass cubbies C-413 to C-420
+        for i in range(13, 21):
+            cubby_configs.append((f"C-4{i:02d}", f"Glass Cubby {i - 12}", guilds[7]))
+        # Jewelry cubbies C-421 to C-426
+        for i in range(21, 27):
+            cubby_configs.append((f"C-4{i:02d}", f"Jewelry Cubby {i - 20}", guilds[4]))
+
+        for sid, name, guild in cubby_configs:
+            status = Space.Status.OCCUPIED if hash(sid) % 3 != 0 else Space.Status.AVAILABLE
             space, _ = Space.objects.get_or_create(
                 space_id=sid,
                 defaults={
-                    "name": f"Dedicated Desk {i}",
+                    "name": name,
                     "space_type": Space.SpaceType.DESK,
-                    "manual_price": Decimal("150.00"),
+                    "manual_price": Decimal("25.00"),
                     "status": status,
                     "is_rentable": True,
+                    "sublet_guild": guild,
                 },
             )
             spaces.append(space)
@@ -667,18 +815,18 @@ class Command(BaseCommand):
         start = TODAY - timedelta(days=365)
 
         lease_data = [
-            # Studios sublet to guilds
-            (guild_ct, guilds[0].pk, spaces[0], Lease.LeaseType.ANNUAL, Decimal("1500.00"), Decimal("1500.00")),
-            (guild_ct, guilds[0].pk, spaces[1], Lease.LeaseType.ANNUAL, Decimal("1312.50"), Decimal("1312.50")),
-            (guild_ct, guilds[1].pk, spaces[2], Lease.LeaseType.ANNUAL, Decimal("1750.00"), Decimal("1750.00")),
-            (guild_ct, guilds[2].pk, spaces[3], Lease.LeaseType.ANNUAL, Decimal("1425.00"), Decimal("1425.00")),
-            (guild_ct, guilds[3].pk, spaces[4], Lease.LeaseType.ANNUAL, Decimal("1200.00"), Decimal("1200.00")),
-            (guild_ct, guilds[4].pk, spaces[5], Lease.LeaseType.ANNUAL, Decimal("1120.00"), Decimal("1120.00")),
-            (guild_ct, guilds[5].pk, spaces[6], Lease.LeaseType.ANNUAL, Decimal("1040.00"), Decimal("1040.00")),
-            (guild_ct, guilds[6].pk, spaces[7], Lease.LeaseType.ANNUAL, Decimal("1020.00"), Decimal("1020.00")),
-            (guild_ct, guilds[7].pk, spaces[8], Lease.LeaseType.ANNUAL, Decimal("1260.00"), Decimal("1260.00")),
-            # Private studios to members
-            (member_ct, members[0].pk, spaces[9], Lease.LeaseType.MONTH_TO_MONTH, Decimal("900.00"), Decimal("875.00")),
+            # Studios sublet to guilds (spaces[0]-spaces[10] are occupied guild studios)
+            (guild_ct, guilds[12].pk, spaces[0], Lease.LeaseType.ANNUAL, Decimal("2250.00"), Decimal("2250.00")),
+            (guild_ct, guilds[6].pk, spaces[1], Lease.LeaseType.ANNUAL, Decimal("1750.00"), Decimal("1750.00")),
+            (guild_ct, guilds[1].pk, spaces[2], Lease.LeaseType.ANNUAL, Decimal("1500.00"), Decimal("1500.00")),
+            (guild_ct, guilds[7].pk, spaces[3], Lease.LeaseType.ANNUAL, Decimal("1312.50"), Decimal("1312.50")),
+            (guild_ct, guilds[4].pk, spaces[4], Lease.LeaseType.ANNUAL, Decimal("1062.50"), Decimal("1062.50")),
+            (guild_ct, guilds[10].pk, spaces[5], Lease.LeaseType.ANNUAL, Decimal("1125.00"), Decimal("1125.00")),
+            (guild_ct, guilds[5].pk, spaces[6], Lease.LeaseType.ANNUAL, Decimal("1050.00"), Decimal("1050.00")),
+            (guild_ct, guilds[0].pk, spaces[7], Lease.LeaseType.ANNUAL, Decimal("960.00"), Decimal("960.00")),
+            (guild_ct, guilds[9].pk, spaces[8], Lease.LeaseType.ANNUAL, Decimal("1040.00"), Decimal("1040.00")),
+            (guild_ct, guilds[11].pk, spaces[9], Lease.LeaseType.ANNUAL, Decimal("1400.00"), Decimal("1400.00")),
+            (guild_ct, guilds[13].pk, spaces[10], Lease.LeaseType.ANNUAL, Decimal("810.00"), Decimal("810.00")),
             # Storage units to members
             (
                 member_ct,
@@ -707,30 +855,30 @@ class Command(BaseCommand):
             # Parking to members
             (member_ct, members[1].pk, spaces[20], Lease.LeaseType.MONTH_TO_MONTH, Decimal("50.00"), Decimal("50.00")),
             (member_ct, members[3].pk, spaces[21], Lease.LeaseType.MONTH_TO_MONTH, Decimal("50.00"), Decimal("50.00")),
-            # Desks to members
+            # Cubbies to members
             (
                 member_ct,
-                members[8].pk,
+                members[2].pk,
                 spaces[28],
                 Lease.LeaseType.MONTH_TO_MONTH,
-                Decimal("150.00"),
-                Decimal("150.00"),
+                Decimal("25.00"),
+                Decimal("25.00"),
             ),
             (
                 member_ct,
-                members[9].pk,
+                members[5].pk,
                 spaces[29],
                 Lease.LeaseType.MONTH_TO_MONTH,
-                Decimal("150.00"),
-                Decimal("150.00"),
+                Decimal("25.00"),
+                Decimal("25.00"),
             ),
             (
                 member_ct,
-                members[10].pk,
-                spaces[30],
+                members[0].pk,
+                spaces[40],
                 Lease.LeaseType.MONTH_TO_MONTH,
-                Decimal("150.00"),
-                Decimal("150.00"),
+                Decimal("25.00"),
+                Decimal("25.00"),
             ),
         ]
 
@@ -759,51 +907,51 @@ class Command(BaseCommand):
 
     def _seed_tools(self, guilds: list) -> list:
         tools_data = [
-            # Woodworking tools (guild_idx=0)
-            (0, "Table Saw", "SawStop 10-inch contractor table saw", Decimal("3500.00"), True, True),
-            (0, "Bandsaw", "14-inch bandsaw for curves and resawing", Decimal("800.00"), True, False),
-            (0, "Drill Press", "Floor-standing drill press", Decimal("600.00"), True, False),
-            (0, "Jointer", "6-inch benchtop jointer for edge work", Decimal("700.00"), True, False),
-            (0, "Thickness Planer", "13-inch thickness planer", Decimal("500.00"), True, False),
-            (0, "CNC Router", "ShapeOko 4 CNC router", Decimal("2000.00"), True, True),
-            # Metalworking tools (guild_idx=1)
-            (1, "MIG Welder", "Miller Millermatic 211 MIG welder", Decimal("1200.00"), True, True),
-            (1, "TIG Welder", "Lincoln Electric Square Wave TIG 200", Decimal("2200.00"), True, True),
-            (1, "Angle Grinder", "4.5-inch angle grinder", Decimal("150.00"), True, False),
-            (1, "Metal Lathe", "12x36 metal lathe", Decimal("4000.00"), True, True),
-            (1, "Plasma Cutter", "Hypertherm Powermax 45 plasma cutter", Decimal("2800.00"), True, True),
-            (1, "Metal Bandsaw", "Horizontal/vertical metal cutting bandsaw", Decimal("1100.00"), True, False),
-            # Ceramics tools (guild_idx=2)
-            (2, "Pottery Wheel", "Brent electric pottery wheel", Decimal("1200.00"), True, True),
-            (2, "Slab Roller", "North Star 26-inch slab roller", Decimal("800.00"), True, False),
-            (2, "Electric Kiln", "L&L Easy-Fire electric kiln", Decimal("3000.00"), True, True),
-            (2, "Clay Extruder", "Scott Creek horizontal extruder", Decimal("400.00"), True, False),
-            # Textiles tools (guild_idx=3)
-            (3, "Industrial Sewing Machine", "Juki DDL-8700 industrial sewing machine", Decimal("900.00"), True, True),
-            (3, "Serger Machine", "Juki MO-654DE serger", Decimal("500.00"), True, True),
-            (3, "Floor Loom", "Schacht 8-shaft floor loom", Decimal("3500.00"), True, False),
-            (3, "Embroidery Machine", "Brother PE800 embroidery machine", Decimal("600.00"), True, True),
-            # Electronics tools (guild_idx=4)
-            (4, "Soldering Station", "Hakko FX-888D soldering station", Decimal("120.00"), True, False),
-            (4, "Oscilloscope", "Rigol DS1054Z four-channel oscilloscope", Decimal("400.00"), True, False),
-            (4, "3D Printer (Electronics)", "Bambu Lab P1S for enclosures", Decimal("700.00"), True, True),
-            (4, "Laser Cutter", "xTool D1 Pro laser engraver/cutter", Decimal("800.00"), True, True),
-            # 3D Printing tools (guild_idx=5)
-            (5, "FDM Printer - Large", "Creality CR-10 Max large format printer", Decimal("600.00"), True, True),
-            (5, "Resin Printer", "Elegoo Saturn 4 Ultra resin printer", Decimal("700.00"), True, True),
-            (5, "FDM Printer - Standard", "Prusa MK4S standard printer", Decimal("800.00"), True, True),
-            (5, "Post-Cure Station", "Elegoo Mercury Plus wash and cure station", Decimal("80.00"), False, False),
-            # Jewelry tools (guild_idx=6)
-            (6, "Flex Shaft", "Foredom flex shaft with handpiece", Decimal("450.00"), True, False),
-            (6, "Rolling Mill", "Durston 110mm rolling mill", Decimal("1800.00"), True, False),
-            (6, "Jewelers Torch", "Little Torch propane/oxygen system", Decimal("300.00"), True, False),
-            (6, "Pickle Pot", "Presto pot with safety pickle", Decimal("50.00"), False, False),
-            # Screen Printing tools (guild_idx=7)
-            (7, "Screen Print Press", "Vastex V-1000 4-station press", Decimal("2500.00"), True, True),
-            (7, "Exposure Unit", "Vastex EXP-2040 UV exposure unit", Decimal("800.00"), True, False),
-            (7, "Flash Dryer", "Vastex D-100 infrared flash dryer", Decimal("600.00"), True, False),
-            (7, "Heat Gun", "Wagner Spraytech heat gun", Decimal("60.00"), False, False),
-            # Org-owned shared tools
+            # Woodworkers tools (guild_idx=12) — tools[0-5]
+            (12, "Table Saw", "SawStop 10-inch contractor table saw", Decimal("3500.00"), True, True),
+            (12, "Bandsaw", "14-inch bandsaw for curves and resawing", Decimal("800.00"), True, False),
+            (12, "Drill Press", "Floor-standing drill press", Decimal("600.00"), True, False),
+            (12, "Jointer", "6-inch benchtop jointer for edge work", Decimal("700.00"), True, False),
+            (12, "Thickness Planer", "13-inch thickness planer", Decimal("500.00"), True, False),
+            (12, "CNC Router", "ShapeOko 4 CNC router", Decimal("2000.00"), True, True),
+            # Metalworkers tools (guild_idx=6) — tools[6-11]
+            (6, "MIG Welder", "Miller Millermatic 211 MIG welder", Decimal("1200.00"), True, True),
+            (6, "TIG Welder", "Lincoln Electric Square Wave TIG 200", Decimal("2200.00"), True, True),
+            (6, "Angle Grinder", "4.5-inch angle grinder", Decimal("150.00"), True, False),
+            (6, "Metal Lathe", "12x36 metal lathe", Decimal("4000.00"), True, True),
+            (6, "Plasma Cutter", "Hypertherm Powermax 45 plasma cutter", Decimal("2800.00"), True, True),
+            (6, "Metal Bandsaw", "Horizontal/vertical metal cutting bandsaw", Decimal("1100.00"), True, False),
+            # Ceramics tools (guild_idx=1) — tools[12-15]
+            (1, "Pottery Wheel", "Brent electric pottery wheel", Decimal("1200.00"), True, True),
+            (1, "Slab Roller", "North Star 26-inch slab roller", Decimal("800.00"), True, False),
+            (1, "Electric Kiln", "L&L Easy-Fire electric kiln", Decimal("3000.00"), True, True),
+            (1, "Clay Extruder", "Scott Creek horizontal extruder", Decimal("400.00"), True, False),
+            # Textiles tools (guild_idx=10) — tools[16-19]
+            (10, "Industrial Sewing Machine", "Juki DDL-8700 industrial sewing machine", Decimal("900.00"), True, True),
+            (10, "Serger Machine", "Juki MO-654DE serger", Decimal("500.00"), True, True),
+            (10, "Floor Loom", "Schacht 8-shaft floor loom", Decimal("3500.00"), True, False),
+            (10, "Embroidery Machine", "Brother PE800 embroidery machine", Decimal("600.00"), True, True),
+            # Tech tools (guild_idx=9) — tools[20-23]
+            (9, "Soldering Station", "Hakko FX-888D soldering station", Decimal("120.00"), True, False),
+            (9, "Oscilloscope", "Rigol DS1054Z four-channel oscilloscope", Decimal("400.00"), True, False),
+            (9, "3D Printer (Tech)", "Bambu Lab P1S for enclosures", Decimal("700.00"), True, True),
+            (9, "Laser Cutter", "xTool D1 Pro laser engraver/cutter", Decimal("800.00"), True, True),
+            # Glass tools (guild_idx=7) — tools[24-27]
+            (7, "Glory Hole", "Propane-fired glass glory hole reheater", Decimal("3000.00"), True, True),
+            (7, "Glass Annealer", "Programmable glass annealing kiln", Decimal("2200.00"), True, True),
+            (7, "Lampworking Torch", "GTT Phantom lampworking torch", Decimal("600.00"), True, True),
+            (7, "Glass Kiln", "Paragon glass fusing kiln", Decimal("1800.00"), True, False),
+            # Jewelry tools (guild_idx=4) — tools[28-31]
+            (4, "Flex Shaft", "Foredom flex shaft with handpiece", Decimal("450.00"), True, False),
+            (4, "Rolling Mill", "Durston 110mm rolling mill", Decimal("1800.00"), True, False),
+            (4, "Jewelers Torch", "Little Torch propane/oxygen system", Decimal("300.00"), True, False),
+            (4, "Pickle Pot", "Presto pot with safety pickle", Decimal("50.00"), False, False),
+            # Leather tools (guild_idx=5) — tools[32-35]
+            (5, "Leather Sewing Machine", "Cowboy CB3200 leather sewing machine", Decimal("2000.00"), True, True),
+            (5, "Leather Splitter", "Desktop leather splitting machine", Decimal("800.00"), True, False),
+            (5, "Stitching Horse", "Wooden stitching horse for hand sewing", Decimal("200.00"), True, False),
+            (5, "Leather Skiver", "Tandy leather skiving machine", Decimal("150.00"), True, False),
+            # Org-owned shared tools — tools[36-44]
             (None, "Shop Vac - Large", "Craftsman 16-gallon wet/dry vacuum", Decimal("150.00"), False, False),
             (None, "Air Compressor", "Ingersoll Rand 60-gallon air compressor", Decimal("800.00"), False, False),
             (None, "Forklift", "Toyota 5000 lb electric forklift", Decimal("12000.00"), False, False),
@@ -879,7 +1027,7 @@ class Command(BaseCommand):
                 now + timedelta(days=3, hours=2),
                 ToolReservation.Status.ACTIVE,
             ),
-            (tools[32], users[2], now - timedelta(days=1), now - timedelta(hours=20), ToolReservation.Status.CANCELLED),
+            (tools[32], users[6], now - timedelta(days=1), now - timedelta(hours=20), ToolReservation.Status.CANCELLED),
         ]
         count = 0
         for tool, user, starts, ends, status in reservations:
@@ -941,8 +1089,8 @@ class Command(BaseCommand):
         rentables_data = [
             (tools[5], Rentable.RentalPeriod.DAYS, Decimal("75.00"), rental_split),  # CNC Router
             (tools[23], Rentable.RentalPeriod.DAYS, Decimal("50.00"), rental_split),  # Laser Cutter
-            (tools[43], Rentable.RentalPeriod.DAYS, Decimal("40.00"), None),  # Paint Sprayer
-            (tools[44], Rentable.RentalPeriod.DAYS, Decimal("25.00"), None),  # Impact Driver Set
+            (tools[44], Rentable.RentalPeriod.DAYS, Decimal("40.00"), None),  # Paint Sprayer
+            (tools[43], Rentable.RentalPeriod.DAYS, Decimal("25.00"), None),  # Impact Driver Set
             (tools[12], Rentable.RentalPeriod.HOURS, Decimal("15.00"), rental_split),  # Pottery Wheel
         ]
         rentables = []
@@ -1119,8 +1267,8 @@ class Command(BaseCommand):
         payouts_data = [
             (Payout.PayeeType.USER, users[1].pk, 45000, Payout.Status.DISTRIBUTED),
             (Payout.PayeeType.USER, users[9].pk, 22000, Payout.Status.DISTRIBUTED),
-            (Payout.PayeeType.GUILD, guilds[0].pk, 105000, Payout.Status.PENDING),
-            (Payout.PayeeType.GUILD, guilds[1].pk, 87500, Payout.Status.PENDING),
+            (Payout.PayeeType.GUILD, guilds[12].pk, 105000, Payout.Status.PENDING),
+            (Payout.PayeeType.GUILD, guilds[6].pk, 87500, Payout.Status.PENDING),
             (Payout.PayeeType.USER, users[4].pk, 15000, Payout.Status.DISTRIBUTED),
         ]
         count = 0
@@ -1275,22 +1423,22 @@ class Command(BaseCommand):
             {
                 "name": "Intro to Woodworking",
                 "description": "Learn the fundamentals of woodworking including tool safety, wood selection, and basic joinery.",
-                "location": "Woodworking Studio A",
+                "location": "Woodworkers Workshop",
                 "price": Decimal("75.00"),
                 "max_students": 8,
-                "guild_idx": 0,
-                "instructor_idx": 1,
+                "guild_idx": 12,
+                "instructor_idx": 32,
                 "status": MakerClass.Status.PUBLISHED,
                 "session_offset": 7,
             },
             {
                 "name": "Welding 101",
                 "description": "Introduction to MIG welding covering safety, equipment setup, and basic weld techniques.",
-                "location": "Metalworking Studio",
+                "location": "Metalworkers Shop",
                 "price": Decimal("95.00"),
                 "max_students": 6,
-                "guild_idx": 1,
-                "instructor_idx": 7,
+                "guild_idx": 6,
+                "instructor_idx": 26,
                 "status": MakerClass.Status.PUBLISHED,
                 "session_offset": 14,
             },
@@ -1300,8 +1448,8 @@ class Command(BaseCommand):
                 "location": "Ceramics Studio",
                 "price": Decimal("65.00"),
                 "max_students": 6,
-                "guild_idx": 2,
-                "instructor_idx": 13,
+                "guild_idx": 1,
+                "instructor_idx": 21,
                 "status": MakerClass.Status.PUBLISHED,
                 "session_offset": 10,
             },
@@ -1311,30 +1459,30 @@ class Command(BaseCommand):
                 "location": "Textiles Studio",
                 "price": Decimal("45.00"),
                 "max_students": 10,
-                "guild_idx": 3,
-                "instructor_idx": 3,
+                "guild_idx": 10,
+                "instructor_idx": 30,
                 "status": MakerClass.Status.PUBLISHED,
                 "session_offset": 5,
             },
             {
                 "name": "Arduino Workshop",
                 "description": "Build your first microcontroller project using Arduino. No coding experience required.",
-                "location": "Electronics Lab",
+                "location": "Tech Lab",
                 "price": Decimal("55.00"),
                 "max_students": 12,
-                "guild_idx": 4,
-                "instructor_idx": 9,
+                "guild_idx": 9,
+                "instructor_idx": 29,
                 "status": MakerClass.Status.PUBLISHED,
                 "session_offset": 21,
             },
             {
-                "name": "3D Printing Fundamentals",
-                "description": "Learn to design, slice, and print your first 3D object. Covers FDM and basic resin printing.",
-                "location": "3D Printing Lab",
-                "price": Decimal("50.00"),
-                "max_students": 8,
-                "guild_idx": 5,
-                "instructor_idx": 4,
+                "name": "Glassblowing Intro",
+                "description": "Learn the basics of glassblowing including gathering, shaping, and annealing.",
+                "location": "Glass Studio",
+                "price": Decimal("85.00"),
+                "max_students": 4,
+                "guild_idx": 7,
+                "instructor_idx": 27,
                 "status": MakerClass.Status.PUBLISHED,
                 "session_offset": 12,
             },
@@ -1344,19 +1492,19 @@ class Command(BaseCommand):
                 "location": "Jewelry Studio",
                 "price": Decimal("120.00"),
                 "max_students": 6,
-                "guild_idx": 6,
-                "instructor_idx": 0,
+                "guild_idx": 4,
+                "instructor_idx": 24,
                 "status": MakerClass.Status.DRAFT,
                 "session_offset": 30,
             },
             {
-                "name": "Screen Printing T-Shirts",
-                "description": "Design and print your own t-shirt using the single-color screen printing process.",
-                "location": "Screen Print Studio",
+                "name": "Leather Belt Making",
+                "description": "Cut, stamp, dye, and finish your own leather belt in this hands-on workshop.",
+                "location": "Leather Workshop",
                 "price": Decimal("60.00"),
                 "max_students": 8,
-                "guild_idx": 7,
-                "instructor_idx": 2,
+                "guild_idx": 5,
+                "instructor_idx": 25,
                 "status": MakerClass.Status.PUBLISHED,
                 "session_offset": 9,
             },
@@ -1422,76 +1570,76 @@ class Command(BaseCommand):
         # Map guild index to primary tool index and orienter user index
         orientation_data = [
             (
-                0,
+                12,
                 "Woodworking Orientation",
                 "Required orientation for all woodworking equipment.",
                 60,
                 Decimal("25.00"),
                 [tools[0], tools[1]],
-                users[1],
+                users[32],
             ),
             (
-                1,
+                6,
                 "Metalworking Orientation",
                 "Required orientation for all welding and metal equipment.",
                 90,
                 Decimal("35.00"),
                 [tools[6], tools[10]],
-                users[7],
+                users[26],
             ),
             (
-                2,
+                1,
                 "Ceramics Orientation",
                 "Required orientation for pottery wheels and kilns.",
                 45,
                 Decimal("20.00"),
                 [tools[12], tools[14]],
-                users[13],
+                users[21],
             ),
             (
-                3,
+                10,
                 "Textiles Orientation",
                 "Required orientation for industrial sewing machines.",
                 30,
                 Decimal("15.00"),
                 [tools[16], tools[17]],
-                users[3],
+                users[30],
             ),
             (
-                4,
-                "Electronics Orientation",
+                9,
+                "Tech Orientation",
                 "Required orientation for electronics lab equipment.",
                 60,
                 Decimal("25.00"),
                 [tools[20], tools[23]],
-                users[9],
+                users[29],
             ),
             (
-                5,
-                "3D Printing Orientation",
-                "Required orientation for FDM and resin printers.",
+                7,
+                "Glass Orientation",
+                "Required orientation for glassblowing and kiln equipment.",
                 60,
                 Decimal("25.00"),
                 [tools[24], tools[25]],
-                users[4],
+                users[27],
             ),
             (
-                6,
+                4,
                 "Jewelry Orientation",
                 "Required orientation for torch and rolling mill.",
                 45,
                 Decimal("20.00"),
                 [tools[28], tools[29]],
-                users[0],
+                users[24],
             ),
             (
-                7,
-                "Screen Printing Orientation",
-                "Required orientation for the screen print press.",
+                5,
+                "Leather Workshop Orientation",
+                "Required orientation for leather sewing and cutting equipment.",
                 45,
                 Decimal("20.00"),
                 [tools[32], tools[33]],
-                users[2],
+                users[25],
             ),
         ]
 
@@ -1702,12 +1850,12 @@ class Command(BaseCommand):
                 "description": "Workshop to help members prepare projects for the Portland Mini Maker Faire.",
                 "starts_at": now + timedelta(days=45),
                 "ends_at": now + timedelta(days=45, hours=5),
-                "location": "Woodworking Studio A",
+                "location": "Woodworkers Workshop",
                 "is_recurring": False,
                 "recurrence_rule": "",
                 "is_published": True,
-                "guild": guilds[0],
-                "creator": users[1],
+                "guild": guilds[12],
+                "creator": users[32],
             },
             {
                 "name": "Workshop Weekend",
@@ -1859,11 +2007,11 @@ class Command(BaseCommand):
     def _seed_tool_documents(self, tools: list, users: list) -> None:
         tool_ct = ContentType.objects.get_for_model(Tool)
         docs_data = [
-            (tools[0], "Table Saw Safety Manual", users[1]),
-            (tools[6], "MIG Welder Operation Guide", users[7]),
-            (tools[10], "Plasma Cutter Safety Guide", users[7]),
-            (tools[14], "Kiln Safety and Operation", users[13]),
-            (tools[23], "Laser Cutter Material Guidelines", users[9]),
+            (tools[0], "Table Saw Safety Manual", users[32]),
+            (tools[6], "MIG Welder Operation Guide", users[26]),
+            (tools[10], "Plasma Cutter Safety Guide", users[26]),
+            (tools[14], "Kiln Safety and Operation", users[21]),
+            (tools[23], "Laser Cutter Material Guidelines", users[29]),
         ]
         count = 0
         for tool, name, uploader in docs_data:
