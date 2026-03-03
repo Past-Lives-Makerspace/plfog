@@ -432,3 +432,36 @@ class Lease(models.Model):
         if self.end_date is not None and self.end_date < today:
             return False
         return True
+
+
+# ---------------------------------------------------------------------------
+# FavoriteEvent
+# ---------------------------------------------------------------------------
+
+
+class FavoriteEvent(models.Model):
+    """User favorite/starred item (Event, MakerClass, or ScheduledOrientation)."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="favorites",
+    )
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    content_object = GenericForeignKey("content_type", "object_id")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Favorite Event"
+        verbose_name_plural = "Favorite Events"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "content_type", "object_id"],
+                name="unique_user_content_type_object",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} ★ {self.content_type} #{self.object_id}"
