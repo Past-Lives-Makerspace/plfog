@@ -8,7 +8,7 @@ DJANGO_SETTINGS_MODULE = "plfog.settings"
 python_files = ["*_spec.py", "test_*.py"]
 python_classes = ["Describe*"]
 python_functions = ["it_*", "test_*", "describe_*"]
-addopts = "-v --tb=short --cov=plfog --cov=core --cov=membership --cov=billing --cov=tools --cov-report=term-missing"
+addopts = "-v --tb=short --cov=plfog --cov=core --cov=membership --cov=billing --cov=tools --cov=outreach --cov-report=term-missing"
 
 [tool.ruff]
 target-version = "py313"
@@ -38,6 +38,10 @@ disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = "tools.*"
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "outreach.*"
 disallow_untyped_defs = true
 
 [tool.django-stubs]

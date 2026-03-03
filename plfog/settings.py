@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "membership",
     "billing",
     "tools",
+    "outreach",
     # Third-party (after project apps)
     "guardian",
     "djstripe",
@@ -394,6 +395,31 @@ UNFOLD = {
                         "title": "Payouts",
                         "icon": "payments",
                         "link": reverse_lazy("admin:billing_payout_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "Outreach",
+                "items": [
+                    {
+                        "title": "Leads",
+                        "icon": "contact_mail",
+                        "link": reverse_lazy("admin:outreach_lead_changelist"),
+                    },
+                    {
+                        "title": "Tours",
+                        "icon": "tour",
+                        "link": reverse_lazy("admin:outreach_tour_changelist"),
+                    },
+                    {
+                        "title": "Events",
+                        "icon": "event",
+                        "link": reverse_lazy("admin:outreach_event_changelist"),
+                    },
+                    {
+                        "title": "Buyables",
+                        "icon": "storefront",
+                        "link": reverse_lazy("admin:outreach_buyable_changelist"),
                     },
                 ],
             },
