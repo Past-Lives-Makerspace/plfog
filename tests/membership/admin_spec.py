@@ -753,7 +753,6 @@ def describe_admin_guild_computed_fields():
         assert result == ""
 
 
-
 @pytest.mark.django_db
 def describe_SpaceAdmin_sublet_guild_queryset():
     def it_select_relates_sublet_guild():
