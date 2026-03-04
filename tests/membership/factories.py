@@ -7,7 +7,18 @@ import factory
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 
-from membership.models import Guild, GuildVote, Lease, Member, MembershipPlan, Space
+from membership.models import (
+    Buyable,
+    Guild,
+    GuildMembership,
+    GuildVote,
+    GuildWishlistItem,
+    Lease,
+    Member,
+    MembershipPlan,
+    Order,
+    Space,
+)
 
 
 class MembershipPlanFactory(factory.django.DjangoModelFactory):
@@ -68,3 +79,38 @@ class LeaseFactory(factory.django.DjangoModelFactory):
     base_price = Decimal("200.00")
     monthly_rent = Decimal("200.00")
     start_date = factory.LazyFunction(lambda: timezone.now().date() - timedelta(days=30))
+
+
+class GuildMembershipFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildMembership
+
+    guild = factory.SubFactory(GuildFactory)
+    user = factory.SubFactory("tests.core.factories.UserFactory")
+    is_lead = False
+
+
+class GuildWishlistItemFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildWishlistItem
+
+    guild = factory.SubFactory(GuildFactory)
+    name = factory.Sequence(lambda n: f"Wishlist Item {n}")
+
+
+class BuyableFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = Buyable
+
+    guild = factory.SubFactory(GuildFactory)
+    name = factory.Sequence(lambda n: f"Buyable {n}")
+    unit_price = Decimal("25.00")
+
+
+class OrderFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = Order
+
+    buyable = factory.SubFactory(BuyableFactory)
+    amount = 2500
+    status = Order.Status.PENDING

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from datetime import date as date_type
 from decimal import Decimal
+from typing import Any
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from django.db.models import DecimalField, Q, Sum, Value
+from django.db.models import DecimalField, Q, Sum, UniqueConstraint, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.text import slugify
 
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
 
@@ -186,6 +188,13 @@ class Guild(models.Model):
     sublet_count: int
 
     name = models.CharField(max_length=255, unique=True)
+    slug = models.SlugField(max_length=255, unique=True, blank=True)
+    intro = models.CharField(max_length=500, blank=True)
+    description = models.TextField(blank=True)
+    cover_image = models.ImageField(upload_to="guilds/", blank=True)
+    icon = models.CharField(max_length=100, blank=True)
+    is_active = models.BooleanField(default=True)
+    links = models.JSONField(default=list, blank=True, help_text="List of {name, url} dicts")
     guild_lead = models.ForeignKey(
         Member,
         null=True,
@@ -208,6 +217,11 @@ class Guild(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
 
     @property
     def active_leases(self) -> models.QuerySet[Lease]:
@@ -247,6 +261,134 @@ class GuildVote(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member} → {self.guild} (#{self.priority})"
+
+
+# ---------------------------------------------------------------------------
+# GuildMembership
+# ---------------------------------------------------------------------------
+
+
+class GuildMembership(models.Model):
+    """M2M through table for Guild <-> User membership."""
+
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="guild_memberships",
+    )
+    is_lead = models.BooleanField(default=False)
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ["guild", "user"]
+        ordering = ["guild", "user"]
+        verbose_name = "Guild Membership"
+        verbose_name_plural = "Guild Memberships"
+
+    def __str__(self) -> str:
+        role = "Lead" if self.is_lead else "Member"
+        return f"{self.user} - {self.guild} ({role})"
+
+
+# ---------------------------------------------------------------------------
+# GuildWishlistItem
+# ---------------------------------------------------------------------------
+
+
+class GuildWishlistItem(models.Model):
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="wishlist_items")
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    image = models.ImageField(upload_to="wishlist/", blank=True)
+    link = models.URLField(blank=True)
+    estimated_cost = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    is_fulfilled = models.BooleanField(default=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["guild", "-created_at"]
+        verbose_name = "Guild Wishlist Item"
+        verbose_name_plural = "Guild Wishlist Items"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+# ---------------------------------------------------------------------------
+# Buyable
+# ---------------------------------------------------------------------------
+
+
+class Buyable(models.Model):
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="buyables")
+    name = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255)
+    description = models.TextField(blank=True)
+    image = models.ImageField(upload_to="buyables/", blank=True)
+    unit_price = models.DecimalField(max_digits=8, decimal_places=2)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "Buyable"
+        verbose_name_plural = "Buyables"
+        constraints = [UniqueConstraint(fields=["guild", "slug"], name="unique_guild_buyable_slug")]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Order
+# ---------------------------------------------------------------------------
+
+
+class Order(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        PAID = "paid"
+        FAILED = "failed"
+
+    buyable = models.ForeignKey(Buyable, on_delete=models.CASCADE, related_name="orders")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    email = models.EmailField(blank=True)
+    quantity = models.PositiveIntegerField(default=1)
+    amount = models.IntegerField(help_text="Total in cents")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    stripe_checkout_session_id = models.CharField(max_length=255, blank=True)
+    is_fulfilled = models.BooleanField(default=False)
+    fulfilled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="fulfilled_orders",
+    )
+    fulfilled_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Order"
+        verbose_name_plural = "Orders"
+
+    def __str__(self) -> str:
+        return f"Order #{self.pk} - {self.buyable.name}"
 
 
 # ---------------------------------------------------------------------------

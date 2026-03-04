@@ -23,14 +23,6 @@ if SENTRY_DSN:
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-key-change-in-production")
 DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() == "true"
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
-# Render.com sets RENDER_EXTERNAL_HOSTNAME automatically; include it when present.
-_render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-if _render_hostname:
-    ALLOWED_HOSTS.append(_render_hostname)
-    print(f"[plfog] RENDER_EXTERNAL_HOSTNAME={_render_hostname} added to ALLOWED_HOSTS")
-else:
-    print("[plfog] RENDER_EXTERNAL_HOSTNAME not set")
-print(f"[plfog] Final ALLOWED_HOSTS={ALLOWED_HOSTS}")
 
 CSRF_TRUSTED_ORIGINS = (
     os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if os.environ.get("CSRF_TRUSTED_ORIGINS") else []
@@ -127,6 +119,10 @@ STORAGES = {
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
 }
 
+# Media files (user uploads)
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Django Sites
@@ -151,6 +147,7 @@ LOGOUT_REDIRECT_URL = "/"
 SOCIALACCOUNT_ADAPTER = "plfog.adapters.AutoAdminSocialAccountAdapter"
 ACCOUNT_ADAPTER = "plfog.adapters.AdminRedirectAccountAdapter"
 SOCIALACCOUNT_LOGIN_ON_GET = True
+ALLAUTH_TRUSTED_PROXY_COUNT = int(os.environ.get("ALLAUTH_TRUSTED_PROXY_COUNT", "0"))
 
 # Auto-admin: comma-separated list of email domains that get admin privileges on social login.
 # Empty/unset means no auto-admin. Malformed values raise ValueError at startup.
@@ -286,7 +283,7 @@ UNFOLD = {
                 ],
             },
             {
-                "title": "Makerspace",
+                "title": "Members",
                 "items": [
                     {
                         "title": "Members",
@@ -298,6 +295,11 @@ UNFOLD = {
                         "icon": "card_membership",
                         "link": reverse_lazy("admin:membership_membershipplan_changelist"),
                     },
+                ],
+            },
+            {
+                "title": "Guilds",
+                "items": [
                     {
                         "title": "Guilds",
                         "icon": "groups",
@@ -308,6 +310,21 @@ UNFOLD = {
                         "icon": "how_to_vote",
                         "link": reverse_lazy("admin:membership_guildvote_changelist"),
                     },
+                    {
+                        "title": "Buyables",
+                        "icon": "storefront",
+                        "link": reverse_lazy("admin:membership_buyable_changelist"),
+                    },
+                    {
+                        "title": "Orders",
+                        "icon": "receipt_long",
+                        "link": reverse_lazy("admin:membership_order_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "Spaces & Leases",
+                "items": [
                     {
                         "title": "Spaces",
                         "icon": "meeting_room",
@@ -321,5 +338,43 @@ UNFOLD = {
                 ],
             },
         ],
+    },
+}
+
+# Stripe
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
+
+# Logging — always write errors to file so we can debug 500s in production
+_LOG_DIR = BASE_DIR.parent / "logs"
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{asctime} {levelname} {name} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+        "file": {
+            "class": "logging.FileHandler",
+            "filename": str(_LOG_DIR / "django.log") if _LOG_DIR.exists() else str(BASE_DIR / "django.log"),
+            "formatter": "verbose",
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console", "file"],
+            "level": "WARNING",
+        },
+        "django.request": {
+            "handlers": ["console", "file"],
+            "level": "ERROR",
+            "propagate": False,
+        },
     },
 }

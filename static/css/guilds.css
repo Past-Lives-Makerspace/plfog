@@ -1,0 +1,1601 @@
+/* Past Lives Makerspace — Guild Pages
+ *
+ * Styles for all guild-related views:
+ *   - Guild list page      (.guild-list, .guild-search, .guild-grid, .guild-card)
+ *   - Guild detail page    (.guild-hero, .guild-section, .guild-members,
+ *                           .guild-spaces, .guild-buyables)
+ *   - Buyable detail page  (.buyable-detail)
+ *   - Management pages     (.manage-*)
+ *   - User orders          (.orders-*)
+ *   - User nav dropdown    (.site-nav__dropdown)
+ *
+ * All custom properties are consumed from style.css — none are redefined here.
+ * Breakpoints match style.css: 768px (tablet) and 640px (mobile).
+ */
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+
+/* ========================================
+   User Nav — Dropdown
+   ======================================== */
+
+.site-nav__user-wrap {
+    position: relative;
+}
+
+.site-nav__dropdown {
+    position: absolute;
+    top: calc(100% + var(--spacing-xs));
+    right: 0;
+    min-width: 180px;
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    z-index: 200;
+    overflow: hidden;
+    /* Hidden by default; toggled via JS with aria-expanded */
+    display: none;
+}
+
+.site-nav__user-wrap[data-open="true"] .site-nav__dropdown,
+.site-nav__dropdown.is-open {
+    display: block;
+}
+
+.site-nav__dropdown-item {
+    display: block;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: 0.875rem;
+    font-weight: 400;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    transition: background-color var(--transition-fast), color var(--transition-fast);
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+}
+
+.site-nav__dropdown-item:hover {
+    background-color: var(--color-surface-hover);
+    color: var(--color-text);
+}
+
+.site-nav__dropdown-item:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+}
+
+.site-nav__dropdown-divider {
+    height: 1px;
+    background-color: var(--border-subtle);
+    margin: var(--spacing-2xs) 0;
+}
+
+/* ========================================
+   Guild List Page
+   ======================================== */
+
+.guild-list {
+    padding-top: var(--spacing-lg);
+}
+
+.guild-list__header {
+    text-align: center;
+    margin-bottom: var(--spacing-lg);
+}
+
+.guild-list__title {
+    font-size: 2.5rem;
+    margin-bottom: var(--spacing-xs);
+}
+
+.guild-list__subtitle {
+    font-family: var(--font-heading);
+    font-size: 1.1rem;
+    font-weight: 400;
+    font-style: italic;
+    color: var(--color-text-muted);
+}
+
+/* Search bar */
+.guild-search {
+    display: flex;
+    justify-content: center;
+    margin-bottom: var(--spacing-lg);
+}
+
+.guild-search__field {
+    width: 100%;
+    max-width: 480px;
+    position: relative;
+}
+
+.guild-search__input {
+    width: 100%;
+    padding: 0.75rem 1rem 0.75rem 2.75rem;
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    font-weight: 300;
+    color: var(--color-text);
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.guild-search__input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px rgba(238, 180, 75, 0.15);
+}
+
+.guild-search__input::placeholder {
+    color: rgba(150, 172, 187, 0.5);
+}
+
+.guild-search__icon {
+    position: absolute;
+    left: 0.875rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.1rem;
+    color: var(--color-text-muted);
+    pointer-events: none;
+    /* Material Icons baseline correction */
+    line-height: 1;
+}
+
+/* Guild grid */
+.guild-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-md);
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.guild-grid--empty {
+    grid-template-columns: 1fr;
+}
+
+.guild-grid__empty-message {
+    text-align: center;
+    color: var(--color-text-muted);
+    font-style: italic;
+    padding: var(--spacing-xl) 0;
+}
+
+/* Guild card */
+.guild-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: border-color var(--transition-base), box-shadow var(--transition-base),
+        transform var(--transition-base);
+}
+
+.guild-card:hover {
+    border-color: var(--border-light);
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
+}
+
+.guild-card__image-wrap {
+    position: relative;
+    height: 140px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background-color: var(--color-navy);
+}
+
+.guild-card__image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform var(--transition-base);
+}
+
+.guild-card:hover .guild-card__image {
+    transform: scale(1.04);
+}
+
+/* Placeholder shown when there is no cover image */
+.guild-card__placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(
+        135deg,
+        var(--color-navy-light) 0%,
+        var(--color-navy-hover) 100%
+    );
+}
+
+.guild-card__placeholder-icon {
+    font-size: 2.5rem;
+    color: var(--color-soft-blue);
+    opacity: 0.5;
+}
+
+.guild-card__body {
+    padding: var(--spacing-sm);
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: var(--spacing-xs);
+}
+
+.guild-card__name {
+    font-family: var(--font-heading);
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--color-text);
+    line-height: 1.3;
+}
+
+.guild-card__intro {
+    font-size: 0.875rem;
+    font-weight: 300;
+    color: var(--color-text-muted);
+    line-height: 1.5;
+    /* Clamp to 3 lines on the list page */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    flex: 1;
+}
+
+.guild-card__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2xs);
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    margin-top: auto;
+    padding-top: var(--spacing-xs);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.guild-card__meta-icon {
+    font-size: 0.95rem;
+    line-height: 1;
+}
+
+.guild-card__link {
+    display: inline-block;
+    margin-top: var(--spacing-xs);
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: var(--color-accent);
+    transition: color var(--transition-fast);
+}
+
+.guild-card__link:hover {
+    color: var(--color-accent-hover);
+}
+
+/* ========================================
+   Guild Detail — Hero
+   ======================================== */
+
+.guild-hero {
+    position: relative;
+    min-height: 320px;
+    display: flex;
+    align-items: flex-end;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    margin-bottom: var(--spacing-lg);
+    background-color: var(--color-navy-light);
+}
+
+.guild-hero__image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* Gradient overlay so text is always legible over the photo */
+.guild-hero__overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        to top,
+        rgba(9, 46, 76, 0.92) 0%,
+        rgba(9, 46, 76, 0.55) 55%,
+        rgba(9, 46, 76, 0.15) 100%
+    );
+}
+
+.guild-hero__content {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    padding: var(--spacing-lg) var(--spacing-md) var(--spacing-md);
+}
+
+.guild-hero__icon {
+    font-size: 2.25rem;
+    line-height: 1;
+    color: var(--color-accent);
+    margin-bottom: var(--spacing-xs);
+    display: block;
+}
+
+.guild-hero__name {
+    font-size: 2.5rem;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-2xs);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.guild-hero__intro {
+    font-family: var(--font-heading);
+    font-size: 1.05rem;
+    font-weight: 400;
+    font-style: italic;
+    color: var(--color-soft-blue-bright);
+    margin-bottom: var(--spacing-sm);
+    max-width: 600px;
+}
+
+.guild-hero__lead {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+.guild-hero__lead-label {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.75rem;
+    color: var(--color-accent);
+}
+
+/* Fallback: no cover image */
+.guild-hero--no-image {
+    min-height: 200px;
+    background: linear-gradient(
+        135deg,
+        var(--color-navy-light) 0%,
+        var(--color-navy-hover) 100%
+    );
+    border: 1px solid var(--border-subtle);
+}
+
+.guild-hero--no-image .guild-hero__overlay {
+    display: none;
+}
+
+/* ========================================
+   Guild Detail — Generic Section
+   ======================================== */
+
+.guild-section {
+    margin-bottom: var(--spacing-lg);
+}
+
+.guild-section__heading {
+    font-size: 1.5rem;
+    margin-bottom: var(--spacing-sm);
+    padding-bottom: var(--spacing-xs);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.guild-section__body {
+    font-size: 0.95rem;
+    font-weight: 300;
+    color: var(--color-text-muted);
+    line-height: 1.75;
+}
+
+.guild-section__body p:last-child {
+    margin-bottom: 0;
+}
+
+/* ========================================
+   Guild Detail — Members
+   ======================================== */
+
+.guild-members__count {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2xs);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    padding: var(--spacing-2xs) var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+.guild-members__count-icon {
+    font-size: 0.95rem;
+    line-height: 1;
+}
+
+.guild-members__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.guild-members__item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: var(--color-surface);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+}
+
+.guild-members__avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background-color: var(--color-navy-hover);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--color-soft-blue-bright);
+    flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.guild-members__name {
+    font-size: 0.9rem;
+    font-weight: 400;
+    color: var(--color-text);
+    flex: 1;
+}
+
+.guild-members__role {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+}
+
+/* ========================================
+   Guild Detail — Spaces
+   ======================================== */
+
+.guild-spaces {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.guild-spaces__item {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: flex-start;
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    transition: border-color var(--transition-fast);
+}
+
+.guild-spaces__item:hover {
+    border-color: var(--border-light);
+}
+
+.guild-spaces__photo {
+    width: 100px;
+    height: 80px;
+    object-fit: cover;
+    flex-shrink: 0;
+    display: block;
+    background-color: var(--color-navy);
+}
+
+.guild-spaces__photo-placeholder {
+    width: 100px;
+    height: 80px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-navy-hover);
+}
+
+.guild-spaces__photo-placeholder-icon {
+    font-size: 1.5rem;
+    color: var(--color-soft-blue);
+    opacity: 0.45;
+}
+
+.guild-spaces__info {
+    padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-xs) 0;
+    flex: 1;
+}
+
+.guild-spaces__id {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    margin-bottom: var(--spacing-2xs);
+}
+
+.guild-spaces__name {
+    font-size: 0.95rem;
+    font-weight: 400;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-2xs);
+}
+
+.guild-spaces__meta {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
+/* ========================================
+   Guild Detail — Wishlist
+   ======================================== */
+
+.guild-wishlist {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.guild-wishlist__item {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: flex-start;
+    padding: var(--spacing-sm);
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+}
+
+.guild-wishlist__item--fulfilled {
+    opacity: 0.6;
+}
+
+.guild-wishlist__item--fulfilled .guild-wishlist__name {
+    text-decoration: line-through;
+}
+
+.guild-wishlist__check {
+    font-size: 1.1rem;
+    line-height: 1;
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--color-success);
+}
+
+.guild-wishlist__check--pending {
+    color: var(--color-text-muted);
+    opacity: 0.35;
+}
+
+.guild-wishlist__info {
+    flex: 1;
+}
+
+.guild-wishlist__name {
+    font-size: 0.95rem;
+    font-weight: 400;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-2xs);
+}
+
+.guild-wishlist__description {
+    font-size: 0.8rem;
+    font-weight: 300;
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-2xs);
+}
+
+.guild-wishlist__cost {
+    font-size: 0.8rem;
+    color: var(--color-accent);
+    font-weight: 700;
+}
+
+.guild-wishlist__link {
+    font-size: 0.8rem;
+    color: var(--color-accent);
+}
+
+/* ========================================
+   Guild Detail — Buyables (inline grid)
+   ======================================== */
+
+.guild-buyables {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-sm);
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.guild-buyable-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.guild-buyable-card:hover {
+    border-color: var(--border-light);
+    box-shadow: var(--shadow-md);
+}
+
+.guild-buyable-card__image-wrap {
+    height: 120px;
+    overflow: hidden;
+    background-color: var(--color-navy);
+}
+
+.guild-buyable-card__image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform var(--transition-base);
+}
+
+.guild-buyable-card:hover .guild-buyable-card__image {
+    transform: scale(1.04);
+}
+
+.guild-buyable-card__placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-navy-hover);
+}
+
+.guild-buyable-card__placeholder-icon {
+    font-size: 2rem;
+    color: var(--color-soft-blue);
+    opacity: 0.4;
+}
+
+.guild-buyable-card__body {
+    padding: var(--spacing-sm);
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: var(--spacing-2xs);
+}
+
+.guild-buyable-card__name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--color-text);
+    line-height: 1.3;
+}
+
+.guild-buyable-card__price {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-accent);
+    margin-top: auto;
+}
+
+.guild-buyable-card__link {
+    display: block;
+    margin-top: var(--spacing-xs);
+    padding: 0.5rem 0.75rem;
+    text-align: center;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    background-color: var(--color-accent);
+    color: var(--color-navy);
+    border-radius: var(--radius-sm);
+    transition: background-color var(--transition-fast);
+}
+
+.guild-buyable-card__link:hover {
+    background-color: var(--color-accent-hover);
+    color: var(--color-navy);
+}
+
+/* ========================================
+   Guild Detail — External Links
+   ======================================== */
+
+.guild-links {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+}
+
+.guild-links__item {
+    display: inline-flex;
+}
+
+.guild-links__link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2xs);
+    padding: var(--spacing-2xs) var(--spacing-sm);
+    font-size: 0.875rem;
+    font-weight: 400;
+    color: var(--color-accent);
+    border: 1px solid rgba(238, 180, 75, 0.3);
+    border-radius: 999px;
+    transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.guild-links__link:hover {
+    background-color: rgba(238, 180, 75, 0.08);
+    border-color: var(--color-accent);
+    color: var(--color-accent-hover);
+}
+
+.guild-links__icon {
+    font-size: 0.95rem;
+    line-height: 1;
+}
+
+/* ========================================
+   Buyable Detail Page
+   ======================================== */
+
+.buyable-detail {
+    padding-top: var(--spacing-lg);
+}
+
+.buyable-detail__breadcrumb {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-md);
+}
+
+.buyable-detail__breadcrumb a {
+    color: var(--color-text-muted);
+}
+
+.buyable-detail__breadcrumb a:hover {
+    color: var(--color-accent);
+}
+
+.buyable-detail__breadcrumb-sep {
+    margin: 0 var(--spacing-xs);
+    color: var(--color-text-muted);
+    opacity: 0.4;
+}
+
+.buyable-detail__layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-lg);
+    align-items: start;
+}
+
+.buyable-detail__image-wrap {
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-subtle);
+    aspect-ratio: 4 / 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.buyable-detail__image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.buyable-detail__image-placeholder {
+    font-size: 4rem;
+    color: var(--color-soft-blue);
+    opacity: 0.3;
+}
+
+.buyable-detail__guild-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    margin-bottom: var(--spacing-xs);
+}
+
+.buyable-detail__name {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-xs);
+}
+
+.buyable-detail__price {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--color-accent);
+    font-family: var(--font-heading);
+    margin-bottom: var(--spacing-md);
+}
+
+.buyable-detail__description {
+    font-size: 0.95rem;
+    font-weight: 300;
+    color: var(--color-text-muted);
+    line-height: 1.75;
+    margin-bottom: var(--spacing-md);
+}
+
+/* Quantity selector */
+.buyable-detail__qty-label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-xs);
+    letter-spacing: 0.02em;
+}
+
+.buyable-detail__qty-wrap {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-md);
+}
+
+.buyable-detail__qty-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    color: var(--color-text);
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: background-color var(--transition-fast), border-color var(--transition-fast);
+    line-height: 1;
+}
+
+.buyable-detail__qty-btn:hover {
+    background-color: var(--color-surface-hover);
+    border-color: var(--color-accent);
+}
+
+.buyable-detail__qty-btn:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+.buyable-detail__qty-input {
+    width: 60px;
+    text-align: center;
+    padding: 0.5rem;
+    font-family: var(--font-body);
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-text);
+    background-color: var(--color-bg);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+}
+
+.buyable-detail__qty-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px rgba(238, 180, 75, 0.15);
+}
+
+/* QR / share link */
+.buyable-detail__qr-section {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.buyable-detail__qr-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-xs);
+}
+
+.buyable-detail__qr-code {
+    display: inline-block;
+    padding: var(--spacing-xs);
+    background: white;
+    border-radius: var(--radius-sm);
+    line-height: 0;
+}
+
+.buyable-detail__qr-code img {
+    display: block;
+    width: 120px;
+    height: 120px;
+}
+
+.buyable-detail__qr-url {
+    display: block;
+    margin-top: var(--spacing-xs);
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    word-break: break-all;
+}
+
+/* ========================================
+   Shared: Status Badges
+   ======================================== */
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-2xs);
+    padding: var(--spacing-2xs) var(--spacing-xs);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    line-height: 1;
+}
+
+.badge--paid {
+    color: var(--color-success);
+    background-color: var(--color-success-bg);
+    border-color: rgba(123, 200, 143, 0.3);
+}
+
+.badge--pending {
+    color: var(--color-accent);
+    background-color: rgba(238, 180, 75, 0.12);
+    border-color: rgba(238, 180, 75, 0.3);
+}
+
+.badge--fulfilled {
+    color: var(--color-info);
+    background-color: var(--color-info-bg);
+    border-color: rgba(176, 196, 209, 0.3);
+}
+
+.badge--failed {
+    color: var(--color-error);
+    background-color: var(--color-error-bg);
+    border-color: rgba(240, 160, 160, 0.3);
+}
+
+/* ========================================
+   Shared: Data Tables
+   ======================================== */
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.data-table th {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    text-align: left;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-bottom: 1px solid var(--border-light);
+    white-space: nowrap;
+}
+
+.data-table td {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    color: var(--color-text);
+    border-bottom: 1px solid var(--border-subtle);
+    vertical-align: middle;
+}
+
+.data-table tr:last-child td {
+    border-bottom: none;
+}
+
+.data-table tbody tr {
+    transition: background-color var(--transition-fast);
+}
+
+.data-table tbody tr:hover {
+    background-color: var(--color-surface);
+}
+
+.data-table__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    flex-wrap: nowrap;
+}
+
+.data-table__action-link {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--color-text-muted);
+    transition: color var(--transition-fast);
+}
+
+.data-table__action-link:hover {
+    color: var(--color-accent);
+}
+
+/* ========================================
+   Management Pages — .manage-*
+   ======================================== */
+
+.manage-page {
+    padding-top: var(--spacing-lg);
+}
+
+.manage-page__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+    flex-wrap: wrap;
+}
+
+.manage-page__title {
+    font-size: 1.75rem;
+}
+
+.manage-page__actions {
+    display: flex;
+    gap: var(--spacing-xs);
+    flex-wrap: wrap;
+}
+
+/* Summary cards row at the top of management pages */
+.manage-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-lg);
+}
+
+.manage-stat {
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-sm);
+}
+
+.manage-stat__label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-2xs);
+}
+
+.manage-stat__value {
+    font-family: var(--font-heading);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.manage-stat__value--accent {
+    color: var(--color-accent);
+}
+
+/* Table card wrapper */
+.manage-table-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+
+.manage-table-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: 1px solid var(--border-subtle);
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+.manage-table-card__title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.manage-table-card__body {
+    overflow-x: auto;
+}
+
+.manage-table-card__body .data-table {
+    min-width: 540px;
+}
+
+.manage-table-card__empty {
+    padding: var(--spacing-lg);
+    text-align: center;
+    color: var(--color-text-muted);
+    font-style: italic;
+    font-size: 0.9rem;
+}
+
+/* Inline mark-fulfilled form */
+.manage-fulfill-form {
+    display: inline;
+}
+
+.manage-fulfill-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    font-family: var(--font-body);
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--color-success);
+    transition: color var(--transition-fast);
+}
+
+.manage-fulfill-btn:hover {
+    color: var(--color-text);
+}
+
+/* ========================================
+   User Orders — .orders-*
+   ======================================== */
+
+.orders-page {
+    padding-top: var(--spacing-lg);
+}
+
+.orders-page__title {
+    font-size: 1.75rem;
+    margin-bottom: var(--spacing-lg);
+}
+
+.orders-empty {
+    text-align: center;
+    padding: var(--spacing-xl) 0;
+    color: var(--color-text-muted);
+    font-style: italic;
+}
+
+.orders-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.order-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+    transition: border-color var(--transition-fast);
+}
+
+.order-card:hover {
+    border-color: var(--border-light);
+}
+
+.order-card__id {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+}
+
+.order-card__item {
+    flex: 1;
+    min-width: 0;
+}
+
+.order-card__name {
+    font-size: 0.95rem;
+    font-weight: 400;
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.order-card__guild {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
+.order-card__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.order-card__qty {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+.order-card__amount {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--color-accent);
+}
+
+.order-card__date {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
+/* ========================================
+   Responsive — Tablet (≤ 768px)
+   ======================================== */
+
+@media (max-width: 768px) {
+    .guild-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .guild-hero__name {
+        font-size: 2rem;
+    }
+
+    .guild-buyables {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .buyable-detail__layout {
+        grid-template-columns: 1fr;
+    }
+
+    .manage-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .manage-page__header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+/* ========================================
+   Responsive — Mobile (≤ 640px)
+   ======================================== */
+
+@media (max-width: 640px) {
+    .guild-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .guild-list__title {
+        font-size: 2rem;
+    }
+
+    .guild-hero {
+        min-height: 240px;
+        border-radius: var(--radius-md);
+    }
+
+    .guild-hero__name {
+        font-size: 1.625rem;
+    }
+
+    .guild-hero__intro {
+        font-size: 0.95rem;
+    }
+
+    .guild-section__heading {
+        font-size: 1.25rem;
+    }
+
+    .guild-buyables {
+        grid-template-columns: 1fr;
+    }
+
+    .guild-spaces__photo,
+    .guild-spaces__photo-placeholder {
+        width: 72px;
+        height: 64px;
+    }
+
+    .buyable-detail__name {
+        font-size: 1.5rem;
+    }
+
+    .buyable-detail__price {
+        font-size: 1.375rem;
+    }
+
+    .buyable-detail__image-wrap {
+        aspect-ratio: 3 / 2;
+    }
+
+    .manage-stats {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .manage-table-card__header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .order-card {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .order-card__meta {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .site-nav__dropdown {
+        right: auto;
+        left: 0;
+        min-width: 160px;
+    }
+}
+
+/* ========================================
+   Checkout Result Pages
+   ======================================== */
+
+.checkout-result {
+    max-width: 480px;
+    margin: var(--spacing-xl) auto;
+    text-align: center;
+    padding: var(--spacing-xl) var(--spacing-md);
+}
+
+.checkout-result__icon {
+    font-size: 4rem;
+    color: var(--color-success);
+    display: block;
+    margin-bottom: var(--spacing-md);
+}
+
+.checkout-result__icon--cancel {
+    color: var(--color-text-muted);
+}
+
+.checkout-result__title {
+    font-size: 1.75rem;
+    margin-bottom: var(--spacing-sm);
+}
+
+.checkout-result__text {
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-lg);
+    line-height: 1.6;
+}
+
+/* ========================================
+   Management Breadcrumb
+   ======================================== */
+
+.manage-breadcrumb {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-md);
+}
+
+.manage-breadcrumb a {
+    color: var(--color-text-muted);
+}
+
+.manage-breadcrumb a:hover {
+    color: var(--color-accent);
+}
+
+.manage-breadcrumb__sep {
+    margin: 0 var(--spacing-xs);
+    color: var(--color-text-muted);
+    opacity: 0.4;
+}
+
+/* ========================================
+   Management Form
+   ======================================== */
+
+.manage-form {
+    max-width: 560px;
+}
+
+.manage-form .form-group {
+    margin-bottom: var(--spacing-md);
+}
+
+.manage-form .form-group label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-2xs);
+}
+
+.manage-form .form-group input,
+.manage-form .form-group textarea,
+.manage-form .form-group select {
+    width: 100%;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    color: var(--color-text);
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    transition: border-color var(--transition-fast);
+}
+
+.manage-form .form-group input:focus,
+.manage-form .form-group textarea:focus,
+.manage-form .form-group select:focus {
+    outline: none;
+    border-color: var(--color-accent);
+}
+
+.manage-form .form-group textarea {
+    min-height: 100px;
+    resize: vertical;
+}
+
+.manage-form .form-group .errorlist {
+    list-style: none;
+    padding: 0;
+    margin: var(--spacing-2xs) 0 0;
+    font-size: 0.85rem;
+    color: var(--color-error);
+}
+
+.manage-form .btn {
+    margin-right: var(--spacing-xs);
+}
+
+/* ========================================
+   Order Detail Page
+   ======================================== */
+
+.order-detail {
+    max-width: 640px;
+}
+
+.order-detail__info {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--spacing-xs) var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.order-detail__info dt {
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    padding: var(--spacing-2xs) 0;
+}
+
+.order-detail__info dd {
+    padding: var(--spacing-2xs) 0;
+    color: var(--color-text);
+}
+
+/* ========================================
+   Print Styles (QR codes and receipts)
+   ======================================== */
+
+@media print {
+    .guild-hero,
+    .guild-search,
+    .guild-card__link,
+    .guild-buyable-card__link,
+    .manage-page__actions,
+    .site-nav,
+    .site-footer,
+    .btn {
+        display: none;
+    }
+
+    .buyable-detail__layout {
+        display: block;
+    }
+
+    .buyable-detail__image-wrap {
+        width: 240px;
+        margin-bottom: 1rem;
+    }
+
+    /* Ensure QR code is always visible on print */
+    .buyable-detail__qr-section {
+        display: block !important;
+        page-break-inside: avoid;
+    }
+
+    .buyable-detail__qr-code {
+        border: 1px solid #ccc;
+    }
+
+    .buyable-detail__qr-code img {
+        width: 160px;
+        height: 160px;
+    }
+
+    .buyable-detail__name,
+    .buyable-detail__price,
+    .buyable-detail__description {
+        color: black;
+    }
+
+    .order-card {
+        border: 1px solid #ccc;
+        break-inside: avoid;
+    }
+
+    .badge {
+        border: 1px solid currentColor;
+    }
+}

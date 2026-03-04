@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}My Orders — Past Lives Makerspace{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/guilds.css' %}">
+{% endblock %}
+
+{% block content %}
+<section class="orders-page">
+    <h1 class="orders-page__title">My Orders</h1>
+
+    {% if orders %}
+    <div class="orders-list">
+        {% for order in orders %}
+        <div class="order-card">
+            <span class="order-card__id">#{{ order.pk }}</span>
+            <div class="order-card__item">
+                <p class="order-card__name">{{ order.buyable.name }}</p>
+                <p class="order-card__guild">{{ order.buyable.guild.name }}</p>
+            </div>
+            <div class="order-card__meta">
+                <span class="order-card__qty">x{{ order.quantity }}</span>
+                <span class="order-card__amount">${{ order.amount|floatformat:"0" }}</span>
+                <span class="order-card__date">{{ order.created_at|date:"M j, Y" }}</span>
+                <span class="badge badge--{{ order.status }}">{{ order.get_status_display }}</span>
+                {% if order.is_fulfilled %}
+                <span class="badge badge--fulfilled">Fulfilled</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="orders-empty">You haven't placed any orders yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

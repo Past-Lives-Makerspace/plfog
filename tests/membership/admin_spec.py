@@ -17,7 +17,6 @@ from membership.admin import (
     MemberAdmin,
     MembershipPlanAdmin,
     SpaceAdmin,
-    SubletInline,
 )
 from membership.models import Guild, GuildVote, Lease, Member, MembershipPlan, Space
 from tests.membership.factories import (
@@ -715,8 +714,10 @@ def describe_GuildAdmin():
         guild_admin = admin.site._registry[Guild]
         assert guild_admin.list_display == [
             "name",
+            "slug",
+            "is_active",
             "guild_lead",
-            "sublet_count",
+            "view_page_link",
             "notes_preview",
         ]
 
@@ -727,16 +728,6 @@ def describe_GuildAdmin():
     def it_has_lease_inline():
         guild_admin = admin.site._registry[Guild]
         assert LeaseInlineGuild in guild_admin.inlines
-
-    def it_has_sublet_inline():
-        guild_admin = admin.site._registry[Guild]
-        assert SubletInline in guild_admin.inlines
-
-    def it_has_sublet_inline_before_lease_inline():
-        guild_admin = admin.site._registry[Guild]
-        sublet_idx = guild_admin.inlines.index(SubletInline)
-        lease_idx = guild_admin.inlines.index(LeaseInlineGuild)
-        assert sublet_idx < lease_idx
 
 
 @pytest.mark.django_db
@@ -761,73 +752,6 @@ def describe_admin_guild_computed_fields():
         result = guild_admin.notes_preview(guild)
         assert result == ""
 
-    def it_displays_sublet_count():
-        guild = GuildFactory(name="Sublet Count Guild")
-        SpaceFactory(space_id="SC-001", sublet_guild=guild)
-        SpaceFactory(space_id="SC-002", sublet_guild=guild)
-        guild_admin = admin.site._registry[Guild]
-        rf = RequestFactory()
-        request = rf.get("/admin/membership/guild/")
-        annotated_guild = guild_admin.get_queryset(request).get(pk=guild.pk)
-        result = guild_admin.sublet_count(annotated_guild)
-        assert result == 2
-
-    def it_displays_sublet_count_zero_when_no_sublets():
-        guild = GuildFactory(name="No Sublets Guild")
-        guild_admin = admin.site._registry[Guild]
-        rf = RequestFactory()
-        request = rf.get("/admin/membership/guild/")
-        annotated_guild = guild_admin.get_queryset(request).get(pk=guild.pk)
-        result = guild_admin.sublet_count(annotated_guild)
-        assert result == 0
-
-
-@pytest.mark.django_db
-def describe_SubletInline():
-    def it_displays_full_price_with_manual_price():
-        space = SpaceFactory(
-            space_id="SUB-001",
-            manual_price=Decimal("750.00"),
-        )
-        inline = SubletInline(Guild, admin.site)
-        result = inline.full_price_display(space)
-        assert result == "$750.00"
-
-    def it_displays_full_price_calculated_from_sqft():
-        space = SpaceFactory(
-            space_id="SUB-002",
-            size_sqft=Decimal("200.00"),
-        )
-        inline = SubletInline(Guild, admin.site)
-        result = inline.full_price_display(space)
-        assert result == "$750.00"
-
-    def it_displays_full_price_dash_when_none():
-        space = SpaceFactory(
-            space_id="SUB-003",
-            space_type=Space.SpaceType.OTHER,
-        )
-        inline = SubletInline(Guild, admin.site)
-        result = inline.full_price_display(space)
-        assert result == "-"
-
-    def it_denies_add_permission():
-        inline = SubletInline(Guild, admin.site)
-        rf = RequestFactory()
-        request = rf.get("/admin/membership/guild/add/")
-        assert inline.has_add_permission(request) is False
-
-    def it_denies_change_permission():
-        inline = SubletInline(Guild, admin.site)
-        rf = RequestFactory()
-        request = rf.get("/admin/membership/guild/1/change/")
-        assert inline.has_change_permission(request) is False
-
-    def it_denies_delete_permission():
-        inline = SubletInline(Guild, admin.site)
-        rf = RequestFactory()
-        request = rf.get("/admin/membership/guild/1/change/")
-        assert inline.has_delete_permission(request) is False
 
 
 @pytest.mark.django_db
@@ -866,17 +790,33 @@ def describe_admin_guild_views():
             "/admin/membership/guild/add/",
             {
                 "name": "POST Created Guild",
+                "slug": "post-created-guild",
+                "intro": "",
+                "description": "",
+                "icon": "",
+                "is_active": "on",
+                "links": "[]",
                 "notes": "",
-                # SubletInline management form
-                "sublets-TOTAL_FORMS": "0",
-                "sublets-INITIAL_FORMS": "0",
-                "sublets-MIN_NUM_FORMS": "0",
-                "sublets-MAX_NUM_FORMS": "1000",
                 # GenericTabularInline management form
                 "membership-lease-content_type-object_id-TOTAL_FORMS": "0",
                 "membership-lease-content_type-object_id-INITIAL_FORMS": "0",
                 "membership-lease-content_type-object_id-MIN_NUM_FORMS": "0",
                 "membership-lease-content_type-object_id-MAX_NUM_FORMS": "1000",
+                # GuildMembershipInline
+                "memberships-TOTAL_FORMS": "0",
+                "memberships-INITIAL_FORMS": "0",
+                "memberships-MIN_NUM_FORMS": "0",
+                "memberships-MAX_NUM_FORMS": "1000",
+                # GuildWishlistItemInline
+                "wishlist_items-TOTAL_FORMS": "0",
+                "wishlist_items-INITIAL_FORMS": "0",
+                "wishlist_items-MIN_NUM_FORMS": "0",
+                "wishlist_items-MAX_NUM_FORMS": "1000",
+                # BuyableInline
+                "buyables-TOTAL_FORMS": "0",
+                "buyables-INITIAL_FORMS": "0",
+                "buyables-MIN_NUM_FORMS": "0",
+                "buyables-MAX_NUM_FORMS": "1000",
             },
         )
         assert resp.status_code == 302

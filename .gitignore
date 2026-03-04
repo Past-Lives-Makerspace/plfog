@@ -38,3 +38,6 @@ venv/
 
 # Fixtures with personal data - load manually, never commit
 membership/fixtures/*.json
+
+# Seed data with real member PII - deploy to servers separately
+core/data/seed_members.json

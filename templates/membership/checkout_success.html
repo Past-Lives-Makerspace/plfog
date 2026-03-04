@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Payment Successful — Past Lives Makerspace{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/guilds.css' %}">
+{% endblock %}
+
+{% block content %}
+<section class="checkout-result">
+    <span class="checkout-result__icon material-icons">check_circle</span>
+    <h1 class="checkout-result__title">Payment Successful</h1>
+    {% if order %}
+    <p class="checkout-result__text">
+        Thank you for purchasing <strong>{{ order.buyable.name }}</strong>
+        (x{{ order.quantity }}) for ${{ order.amount|floatformat:"0" }}.
+    </p>
+    {% else %}
+    <p class="checkout-result__text">Your payment has been processed. Thank you!</p>
+    {% endif %}
+    <a href="{% url 'guild_list' %}" class="btn btn--primary">Back to Guilds</a>
+</section>
+{% endblock %}

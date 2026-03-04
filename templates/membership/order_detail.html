@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Order #{{ order.pk }} — {{ guild.name }} — Past Lives Makerspace{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/guilds.css' %}">
+{% endblock %}
+
+{% block content %}
+<nav class="manage-breadcrumb" aria-label="Breadcrumb">
+    <a href="{% url 'guild_list' %}">Guilds</a>
+    <span class="manage-breadcrumb__sep" aria-hidden="true">/</span>
+    <a href="{% url 'guild_detail' guild.slug %}">{{ guild.name }}</a>
+    <span class="manage-breadcrumb__sep" aria-hidden="true">/</span>
+    <a href="{% url 'guild_manage' guild.slug %}">Manage</a>
+    <span class="manage-breadcrumb__sep" aria-hidden="true">/</span>
+    <a href="{% url 'guild_orders' guild.slug %}">Orders</a>
+    <span class="manage-breadcrumb__sep" aria-hidden="true">/</span>
+    <span>#{{ order.pk }}</span>
+</nav>
+
+<section class="manage-page">
+    <h1 class="manage-page__title">Order #{{ order.pk }}</h1>
+
+    <div class="order-detail">
+        <dl class="order-detail__info">
+            <dt>Item</dt>
+            <dd>{{ order.buyable.name }}</dd>
+            <dt>Buyer</dt>
+            <dd>{% if order.user %}{{ order.user.username }}{% elif order.email %}{{ order.email }}{% else %}Guest{% endif %}</dd>
+            <dt>Quantity</dt>
+            <dd>{{ order.quantity }}</dd>
+            <dt>Amount</dt>
+            <dd>${{ order.amount|floatformat:"0" }}</dd>
+            <dt>Status</dt>
+            <dd><span class="badge badge--{{ order.status }}">{{ order.get_status_display }}</span></dd>
+            <dt>Date</dt>
+            <dd>{{ order.created_at|date:"M j, Y g:i A" }}</dd>
+            {% if order.paid_at %}
+            <dt>Paid</dt>
+            <dd>{{ order.paid_at|date:"M j, Y g:i A" }}</dd>
+            {% endif %}
+            <dt>Fulfilled</dt>
+            <dd>
+                {% if order.is_fulfilled %}
+                <span class="badge badge--fulfilled">Yes</span>
+                — by {{ order.fulfilled_by.username }} on {{ order.fulfilled_at|date:"M j, Y g:i A" }}
+                {% else %}
+                <span class="badge badge--pending">No</span>
+                {% endif %}
+            </dd>
+        </dl>
+
+        {% if not order.is_fulfilled %}
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="fulfill">
+            <button type="submit" class="btn btn--primary">Mark as Fulfilled</button>
+        </form>
+        {% endif %}
+
+        <h2 class="manage-page__title" style="font-size: 1.25rem; margin-top: var(--spacing-lg);">Notes</h2>
+        <form method="post" class="manage-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="notes">
+            <div class="form-group">
+                {{ form.notes }}
+            </div>
+            <button type="submit" class="btn btn--secondary">Save Notes</button>
+        </form>
+    </div>
+</section>
+{% endblock %}

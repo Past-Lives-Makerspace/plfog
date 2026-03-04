@@ -1,0 +1,70 @@
+{
+  "staff": [
+    { "email": "alex.admin@example.pastlives.space", "name": "Alex Admin", "preferred": "Alex", "role": "employee", "join": "2020-01-01" },
+    { "email": "blake.ops@example.pastlives.space", "name": "Blake Ortega", "preferred": "Blake", "role": "employee", "join": "2022-03-01" },
+    { "email": "drew.fac@example.pastlives.space", "name": "Drew Facilities", "preferred": "Drew", "role": "employee", "join": "2023-01-15" },
+    { "email": "emery.mgr@example.pastlives.space", "name": "Emery Manager", "preferred": "Emery", "role": "employee", "join": "2022-06-01" },
+    { "email": "finley.tech@example.pastlives.space", "name": "Finley Techworth", "preferred": "Finley", "role": "employee", "join": "2023-04-01" },
+    { "email": "gray.maint@example.pastlives.space", "name": "Gray Maintenance", "preferred": "Gray", "role": "employee", "join": "2024-06-01" },
+    { "email": "harper.con@example.pastlives.space", "name": "Harper Contreras", "preferred": "Harper", "role": "contractor", "join": "2023-02-01" }
+  ],
+  "guild_leads": [
+    { "email": "iris.frame@example.pastlives.space", "name": "Iris Framer", "preferred": "Iris", "guild": "Art Framing Guild", "join": "2023-03-01" },
+    { "email": "kai.clay@example.pastlives.space", "name": "Kai Clayborn", "preferred": "Kai", "guild": "Ceramics Guild", "join": "2022-09-01" },
+    { "email": "luna.events@example.pastlives.space", "name": "Luna Eventide", "preferred": "Luna", "guild": "Events Guild", "join": "2023-05-01" },
+    { "email": "max.garden@example.pastlives.space", "name": "Max Gardener", "preferred": "Max", "guild": "Gardeners Guild", "join": "2023-06-01" },
+    { "email": "nina.gem@example.pastlives.space", "name": "Nina Gemcraft", "preferred": "Nina", "guild": "Jewelry Guild", "join": "2023-01-01" },
+    { "email": "oscar.hide@example.pastlives.space", "name": "Oscar Hideworks", "preferred": "Oscar", "guild": "Leatherworking Guild", "join": "2023-04-15" },
+    { "email": "petra.forge@example.pastlives.space", "name": "Petra Forgeway", "preferred": "Petra", "guild": "Metal Guild", "join": "2022-11-01" },
+    { "email": "remy.glass@example.pastlives.space", "name": "Remy Glasswell", "preferred": "Remy", "guild": "Glass Guild", "join": "2023-02-15" },
+    { "email": "sable.reach@example.pastlives.space", "name": "Sable Outreach", "preferred": "Sable", "guild": "Prison Outreach Guild", "join": "2022-08-01" },
+    { "email": "tam.reach@example.pastlives.space", "name": "Tam Bridges", "preferred": "Tam", "guild": "Prison Outreach Guild", "join": "2023-01-15" },
+    { "email": "uma.tech@example.pastlives.space", "name": "Uma Techwell", "preferred": "Uma", "guild": "Tech Guild", "join": "2023-07-01" },
+    { "email": "vera.weave@example.pastlives.space", "name": "Vera Weaver", "preferred": "Vera", "guild": "Textiles Guild", "join": "2023-03-15" },
+    { "email": "wren.paint@example.pastlives.space", "name": "Wren Painter", "preferred": "Wren", "guild": "Visual Arts Guild", "join": "2023-05-15" },
+    { "email": "xander.wood@example.pastlives.space", "name": "Xander Woodley", "preferred": "Xander", "guild": "Woodworking Guild", "join": "2022-10-01" },
+    { "email": "yara.ink@example.pastlives.space", "name": "Yara Inkwell", "preferred": "Yara", "guild": "Writers Guild", "join": "2023-06-15" }
+  ],
+  "regular_members": [
+    { "email": "river.chen@example.pastlives.space", "name": "River Chen", "preferred": "River", "join": "2024-01-15" },
+    { "email": "sage.williams@example.pastlives.space", "name": "Sage Williams", "preferred": "Sage", "join": "2024-02-01" },
+    { "email": "quinn.jackson@example.pastlives.space", "name": "Quinn Jackson", "preferred": "Quinn", "join": "2024-03-01" },
+    { "email": "rowan.bell@example.pastlives.space", "name": "Rowan Bell", "preferred": "Rowan", "join": "2024-04-15" },
+    { "email": "avery.lee@example.pastlives.space", "name": "Avery Lee", "preferred": "Avery", "join": "2023-06-01" },
+    { "email": "skyler.day@example.pastlives.space", "name": "Skyler Day", "preferred": "Skyler", "join": "2024-03-01" },
+    { "email": "jordan.cole@example.pastlives.space", "name": "Jordan Cole", "preferred": "Jordan", "join": "2024-06-01" },
+    { "email": "taylor.reed@example.pastlives.space", "name": "Taylor Reed", "preferred": "Taylor", "join": "2024-07-15" }
+  ],
+  "primary_guild_leads": {
+    "Art Framing Guild": "iris.frame@example.pastlives.space",
+    "Ceramics Guild": "kai.clay@example.pastlives.space",
+    "Events Guild": "luna.events@example.pastlives.space",
+    "Gardeners Guild": "max.garden@example.pastlives.space",
+    "Glass Guild": "remy.glass@example.pastlives.space",
+    "Jewelry Guild": "nina.gem@example.pastlives.space",
+    "Leatherworking Guild": "oscar.hide@example.pastlives.space",
+    "Metal Guild": "petra.forge@example.pastlives.space",
+    "Prison Outreach Guild": "sable.reach@example.pastlives.space",
+    "Tech Guild": "uma.tech@example.pastlives.space",
+    "Textiles Guild": "vera.weave@example.pastlives.space",
+    "Visual Arts Guild": "wren.paint@example.pastlives.space",
+    "Woodworking Guild": "xander.wood@example.pastlives.space",
+    "Writers Guild": "yara.ink@example.pastlives.space"
+  },
+  "member_guilds": {
+    "river.chen@example.pastlives.space": ["Ceramics Guild", "Woodworking Guild"],
+    "sage.williams@example.pastlives.space": ["Glass Guild"],
+    "quinn.jackson@example.pastlives.space": ["Visual Arts Guild", "Events Guild"],
+    "rowan.bell@example.pastlives.space": ["Textiles Guild"],
+    "avery.lee@example.pastlives.space": ["Ceramics Guild", "Metal Guild"],
+    "skyler.day@example.pastlives.space": ["Woodworking Guild", "Tech Guild"],
+    "jordan.cole@example.pastlives.space": ["Jewelry Guild"],
+    "taylor.reed@example.pastlives.space": ["Writers Guild", "Visual Arts Guild"]
+  },
+  "orders": [
+    { "buyable": "Stoneware Clay (25 lb)", "user": "river.chen@example.pastlives.space", "quantity": 2, "amount": 3600, "status": "paid" },
+    { "buyable": "Bullseye Sheet Glass", "user": "remy.glass@example.pastlives.space", "quantity": 3, "amount": 6600, "status": "paid" },
+    { "buyable": "Hardwood Board (bd ft)", "user": "xander.wood@example.pastlives.space", "quantity": 10, "amount": 8000, "status": "paid" },
+    { "buyable": "Welding Wire Spool", "user": "petra.forge@example.pastlives.space", "quantity": 1, "amount": 3500, "status": "pending" }
+  ]
+}
