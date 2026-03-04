@@ -9,11 +9,9 @@
 
 {% block content %}
 <nav class="manage-breadcrumb" aria-label="Breadcrumb">
-    <a href="{% url 'guild_list' %}">Guilds</a>
+    <a href="{% url 'hub_dashboard' %}">Dashboard</a>
     <span class="manage-breadcrumb__sep" aria-hidden="true">/</span>
-    <a href="{% url 'guild_detail' guild.slug %}">{{ guild.name }}</a>
-    <span class="manage-breadcrumb__sep" aria-hidden="true">/</span>
-    <a href="{% url 'guild_manage' guild.slug %}">Manage</a>
+    <a href="{% url 'guild_manage' guild.slug %}">{{ guild.name }}</a>
     <span class="manage-breadcrumb__sep" aria-hidden="true">/</span>
     <a href="{% url 'guild_orders' guild.slug %}">Orders</a>
     <span class="manage-breadcrumb__sep" aria-hidden="true">/</span>

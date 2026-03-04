@@ -26,8 +26,7 @@
                         {{ user.email }}
                     </button>
                     <div class="site-nav__dropdown" x-show="open" x-cloak x-transition>
-                        <a href="{% url 'profile_edit' %}" class="site-nav__dropdown-item">My Profile</a>
-                        <a href="{% url 'user_orders' %}" class="site-nav__dropdown-item">My Orders</a>
+                        <a href="{% url 'hub_dashboard' %}" class="site-nav__dropdown-item">Dashboard</a>
                         {% if user.is_staff %}
                         <a href="{% url 'admin:index' %}" class="site-nav__dropdown-item">Admin</a>
                         {% endif %}

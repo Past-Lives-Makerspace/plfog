@@ -1,0 +1,7 @@
+<nav class="hub-nav" aria-label="Member hub navigation">
+    <a href="{% url 'hub_dashboard' %}" class="hub-nav__link{% if active_tab == 'dashboard' %} hub-nav__link--active{% endif %}">Dashboard</a>
+    <a href="{% url 'profile_edit' %}" class="hub-nav__link{% if active_tab == 'profile' %} hub-nav__link--active{% endif %}">Profile</a>
+    <a href="{% url 'user_orders' %}" class="hub-nav__link{% if active_tab == 'orders' %} hub-nav__link--active{% endif %}">Orders</a>
+    <a href="{% url 'hub_guilds' %}" class="hub-nav__link{% if active_tab == 'guilds' %} hub-nav__link--active{% endif %}">Guilds</a>
+    <a href="{% url 'hub_spaces' %}" class="hub-nav__link{% if active_tab == 'spaces' %} hub-nav__link--active{% endif %}">Spaces</a>
+</nav>

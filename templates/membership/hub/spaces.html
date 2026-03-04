@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}My Spaces — Past Lives Makerspace{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/guilds.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "membership/hub/_nav.html" %}
+
+<section class="manage-page">
+    <h1 class="manage-page__title">My Spaces</h1>
+
+    {% if active_leases %}
+    <div class="manage-table-card">
+        <div class="manage-table-card__body">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Space</th>
+                        <th>Type</th>
+                        <th>Lease</th>
+                        <th>Monthly Rent</th>
+                        <th>Since</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for lease in active_leases %}
+                    <tr>
+                        <td>{{ lease.space }}</td>
+                        <td>{{ lease.space.get_space_type_display }}</td>
+                        <td>{{ lease.get_lease_type_display }}</td>
+                        <td>${{ lease.monthly_rent }}</td>
+                        <td>{{ lease.start_date|date:"M j, Y" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="manage-stats" style="margin-top: var(--spacing-lg);">
+        <div class="manage-stat">
+            <div class="manage-stat__label">Total Monthly Rent</div>
+            <div class="manage-stat__value manage-stat__value--accent">${{ member.studio_storage_total }}</div>
+        </div>
+    </div>
+    {% else %}
+    <div class="manage-table-card">
+        <p class="manage-table-card__empty">You don't have any active leases.</p>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

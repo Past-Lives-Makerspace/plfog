@@ -4,14 +4,12 @@ import io
 from typing import TYPE_CHECKING, cast
 
 import segno
-from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from .forms import BuyableForm, MemberProfileForm, OrderNoteForm
 from .models import Buyable, Guild, GuildMembership, Member, Order
 from .stripe_utils import create_checkout_session
 
@@ -149,18 +147,6 @@ def checkout_cancel(request: HttpRequest) -> HttpResponse:
 
 
 # ---------------------------------------------------------------------------
-# User orders (auth required)
-# ---------------------------------------------------------------------------
-
-
-@login_required
-def user_orders(request: HttpRequest) -> HttpResponse:
-    user = cast("User", request.user)
-    orders = Order.objects.filter(user=user).select_related("buyable__guild").order_by("-created_at")
-    return render(request, "membership/user_orders.html", {"orders": orders})
-
-
-# ---------------------------------------------------------------------------
 # Member pages (auth + active member only)
 # ---------------------------------------------------------------------------
 
@@ -185,25 +171,6 @@ def member_directory(request: HttpRequest) -> HttpResponse:
     return render(request, "membership/member_directory.html", {"members": members})
 
 
-@login_required
-def profile_edit(request: HttpRequest) -> HttpResponse:
-    member = _get_active_member(request)
-    if request.method == "POST":
-        form = MemberProfileForm(request.POST, instance=member)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Profile updated.")
-            return redirect("profile_edit")
-    else:
-        form = MemberProfileForm(instance=member)
-    return render(request, "membership/profile_edit.html", {"member": member, "form": form})
-
-
-# ---------------------------------------------------------------------------
-# Guild lead management (auth + guild lead only)
-# ---------------------------------------------------------------------------
-
-
 def _get_lead_guild(request: HttpRequest, slug: str) -> Guild:
     """Return guild if the authenticated user is a lead or staff. Raise 403 otherwise."""
     from django.core.exceptions import PermissionDenied
@@ -214,72 +181,3 @@ def _get_lead_guild(request: HttpRequest, slug: str) -> Guild:
     if not is_lead and not user.is_staff:
         raise PermissionDenied
     return guild
-
-
-@login_required
-def guild_manage(request: HttpRequest, slug: str) -> HttpResponse:
-    guild = _get_lead_guild(request, slug)
-    buyables = guild.buyables.all()
-    return render(request, "membership/guild_manage.html", {"guild": guild, "buyables": buyables})
-
-
-@login_required
-def buyable_add(request: HttpRequest, slug: str) -> HttpResponse:
-    guild = _get_lead_guild(request, slug)
-    if request.method == "POST":
-        form = BuyableForm(request.POST, request.FILES)
-        if form.is_valid():
-            buyable = form.save(commit=False)
-            buyable.guild = guild
-            buyable.save()
-            messages.success(request, f"Added {buyable.name}.")
-            return redirect("guild_manage", slug=slug)
-    else:
-        form = BuyableForm()
-    return render(request, "membership/buyable_form.html", {"guild": guild, "form": form})
-
-
-@login_required
-def buyable_edit(request: HttpRequest, slug: str, buyable_slug: str) -> HttpResponse:
-    guild = _get_lead_guild(request, slug)
-    buyable = get_object_or_404(Buyable, guild=guild, slug=buyable_slug)
-    if request.method == "POST":
-        form = BuyableForm(request.POST, request.FILES, instance=buyable)
-        if form.is_valid():
-            form.save()
-            messages.success(request, f"Updated {buyable.name}.")
-            return redirect("guild_manage", slug=slug)
-    else:
-        form = BuyableForm(instance=buyable)
-    return render(request, "membership/buyable_form.html", {"guild": guild, "form": form, "buyable": buyable})
-
-
-@login_required
-def guild_orders(request: HttpRequest, slug: str) -> HttpResponse:
-    guild = _get_lead_guild(request, slug)
-    orders = Order.objects.filter(buyable__guild=guild).select_related("buyable", "user").order_by("-created_at")
-    return render(request, "membership/guild_orders.html", {"guild": guild, "orders": orders})
-
-
-@login_required
-def order_detail(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
-    guild = _get_lead_guild(request, slug)
-    order = get_object_or_404(Order, pk=pk, buyable__guild=guild)
-
-    if request.method == "POST":
-        action = request.POST.get("action")
-        if action == "fulfill":
-            order.is_fulfilled = True
-            order.fulfilled_by = cast("User", request.user)
-            order.fulfilled_at = timezone.now()
-            order.save()
-            messages.success(request, "Order marked as fulfilled.")
-        elif action == "notes":
-            form = OrderNoteForm(request.POST, instance=order)
-            if form.is_valid():  # pragma: no branch
-                form.save()
-                messages.success(request, "Notes updated.")
-        return redirect("order_detail", slug=slug, pk=pk)
-
-    form = OrderNoteForm(instance=order)
-    return render(request, "membership/order_detail.html", {"guild": guild, "order": order, "form": form})

@@ -74,6 +74,40 @@
 }
 
 /* ========================================
+   Member Hub Navigation
+   ======================================== */
+
+.hub-nav {
+    display: flex;
+    gap: var(--spacing-2xs);
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-subtle);
+    overflow-x: auto;
+}
+
+.hub-nav__link {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: var(--color-text-muted);
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+    transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.hub-nav__link:hover {
+    background-color: var(--color-surface-hover);
+    color: var(--color-text);
+}
+
+.hub-nav__link--active {
+    font-weight: 700;
+    color: var(--color-accent);
+    background-color: rgba(238, 180, 75, 0.08);
+}
+
+/* ========================================
    Guild List Page
    ======================================== */
 

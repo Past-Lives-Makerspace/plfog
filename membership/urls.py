@@ -1,4 +1,5 @@
 from django.urls import path
+from django.views.generic import RedirectView
 
 from . import views
 
@@ -10,10 +11,16 @@ urlpatterns = [
     path("<slug:slug>/buy/<slug:buyable_slug>/", views.buyable_detail, name="buyable_detail"),
     path("<slug:slug>/buy/<slug:buyable_slug>/checkout/", views.buyable_checkout, name="buyable_checkout"),
     path("<slug:slug>/buy/<slug:buyable_slug>/qr/", views.buyable_qr, name="buyable_qr"),
-    # Guild lead management
-    path("<slug:slug>/manage/", views.guild_manage, name="guild_manage"),
-    path("<slug:slug>/manage/add/", views.buyable_add, name="buyable_add"),
-    path("<slug:slug>/manage/<slug:buyable_slug>/edit/", views.buyable_edit, name="buyable_edit"),
-    path("<slug:slug>/manage/orders/", views.guild_orders, name="guild_orders"),
-    path("<slug:slug>/manage/orders/<int:pk>/", views.order_detail, name="order_detail"),
+    # Redirects from old guild manage URLs
+    path("<slug:slug>/manage/", RedirectView.as_view(url="/member-hub/manage/%(slug)s/", permanent=True)),
+    path("<slug:slug>/manage/add/", RedirectView.as_view(url="/member-hub/manage/%(slug)s/add/", permanent=True)),
+    path(
+        "<slug:slug>/manage/<slug:buyable_slug>/edit/",
+        RedirectView.as_view(url="/member-hub/manage/%(slug)s/%(buyable_slug)s/edit/", permanent=True),
+    ),
+    path("<slug:slug>/manage/orders/", RedirectView.as_view(url="/member-hub/manage/%(slug)s/orders/", permanent=True)),
+    path(
+        "<slug:slug>/manage/orders/<int:pk>/",
+        RedirectView.as_view(url="/member-hub/manage/%(slug)s/orders/%(pk)s/", permanent=True),
+    ),
 ]

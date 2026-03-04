@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}My Guilds — Past Lives Makerspace{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/guilds.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "membership/hub/_nav.html" %}
+
+<section class="manage-page">
+    <h1 class="manage-page__title">My Guilds</h1>
+
+    {% if guild_memberships %}
+    <div class="manage-table-card">
+        <div class="manage-table-card__body">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Guild</th>
+                        <th>Role</th>
+                        <th>Joined</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for gm in guild_memberships %}
+                    <tr>
+                        <td><a href="{% url 'guild_detail' gm.guild.slug %}">{{ gm.guild.name }}</a></td>
+                        <td>{% if gm.is_lead %}<span class="badge badge--paid">Lead</span>{% else %}Member{% endif %}</td>
+                        <td>{{ gm.joined_at|date:"M j, Y" }}</td>
+                        <td>
+                            <div class="data-table__actions">
+                                <a href="{% url 'guild_detail' gm.guild.slug %}" class="data-table__action-link">View</a>
+                                {% if gm.is_lead %}
+                                <a href="{% url 'guild_manage' gm.guild.slug %}" class="data-table__action-link">Manage</a>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="manage-table-card">
+        <p class="manage-table-card__empty">You're not a member of any guilds yet.</p>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}
