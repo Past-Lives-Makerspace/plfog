@@ -181,7 +181,6 @@ def _get_active_member(request: HttpRequest) -> Member:
 
 @login_required
 def member_directory(request: HttpRequest) -> HttpResponse:
-    _get_active_member(request)
     members = Member.objects.active().select_related("user", "membership_plan").order_by("full_legal_name")
     return render(request, "membership/member_directory.html", {"members": members})
 
