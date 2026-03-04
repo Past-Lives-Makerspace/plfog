@@ -20,34 +20,36 @@ def describe_seed_data():
         call_command("seed_data", verbosity=0)
         assert Buyable.objects.count() >= 6
 
-    def it_creates_users():
+    def it_creates_admin_user():
         call_command("seed_data", verbosity=0)
         assert User.objects.filter(username="admin@pastlives.space").exists()
-        assert User.objects.filter(username="lead1@pastlives.space").exists()
-        assert User.objects.filter(username="lead2@pastlives.space").exists()
-        assert User.objects.filter(username="member@pastlives.space").exists()
+        admin_user = User.objects.get(username="admin@pastlives.space")
+        assert admin_user.is_staff
+        assert admin_user.is_superuser
 
-    def it_creates_member_user_as_non_staff():
+    def it_creates_at_least_30_members():
         call_command("seed_data", verbosity=0)
-        member_user = User.objects.get(username="member@pastlives.space")
-        assert not member_user.is_staff
-        assert not member_user.is_superuser
+        assert Member.objects.count() >= 30
 
-    def it_creates_member_record_for_member_user():
+    def it_creates_staff_as_employees():
         call_command("seed_data", verbosity=0)
-        member_user = User.objects.get(username="member@pastlives.space")
-        member = Member.objects.get(user=member_user)
-        assert member.status == Member.Status.ACTIVE
-        assert member.role == Member.Role.STANDARD
+        morlock = Member.objects.get(email="morlock@pastlives.space")
+        assert morlock.role == Member.Role.EMPLOYEE
 
-    def it_creates_guild_memberships():
+    def it_creates_guild_lead_memberships_for_every_guild():
         call_command("seed_data", verbosity=0)
-        assert GuildMembership.objects.filter(is_lead=True).count() >= 4
+        for guild in Guild.objects.all():
+            assert guild.memberships.filter(is_lead=True).exists(), f"{guild.name} has no lead"
 
-    def it_creates_member_guild_memberships():
+    def it_sets_guild_lead_fk_on_every_guild():
         call_command("seed_data", verbosity=0)
-        member_user = User.objects.get(username="member@pastlives.space")
-        memberships = GuildMembership.objects.filter(user=member_user)
+        for guild in Guild.objects.all():
+            assert guild.guild_lead is not None, f"{guild.name} has no guild_lead FK"
+
+    def it_creates_regular_member_guild_memberships():
+        call_command("seed_data", verbosity=0)
+        lane = User.objects.get(username="lane@pastlives.space")
+        memberships = GuildMembership.objects.filter(user=lane)
         assert memberships.count() == 2
         assert not memberships.filter(is_lead=True).exists()
 
@@ -72,9 +74,12 @@ def describe_seed_data_advanced():
     def it_is_idempotent():
         call_command("seed_data", verbosity=0)
         count1 = Guild.objects.count()
+        member_count1 = Member.objects.count()
         call_command("seed_data", verbosity=0)
         count2 = Guild.objects.count()
+        member_count2 = Member.objects.count()
         assert count1 == count2
+        assert member_count1 == member_count2
 
     def it_prints_success_messages_with_verbosity():
         out = StringIO()

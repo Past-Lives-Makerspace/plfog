@@ -25,6 +25,211 @@ from membership.models import (
 
 User = get_user_model()
 
+# ------------------------------------------------------------------
+# People data
+# ------------------------------------------------------------------
+
+STAFF = [
+    {
+        "email": "morlock@pastlives.space",
+        "name": "Morlock",
+        "preferred": "Morlock",
+        "role": "employee",
+        "join": "2020-01-01",
+    },
+    {
+        "email": "athan@pastlives.space",
+        "name": "Athan Spathas",
+        "preferred": "Athan",
+        "role": "employee",
+        "join": "2022-03-01",
+    },
+    {
+        "email": "dixie@pastlives.space",
+        "name": "Dixie Junius",
+        "preferred": "Dixie",
+        "role": "employee",
+        "join": "2023-01-15",
+    },
+    {
+        "email": "lee@pastlives.space",
+        "name": "Lee Mendelsohn",
+        "preferred": "Lee",
+        "role": "employee",
+        "join": "2022-06-01",
+    },
+    {
+        "email": "shane@pastlives.space",
+        "name": "Shane Stewart",
+        "preferred": "Shane",
+        "role": "employee",
+        "join": "2023-04-01",
+    },
+    {
+        "email": "sushuma@pastlives.space",
+        "name": "Sushuma",
+        "preferred": "Sushuma",
+        "role": "employee",
+        "join": "2024-06-01",
+    },
+    {
+        "email": "phoebe@pastlives.space",
+        "name": "Phoebe Valenti",
+        "preferred": "Phoebe",
+        "role": "contractor",
+        "join": "2023-02-01",
+    },
+]
+
+GUILD_LEADS = [
+    {
+        "email": "jenelle@pastlives.space",
+        "name": "Jenelle Giordano",
+        "preferred": "Jenelle",
+        "guild": "Art Framing Guild",
+        "join": "2023-03-01",
+    },
+    {
+        "email": "jholtman@pastlives.space",
+        "name": "J. Holtman",
+        "preferred": "JHoltman",
+        "guild": "Ceramics Guild",
+        "join": "2022-09-01",
+    },
+    {
+        "email": "jamie@pastlives.space",
+        "name": "Jamie Lindner",
+        "preferred": "Jamie",
+        "guild": "Events Guild",
+        "join": "2023-05-01",
+    },
+    {
+        "email": "amber@pastlives.space",
+        "name": "Amber Terlouw",
+        "preferred": "Amber",
+        "guild": "Gardeners Guild",
+        "join": "2023-06-01",
+    },
+    {
+        "email": "kristin@pastlives.space",
+        "name": "Kristin Mitsu Shiga",
+        "preferred": "Kristin",
+        "guild": "Jewelry Guild",
+        "join": "2023-01-01",
+    },
+    {
+        "email": "shawn@pastlives.space",
+        "name": "Shawn Fox",
+        "preferred": "Shawn",
+        "guild": "Leatherworking Guild",
+        "join": "2023-04-15",
+    },
+    {
+        "email": "billy@pastlives.space",
+        "name": "William Ottaviani",
+        "preferred": "BillyO",
+        "guild": "Metal Guild",
+        "join": "2022-11-01",
+    },
+    {
+        "email": "cait@pastlives.space",
+        "name": "Cait Johnstone",
+        "preferred": "Cait",
+        "guild": "Glass Guild",
+        "join": "2023-02-15",
+    },
+    {
+        "email": "deb@pastlives.space",
+        "name": "Deb Clough",
+        "preferred": "Deb",
+        "guild": "Prison Outreach Guild",
+        "join": "2022-08-01",
+    },
+    {
+        "email": "mira@pastlives.space",
+        "name": "Mira Glasser",
+        "preferred": "Mira",
+        "guild": "Prison Outreach Guild",
+        "join": "2023-01-15",
+    },
+    {
+        "email": "patricia@pastlives.space",
+        "name": "Patricia Fischer",
+        "preferred": "Patricia",
+        "guild": "Tech Guild",
+        "join": "2023-07-01",
+    },
+    {
+        "email": "brooke@pastlives.space",
+        "name": "Brooke Sauvage",
+        "preferred": "Brooke",
+        "guild": "Textiles Guild",
+        "join": "2023-03-15",
+    },
+    {
+        "email": "kate@pastlives.space",
+        "name": "Kate",
+        "preferred": "Kate",
+        "guild": "Visual Arts Guild",
+        "join": "2023-05-15",
+    },
+    {
+        "email": "chris@pastlives.space",
+        "name": "Chris Ellwanger",
+        "preferred": "Chris",
+        "guild": "Woodworking Guild",
+        "join": "2022-10-01",
+    },
+    {
+        "email": "penina@pastlives.space",
+        "name": "Penina Finger",
+        "preferred": "Penina",
+        "guild": "Writers Guild",
+        "join": "2023-06-15",
+    },
+]
+
+# Primary guild lead per guild (for Guild.guild_lead FK — only one allowed)
+PRIMARY_GUILD_LEADS = {
+    "Art Framing Guild": "jenelle@pastlives.space",
+    "Ceramics Guild": "jholtman@pastlives.space",
+    "Events Guild": "jamie@pastlives.space",
+    "Gardeners Guild": "amber@pastlives.space",
+    "Glass Guild": "cait@pastlives.space",
+    "Jewelry Guild": "kristin@pastlives.space",
+    "Leatherworking Guild": "shawn@pastlives.space",
+    "Metal Guild": "billy@pastlives.space",
+    "Prison Outreach Guild": "deb@pastlives.space",
+    "Tech Guild": "patricia@pastlives.space",
+    "Textiles Guild": "brooke@pastlives.space",
+    "Visual Arts Guild": "kate@pastlives.space",
+    "Woodworking Guild": "chris@pastlives.space",
+    "Writers Guild": "penina@pastlives.space",
+}
+
+REGULAR_MEMBERS = [
+    {"email": "lane@pastlives.space", "name": "Lane Martinez", "preferred": "Lane", "join": "2024-01-15"},
+    {"email": "pj@pastlives.space", "name": "PJ Nguyen", "preferred": "PJ", "join": "2024-02-01"},
+    {"email": "dreenius@pastlives.space", "name": "Dreenius Walker", "preferred": "Dreenius", "join": "2024-03-01"},
+    {"email": "robin@pastlives.space", "name": "Robin Blackwood", "preferred": "Robin", "join": "2024-04-15"},
+    {"email": "alex@pastlives.space", "name": "Alex Rivera", "preferred": "Alex", "join": "2023-06-01"},
+    {"email": "sam@pastlives.space", "name": "Sam Taylor", "preferred": "Sam", "join": "2024-03-01"},
+    {"email": "casey@pastlives.space", "name": "Casey Finch", "preferred": "Casey", "join": "2024-06-01"},
+    {"email": "morgan@pastlives.space", "name": "Morgan Reeves", "preferred": "Morgan", "join": "2024-07-15"},
+]
+
+# Regular members' guild memberships (non-lead)
+MEMBER_GUILDS = {
+    "lane@pastlives.space": ["Ceramics Guild", "Woodworking Guild"],
+    "pj@pastlives.space": ["Glass Guild"],
+    "dreenius@pastlives.space": ["Visual Arts Guild", "Events Guild"],
+    "robin@pastlives.space": ["Textiles Guild"],
+    "alex@pastlives.space": ["Ceramics Guild", "Metal Guild"],
+    "sam@pastlives.space": ["Woodworking Guild", "Tech Guild"],
+    "casey@pastlives.space": ["Jewelry Guild"],
+    "morgan@pastlives.space": ["Writers Guild", "Visual Arts Guild"],
+}
+
 
 class Command(BaseCommand):
     help = "Load demo seed data for development"
@@ -32,11 +237,11 @@ class Command(BaseCommand):
     def handle(self, *args: str, **options: int) -> None:  # type: ignore[override]
         verbosity: int = options.get("verbosity", 1)
 
-        users = self._seed_users(verbosity)
         plan = self._seed_membership_plan(verbosity)
-        self._seed_members(users, plan, verbosity)
+        users = self._seed_users(verbosity)
+        members = self._seed_members(users, plan, verbosity)
         guilds = self._seed_guilds(verbosity)
-        self._seed_guild_memberships(guilds, users, verbosity)
+        self._seed_guild_leads(guilds, members, users, verbosity)
         self._seed_guild_links(guilds, verbosity)
         self._seed_wishlist_items(guilds, verbosity)
         buyables = self._seed_buyables(guilds, verbosity)
@@ -46,52 +251,6 @@ class Command(BaseCommand):
 
         if verbosity >= 1:
             self.stdout.write(self.style.SUCCESS("Seed data loaded successfully."))
-
-    # ------------------------------------------------------------------
-    # Users
-    # ------------------------------------------------------------------
-
-    def _seed_users(self, verbosity: int) -> dict[str, UserType]:
-        admin, created = User.objects.get_or_create(
-            username="admin@pastlives.space",
-            defaults={
-                "email": "admin@pastlives.space",
-                "is_staff": True,
-                "is_superuser": True,
-            },
-        )
-        if created:
-            admin.set_password("testpass123")
-            admin.save()
-
-        lead1, created = User.objects.get_or_create(
-            username="lead1@pastlives.space",
-            defaults={"email": "lead1@pastlives.space"},
-        )
-        if created:
-            lead1.set_password("testpass123")
-            lead1.save()
-
-        lead2, created = User.objects.get_or_create(
-            username="lead2@pastlives.space",
-            defaults={"email": "lead2@pastlives.space"},
-        )
-        if created:
-            lead2.set_password("testpass123")
-            lead2.save()
-
-        member_user, created = User.objects.get_or_create(
-            username="member@pastlives.space",
-            defaults={"email": "member@pastlives.space"},
-        )
-        if created:
-            member_user.set_password("testpass123")
-            member_user.save()
-
-        if verbosity >= 1:
-            self.stdout.write(self.style.SUCCESS("Users seeded."))
-
-        return {"admin": admin, "lead1": lead1, "lead2": lead2, "member": member_user}
 
     # ------------------------------------------------------------------
     # Membership plan
@@ -109,6 +268,50 @@ class Command(BaseCommand):
         return plan
 
     # ------------------------------------------------------------------
+    # Users
+    # ------------------------------------------------------------------
+
+    def _seed_users(self, verbosity: int) -> dict[str, UserType]:
+        users: dict[str, UserType] = {}
+
+        # Admin superuser
+        admin, created = User.objects.get_or_create(
+            username="admin@pastlives.space",
+            defaults={
+                "email": "admin@pastlives.space",
+                "is_staff": True,
+                "is_superuser": True,
+            },
+        )
+        if created:
+            admin.set_password("testpass123")
+            admin.save()
+        users["admin@pastlives.space"] = admin
+
+        # All people: staff + guild leads + regular members
+        all_people = [
+            *[{"email": p["email"], "is_staff": True} for p in STAFF],
+            *[{"email": p["email"], "is_staff": False} for p in GUILD_LEADS],
+            *[{"email": p["email"], "is_staff": False} for p in REGULAR_MEMBERS],
+        ]
+
+        for person in all_people:
+            email = person["email"]
+            user, created = User.objects.get_or_create(
+                username=email,
+                defaults={"email": email, "is_staff": person["is_staff"]},
+            )
+            if created:
+                user.set_password("testpass123")
+                user.save()
+            users[email] = user
+
+        if verbosity >= 1:
+            self.stdout.write(self.style.SUCCESS(f"{len(users)} users seeded."))
+
+        return users
+
+    # ------------------------------------------------------------------
     # Members
     # ------------------------------------------------------------------
 
@@ -117,46 +320,58 @@ class Command(BaseCommand):
         users: dict[str, UserType],
         plan: MembershipPlan,
         verbosity: int,
-    ) -> None:
-        Member.objects.get_or_create(
-            user=users["lead1"],
-            defaults={
-                "full_legal_name": "Alex Rivera",
-                "preferred_name": "Alex",
-                "email": users["lead1"].email,
-                "membership_plan": plan,
-                "status": Member.Status.ACTIVE,
-                "join_date": date(2023, 6, 1),
-            },
-        )
+    ) -> dict[str, Member]:
+        members: dict[str, Member] = {}
 
-        Member.objects.get_or_create(
-            user=users["lead2"],
-            defaults={
-                "full_legal_name": "Jordan Kim",
-                "preferred_name": "Jordan",
-                "email": users["lead2"].email,
-                "membership_plan": plan,
-                "status": Member.Status.ACTIVE,
-                "join_date": date(2023, 9, 15),
-            },
-        )
+        for person in STAFF:
+            member, _ = Member.objects.get_or_create(
+                user=users[person["email"]],
+                defaults={
+                    "full_legal_name": person["name"],
+                    "preferred_name": person["preferred"],
+                    "email": person["email"],
+                    "membership_plan": plan,
+                    "status": Member.Status.ACTIVE,
+                    "role": person["role"],
+                    "join_date": date.fromisoformat(person["join"]),
+                },
+            )
+            members[person["email"]] = member
 
-        Member.objects.get_or_create(
-            user=users["member"],
-            defaults={
-                "full_legal_name": "Sam Taylor",
-                "preferred_name": "Sam",
-                "email": users["member"].email,
-                "membership_plan": plan,
-                "status": Member.Status.ACTIVE,
-                "role": Member.Role.STANDARD,
-                "join_date": date(2024, 3, 1),
-            },
-        )
+        for person in GUILD_LEADS:
+            member, _ = Member.objects.get_or_create(
+                user=users[person["email"]],
+                defaults={
+                    "full_legal_name": person["name"],
+                    "preferred_name": person["preferred"],
+                    "email": person["email"],
+                    "membership_plan": plan,
+                    "status": Member.Status.ACTIVE,
+                    "role": Member.Role.GUILD_LEAD,
+                    "join_date": date.fromisoformat(person["join"]),
+                },
+            )
+            members[person["email"]] = member
+
+        for person in REGULAR_MEMBERS:
+            member, _ = Member.objects.get_or_create(
+                user=users[person["email"]],
+                defaults={
+                    "full_legal_name": person["name"],
+                    "preferred_name": person["preferred"],
+                    "email": person["email"],
+                    "membership_plan": plan,
+                    "status": Member.Status.ACTIVE,
+                    "role": Member.Role.STANDARD,
+                    "join_date": date.fromisoformat(person["join"]),
+                },
+            )
+            members[person["email"]] = member
 
         if verbosity >= 1:
-            self.stdout.write(self.style.SUCCESS("Members seeded."))
+            self.stdout.write(self.style.SUCCESS(f"{len(members)} members seeded."))
+
+        return members
 
     # ------------------------------------------------------------------
     # Guilds
@@ -300,42 +515,51 @@ class Command(BaseCommand):
         return guilds
 
     # ------------------------------------------------------------------
-    # Guild memberships
+    # Guild leads + memberships
     # ------------------------------------------------------------------
 
-    def _seed_guild_memberships(
+    def _seed_guild_leads(
         self,
         guilds: dict[str, Guild],
+        members: dict[str, Member],
         users: dict[str, UserType],
         verbosity: int,
     ) -> None:
-        lead1_guilds = ["Ceramics Guild", "Woodworking Guild"]
-        lead2_guilds = ["Glass Guild", "Metal Guild"]
+        # Set Guild.guild_lead FK for each guild's primary lead
+        for guild_name, email in PRIMARY_GUILD_LEADS.items():
+            guild = guilds[guild_name]
+            member = members[email]
+            if guild.guild_lead != member:
+                guild.guild_lead = member
+                guild.save()
 
-        for name in lead1_guilds:
+        # Create GuildMembership (is_lead=True) for ALL guild leads
+        for person in GUILD_LEADS:
+            guild = guilds[person["guild"]]
+            user = users[person["email"]]
             GuildMembership.objects.get_or_create(
-                guild=guilds[name],
-                user=users["lead1"],
+                guild=guild,
+                user=user,
                 defaults={"is_lead": True},
             )
 
-        for name in lead2_guilds:
-            GuildMembership.objects.get_or_create(
-                guild=guilds[name],
-                user=users["lead2"],
-                defaults={"is_lead": True},
-            )
+        # Create GuildMembership (is_lead=False) for regular members
+        for email, guild_names in MEMBER_GUILDS.items():
+            user = users[email]
+            for guild_name in guild_names:
+                guild = guilds[guild_name]
+                GuildMembership.objects.get_or_create(
+                    guild=guild,
+                    user=user,
+                    defaults={"is_lead": False},
+                )
 
-        member_guilds = ["Ceramics Guild", "Textiles Guild"]
-        for name in member_guilds:
-            GuildMembership.objects.get_or_create(
-                guild=guilds[name],
-                user=users["member"],
-                defaults={"is_lead": False},
-            )
-
+        lead_count = GuildMembership.objects.filter(is_lead=True).count()
+        member_count = GuildMembership.objects.filter(is_lead=False).count()
         if verbosity >= 1:
-            self.stdout.write(self.style.SUCCESS("Guild memberships seeded."))
+            self.stdout.write(
+                self.style.SUCCESS(f"Guild memberships seeded ({lead_count} leads, {member_count} members).")
+            )
 
     # ------------------------------------------------------------------
     # Guild links
@@ -576,7 +800,7 @@ class Command(BaseCommand):
         order_data = [
             {
                 "buyable": "Stoneware Clay (25 lb)",
-                "user": users["member"],
+                "user": "lane@pastlives.space",
                 "quantity": 2,
                 "amount": 3600,
                 "status": Order.Status.PAID,
@@ -584,7 +808,7 @@ class Command(BaseCommand):
             },
             {
                 "buyable": "Bullseye Sheet Glass",
-                "user": users["lead2"],
+                "user": "cait@pastlives.space",
                 "quantity": 3,
                 "amount": 6600,
                 "status": Order.Status.PAID,
@@ -592,7 +816,7 @@ class Command(BaseCommand):
             },
             {
                 "buyable": "Hardwood Board (bd ft)",
-                "user": users["lead1"],
+                "user": "chris@pastlives.space",
                 "quantity": 10,
                 "amount": 8000,
                 "status": Order.Status.PAID,
@@ -600,7 +824,7 @@ class Command(BaseCommand):
             },
             {
                 "buyable": "Welding Wire Spool",
-                "user": users["lead1"],
+                "user": "billy@pastlives.space",
                 "quantity": 1,
                 "amount": 3500,
                 "status": Order.Status.PENDING,
@@ -610,9 +834,10 @@ class Command(BaseCommand):
 
         for item in order_data:
             buyable = buyables[str(item["buyable"])]
+            user = users[str(item["user"])]
             Order.objects.get_or_create(
                 buyable=buyable,
-                user=item["user"],
+                user=user,
                 amount=item["amount"],
                 defaults={
                     "quantity": item["quantity"],
