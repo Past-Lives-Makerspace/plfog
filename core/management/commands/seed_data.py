@@ -40,7 +40,7 @@ class Command(BaseCommand):
         self._seed_guild_links(guilds, verbosity)
         self._seed_wishlist_items(guilds, verbosity)
         buyables = self._seed_buyables(guilds, verbosity)
-        spaces = self._seed_spaces(guilds, verbosity)
+        spaces = self._seed_spaces(verbosity)
         self._seed_leases(guilds, spaces, verbosity)
         self._seed_orders(buyables, users, verbosity)
 
@@ -214,6 +214,71 @@ class Command(BaseCommand):
                     "The Prison Outreach Guild delivers art education programs inside Oregon correctional facilities."
                 ),
             },
+            {
+                "name": "Leatherworking Guild",
+                "icon": "content_cut",
+                "intro": "Hide, stitch, and craft",
+                "description": (
+                    "The Leatherworking Guild provides tools and workspace for leather tooling, "
+                    "stitching, and finishing."
+                ),
+            },
+            {
+                "name": "Jewelry Guild",
+                "icon": "diamond",
+                "intro": "Metalsmithing, beading, and lapidary",
+                "description": (
+                    "The Jewelry Guild supports bench work, stone setting, casting, and beadwork."
+                ),
+            },
+            {
+                "name": "Art Framing Guild",
+                "icon": "crop_square",
+                "intro": "Custom framing and preservation",
+                "description": (
+                    "The Art Framing Guild offers mat cutting, glass fitting, and custom frame assembly."
+                ),
+            },
+            {
+                "name": "Events Guild",
+                "icon": "event",
+                "intro": "Shows, markets, and community gatherings",
+                "description": (
+                    "The Events Guild organizes art shows, maker markets, and community events at the makerspace."
+                ),
+            },
+            {
+                "name": "Gardeners Guild",
+                "icon": "yard",
+                "intro": "Growing, composting, and green spaces",
+                "description": (
+                    "The Gardeners Guild maintains raised beds, a compost system, and native plantings on site."
+                ),
+            },
+            {
+                "name": "Tech Guild",
+                "icon": "memory",
+                "intro": "Electronics, 3D printing, and code",
+                "description": (
+                    "The Tech Guild operates 3D printers, laser cutters, and an electronics bench."
+                ),
+            },
+            {
+                "name": "Visual Arts Guild",
+                "icon": "brush",
+                "intro": "Painting, drawing, and printmaking",
+                "description": (
+                    "The Visual Arts Guild provides easel space, a printmaking press, and shared drawing sessions."
+                ),
+            },
+            {
+                "name": "Writers Guild",
+                "icon": "edit_note",
+                "intro": "Workshops, readings, and zine-making",
+                "description": (
+                    "The Writers Guild hosts workshops, open-mic readings, and a risograph zine press."
+                ),
+            },
         ]
 
         guilds: dict[str, Guild] = {}
@@ -354,16 +419,19 @@ class Command(BaseCommand):
         verbosity: int,
     ) -> dict[str, Buyable]:
         buyable_data = [
-            {"guild": "Ceramics Guild", "name": "Ceramics Class Pass", "unit_price": Decimal("45.00")},
-            {"guild": "Ceramics Guild", "name": "Open Studio Time", "unit_price": Decimal("15.00")},
+            {"guild": "Ceramics Guild", "name": "Stoneware Clay (25 lb)", "unit_price": Decimal("18.00")},
+            {"guild": "Ceramics Guild", "name": "Glaze (pint)", "unit_price": Decimal("12.00")},
             {"guild": "Ceramics Guild", "name": "Kiln Firing", "unit_price": Decimal("25.00")},
-            {"guild": "Woodworking Guild", "name": "Wood Shop Day Pass", "unit_price": Decimal("30.00")},
-            {"guild": "Woodworking Guild", "name": "Joinery Workshop", "unit_price": Decimal("65.00")},
-            {"guild": "Glass Guild", "name": "Flamework Intro Class", "unit_price": Decimal("55.00")},
-            {"guild": "Glass Guild", "name": "Glass Fusing Session", "unit_price": Decimal("40.00")},
-            {"guild": "Textiles Guild", "name": "Natural Dye Workshop", "unit_price": Decimal("35.00")},
-            {"guild": "Metal Guild", "name": "Intro to Welding", "unit_price": Decimal("75.00")},
-            {"guild": "Metal Guild", "name": "Forge Day Pass", "unit_price": Decimal("20.00")},
+            {"guild": "Woodworking Guild", "name": "Hardwood Board (bd ft)", "unit_price": Decimal("8.00")},
+            {"guild": "Woodworking Guild", "name": "Plywood Sheet (4x8)", "unit_price": Decimal("45.00")},
+            {"guild": "Glass Guild", "name": "Bullseye Sheet Glass", "unit_price": Decimal("22.00")},
+            {"guild": "Glass Guild", "name": "Glass Frit (1 lb)", "unit_price": Decimal("14.00")},
+            {"guild": "Textiles Guild", "name": "Natural Dye Kit", "unit_price": Decimal("28.00")},
+            {"guild": "Metal Guild", "name": "Steel Rod (6 ft)", "unit_price": Decimal("12.00")},
+            {"guild": "Metal Guild", "name": "Welding Wire Spool", "unit_price": Decimal("35.00")},
+            {"guild": "Leatherworking Guild", "name": "Veg-Tan Leather Hide (sq ft)", "unit_price": Decimal("15.00")},
+            {"guild": "Jewelry Guild", "name": "Sterling Silver Wire (ft)", "unit_price": Decimal("10.00")},
+            {"guild": "Tech Guild", "name": "PLA Filament (1 kg)", "unit_price": Decimal("22.00")},
         ]
 
         buyables: dict[str, Buyable] = {}
@@ -392,7 +460,6 @@ class Command(BaseCommand):
 
     def _seed_spaces(
         self,
-        guilds: dict[str, Guild],
         verbosity: int,
     ) -> dict[str, Space]:
         space_data = [
@@ -403,7 +470,6 @@ class Command(BaseCommand):
                 "size_sqft": Decimal("400.00"),
                 "status": Space.Status.OCCUPIED,
                 "is_rentable": True,
-                "sublet_guild": "Ceramics Guild",
             },
             {
                 "space_id": "S-102",
@@ -412,7 +478,6 @@ class Command(BaseCommand):
                 "size_sqft": Decimal("600.00"),
                 "status": Space.Status.OCCUPIED,
                 "is_rentable": True,
-                "sublet_guild": "Woodworking Guild",
             },
             {
                 "space_id": "S-103",
@@ -421,7 +486,6 @@ class Command(BaseCommand):
                 "size_sqft": Decimal("300.00"),
                 "status": Space.Status.OCCUPIED,
                 "is_rentable": True,
-                "sublet_guild": "Glass Guild",
             },
             {
                 "space_id": "ST-01",
@@ -430,17 +494,14 @@ class Command(BaseCommand):
                 "size_sqft": Decimal("80.00"),
                 "status": Space.Status.AVAILABLE,
                 "is_rentable": True,
-                "sublet_guild": None,
             },
         ]
 
         spaces: dict[str, Space] = {}
         for item in space_data:
-            sublet_name = item.pop("sublet_guild")
-            sublet_guild = guilds[str(sublet_name)] if sublet_name else None
             space, _ = Space.objects.get_or_create(
                 space_id=item["space_id"],
-                defaults={**item, "sublet_guild": sublet_guild},
+                defaults=item,
             )
             spaces[space.space_id] = space
 
@@ -514,26 +575,34 @@ class Command(BaseCommand):
 
         order_data = [
             {
-                "buyable": "Ceramics Class Pass",
-                "user": users["lead1"],
-                "quantity": 1,
-                "amount": 4500,
-                "status": Order.Status.PAID,
-                "paid_at": timezone.now(),
-            },
-            {
-                "buyable": "Open Studio Time",
-                "user": users["lead2"],
+                "buyable": "Stoneware Clay (25 lb)",
+                "user": users["member"],
                 "quantity": 2,
-                "amount": 3000,
+                "amount": 3600,
                 "status": Order.Status.PAID,
                 "paid_at": timezone.now(),
             },
             {
-                "buyable": "Intro to Welding",
+                "buyable": "Bullseye Sheet Glass",
+                "user": users["lead2"],
+                "quantity": 3,
+                "amount": 6600,
+                "status": Order.Status.PAID,
+                "paid_at": timezone.now(),
+            },
+            {
+                "buyable": "Hardwood Board (bd ft)",
+                "user": users["lead1"],
+                "quantity": 10,
+                "amount": 8000,
+                "status": Order.Status.PAID,
+                "paid_at": timezone.now(),
+            },
+            {
+                "buyable": "Welding Wire Spool",
                 "user": users["lead1"],
                 "quantity": 1,
-                "amount": 7500,
+                "amount": 3500,
                 "status": Order.Status.PENDING,
                 "paid_at": None,
             },

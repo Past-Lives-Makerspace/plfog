@@ -14,7 +14,7 @@ User = get_user_model()
 def describe_seed_data():
     def it_creates_guilds():
         call_command("seed_data", verbosity=0)
-        assert Guild.objects.count() >= 6
+        assert Guild.objects.count() >= 14
 
     def it_creates_buyables():
         call_command("seed_data", verbosity=0)
