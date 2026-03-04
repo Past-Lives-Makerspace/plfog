@@ -49,9 +49,9 @@ class Command(BaseCommand):
 
     def _seed_users(self, verbosity: int) -> dict[str, object]:
         admin, created = User.objects.get_or_create(
-            username="admin",
+            username="admin@pastlives.space",
             defaults={
-                "email": "admin@pastlivespdx.com",
+                "email": "admin@pastlives.space",
                 "is_staff": True,
                 "is_superuser": True,
             },
@@ -61,16 +61,16 @@ class Command(BaseCommand):
             admin.save()
 
         lead1, created = User.objects.get_or_create(
-            username="lead1",
-            defaults={"email": "lead1@pastlivespdx.com"},
+            username="lead1@pastlives.space",
+            defaults={"email": "lead1@pastlives.space"},
         )
         if created:
             lead1.set_password("testpass123")
             lead1.save()
 
         lead2, created = User.objects.get_or_create(
-            username="lead2",
-            defaults={"email": "lead2@pastlivespdx.com"},
+            username="lead2@pastlives.space",
+            defaults={"email": "lead2@pastlives.space"},
         )
         if created:
             lead2.set_password("testpass123")
@@ -111,7 +111,7 @@ class Command(BaseCommand):
             defaults={
                 "full_legal_name": "Alex Rivera",
                 "preferred_name": "Alex",
-                "email": "lead1@pastlivespdx.com",
+                "email": users["lead1"].email,
                 "membership_plan": plan,
                 "status": Member.Status.ACTIVE,
                 "join_date": date(2023, 6, 1),
@@ -123,7 +123,7 @@ class Command(BaseCommand):
             defaults={
                 "full_legal_name": "Jordan Kim",
                 "preferred_name": "Jordan",
-                "email": "lead2@pastlivespdx.com",
+                "email": users["lead2"].email,
                 "membership_plan": plan,
                 "status": Member.Status.ACTIVE,
                 "join_date": date(2023, 9, 15),
@@ -247,7 +247,7 @@ class Command(BaseCommand):
         links_map = {
             "Ceramics Guild": [
                 {"name": "Instagram", "url": "https://instagram.com/pastlives_ceramics"},
-                {"name": "Website", "url": "https://pastlivespdx.com/guilds/ceramics"},
+                {"name": "Website", "url": "https://pastlives.space/guilds/ceramics"},
             ],
             "Woodworking Guild": [
                 {"name": "Instagram", "url": "https://instagram.com/pastlives_wood"},

@@ -22,9 +22,9 @@ def describe_seed_data():
 
     def it_creates_users():
         call_command("seed_data", verbosity=0)
-        assert User.objects.filter(username="admin").exists()
-        assert User.objects.filter(username="lead1").exists()
-        assert User.objects.filter(username="lead2").exists()
+        assert User.objects.filter(username="admin@pastlives.space").exists()
+        assert User.objects.filter(username="lead1@pastlives.space").exists()
+        assert User.objects.filter(username="lead2@pastlives.space").exists()
 
     def it_creates_guild_memberships():
         call_command("seed_data", verbosity=0)
