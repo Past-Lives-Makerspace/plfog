@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import User as UserType
 
 from membership.models import (
     Buyable,
@@ -47,7 +51,7 @@ class Command(BaseCommand):
     # Users
     # ------------------------------------------------------------------
 
-    def _seed_users(self, verbosity: int) -> dict[str, object]:
+    def _seed_users(self, verbosity: int) -> dict[str, UserType]:
         admin, created = User.objects.get_or_create(
             username="admin@pastlives.space",
             defaults={
@@ -76,10 +80,18 @@ class Command(BaseCommand):
             lead2.set_password("testpass123")
             lead2.save()
 
+        member_user, created = User.objects.get_or_create(
+            username="member@pastlives.space",
+            defaults={"email": "member@pastlives.space"},
+        )
+        if created:
+            member_user.set_password("testpass123")
+            member_user.save()
+
         if verbosity >= 1:
             self.stdout.write(self.style.SUCCESS("Users seeded."))
 
-        return {"admin": admin, "lead1": lead1, "lead2": lead2}
+        return {"admin": admin, "lead1": lead1, "lead2": lead2, "member": member_user}
 
     # ------------------------------------------------------------------
     # Membership plan
@@ -102,7 +114,7 @@ class Command(BaseCommand):
 
     def _seed_members(
         self,
-        users: dict[str, object],
+        users: dict[str, UserType],
         plan: MembershipPlan,
         verbosity: int,
     ) -> None:
@@ -127,6 +139,19 @@ class Command(BaseCommand):
                 "membership_plan": plan,
                 "status": Member.Status.ACTIVE,
                 "join_date": date(2023, 9, 15),
+            },
+        )
+
+        Member.objects.get_or_create(
+            user=users["member"],
+            defaults={
+                "full_legal_name": "Sam Taylor",
+                "preferred_name": "Sam",
+                "email": users["member"].email,
+                "membership_plan": plan,
+                "status": Member.Status.ACTIVE,
+                "role": Member.Role.STANDARD,
+                "join_date": date(2024, 3, 1),
             },
         )
 
@@ -216,7 +241,7 @@ class Command(BaseCommand):
     def _seed_guild_memberships(
         self,
         guilds: dict[str, Guild],
-        users: dict[str, object],
+        users: dict[str, UserType],
         verbosity: int,
     ) -> None:
         lead1_guilds = ["Ceramics Guild", "Woodworking Guild"]
@@ -234,6 +259,14 @@ class Command(BaseCommand):
                 guild=guilds[name],
                 user=users["lead2"],
                 defaults={"is_lead": True},
+            )
+
+        member_guilds = ["Ceramics Guild", "Textiles Guild"]
+        for name in member_guilds:
+            GuildMembership.objects.get_or_create(
+                guild=guilds[name],
+                user=users["member"],
+                defaults={"is_lead": False},
             )
 
         if verbosity >= 1:
@@ -474,7 +507,7 @@ class Command(BaseCommand):
     def _seed_orders(
         self,
         buyables: dict[str, Buyable],
-        users: dict[str, object],
+        users: dict[str, UserType],
         verbosity: int,
     ) -> None:
         from django.utils import timezone

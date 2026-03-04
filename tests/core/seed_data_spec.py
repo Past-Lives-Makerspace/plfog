@@ -4,7 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 
-from membership.models import Buyable, Guild, GuildMembership, GuildWishlistItem, Lease, Order, Space
+from membership.models import Buyable, Guild, GuildMembership, GuildWishlistItem, Lease, Member, Order, Space
 
 pytestmark = pytest.mark.django_db
 
@@ -25,10 +25,31 @@ def describe_seed_data():
         assert User.objects.filter(username="admin@pastlives.space").exists()
         assert User.objects.filter(username="lead1@pastlives.space").exists()
         assert User.objects.filter(username="lead2@pastlives.space").exists()
+        assert User.objects.filter(username="member@pastlives.space").exists()
+
+    def it_creates_member_user_as_non_staff():
+        call_command("seed_data", verbosity=0)
+        member_user = User.objects.get(username="member@pastlives.space")
+        assert not member_user.is_staff
+        assert not member_user.is_superuser
+
+    def it_creates_member_record_for_member_user():
+        call_command("seed_data", verbosity=0)
+        member_user = User.objects.get(username="member@pastlives.space")
+        member = Member.objects.get(user=member_user)
+        assert member.status == Member.Status.ACTIVE
+        assert member.role == Member.Role.STANDARD
 
     def it_creates_guild_memberships():
         call_command("seed_data", verbosity=0)
         assert GuildMembership.objects.filter(is_lead=True).count() >= 4
+
+    def it_creates_member_guild_memberships():
+        call_command("seed_data", verbosity=0)
+        member_user = User.objects.get(username="member@pastlives.space")
+        memberships = GuildMembership.objects.filter(user=member_user)
+        assert memberships.count() == 2
+        assert not memberships.filter(is_lead=True).exists()
 
     def it_creates_wishlist_items():
         call_command("seed_data", verbosity=0)

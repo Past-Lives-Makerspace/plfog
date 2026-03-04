@@ -11,8 +11,8 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from .forms import BuyableForm, OrderNoteForm
-from .models import Buyable, Guild, GuildMembership, Order
+from .forms import BuyableForm, MemberProfileForm, OrderNoteForm
+from .models import Buyable, Guild, GuildMembership, Member, Order
 from .stripe_utils import create_checkout_session
 
 if TYPE_CHECKING:
@@ -158,6 +158,46 @@ def user_orders(request: HttpRequest) -> HttpResponse:
     user = cast("User", request.user)
     orders = Order.objects.filter(user=user).select_related("buyable__guild").order_by("-created_at")
     return render(request, "membership/user_orders.html", {"orders": orders})
+
+
+# ---------------------------------------------------------------------------
+# Member pages (auth + active member only)
+# ---------------------------------------------------------------------------
+
+
+def _get_active_member(request: HttpRequest) -> Member:
+    """Return active Member for the authenticated user. Raise 403 otherwise."""
+    from django.core.exceptions import PermissionDenied
+
+    user = cast("User", request.user)
+    try:
+        member = Member.objects.get(user=user)
+    except Member.DoesNotExist:
+        raise PermissionDenied
+    if member.status != Member.Status.ACTIVE:
+        raise PermissionDenied
+    return member
+
+
+@login_required
+def member_directory(request: HttpRequest) -> HttpResponse:
+    _get_active_member(request)
+    members = Member.objects.active().select_related("user", "membership_plan").order_by("full_legal_name")
+    return render(request, "membership/member_directory.html", {"members": members})
+
+
+@login_required
+def profile_edit(request: HttpRequest) -> HttpResponse:
+    member = _get_active_member(request)
+    if request.method == "POST":
+        form = MemberProfileForm(request.POST, instance=member)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Profile updated.")
+            return redirect("profile_edit")
+    else:
+        form = MemberProfileForm(instance=member)
+    return render(request, "membership/profile_edit.html", {"member": member, "form": form})
 
 
 # ---------------------------------------------------------------------------

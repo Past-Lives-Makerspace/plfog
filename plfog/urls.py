@@ -12,8 +12,11 @@ urlpatterns = [
     # Stripe callbacks
     path("checkout/success/", membership_views.checkout_success, name="checkout_success"),
     path("checkout/cancel/", membership_views.checkout_cancel, name="checkout_cancel"),
+    # Member pages
+    path("members/", membership_views.member_directory, name="member_directory"),
     # User account area
     path("account/orders/", membership_views.user_orders, name="user_orders"),
+    path("account/profile/", membership_views.profile_edit, name="profile_edit"),
     path("", include("core.urls")),
 ]
 
