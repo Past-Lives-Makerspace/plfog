@@ -147,6 +147,7 @@ LOGOUT_REDIRECT_URL = "/"
 SOCIALACCOUNT_ADAPTER = "plfog.adapters.AutoAdminSocialAccountAdapter"
 ACCOUNT_ADAPTER = "plfog.adapters.AdminRedirectAccountAdapter"
 SOCIALACCOUNT_LOGIN_ON_GET = True
+ALLAUTH_TRUSTED_PROXY_COUNT = int(os.environ.get("ALLAUTH_TRUSTED_PROXY_COUNT", "0"))
 
 # Auto-admin: comma-separated list of email domains that get admin privileges on social login.
 # Empty/unset means no auto-admin. Malformed values raise ValueError at startup.

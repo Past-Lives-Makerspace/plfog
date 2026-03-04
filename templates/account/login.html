@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% load allauth %}
 
 {% block title %}Log In - Past Lives{% endblock %}
 
@@ -18,17 +17,11 @@
             Continue with Google
         </a>
         <div class="divider"><span>or</span></div>
-        {% element form form=form method="POST" action=action %}
+        <form method="POST">
             {% csrf_token %}
-            {% slot body %}
-                {% for field in form %}
-                    {% element field field=field %}{% endelement %}
-                {% endfor %}
-            {% endslot %}
-            {% slot actions %}
-                <button type="submit" class="btn btn--primary btn--full">Log In</button>
-            {% endslot %}
-        {% endelement %}
+            {{ form.as_p }}
+            <button type="submit" class="btn btn--primary btn--full">Log In</button>
+        </form>
         <div class="auth-links">
             <p>Don't have an account? <a href="{% url 'account_signup' %}">Sign up</a></p>
         </div>
