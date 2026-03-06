@@ -9,7 +9,6 @@ from django.core.management import call_command, get_commands, load_command_clas
 from membership.models import (
     Buyable,
     Guild,
-    GuildMembership,
     GuildWishlistItem,
     Lease,
     Member,
@@ -82,20 +81,6 @@ def describe_seed_data_roles():
         _seed()
         for guild in Guild.objects.all():
             assert guild.guild_lead is not None, f"{guild.name} has no guild lead"
-            assert GuildMembership.objects.filter(guild=guild, is_lead=True).exists()
-
-    def it_assigns_2_co_leads_to_prison_outreach() -> None:
-        _seed()
-        prison = Guild.objects.get(name="Prison Outreach")
-        co_leads = GuildMembership.objects.filter(guild=prison, is_lead=True)
-        assert co_leads.count() == 2
-
-    def it_creates_guild_memberships_for_regular_members() -> None:
-        _seed()
-        regular = Member.objects.filter(role=Member.Role.STANDARD)
-        assert regular.count() == 8
-        for member in regular:
-            assert GuildMembership.objects.filter(user=member.user).exists()
 
     def it_applies_guild_links() -> None:
         _seed()

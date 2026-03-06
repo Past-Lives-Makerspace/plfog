@@ -10,7 +10,6 @@ from unfold.admin import GenericTabularInline, ModelAdmin, TabularInline
 from .models import (
     Buyable,
     Guild,
-    GuildMembership,
     GuildVote,
     GuildWishlistItem,
     Lease,
@@ -93,13 +92,6 @@ class LeaseInlineGuild(GenericTabularInline):
     @admin.display(boolean=True, description="Active")
     def is_active_display(self, obj: Lease) -> bool:
         return obj.is_active
-
-
-class GuildMembershipInline(TabularInline):
-    model = GuildMembership
-    fields = ["user", "is_lead", "joined_at"]
-    readonly_fields = ["joined_at"]
-    extra = 0
 
 
 class GuildWishlistItemInline(TabularInline):
@@ -224,7 +216,7 @@ class GuildAdmin(ModelAdmin):
     list_filter = ["is_active"]
     search_fields = ["name"]
     prepopulated_fields = {"slug": ("name",)}
-    inlines = [LeaseInlineGuild, GuildMembershipInline, GuildWishlistItemInline, BuyableInline]
+    inlines = [LeaseInlineGuild, GuildWishlistItemInline, BuyableInline]
 
     @admin.display(description="Page")
     def view_page_link(self, obj: Guild) -> str:
@@ -330,18 +322,6 @@ class LeaseAdmin(ModelAdmin):
     @admin.display(boolean=True, description="Active")
     def is_active_display(self, obj: Lease) -> bool:
         return obj.is_active
-
-
-# ---------------------------------------------------------------------------
-# GuildMembershipAdmin
-# ---------------------------------------------------------------------------
-
-
-@admin.register(GuildMembership)
-class GuildMembershipAdmin(ModelAdmin):
-    list_display = ["guild", "user", "is_lead", "joined_at"]
-    list_filter = ["is_lead", "guild"]
-    search_fields = ["guild__name", "user__username"]
 
 
 # ---------------------------------------------------------------------------

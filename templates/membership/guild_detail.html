@@ -47,28 +47,15 @@
 </section>
 {% endif %}
 
-{# Members #}
-<section class="guild-section" aria-labelledby="members-heading">
-    <h2 class="guild-section__heading" id="members-heading">Members</h2>
+{# Guild Lead #}
+{% if guild_lead %}
+<section class="guild-section" aria-labelledby="lead-heading">
+    <h2 class="guild-section__heading" id="lead-heading">Guild Lead</h2>
     <div class="guild-section__body">
-        <div class="guild-members">
-            <div class="guild-members__count">
-                <span class="guild-members__count-icon material-icons" aria-hidden="true">group</span>
-                {{ member_count }} member{{ member_count|pluralize }}
-            </div>
-            {% if members %}
-            <ul class="guild-members__list" aria-label="Guild members">
-                {% for membership in members %}
-                <li class="guild-members__item">
-                    <span class="guild-members__name">{{ membership.user.username }}</span>
-                    {% if membership.is_lead %}<span class="guild-members__role">Lead</span>{% endif %}
-                </li>
-                {% endfor %}
-            </ul>
-            {% endif %}
-        </div>
+        <p>{{ guild_lead.display_name }}</p>
     </div>
 </section>
+{% endif %}
 
 {# Studio Spaces #}
 {% if spaces %}

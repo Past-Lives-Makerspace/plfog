@@ -10,7 +10,6 @@ from django.utils import timezone
 from membership.models import (
     Buyable,
     Guild,
-    GuildMembership,
     GuildVote,
     GuildWishlistItem,
     Lease,
@@ -93,15 +92,6 @@ class LeaseFactory(factory.django.DjangoModelFactory):
     base_price = Decimal("200.00")
     monthly_rent = Decimal("200.00")
     start_date = factory.LazyFunction(lambda: timezone.now().date() - timedelta(days=30))
-
-
-class GuildMembershipFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = GuildMembership
-
-    guild = factory.SubFactory(GuildFactory)
-    user = factory.SubFactory("tests.core.factories.UserFactory")
-    is_lead = False
 
 
 class GuildWishlistItemFactory(factory.django.DjangoModelFactory):
