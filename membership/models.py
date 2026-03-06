@@ -227,6 +227,13 @@ class Guild(models.Model):
     def active_leases(self) -> models.QuerySet[Lease]:
         return self.leases.filter(_active_lease_q())
 
+    def is_managed_by(self, user: Any) -> bool:
+        """Return True if the user is this guild's lead or a staff member."""
+        if user.is_staff:
+            return True
+        lead = self.guild_lead
+        return lead is not None and lead.user_id == user.pk
+
     @property
     def sublet_revenue(self) -> Decimal:
         """Sum of monthly_rent from active leases on spaces sublet to this guild."""
@@ -314,34 +321,6 @@ class GuildVote(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member_name} → {self.guild} (#{self.priority})"
-
-
-# ---------------------------------------------------------------------------
-# GuildMembership
-# ---------------------------------------------------------------------------
-
-
-class GuildMembership(models.Model):
-    """M2M through table for Guild <-> User membership."""
-
-    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="memberships")
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="guild_memberships",
-    )
-    is_lead = models.BooleanField(default=False)
-    joined_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ["guild", "user"]
-        ordering = ["guild", "user"]
-        verbose_name = "Guild Membership"
-        verbose_name_plural = "Guild Memberships"
-
-    def __str__(self) -> str:
-        role = "Lead" if self.is_lead else "Member"
-        return f"{self.user} - {self.guild} ({role})"
 
 
 # ---------------------------------------------------------------------------

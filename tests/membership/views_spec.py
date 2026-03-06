@@ -15,14 +15,22 @@ from tests.core.factories import UserFactory
 from tests.membership.factories import (
     BuyableFactory,
     GuildFactory,
-    GuildMembershipFactory,
     GuildWishlistItemFactory,
     LeaseFactory,
+    MemberFactory,
     OrderFactory,
     SpaceFactory,
 )
 
 pytestmark = pytest.mark.django_db
+
+
+def _make_lead(guild, user):
+    """Set user as the guild lead via Guild.guild_lead FK."""
+    member = MemberFactory(user=user)
+    guild.guild_lead = member
+    guild.save()
+    return member
 
 
 # ---------------------------------------------------------------------------
@@ -50,17 +58,6 @@ def describe_guild_list():
         guilds = list(resp.context["guilds"])
         assert active in guilds
         assert not any(g.name == "Inactive Guild" for g in guilds)
-
-    def it_annotates_member_count(client):
-        guild = GuildFactory(name="Count Guild", is_active=True)
-        user_a = UserFactory()
-        user_b = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user_a)
-        GuildMembershipFactory(guild=guild, user=user_b)
-        url = reverse("guild_list")
-        resp = client.get(url)
-        result = next(g for g in resp.context["guilds"] if g.pk == guild.pk)
-        assert result.member_count == 2
 
     def it_returns_empty_list_when_no_active_guilds(client):
         GuildFactory(name="Inactive Only", is_active=False)
@@ -130,18 +127,6 @@ def describe_guild_detail():
 
 
 def describe_guild_detail_anonymous_context():
-    def it_sets_members_to_none_for_anonymous(client):
-        guild = GuildFactory(name="Anon Guild", is_active=True)
-        url = reverse("guild_detail", kwargs={"slug": guild.slug})
-        resp = client.get(url)
-        assert resp.context["members"] is None
-
-    def it_sets_is_member_false_for_anonymous(client):
-        guild = GuildFactory(name="Non-Member Guild", is_active=True)
-        url = reverse("guild_detail", kwargs={"slug": guild.slug})
-        resp = client.get(url)
-        assert resp.context["is_member"] is False
-
     def it_sets_is_lead_false_for_anonymous(client):
         guild = GuildFactory(name="Non-Lead Guild", is_active=True)
         url = reverse("guild_detail", kwargs={"slug": guild.slug})
@@ -150,28 +135,28 @@ def describe_guild_detail_anonymous_context():
 
 
 def describe_guild_detail_authenticated_context():
-    def it_shows_members_list_for_authenticated_user(client):
-        guild = GuildFactory(name="Auth Guild", is_active=True)
-        user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user)
-        client.force_login(user)
-        url = reverse("guild_detail", kwargs={"slug": guild.slug})
-        resp = client.get(url)
-        assert resp.context["members"] is not None
-
-    def it_sets_is_member_true_when_user_is_member(client):
-        guild = GuildFactory(name="Member Guild", is_active=True)
-        user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user)
-        client.force_login(user)
-        url = reverse("guild_detail", kwargs={"slug": guild.slug})
-        resp = client.get(url)
-        assert resp.context["is_member"] is True
-
-    def it_sets_is_lead_true_when_user_is_lead(client):
+    def it_sets_is_lead_true_when_user_is_guild_lead(client):
         guild = GuildFactory(name="Lead Guild", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
+        client.force_login(user)
+        url = reverse("guild_detail", kwargs={"slug": guild.slug})
+        resp = client.get(url)
+        assert resp.context["is_lead"] is True
+
+    def it_sets_is_lead_false_for_non_lead_user(client):
+        guild = GuildFactory(name="Non-Lead Auth Guild", is_active=True)
+        user = UserFactory()
+        client.force_login(user)
+        url = reverse("guild_detail", kwargs={"slug": guild.slug})
+        resp = client.get(url)
+        assert resp.context["is_lead"] is False
+
+    def it_sets_is_lead_true_for_staff_user(client):
+        guild = GuildFactory(name="Staff Lead Guild", is_active=True)
+        user = UserFactory()
+        user.is_staff = True
+        user.save()
         client.force_login(user)
         url = reverse("guild_detail", kwargs={"slug": guild.slug})
         resp = client.get(url)
@@ -534,7 +519,7 @@ def describe_guild_manage():
     def it_returns_200_for_guild_lead(client):
         guild = GuildFactory(name="Manage Lead Guild", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("guild_manage", kwargs={"slug": guild.slug})
         resp = client.get(url)
@@ -553,7 +538,7 @@ def describe_guild_manage():
     def it_uses_guild_manage_template(client):
         guild = GuildFactory(name="Manage Template Guild", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("guild_manage", kwargs={"slug": guild.slug})
         resp = client.get(url)
@@ -563,7 +548,7 @@ def describe_guild_manage():
         guild = GuildFactory(name="Manage Buyables Guild", is_active=True)
         buyable = BuyableFactory(guild=guild, name="Manage Buyable", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("guild_manage", kwargs={"slug": guild.slug})
         resp = client.get(url)
@@ -593,7 +578,7 @@ def describe_buyable_add():
     def it_returns_200_on_get_for_guild_lead(client):
         guild = GuildFactory(name="Add Lead Guild", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("buyable_add", kwargs={"slug": guild.slug})
         resp = client.get(url)
@@ -602,7 +587,7 @@ def describe_buyable_add():
     def it_uses_buyable_form_template(client):
         guild = GuildFactory(name="Add Form Guild", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("buyable_add", kwargs={"slug": guild.slug})
         resp = client.get(url)
@@ -611,7 +596,7 @@ def describe_buyable_add():
     def it_creates_buyable_on_valid_post(client):
         guild = GuildFactory(name="Add Post Guild", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("buyable_add", kwargs={"slug": guild.slug})
         resp = client.post(
@@ -629,7 +614,7 @@ def describe_buyable_add():
     def it_redirects_to_guild_manage_after_valid_post(client):
         guild = GuildFactory(name="Add Redirect Guild", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("buyable_add", kwargs={"slug": guild.slug})
         resp = client.post(
@@ -647,7 +632,7 @@ def describe_buyable_add():
     def it_returns_200_with_errors_on_invalid_post(client):
         guild = GuildFactory(name="Add Invalid Post Guild", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("buyable_add", kwargs={"slug": guild.slug})
         resp = client.post(url, {"name": "", "unit_price": ""})
@@ -690,7 +675,7 @@ def describe_buyable_edit():
         guild = GuildFactory(name="Edit Lead Guild", is_active=True)
         buyable = BuyableFactory(guild=guild, name="Edit Lead Item", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("buyable_edit", kwargs={"slug": guild.slug, "buyable_slug": buyable.slug})
         resp = client.get(url)
@@ -700,7 +685,7 @@ def describe_buyable_edit():
         guild = GuildFactory(name="Edit Template Guild", is_active=True)
         buyable = BuyableFactory(guild=guild, name="Edit Template Item", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("buyable_edit", kwargs={"slug": guild.slug, "buyable_slug": buyable.slug})
         resp = client.get(url)
@@ -710,7 +695,7 @@ def describe_buyable_edit():
         guild = GuildFactory(name="Edit Post Guild", is_active=True)
         buyable = BuyableFactory(guild=guild, name="Old Name", unit_price=Decimal("10.00"), is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("buyable_edit", kwargs={"slug": guild.slug, "buyable_slug": buyable.slug})
         resp = client.post(
@@ -730,7 +715,7 @@ def describe_buyable_edit():
         guild = GuildFactory(name="Edit Redirect Guild", is_active=True)
         buyable = BuyableFactory(guild=guild, name="Edit Redirect Item", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("buyable_edit", kwargs={"slug": guild.slug, "buyable_slug": buyable.slug})
         resp = client.post(
@@ -760,7 +745,7 @@ def describe_buyable_edit():
         guild = GuildFactory(name="Edit Context Guild", is_active=True)
         buyable = BuyableFactory(guild=guild, name="Edit Context Item", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("buyable_edit", kwargs={"slug": guild.slug, "buyable_slug": buyable.slug})
         resp = client.get(url)
@@ -770,7 +755,7 @@ def describe_buyable_edit():
         guild = GuildFactory(name="Edit Invalid Guild", is_active=True)
         buyable = BuyableFactory(guild=guild, name="Edit Invalid Item", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("buyable_edit", kwargs={"slug": guild.slug, "buyable_slug": buyable.slug})
         resp = client.post(url, {"name": "", "unit_price": ""})
@@ -800,7 +785,7 @@ def describe_guild_orders():
     def it_returns_200_for_guild_lead(client):
         guild = GuildFactory(name="Orders Lead Guild", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("guild_orders", kwargs={"slug": guild.slug})
         resp = client.get(url)
@@ -819,7 +804,7 @@ def describe_guild_orders():
     def it_uses_guild_orders_template(client):
         guild = GuildFactory(name="Orders Template Guild", is_active=True)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("guild_orders", kwargs={"slug": guild.slug})
         resp = client.get(url)
@@ -830,7 +815,7 @@ def describe_guild_orders():
         buyable = BuyableFactory(guild=guild, name="Orders Context Item", is_active=True)
         order = OrderFactory(buyable=buyable)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("guild_orders", kwargs={"slug": guild.slug})
         resp = client.get(url)
@@ -866,7 +851,7 @@ def describe_order_detail():
         buyable = BuyableFactory(guild=guild, name="OD Lead Item", is_active=True)
         order = OrderFactory(buyable=buyable)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("order_detail", kwargs={"slug": guild.slug, "pk": order.pk})
         resp = client.get(url)
@@ -889,7 +874,7 @@ def describe_order_detail():
         buyable = BuyableFactory(guild=guild, name="OD Template Item", is_active=True)
         order = OrderFactory(buyable=buyable)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("order_detail", kwargs={"slug": guild.slug, "pk": order.pk})
         resp = client.get(url)
@@ -900,7 +885,7 @@ def describe_order_detail():
         buyable = BuyableFactory(guild=guild, name="OD Context Item", is_active=True)
         order = OrderFactory(buyable=buyable)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("order_detail", kwargs={"slug": guild.slug, "pk": order.pk})
         resp = client.get(url)
@@ -913,7 +898,7 @@ def describe_order_detail():
         buyable_b = BuyableFactory(guild=guild_b, name="Guild B Item", is_active=True)
         order = OrderFactory(buyable=buyable_b)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild_a, user=user, is_lead=True)
+        _make_lead(guild_a, user)
         client.force_login(user)
         url = reverse("order_detail", kwargs={"slug": guild_a.slug, "pk": order.pk})
         resp = client.get(url)
@@ -926,7 +911,7 @@ def describe_order_detail_post_actions():
         buyable = BuyableFactory(guild=guild, name="OD Fulfill Item", is_active=True)
         order = OrderFactory(buyable=buyable)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("order_detail", kwargs={"slug": guild.slug, "pk": order.pk})
         resp = client.post(url, {"action": "fulfill"})
@@ -941,7 +926,7 @@ def describe_order_detail_post_actions():
         buyable = BuyableFactory(guild=guild, name="OD Notes Item", is_active=True)
         order = OrderFactory(buyable=buyable)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("order_detail", kwargs={"slug": guild.slug, "pk": order.pk})
         resp = client.post(url, {"action": "notes", "notes": "Ready for pickup"})
@@ -954,7 +939,7 @@ def describe_order_detail_post_actions():
         buyable = BuyableFactory(guild=guild, name="OD Redirect Item", is_active=True)
         order = OrderFactory(buyable=buyable)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("order_detail", kwargs={"slug": guild.slug, "pk": order.pk})
         resp = client.post(url, {"action": "fulfill"})
@@ -967,7 +952,7 @@ def describe_order_detail_post_actions():
         buyable = BuyableFactory(guild=guild, name="OD Unknown Item", is_active=True)
         order = OrderFactory(buyable=buyable)
         user = UserFactory()
-        GuildMembershipFactory(guild=guild, user=user, is_lead=True)
+        _make_lead(guild, user)
         client.force_login(user)
         url = reverse("order_detail", kwargs={"slug": guild.slug, "pk": order.pk})
         resp = client.post(url, {"action": "unknown"})

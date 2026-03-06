@@ -1,4 +1,4 @@
-"""Tests for Buyable, Order, GuildMembership, and GuildWishlistItem models."""
+"""Tests for Buyable, Order, and GuildWishlistItem models."""
 
 from decimal import Decimal
 
@@ -9,27 +9,11 @@ from tests.core.factories import UserFactory
 from tests.membership.factories import (
     BuyableFactory,
     GuildFactory,
-    GuildMembershipFactory,
     GuildWishlistItemFactory,
     OrderFactory,
 )
 
 pytestmark = pytest.mark.django_db
-
-
-# ---------------------------------------------------------------------------
-# GuildMembership
-# ---------------------------------------------------------------------------
-
-
-def describe_GuildMembership():
-    def it_has_str_for_member():
-        m = GuildMembershipFactory(is_lead=False)
-        assert "(Member)" in str(m)
-
-    def it_has_str_for_lead():
-        m = GuildMembershipFactory(is_lead=True)
-        assert "(Lead)" in str(m)
 
 
 # ---------------------------------------------------------------------------

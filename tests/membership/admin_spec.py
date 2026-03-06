@@ -802,11 +802,6 @@ def describe_admin_guild_views():
                 "membership-lease-content_type-object_id-INITIAL_FORMS": "0",
                 "membership-lease-content_type-object_id-MIN_NUM_FORMS": "0",
                 "membership-lease-content_type-object_id-MAX_NUM_FORMS": "1000",
-                # GuildMembershipInline
-                "memberships-TOTAL_FORMS": "0",
-                "memberships-INITIAL_FORMS": "0",
-                "memberships-MIN_NUM_FORMS": "0",
-                "memberships-MAX_NUM_FORMS": "1000",
                 # GuildWishlistItemInline
                 "wishlist_items-TOTAL_FORMS": "0",
                 "wishlist_items-INITIAL_FORMS": "0",

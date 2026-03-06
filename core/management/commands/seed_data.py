@@ -18,7 +18,6 @@ from faker import Faker
 from membership.models import (
     Buyable,
     Guild,
-    GuildMembership,
     GuildWishlistItem,
     Lease,
     Member,
@@ -226,18 +225,6 @@ GUILD_LEAD_INDICES: list[list[int]] = [
     [13],  # Community Kitchen
 ]
 
-# Regular member guild assignments (members 22-29)
-REGULAR_MEMBER_GUILDS: list[list[str]] = [
-    ["Woodworking", "Ceramics"],
-    ["Metalworking", "Electronics"],
-    ["Screen Printing", "Photography"],
-    ["3D Printing & CNC", "Jewelry"],
-    ["Textiles & Fiber Arts", "Leatherworking"],
-    ["Community Kitchen", "Bicycle Workshop"],
-    ["Glass Arts", "Prison Outreach"],
-    ["Woodworking", "Metalworking", "Electronics"],
-]
-
 PLAN_DEFINITIONS: list[dict[str, Any]] = [
     {"name": "Standard", "monthly_price": Decimal("150.00"), "deposit_required": Decimal("150.00")},
     {"name": "Work-Trade", "monthly_price": Decimal("75.00"), "deposit_required": Decimal("75.00")},
@@ -274,7 +261,6 @@ class Command(BaseCommand):
         self.stdout.write("Flushing existing data...")
         Order.objects.all().delete()
         Lease.objects.all().delete()
-        GuildMembership.objects.all().delete()
         GuildWishlistItem.objects.all().delete()
         Buyable.objects.all().delete()
         Member.objects.all().delete()
@@ -291,7 +277,6 @@ class Command(BaseCommand):
         guilds = self._create_guilds()
         members = self._create_members(plans)
         self._assign_guild_leads(guilds, members)
-        self._assign_regular_members(guilds, members)
         self._create_buyables(guilds)
         spaces = self._create_spaces()
         self._create_leases(members, spaces)
@@ -380,34 +365,13 @@ class Command(BaseCommand):
         return members
 
     def _assign_guild_leads(self, guilds: list[Guild], members: list[Member]) -> None:
-        """Assign guild leads (members 7-21) to guilds. Prison Outreach gets 2 co-leads."""
+        """Assign guild leads (members 7-21) to guilds."""
         lead_members = members[7:22]  # 15 guild leads
 
         for guild, lead_indices in zip(guilds, GUILD_LEAD_INDICES):
             primary_lead_idx = lead_indices[0]
             guild.guild_lead = lead_members[primary_lead_idx]
             guild.save()
-
-            for idx in lead_indices:
-                member = lead_members[idx]
-                GuildMembership.objects.get_or_create(
-                    guild=guild,
-                    user=member.user,
-                    defaults={"is_lead": True},
-                )
-
-    def _assign_regular_members(self, guilds: list[Guild], members: list[Member]) -> None:
-        """Assign regular members (22-29) to guilds."""
-        regular_members = members[22:]
-        guild_map = {g.name: g for g in guilds}
-
-        for member, guild_names in zip(regular_members, REGULAR_MEMBER_GUILDS):
-            for gname in guild_names:
-                GuildMembership.objects.get_or_create(
-                    guild=guild_map[gname],
-                    user=member.user,
-                    defaults={"is_lead": False},
-                )
 
     def _create_buyables(self, guilds: list[Guild]) -> list[Buyable]:
         guild_map = {g.name: g for g in guilds}

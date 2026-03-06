@@ -6,13 +6,12 @@ from typing import TYPE_CHECKING, cast
 import segno
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .forms import BuyableForm, MemberProfileForm, OrderNoteForm
-from .models import Buyable, Guild, GuildMembership, Member, Order
+from .models import Buyable, Guild, Member, Order
 from .stripe_utils import create_checkout_session
 
 if TYPE_CHECKING:
@@ -25,7 +24,7 @@ if TYPE_CHECKING:
 
 
 def guild_list(request: HttpRequest) -> HttpResponse:
-    guilds = Guild.objects.filter(is_active=True).annotate(member_count=Count("memberships")).order_by("name")
+    guilds = Guild.objects.filter(is_active=True).order_by("name")
     return render(request, "membership/guild_list.html", {"guilds": guilds})
 
 
@@ -34,21 +33,12 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
 
     context: dict = {
         "guild": guild,
-        "member_count": guild.memberships.count(),
         "guild_lead": guild.guild_lead,
         "wishlist_items": guild.wishlist_items.filter(is_fulfilled=False),
         "buyables": guild.buyables.filter(is_active=True),
         "links": guild.links or [],
+        "is_lead": request.user.is_authenticated and guild.is_managed_by(request.user),
     }
-
-    if request.user.is_authenticated:
-        context["members"] = guild.memberships.select_related("user").order_by("-is_lead", "user__username")
-        context["is_member"] = guild.memberships.filter(user=request.user).exists()
-        context["is_lead"] = guild.memberships.filter(user=request.user, is_lead=True).exists()
-    else:
-        context["members"] = None
-        context["is_member"] = False
-        context["is_lead"] = False
 
     active_leases = guild.active_leases.select_related("space")
     spaces = [lease.space for lease in active_leases]
@@ -209,10 +199,8 @@ def _get_lead_guild(request: HttpRequest, slug: str) -> Guild:
     """Return guild if the authenticated user is a lead or staff. Raise 403 otherwise."""
     from django.core.exceptions import PermissionDenied
 
-    user = cast("User", request.user)
     guild = get_object_or_404(Guild, slug=slug)
-    is_lead = GuildMembership.objects.filter(guild=guild, user=user, is_lead=True).exists()
-    if not is_lead and not user.is_staff:
+    if not guild.is_managed_by(request.user):
         raise PermissionDenied
     return guild
 

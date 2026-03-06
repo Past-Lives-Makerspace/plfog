@@ -71,11 +71,6 @@
                         {% endif %}
                     </p>
 
-                    <div class="guild-card__meta">
-                        <span class="guild-card__meta-icon material-icons" aria-hidden="true">group</span>
-                        <span>{{ guild.member_count }} member{{ guild.member_count|pluralize }}</span>
-                    </div>
-
                     <a href="{% url 'guild_detail' guild.slug %}" class="guild-card__link">
                         View Guild
                     </a>
