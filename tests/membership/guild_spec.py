@@ -171,8 +171,12 @@ def describe_GuildVote():
             member = MemberFactory(full_legal_name="Test Member")
             guild_a = GuildFactory(name="Guild A")
             guild_b = GuildFactory(name="Guild B")
-            v2 = GuildVoteFactory(session=session, member=member, guild=guild_b, priority=2, member_airtable_id="rec001")
-            v1 = GuildVoteFactory(session=session, member=member, guild=guild_a, priority=1, member_airtable_id="rec001")
+            v2 = GuildVoteFactory(
+                session=session, member=member, guild=guild_b, priority=2, member_airtable_id="rec001"
+            )
+            v1 = GuildVoteFactory(
+                session=session, member=member, guild=guild_a, priority=1, member_airtable_id="rec001"
+            )
             votes = list(GuildVote.objects.filter(session=session, member_airtable_id="rec001"))
             assert votes == [v1, v2]
 

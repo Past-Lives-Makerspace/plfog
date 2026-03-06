@@ -85,9 +85,7 @@ def send_results_email(
             f"{r['guild_name']}: ${r['disbursement']:.2f} "
             f"(1st:{r['votes_1st']} 2nd:{r['votes_2nd']} 3rd:{r['votes_3rd']})"
         )
-    lines.extend(
-        ["", f"Total pool: ${results_data['total_pool']}", f"Votes cast: {results_data['votes_cast']}"]
-    )
+    lines.extend(["", f"Total pool: ${results_data['total_pool']}", f"Votes cast: {results_data['votes_cast']}"])
     plain_message = "\n".join(lines)
 
     send_mail(

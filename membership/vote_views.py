@@ -12,11 +12,11 @@ from django.db import transaction
 from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 
-logger = logging.getLogger(__name__)
-
 from . import airtable_sync, vote_calculator, vote_emails, vote_tokens
 from .models import Guild, GuildVote, VotingSession
 from .vote_forms import CreateSessionForm, VoteForm
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -24,8 +24,8 @@ from .vote_forms import CreateSessionForm, VoteForm
 # ---------------------------------------------------------------------------
 
 
-def vote(request: HttpRequest, token: str) -> HttpResponse:
-    """Public voting page. Token encodes member + session."""
+def _verify_voter(request: HttpRequest, token: str) -> HttpResponse | tuple[str, dict, VotingSession]:
+    """Verify token, fetch member, check session. Returns (member_record_id, member, session) or error response."""
     try:
         data = vote_tokens.verify_vote_token(token)
     except SignatureExpired:
@@ -33,10 +33,7 @@ def vote(request: HttpRequest, token: str) -> HttpResponse:
     except BadSignature:
         return HttpResponseBadRequest("Invalid voting link.")
 
-    member_record_id = data["member_record_id"]
-    session_id = data["session_id"]
-
-    session = get_object_or_404(VotingSession, pk=session_id)
+    session = get_object_or_404(VotingSession, pk=data["session_id"])
 
     if not session.is_open_for_voting:
         return render(
@@ -45,7 +42,7 @@ def vote(request: HttpRequest, token: str) -> HttpResponse:
             {"reason": f"Voting for {session.name} has closed.", "session": session},
         )
 
-    # Fetch member from Airtable
+    member_record_id = str(data["member_record_id"])
     try:
         member = airtable_sync.get_member(member_record_id)
     except Exception:
@@ -60,20 +57,55 @@ def vote(request: HttpRequest, token: str) -> HttpResponse:
     if member.get("status") != "Active":
         return HttpResponseBadRequest("This member is not currently active.")
 
-    # Check for existing vote
-    existing_votes = GuildVote.objects.filter(session=session, member_airtable_id=member_record_id)
-    if existing_votes.exists():
-        vote_names = {}
-        for v in existing_votes:
-            rank_label = {1: "1st", 2: "2nd", 3: "3rd"}.get(v.priority, "?")
-            vote_names[rank_label] = v.guild.name
-        return render(
-            request,
-            "membership/voting/already_voted.html",
-            {"member": member, "session": session, "votes": vote_names},
-        )
+    return member_record_id, member, session
 
-    # Get voteable guilds from Airtable (old base)
+
+def _check_already_voted(
+    request: HttpRequest, member: dict, session: VotingSession, member_record_id: str
+) -> HttpResponse | None:
+    """Return an already-voted response if this member has voted, else None."""
+    existing_votes = GuildVote.objects.filter(session=session, member_airtable_id=member_record_id)
+    if not existing_votes.exists():
+        return None
+    vote_names = {}
+    for v in existing_votes:
+        rank_label = {1: "1st", 2: "2nd", 3: "3rd"}.get(v.priority, "?")
+        vote_names[rank_label] = v.guild.name
+    return render(
+        request,
+        "membership/voting/already_voted.html",
+        {"member": member, "session": session, "votes": vote_names},
+    )
+
+
+def _save_votes(session: VotingSession, member_record_id: str, member_name: str, guild_names: list[str]) -> None:
+    """Persist votes and update session count atomically."""
+    with transaction.atomic():
+        for priority, guild_name in enumerate(guild_names, start=1):
+            guild_obj, _created = Guild.objects.get_or_create(name=guild_name)
+            GuildVote.objects.create(
+                session=session,
+                member_airtable_id=member_record_id,
+                member_name=member_name,
+                guild=guild_obj,
+                priority=priority,
+            )
+
+        session.votes_cast = GuildVote.objects.filter(session=session).values("member_airtable_id").distinct().count()
+        session.save(update_fields=["votes_cast"])
+
+
+def vote(request: HttpRequest, token: str) -> HttpResponse:
+    """Public voting page. Token encodes member + session."""
+    result = _verify_voter(request, token)
+    if isinstance(result, HttpResponse):
+        return result
+    member_record_id, member, session = result
+
+    already = _check_already_voted(request, member, session, member_record_id)
+    if already:
+        return already
+
     at_guilds = airtable_sync.get_voteable_guilds()
     guild_choices = [(g["name"], g["name"]) for g in at_guilds]
 
@@ -98,28 +130,8 @@ def vote(request: HttpRequest, token: str) -> HttpResponse:
                 form.cleaned_data["guild_3rd"],
             ]
 
-            # Write to Django DB (atomic to prevent partial votes)
-            with transaction.atomic():
-                for priority, guild_name in enumerate(guild_names, start=1):
-                    guild_obj, _created = Guild.objects.get_or_create(name=guild_name)
-                    GuildVote.objects.create(
-                        session=session,
-                        member_airtable_id=member_record_id,
-                        member_name=member["name"],
-                        guild=guild_obj,
-                        priority=priority,
-                    )
+            _save_votes(session, member_record_id, member["name"], guild_names)
 
-                # Update vote count inside transaction
-                session.votes_cast = (
-                    GuildVote.objects.filter(session=session)
-                    .values("member_airtable_id")
-                    .distinct()
-                    .count()
-                )
-                session.save(update_fields=["votes_cast"])
-
-            # Sync to Airtable (fire-and-forget, outside transaction)
             airtable_sync.sync_vote_to_airtable(
                 member_name=member["name"],
                 member_airtable_id=member_record_id,

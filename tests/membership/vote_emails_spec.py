@@ -75,8 +75,14 @@ def describe_send_results_email():
             "total_pool": 100,
             "votes_cast": 5,
             "results": [
-                {"guild_name": "Ceramics", "votes_1st": 3, "votes_2nd": 1,
-                 "votes_3rd": 0, "weighted_amount": 18, "disbursement": 36.0},
+                {
+                    "guild_name": "Ceramics",
+                    "votes_1st": 3,
+                    "votes_2nd": 1,
+                    "votes_3rd": 0,
+                    "weighted_amount": 18,
+                    "disbursement": 36.0,
+                },
             ],
         }
         send_results_email(

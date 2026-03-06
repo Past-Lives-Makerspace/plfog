@@ -90,11 +90,14 @@ def describe_vote_view():
         mock_at.get_voteable_guilds.return_value = MOCK_GUILDS
         mock_at.sync_vote_to_airtable.return_value = "recVOTE1"
 
-        resp = client.post(f"/voting/vote/{vote_token}/", {
-            "guild_1st": "Ceramics",
-            "guild_2nd": "Glass",
-            "guild_3rd": "Wood",
-        })
+        resp = client.post(
+            f"/voting/vote/{vote_token}/",
+            {
+                "guild_1st": "Ceramics",
+                "guild_2nd": "Glass",
+                "guild_3rd": "Wood",
+            },
+        )
         assert resp.status_code == 200
         assert b"vote_success" in resp.content or b"Ceramics" in resp.content
 
@@ -110,11 +113,14 @@ def describe_vote_view():
         mock_at.sync_vote_to_airtable.return_value = ""
 
         # First vote
-        client.post(f"/voting/vote/{vote_token}/", {
-            "guild_1st": "Ceramics",
-            "guild_2nd": "Glass",
-            "guild_3rd": "Wood",
-        })
+        client.post(
+            f"/voting/vote/{vote_token}/",
+            {
+                "guild_1st": "Ceramics",
+                "guild_2nd": "Glass",
+                "guild_3rd": "Wood",
+            },
+        )
 
         # Second attempt
         resp = client.get(f"/voting/vote/{vote_token}/")
@@ -158,11 +164,14 @@ def describe_vote_view():
         mock_at.get_member.return_value = MOCK_MEMBER
         mock_at.get_voteable_guilds.return_value = MOCK_GUILDS
 
-        resp = client.post(f"/voting/vote/{vote_token}/", {
-            "guild_1st": "Ceramics",
-            "guild_2nd": "Ceramics",
-            "guild_3rd": "Glass",
-        })
+        resp = client.post(
+            f"/voting/vote/{vote_token}/",
+            {
+                "guild_1st": "Ceramics",
+                "guild_2nd": "Ceramics",
+                "guild_3rd": "Glass",
+            },
+        )
         assert resp.status_code == 200
         # Should re-render form with errors, not create votes
         assert GuildVote.objects.filter(session=open_session).count() == 0
@@ -211,11 +220,14 @@ def describe_vote_view():
             return qs
 
         with patch.object(type(GuildVote.objects), "filter", side_effect=side_effect_filter):
-            resp = client.post(f"/voting/vote/{token}/", {
-                "guild_1st": "Ceramics",
-                "guild_2nd": "Glass",
-                "guild_3rd": "Wood",
-            })
+            resp = client.post(
+                f"/voting/vote/{token}/",
+                {
+                    "guild_1st": "Ceramics",
+                    "guild_2nd": "Glass",
+                    "guild_3rd": "Wood",
+                },
+            )
         assert resp.status_code == 200
         assert b"already" in resp.content.lower()
 
@@ -236,8 +248,14 @@ def describe_voting_results():
                 "votes_cast": 5,
                 "eligible_member_count": 10,
                 "results": [
-                    {"guild_name": "Ceramics", "votes_1st": 3, "votes_2nd": 1, "votes_3rd": 1,
-                     "weighted_amount": 22, "disbursement": 44.0},
+                    {
+                        "guild_name": "Ceramics",
+                        "votes_1st": 3,
+                        "votes_2nd": 1,
+                        "votes_3rd": 1,
+                        "weighted_amount": 22,
+                        "disbursement": 44.0,
+                    },
                 ],
             },
         )
@@ -306,22 +324,28 @@ def describe_voting_create_session():
         mock_at.sync_session_to_airtable.return_value = "recSESS1"
 
         today = date.today()
-        resp = admin_client.post("/voting/manage/create-session/", {
-            "name": "New Session",
-            "open_date": today.isoformat(),
-            "close_date": (today + timedelta(days=7)).isoformat(),
-        })
+        resp = admin_client.post(
+            "/voting/manage/create-session/",
+            {
+                "name": "New Session",
+                "open_date": today.isoformat(),
+                "close_date": (today + timedelta(days=7)).isoformat(),
+            },
+        )
         assert resp.status_code == 302
         session = VotingSession.objects.get(name="New Session")
         assert session.eligible_member_count == 2
         assert session.airtable_record_id == "recSESS1"
 
     def it_rerenders_form_on_invalid_post(admin_client):
-        resp = admin_client.post("/voting/manage/create-session/", {
-            "name": "",
-            "open_date": "2026-03-10",
-            "close_date": "2026-03-05",
-        })
+        resp = admin_client.post(
+            "/voting/manage/create-session/",
+            {
+                "name": "",
+                "open_date": "2026-03-10",
+                "close_date": "2026-03-05",
+            },
+        )
         assert resp.status_code == 200  # re-rendered form, not redirect
 
     @patch("membership.vote_views.airtable_sync")
@@ -330,11 +354,14 @@ def describe_voting_create_session():
         mock_at.sync_session_to_airtable.return_value = ""
 
         today = date.today()
-        resp = admin_client.post("/voting/manage/create-session/", {
-            "name": "No AT ID",
-            "open_date": today.isoformat(),
-            "close_date": (today + timedelta(days=7)).isoformat(),
-        })
+        resp = admin_client.post(
+            "/voting/manage/create-session/",
+            {
+                "name": "No AT ID",
+                "open_date": today.isoformat(),
+                "close_date": (today + timedelta(days=7)).isoformat(),
+            },
+        )
         assert resp.status_code == 302
         session = VotingSession.objects.get(name="No AT ID")
         assert session.airtable_record_id == ""

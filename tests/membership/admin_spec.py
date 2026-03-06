@@ -850,8 +850,12 @@ def describe_VotingSessionAdmin():
     def it_has_expected_list_display():
         session_admin = admin.site._registry[VotingSession]
         assert session_admin.list_display == [
-            "name", "status", "open_date", "close_date",
-            "eligible_member_count", "votes_cast",
+            "name",
+            "status",
+            "open_date",
+            "close_date",
+            "eligible_member_count",
+            "votes_cast",
         ]
 
     def it_has_expected_list_filter():

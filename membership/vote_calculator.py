@@ -35,7 +35,7 @@ def calculate_results(
     Returns:
         dict with total_pool, results list, votes_cast, etc.
     """
-    guild_scores: dict[str, dict[str, int | float]] = defaultdict(
+    guild_scores: dict[str, dict[str, float]] = defaultdict(
         lambda: {"votes_1st": 0, "votes_2nd": 0, "votes_3rd": 0, "weighted_amount": 0}
     )
 
@@ -60,12 +60,9 @@ def calculate_results(
     results = []
     for guild_name, scores in guild_scores.items():
         weighted = scores["weighted_amount"]
-        if total_weighted > 0:
-            guild_share_pct = weighted / total_weighted
-            redistributed = guild_share_pct * non_vote_dollars
-        else:
-            redistributed = 0  # pragma: no cover — defensive; guild_scores always has positive weights
-
+        # guild_scores only has entries with positive weights, so total_weighted > 0 here
+        guild_share_pct = weighted / total_weighted
+        redistributed = guild_share_pct * non_vote_dollars
         disbursement = round(weighted + redistributed, 2)
         results.append(
             {

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from django.conf import settings
-from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
+from django.core.signing import BadSignature, TimestampSigner
 
 SEPARATOR = "|"
 
@@ -22,7 +22,7 @@ def verify_vote_token(token: str) -> dict[str, str | int]:
     """Verify and decode a vote token.
 
     Returns dict with member_record_id and session_id.
-    Raises BadSignature or SignatureExpired on failure.
+    Raises BadSignature on failure (including expired tokens).
     """
     max_age = getattr(settings, "VOTE_TOKEN_MAX_AGE", 60 * 60 * 24 * 30)
     payload = _signer().unsign(token, max_age=max_age)
