@@ -343,11 +343,6 @@ UNFOLD = {
                         "icon": "storefront",
                         "link": reverse_lazy("admin:membership_buyable_changelist"),
                     },
-                    {
-                        "title": "Orders",
-                        "icon": "receipt_long",
-                        "link": reverse_lazy("admin:membership_order_changelist"),
-                    },
                 ],
             },
             {
@@ -368,10 +363,6 @@ UNFOLD = {
         ],
     },
 }
-
-# Stripe
-STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
-STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
 
 # Logging — always write errors to file so we can debug 500s in production
 _LOG_DIR = BASE_DIR.parent / "logs"

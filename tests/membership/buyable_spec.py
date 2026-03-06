@@ -1,16 +1,14 @@
-"""Tests for Buyable, Order, and GuildWishlistItem models."""
+"""Tests for Buyable and GuildWishlistItem models."""
 
 from decimal import Decimal
 
 import pytest
 
-from membership.models import Buyable, Order
-from tests.core.factories import UserFactory
+from membership.models import Buyable
 from tests.membership.factories import (
     BuyableFactory,
     GuildFactory,
     GuildWishlistItemFactory,
-    OrderFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -69,40 +67,3 @@ def describe_Buyable():
         b2 = BuyableFactory(guild=guild, name="Zebra")
         b1 = BuyableFactory(guild=guild, name="Alpha")
         assert list(Buyable.objects.filter(guild=guild)) == [b1, b2]
-
-
-# ---------------------------------------------------------------------------
-# Order
-# ---------------------------------------------------------------------------
-
-
-def describe_Order():
-    def it_has_str_representation():
-        order = OrderFactory()
-        assert f"Order #{order.pk}" in str(order)
-
-    def it_defaults_to_pending():
-        order = OrderFactory()
-        assert order.status == Order.Status.PENDING
-
-    def it_stores_amount_in_cents():
-        order = OrderFactory(amount=5000)
-        order.refresh_from_db()
-        assert order.amount == 5000
-
-    def it_allows_nullable_user():
-        order = OrderFactory(user=None)
-        assert order.user is None
-
-    def it_tracks_fulfillment():
-        user = UserFactory()
-        order = OrderFactory(user=user)
-        assert order.is_fulfilled is False
-        assert order.fulfilled_by is None
-
-    def it_orders_by_created_at_desc():
-        o1 = OrderFactory()
-        o2 = OrderFactory()
-        orders = list(Order.objects.all())
-        assert orders[0] == o2
-        assert orders[1] == o1

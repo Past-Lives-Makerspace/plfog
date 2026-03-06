@@ -22,7 +22,6 @@ from membership.models import (
     Lease,
     Member,
     MembershipPlan,
-    Order,
     Space,
 )
 
@@ -259,7 +258,6 @@ class Command(BaseCommand):
     def _flush(self) -> None:
         """Delete all seed data, preserving the admin superuser."""
         self.stdout.write("Flushing existing data...")
-        Order.objects.all().delete()
         Lease.objects.all().delete()
         GuildWishlistItem.objects.all().delete()
         Buyable.objects.all().delete()
@@ -281,7 +279,6 @@ class Command(BaseCommand):
         spaces = self._create_spaces()
         self._create_leases(members, spaces)
         self._create_wishlist_items(guilds, admin)
-        self._create_orders(guilds, members)
         self._apply_guild_links(guilds)
 
     def _create_admin(self) -> Any:
@@ -426,25 +423,6 @@ class Command(BaseCommand):
                     "estimated_cost": defn.get("estimated_cost"),
                     "description": str(defn.get("description", "")),
                     "created_by": admin_user,
-                },
-            )
-
-    def _create_orders(self, guilds: list[Guild], members: list[Member]) -> None:
-        """Create a few sample orders across buyables."""
-        buyables = list(Buyable.objects.all()[:3])
-        if not buyables:
-            return
-
-        for i, buyable in enumerate(buyables):
-            member = members[22 + i]  # Regular members
-            Order.objects.get_or_create(
-                buyable=buyable,
-                user=member.user,
-                defaults={
-                    "email": member.email,
-                    "quantity": 1,
-                    "amount": int(buyable.unit_price * 100),
-                    "status": Order.Status.PAID,
                 },
             )
 

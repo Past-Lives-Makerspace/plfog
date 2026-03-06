@@ -384,46 +384,6 @@ class Buyable(models.Model):
 
 
 # ---------------------------------------------------------------------------
-# Order
-# ---------------------------------------------------------------------------
-
-
-class Order(models.Model):
-    class Status(models.TextChoices):
-        PENDING = "pending"
-        PAID = "paid"
-        FAILED = "failed"
-
-    buyable = models.ForeignKey(Buyable, on_delete=models.CASCADE, related_name="orders")
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
-    email = models.EmailField(blank=True)
-    quantity = models.PositiveIntegerField(default=1)
-    amount = models.IntegerField(help_text="Total in cents")
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    stripe_checkout_session_id = models.CharField(max_length=255, blank=True)
-    is_fulfilled = models.BooleanField(default=False)
-    fulfilled_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="fulfilled_orders",
-    )
-    fulfilled_at = models.DateTimeField(null=True, blank=True)
-    notes = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    paid_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-        verbose_name = "Order"
-        verbose_name_plural = "Orders"
-
-    def __str__(self) -> str:
-        return f"Order #{self.pk} - {self.buyable.name}"
-
-
-# ---------------------------------------------------------------------------
 # Space
 # ---------------------------------------------------------------------------
 

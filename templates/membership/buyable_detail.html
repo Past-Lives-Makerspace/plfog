@@ -35,17 +35,6 @@
             <div class="buyable-detail__description">{{ buyable.description|linebreaks }}</div>
             {% endif %}
 
-            <form method="post" action="{% url 'buyable_checkout' guild.slug buyable.slug %}" x-data="{ qty: 1 }">
-                {% csrf_token %}
-                <label class="buyable-detail__qty-label" for="quantity">Quantity</label>
-                <div class="buyable-detail__qty-wrap">
-                    <button type="button" @click="qty = Math.max(1, qty - 1)" class="buyable-detail__qty-btn" aria-label="Decrease quantity">-</button>
-                    <input type="number" name="quantity" id="quantity" x-model="qty" min="1" class="buyable-detail__qty-input">
-                    <button type="button" @click="qty++" class="buyable-detail__qty-btn" aria-label="Increase quantity">+</button>
-                </div>
-                <button type="submit" class="btn btn--primary btn--full">Pay with Stripe</button>
-            </form>
-
             <div class="buyable-detail__qr-section">
                 <p class="buyable-detail__qr-label">QR Code</p>
                 <a href="{% url 'buyable_qr' guild.slug buyable.slug %}" class="buyable-detail__qr-code" target="_blank">

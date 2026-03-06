@@ -8,7 +8,6 @@ dj-database-url>=2.3
 django-extensions>=3.2
 sentry-sdk>=2.0
 Pillow>=10.0
-stripe>=7.0.0
 segno>=1.6
 pyairtable>=2.3
 django-anymail[mailgun]>=12.0

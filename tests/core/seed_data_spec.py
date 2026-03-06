@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.core.management import call_command, get_commands, load_command_class
+from django.core.management import call_command
 
 from membership.models import (
     Buyable,
@@ -13,7 +13,6 @@ from membership.models import (
     Lease,
     Member,
     MembershipPlan,
-    Order,
     Space,
 )
 
@@ -61,10 +60,6 @@ def describe_seed_data_counts():
     def it_creates_3_wishlist_items() -> None:
         _seed()
         assert GuildWishlistItem.objects.count() == 3
-
-    def it_creates_3_orders() -> None:
-        _seed()
-        assert Order.objects.count() == 3
 
 
 @pytest.mark.django_db
@@ -130,14 +125,3 @@ def describe_seed_data_idempotency():
         admin_pk = admin.pk
         _seed(flush=True)
         assert User.objects.filter(email=ADMIN_EMAIL, pk=admin_pk).exists()
-
-
-@pytest.mark.django_db
-def describe_seed_data_edge_cases():
-    def it_handles_create_orders_with_no_buyables() -> None:
-        """_create_orders returns early when no buyables exist."""
-        app_name = get_commands()["seed_data"]
-        cmd = load_command_class(app_name, "seed_data")
-        # No buyables in DB, should not raise
-        cmd._create_orders([], [])
-        assert Order.objects.count() == 0

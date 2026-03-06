@@ -72,33 +72,6 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name="GuildMembership",
-            fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("is_lead", models.BooleanField(default=False)),
-                ("joined_at", models.DateTimeField(auto_now_add=True)),
-                (
-                    "guild",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="memberships", to="membership.guild"
-                    ),
-                ),
-                (
-                    "user",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="guild_memberships",
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-            ],
-            options={
-                "verbose_name": "Guild Membership",
-                "verbose_name_plural": "Guild Memberships",
-                "ordering": ["guild", "user"],
-            },
-        ),
-        migrations.CreateModel(
             name="GuildWishlistItem",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
@@ -130,62 +103,8 @@ class Migration(migrations.Migration):
                 "ordering": ["guild", "-created_at"],
             },
         ),
-        migrations.CreateModel(
-            name="Order",
-            fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("email", models.EmailField(blank=True, max_length=254)),
-                ("quantity", models.PositiveIntegerField(default=1)),
-                ("amount", models.IntegerField(help_text="Total in cents")),
-                (
-                    "status",
-                    models.CharField(
-                        choices=[("pending", "Pending"), ("paid", "Paid"), ("failed", "Failed")],
-                        default="pending",
-                        max_length=20,
-                    ),
-                ),
-                ("stripe_checkout_session_id", models.CharField(blank=True, max_length=255)),
-                ("is_fulfilled", models.BooleanField(default=False)),
-                ("fulfilled_at", models.DateTimeField(blank=True, null=True)),
-                ("notes", models.TextField(blank=True)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("paid_at", models.DateTimeField(blank=True, null=True)),
-                (
-                    "buyable",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="orders", to="membership.buyable"
-                    ),
-                ),
-                (
-                    "fulfilled_by",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="fulfilled_orders",
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
-                    "user",
-                    models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
-                    ),
-                ),
-            ],
-            options={
-                "verbose_name": "Order",
-                "verbose_name_plural": "Orders",
-                "ordering": ["-created_at"],
-            },
-        ),
         migrations.AddConstraint(
             model_name="buyable",
             constraint=models.UniqueConstraint(fields=("guild", "slug"), name="unique_guild_buyable_slug"),
-        ),
-        migrations.AlterUniqueTogether(
-            name="guildmembership",
-            unique_together={("guild", "user")},
         ),
     ]

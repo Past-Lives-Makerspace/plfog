@@ -15,7 +15,6 @@ from membership.models import (
     Lease,
     Member,
     MembershipPlan,
-    Order,
     Space,
     VotingSession,
 )
@@ -109,12 +108,3 @@ class BuyableFactory(factory.django.DjangoModelFactory):
     guild = factory.SubFactory(GuildFactory)
     name = factory.Sequence(lambda n: f"Buyable {n}")
     unit_price = Decimal("25.00")
-
-
-class OrderFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = Order
-
-    buyable = factory.SubFactory(BuyableFactory)
-    amount = 2500
-    status = Order.Status.PENDING

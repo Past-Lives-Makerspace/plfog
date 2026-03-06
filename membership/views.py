@@ -6,13 +6,12 @@ from typing import TYPE_CHECKING, cast
 import segno
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 
-from .forms import BuyableForm, MemberProfileForm, OrderNoteForm
-from .models import Buyable, Guild, Member, Order
-from .stripe_utils import create_checkout_session
+from .forms import BuyableForm, MemberProfileForm
+from .models import Buyable, Guild, Member
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -40,7 +39,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         "is_lead": request.user.is_authenticated and guild.is_managed_by(request.user),
     }
 
-    active_leases = guild.active_leases.select_related("space")
+    active_leases = guild.active_leases.select_related("space", "content_type")
     spaces = [lease.space for lease in active_leases]
     if spaces:
         context["spaces"] = spaces
@@ -63,38 +62,6 @@ def buyable_detail(request: HttpRequest, slug: str, buyable_slug: str) -> HttpRe
     )
 
 
-def buyable_checkout(request: HttpRequest, slug: str, buyable_slug: str) -> HttpResponse:
-    if request.method != "POST":
-        return redirect("buyable_detail", slug=slug, buyable_slug=buyable_slug)
-
-    guild = get_object_or_404(Guild, slug=slug, is_active=True)
-    buyable = get_object_or_404(Buyable, guild=guild, slug=buyable_slug, is_active=True)
-    quantity = int(request.POST.get("quantity", 1))
-    if quantity < 1:
-        quantity = 1
-
-    success_url = request.build_absolute_uri("/checkout/success/") + "?session_id={CHECKOUT_SESSION_ID}"
-    cancel_url = request.build_absolute_uri("/checkout/cancel/")
-
-    session = create_checkout_session(
-        buyable=buyable,
-        quantity=quantity,
-        success_url=success_url,
-        cancel_url=cancel_url,
-    )
-
-    # Create pending order
-    Order.objects.create(
-        buyable=buyable,
-        user=request.user if request.user.is_authenticated else None,
-        quantity=quantity,
-        amount=int(buyable.unit_price * 100) * quantity,
-        stripe_checkout_session_id=session.id,
-    )
-
-    return redirect(cast(str, session.url))
-
-
 def buyable_qr(request: HttpRequest, slug: str, buyable_slug: str) -> HttpResponse:
     guild = get_object_or_404(Guild, slug=slug, is_active=True)
     get_object_or_404(Buyable, guild=guild, slug=buyable_slug, is_active=True)
@@ -106,62 +73,15 @@ def buyable_qr(request: HttpRequest, slug: str, buyable_slug: str) -> HttpRespon
 
 
 # ---------------------------------------------------------------------------
-# Stripe callbacks
-# ---------------------------------------------------------------------------
-
-
-def checkout_success(request: HttpRequest) -> HttpResponse:
-    import stripe
-
-    from .stripe_utils import get_stripe_key
-
-    session_id = request.GET.get("session_id", "")
-    order = None
-    if session_id:
-        stripe.api_key = get_stripe_key()
-        try:
-            session = stripe.checkout.Session.retrieve(session_id)
-            order = Order.objects.filter(stripe_checkout_session_id=session_id).first()
-            if order and order.status != Order.Status.PAID:
-                order.status = Order.Status.PAID
-                order.paid_at = timezone.now()
-                if session.customer_details and session.customer_details.email:
-                    order.email = session.customer_details.email
-                order.save()
-        except stripe.StripeError:
-            pass
-
-    return render(request, "membership/checkout_success.html", {"order": order})
-
-
-def checkout_cancel(request: HttpRequest) -> HttpResponse:
-    return render(request, "membership/checkout_cancel.html")
-
-
-# ---------------------------------------------------------------------------
-# User orders (auth required)
-# ---------------------------------------------------------------------------
-
-
-@login_required
-def user_orders(request: HttpRequest) -> HttpResponse:
-    user = cast("User", request.user)
-    orders = Order.objects.filter(user=user).select_related("buyable__guild").order_by("-created_at")
-    return render(request, "membership/user_orders.html", {"orders": orders})
-
-
-# ---------------------------------------------------------------------------
 # Member pages (auth + active member only)
 # ---------------------------------------------------------------------------
 
 
 def _get_active_member(request: HttpRequest) -> Member:
     """Return active Member for the authenticated user. Raise 403 otherwise."""
-    from django.core.exceptions import PermissionDenied
-
     user = cast("User", request.user)
     try:
-        member = Member.objects.get(user=user)
+        member = Member.objects.select_related("membership_plan").get(user=user)
     except Member.DoesNotExist:
         raise PermissionDenied
     if member.status != Member.Status.ACTIVE:
@@ -196,11 +116,12 @@ def profile_edit(request: HttpRequest) -> HttpResponse:
 
 
 def _get_lead_guild(request: HttpRequest, slug: str) -> Guild:
-    """Return guild if the authenticated user is a lead or staff. Raise 403 otherwise."""
-    from django.core.exceptions import PermissionDenied
+    """Return guild if the authenticated user is a lead or staff. Raise 403 otherwise.
 
+    Callers must apply @login_required to ensure request.user is authenticated.
+    """
     guild = get_object_or_404(Guild, slug=slug)
-    if not guild.is_managed_by(request.user):
+    if not request.user.is_authenticated or not guild.is_managed_by(request.user):
         raise PermissionDenied
     return guild
 
@@ -241,34 +162,3 @@ def buyable_edit(request: HttpRequest, slug: str, buyable_slug: str) -> HttpResp
     else:
         form = BuyableForm(instance=buyable)
     return render(request, "membership/buyable_form.html", {"guild": guild, "form": form, "buyable": buyable})
-
-
-@login_required
-def guild_orders(request: HttpRequest, slug: str) -> HttpResponse:
-    guild = _get_lead_guild(request, slug)
-    orders = Order.objects.filter(buyable__guild=guild).select_related("buyable", "user").order_by("-created_at")
-    return render(request, "membership/guild_orders.html", {"guild": guild, "orders": orders})
-
-
-@login_required
-def order_detail(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
-    guild = _get_lead_guild(request, slug)
-    order = get_object_or_404(Order, pk=pk, buyable__guild=guild)
-
-    if request.method == "POST":
-        action = request.POST.get("action")
-        if action == "fulfill":
-            order.is_fulfilled = True
-            order.fulfilled_by = cast("User", request.user)
-            order.fulfilled_at = timezone.now()
-            order.save()
-            messages.success(request, "Order marked as fulfilled.")
-        elif action == "notes":
-            form = OrderNoteForm(request.POST, instance=order)
-            if form.is_valid():  # pragma: no branch
-                form.save()
-                messages.success(request, "Notes updated.")
-        return redirect("order_detail", slug=slug, pk=pk)
-
-    form = OrderNoteForm(instance=order)
-    return render(request, "membership/order_detail.html", {"guild": guild, "order": order, "form": form})

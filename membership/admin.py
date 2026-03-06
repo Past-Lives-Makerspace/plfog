@@ -15,7 +15,6 @@ from .models import (
     Lease,
     Member,
     MembershipPlan,
-    Order,
     Space,
     VotingSession,
 )
@@ -347,16 +346,3 @@ class BuyableAdmin(ModelAdmin):
     list_filter = ["is_active", "guild"]
     search_fields = ["name", "guild__name"]
     prepopulated_fields = {"slug": ("name",)}
-
-
-# ---------------------------------------------------------------------------
-# OrderAdmin
-# ---------------------------------------------------------------------------
-
-
-@admin.register(Order)
-class OrderAdmin(ModelAdmin):
-    list_display = ["__str__", "buyable", "user", "email", "quantity", "amount", "status", "is_fulfilled", "created_at"]
-    list_filter = ["status", "is_fulfilled"]
-    search_fields = ["buyable__name", "user__username", "email"]
-    readonly_fields = ["stripe_checkout_session_id", "created_at", "paid_at"]
