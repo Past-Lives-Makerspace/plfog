@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #ddd; }
+        th { background: #f5f5f5; font-weight: 600; }
+        .summary { background: #f0f7ff; padding: 12px 16px; border-radius: 6px; margin: 16px 0; }
+    </style>
+</head>
+<body>
+    <h2>Guild Voting Results: {{ session_name }}</h2>
+
+    <div class="summary">
+        <p>Total pool: <strong>${{ results.total_pool }}</strong> |
+           Votes cast: <strong>{{ results.votes_cast }}</strong> / {{ results.eligible_member_count }} eligible</p>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Guild</th>
+                <th>1st</th>
+                <th>2nd</th>
+                <th>3rd</th>
+                <th>Disbursement</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in results.results %}
+            <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ r.guild_name }}</td>
+                <td>{{ r.votes_1st }}</td>
+                <td>{{ r.votes_2nd }}</td>
+                <td>{{ r.votes_3rd }}</td>
+                <td>${{ r.disbursement }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <p style="color: #888; font-size: 13px;">Past Lives Makerspace - Guild Voting System</p>
+</body>
+</html>

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Our Guilds — Past Lives Makerspace{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/guilds.css' %}">
+{% endblock %}
+
+{% block content %}
+<section class="guild-list" aria-labelledby="guild-list-heading">
+
+    <header class="guild-list__header">
+        <h1 class="guild-list__title" id="guild-list-heading">Our Guilds</h1>
+        <p class="guild-list__subtitle">Explore the guilds of Past Lives Makerspace</p>
+    </header>
+
+    <div x-data="{ search: '' }">
+
+        <div class="guild-search">
+            <div class="guild-search__field">
+                <span class="guild-search__icon material-icons" aria-hidden="true">search</span>
+                <input
+                    type="search"
+                    x-model="search"
+                    placeholder="Search guilds..."
+                    class="guild-search__input"
+                    aria-label="Search guilds"
+                >
+            </div>
+        </div>
+
+        <div class="guild-grid">
+            {% for guild in guilds %}
+            <article
+                class="guild-card"
+                x-show="'{{ guild.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())"
+                x-transition
+            >
+                <div class="guild-card__image-wrap">
+                {% if guild.cover_image %}
+                    <img
+                        src="{{ guild.cover_image.url }}"
+                        alt="{{ guild.name }} cover image"
+                        class="guild-card__image"
+                        loading="lazy"
+                        width="480"
+                        height="180"
+                    >
+                {% else %}
+                    <div class="guild-card__placeholder" aria-hidden="true">
+                        {% if guild.icon %}
+                            <span class="guild-card__placeholder-icon material-icons">{{ guild.icon }}</span>
+                        {% else %}
+                            <span class="guild-card__placeholder-icon material-icons">workspaces</span>
+                        {% endif %}
+                    </div>
+                {% endif %}
+                </div>
+
+                <div class="guild-card__body">
+                    <h2 class="guild-card__name">{{ guild.name }}</h2>
+
+                    <p class="guild-card__intro">
+                        {% if guild.intro %}
+                            {{ guild.intro }}
+                        {% elif guild.notes %}
+                            {{ guild.notes|truncatewords:25 }}
+                        {% else %}
+                            A guild at Past Lives Makerspace.
+                        {% endif %}
+                    </p>
+
+                    <a href="{% url 'guild_detail' guild.slug %}" class="guild-card__link">
+                        View Guild
+                    </a>
+                </div>
+            </article>
+            {% empty %}
+            <p class="text-muted text-center" style="grid-column: 1 / -1;">
+                No active guilds found.
+            </p>
+            {% endfor %}
+        </div>
+
+    </div>
+
+</section>
+{% endblock %}

@@ -35,15 +35,15 @@ def describe_home_page_hero():
 
 
 def describe_nav_anonymous():
-    def it_does_not_show_log_in_link(client):
+    def it_shows_log_in_link(client):
         response = client.get("/")
         content = response.content.decode()
-        assert "Log in" not in content
+        assert "Log in" in content
 
-    def it_does_not_show_sign_up_link(client):
+    def it_does_not_show_log_out_link(client):
         response = client.get("/")
         content = response.content.decode()
-        assert "Sign up" not in content
+        assert "Log out" not in content
 
 
 def describe_nav_authenticated():

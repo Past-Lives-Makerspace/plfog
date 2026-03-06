@@ -12,6 +12,7 @@ db.sqlite3
 db.sqlite3-journal
 staticfiles/
 media/
+django.log
 
 # Environment
 .env
@@ -38,3 +39,4 @@ venv/
 
 # Fixtures with personal data - load manually, never commit
 membership/fixtures/*.json
+

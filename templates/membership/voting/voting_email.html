@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; color: #1e2d3d; max-width: 600px; margin: 0 auto; padding: 20px; background: #faf7f2; }
+        .header { text-align: center; margin-bottom: 24px; }
+        .header h2 { color: #1e2d3d; margin: 8px 0 0; font-size: 18px; }
+        .card { background: #fff; border: 1px solid #e8ecf0; border-radius: 6px; padding: 24px; }
+        .btn { display: inline-block; background: #e8a838; color: #1e2d3d; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-size: 16px; font-weight: 600; }
+        .info { background: #fdf6e3; border: 1px solid #f5dca8; padding: 10px 14px; border-radius: 6px; font-size: 14px; color: #b8860b; margin: 16px 0; }
+        .footer { margin-top: 24px; color: #5a6e80; font-size: 13px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>Past Lives Makerspace</h2>
+    </div>
+    <div class="card">
+        <p>Hi {{ member_name }},</p>
+        <p>It's time to vote for your top 3 guilds for <strong>{{ session_name }}</strong>.</p>
+        <div class="info">Your votes are weighted: 1st place = $5, 2nd = $3, 3rd = $2.</div>
+        <p style="margin: 24px 0; text-align: center;">
+            <a href="{{ vote_url }}" class="btn">Vote Now</a>
+        </p>
+        <p><strong>Voting closes:</strong> {{ close_date }}</p>
+    </div>
+    <p class="footer">
+        Past Lives Makerspace<br>
+        If this link doesn't work, copy and paste: {{ vote_url }}
+    </p>
+</body>
+</html>

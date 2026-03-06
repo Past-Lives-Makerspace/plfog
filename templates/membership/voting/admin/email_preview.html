@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Send Voting Emails{% endblock %}
+
+{% block content %}
+<div class="voting-card">
+    <h2>Send Voting Emails: {{ session.name }}</h2>
+    <p>This will send personalized voting links to <strong>{{ members_with_email|length }}</strong> members.</p>
+
+    {% if members_without_email %}
+    <div class="messages"><li class="warning">
+        <strong>{{ members_without_email|length }} members have no email:</strong>
+        <ul>
+            {% for m in members_without_email %}
+            <li>{{ m.name }}</li>
+            {% endfor %}
+        </ul>
+    </li></div>
+    {% endif %}
+
+    {% if session.status == "draft" %}
+    <div class="messages"><li class="info">Session status will be changed from Draft to Open when emails are sent.</li></div>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit" class="voting-btn voting-btn-primary" onclick="return confirm('Send {{ members_with_email|length }} voting emails?')">
+            Send {{ members_with_email|length }} Emails
+        </button>
+        <a href="{% url 'voting_dashboard' %}" class="voting-btn voting-btn-secondary">Cancel</a>
+    </form>
+</div>
+{% endblock %}

@@ -17,9 +17,9 @@ from membership.admin import (
     MemberAdmin,
     MembershipPlanAdmin,
     SpaceAdmin,
-    SubletInline,
+    VotingSessionAdmin,
 )
-from membership.models import Guild, GuildVote, Lease, Member, MembershipPlan, Space
+from membership.models import Guild, GuildVote, Lease, Member, MembershipPlan, Space, VotingSession
 from tests.membership.factories import (
     GuildFactory,
     GuildVoteFactory,
@@ -715,8 +715,10 @@ def describe_GuildAdmin():
         guild_admin = admin.site._registry[Guild]
         assert guild_admin.list_display == [
             "name",
+            "slug",
+            "is_active",
             "guild_lead",
-            "sublet_count",
+            "view_page_link",
             "notes_preview",
         ]
 
@@ -727,16 +729,6 @@ def describe_GuildAdmin():
     def it_has_lease_inline():
         guild_admin = admin.site._registry[Guild]
         assert LeaseInlineGuild in guild_admin.inlines
-
-    def it_has_sublet_inline():
-        guild_admin = admin.site._registry[Guild]
-        assert SubletInline in guild_admin.inlines
-
-    def it_has_sublet_inline_before_lease_inline():
-        guild_admin = admin.site._registry[Guild]
-        sublet_idx = guild_admin.inlines.index(SubletInline)
-        lease_idx = guild_admin.inlines.index(LeaseInlineGuild)
-        assert sublet_idx < lease_idx
 
 
 @pytest.mark.django_db
@@ -760,74 +752,6 @@ def describe_admin_guild_computed_fields():
         guild_admin = admin.site._registry[Guild]
         result = guild_admin.notes_preview(guild)
         assert result == ""
-
-    def it_displays_sublet_count():
-        guild = GuildFactory(name="Sublet Count Guild")
-        SpaceFactory(space_id="SC-001", sublet_guild=guild)
-        SpaceFactory(space_id="SC-002", sublet_guild=guild)
-        guild_admin = admin.site._registry[Guild]
-        rf = RequestFactory()
-        request = rf.get("/admin/membership/guild/")
-        annotated_guild = guild_admin.get_queryset(request).get(pk=guild.pk)
-        result = guild_admin.sublet_count(annotated_guild)
-        assert result == 2
-
-    def it_displays_sublet_count_zero_when_no_sublets():
-        guild = GuildFactory(name="No Sublets Guild")
-        guild_admin = admin.site._registry[Guild]
-        rf = RequestFactory()
-        request = rf.get("/admin/membership/guild/")
-        annotated_guild = guild_admin.get_queryset(request).get(pk=guild.pk)
-        result = guild_admin.sublet_count(annotated_guild)
-        assert result == 0
-
-
-@pytest.mark.django_db
-def describe_SubletInline():
-    def it_displays_full_price_with_manual_price():
-        space = SpaceFactory(
-            space_id="SUB-001",
-            manual_price=Decimal("750.00"),
-        )
-        inline = SubletInline(Guild, admin.site)
-        result = inline.full_price_display(space)
-        assert result == "$750.00"
-
-    def it_displays_full_price_calculated_from_sqft():
-        space = SpaceFactory(
-            space_id="SUB-002",
-            size_sqft=Decimal("200.00"),
-        )
-        inline = SubletInline(Guild, admin.site)
-        result = inline.full_price_display(space)
-        assert result == "$750.00"
-
-    def it_displays_full_price_dash_when_none():
-        space = SpaceFactory(
-            space_id="SUB-003",
-            space_type=Space.SpaceType.OTHER,
-        )
-        inline = SubletInline(Guild, admin.site)
-        result = inline.full_price_display(space)
-        assert result == "-"
-
-    def it_denies_add_permission():
-        inline = SubletInline(Guild, admin.site)
-        rf = RequestFactory()
-        request = rf.get("/admin/membership/guild/add/")
-        assert inline.has_add_permission(request) is False
-
-    def it_denies_change_permission():
-        inline = SubletInline(Guild, admin.site)
-        rf = RequestFactory()
-        request = rf.get("/admin/membership/guild/1/change/")
-        assert inline.has_change_permission(request) is False
-
-    def it_denies_delete_permission():
-        inline = SubletInline(Guild, admin.site)
-        rf = RequestFactory()
-        request = rf.get("/admin/membership/guild/1/change/")
-        assert inline.has_delete_permission(request) is False
 
 
 @pytest.mark.django_db
@@ -866,17 +790,28 @@ def describe_admin_guild_views():
             "/admin/membership/guild/add/",
             {
                 "name": "POST Created Guild",
+                "slug": "post-created-guild",
+                "intro": "",
+                "description": "",
+                "icon": "",
+                "is_active": "on",
+                "links": "[]",
                 "notes": "",
-                # SubletInline management form
-                "sublets-TOTAL_FORMS": "0",
-                "sublets-INITIAL_FORMS": "0",
-                "sublets-MIN_NUM_FORMS": "0",
-                "sublets-MAX_NUM_FORMS": "1000",
                 # GenericTabularInline management form
                 "membership-lease-content_type-object_id-TOTAL_FORMS": "0",
                 "membership-lease-content_type-object_id-INITIAL_FORMS": "0",
                 "membership-lease-content_type-object_id-MIN_NUM_FORMS": "0",
                 "membership-lease-content_type-object_id-MAX_NUM_FORMS": "1000",
+                # GuildWishlistItemInline
+                "wishlist_items-TOTAL_FORMS": "0",
+                "wishlist_items-INITIAL_FORMS": "0",
+                "wishlist_items-MIN_NUM_FORMS": "0",
+                "wishlist_items-MAX_NUM_FORMS": "1000",
+                # BuyableInline
+                "buyables-TOTAL_FORMS": "0",
+                "buyables-INITIAL_FORMS": "0",
+                "buyables-MIN_NUM_FORMS": "0",
+                "buyables-MAX_NUM_FORMS": "1000",
             },
         )
         assert resp.status_code == 302
@@ -891,11 +826,36 @@ def describe_admin_guild_views():
 def describe_GuildVoteAdmin():
     def it_has_expected_list_display():
         vote_admin = admin.site._registry[GuildVote]
-        assert vote_admin.list_display == ["member", "guild", "priority"]
+        assert vote_admin.list_display == ["member_name", "guild", "priority", "session", "created_at"]
 
     def it_has_expected_list_filter():
         vote_admin = admin.site._registry[GuildVote]
-        assert vote_admin.list_filter == ["guild", "priority"]
+        assert vote_admin.list_filter == ["guild", "priority", "session"]
+
+    def it_has_expected_search_fields():
+        vote_admin = admin.site._registry[GuildVote]
+        assert vote_admin.search_fields == ["member_name"]
+
+
+def describe_VotingSessionAdmin():
+    def it_is_registered():
+        assert VotingSession in admin.site._registry
+        assert isinstance(admin.site._registry[VotingSession], VotingSessionAdmin)
+
+    def it_has_expected_list_display():
+        session_admin = admin.site._registry[VotingSession]
+        assert session_admin.list_display == [
+            "name",
+            "status",
+            "open_date",
+            "close_date",
+            "eligible_member_count",
+            "votes_cast",
+        ]
+
+    def it_has_expected_list_filter():
+        session_admin = admin.site._registry[VotingSession]
+        assert session_admin.list_filter == ["status"]
 
 
 @pytest.mark.django_db
@@ -915,14 +875,20 @@ def describe_admin_guild_vote_views():
         assert resp.status_code == 200
 
     def it_creates_via_post(admin_client):
+        from tests.membership.factories import VotingSessionFactory
+
         member = MemberFactory()
         guild = GuildFactory()
+        session = VotingSessionFactory()
         resp = admin_client.post(
             "/admin/membership/guildvote/add/",
             {
+                "session": session.pk,
                 "member": member.pk,
                 "guild": guild.pk,
                 "priority": "1",
+                "member_airtable_id": "recTEST",
+                "member_name": "Test User",
             },
         )
         assert resp.status_code == 302

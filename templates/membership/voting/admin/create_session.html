@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Create Voting Session{% endblock %}
+
+{% block content %}
+<div class="voting-card">
+    <h2>Create Voting Session</h2>
+    <form method="post">
+        {% csrf_token %}
+        {% for field in form %}
+        <div class="voting-form-group">
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+            {% if field.errors %}<div class="voting-field-error">{{ field.errors.0 }}</div>{% endif %}
+        </div>
+        {% endfor %}
+        {% if form.non_field_errors %}
+        <div class="voting-form-error">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
+        {% endif %}
+        <button type="submit" class="voting-btn voting-btn-primary">Create Session</button>
+        <a href="{% url 'voting_dashboard' %}" class="voting-btn voting-btn-secondary">Cancel</a>
+    </form>
+</div>
+{% endblock %}

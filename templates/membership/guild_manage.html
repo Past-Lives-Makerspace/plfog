@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Manage {{ guild.name }} — Past Lives Makerspace{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/guilds.css' %}">
+{% endblock %}
+
+{% block content %}
+<nav class="manage-breadcrumb" aria-label="Breadcrumb">
+    <a href="{% url 'guild_list' %}">Guilds</a>
+    <span class="manage-breadcrumb__sep" aria-hidden="true">/</span>
+    <a href="{% url 'guild_detail' guild.slug %}">{{ guild.name }}</a>
+    <span class="manage-breadcrumb__sep" aria-hidden="true">/</span>
+    <span>Manage</span>
+</nav>
+
+<section class="manage-page">
+    <div class="manage-page__header">
+        <h1 class="manage-page__title">Manage {{ guild.name }}</h1>
+        <div class="manage-page__actions">
+            <a href="{% url 'buyable_add' guild.slug %}" class="btn btn--primary">Add Buyable</a>
+        </div>
+    </div>
+
+    {% if buyables %}
+    <div class="manage-table-card">
+        <div class="manage-table-card__header">
+            <span class="manage-table-card__title">Buyables</span>
+        </div>
+        <div class="manage-table-card__body">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Price</th>
+                        <th>Active</th>
+                        <th>QR</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for buyable in buyables %}
+                    <tr>
+                        <td>{{ buyable.name }}</td>
+                        <td>${{ buyable.unit_price }}</td>
+                        <td>
+                            {% if buyable.is_active %}
+                            <span class="badge badge--paid">Active</span>
+                            {% else %}
+                            <span class="badge badge--pending">Inactive</span>
+                            {% endif %}
+                        </td>
+                        <td><a href="{% url 'buyable_qr' guild.slug buyable.slug %}" target="_blank" title="QR Code"><span class="material-icons">qr_code</span></a></td>
+                        <td>
+                            <div class="data-table__actions">
+                                <a href="{% url 'buyable_edit' guild.slug buyable.slug %}" class="data-table__action-link">Edit</a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="manage-table-card">
+        <p class="manage-table-card__empty">No buyables yet. Add one to get started.</p>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}
