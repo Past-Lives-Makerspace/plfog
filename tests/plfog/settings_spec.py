@@ -218,7 +218,7 @@ def describe_debug_false():
                     "SENTRY_DSN": None,
                 },
             )
-            assert settings_module.EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend"
+            assert settings_module.EMAIL_BACKEND == "anymail.backends.mailgun.EmailBackend"
 
     def it_sets_debug_to_false(monkeypatch):
         with patch("sentry_sdk.init"):

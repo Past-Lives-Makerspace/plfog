@@ -17,6 +17,8 @@ urlpatterns = [
     # User account area
     path("account/orders/", membership_views.user_orders, name="user_orders"),
     path("account/profile/", membership_views.profile_edit, name="profile_edit"),
+    # Guild voting
+    path("voting/", include("membership.vote_urls")),
     path("", include("core.urls")),
 ]
 

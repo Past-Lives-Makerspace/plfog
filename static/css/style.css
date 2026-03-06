@@ -817,3 +817,186 @@ p:last-child {
         color: black;
     }
 }
+
+
+/* ===================================================================
+   VOTING SYSTEM STYLES
+   =================================================================== */
+
+.voting-card {
+    background: var(--color-cream);
+    border: 1px solid var(--color-soft-blue);
+    border-radius: 8px;
+    padding: 2rem;
+    margin: 1.5rem auto;
+    max-width: 800px;
+}
+
+.voting-card h2 {
+    font-family: var(--font-heading);
+    color: var(--color-navy);
+    margin-top: 0;
+}
+
+.voting-card h3 {
+    color: var(--color-navy);
+}
+
+.voting-card-success {
+    border-color: #4caf50;
+    background: #f1f8e9;
+}
+
+.voting-subtitle {
+    color: var(--color-soft-blue);
+    font-size: 0.95rem;
+}
+
+.voting-info {
+    background: #fdf6e3;
+    border: 1px solid var(--color-tuscan-yellow);
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    color: #7a6c3d;
+    margin: 1rem 0;
+}
+
+.voting-form-group {
+    margin-bottom: 1.25rem;
+}
+
+.voting-form-group label {
+    display: block;
+    font-weight: 700;
+    color: var(--color-navy);
+    margin-bottom: 0.3rem;
+}
+
+.voting-form-group select,
+.voting-form-group input[type="text"],
+.voting-form-group input[type="date"] {
+    width: 100%;
+    padding: 0.6rem;
+    border: 1px solid var(--color-soft-blue);
+    border-radius: 4px;
+    font-size: 1rem;
+    box-sizing: border-box;
+}
+
+.voting-form-group small {
+    color: var(--color-soft-blue);
+    font-size: 0.85rem;
+}
+
+.voting-field-error {
+    color: #c62828;
+    font-size: 0.85rem;
+    margin-top: 0.2rem;
+}
+
+.voting-form-error {
+    background: #ffebee;
+    border: 1px solid #ef9a9a;
+    padding: 0.75rem;
+    border-radius: 6px;
+    color: #c62828;
+    margin: 1rem 0;
+}
+
+.voting-vote-list {
+    list-style: none;
+    padding: 0;
+}
+
+.voting-vote-list li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #e8ecf0;
+    font-size: 1.05rem;
+}
+
+.voting-results-summary {
+    background: var(--color-navy);
+    color: var(--color-cream);
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    margin: 1rem 0;
+}
+
+.voting-results-summary p {
+    margin: 0.25rem 0;
+}
+
+.voting-results-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+
+.voting-results-table th,
+.voting-results-table td {
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid #ddd;
+}
+
+.voting-results-table th {
+    background: var(--color-navy);
+    color: var(--color-cream);
+    font-weight: 600;
+}
+
+.voting-results-table tbody tr:hover {
+    background: rgba(9, 46, 76, 0.04);
+}
+
+.voting-btn {
+    display: inline-block;
+    padding: 0.6rem 1.2rem;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+    border: none;
+    cursor: pointer;
+    color: var(--color-navy);
+    background: var(--color-soft-blue);
+    margin: 0.25rem;
+}
+
+.voting-btn:hover { opacity: 0.9; }
+
+.voting-btn-gold {
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+}
+
+.voting-btn-primary {
+    background: var(--color-navy);
+    color: var(--color-cream);
+}
+
+.voting-btn-secondary {
+    background: transparent;
+    border: 1px solid var(--color-navy);
+    color: var(--color-navy);
+}
+
+.voting-btn-small {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.85rem;
+}
+
+.voting-btn-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.voting-active-session {
+    background: rgba(238, 180, 75, 0.1);
+    border: 1px solid var(--color-tuscan-yellow);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+}

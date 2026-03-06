@@ -18,6 +18,7 @@ from membership.models import (
     MembershipPlan,
     Order,
     Space,
+    VotingSession,
 )
 
 
@@ -57,12 +58,25 @@ class GuildFactory(factory.django.DjangoModelFactory):
     name = factory.Sequence(lambda n: f"Guild {n}")
 
 
+class VotingSessionFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = VotingSession
+
+    name = factory.Sequence(lambda n: f"Session {n}")
+    open_date = factory.LazyFunction(lambda: timezone.now().date())
+    close_date = factory.LazyFunction(lambda: timezone.now().date() + timedelta(days=7))
+    status = VotingSession.Status.DRAFT
+
+
 class GuildVoteFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = GuildVote
 
+    session = factory.SubFactory(VotingSessionFactory)
     member = factory.SubFactory(MemberFactory)
     guild = factory.SubFactory(GuildFactory)
+    member_airtable_id = factory.Sequence(lambda n: f"rec{n:015d}")
+    member_name = factory.LazyAttribute(lambda o: o.member.full_legal_name if o.member else "Test")
     priority = 1
 
 

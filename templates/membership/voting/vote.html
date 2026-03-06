@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Vote - {{ session.name }}{% endblock %}
+
+{% block content %}
+<div class="voting-card">
+    <h2>Hi {{ member.name }}, rank your top 3 guilds</h2>
+    <p class="voting-subtitle">{{ session.name }} &mdash; Voting closes {{ session.close_date|date:"F jS, Y" }}</p>
+    <p class="voting-info">Your vote will have a positive financial impact on the guilds that you choose! Be sure to vote for your preferred guild first, the order is taken into account.</p>
+
+    <form method="post" id="vote-form">
+        {% csrf_token %}
+        {% for field in form %}
+        <div class="voting-form-group">
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}
+            <div class="voting-field-error">{{ field.errors.0 }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% if form.non_field_errors %}
+        <div class="voting-form-error">
+            {% for error in form.non_field_errors %}
+            <p>{{ error }}</p>
+            {% endfor %}
+        </div>
+        {% endif %}
+        <div style="text-align: center; margin-top: 1.5rem;">
+            <button type="submit" class="voting-btn voting-btn-gold">Submit Vote</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const guilds = {{ guilds_json|safe }};
+const selects = document.querySelectorAll('#vote-form select');
+
+function updateOptions() {
+    const selected = {};
+    selects.forEach(sel => {
+        if (sel.value) selected[sel.name] = sel.value;
+    });
+    selects.forEach(sel => {
+        const current = sel.value;
+        const otherSelected = Object.entries(selected)
+            .filter(([name]) => name !== sel.name)
+            .map(([, val]) => val);
+        sel.innerHTML = '<option value="">-- Select a guild --</option>';
+        guilds.forEach(([id, name]) => {
+            if (!otherSelected.includes(id)) {
+                const opt = document.createElement('option');
+                opt.value = id;
+                opt.textContent = name;
+                if (id === current) opt.selected = true;
+                sel.appendChild(opt);
+            }
+        });
+    });
+}
+
+selects.forEach(sel => sel.addEventListener('change', updateOptions));
+</script>
+{% endblock %}

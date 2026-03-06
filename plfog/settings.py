@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "allauth.socialaccount.providers.github",
     "allauth.socialaccount.providers.discord",
     "django_extensions",
+    "anymail",
     # Project apps
     "core",
     "membership",
@@ -170,8 +171,27 @@ else:
     ADMIN_DOMAINS = []
 
 EMAIL_BACKEND = (
-    "django.core.mail.backends.console.EmailBackend" if DEBUG else "django.core.mail.backends.smtp.EmailBackend"
+    "django.core.mail.backends.console.EmailBackend" if DEBUG else "anymail.backends.mailgun.EmailBackend"
 )
+DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_FROM", "voting@pastlives.space")
+EMAIL_FROM = DEFAULT_FROM_EMAIL
+
+ANYMAIL = {
+    "MAILGUN_API_KEY": os.environ.get("MAILGUN_API_KEY", ""),
+    "MAILGUN_SENDER_DOMAIN": os.environ.get("MAILGUN_SENDER_DOMAIN", "pastlives.space"),
+}
+
+# Airtable
+AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY", "")
+AIRTABLE_NEW_BASE_ID = os.environ.get("AIRTABLE_NEW_BASE_ID", "appVix9sWo1Tfjm0s")
+AIRTABLE_OLD_BASE_ID = os.environ.get("AIRTABLE_OLD_BASE_ID", "appETKQa6ueJsZ2gC")
+AIRTABLE_MEMBERS_TABLE = os.environ.get("AIRTABLE_MEMBERS_TABLE", "tbllpqGB2XXuRt6lg")
+AIRTABLE_GUILDS_TABLE = os.environ.get("AIRTABLE_GUILDS_TABLE", "tbla02m2GnUAsg3eW")
+AIRTABLE_VOTES_TABLE = os.environ.get("AIRTABLE_VOTES_TABLE", "tblpefgQUIMdwbLZX")
+AIRTABLE_SESSIONS_TABLE = os.environ.get("AIRTABLE_SESSIONS_TABLE", "tblGW2Bo1Mb09qT2y")
+
+# Vote token expiry (seconds) - 30 days
+VOTE_TOKEN_MAX_AGE = 60 * 60 * 24 * 30
 
 # OAuth providers (APP config pattern - no Django admin SocialApp needed)
 SOCIALACCOUNT_PROVIDERS = {
@@ -306,8 +326,18 @@ UNFOLD = {
                         "link": reverse_lazy("admin:membership_guild_changelist"),
                     },
                     {
-                        "title": "Guild Votes",
+                        "title": "Voting Dashboard",
                         "icon": "how_to_vote",
+                        "link": reverse_lazy("voting_dashboard"),
+                    },
+                    {
+                        "title": "Voting Sessions",
+                        "icon": "event",
+                        "link": reverse_lazy("admin:membership_votingsession_changelist"),
+                    },
+                    {
+                        "title": "Guild Votes",
+                        "icon": "ballot",
                         "link": reverse_lazy("admin:membership_guildvote_changelist"),
                     },
                     {

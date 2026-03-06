@@ -243,24 +243,77 @@ class Guild(models.Model):
         return total
 
 
-class GuildVote(models.Model):
-    """Members vote for 3 guilds in priority order."""
+class VotingSession(models.Model):
+    """A time-bound voting period for guild funding allocation."""
 
-    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name="guild_votes")
-    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="votes")
-    priority = models.PositiveSmallIntegerField(choices=[(1, "First"), (2, "Second"), (3, "Third")])
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        OPEN = "open", "Open"
+        CLOSED = "closed", "Closed"
+        CALCULATED = "calculated", "Calculated"
+
+    ALLOWED_TRANSITIONS: dict[str, list[str]] = {
+        "draft": ["open"],
+        "open": ["closed"],
+        "closed": ["open", "calculated"],
+    }
+
+    name = models.CharField(max_length=100)
+    open_date = models.DateField()
+    close_date = models.DateField()
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    eligible_member_count = models.PositiveIntegerField(default=0)
+    votes_cast = models.PositiveIntegerField(default=0)
+    results_summary = models.JSONField(default=dict, blank=True)
+    airtable_record_id = models.CharField(max_length=50, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["member", "priority"]
+        ordering = ["-open_date"]
+        verbose_name = "Voting Session"
+        verbose_name_plural = "Voting Sessions"
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def is_open_for_voting(self) -> bool:
+        today = timezone.now().date()
+        return self.status == self.Status.OPEN and self.open_date <= today <= self.close_date
+
+    def can_transition_to(self, new_status: str) -> bool:
+        return new_status in self.ALLOWED_TRANSITIONS.get(self.status, [])
+
+
+class GuildVote(models.Model):
+    """Members vote for 3 guilds in priority order within a voting session."""
+
+    session = models.ForeignKey(VotingSession, on_delete=models.CASCADE, related_name="votes", null=True)
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name="guild_votes", null=True, blank=True)
+    member_airtable_id = models.CharField(max_length=50, default="")
+    member_name = models.CharField(max_length=255, default="")
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="guild_votes_received")
+    priority = models.PositiveSmallIntegerField(choices=[(1, "First"), (2, "Second"), (3, "Third")])
+    airtable_record_id = models.CharField(max_length=50, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+
+    class Meta:
+        ordering = ["session", "member_airtable_id", "priority"]
         verbose_name = "Guild Vote"
         verbose_name_plural = "Guild Votes"
         constraints = [
-            models.UniqueConstraint(fields=["member", "priority"], name="unique_member_priority"),
-            models.UniqueConstraint(fields=["member", "guild"], name="unique_member_guild"),
+            models.UniqueConstraint(
+                fields=["session", "member_airtable_id", "priority"],
+                name="unique_session_member_priority",
+            ),
+            models.UniqueConstraint(
+                fields=["session", "member_airtable_id", "guild"],
+                name="unique_session_member_guild",
+            ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.member} → {self.guild} (#{self.priority})"
+        return f"{self.member_name} → {self.guild} (#{self.priority})"
 
 
 # ---------------------------------------------------------------------------

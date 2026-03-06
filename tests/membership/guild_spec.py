@@ -14,6 +14,7 @@ from tests.membership.factories import (
     LeaseFactory,
     MemberFactory,
     SpaceFactory,
+    VotingSessionFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -133,24 +134,46 @@ def describe_GuildVote():
         assert vote.guild == guild
 
     def describe_unique_constraints():
-        def it_enforces_unique_member_priority():
-            vote1 = GuildVoteFactory(priority=1)
+        def it_enforces_unique_session_member_priority():
+            session = VotingSessionFactory()
+            vote1 = GuildVoteFactory(session=session, priority=1)
             with pytest.raises(IntegrityError):
-                GuildVoteFactory(member=vote1.member, priority=1, guild=GuildFactory())
+                GuildVoteFactory(
+                    session=session,
+                    member_airtable_id=vote1.member_airtable_id,
+                    priority=1,
+                    guild=GuildFactory(),
+                )
 
-        def it_enforces_unique_member_guild():
-            vote1 = GuildVoteFactory(priority=1)
+        def it_enforces_unique_session_member_guild():
+            session = VotingSessionFactory()
+            vote1 = GuildVoteFactory(session=session, priority=1)
             with pytest.raises(IntegrityError):
-                GuildVoteFactory(member=vote1.member, guild=vote1.guild, priority=2)
+                GuildVoteFactory(
+                    session=session,
+                    member_airtable_id=vote1.member_airtable_id,
+                    guild=vote1.guild,
+                    priority=2,
+                )
+
+        def it_allows_same_member_in_different_sessions():
+            session1 = VotingSessionFactory(name="Session 1")
+            session2 = VotingSessionFactory(name="Session 2")
+            guild = GuildFactory()
+            v1 = GuildVoteFactory(session=session1, guild=guild, priority=1, member_airtable_id="rec123")
+            v2 = GuildVoteFactory(session=session2, guild=guild, priority=1, member_airtable_id="rec123")
+            assert v1.pk is not None
+            assert v2.pk is not None
 
     def describe_ordering():
-        def it_orders_by_member_then_priority():
+        def it_orders_by_session_member_then_priority():
+            session = VotingSessionFactory()
             member = MemberFactory(full_legal_name="Test Member")
             guild_a = GuildFactory(name="Guild A")
             guild_b = GuildFactory(name="Guild B")
-            v2 = GuildVoteFactory(member=member, guild=guild_b, priority=2)
-            v1 = GuildVoteFactory(member=member, guild=guild_a, priority=1)
-            votes = list(GuildVote.objects.filter(member=member))
+            v2 = GuildVoteFactory(session=session, member=member, guild=guild_b, priority=2, member_airtable_id="rec001")
+            v1 = GuildVoteFactory(session=session, member=member, guild=guild_a, priority=1, member_airtable_id="rec001")
+            votes = list(GuildVote.objects.filter(session=session, member_airtable_id="rec001"))
             assert votes == [v1, v2]
 
 

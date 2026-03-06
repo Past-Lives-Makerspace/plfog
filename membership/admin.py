@@ -18,6 +18,7 @@ from .models import (
     MembershipPlan,
     Order,
     Space,
+    VotingSession,
 )
 
 # ---------------------------------------------------------------------------
@@ -244,8 +245,17 @@ class GuildAdmin(ModelAdmin):
 
 @admin.register(GuildVote)
 class GuildVoteAdmin(ModelAdmin):
-    list_display = ["member", "guild", "priority"]
-    list_filter = ["guild", "priority"]
+    list_display = ["member_name", "guild", "priority", "session", "created_at"]
+    list_filter = ["guild", "priority", "session"]
+    search_fields = ["member_name"]
+
+
+@admin.register(VotingSession)
+class VotingSessionAdmin(ModelAdmin):
+    list_display = ["name", "status", "open_date", "close_date", "eligible_member_count", "votes_cast"]
+    list_filter = ["status"]
+    search_fields = ["name"]
+    readonly_fields = ["airtable_record_id", "created_at"]
 
 
 # ---------------------------------------------------------------------------

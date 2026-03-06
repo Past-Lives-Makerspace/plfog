@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Voting Dashboard{% endblock %}
+
+{% block content %}
+<div class="voting-card">
+    <h2>Voting Dashboard</h2>
+
+    {% if airtable_error %}
+    <div class="messages"><li class="warning"><strong>Airtable error:</strong> {{ airtable_error }}</li></div>
+    {% endif %}
+
+    {% if active_session %}
+    <div class="voting-active-session">
+        <h3>Active Session: {{ active_session.name }}</h3>
+        <p>
+            Status: <strong>{{ active_session.get_status_display }}</strong><br>
+            Open: {{ active_session.open_date|date:"F jS, Y" }} &mdash; Close: {{ active_session.close_date|date:"F jS, Y" }}<br>
+            Eligible members: <strong>{{ member_count }}</strong><br>
+            Votes cast: <strong>{{ vote_count }}</strong> / {{ member_count }}
+        </p>
+        <div class="voting-btn-group">
+            <a href="{% url 'voting_send_emails' active_session.pk %}" class="voting-btn">Send Emails</a>
+            <a href="{% url 'voting_calculate' active_session.pk %}" class="voting-btn">Calculate Results</a>
+            <a href="{% url 'voting_email_results' active_session.pk %}" class="voting-btn">Email Results</a>
+            <a href="{% url 'voting_results' active_session.pk %}" class="voting-btn voting-btn-secondary">View Results</a>
+        </div>
+    </div>
+    {% else %}
+    <p>No active voting session.</p>
+    {% endif %}
+
+    <div class="voting-btn-group" style="margin-top: 1.5rem;">
+        <a href="{% url 'voting_create_session' %}" class="voting-btn voting-btn-primary">Create New Session</a>
+    </div>
+</div>
+
+{% if sessions %}
+<div class="voting-card">
+    <h3>All Sessions</h3>
+    <table class="voting-results-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Open</th>
+                <th>Close</th>
+                <th>Eligible</th>
+                <th>Votes</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in sessions %}
+            <tr>
+                <td>{{ s.name }}</td>
+                <td>{{ s.get_status_display }}</td>
+                <td>{{ s.open_date|date:"M d" }}</td>
+                <td>{{ s.close_date|date:"M d" }}</td>
+                <td>{{ s.eligible_member_count }}</td>
+                <td>{{ s.votes_cast }}</td>
+                <td>
+                    {% if s.status == "draft" %}
+                    <form method="post" action="{% url 'voting_set_status' s.pk %}" style="display:inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="status" value="open">
+                        <button type="submit" class="voting-btn voting-btn-small voting-btn-primary">Open</button>
+                    </form>
+                    {% elif s.status == "open" %}
+                    <form method="post" action="{% url 'voting_set_status' s.pk %}" style="display:inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="status" value="closed">
+                        <button type="submit" class="voting-btn voting-btn-small voting-btn-secondary">Close</button>
+                    </form>
+                    {% endif %}
+                    <a href="{% url 'voting_results' s.pk %}">Results</a>
+                    {% if s.status == "open" or s.status == "closed" %}
+                    | <a href="{% url 'voting_calculate' s.pk %}">Calculate</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

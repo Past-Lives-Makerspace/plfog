@@ -17,8 +17,9 @@ from membership.admin import (
     MemberAdmin,
     MembershipPlanAdmin,
     SpaceAdmin,
+    VotingSessionAdmin,
 )
-from membership.models import Guild, GuildVote, Lease, Member, MembershipPlan, Space
+from membership.models import Guild, GuildVote, Lease, Member, MembershipPlan, Space, VotingSession
 from tests.membership.factories import (
     GuildFactory,
     GuildVoteFactory,
@@ -830,11 +831,32 @@ def describe_admin_guild_views():
 def describe_GuildVoteAdmin():
     def it_has_expected_list_display():
         vote_admin = admin.site._registry[GuildVote]
-        assert vote_admin.list_display == ["member", "guild", "priority"]
+        assert vote_admin.list_display == ["member_name", "guild", "priority", "session", "created_at"]
 
     def it_has_expected_list_filter():
         vote_admin = admin.site._registry[GuildVote]
-        assert vote_admin.list_filter == ["guild", "priority"]
+        assert vote_admin.list_filter == ["guild", "priority", "session"]
+
+    def it_has_expected_search_fields():
+        vote_admin = admin.site._registry[GuildVote]
+        assert vote_admin.search_fields == ["member_name"]
+
+
+def describe_VotingSessionAdmin():
+    def it_is_registered():
+        assert VotingSession in admin.site._registry
+        assert isinstance(admin.site._registry[VotingSession], VotingSessionAdmin)
+
+    def it_has_expected_list_display():
+        session_admin = admin.site._registry[VotingSession]
+        assert session_admin.list_display == [
+            "name", "status", "open_date", "close_date",
+            "eligible_member_count", "votes_cast",
+        ]
+
+    def it_has_expected_list_filter():
+        session_admin = admin.site._registry[VotingSession]
+        assert session_admin.list_filter == ["status"]
 
 
 @pytest.mark.django_db
@@ -854,14 +876,20 @@ def describe_admin_guild_vote_views():
         assert resp.status_code == 200
 
     def it_creates_via_post(admin_client):
+        from tests.membership.factories import VotingSessionFactory
+
         member = MemberFactory()
         guild = GuildFactory()
+        session = VotingSessionFactory()
         resp = admin_client.post(
             "/admin/membership/guildvote/add/",
             {
+                "session": session.pk,
                 "member": member.pk,
                 "guild": guild.pk,
                 "priority": "1",
+                "member_airtable_id": "recTEST",
+                "member_name": "Test User",
             },
         )
         assert resp.status_code == 302
