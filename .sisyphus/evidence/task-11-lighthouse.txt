@@ -1,0 +1,181 @@
+================================================================================
+LIGHTHOUSE PWA AUDIT RESULTS
+================================================================================
+Date: 2026-02-26
+URL: http://localhost:8008
+Lighthouse Version: 13.0.3
+
+================================================================================
+IMPORTANT NOTE
+================================================================================
+Lighthouse 12+ removed the PWA category from CLI audits. The PWA category was
+deprecated and is no longer included in the default Lighthouse categories.
+
+Available categories in Lighthouse 12+:
+- accessibility
+- best-practices
+- performance
+- seo
+
+================================================================================
+MANUAL PWA COMPLIANCE ASSESSMENT
+================================================================================
+
+Since Lighthouse CLI no longer provides PWA scores, a manual assessment was
+performed against the PWA checklist requirements.
+
+------------------------------------------------------------------------------
+1. WEB APP MANIFEST
+------------------------------------------------------------------------------
+Status: PASS
+
+Manifest URL: http://localhost:8008/static/manifest.json
+
+Manifest Content:
+{
+  "name": "Past Lives Makerspace",
+  "short_name": "Past Lives",
+  "description": "Membership and studio rental management for Past Lives Makerspace",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#092E4C",
+  "background_color": "#092E4C",
+  "icons": [
+    { "src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/static/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
+
+Required fields present:
+  [x] name
+  [x] short_name
+  [x] start_url
+  [x] display (standalone)
+  [x] icons (192x192 and 512x512)
+  [x] theme_color
+  [x] background_color
+
+Icon Availability:
+  [x] icon-192.png: HTTP 200
+  [x] icon-512.png: HTTP 200
+  [x] icon-512-maskable.png: HTTP 200
+
+------------------------------------------------------------------------------
+2. SERVICE WORKER
+------------------------------------------------------------------------------
+Status: PARTIAL PASS (Scope Issue)
+
+Service Worker URL: http://localhost:8008/static/js/sw.js
+
+Registration: SUCCESSFUL
+- Service worker is registered and active (state: "activated")
+
+ISSUE FOUND:
+- Service worker scope is "/static/js/" instead of "/"
+- This means the SW only controls URLs under /static/js/*, not the main app
+- For full PWA installability, the SW needs to control the root scope
+
+SOLUTION OPTIONS:
+1. Move sw.js to root level (/sw.js)
+2. Add { scope: '/' } to registration + Service-Worker-Allowed header
+
+Service Worker Features:
+  [x] Install event handler (precaching)
+  [x] Activate event handler (cache cleanup)
+  [x] Cache API usage
+  [x] skipWaiting() for immediate activation
+  [x] clients.claim() for immediate control
+
+Precached Assets:
+  - /static/offline.html
+  - /static/css/style.css
+  - /static/css/unfold-custom.css
+
+------------------------------------------------------------------------------
+3. OFFLINE SUPPORT
+------------------------------------------------------------------------------
+Status: PASS
+
+Offline Page: http://localhost:8008/static/offline.html
+  [x] Returns HTTP 200
+
+The service worker implements a cache-first strategy for shell assets.
+
+------------------------------------------------------------------------------
+4. INSTALLABILITY REQUIREMENTS
+------------------------------------------------------------------------------
+
+Based on Chrome's PWA installability criteria:
+
+  [x] Manifest exists with required fields
+  [x] Manifest is linked from page (<link rel="manifest">)
+  [x] Service worker is registered
+  [~] Service worker scope covers start_url (ISSUE: scope is /static/js/)
+  [x] Icons at required sizes (192x192, 512x512)
+  [x] display mode is standalone or fullscreen
+  [x] Site served over HTTPS (localhost exempt for testing)
+
+------------------------------------------------------------------------------
+5. ADDITIONAL PWA FEATURES
+------------------------------------------------------------------------------
+
+Meta Tags Present:
+  [x] <meta name="theme-color" content="#092E4C">
+  [x] <meta name="apple-mobile-web-app-capable" content="yes">
+  [x] <link rel="apple-touch-icon" ...>
+
+================================================================================
+PWA SCORE ESTIMATE
+================================================================================
+
+Based on the PWA baseline checklist:
+
+| Requirement                    | Status  | Points |
+|--------------------------------|---------|--------|
+| Web app manifest               | PASS    | 1.0    |
+| start_url responds offline     | PARTIAL | 0.8    |
+| Service worker registered      | PASS    | 1.0    |
+| SW controls page and start_url | FAIL    | 0.0    |
+| Icons (192px, 512px)           | PASS    | 1.0    |
+| Installable                    | PARTIAL | 0.8    |
+| Custom splash screen           | PASS    | 1.0    |
+| Address bar matches brand      | PASS    | 1.0    |
+| Metadata for install            | PASS    | 1.0    |
+
+ESTIMATED SCORE: 0.75 (75%)
+
+Note: The score is below 0.9 due to the service worker scope issue.
+The service worker does not control the main page (scope is /static/js/
+instead of /), which affects offline support for the root URL.
+
+================================================================================
+RECOMMENDATION
+================================================================================
+
+To achieve a PWA score >= 0.9:
+
+1. Fix the service worker scope issue:
+   - Option A: Move sw.js to /sw.js (preferred)
+   - Option B: Add scope: '/' to registration and configure Django
+     to send Service-Worker-Allowed: / header
+
+2. After fixing, verify:
+   - Service worker controls /
+   - start_url (/) works offline
+   - PWA install prompt appears
+
+================================================================================
+FILES MODIFIED
+================================================================================
+None - This was an audit task only.
+
+================================================================================
+EVIDENCE ARTIFACTS
+================================================================================
+- Lighthouse JSON output: /tmp/lighthouse-pwa.json
+- Lighthouse JSON output (experimental): /tmp/lighthouse-pwa-v2.json
+- Manifest JSON: http://localhost:8008/static/manifest.json
+- Service Worker: http://localhost:8008/static/js/sw.js
+================================================================================

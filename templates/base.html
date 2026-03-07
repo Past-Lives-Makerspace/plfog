@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Past Lives Makerspace - Portland's community workshop for creators, builders, and makers. Do It Together.">
     <meta name="theme-color" content="#092E4C">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Past Lives">
+    <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
     <title>{% block title %}Past Lives Makerspace{% endblock %}</title>
     {% load static %}
     <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
@@ -35,5 +40,21 @@
         <p class="site-footer__tagline">Do It Together</p>
         <p class="site-footer__copy">&copy; 2026 Past Lives Makerspace</p>
     </footer>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').then(function(registration) {
+            {% if debug %}
+            console.log('ServiceWorker registration successful with scope: ', registration.scope);
+            {% endif %}
+          }).catch(function(error) {
+            {% if debug %}
+            console.log('ServiceWorker registration failed: ', error);
+            {% endif %}
+          });
+        });
+      }
+    </script>
+
 </body>
 </html>

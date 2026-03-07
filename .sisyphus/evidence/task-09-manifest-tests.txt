@@ -1,0 +1,61 @@
+# Task 09: Manifest Tests - Evidence
+
+## Summary
+Created pytest-describe tests for PWA manifest.json at `tests/core/test_manifest_spec.py`.
+
+## Test File Location
+`/Users/mng/Projects/agent_work/worktrees/plfog-pwa/tests/core/test_manifest_spec.py`
+
+## Tests Created (14 tests)
+All tests use pytest-describe format with `describe_manifest_json` and `it_*` functions.
+
+1. `it_is_valid_json` - Manifest is parseable JSON
+2. `it_has_required_name_field` - Has "name" = "Past Lives Makerspace"
+3. `it_has_required_short_name_field` - Has "short_name" = "Past Lives"
+4. `it_has_required_start_url` - Has "start_url" = "/"
+5. `it_has_required_display` - Has "display" = "standalone"
+6. `it_has_required_theme_color` - Has "theme_color" = "#092E4C"
+7. `it_has_required_icons` - Has icons array with 3 icons
+8. `it_has_maskable_icon` - At least one icon has purpose "maskable"
+9. `it_has_192x192_icon` - Has 192x192 icon for standard displays
+10. `it_has_512x512_icon` - Has 512x512 icon for high-res displays
+11. `it_has_valid_icon_paths` - All icon paths start with "/static/"
+12. `it_has_background_color` - Has "background_color" = "#092E4C"
+13. `it_has_scope` - Has "scope" = "/"
+14. `it_has_description` - Has description containing "Past Lives Makerspace"
+
+## Test Results
+```
+tests/core/test_manifest_spec.py::describe_manifest_json::it_is_valid_json PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_required_name_field PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_required_short_name_field PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_required_start_url PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_required_display PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_required_theme_color PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_required_icons PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_maskable_icon PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_192x192_icon PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_512x512_icon PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_valid_icon_paths PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_background_color PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_scope PASSED
+tests/core/test_manifest_spec.py::describe_manifest_json::it_has_description PASSED
+
+14 passed in 0.09s
+```
+
+## Manifest Fields Verified
+- name: "Past Lives Makerspace"
+- short_name: "Past Lives"
+- description: "Membership and studio rental management for Past Lives Makerspace"
+- start_url: "/"
+- scope: "/"
+- display: "standalone"
+- theme_color: "#092E4C" (brand navy)
+- background_color: "#092E4C"
+- icons: 3 icons (192x192, 512x512, 512x512 maskable)
+
+## Notes
+- Tests read manifest.json directly from filesystem (appropriate for static files)
+- Uses pytest fixture to load manifest once per test class
+- All icon paths verified to start with "/static/"

@@ -1,0 +1,37 @@
+TASK: Create vanilla JS service worker for offline shell caching
+DATE: 2026-02-26
+
+EVIDENCE OF COMPLETION:
+
+1. File created: worktrees/plfog-pwa/static/js/sw.js
+   - Size: 3845 bytes
+   - Lines: 141
+
+2. Implementation includes:
+   [x] Install event handler with precache of:
+       - /static/offline.html
+       - /static/css/style.css
+       - /static/css/unfold-custom.css
+   [x] Fetch event handler with:
+       - Network-first for navigation requests (HTML pages)
+       - Cache-first for static assets (CSS, JS, images)
+       - Offline fallback to /static/offline.html for navigation
+   [x] Activate event handler with:
+       - skipWaiting() called in install
+       - clients.claim() called in activate
+       - Old cache cleanup
+
+3. Cache strategy:
+   - Cache name: 'plfog-shell-v1'
+   - Precached assets on install
+   - Network-first: navigation requests (document pages)
+   - Cache-first: static assets (CSS, JS, images)
+   - Stale-while-revalidate pattern for static assets
+
+4. Vanilla JS only - NO Workbox library used
+
+VERIFICATION:
+$ ls -la worktrees/plfog-pwa/static/js/sw.js
+-rw-r--r--@ 1 mng  staff  3845 Feb 26 18:27 sw.js
+
+STATUS: COMPLETE

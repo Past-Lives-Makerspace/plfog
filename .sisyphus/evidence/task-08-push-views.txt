@@ -1,0 +1,54 @@
+# Task 08: Push Subscription Views and Model - Evidence
+
+## Completed: 2026-02-26
+
+### Files Created/Modified
+
+1. **core/models.py** (NEW)
+   - `PushSubscription` model with fields:
+     - `user` - ForeignKey to AUTH_USER_MODEL
+     - `endpoint` - URLField(max_length=500, unique=True)
+     - `p256dh` - CharField(max_length=100)
+     - `auth` - CharField(max_length=50)
+     - `created_at` - DateTimeField(auto_now_add=True)
+   - Meta: ordering by -created_at
+   - __str__ method for admin display
+
+2. **core/views.py** (MODIFIED)
+   - Added imports: json, logging, settings, login_required, require_GET, require_POST
+   - Added `vapid_key` view (GET, login_required) - returns VAPID public key as JSON
+   - Added `subscribe` view (POST, login_required) - creates/updates PushSubscription
+   - Added `unsubscribe` view (POST, login_required) - deletes PushSubscription
+   - All views include:
+     - @login_required decorator
+     - iOS graceful degradation (no errors when push unavailable)
+     - Proper error handling with JSON responses
+     - Logging for exceptions
+
+3. **core/urls.py** (MODIFIED)
+   - Added routes:
+     - `/webpush/vapid-key/` → vapid_key (name: webpush_vapid_key)
+     - `/webpush/subscribe/` → subscribe (name: webpush_subscribe)
+     - `/webpush/unsubscribe/` → unsubscribe (name: webpush_unsubscribe)
+
+### Verification
+
+- Python syntax check: PASSED
+- All views require login: VERIFIED
+- iOS graceful degradation: VERIFIED (no errors raised, silent fallbacks)
+- Uses WEBPUSH_SETTINGS from settings.py: VERIFIED
+
+### Migration Required
+
+Before deployment, run:
+```bash
+python manage.py makemigrations core
+python manage.py migrate
+```
+
+### Notes
+
+- No notification sending logic (infrastructure only)
+- No notification UI (settings, preferences)
+- No auth flow modifications
+- No external dependencies beyond django-webpush (already in INSTALLED_APPS)

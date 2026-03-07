@@ -1,0 +1,74 @@
+# Task 10: Push Subscription Endpoint Tests - Evidence
+
+## Summary
+Created comprehensive pytest-describe tests for push notification endpoints in `tests/core/test_push_spec.py`.
+
+## Test File Location
+`/Users/mng/Projects/agent_work/worktrees/plfog-pwa/tests/core/test_push_spec.py`
+
+## Test Coverage
+
+### describe_vapid_key_view (5 tests)
+- it_returns_200_ok_for_authenticated_user
+- it_requires_login
+- it_returns_public_key_in_json
+- it_returns_empty_string_when_key_not_configured
+- it_requires_get_method
+
+### describe_subscribe_view (10 tests)
+- it_returns_200_ok_for_authenticated_post
+- it_requires_login
+- it_requires_post_method
+- it_creates_push_subscription
+- it_handles_duplicate_endpoint_gracefully
+- it_returns_400_for_missing_required_fields
+- it_returns_400_for_missing_endpoint
+- it_returns_400_for_invalid_json
+- describe_subscription_user_assignment
+  - it_assigns_subscription_to_authenticated_user
+- it_returns_500_on_unexpected_error
+
+### describe_unsubscribe_view (9 tests)
+- it_returns_200_ok_for_authenticated_post
+- it_requires_login
+- it_requires_post_method
+- it_deletes_subscription
+- it_succeeds_even_if_subscription_not_found (iOS graceful degradation)
+- it_returns_400_for_missing_endpoint
+- it_returns_400_for_invalid_json
+- it_only_deletes_own_subscription
+- it_returns_500_on_unexpected_error
+
+## Total Tests: 24
+
+## Coverage Results
+
+```
+core/views.py: 96% coverage (push-related views at 100%)
+- Lines 19, 24 are health_check and home views (not push-related)
+- All push notification code paths are covered
+```
+
+## Test Execution
+
+```
+$ .venv/bin/pytest tests/core/test_push_spec.py -v
+============================= test session starts ==============================
+platform darwin -- Python 3.14.2, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/mng/Projects/agent_work/worktrees/plfog-pwa
+config: pyproject.toml
+plugins: leela-0.2.0, Faker-40.5.1, describe-3.1.0, django-4.12.0, cov-7.0.0
+collected 24 items
+
+24 passed, 24 warnings in 2.56s
+```
+
+## Key Features Tested
+
+1. **Authentication**: All endpoints require login (302 redirect to /accounts/login/)
+2. **HTTP Methods**: vapid_key requires GET, subscribe/unsubscribe require POST
+3. **Validation**: Missing fields return 400 with appropriate error messages
+4. **Error Handling**: Invalid JSON returns 400, unexpected errors return 500
+5. **Database Operations**: Creates/updates/deletes subscriptions correctly
+6. **User Isolation**: Users can only delete their own subscriptions
+7. **iOS Graceful Degradation**: Unsubscribe succeeds even if subscription doesn't exist
