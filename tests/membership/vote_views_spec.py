@@ -354,6 +354,31 @@ def describe_voting_calculate():
         assert open_session.results_summary["votes_cast"] == 1
         assert len(open_session.results_summary["results"]) == 3
 
+    @patch("membership.vote_views.airtable_sync")
+    def it_excludes_free_members_from_pool(mock_at, admin_client, open_session):
+        """Non-paying members vote but don't contribute to funding pool."""
+        from decimal import Decimal
+
+        from tests.membership.factories import MembershipPlanFactory
+
+        mock_at.sync_session_to_airtable.return_value = ""
+        free_plan = MembershipPlanFactory(name="Work-Trade", monthly_price=Decimal("0.00"))
+        paying_member = MemberFactory()
+        free_member = MemberFactory(membership_plan=free_plan)
+        g1 = GuildFactory(name="Pool Ceramics")
+        g2 = GuildFactory(name="Pool Glass")
+        g3 = GuildFactory(name="Pool Wood")
+        for member in [paying_member, free_member]:
+            for priority, guild in enumerate([g1, g2, g3], start=1):
+                GuildVote.objects.create(session=open_session, member=member, guild=guild, priority=priority)
+
+        resp = admin_client.post(f"/voting/manage/calculate/{open_session.pk}/")
+        assert resp.status_code == 302
+        open_session.refresh_from_db()
+        assert open_session.results_summary["votes_cast"] == 2
+        # Pool = 1 paying × $10 = $10, not 2 × $10 = $20
+        assert open_session.results_summary["total_pool"] == 10
+
 
 # ---------------------------------------------------------------------------
 # Admin: voting_email_results

@@ -1,10 +1,12 @@
 """Add guild voting system: VotingSession model, Guild.is_active, GuildVote session FK."""
 
+from typing import Any
+
 import django.db.models.deletion
 from django.db import migrations, models
 
 
-def backfill_session(apps, schema_editor):
+def backfill_session(apps: Any, schema_editor: Any) -> None:
     """Create a default VotingSession and assign it to any existing GuildVotes."""
     GuildVote = apps.get_model("membership", "GuildVote")
     if not GuildVote.objects.exists():

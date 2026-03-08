@@ -1,7 +1,7 @@
 """Guild funding calculation per the guild voting spec.
 
 Each voter distributes 10 points: 1st=5, 2nd=3, 3rd=2.
-Funding pool = number of voters × $10.
+Funding pool = number of paying voters × $10.
 Guild funding = (guild_points / total_points) × pool.
 """
 
@@ -21,11 +21,14 @@ DOLLARS_PER_MEMBER = sum(WEIGHTS.values())  # $10
 
 def calculate_results(
     votes: list[dict[str, Any]],
+    paying_voter_count: int | None = None,
 ) -> dict[str, Any]:
     """Calculate proportional guild funding from ranked votes.
 
     Args:
         votes: list of dicts with guild_1st, guild_2nd, guild_3rd (guild names)
+        paying_voter_count: number of voters who contribute to the funding pool.
+            Defaults to len(votes) if not provided (all voters are paying).
 
     Returns:
         dict with total_pool, results list, votes_cast.
@@ -47,13 +50,14 @@ def calculate_results(
                 guild_scores[guild_name][vote_count_key] += 1
 
     votes_cast = len(votes)
-    total_pool = DOLLARS_PER_MEMBER * votes_cast
+    pool_contributors = paying_voter_count if paying_voter_count is not None else votes_cast
+    total_pool = DOLLARS_PER_MEMBER * pool_contributors
     total_points = sum(s["total_points"] for s in guild_scores.values())
 
     results: list[dict[str, Any]] = []
     for guild_name, scores in guild_scores.items():
         points = scores["total_points"]
-        share = points / total_points if total_points > 0 else 0
+        share = points / total_points
         funding = round(share * total_pool, 2)
         results.append(
             {

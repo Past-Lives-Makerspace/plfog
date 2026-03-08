@@ -106,6 +106,33 @@ def describe_calculate_results():
         assert result["total_pool"] == 10  # 1 voter × $10
         assert result["results"] == []
 
+    def it_uses_paying_voter_count_for_pool():
+        """Pool = paying_voter_count × $10, not total voters."""
+        votes = [
+            {"guild_1st": "Ceramics", "guild_2nd": "Glass", "guild_3rd": "Wood"},
+            {"guild_1st": "Ceramics", "guild_2nd": "Glass", "guild_3rd": "Wood"},
+            {"guild_1st": "Ceramics", "guild_2nd": "Glass", "guild_3rd": "Wood"},
+        ]
+        # 3 voters, but only 2 are paying
+        result = calculate_results(votes=votes, paying_voter_count=2)
+        assert result["votes_cast"] == 3
+        assert result["total_pool"] == 20  # 2 paying × $10, not 3 × $10
+
+    def it_defaults_paying_voter_count_to_votes_cast():
+        votes = [{"guild_1st": "Ceramics", "guild_2nd": "Glass", "guild_3rd": "Wood"}]
+        result = calculate_results(votes=votes)
+        assert result["total_pool"] == 10  # defaults to 1 voter × $10
+
+    def it_handles_zero_paying_voters():
+        """All voters are non-paying; pool is $0 but votes still count."""
+        votes = [{"guild_1st": "Ceramics", "guild_2nd": "Glass", "guild_3rd": "Wood"}]
+        result = calculate_results(votes=votes, paying_voter_count=0)
+        assert result["total_pool"] == 0
+        assert result["votes_cast"] == 1
+        assert result["total_points"] == 10
+        # Funding is $0 since pool is $0
+        assert all(r["funding"] == 0 for r in result["results"])
+
     def it_ensures_funding_sums_to_pool():
         """Funding invariant: sum of all guild funding must equal pool."""
         votes = [

@@ -235,7 +235,13 @@ def voting_calculate(request: HttpRequest, session_id: int) -> HttpResponse:
 
     vote_list = list(member_votes.values())
 
-    results_data = vote_calculator.calculate_results(votes=vote_list)
+    # Only members with a paid plan contribute to the funding pool
+    paying_count = Member.objects.filter(
+        pk__in=member_votes.keys(),
+        membership_plan__monthly_price__gt=0,
+    ).count()
+
+    results_data = vote_calculator.calculate_results(votes=vote_list, paying_voter_count=paying_count)
 
     if request.method == "POST":
         session.status = VotingSession.Status.CALCULATED
