@@ -14,8 +14,8 @@
     <h2>Guild Voting Results: {{ session_name }}</h2>
 
     <div class="summary">
-        <p>Total pool: <strong>${{ results.total_pool }}</strong> |
-           Votes cast: <strong>{{ results.votes_cast }}</strong> / {{ results.eligible_member_count }} eligible</p>
+        <p>Total funding pool: <strong>${{ results.total_pool }}</strong> |
+           {{ results.votes_cast }} voter{{ results.votes_cast|pluralize }} &times; $10</p>
     </div>
 
     <table>
@@ -26,7 +26,7 @@
                 <th>1st</th>
                 <th>2nd</th>
                 <th>3rd</th>
-                <th>Disbursement</th>
+                <th>Funding</th>
             </tr>
         </thead>
         <tbody>
@@ -37,7 +37,7 @@
                 <td>{{ r.votes_1st }}</td>
                 <td>{{ r.votes_2nd }}</td>
                 <td>{{ r.votes_3rd }}</td>
-                <td>${{ r.disbursement }}</td>
+                <td>${{ r.funding }}</td>
             </tr>
             {% endfor %}
         </tbody>

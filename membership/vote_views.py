@@ -235,10 +235,7 @@ def voting_calculate(request: HttpRequest, session_id: int) -> HttpResponse:
 
     vote_list = list(member_votes.values())
 
-    results_data = vote_calculator.calculate_results(
-        votes=vote_list,
-        eligible_member_count=session.eligible_member_count,
-    )
+    results_data = vote_calculator.calculate_results(votes=vote_list)
 
     if request.method == "POST":
         session.status = VotingSession.Status.CALCULATED

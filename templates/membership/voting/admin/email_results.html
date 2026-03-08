@@ -11,7 +11,7 @@
         </thead>
         <tbody>
             {% for r in results.results %}
-            <tr><td>{{ r.guild_name }}</td><td>${{ r.disbursement|floatformat:2 }}</td></tr>
+            <tr><td>{{ r.guild_name }}</td><td>${{ r.funding|floatformat:2 }}</td></tr>
             {% endfor %}
         </tbody>
     </table>

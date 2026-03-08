@@ -1,4 +1,4 @@
-"""Email sending for guild voting results via Mailgun (django-anymail)."""
+"""Email sending for guild voting results via Resend (django-anymail)."""
 
 from __future__ import annotations
 
@@ -24,8 +24,7 @@ def send_results_email(
     lines = [f"Guild Voting Results - {session_name}", ""]
     for r in results_data["results"]:
         lines.append(
-            f"{r['guild_name']}: ${r['disbursement']:.2f} "
-            f"(1st:{r['votes_1st']} 2nd:{r['votes_2nd']} 3rd:{r['votes_3rd']})"
+            f"{r['guild_name']}: ${r['funding']:.2f} (1st:{r['votes_1st']} 2nd:{r['votes_2nd']} 3rd:{r['votes_3rd']})"
         )
     lines.extend(["", f"Total pool: ${results_data['total_pool']}", f"Votes cast: {results_data['votes_cast']}"])
     plain_message = "\n".join(lines)

@@ -1,11 +1,8 @@
-"""Vote weighting and result calculation.
+"""Guild funding calculation per the guild voting spec.
 
-Implements the spreadsheet formula from '2026 Ranking Calculator':
-1. Weighted votes: 1st=$5, 2nd=$3, 3rd=$2
-2. Total pool = eligible_members * $10
-3. Non-vote $ = total_pool - sum(weighted_votes)
-4. Each guild gets: weighted_votes + (guild_share% * non_vote_$)
-   where guild_share% = guild_weighted / total_weighted
+Each voter distributes 10 points: 1st=5, 2nd=3, 3rd=2.
+Funding pool = number of voters × $10.
+Guild funding = (guild_points / total_points) × pool.
 """
 
 from __future__ import annotations
@@ -24,19 +21,17 @@ DOLLARS_PER_MEMBER = sum(WEIGHTS.values())  # $10
 
 def calculate_results(
     votes: list[dict[str, Any]],
-    eligible_member_count: int,
 ) -> dict[str, Any]:
-    """Calculate weighted vote results with non-vote redistribution.
+    """Calculate proportional guild funding from ranked votes.
 
     Args:
         votes: list of dicts with guild_1st, guild_2nd, guild_3rd (guild names)
-        eligible_member_count: total paying members
 
     Returns:
-        dict with total_pool, results list, votes_cast, etc.
+        dict with total_pool, results list, votes_cast.
     """
     guild_scores: dict[str, dict[str, float]] = defaultdict(
-        lambda: {"votes_1st": 0, "votes_2nd": 0, "votes_3rd": 0, "weighted_amount": 0}
+        lambda: {"votes_1st": 0, "votes_2nd": 0, "votes_3rd": 0, "total_points": 0}
     )
 
     for vote in votes:
@@ -47,42 +42,37 @@ def calculate_results(
         ]:
             guild_name = vote.get(rank_key, "")
             if guild_name:
-                guild_scores[guild_name]["weighted_amount"] += weight
+                guild_scores[guild_name]["total_points"] += weight
                 vote_count_key = rank_key.replace("guild_", "votes_")
                 guild_scores[guild_name][vote_count_key] += 1
 
-    total_pool = DOLLARS_PER_MEMBER * eligible_member_count
-    total_weighted = sum(s["weighted_amount"] for s in guild_scores.values())
-
-    # Non-vote redistribution: money from non-voters distributed proportionally
-    non_vote_dollars = total_pool - total_weighted
+    votes_cast = len(votes)
+    total_pool = DOLLARS_PER_MEMBER * votes_cast
+    total_points = sum(s["total_points"] for s in guild_scores.values())
 
     results: list[dict[str, Any]] = []
     for guild_name, scores in guild_scores.items():
-        weighted = scores["weighted_amount"]
-        # guild_scores only has entries with positive weights, so total_weighted > 0 here
-        guild_share_pct = weighted / total_weighted
-        redistributed = guild_share_pct * non_vote_dollars
-        disbursement = round(weighted + redistributed, 2)
+        points = scores["total_points"]
+        share = points / total_points if total_points > 0 else 0
+        funding = round(share * total_pool, 2)
         results.append(
             {
                 "guild_name": guild_name,
                 "votes_1st": scores["votes_1st"],
                 "votes_2nd": scores["votes_2nd"],
                 "votes_3rd": scores["votes_3rd"],
-                "weighted_amount": weighted,
-                "disbursement": disbursement,
+                "total_points": points,
+                "share_pct": round(share * 100, 1),
+                "funding": funding,
             }
         )
 
-    results.sort(key=lambda x: x["disbursement"], reverse=True)
+    results.sort(key=lambda x: x["funding"], reverse=True)
 
     return {
         "total_pool": total_pool,
-        "total_weighted": total_weighted,
-        "non_vote_dollars": non_vote_dollars,
-        "votes_cast": len(votes),
-        "eligible_member_count": eligible_member_count,
+        "total_points": total_points,
+        "votes_cast": votes_cast,
         "results": results,
     }
 

@@ -21,8 +21,9 @@ def describe_send_results_email():
                     "votes_1st": 3,
                     "votes_2nd": 1,
                     "votes_3rd": 0,
-                    "weighted_amount": 18,
-                    "disbursement": 36.0,
+                    "total_points": 18,
+                    "share_pct": 100.0,
+                    "funding": 36.0,
                 },
             ],
         }

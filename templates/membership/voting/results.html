@@ -7,10 +7,8 @@
 
     {% if results %}
     <div class="voting-results-summary">
-        <p>Total pool: <strong>${{ results.total_pool }}</strong> &mdash;
-           Votes cast: <strong>{{ results.votes_cast }}</strong> /
-           {{ results.eligible_member_count }} eligible</p>
-        <p>Non-voter redistribution: <strong>${{ results.non_vote_dollars|floatformat:2 }}</strong></p>
+        <p>Total funding pool: <strong>${{ results.total_pool }}</strong> &mdash;
+           {{ results.votes_cast }} voter{{ results.votes_cast|pluralize }} &times; $10</p>
     </div>
 
     <table class="voting-results-table">
@@ -21,8 +19,9 @@
                 <th>1st</th>
                 <th>2nd</th>
                 <th>3rd</th>
-                <th>Weighted</th>
-                <th>Disbursement</th>
+                <th>Points</th>
+                <th>Share</th>
+                <th>Funding</th>
             </tr>
         </thead>
         <tbody>
@@ -33,8 +32,9 @@
                 <td>{{ r.votes_1st }}</td>
                 <td>{{ r.votes_2nd }}</td>
                 <td>{{ r.votes_3rd }}</td>
-                <td>${{ r.weighted_amount }}</td>
-                <td><strong>${{ r.disbursement|floatformat:2 }}</strong></td>
+                <td>{{ r.total_points }}</td>
+                <td>{{ r.share_pct }}%</td>
+                <td><strong>${{ r.funding|floatformat:2 }}</strong></td>
             </tr>
             {% endfor %}
         </tbody>

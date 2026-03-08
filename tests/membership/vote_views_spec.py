@@ -166,19 +166,18 @@ def describe_voting_results():
         session = VotingSessionFactory(
             status=VotingSession.Status.CALCULATED,
             results_summary={
-                "total_pool": 100,
-                "total_weighted": 50,
-                "non_vote_dollars": 50,
+                "total_pool": 50,
+                "total_points": 50,
                 "votes_cast": 5,
-                "eligible_member_count": 10,
                 "results": [
                     {
                         "guild_name": "Ceramics",
                         "votes_1st": 3,
                         "votes_2nd": 1,
                         "votes_3rd": 1,
-                        "weighted_amount": 22,
-                        "disbursement": 44.0,
+                        "total_points": 22,
+                        "share_pct": 44.0,
+                        "funding": 22.0,
                     },
                 ],
             },
