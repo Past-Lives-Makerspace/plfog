@@ -2,6 +2,8 @@
 
 Django app for membership and studio rental management at Past Lives Makerspace (Portland, OR).
 
+Repo: https://github.com/Past-Lives-Makerspace/plfog
+
 ## Commands
 
 - `pytest` - Run tests

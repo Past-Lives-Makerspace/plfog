@@ -3,15 +3,11 @@ from __future__ import annotations
 from django.contrib import admin
 from django.db.models import Count, QuerySet
 from django.http import HttpRequest
-from django.urls import reverse
-from django.utils.html import format_html
 from unfold.admin import GenericTabularInline, ModelAdmin, TabularInline
 
 from .models import (
-    Buyable,
     Guild,
     GuildVote,
-    GuildWishlistItem,
     Lease,
     Member,
     MembershipPlan,
@@ -91,20 +87,6 @@ class LeaseInlineGuild(GenericTabularInline):
     @admin.display(boolean=True, description="Active")
     def is_active_display(self, obj: Lease) -> bool:
         return obj.is_active
-
-
-class GuildWishlistItemInline(TabularInline):
-    model = GuildWishlistItem
-    fields = ["name", "estimated_cost", "is_fulfilled", "created_by", "created_at"]
-    readonly_fields = ["created_at"]
-    extra = 0
-
-
-class BuyableInline(TabularInline):
-    model = Buyable
-    fields = ["name", "slug", "unit_price", "is_active", "created_at"]
-    readonly_fields = ["slug", "created_at"]
-    extra = 0
 
 
 # ---------------------------------------------------------------------------
@@ -209,18 +191,45 @@ class MemberAdmin(ModelAdmin):
 # ---------------------------------------------------------------------------
 
 
+class SubletInline(TabularInline):
+    """Read-only inline on GuildAdmin showing spaces sublet by the guild."""
+
+    model = Space
+    fk_name = "sublet_guild"
+    fields = ["space_id", "name", "space_type", "full_price_display"]
+    readonly_fields = ["space_id", "name", "space_type", "full_price_display"]
+    extra = 0
+
+    def has_add_permission(self, request: HttpRequest, obj: Guild | None = None) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: Guild | None = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: Guild | None = None) -> bool:
+        return False
+
+    @admin.display(description="Full Price")
+    def full_price_display(self, obj: Space) -> str:
+        price = obj.full_price
+        if price is None:
+            return "-"
+        return f"${price:.2f}"
+
+
 @admin.register(Guild)
 class GuildAdmin(ModelAdmin):
-    list_display = ["name", "slug", "is_active", "guild_lead", "view_page_link", "notes_preview"]
-    list_filter = ["is_active"]
+    list_display = ["name", "guild_lead", "sublet_count", "notes_preview"]
     search_fields = ["name"]
-    prepopulated_fields = {"slug": ("name",)}
-    inlines = [LeaseInlineGuild, GuildWishlistItemInline, BuyableInline]
+    inlines = [SubletInline, LeaseInlineGuild]
 
-    @admin.display(description="Page")
-    def view_page_link(self, obj: Guild) -> str:
-        url = reverse("guild_detail", kwargs={"slug": obj.slug})
-        return format_html('<a href="{}">View &rarr;</a>', url)
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Guild]:
+        qs = super().get_queryset(request)
+        return qs.annotate(sublet_count=Count("sublets"))
+
+    @admin.display(description="Sublets", ordering="sublet_count")
+    def sublet_count(self, obj: Guild) -> int:
+        return obj.sublet_count
 
     @admin.display(description="Notes")
     def notes_preview(self, obj: Guild) -> str:
@@ -321,28 +330,3 @@ class LeaseAdmin(ModelAdmin):
     @admin.display(boolean=True, description="Active")
     def is_active_display(self, obj: Lease) -> bool:
         return obj.is_active
-
-
-# ---------------------------------------------------------------------------
-# GuildWishlistItemAdmin
-# ---------------------------------------------------------------------------
-
-
-@admin.register(GuildWishlistItem)
-class GuildWishlistItemAdmin(ModelAdmin):
-    list_display = ["name", "guild", "estimated_cost", "is_fulfilled", "created_at"]
-    list_filter = ["is_fulfilled", "guild"]
-    search_fields = ["name", "guild__name"]
-
-
-# ---------------------------------------------------------------------------
-# BuyableAdmin
-# ---------------------------------------------------------------------------
-
-
-@admin.register(Buyable)
-class BuyableAdmin(ModelAdmin):
-    list_display = ["name", "guild", "unit_price", "is_active", "created_at"]
-    list_filter = ["is_active", "guild"]
-    search_fields = ["name", "guild__name"]
-    prepopulated_fields = {"slug": ("name",)}

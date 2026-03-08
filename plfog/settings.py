@@ -23,6 +23,14 @@ if SENTRY_DSN:
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-key-change-in-production")
 DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() == "true"
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+# Render.com sets RENDER_EXTERNAL_HOSTNAME automatically; include it when present.
+_render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+if _render_hostname:
+    ALLOWED_HOSTS.append(_render_hostname)
+    print(f"[plfog] RENDER_EXTERNAL_HOSTNAME={_render_hostname} added to ALLOWED_HOSTS")
+else:
+    print("[plfog] RENDER_EXTERNAL_HOSTNAME not set")
+print(f"[plfog] Final ALLOWED_HOSTS={ALLOWED_HOSTS}")
 
 CSRF_TRUSTED_ORIGINS = (
     os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if os.environ.get("CSRF_TRUSTED_ORIGINS") else []
@@ -119,10 +127,6 @@ STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
 }
-
-# Media files (user uploads)
-MEDIA_URL = "media/"
-MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -295,7 +299,7 @@ UNFOLD = {
                 ],
             },
             {
-                "title": "Members",
+                "title": "Makerspace",
                 "items": [
                     {
                         "title": "Members",
@@ -307,11 +311,6 @@ UNFOLD = {
                         "icon": "card_membership",
                         "link": reverse_lazy("admin:membership_membershipplan_changelist"),
                     },
-                ],
-            },
-            {
-                "title": "Guilds",
-                "items": [
                     {
                         "title": "Guilds",
                         "icon": "groups",
@@ -333,16 +332,6 @@ UNFOLD = {
                         "link": reverse_lazy("admin:membership_guildvote_changelist"),
                     },
                     {
-                        "title": "Buyables",
-                        "icon": "storefront",
-                        "link": reverse_lazy("admin:membership_buyable_changelist"),
-                    },
-                ],
-            },
-            {
-                "title": "Spaces & Leases",
-                "items": [
-                    {
                         "title": "Spaces",
                         "icon": "meeting_room",
                         "link": reverse_lazy("admin:membership_space_changelist"),
@@ -355,39 +344,5 @@ UNFOLD = {
                 ],
             },
         ],
-    },
-}
-
-# Logging — always write errors to file so we can debug 500s in production
-_LOG_DIR = BASE_DIR.parent / "logs"
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "verbose": {
-            "format": "{asctime} {levelname} {name} {message}",
-            "style": "{",
-        },
-    },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-        },
-        "file": {
-            "class": "logging.FileHandler",
-            "filename": str(_LOG_DIR / "django.log") if _LOG_DIR.exists() else str(BASE_DIR / "django.log"),
-            "formatter": "verbose",
-        },
-    },
-    "loggers": {
-        "django": {
-            "handlers": ["console", "file"],
-            "level": "WARNING",
-        },
-        "django.request": {
-            "handlers": ["console", "file"],
-            "level": "ERROR",
-            "propagate": False,
-        },
     },
 }

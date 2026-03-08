@@ -311,6 +311,7 @@ def describe_allowed_hosts():
                 monkeypatch,
                 {
                     "DJANGO_ALLOWED_HOSTS": "example.com,api.example.com",
+                    "RENDER_EXTERNAL_HOSTNAME": None,
                     "DJANGO_DEBUG": "True",
                     "SENTRY_DSN": None,
                 },
@@ -323,11 +324,53 @@ def describe_allowed_hosts():
                 monkeypatch,
                 {
                     "DJANGO_ALLOWED_HOSTS": None,
+                    "RENDER_EXTERNAL_HOSTNAME": None,
                     "DJANGO_DEBUG": "True",
                     "SENTRY_DSN": None,
                 },
             )
             assert settings_module.ALLOWED_HOSTS == ["localhost", "127.0.0.1"]
+
+    def describe_render_external_hostname():
+        def it_appends_render_hostname_when_set(monkeypatch):
+            with patch("sentry_sdk.init"):
+                settings_module = _reload_settings(
+                    monkeypatch,
+                    {
+                        "DJANGO_ALLOWED_HOSTS": "example.com",
+                        "RENDER_EXTERNAL_HOSTNAME": "plfog.onrender.com",
+                        "DJANGO_DEBUG": "True",
+                        "SENTRY_DSN": None,
+                    },
+                )
+                assert "plfog.onrender.com" in settings_module.ALLOWED_HOSTS
+                assert "example.com" in settings_module.ALLOWED_HOSTS
+
+        def it_does_not_append_when_render_hostname_is_unset(monkeypatch):
+            with patch("sentry_sdk.init"):
+                settings_module = _reload_settings(
+                    monkeypatch,
+                    {
+                        "DJANGO_ALLOWED_HOSTS": "example.com",
+                        "RENDER_EXTERNAL_HOSTNAME": None,
+                        "DJANGO_DEBUG": "True",
+                        "SENTRY_DSN": None,
+                    },
+                )
+                assert settings_module.ALLOWED_HOSTS == ["example.com"]
+
+        def it_appends_to_default_hosts_when_only_render_hostname_is_set(monkeypatch):
+            with patch("sentry_sdk.init"):
+                settings_module = _reload_settings(
+                    monkeypatch,
+                    {
+                        "DJANGO_ALLOWED_HOSTS": None,
+                        "RENDER_EXTERNAL_HOSTNAME": "plfog.onrender.com",
+                        "DJANGO_DEBUG": "True",
+                        "SENTRY_DSN": None,
+                    },
+                )
+                assert settings_module.ALLOWED_HOSTS == ["localhost", "127.0.0.1", "plfog.onrender.com"]
 
 
 def describe_secure_proxy_ssl_header():

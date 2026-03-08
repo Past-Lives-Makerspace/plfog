@@ -9,36 +9,15 @@
     {% load static %}
     <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
-    {% block extra_css %}{% endblock %}
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
     <header class="site-header">
         <nav class="site-nav" aria-label="Main navigation">
             <a href="{% url 'home' %}" class="site-nav__brand">Past Lives</a>
-            <a href="{% url 'guild_list' %}" class="site-nav__link">Guilds</a>
-            {% if user.is_staff %}
-                <a href="{% url 'voting_dashboard' %}" class="site-nav__link">Voting</a>
-            {% endif %}
             {% if user.is_authenticated %}
-            <a href="{% url 'member_directory' %}" class="site-nav__link">Members</a>
-            {% endif %}
-            {% if user.is_authenticated %}
-                <div class="site-nav__user-wrap" x-data="{ open: false }">
-                    <button @click="open = !open" @click.outside="open = false" class="site-nav__user" aria-expanded="false" :aria-expanded="open.toString()">
-                        {{ user.email }}
-                    </button>
-                    <div class="site-nav__dropdown" x-show="open" x-cloak x-transition>
-                        <a href="{% url 'profile_edit' %}" class="site-nav__dropdown-item">My Profile</a>
-                        {% if user.is_staff %}
-                        <a href="{% url 'admin:index' %}" class="site-nav__dropdown-item">Admin</a>
-                        {% endif %}
-                        <div class="site-nav__dropdown-divider"></div>
-                        <a href="{% url 'account_logout' %}" class="site-nav__dropdown-item">Log out</a>
-                    </div>
-                </div>
-            {% else %}
-                <a href="{% url 'account_login' %}" class="site-nav__link">Log in</a>
+                <span class="site-nav__user">{{ user.email }}</span>
+                <a href="{% url 'account_logout' %}" class="site-nav__link">Log out</a>
             {% endif %}
         </nav>
     </header>
@@ -56,7 +35,5 @@
         <p class="site-footer__tagline">Do It Together</p>
         <p class="site-footer__copy">&copy; 2026 Past Lives Makerspace</p>
     </footer>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
-    {% block extra_js %}{% endblock %}
 </body>
 </html>

@@ -10,5 +10,4 @@ django-anymail[resend]>=12.0
 sentry-sdk>=2.0
 Pillow>=10.0
 Faker>=33.0
-segno>=1.6
 pyairtable>=2.3

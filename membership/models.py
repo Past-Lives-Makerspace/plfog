@@ -2,16 +2,13 @@ from __future__ import annotations
 
 from datetime import date as date_type
 from decimal import Decimal
-from typing import Any
-
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from django.db.models import DecimalField, Q, Sum, UniqueConstraint, Value
+from django.db.models import DecimalField, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
-from django.utils.text import slugify
 
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
 
@@ -188,13 +185,7 @@ class Guild(models.Model):
     sublet_count: int
 
     name = models.CharField(max_length=255, unique=True)
-    slug = models.SlugField(max_length=255, unique=True, blank=True)
-    intro = models.CharField(max_length=500, blank=True)
-    description = models.TextField(blank=True)
-    cover_image = models.ImageField(upload_to="guilds/", blank=True)
-    icon = models.CharField(max_length=100, blank=True)
     is_active = models.BooleanField(default=True)
-    links = models.JSONField(default=list, blank=True, help_text="List of {name, url} dicts")
     guild_lead = models.ForeignKey(
         Member,
         null=True,
@@ -218,21 +209,9 @@ class Guild(models.Model):
     def __str__(self) -> str:
         return self.name
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        if not self.slug:
-            self.slug = slugify(self.name)
-        super().save(*args, **kwargs)
-
     @property
     def active_leases(self) -> models.QuerySet[Lease]:
         return self.leases.filter(_active_lease_q())
-
-    def is_managed_by(self, user: Any) -> bool:
-        """Return True if the user is this guild's lead or a staff member."""
-        if user.is_staff:
-            return True
-        lead = self.guild_lead
-        return lead is not None and lead.user_id == user.pk
 
     @property
     def sublet_revenue(self) -> Decimal:
@@ -318,66 +297,6 @@ class GuildVote(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member.display_name} → {self.guild} (#{self.priority})"
-
-
-# ---------------------------------------------------------------------------
-# GuildWishlistItem
-# ---------------------------------------------------------------------------
-
-
-class GuildWishlistItem(models.Model):
-    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="wishlist_items")
-    name = models.CharField(max_length=255)
-    description = models.TextField(blank=True)
-    image = models.ImageField(upload_to="wishlist/", blank=True)
-    link = models.URLField(blank=True)
-    estimated_cost = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
-    is_fulfilled = models.BooleanField(default=False)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["guild", "-created_at"]
-        verbose_name = "Guild Wishlist Item"
-        verbose_name_plural = "Guild Wishlist Items"
-
-    def __str__(self) -> str:
-        return self.name
-
-
-# ---------------------------------------------------------------------------
-# Buyable
-# ---------------------------------------------------------------------------
-
-
-class Buyable(models.Model):
-    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="buyables")
-    name = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=255)
-    description = models.TextField(blank=True)
-    image = models.ImageField(upload_to="buyables/", blank=True)
-    unit_price = models.DecimalField(max_digits=8, decimal_places=2)
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["name"]
-        verbose_name = "Buyable"
-        verbose_name_plural = "Buyables"
-        constraints = [UniqueConstraint(fields=["guild", "slug"], name="unique_guild_buyable_slug")]
-
-    def __str__(self) -> str:
-        return self.name
-
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        if not self.slug:
-            self.slug = slugify(self.name)
-        super().save(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
