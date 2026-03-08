@@ -73,8 +73,6 @@ class GuildVoteFactory(factory.django.DjangoModelFactory):
     session = factory.SubFactory(VotingSessionFactory)
     member = factory.SubFactory(MemberFactory)
     guild = factory.SubFactory(GuildFactory)
-    member_airtable_id = factory.Sequence(lambda n: f"rec{n:015d}")
-    member_name = factory.LazyAttribute(lambda o: o.member.full_legal_name if o.member else "Test")
     priority = 1
 
 

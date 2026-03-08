@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="voting-card">
-    <h2>Hi {{ member.name }}, rank your top 3 guilds</h2>
+    <h2>Hi {{ member.display_name }}, rank your top 3 guilds</h2>
     <p class="voting-subtitle">{{ session.name }} &mdash; Voting closes {{ session.close_date|date:"F jS, Y" }}</p>
     <p class="voting-info">Your vote will have a positive financial impact on the guilds that you choose! Be sure to vote for your preferred guild first, the order is taken into account.</p>
 

@@ -4,7 +4,7 @@
 {% block content %}
 <div class="voting-card voting-card-success">
     <h2>Your vote has been recorded!</h2>
-    <p>Thanks {{ member.name }}! Here's what you voted for {{ session.name }}:</p>
+    <p>Thanks {{ member.display_name }}! Here's what you voted for {{ session.name }}:</p>
     <ul class="voting-vote-list">
         <li><strong>1st:</strong> {{ votes.1st }}</li>
         <li><strong>2nd:</strong> {{ votes.2nd }}</li>

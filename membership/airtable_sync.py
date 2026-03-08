@@ -1,7 +1,6 @@
 """Airtable API client for guild voting — dual-write sync layer.
 
-Reads members from new base (PLM Members & Studios 2026).
-Reads guilds from old base (Past Lives Information).
+Reads eligible members from new base (PLM Members & Studios 2026).
 Writes votes and sessions to both Django DB and new base.
 """
 
@@ -42,38 +41,6 @@ def get_eligible_members() -> list[dict[str, Any]]:
             "phone": r["fields"].get("Phone", ""),
             "role": r["fields"].get("Role", ""),
             "monthly_amount": r["fields"].get("Monthly Membership $", 0),
-        }
-        for r in records
-    ]
-
-
-def get_member(record_id: str) -> dict[str, Any]:
-    """Fetch a single member by Airtable record ID."""
-    table = _api().table(settings.AIRTABLE_NEW_BASE_ID, settings.AIRTABLE_MEMBERS_TABLE)
-    r = table.get(record_id)
-    return {
-        "record_id": r["id"],
-        "name": r["fields"].get("Member Name", ""),
-        "email": r["fields"].get("Email", ""),
-        "status": r["fields"].get("Status", ""),
-        "role": r["fields"].get("Role", ""),
-        "monthly_amount": r["fields"].get("Monthly Membership $", 0),
-    }
-
-
-# ---------------------------------------------------------------------------
-# Guilds (read-only from OLD base)
-# ---------------------------------------------------------------------------
-
-
-def get_voteable_guilds() -> list[dict[str, Any]]:
-    """Fetch all official voteable guilds from the old Airtable base."""
-    table = _api().table(settings.AIRTABLE_OLD_BASE_ID, settings.AIRTABLE_GUILDS_TABLE)
-    records = table.all(formula="{Official Guild and Voteable?}=TRUE()")
-    return [
-        {
-            "record_id": r["id"],
-            "name": r["fields"].get("Guild", ""),
         }
         for r in records
     ]
@@ -127,7 +94,6 @@ def sync_session_to_airtable(
 
 def sync_vote_to_airtable(
     member_name: str,
-    member_airtable_id: str,
     guild_1st: str,
     guild_2nd: str,
     guild_3rd: str,
@@ -137,7 +103,6 @@ def sync_vote_to_airtable(
     table = _api().table(settings.AIRTABLE_NEW_BASE_ID, settings.AIRTABLE_VOTES_TABLE)
     fields: dict[str, Any] = {
         "Member Name": member_name,
-        "Member Airtable ID": member_airtable_id,
         "Guild 1st": guild_1st,
         "Guild 2nd": guild_2nd,
         "Guild 3rd": guild_3rd,

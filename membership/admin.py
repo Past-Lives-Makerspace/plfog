@@ -236,9 +236,9 @@ class GuildAdmin(ModelAdmin):
 
 @admin.register(GuildVote)
 class GuildVoteAdmin(ModelAdmin):
-    list_display = ["member_name", "guild", "priority", "session", "created_at"]
+    list_display = ["member", "guild", "priority", "session", "created_at"]
     list_filter = ["guild", "priority", "session"]
-    search_fields = ["member_name"]
+    search_fields = ["member__full_legal_name", "member__preferred_name"]
 
 
 @admin.register(VotingSession)

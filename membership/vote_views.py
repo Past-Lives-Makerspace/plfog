@@ -7,121 +7,78 @@ import logging
 
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
-from django.core.signing import BadSignature, SignatureExpired
+from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
-from . import airtable_sync, vote_calculator, vote_emails, vote_tokens
-from .models import Guild, GuildVote, VotingSession
+from . import airtable_sync, vote_calculator, vote_emails
+from .models import Guild, GuildVote, Member, VotingSession
 from .vote_forms import CreateSessionForm, VoteForm
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Public Views
+# Member Voting
 # ---------------------------------------------------------------------------
 
 
-def _verify_voter(request: HttpRequest, token: str) -> HttpResponse | tuple[str, dict, VotingSession]:
-    """Verify token, fetch member, check session. Returns (member_record_id, member, session) or error response."""
+def _get_member_or_redirect(request: HttpRequest) -> Member | None:
+    """Get the Member for the logged-in user, or None if they don't have one."""
     try:
-        data = vote_tokens.verify_vote_token(token)
-    except SignatureExpired:
-        return render(request, "membership/voting/closed.html", {"reason": "Your voting link has expired."})
-    except BadSignature:
-        return HttpResponseBadRequest("Invalid voting link.")
-
-    session = get_object_or_404(VotingSession, pk=data["session_id"])
-
-    if not session.is_open_for_voting:
-        return render(
-            request,
-            "membership/voting/closed.html",
-            {"reason": f"Voting for {session.name} has closed.", "session": session},
-        )
-
-    member_record_id = str(data["member_record_id"])
-    try:
-        member = airtable_sync.get_member(member_record_id)
-    except Exception:
-        logger.exception("Failed to fetch member %s from Airtable", member_record_id)
-        return render(
-            request,
-            "membership/voting/closed.html",
-            {"reason": "We're having trouble verifying your membership right now. Please try again in a few minutes."},
-            status=503,
-        )
-
-    if member.get("status") != "Active":
-        return HttpResponseBadRequest("This member is not currently active.")
-
-    return member_record_id, member, session
-
-
-def _check_already_voted(
-    request: HttpRequest, member: dict, session: VotingSession, member_record_id: str
-) -> HttpResponse | None:
-    """Return an already-voted response if this member has voted, else None."""
-    existing_votes = GuildVote.objects.filter(session=session, member_airtable_id=member_record_id)
-    if not existing_votes.exists():
+        return request.user.member  # type: ignore[union-attr]
+    except Member.DoesNotExist:
         return None
-    vote_names = {}
-    for v in existing_votes:
-        rank_label = {1: "1st", 2: "2nd", 3: "3rd"}.get(v.priority, "?")
-        vote_names[rank_label] = v.guild.name
-    return render(
-        request,
-        "membership/voting/already_voted.html",
-        {"member": member, "session": session, "votes": vote_names},
-    )
 
 
-def _save_votes(session: VotingSession, member_record_id: str, member_name: str, guild_names: list[str]) -> None:
-    """Persist votes and update session count atomically."""
-    with transaction.atomic():
-        for priority, guild_name in enumerate(guild_names, start=1):
-            guild_obj, _created = Guild.objects.get_or_create(name=guild_name)
-            GuildVote.objects.create(
-                session=session,
-                member_airtable_id=member_record_id,
-                member_name=member_name,
-                guild=guild_obj,
-                priority=priority,
-            )
+@login_required
+def vote(request: HttpRequest) -> HttpResponse:
+    """Voting page for logged-in members."""
+    member = _get_member_or_redirect(request)
+    if member is None:
+        messages.error(request, "Your account is not linked to a membership. Contact an admin.")
+        return redirect("home")
 
-        session.votes_cast = GuildVote.objects.filter(session=session).values("member_airtable_id").distinct().count()
-        session.save(update_fields=["votes_cast"])
+    if member.status != Member.Status.ACTIVE:
+        messages.error(request, "Only active members can vote.")
+        return redirect("home")
 
+    session = VotingSession.objects.filter(status=VotingSession.Status.OPEN).first()
+    if session is None or not session.is_open_for_voting:
+        return render(
+            request,
+            "membership/voting/closed.html",
+            {"reason": "There is no voting session open right now."},
+        )
 
-def vote(request: HttpRequest, token: str) -> HttpResponse:
-    """Public voting page. Token encodes member + session."""
-    result = _verify_voter(request, token)
-    if isinstance(result, HttpResponse):
-        return result
-    member_record_id, member, session = result
+    # Check if already voted
+    existing_votes = GuildVote.objects.filter(session=session, member=member)
+    if existing_votes.exists():
+        vote_names = {}
+        for v in existing_votes:
+            rank_label = {1: "1st", 2: "2nd", 3: "3rd"}.get(v.priority, "?")
+            vote_names[rank_label] = v.guild.name
+        return render(
+            request,
+            "membership/voting/already_voted.html",
+            {"member": member, "session": session, "votes": vote_names},
+        )
 
-    already = _check_already_voted(request, member, session, member_record_id)
-    if already:
-        return already
-
-    at_guilds = airtable_sync.get_voteable_guilds()
-    guild_choices = [(g["name"], g["name"]) for g in at_guilds]
+    guilds = Guild.objects.filter(is_active=True).order_by("name")
+    guild_choices = [(g.name, g.name) for g in guilds]
 
     if request.method == "POST":
         form = VoteForm(guild_choices, request.POST)
         if form.is_valid():
-            # Double-check no duplicate (race condition guard)
-            if GuildVote.objects.filter(session=session, member_airtable_id=member_record_id).exists():
+            # Race condition guard — concurrent vote inserted between initial check and save
+            if GuildVote.objects.filter(  # pragma: no cover
+                session=session, member=member
+            ).exists():
                 return render(
                     request,
                     "membership/voting/already_voted.html",
-                    {
-                        "member": member,
-                        "session": session,
-                        "votes": {"1st": "N/A", "2nd": "N/A", "3rd": "N/A"},
-                    },
+                    {"member": member, "session": session, "votes": {}},
                 )
 
             guild_names = [
@@ -130,11 +87,10 @@ def vote(request: HttpRequest, token: str) -> HttpResponse:
                 form.cleaned_data["guild_3rd"],
             ]
 
-            _save_votes(session, member_record_id, member["name"], guild_names)
+            _save_votes(session, member, guild_names)
 
             airtable_sync.sync_vote_to_airtable(
-                member_name=member["name"],
-                member_airtable_id=member_record_id,
+                member_name=member.display_name,
                 guild_1st=guild_names[0],
                 guild_2nd=guild_names[1],
                 guild_3rd=guild_names[2],
@@ -156,13 +112,24 @@ def vote(request: HttpRequest, token: str) -> HttpResponse:
     return render(
         request,
         "membership/voting/vote.html",
-        {
-            "form": form,
-            "member": member,
-            "session": session,
-            "guilds_json": json.dumps(guild_choices),
-        },
+        {"form": form, "member": member, "session": session, "guilds_json": json.dumps(guild_choices)},
     )
+
+
+def _save_votes(session: VotingSession, member: Member, guild_names: list[str]) -> None:
+    """Persist votes and update session count atomically."""
+    with transaction.atomic():
+        for priority, guild_name in enumerate(guild_names, start=1):
+            guild_obj = Guild.objects.get(name=guild_name)
+            GuildVote.objects.create(
+                session=session,
+                member=member,
+                guild=guild_obj,
+                priority=priority,
+            )
+
+        session.votes_cast = GuildVote.objects.filter(session=session).values("member").distinct().count()
+        session.save(update_fields=["votes_cast"])
 
 
 def voting_results(request: HttpRequest, session_id: int) -> HttpResponse:
@@ -251,64 +218,15 @@ def voting_create_session(request: HttpRequest) -> HttpResponse:
 
 
 @staff_member_required
-def voting_send_emails(request: HttpRequest, session_id: int) -> HttpResponse:
-    """Preview and send voting emails."""
-    session = get_object_or_404(VotingSession, pk=session_id)
-    members = airtable_sync.get_eligible_members()
-    members_with_email = [m for m in members if m.get("email")]
-    members_without_email = [m for m in members if not m.get("email")]
-
-    if request.method == "POST":
-        base_url = request.build_absolute_uri("/").rstrip("/")
-        # Open the session if still draft
-        if session.status == VotingSession.Status.DRAFT:
-            session.status = VotingSession.Status.OPEN
-            session.eligible_member_count = len(members)
-            session.save(update_fields=["status", "eligible_member_count"])
-            airtable_sync.sync_session_to_airtable(
-                session_id=session.pk,
-                name=session.name,
-                open_date=session.open_date,
-                close_date=session.close_date,
-                status=session.status,
-                eligible_member_count=session.eligible_member_count,
-                airtable_record_id=session.airtable_record_id,
-            )
-
-        result = vote_emails.send_voting_emails(
-            members=members_with_email,
-            session_id=session.pk,
-            session_name=session.name,
-            close_date=session.close_date,
-            base_url=base_url,
-        )
-        messages.success(request, f"Sent {result['sent_count']} emails.")
-        for err in result.get("errors", []):
-            messages.warning(request, err)
-        return redirect("voting_dashboard")
-
-    return render(
-        request,
-        "membership/voting/admin/email_preview.html",
-        {
-            "session": session,
-            "members_with_email": members_with_email,
-            "members_without_email": members_without_email,
-        },
-    )
-
-
-@staff_member_required
 def voting_calculate(request: HttpRequest, session_id: int) -> HttpResponse:
     """Calculate and save results for a session."""
     session = get_object_or_404(VotingSession, pk=session_id)
 
     # Build vote data from Django DB
-    votes_qs = GuildVote.objects.filter(session=session).select_related("guild")
-    # Group by member into vote dicts
-    member_votes: dict[str, dict[str, str]] = {}
+    votes_qs = GuildVote.objects.filter(session=session).select_related("guild", "member")
+    member_votes: dict[int, dict[str, str]] = {}
     for v in votes_qs:
-        mid = v.member_airtable_id
+        mid = v.member_id
         if mid not in member_votes:
             member_votes[mid] = {}
         rank_key = {1: "guild_1st", 2: "guild_2nd", 3: "guild_3rd"}.get(v.priority)

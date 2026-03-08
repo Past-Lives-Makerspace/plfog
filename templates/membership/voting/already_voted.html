@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="voting-card">
-    <h2>You've already voted, {{ member.name }}</h2>
+    <h2>You've already voted, {{ member.display_name }}</h2>
     <p>Your votes for {{ session.name }}:</p>
     <ul class="voting-vote-list">
         <li><strong>1st:</strong> {{ votes.1st }}</li>

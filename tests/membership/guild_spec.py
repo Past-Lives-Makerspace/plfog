@@ -140,7 +140,7 @@ def describe_GuildVote():
             with pytest.raises(IntegrityError):
                 GuildVoteFactory(
                     session=session,
-                    member_airtable_id=vote1.member_airtable_id,
+                    member=vote1.member,
                     priority=1,
                     guild=GuildFactory(),
                 )
@@ -151,7 +151,7 @@ def describe_GuildVote():
             with pytest.raises(IntegrityError):
                 GuildVoteFactory(
                     session=session,
-                    member_airtable_id=vote1.member_airtable_id,
+                    member=vote1.member,
                     guild=vote1.guild,
                     priority=2,
                 )
@@ -160,8 +160,9 @@ def describe_GuildVote():
             session1 = VotingSessionFactory(name="Session 1")
             session2 = VotingSessionFactory(name="Session 2")
             guild = GuildFactory()
-            v1 = GuildVoteFactory(session=session1, guild=guild, priority=1, member_airtable_id="rec123")
-            v2 = GuildVoteFactory(session=session2, guild=guild, priority=1, member_airtable_id="rec123")
+            member = MemberFactory()
+            v1 = GuildVoteFactory(session=session1, guild=guild, priority=1, member=member)
+            v2 = GuildVoteFactory(session=session2, guild=guild, priority=1, member=member)
             assert v1.pk is not None
             assert v2.pk is not None
 
@@ -172,12 +173,18 @@ def describe_GuildVote():
             guild_a = GuildFactory(name="Guild A")
             guild_b = GuildFactory(name="Guild B")
             v2 = GuildVoteFactory(
-                session=session, member=member, guild=guild_b, priority=2, member_airtable_id="rec001"
+                session=session,
+                member=member,
+                guild=guild_b,
+                priority=2,
             )
             v1 = GuildVoteFactory(
-                session=session, member=member, guild=guild_a, priority=1, member_airtable_id="rec001"
+                session=session,
+                member=member,
+                guild=guild_a,
+                priority=1,
             )
-            votes = list(GuildVote.objects.filter(session=session, member_airtable_id="rec001"))
+            votes = list(GuildVote.objects.filter(session=session, member=member))
             assert votes == [v1, v2]
 
 

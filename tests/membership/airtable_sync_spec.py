@@ -5,8 +5,6 @@ from unittest.mock import MagicMock, patch
 
 from membership.airtable_sync import (
     get_eligible_members,
-    get_member,
-    get_voteable_guilds,
     sync_session_to_airtable,
     sync_vote_to_airtable,
 )
@@ -53,43 +51,6 @@ def describe_get_eligible_members():
         assert result[0]["email"] == "alice@example.com"
         assert result[0]["monthly_amount"] == 150
         table.all.assert_called_once()
-
-
-def describe_get_member():
-    @patch("membership.airtable_sync._api")
-    def it_fetches_single_member(mock_api_fn):
-        api, table = _mock_api()
-        mock_api_fn.return_value = api
-        table.get.return_value = {
-            "id": "recXYZ",
-            "fields": {
-                "Member Name": "Bob",
-                "Email": "bob@example.com",
-                "Status": "Active",
-                "Role": "Guild Lead",
-                "Monthly Membership $": 200,
-            },
-        }
-        result = get_member("recXYZ")
-        assert result["record_id"] == "recXYZ"
-        assert result["name"] == "Bob"
-        assert result["status"] == "Active"
-        table.get.assert_called_once_with("recXYZ")
-
-
-def describe_get_voteable_guilds():
-    @patch("membership.airtable_sync._api")
-    def it_fetches_guilds_from_old_base(mock_api_fn):
-        api, table = _mock_api()
-        mock_api_fn.return_value = api
-        table.all.return_value = [
-            {"id": "recG1", "fields": {"Guild": "Ceramics"}},
-            {"id": "recG2", "fields": {"Guild": "Glass"}},
-        ]
-        result = get_voteable_guilds()
-        assert len(result) == 2
-        assert result[0]["name"] == "Ceramics"
-        assert result[1]["name"] == "Glass"
 
 
 def describe_sync_session_to_airtable():
@@ -168,7 +129,6 @@ def describe_sync_vote_to_airtable():
 
         result = sync_vote_to_airtable(
             member_name="Alice",
-            member_airtable_id="rec001",
             guild_1st="Ceramics",
             guild_2nd="Glass",
             guild_3rd="Wood",
@@ -184,7 +144,6 @@ def describe_sync_vote_to_airtable():
 
         result = sync_vote_to_airtable(
             member_name="Alice",
-            member_airtable_id="rec001",
             guild_1st="Ceramics",
             guild_2nd="Glass",
             guild_3rd="Wood",

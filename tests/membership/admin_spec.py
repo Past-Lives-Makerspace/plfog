@@ -826,7 +826,7 @@ def describe_admin_guild_views():
 def describe_GuildVoteAdmin():
     def it_has_expected_list_display():
         vote_admin = admin.site._registry[GuildVote]
-        assert vote_admin.list_display == ["member_name", "guild", "priority", "session", "created_at"]
+        assert vote_admin.list_display == ["member", "guild", "priority", "session", "created_at"]
 
     def it_has_expected_list_filter():
         vote_admin = admin.site._registry[GuildVote]
@@ -834,7 +834,7 @@ def describe_GuildVoteAdmin():
 
     def it_has_expected_search_fields():
         vote_admin = admin.site._registry[GuildVote]
-        assert vote_admin.search_fields == ["member_name"]
+        assert vote_admin.search_fields == ["member__full_legal_name", "member__preferred_name"]
 
 
 def describe_VotingSessionAdmin():
@@ -887,8 +887,6 @@ def describe_admin_guild_vote_views():
                 "member": member.pk,
                 "guild": guild.pk,
                 "priority": "1",
-                "member_airtable_id": "recTEST",
-                "member_name": "Test User",
             },
         )
         assert resp.status_code == 302

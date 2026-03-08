@@ -181,15 +181,9 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@pastlives.spa
 # Airtable
 AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY", "")
 AIRTABLE_NEW_BASE_ID = os.environ.get("AIRTABLE_NEW_BASE_ID", "appVix9sWo1Tfjm0s")
-AIRTABLE_OLD_BASE_ID = os.environ.get("AIRTABLE_OLD_BASE_ID", "appETKQa6ueJsZ2gC")
 AIRTABLE_MEMBERS_TABLE = os.environ.get("AIRTABLE_MEMBERS_TABLE", "tbllpqGB2XXuRt6lg")
-AIRTABLE_GUILDS_TABLE = os.environ.get("AIRTABLE_GUILDS_TABLE", "tbla02m2GnUAsg3eW")
 AIRTABLE_VOTES_TABLE = os.environ.get("AIRTABLE_VOTES_TABLE", "tblpefgQUIMdwbLZX")
 AIRTABLE_SESSIONS_TABLE = os.environ.get("AIRTABLE_SESSIONS_TABLE", "tblGW2Bo1Mb09qT2y")
-
-# Vote token expiry (seconds) - 30 days
-VOTE_TOKEN_MAX_AGE = 60 * 60 * 24 * 30
->>>>>>> b1ead30 (feat: Add guild voting system with Airtable sync and Mailgun email)
 
 # OAuth providers (APP config pattern - no Django admin SocialApp needed)
 SOCIALACCOUNT_PROVIDERS = {

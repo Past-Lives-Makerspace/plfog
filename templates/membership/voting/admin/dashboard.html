@@ -19,7 +19,6 @@
             Votes cast: <strong>{{ vote_count }}</strong> / {{ member_count }}
         </p>
         <div class="voting-btn-group">
-            <a href="{% url 'voting_send_emails' active_session.pk %}" class="voting-btn">Send Emails</a>
             <a href="{% url 'voting_calculate' active_session.pk %}" class="voting-btn">Calculate Results</a>
             <a href="{% url 'voting_email_results' active_session.pk %}" class="voting-btn">Email Results</a>
             <a href="{% url 'voting_results' active_session.pk %}" class="voting-btn voting-btn-secondary">View Results</a>

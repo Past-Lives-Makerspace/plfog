@@ -10,29 +10,12 @@ from django.contrib.auth import get_user_model
 from django.test import Client
 from django.utils import timezone
 
-from membership.models import Guild, GuildVote, VotingSession
-from membership.vote_tokens import generate_vote_token
-from tests.membership.factories import GuildFactory, VotingSessionFactory
+from membership.models import GuildVote, VotingSession
+from tests.membership.factories import GuildFactory, MemberFactory, VotingSessionFactory
 
 User = get_user_model()
 
 pytestmark = pytest.mark.django_db
-
-MOCK_MEMBER = {
-    "record_id": "recTEST001",
-    "name": "Test Member",
-    "email": "test@example.com",
-    "status": "Active",
-    "role": "Standard",
-    "monthly_amount": 150,
-}
-
-MOCK_GUILDS = [
-    {"record_id": "recG1", "name": "Ceramics"},
-    {"record_id": "recG2", "name": "Glass"},
-    {"record_id": "recG3", "name": "Wood"},
-    {"record_id": "recG4", "name": "Metal"},
-]
 
 MOCK_MEMBERS = [
     {"record_id": "recTEST001", "name": "Test Member", "email": "test@example.com"},
@@ -66,162 +49,55 @@ def open_session():
 
 
 @pytest.fixture()
-def vote_token(open_session):
-    return generate_vote_token("recTEST001", open_session.pk)
+def member_user():
+    """Create a user with an active member profile."""
+    user = User.objects.create_user(username="voter", password="pw", email="voter@example.com")
+    member = MemberFactory(user=user, full_legal_name="Test Voter")
+    return user, member
+
+
+@pytest.fixture()
+def member_client(member_user):
+    """Logged-in client for a member."""
+    user, _ = member_user
+    c = Client()
+    c.force_login(user)
+    return c
+
+
+@pytest.fixture()
+def guilds():
+    """Create guilds for voting."""
+    return [
+        GuildFactory(name="Ceramics", is_active=True),
+        GuildFactory(name="Glass", is_active=True),
+        GuildFactory(name="Wood", is_active=True),
+        GuildFactory(name="Metal", is_active=True),
+    ]
 
 
 # ---------------------------------------------------------------------------
-# Public: vote view
+# Member: vote view
 # ---------------------------------------------------------------------------
 
 
 def describe_vote_view():
-    @patch("membership.vote_views.airtable_sync")
-    def it_renders_voting_form(mock_at, client, open_session, vote_token):
-        mock_at.get_member.return_value = MOCK_MEMBER
-        mock_at.get_voteable_guilds.return_value = MOCK_GUILDS
-        resp = client.get(f"/voting/vote/{vote_token}/")
+    def it_requires_login(client):
+        resp = client.get("/voting/")
+        assert resp.status_code == 302
+        assert "/accounts/login/" in resp.url or "/login/" in resp.url
+
+    def it_renders_voting_form(member_client, open_session, guilds):
+        resp = member_client.get("/voting/")
         assert resp.status_code == 200
         assert b"rank your top 3 guilds" in resp.content
 
-    @patch("membership.vote_views.airtable_sync")
-    def it_submits_vote_successfully(mock_at, client, open_session, vote_token):
-        mock_at.get_member.return_value = MOCK_MEMBER
-        mock_at.get_voteable_guilds.return_value = MOCK_GUILDS
-        mock_at.sync_vote_to_airtable.return_value = "recVOTE1"
-
-        resp = client.post(
-            f"/voting/vote/{vote_token}/",
-            {
-                "guild_1st": "Ceramics",
-                "guild_2nd": "Glass",
-                "guild_3rd": "Wood",
-            },
-        )
-        assert resp.status_code == 200
-        assert b"vote_success" in resp.content or b"Ceramics" in resp.content
-
-        assert GuildVote.objects.filter(session=open_session).count() == 3
-        assert Guild.objects.filter(name="Ceramics").exists()
-        open_session.refresh_from_db()
-        assert open_session.votes_cast == 1
-
-    @patch("membership.vote_views.airtable_sync")
-    def it_prevents_double_voting(mock_at, client, open_session, vote_token):
-        mock_at.get_member.return_value = MOCK_MEMBER
-        mock_at.get_voteable_guilds.return_value = MOCK_GUILDS
-        mock_at.sync_vote_to_airtable.return_value = ""
-
-        # First vote
-        client.post(
-            f"/voting/vote/{vote_token}/",
-            {
-                "guild_1st": "Ceramics",
-                "guild_2nd": "Glass",
-                "guild_3rd": "Wood",
-            },
-        )
-
-        # Second attempt
-        resp = client.get(f"/voting/vote/{vote_token}/")
-        assert resp.status_code == 200
-        assert b"already" in resp.content.lower()
-
-    def it_rejects_bad_token(client):
-        resp = client.get("/voting/vote/bad-token/")
-        assert resp.status_code == 400
-
-    def it_rejects_expired_token(client, open_session):
-        from django.test import override_settings
-
-        with override_settings(VOTE_TOKEN_MAX_AGE=0):
-            token = generate_vote_token("recTEST001", open_session.pk)
-            resp = client.get(f"/voting/vote/{token}/")
-        assert resp.status_code == 200
-        assert b"expired" in resp.content.lower()
-
-    def it_shows_closed_for_non_open_session(client):
-        session = VotingSessionFactory(status=VotingSession.Status.CLOSED)
-        token = generate_vote_token("recTEST001", session.pk)
-        resp = client.get(f"/voting/vote/{token}/")
-        assert resp.status_code == 200
-        assert b"closed" in resp.content.lower()
-
-    @patch("membership.vote_views.airtable_sync")
-    def it_returns_503_on_airtable_failure(mock_at, client, open_session, vote_token):
-        mock_at.get_member.side_effect = Exception("Airtable down")
-        resp = client.get(f"/voting/vote/{vote_token}/")
-        assert resp.status_code == 503
-
-    @patch("membership.vote_views.airtable_sync")
-    def it_rejects_inactive_member(mock_at, client, open_session, vote_token):
-        mock_at.get_member.return_value = {**MOCK_MEMBER, "status": "Former"}
-        resp = client.get(f"/voting/vote/{vote_token}/")
-        assert resp.status_code == 400
-
-    @patch("membership.vote_views.airtable_sync")
-    def it_rejects_invalid_form_data(mock_at, client, open_session, vote_token):
-        mock_at.get_member.return_value = MOCK_MEMBER
-        mock_at.get_voteable_guilds.return_value = MOCK_GUILDS
-
-        resp = client.post(
-            f"/voting/vote/{vote_token}/",
-            {
-                "guild_1st": "Ceramics",
-                "guild_2nd": "Ceramics",
-                "guild_3rd": "Glass",
-            },
-        )
-        assert resp.status_code == 200
-        # Should re-render form with errors, not create votes
-        assert GuildVote.objects.filter(session=open_session).count() == 0
-
-    def it_returns_404_for_nonexistent_session(client):
-        token = generate_vote_token("recTEST001", 99999)
-        resp = client.get(f"/voting/vote/{token}/")
-        assert resp.status_code == 404
-
-    @patch("membership.vote_views.airtable_sync")
-    def it_handles_race_condition_on_post(mock_at, client, open_session):
-        """Double-check guard (line 84) triggers on POST when vote was inserted concurrently."""
-        mock_at.get_member.return_value = MOCK_MEMBER
-        mock_at.get_voteable_guilds.return_value = MOCK_GUILDS
-
-        token = generate_vote_token("recRACE001", open_session.pk)
-
-        # We need the first filter().exists() to return False, then the second to return True.
-        # Strategy: patch GuildVote.objects.filter so the first call for this member returns
-        # an empty QS, but before the second call, real votes exist in DB.
-        original_filter = GuildVote.objects.filter
-        call_count = {"n": 0}
-
-        def side_effect_filter(*args, **kwargs):
-            qs = original_filter(*args, **kwargs)
-            if kwargs.get("member_airtable_id") == "recRACE001":
-                call_count["n"] += 1
-                if call_count["n"] == 1:
-                    # First check: pretend no votes exist yet
-                    return GuildVote.objects.none()
-                elif call_count["n"] == 2:
-                    # Before second check, insert votes to simulate race
-                    g1, _ = Guild.objects.get_or_create(name="Ceramics")
-                    g2, _ = Guild.objects.get_or_create(name="Glass")
-                    g3, _ = Guild.objects.get_or_create(name="Wood")
-                    for pri, g in enumerate([g1, g2, g3], 1):
-                        GuildVote.objects.create(
-                            session=open_session,
-                            member_airtable_id="recRACE001",
-                            member_name="Race",
-                            guild=g,
-                            priority=pri,
-                        )
-                    # Now return the real queryset which will find the votes
-                    return original_filter(*args, **kwargs)
-            return qs
-
-        with patch.object(type(GuildVote.objects), "filter", side_effect=side_effect_filter):
-            resp = client.post(
-                f"/voting/vote/{token}/",
+    def it_submits_vote_successfully(member_client, member_user, open_session, guilds):
+        _, member = member_user
+        with patch("membership.vote_views.airtable_sync") as mock_at:
+            mock_at.sync_vote_to_airtable.return_value = "recVOTE1"
+            resp = member_client.post(
+                "/voting/",
                 {
                     "guild_1st": "Ceramics",
                     "guild_2nd": "Glass",
@@ -229,7 +105,55 @@ def describe_vote_view():
                 },
             )
         assert resp.status_code == 200
+        assert GuildVote.objects.filter(session=open_session, member=member).count() == 3
+        open_session.refresh_from_db()
+        assert open_session.votes_cast == 1
+
+    def it_prevents_double_voting(member_client, member_user, open_session, guilds):
+        _, member = member_user
+        with patch("membership.vote_views.airtable_sync") as mock_at:
+            mock_at.sync_vote_to_airtable.return_value = ""
+            member_client.post(
+                "/voting/",
+                {
+                    "guild_1st": "Ceramics",
+                    "guild_2nd": "Glass",
+                    "guild_3rd": "Wood",
+                },
+            )
+        resp = member_client.get("/voting/")
+        assert resp.status_code == 200
         assert b"already" in resp.content.lower()
+
+    def it_shows_closed_when_no_open_session(member_client):
+        resp = member_client.get("/voting/")
+        assert resp.status_code == 200
+        assert b"no voting session" in resp.content.lower()
+
+    def it_redirects_user_without_member(client, open_session):
+        user = User.objects.create_user(username="nomember", password="pw")
+        client.force_login(user)
+        resp = client.get("/voting/")
+        assert resp.status_code == 302
+
+    def it_rejects_inactive_member(client, open_session):
+        user = User.objects.create_user(username="former", password="pw")
+        MemberFactory(user=user, status="former")
+        client.force_login(user)
+        resp = client.get("/voting/")
+        assert resp.status_code == 302
+
+    def it_rejects_invalid_form_data(member_client, open_session, guilds):
+        resp = member_client.post(
+            "/voting/",
+            {
+                "guild_1st": "Ceramics",
+                "guild_2nd": "Ceramics",
+                "guild_3rd": "Glass",
+            },
+        )
+        assert resp.status_code == 200
+        assert GuildVote.objects.filter(session=open_session).count() == 0
 
 
 # ---------------------------------------------------------------------------
@@ -368,54 +292,6 @@ def describe_voting_create_session():
 
 
 # ---------------------------------------------------------------------------
-# Admin: voting_send_emails
-# ---------------------------------------------------------------------------
-
-
-def describe_voting_send_emails():
-    def it_requires_staff(client, open_session):
-        resp = client.get(f"/voting/manage/send-emails/{open_session.pk}/")
-        assert resp.status_code == 302
-
-    @patch("membership.vote_views.airtable_sync")
-    def it_renders_preview(mock_at, admin_client, open_session):
-        mock_at.get_eligible_members.return_value = MOCK_MEMBERS
-        resp = admin_client.get(f"/voting/manage/send-emails/{open_session.pk}/")
-        assert resp.status_code == 200
-
-    @patch("membership.vote_views.vote_emails")
-    @patch("membership.vote_views.airtable_sync")
-    def it_sends_emails_on_post(mock_at, mock_emails, admin_client):
-        session = VotingSessionFactory(status=VotingSession.Status.DRAFT)
-        mock_at.get_eligible_members.return_value = MOCK_MEMBERS
-        mock_at.sync_session_to_airtable.return_value = ""
-        mock_emails.send_voting_emails.return_value = {"sent_count": 2, "errors": []}
-
-        resp = admin_client.post(f"/voting/manage/send-emails/{session.pk}/")
-        assert resp.status_code == 302
-        session.refresh_from_db()
-        assert session.status == VotingSession.Status.OPEN
-
-    @patch("membership.vote_views.vote_emails")
-    @patch("membership.vote_views.airtable_sync")
-    def it_reports_email_errors(mock_at, mock_emails, admin_client, open_session):
-        mock_at.get_eligible_members.return_value = MOCK_MEMBERS
-        mock_emails.send_voting_emails.return_value = {
-            "sent_count": 1,
-            "errors": ["Failed to send to Bob"],
-        }
-        resp = admin_client.post(f"/voting/manage/send-emails/{open_session.pk}/")
-        assert resp.status_code == 302
-
-    @patch("membership.vote_views.airtable_sync")
-    def it_shows_members_without_email(mock_at, admin_client, open_session):
-        members_mixed = MOCK_MEMBERS + [{"record_id": "rec003", "name": "No Email"}]
-        mock_at.get_eligible_members.return_value = members_mixed
-        resp = admin_client.get(f"/voting/manage/send-emails/{open_session.pk}/")
-        assert resp.status_code == 200
-
-
-# ---------------------------------------------------------------------------
 # Admin: voting_calculate
 # ---------------------------------------------------------------------------
 
@@ -430,12 +306,11 @@ def describe_voting_calculate():
         assert resp.status_code == 200
 
     def it_skips_votes_with_unknown_priority(admin_client, open_session):
+        member = MemberFactory()
         guild = GuildFactory(name="Skip Priority Guild")
-        # Create a vote with priority=4 which is not in {1,2,3}
         GuildVote.objects.create(
             session=open_session,
-            member_airtable_id="recSKIP",
-            member_name="Skip",
+            member=member,
             guild=guild,
             priority=4,
         )
@@ -443,14 +318,14 @@ def describe_voting_calculate():
         assert resp.status_code == 200
 
     def it_renders_preview_with_votes(admin_client, open_session):
+        member = MemberFactory()
         g1 = GuildFactory(name="Ceramics")
         g2 = GuildFactory(name="Glass")
         g3 = GuildFactory(name="Wood")
         for priority, guild in enumerate([g1, g2, g3], start=1):
             GuildVote.objects.create(
                 session=open_session,
-                member_airtable_id="recTEST001",
-                member_name="Test",
+                member=member,
                 guild=guild,
                 priority=priority,
             )
@@ -461,14 +336,14 @@ def describe_voting_calculate():
     @patch("membership.vote_views.airtable_sync")
     def it_saves_results_on_post(mock_at, admin_client, open_session):
         mock_at.sync_session_to_airtable.return_value = ""
+        member = MemberFactory()
         g1 = GuildFactory(name="Calc Ceramics")
         g2 = GuildFactory(name="Calc Glass")
         g3 = GuildFactory(name="Calc Wood")
         for priority, guild in enumerate([g1, g2, g3], start=1):
             GuildVote.objects.create(
                 session=open_session,
-                member_airtable_id="recCALC001",
-                member_name="Calc Test",
+                member=member,
                 guild=guild,
                 priority=priority,
             )

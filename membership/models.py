@@ -295,32 +295,29 @@ class VotingSession(models.Model):
 class GuildVote(models.Model):
     """Members vote for 3 guilds in priority order within a voting session."""
 
-    session = models.ForeignKey(VotingSession, on_delete=models.CASCADE, related_name="votes", null=True)
-    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name="guild_votes", null=True, blank=True)
-    member_airtable_id = models.CharField(max_length=50, default="")
-    member_name = models.CharField(max_length=255, default="")
+    session = models.ForeignKey(VotingSession, on_delete=models.CASCADE, related_name="votes")
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name="guild_votes")
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="guild_votes_received")
     priority = models.PositiveSmallIntegerField(choices=[(1, "First"), (2, "Second"), (3, "Third")])
-    airtable_record_id = models.CharField(max_length=50, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
 
     class Meta:
-        ordering = ["session", "member_airtable_id", "priority"]
+        ordering = ["session", "member", "priority"]
         verbose_name = "Guild Vote"
         verbose_name_plural = "Guild Votes"
         constraints = [
             models.UniqueConstraint(
-                fields=["session", "member_airtable_id", "priority"],
+                fields=["session", "member", "priority"],
                 name="unique_session_member_priority",
             ),
             models.UniqueConstraint(
-                fields=["session", "member_airtable_id", "guild"],
+                fields=["session", "member", "guild"],
                 name="unique_session_member_guild",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.member_name} → {self.guild} (#{self.priority})"
+        return f"{self.member.display_name} → {self.guild} (#{self.priority})"
 
 
 # ---------------------------------------------------------------------------
