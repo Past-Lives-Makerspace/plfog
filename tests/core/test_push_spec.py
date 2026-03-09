@@ -415,7 +415,7 @@ def describe_service_worker_middleware():
 
 
 def describe_service_worker_view():
-    """Tests for the service worker view that adds the SW-Allowed header."""
+    """Tests for the service worker view that serves sw.js content."""
 
     def it_returns_sw_js_content(client):
         """Test view returns service worker JavaScript content."""
@@ -424,10 +424,20 @@ def describe_service_worker_view():
         assert response["Content-Type"] == "application/javascript"
         assert b"addEventListener" in response.content
 
-    def it_adds_service_worker_allowed_header(client):
-        """Test view adds Service-Worker-Allowed header."""
-        response = client.get("/sw.js")
-        assert response["Service-Worker-Allowed"] == "/"
+    def it_does_not_set_service_worker_allowed_header_itself(client):
+        """View should NOT set Service-Worker-Allowed header.
+
+        The header is set only by ServiceWorkerAllowedMiddleware.
+        This separation ensures the middleware mutation (== -> !=) is killed.
+        """
+        from django.test import RequestFactory
+
+        from core.views import service_worker
+
+        factory = RequestFactory()
+        request = factory.get("/sw.js")
+        response = service_worker(request)
+        assert response.get("Service-Worker-Allowed") is None
 
     def it_returns_404_if_sw_file_missing(client):
         """Test view returns 404 if sw.js doesn't exist."""

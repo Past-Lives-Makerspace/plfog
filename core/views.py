@@ -27,10 +27,10 @@ def home(request):
 
 @require_GET
 def service_worker(request):
-    """Serve the service worker with Service-Worker-Allowed header.
+    """Serve the service worker JavaScript file.
 
-    This view serves sw.js from static files and adds the required
-    Service-Worker-Allowed: / header to allow the SW to control the root scope.
+    The Service-Worker-Allowed header is set by ServiceWorkerAllowedMiddleware,
+    not by this view, to avoid redundancy and ensure mutation test coverage.
     """
     sw_path = Path(settings.BASE_DIR) / "static" / "js" / "sw.js"
     if not sw_path.exists():
@@ -39,9 +39,7 @@ def service_worker(request):
     with open(sw_path) as f:
         content = f.read()
 
-    response = HttpResponse(content, content_type="application/javascript")
-    response["Service-Worker-Allowed"] = "/"
-    return response
+    return HttpResponse(content, content_type="application/javascript")
 
 
 @require_GET
