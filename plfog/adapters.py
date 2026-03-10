@@ -73,4 +73,4 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
     def get_login_redirect_url(self, request: HttpRequest) -> str:
         if request.user.is_staff:
             return "/admin/"
-        return super().get_login_redirect_url(request)
+        return "/guilds/voting/"

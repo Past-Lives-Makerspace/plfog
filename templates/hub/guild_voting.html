@@ -1,0 +1,97 @@
+{% extends "hub/base.html" %}
+{% block title %}Guild Voting{% endblock %}
+
+{% block content %}
+<div class="hub-card">
+    {% if state == "closed" or state == "no_member" or state == "inactive" %}
+        <h1 class="hub-page-title">Guild Voting</h1>
+        <p class="hub-text-muted">Coming soon.</p>
+
+    {% elif state == "already_voted" %}
+        <h1 class="hub-page-title">You've already voted, {{ member.display_name }}</h1>
+        <p class="hub-text-muted">Your votes for {{ session.name }}:</p>
+        <ul class="hub-vote-list">
+            <li><strong>1st:</strong> {{ votes.1st }}</li>
+            <li><strong>2nd:</strong> {{ votes.2nd }}</li>
+            <li><strong>3rd:</strong> {{ votes.3rd }}</li>
+        </ul>
+
+    {% elif state == "success" %}
+        <div class="hub-success-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 11l3 3L22 4"/>
+                <circle cx="12" cy="12" r="10"/>
+            </svg>
+        </div>
+        <h1 class="hub-page-title">Your vote has been recorded!</h1>
+        <p class="hub-text-muted">Thanks {{ member.display_name }}! Here's what you voted for {{ session.name }}:</p>
+        <ul class="hub-vote-list">
+            <li><strong>1st:</strong> {{ votes.1st }}</li>
+            <li><strong>2nd:</strong> {{ votes.2nd }}</li>
+            <li><strong>3rd:</strong> {{ votes.3rd }}</li>
+        </ul>
+
+    {% elif state == "voting" %}
+        <h1 class="hub-page-title">Hi {{ member.display_name }}, rank your top 3 guilds</h1>
+        <p class="hub-text-muted">{{ session.name }} &mdash; Voting closes {{ session.close_date|date:"F jS, Y" }}</p>
+        <p class="hub-text-muted" style="margin-top: 0.5rem;">Your vote will have a positive financial impact on the guilds that you choose! Be sure to vote for your preferred guild first, the order is taken into account.</p>
+
+        <form method="post" id="vote-form" class="hub-form" style="margin-top: 1.5rem;">
+            {% csrf_token %}
+            {% for field in form %}
+            <div class="hub-form-group">
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.errors %}
+                <div class="hub-field-error">{{ field.errors.0 }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% if form.non_field_errors %}
+            <div class="hub-form-error">
+                {% for error in form.non_field_errors %}
+                <p>{{ error }}</p>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <div style="margin-top: 1.5rem;">
+                <button type="submit" class="hub-btn hub-btn--primary">Submit Vote</button>
+            </div>
+        </form>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if state == "voting" %}
+<script>
+const guilds = {{ guilds_json|safe }};
+const selects = document.querySelectorAll('#vote-form select');
+
+function updateOptions() {
+    const selected = {};
+    selects.forEach(sel => {
+        if (sel.value) selected[sel.name] = sel.value;
+    });
+    selects.forEach(sel => {
+        const current = sel.value;
+        const otherSelected = Object.entries(selected)
+            .filter(([name]) => name !== sel.name)
+            .map(([, val]) => val);
+        sel.innerHTML = '<option value="">-- Select a guild --</option>';
+        guilds.forEach(([id, name]) => {
+            if (!otherSelected.includes(id)) {
+                const opt = document.createElement('option');
+                opt.value = id;
+                opt.textContent = name;
+                if (id === current) opt.selected = true;
+                sel.appendChild(opt);
+            }
+        });
+    });
+}
+
+selects.forEach(sel => sel.addEventListener('change', updateOptions));
+</script>
+{% endif %}
+{% endblock %}

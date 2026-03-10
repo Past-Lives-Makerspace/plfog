@@ -1,0 +1,97 @@
+{% load static hub_tags %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#092E4C">
+    <title>{% block title %}Member Hub{% endblock %} - Past Lives</title>
+    <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/hub.css' %}">
+    <script>
+        (function() {
+            var theme = localStorage.getItem('theme');
+            if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+        })();
+    </script>
+</head>
+<body>
+    <aside class="hub-sidebar">
+        <a href="{% url 'hub_guild_voting' %}" class="hub-sidebar__brand">
+            <img src="{% static 'img/favicon.png' %}" alt="Past Lives" class="hub-sidebar__brand-icon" width="24" height="24">
+            <span class="hub-sidebar__brand-text">Past Lives</span>
+        </a>
+
+        <nav class="hub-sidebar__nav" aria-label="Hub navigation">
+            <a href="{% url 'hub_guild_voting' %}" class="hub-sidebar__link {% active_nav 'hub_guild_voting' %}">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 11l3 3L22 4"/>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                </svg>
+                Guild Voting
+            </a>
+
+            <div class="hub-sidebar__section-header">Guilds</div>
+            {% for guild in guilds %}
+            <a href="{% url 'hub_guild_detail' guild.pk %}" class="hub-sidebar__link {% active_nav 'hub_guild_detail' guild.pk %}">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                    <circle cx="7" cy="7" r="5"/>
+                </svg>
+                {{ guild.name }}
+            </a>
+            {% endfor %}
+
+            {% if user.is_staff %}
+            <div class="hub-sidebar__section-header">Admin</div>
+            <a href="{% url 'admin:index' %}" class="hub-sidebar__link">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 15v2"/>
+                    <path d="M12 3a6 6 0 0 0-6 6v4l-2 2h16l-2-2V9a6 6 0 0 0-6-6z"/>
+                    <rect x="4" y="19" width="16" height="2" rx="1"/>
+                </svg>
+                Admin Panel
+            </a>
+            {% endif %}
+        </nav>
+    </aside>
+
+    <div class="hub-main-wrapper">
+        <header class="hub-topbar">
+            <div class="hub-topbar__spacer"></div>
+            <div class="hub-topbar__profile" id="profile-toggle">
+                <button class="hub-topbar__avatar" aria-label="User menu" aria-expanded="false" aria-controls="profile-dropdown">
+                    {{ user_initials }}
+                </button>
+                <div class="hub-topbar__dropdown" id="profile-dropdown" role="menu">
+                    <div class="hub-topbar__dropdown-header">
+                        <div class="hub-topbar__dropdown-name">{{ user.get_full_name|default:user.email }}</div>
+                        <div class="hub-topbar__dropdown-email">{{ user.email }}</div>
+                    </div>
+                    <a href="{% url 'hub_profile_settings' %}" class="hub-topbar__dropdown-item" role="menuitem">Profile</a>
+                    <a href="{% url 'hub_email_preferences' %}" class="hub-topbar__dropdown-item" role="menuitem">Email Preferences</a>
+                    <button class="hub-topbar__dropdown-item" id="theme-toggle" role="menuitem">
+                        <span id="theme-label">Light Mode</span>
+                    </button>
+                    <div class="hub-topbar__dropdown-divider"></div>
+                    <a href="{% url 'account_logout' %}" class="hub-topbar__dropdown-item hub-topbar__dropdown-item--danger" role="menuitem">Log Out</a>
+                </div>
+            </div>
+        </header>
+
+        <main class="hub-content">
+            {% if messages %}
+            <ul class="hub-messages" role="alert">
+                {% for message in messages %}
+                <li class="hub-message hub-message--{{ message.tags }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script src="{% static 'js/hub.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
