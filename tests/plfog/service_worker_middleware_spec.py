@@ -40,6 +40,4 @@ def describe_service_worker_allowed_middleware():
         for path in ["/sw.js/", "/static/sw.js", "/sw.json", "/sw.jsx"]:
             request = _make_request(path)
             response = middleware(request)
-            assert "Service-Worker-Allowed" not in response, (
-                f"Header should not be set for path {path}"
-            )
+            assert "Service-Worker-Allowed" not in response, f"Header should not be set for path {path}"
