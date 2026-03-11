@@ -31,6 +31,23 @@
         });
     }
 
+    // --- Guilds Collapsible ---
+    var guildsToggle = document.getElementById('guilds-toggle');
+    var guildsList = document.getElementById('guilds-list');
+
+    if (guildsToggle && guildsList) {
+        // Auto-open if a guild detail page is active
+        if (guildsList.querySelector('.hub-sidebar__link.active')) {
+            guildsList.classList.add('open');
+            guildsToggle.setAttribute('aria-expanded', 'true');
+        }
+
+        guildsToggle.addEventListener('click', function () {
+            var isOpen = guildsList.classList.toggle('open');
+            guildsToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        });
+    }
+
     // --- Theme Toggle ---
     var themeBtn = document.getElementById('theme-toggle');
     var themeLabel = document.getElementById('theme-label');
