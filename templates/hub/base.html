@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#092E4C">
     <title>{% block title %}Member Hub{% endblock %} - Past Lives</title>
     <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/hub.css' %}">
     <script>
         (function() {
@@ -32,15 +32,24 @@
                 Guild Voting
             </a>
 
-            <div class="hub-sidebar__section-header">Guilds</div>
-            {% for guild in guilds %}
-            <a href="{% url 'hub_guild_detail' guild.pk %}" class="hub-sidebar__link {% active_nav 'hub_guild_detail' guild.pk %}">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <circle cx="7" cy="7" r="5"/>
+            <button class="hub-sidebar__section-toggle" id="guilds-toggle" aria-expanded="false" aria-controls="guilds-list">
+                <span>Guilds</span>
+                <svg class="hub-sidebar__chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 4.5l3 3 3-3"/>
                 </svg>
-                {{ guild.name }}
-            </a>
-            {% endfor %}
+            </button>
+            <div class="hub-sidebar__collapsible" id="guilds-list">
+                <div class="hub-sidebar__collapsible-inner">
+                    {% for guild in guilds %}
+                    <a href="{% url 'hub_guild_detail' guild.pk %}" class="hub-sidebar__link {% active_nav 'hub_guild_detail' guild.pk %}">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                            <circle cx="7" cy="7" r="5"/>
+                        </svg>
+                        {{ guild.name }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
 
             {% if user.is_staff %}
             <div class="hub-sidebar__section-header">Admin</div>
