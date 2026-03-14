@@ -58,13 +58,10 @@ def describe_nav_authenticated():
         client.force_login(user)
         return client
 
-    def it_shows_user_email(logged_in_client):
+    def it_redirects_to_hub(logged_in_client):
         response = logged_in_client.get("/")
-        assert b"test@example.com" in response.content
-
-    def it_shows_log_out_link(logged_in_client):
-        response = logged_in_client.get("/")
-        assert b"Log out" in response.content
+        assert response.status_code == 302
+        assert response.url == "/guilds/voting/"
 
 
 def describe_base_template_meta():

@@ -1,0 +1,39 @@
+{% extends "hub/base.html" %}
+{% block title %}{{ guild.name }}{% endblock %}
+
+{% block content %}
+<div class="hub-card">
+    <h1 class="hub-page-title">{{ guild.name }}</h1>
+
+    {% if guild.notes %}
+    <div class="hub-detail-section">
+        <h3 class="hub-detail-label">About</h3>
+        <p>{{ guild.notes|linebreaksbr }}</p>
+    </div>
+    {% endif %}
+
+    <div class="hub-detail-section">
+        <h3 class="hub-detail-label">Members</h3>
+        {% if guild.guild_lead %}
+        <div class="hub-member-row">
+            <div class="hub-member-avatar">
+                {{ guild.guild_lead.display_name|make_list|first|upper }}
+            </div>
+            <div class="hub-member-info">
+                <span class="hub-member-name">{{ guild.guild_lead.display_name }}</span>
+                <span class="hub-badge">Lead</span>
+            </div>
+        </div>
+        {% else %}
+        <p class="hub-text-muted">No guild lead assigned.</p>
+        {% endif %}
+        <p class="hub-text-muted hub-note" style="margin-top: 1rem;">Full guild pages coming soon.</p>
+    </div>
+
+</div>
+
+<div class="hub-card" style="margin-top: 1.5rem;">
+    <h3 class="hub-detail-label">Buyables</h3>
+    <p class="hub-text-muted">Coming soon.</p>
+</div>
+{% endblock %}

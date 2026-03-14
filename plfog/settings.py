@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "anymail",
     # Project apps
     "core",
+    "hub",
     "membership",
 ]
 
@@ -288,6 +289,11 @@ UNFOLD = {
                         "icon": "dashboard",
                         "link": reverse_lazy("admin:index"),
                     },
+                    {
+                        "title": "Member Hub",
+                        "icon": "home",
+                        "link": reverse_lazy("hub_guild_voting"),
+                    },
                 ],
             },
             {
@@ -307,11 +313,6 @@ UNFOLD = {
                         "title": "Guilds",
                         "icon": "groups",
                         "link": reverse_lazy("admin:membership_guild_changelist"),
-                    },
-                    {
-                        "title": "Guild Votes",
-                        "icon": "how_to_vote",
-                        "link": reverse_lazy("admin:membership_guildvote_changelist"),
                     },
                     {
                         "title": "Spaces",

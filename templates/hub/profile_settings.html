@@ -1,0 +1,32 @@
+{% extends "hub/base.html" %}
+{% block title %}Profile Settings{% endblock %}
+
+{% block content %}
+<div class="hub-card">
+    <h1 class="hub-page-title">Profile Settings</h1>
+
+    {% if member %}
+    <form method="post" class="hub-form">
+        {% csrf_token %}
+        <div class="hub-form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" value="{{ user.email }}" disabled>
+            <span class="hub-field-hint">Managed through your login provider</span>
+        </div>
+        <div class="hub-form-group">
+            <label for="preferred_name">Preferred Name</label>
+            <input type="text" id="preferred_name" name="preferred_name" value="{{ member.preferred_name }}" placeholder="How should we call you?">
+        </div>
+        <div class="hub-form-group">
+            <label for="phone">Phone</label>
+            <input type="tel" id="phone" name="phone" value="{{ member.phone }}" placeholder="(optional)">
+        </div>
+        <div style="margin-top: 1.5rem;">
+            <button type="submit" class="hub-btn hub-btn--primary">Save Changes</button>
+        </div>
+    </form>
+    {% else %}
+    <p class="hub-text-muted">Your account is not linked to a membership profile. Contact an admin for help.</p>
+    {% endif %}
+</div>
+{% endblock %}

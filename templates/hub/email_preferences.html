@@ -1,0 +1,26 @@
+{% extends "hub/base.html" %}
+{% block title %}Email Preferences{% endblock %}
+
+{% block content %}
+<div class="hub-card">
+    <h1 class="hub-page-title">Email Preferences</h1>
+    <p class="hub-text-muted">Manage which emails you receive from Past Lives Makerspace.</p>
+
+    <form method="post" class="hub-form" style="margin-top: 1.5rem;">
+        {% csrf_token %}
+        <div class="hub-toggle-row">
+            <div>
+                <div class="hub-toggle-label">Voting Result Emails</div>
+                <div class="hub-toggle-desc">Get notified when guild voting results are published</div>
+            </div>
+            <label class="hub-toggle">
+                <input type="checkbox" name="voting_results" checked>
+                <span class="hub-toggle__slider"></span>
+            </label>
+        </div>
+        <div style="margin-top: 1.5rem;">
+            <button type="submit" class="hub-btn hub-btn--primary">Save Preferences</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

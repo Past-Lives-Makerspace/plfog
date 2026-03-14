@@ -149,6 +149,21 @@ class Member(models.Model):
         return self.preferred_name if self.preferred_name else self.full_legal_name
 
     @property
+    def initials(self) -> str:
+        """Compute display initials from the linked user's name or email."""
+        if self.user is None:
+            return ""
+        email = getattr(self.user, "email", "") or ""
+        name = getattr(self.user, "get_full_name", lambda: "")() or email
+        parts = name.strip().split()
+        result = ""
+        if parts:
+            result = "".join(p[0].upper() for p in parts[:2])
+        if not result and email:
+            result = email[0].upper()
+        return result
+
+    @property
     def active_leases(self) -> models.QuerySet[Lease]:
         return self.leases.filter(_active_lease_q())
 

@@ -2,8 +2,10 @@
 
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
+from django.contrib.auth.models import User
 from django.utils import timezone
 
 from membership.models import DEFAULT_PRICE_PER_SQFT, Lease, Member, Space
@@ -89,6 +91,39 @@ def describe_member():
     def it_allows_null_committed_until():
         member = MemberFactory()
         assert member.committed_until is None
+
+
+@pytest.mark.django_db
+def describe_member_initials():
+    def it_returns_two_initials_from_full_name():
+        user = User.objects.create_user(username="jd", first_name="Jane", last_name="Doe")
+        member = MemberFactory(user=user)
+        assert member.initials == "JD"
+
+    def it_returns_one_initial_from_first_name_only():
+        user = User.objects.create_user(username="cher", first_name="Cher", last_name="")
+        member = MemberFactory(user=user)
+        assert member.initials == "C"
+
+    def it_falls_back_to_email_initial_when_no_name():
+        user = User.objects.create_user(username="noname", email="zara@example.com")
+        member = MemberFactory(user=user)
+        assert member.initials == "Z"
+
+    def it_returns_empty_string_when_no_name_and_no_email():
+        user = User.objects.create_user(username="ghost", email="")
+        member = MemberFactory(user=user)
+        assert member.initials == ""
+
+    def it_falls_back_to_email_when_name_is_whitespace_only():
+        user = User.objects.create_user(username="ws", email="test@example.com")
+        member = MemberFactory(user=user)
+        with patch.object(User, "get_full_name", return_value="  "):
+            assert member.initials == "T"
+
+    def it_returns_empty_string_when_user_is_none():
+        member = MemberFactory(user=None)
+        assert member.initials == ""
 
 
 @pytest.mark.django_db
