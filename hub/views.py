@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
@@ -10,19 +12,14 @@ from django.shortcuts import get_object_or_404, redirect, render
 from membership.models import Guild, Member
 
 
-def _get_hub_context(request: HttpRequest) -> dict:  # type: ignore[type-arg]
+def _get_hub_context(request: HttpRequest) -> dict[str, Any]:
     """Build common sidebar context for all hub pages."""
     guilds = Guild.objects.order_by("name")
-    user = request.user
     initials = ""
-    if user.is_authenticated:
-        email = getattr(user, "email", "") or ""
-        name = getattr(user, "get_full_name", lambda: "")() or email
-        parts = name.strip().split()
-        if parts:
-            initials = "".join(p[0].upper() for p in parts[:2])
-        if not initials and email:
-            initials = email[0].upper()
+    if request.user.is_authenticated:
+        member: Member | None = getattr(request.user, "member", None)
+        if member is not None:
+            initials = member.initials
     return {
         "guilds": guilds,
         "user_initials": initials,
@@ -31,10 +28,11 @@ def _get_hub_context(request: HttpRequest) -> dict:  # type: ignore[type-arg]
 
 def _get_member(request: HttpRequest) -> Member | None:
     """Get the Member for the logged-in user, or None."""
-    try:
-        return request.user.member  # type: ignore[union-attr]
-    except Member.DoesNotExist:
+    user = request.user
+    if not user.is_authenticated:
         return None
+    member: Member | None = getattr(user, "member", None)
+    return member
 
 
 @login_required
