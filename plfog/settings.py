@@ -73,6 +73,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    "plfog.service_worker_middleware.ServiceWorkerAllowedMiddleware",
 ]
 
 ROOT_URLCONF = "plfog.urls"
@@ -129,6 +130,23 @@ STORAGES = {
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Django WebPush settings - MUST be configured via environment variables
+# In CI (CI=true), use placeholder values that will fail at push time, not at startup
+if os.environ.get("CI"):
+    # CI environments: use placeholders that will fail when actually sending push
+    WEBPUSH_SETTINGS = {
+        "VAPID_PUBLIC_KEY": "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LF",
+        "VAPID_PRIVATE_KEY": "UUxI4O8-FbRouAf7-7OT9l1E3_5N9K1L2B3",
+        "VAPID_ADMIN_EMAIL": "ci@test.example.com",
+    }
+else:  # pragma: no cover
+    # Production: require real configuration
+    WEBPUSH_SETTINGS = {
+        "VAPID_PUBLIC_KEY": os.environ["WEBPUSH_VAPID_PUBLIC_KEY"],
+        "VAPID_PRIVATE_KEY": os.environ["WEBPUSH_VAPID_PRIVATE_KEY"],
+        "VAPID_ADMIN_EMAIL": os.environ["WEBPUSH_VAPID_ADMIN_EMAIL"],
+    }
 
 # Django Sites
 SITE_ID = 1
