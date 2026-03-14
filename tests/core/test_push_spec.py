@@ -19,18 +19,6 @@ pytestmark = pytest.mark.django_db
 def describe_vapid_key_view():
     """Tests for the VAPID public key endpoint."""
 
-    @pytest.fixture()
-    def authenticated_client(client):
-        """Create an authenticated client for testing."""
-        User = get_user_model()
-        user = User.objects.create_user(
-            username="testuser",
-            email="test@example.com",
-            password="testpass123",
-        )
-        client.force_login(user)
-        return client
-
     def it_returns_200_ok_for_authenticated_user(authenticated_client):
         """Authenticated users should receive 200 OK."""
         response = authenticated_client.get("/webpush/vapid-key/")
@@ -69,18 +57,6 @@ def describe_vapid_key_view():
 
 def describe_subscribe_view():  # noqa: C901
     """Tests for the push subscription endpoint."""
-
-    @pytest.fixture()
-    def authenticated_client(client):
-        """Create an authenticated client for testing."""
-        User = get_user_model()
-        user = User.objects.create_user(
-            username="testuser",
-            email="test@example.com",
-            password="testpass123",
-        )
-        client.force_login(user)
-        return client
 
     @pytest.fixture()
     def valid_subscription_data():
@@ -232,18 +208,6 @@ def describe_subscribe_view():  # noqa: C901
 
 def describe_unsubscribe_view():  # noqa: C901
     """Tests for the push unsubscription endpoint."""
-
-    @pytest.fixture()
-    def authenticated_client(client):
-        """Create an authenticated client for testing."""
-        User = get_user_model()
-        user = User.objects.create_user(
-            username="testuser",
-            email="test@example.com",
-            password="testpass123",
-        )
-        client.force_login(user)
-        return client
 
     @pytest.fixture()
     def user_with_subscription(authenticated_client):
