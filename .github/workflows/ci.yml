@@ -39,7 +39,7 @@ jobs:
           DJANGO_SECRET_KEY: test-secret-key-for-ci
 
       - name: Run mutation tests
-        run: pytest --leela --target .
+        run: pytest --leela --target core --target hub --target membership --target plfog
         env:
           DJANGO_SECRET_KEY: test-secret-key-for-ci
 

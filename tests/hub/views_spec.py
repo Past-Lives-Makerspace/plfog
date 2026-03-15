@@ -121,6 +121,7 @@ def describe_profile_settings():
 
         assert response.status_code == 200
         assert response.context["member"] is None
+        assert response.context["form"] is None
 
     def it_renders_with_member_linked(client: Client):
         user = User.objects.create_user(username="withmember", password="pass")
@@ -131,6 +132,7 @@ def describe_profile_settings():
 
         assert response.status_code == 200
         assert response.context["member"] == member
+        assert response.context["form"] is not None
 
     def it_updates_member_profile_on_post(client: Client):
         user = User.objects.create_user(username="editor", password="pass")
@@ -175,6 +177,19 @@ def describe_profile_settings():
         assert len(messages_list) == 1
         assert "not linked" in str(messages_list[0])
 
+    def it_rejects_phone_exceeding_max_length(client: Client):
+        user = User.objects.create_user(username="longphone", password="pass")
+        MemberFactory(user=user, full_legal_name="Long Phone")
+        client.login(username="longphone", password="pass")
+
+        response = client.post(
+            "/settings/profile/",
+            {"preferred_name": "Ok", "phone": "x" * 21},
+        )
+
+        assert response.status_code == 200
+        assert response.context["form"].errors
+
 
 @pytest.mark.django_db
 def describe_email_preferences():
@@ -189,6 +204,7 @@ def describe_email_preferences():
         response = client.get("/settings/emails/")
 
         assert response.status_code == 200
+        assert response.context["form"] is not None
 
     def it_handles_post_and_redirects(client: Client):
         User.objects.create_user(username="emailposter", password="pass")
@@ -207,3 +223,22 @@ def describe_email_preferences():
         messages_list = list(response.context["messages"])
         assert len(messages_list) == 1
         assert "updated" in str(messages_list[0])
+
+    def it_re_renders_form_on_validation_error(client: Client, monkeypatch: pytest.MonkeyPatch):
+        User.objects.create_user(username="emailinvalid", password="pass")
+        client.login(username="emailinvalid", password="pass")
+
+        from hub import forms
+
+        original_init = forms.EmailPreferencesForm.__init__
+
+        def patched_init(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            if args:  # Only when bound (POST data passed)
+                self._errors = {"voting_results": ["Forced error"]}
+
+        monkeypatch.setattr(forms.EmailPreferencesForm, "__init__", patched_init)
+
+        response = client.post("/settings/emails/", {})
+
+        assert response.status_code == 200

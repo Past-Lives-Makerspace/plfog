@@ -1,6 +1,6 @@
 /* Past Lives Brand Guidelines V1
  * Brand fonts: Kazimir (Bold) / Supria Sans (Light)
- * Web substitutes: Playfair Display / Inter (via Google Fonts)
+ * Web substitutes: Playfair Display / Lato (via Google Fonts)
  *
  * Color Palette:
  *   Primary:   Matte Navy #092E4C, Soft Blue #96ACBB
@@ -11,7 +11,7 @@
  *   Soft Blue on Navy: ~4.2:1 (passes AA large, borderline normal)
  *   Brightened Soft Blue #b0c4d1 on Navy: ~5.8:1 (passes AA)
  */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Lato:wght@300;400;700&display=swap');
 
 :root {
     /* Past Lives Brand Colors */
@@ -43,8 +43,8 @@
     --color-info-bg: rgba(176, 196, 209, 0.12);
 
     /* Typography */
-    --font-heading: 'Lato', system-ui, -apple-system, sans-serif;
-    --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-heading: 'Playfair Display', Georgia, serif;
+    --font-body: 'Lato', system-ui, -apple-system, sans-serif;
 
     /* Spacing -- 8px base grid */
     --spacing-2xs: 0.25rem;

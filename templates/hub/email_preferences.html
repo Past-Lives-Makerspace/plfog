@@ -14,10 +14,19 @@
                 <div class="hub-toggle-desc">Get notified when guild voting results are published</div>
             </div>
             <label class="hub-toggle">
-                <input type="checkbox" name="voting_results" checked>
+                {{ form.voting_results }}
                 <span class="hub-toggle__slider"></span>
             </label>
         </div>
+        {% if form.errors %}
+        <ul class="hub-field-errors">
+            {% for field_errors in form.errors.values %}
+            {% for error in field_errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+            {% endfor %}
+        </ul>
+        {% endif %}
         <div style="margin-top: 1.5rem;">
             <button type="submit" class="hub-btn hub-btn--primary">Save Preferences</button>
         </div>

@@ -9,6 +9,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
+from hub.forms import EmailPreferencesForm, ProfileSettingsForm
 from membership.models import Guild, Member
 
 
@@ -58,18 +59,18 @@ def profile_settings(request: HttpRequest) -> HttpResponse:
 
     if member is None:
         messages.info(request, "Your account is not linked to a membership.")
-        return render(request, "hub/profile_settings.html", {**ctx, "member": None})
+        return render(request, "hub/profile_settings.html", {**ctx, "member": None, "form": None})
 
     if request.method == "POST":
-        preferred_name = request.POST.get("preferred_name", "").strip()
-        phone = request.POST.get("phone", "").strip()
-        member.preferred_name = preferred_name
-        member.phone = phone
-        member.save(update_fields=["preferred_name", "phone"])
-        messages.success(request, "Profile updated.")
-        return redirect("hub_profile_settings")
+        form = ProfileSettingsForm(request.POST, instance=member)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Profile updated.")
+            return redirect("hub_profile_settings")
+    else:
+        form = ProfileSettingsForm(instance=member)
 
-    return render(request, "hub/profile_settings.html", {**ctx, "member": member})
+    return render(request, "hub/profile_settings.html", {**ctx, "member": member, "form": form})
 
 
 @login_required
@@ -78,7 +79,11 @@ def email_preferences(request: HttpRequest) -> HttpResponse:
     ctx = _get_hub_context(request)
 
     if request.method == "POST":
-        messages.success(request, "Email preferences updated.")
-        return redirect("hub_email_preferences")
+        form = EmailPreferencesForm(request.POST)
+        if form.is_valid():
+            messages.success(request, "Email preferences updated.")
+            return redirect("hub_email_preferences")
+    else:
+        form = EmailPreferencesForm(initial={"voting_results": True})
 
-    return render(request, "hub/email_preferences.html", ctx)
+    return render(request, "hub/email_preferences.html", {**ctx, "form": form})
