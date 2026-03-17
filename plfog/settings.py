@@ -249,6 +249,7 @@ UNFOLD = {
         "light": lambda request: static("img/favicon.png"),
         "dark": lambda request: static("img/favicon.png"),
     },
+    "DASHBOARD_CALLBACK": "plfog.dashboard.dashboard_callback",
     "SHOW_HISTORY": True,
     "SHOW_VIEW_ON_SITE": True,
     "THEME": "dark",
@@ -306,8 +307,8 @@ UNFOLD = {
                 "title": "Navigation",
                 "items": [
                     {
-                        "title": "Dashboard",
-                        "icon": "dashboard",
+                        "title": "Voting Dashboard",
+                        "icon": "how_to_vote",
                         "link": reverse_lazy("admin:index"),
                     },
                     {

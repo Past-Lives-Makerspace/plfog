@@ -1,0 +1,99 @@
+{% extends 'admin/base.html' %}
+{% load i18n %}
+
+{% block title %}Dashboard | {{ site_title }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col gap-8 max-w-4xl">
+
+    {# --- Voting Dashboard --- #}
+    <div class="border border-base-200 dark:border-base-700 rounded-md bg-white dark:bg-base-900 p-6">
+        <h2 class="text-lg font-semibold mb-4">Voting Dashboard</h2>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="border border-base-200 dark:border-base-700 rounded-md p-4 text-center">
+                <div class="text-3xl font-bold text-primary-500">{{ stats.total_voters }}</div>
+                <div class="text-sm text-font-subtle-light dark:text-font-subtle-dark mt-1">Members with votes</div>
+            </div>
+            <div class="border border-base-200 dark:border-base-700 rounded-md p-4 text-center">
+                <div class="text-3xl font-bold text-primary-500">{{ stats.active_members }}</div>
+                <div class="text-sm text-font-subtle-light dark:text-font-subtle-dark mt-1">Active members</div>
+            </div>
+            <div class="border border-base-200 dark:border-base-700 rounded-md p-4 text-center">
+                <div class="text-3xl font-bold text-primary-500">{{ stats.participation_pct }}%</div>
+                <div class="text-sm text-font-subtle-light dark:text-font-subtle-dark mt-1">Participation rate</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="border border-base-200 dark:border-base-700 rounded-md p-4 text-center">
+                <div class="text-3xl font-bold text-primary-500">{{ stats.paying_voters }}</div>
+                <div class="text-sm text-font-subtle-light dark:text-font-subtle-dark mt-1">Paying voters</div>
+            </div>
+            <div class="border border-base-200 dark:border-base-700 rounded-md p-4 text-center">
+                <div class="text-3xl font-bold text-primary-500">{{ stats.active_guilds }}</div>
+                <div class="text-sm text-font-subtle-light dark:text-font-subtle-dark mt-1">Active guilds</div>
+            </div>
+            <div class="border border-base-200 dark:border-base-700 rounded-md p-4 text-center">
+                <div class="text-3xl font-bold text-primary-500">${{ stats.projected_pool }}</div>
+                <div class="text-sm text-font-subtle-light dark:text-font-subtle-dark mt-1">Projected funding pool</div>
+            </div>
+        </div>
+
+        {% if stats.top_guilds %}
+        <div class="mb-6">
+            <h3 class="text-sm font-semibold mb-2 text-font-subtle-light dark:text-font-subtle-dark uppercase tracking-wider">Current vote leaders</h3>
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-base-200 dark:border-base-700">
+                        <th class="text-left py-2 px-3 font-medium">Guild</th>
+                        <th class="text-right py-2 px-3 font-medium">1st</th>
+                        <th class="text-right py-2 px-3 font-medium">2nd</th>
+                        <th class="text-right py-2 px-3 font-medium">3rd</th>
+                        <th class="text-right py-2 px-3 font-medium">Points</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for guild in stats.top_guilds %}
+                    <tr class="border-b border-base-100 dark:border-base-800">
+                        <td class="py-2 px-3">{{ guild.name }}</td>
+                        <td class="py-2 px-3 text-right">{{ guild.first }}</td>
+                        <td class="py-2 px-3 text-right">{{ guild.second }}</td>
+                        <td class="py-2 px-3 text-right">{{ guild.third }}</td>
+                        <td class="py-2 px-3 text-right font-semibold">{{ guild.points }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <div class="flex gap-3">
+            <form method="post" action="{% url 'admin_take_snapshot' %}">
+                {% csrf_token %}
+                <button type="submit" class="bg-primary-500 hover:bg-primary-600 text-white font-medium py-2 px-4 rounded-md text-sm"
+                        onclick="return confirm('Take a funding snapshot for the current cycle?');">
+                    Take Snapshot Now
+                </button>
+            </form>
+            <a href="{% url 'hub_snapshot_history' %}" class="border border-base-300 dark:border-base-600 hover:bg-base-100 dark:hover:bg-base-800 font-medium py-2 px-4 rounded-md text-sm inline-flex items-center">
+                View Funding History
+            </a>
+            <a href="{% url 'hub_guild_voting' %}" class="border border-base-300 dark:border-base-600 hover:bg-base-100 dark:hover:bg-base-800 font-medium py-2 px-4 rounded-md text-sm inline-flex items-center">
+                View Member Hub
+            </a>
+        </div>
+
+        {% if stats.last_snapshot %}
+        <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark mt-4">
+            Last snapshot: {{ stats.last_snapshot.cycle_label }} — ${{ stats.last_snapshot.funding_pool }} — {{ stats.last_snapshot.snapshot_at|date:"N j, Y g:i a" }}
+        </p>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}
