@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 logger = logging.getLogger(__name__)
 
+User = get_user_model()
+
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
-def ensure_user_has_member(sender, instance, **kwargs):
+def ensure_user_has_member(sender: type, instance: Any, **kwargs: Any) -> None:
     """Auto-create a Member record for any user who doesn't have one."""
     from .models import Member, MembershipPlan
 

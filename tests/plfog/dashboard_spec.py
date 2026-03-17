@@ -8,7 +8,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.test import Client
 
-from membership.models import FundingSnapshot, VotePreference
+from membership.models import FundingSnapshot
 from tests.membership.factories import (
     GuildFactory,
     MemberFactory,

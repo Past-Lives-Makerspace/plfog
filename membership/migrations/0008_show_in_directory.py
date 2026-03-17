@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('membership', '0007_persistent_guild_voting'),
+        ("membership", "0007_persistent_guild_voting"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='member',
-            name='show_in_directory',
+            model_name="member",
+            name="show_in_directory",
             field=models.BooleanField(default=False),
         ),
     ]

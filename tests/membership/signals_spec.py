@@ -8,7 +8,7 @@ import pytest
 from django.contrib.auth import get_user_model
 
 from membership.models import Member
-from tests.membership.factories import MemberFactory, MembershipPlanFactory
+from tests.membership.factories import MembershipPlanFactory
 
 User = get_user_model()
 
@@ -35,7 +35,7 @@ def describe_ensure_user_has_member():
         assert Member.objects.filter(user=user).exists()
 
     def it_does_not_create_duplicate_member():
-        plan = MembershipPlanFactory()
+        MembershipPlanFactory()
         user = User.objects.create_user(
             username="existing",
             email="existing@example.com",

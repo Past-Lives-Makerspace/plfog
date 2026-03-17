@@ -6,5 +6,5 @@ class MembershipConfig(AppConfig):
     name = "membership"
     verbose_name = "Makerspace Membership"
 
-    def ready(self):
+    def ready(self) -> None:
         import membership.signals  # noqa: F401

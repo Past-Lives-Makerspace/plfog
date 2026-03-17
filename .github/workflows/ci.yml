@@ -68,4 +68,5 @@ jobs:
       - name: Mypy
         run: mypy plfog/ core/ membership/ hub/
         env:
+          CI: true
           DJANGO_SECRET_KEY: test-secret-key-for-ci

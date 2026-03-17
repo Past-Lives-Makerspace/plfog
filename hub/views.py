@@ -128,7 +128,11 @@ def guild_voting(request: HttpRequest) -> HttpResponse:
 def member_directory(request: HttpRequest) -> HttpResponse:
     """Member directory page — lists all active members."""
     ctx = _get_hub_context(request)
-    members = Member.objects.filter(status=Member.Status.ACTIVE, show_in_directory=True).select_related("membership_plan").order_by("full_legal_name")
+    members = (
+        Member.objects.filter(status=Member.Status.ACTIVE, show_in_directory=True)
+        .select_related("membership_plan")
+        .order_by("full_legal_name")
+    )
     return render(request, "hub/member_directory.html", {**ctx, "members": members})
 
 
