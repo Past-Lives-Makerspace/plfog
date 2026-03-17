@@ -323,24 +323,9 @@ UNFOLD = {
                         "link": reverse_lazy("admin:membership_member_changelist"),
                     },
                     {
-                        "title": "Membership Plans",
-                        "icon": "card_membership",
-                        "link": reverse_lazy("admin:membership_membershipplan_changelist"),
-                    },
-                    {
                         "title": "Guilds",
                         "icon": "groups",
                         "link": reverse_lazy("admin:membership_guild_changelist"),
-                    },
-                    {
-                        "title": "Spaces",
-                        "icon": "meeting_room",
-                        "link": reverse_lazy("admin:membership_space_changelist"),
-                    },
-                    {
-                        "title": "Leases",
-                        "icon": "description",
-                        "link": reverse_lazy("admin:membership_lease_changelist"),
                     },
                 ],
             },

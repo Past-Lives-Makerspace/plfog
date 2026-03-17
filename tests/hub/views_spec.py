@@ -84,14 +84,13 @@ def describe_guild_voting():
         assert response.status_code == 302
         assert "/accounts/login/" in response.url
 
-    def it_renders_voting_page_with_state_closed(client: Client):
+    def it_renders_voting_page(client: Client):
         User.objects.create_user(username="voter", password="pass")
         client.login(username="voter", password="pass")
 
         response = client.get("/guilds/voting/")
 
         assert response.status_code == 200
-        assert response.context["state"] == "closed"
 
 
 @pytest.mark.django_db

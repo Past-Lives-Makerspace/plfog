@@ -4,11 +4,8 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('membership', '0005_guild_cover_image_guild_description_guild_icon_and_more'),
-        ('membership', '0005_guild_voting_system'),
+        ("membership", "0005_guild_voting_system"),
     ]
 
-    operations = [
-    ]
+    operations = []

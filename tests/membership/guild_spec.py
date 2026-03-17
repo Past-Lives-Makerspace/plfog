@@ -1,4 +1,4 @@
-"""Tests for Guild and GuildVote models."""
+"""Tests for Guild model."""
 
 from datetime import date, timedelta
 from decimal import Decimal
@@ -7,14 +7,12 @@ import pytest
 from django.db import IntegrityError
 from django.utils import timezone
 
-from membership.models import Guild, GuildVote, Lease, Member, MembershipPlan, Space
+from membership.models import Guild, Lease, Member, MembershipPlan, Space
 from tests.membership.factories import (
     GuildFactory,
-    GuildVoteFactory,
     LeaseFactory,
     MemberFactory,
     SpaceFactory,
-    VotingSessionFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -105,87 +103,6 @@ def describe_Guild_ordering():
         g1 = GuildFactory(name="Alpha Guild")
         guilds = list(Guild.objects.all())
         assert guilds == [g1, g2]
-
-
-# ---------------------------------------------------------------------------
-# GuildVote
-# ---------------------------------------------------------------------------
-
-
-def describe_GuildVote():
-    def it_creates_with_factory():
-        vote = GuildVoteFactory()
-        assert vote.pk is not None
-
-    def it_has_str_representation():
-        vote = GuildVoteFactory(priority=1)
-        assert "\u2192" in str(vote)
-        assert "#1" in str(vote)
-
-    def it_stores_priority():
-        vote = GuildVoteFactory(priority=2)
-        assert vote.priority == 2
-
-    def it_references_member_and_guild():
-        member = MemberFactory()
-        guild = GuildFactory()
-        vote = GuildVoteFactory(member=member, guild=guild, priority=1)
-        assert vote.member == member
-        assert vote.guild == guild
-
-    def describe_unique_constraints():
-        def it_enforces_unique_session_member_priority():
-            session = VotingSessionFactory()
-            vote1 = GuildVoteFactory(session=session, priority=1)
-            with pytest.raises(IntegrityError):
-                GuildVoteFactory(
-                    session=session,
-                    member=vote1.member,
-                    priority=1,
-                    guild=GuildFactory(),
-                )
-
-        def it_enforces_unique_session_member_guild():
-            session = VotingSessionFactory()
-            vote1 = GuildVoteFactory(session=session, priority=1)
-            with pytest.raises(IntegrityError):
-                GuildVoteFactory(
-                    session=session,
-                    member=vote1.member,
-                    guild=vote1.guild,
-                    priority=2,
-                )
-
-        def it_allows_same_member_in_different_sessions():
-            session1 = VotingSessionFactory(name="Session 1")
-            session2 = VotingSessionFactory(name="Session 2")
-            guild = GuildFactory()
-            member = MemberFactory()
-            v1 = GuildVoteFactory(session=session1, guild=guild, priority=1, member=member)
-            v2 = GuildVoteFactory(session=session2, guild=guild, priority=1, member=member)
-            assert v1.pk is not None
-            assert v2.pk is not None
-
-    def describe_ordering():
-        def it_orders_by_session_member_then_priority():
-            session = VotingSessionFactory()
-            member = MemberFactory(full_legal_name="Test Member")
-            guild_a = GuildFactory(name="Guild A")
-            guild_b = GuildFactory(name="Guild B")
-            v2 = GuildVoteFactory(
-                session=session,
-                member=member,
-                guild=guild_b,
-                priority=2,
-            )
-            v1 = GuildVoteFactory(
-                session=session,
-                member=member,
-                guild=guild_a,
-                priority=1,
-            )
-            votes = list(GuildVote.objects.filter(session=session, member=member))
-            assert votes == [v1, v2]
 
 
 # ---------------------------------------------------------------------------

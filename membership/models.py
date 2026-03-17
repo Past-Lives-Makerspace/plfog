@@ -244,74 +244,39 @@ class Guild(models.Model):
         return total
 
 
-class VotingSession(models.Model):
-    """A time-bound voting period for guild funding allocation."""
+class VotePreference(models.Model):
+    """Persistent guild funding vote per member — updated anytime, one row per member."""
 
-    class Status(models.TextChoices):
-        DRAFT = "draft", "Draft"
-        OPEN = "open", "Open"
-        CLOSED = "closed", "Closed"
-        CALCULATED = "calculated", "Calculated"
-
-    ALLOWED_TRANSITIONS: dict[str, list[str]] = {
-        "draft": ["open"],
-        "open": ["closed"],
-        "closed": ["open", "calculated"],
-    }
-
-    name = models.CharField(max_length=100)
-    open_date = models.DateField()
-    close_date = models.DateField()
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
-    eligible_member_count = models.PositiveIntegerField(default=0)
-    votes_cast = models.PositiveIntegerField(default=0)
-    results_summary = models.JSONField(default=dict, blank=True)
-    airtable_record_id = models.CharField(max_length=50, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    member = models.OneToOneField(Member, on_delete=models.CASCADE, related_name="vote_preference")
+    guild_1st = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="first_choice_votes")
+    guild_2nd = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="second_choice_votes")
+    guild_3rd = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="third_choice_votes")
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-open_date"]
-        verbose_name = "Voting Session"
-        verbose_name_plural = "Voting Sessions"
+        verbose_name = "Vote Preference"
+        verbose_name_plural = "Vote Preferences"
 
     def __str__(self) -> str:
-        return self.name
-
-    @property
-    def is_open_for_voting(self) -> bool:
-        today = timezone.now().date()
-        return self.status == self.Status.OPEN and self.open_date <= today <= self.close_date
-
-    def can_transition_to(self, new_status: str) -> bool:
-        return new_status in self.ALLOWED_TRANSITIONS.get(self.status, [])
+        return f"{self.member.display_name}: {self.guild_1st} / {self.guild_2nd} / {self.guild_3rd}"
 
 
-class GuildVote(models.Model):
-    """Members vote for 3 guilds in priority order within a voting session."""
+class FundingSnapshot(models.Model):
+    """Immutable historical record of a funding calculation at a point in time."""
 
-    session = models.ForeignKey(VotingSession, on_delete=models.CASCADE, related_name="votes")
-    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name="guild_votes")
-    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="guild_votes_received")
-    priority = models.PositiveSmallIntegerField(choices=[(1, "First"), (2, "Second"), (3, "Third")])
-    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    cycle_label = models.CharField(max_length=100)
+    snapshot_at = models.DateTimeField(auto_now_add=True)
+    contributor_count = models.PositiveIntegerField()
+    funding_pool = models.DecimalField(max_digits=10, decimal_places=2)
+    results = models.JSONField(default=dict)
 
     class Meta:
-        ordering = ["session", "member", "priority"]
-        verbose_name = "Guild Vote"
-        verbose_name_plural = "Guild Votes"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["session", "member", "priority"],
-                name="unique_session_member_priority",
-            ),
-            models.UniqueConstraint(
-                fields=["session", "member", "guild"],
-                name="unique_session_member_guild",
-            ),
-        ]
+        ordering = ["-snapshot_at"]
+        verbose_name = "Funding Snapshot"
+        verbose_name_plural = "Funding Snapshots"
 
     def __str__(self) -> str:
-        return f"{self.member.display_name} → {self.guild} (#{self.priority})"
+        return f"{self.cycle_label} — ${self.funding_pool}"
 
 
 # ---------------------------------------------------------------------------
