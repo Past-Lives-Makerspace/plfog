@@ -142,7 +142,7 @@ if os.environ.get("CI"):  # pragma: no cover -- settings.py loads before coverag
     }
 else:
     # Production/build: use .get() so collectstatic succeeds at Docker build time.
-    # A Django system check (core.E001) errors if these are empty at runtime.
+    # A Django system check (core.E001) errors if these are empty on `manage.py check --deploy`.
     WEBPUSH_SETTINGS = {
         "VAPID_PUBLIC_KEY": os.environ.get("WEBPUSH_VAPID_PUBLIC_KEY", ""),
         "VAPID_PRIVATE_KEY": os.environ.get("WEBPUSH_VAPID_PRIVATE_KEY", ""),

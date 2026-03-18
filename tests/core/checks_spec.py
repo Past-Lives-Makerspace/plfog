@@ -75,20 +75,18 @@ def describe_check_webpush_settings():
         assert "VAPID_PRIVATE_KEY" in errors[0].msg
 
     def it_returns_errors_when_webpush_settings_missing_entirely():
-        with (
-            override_settings(DEBUG=False),
-            patch.dict("os.environ", _env_without_ci, clear=True),
-            patch("core.checks.getattr", return_value={}, create=True),
-        ):
-            # Use override_settings without WEBPUSH_SETTINGS to test getattr fallback
-            from django.conf import settings as django_settings
+        from django.conf import settings as django_settings
 
-            webpush_backup = django_settings.WEBPUSH_SETTINGS
-            del django_settings.WEBPUSH_SETTINGS
-            try:
+        webpush_backup = django_settings.WEBPUSH_SETTINGS
+        del django_settings.WEBPUSH_SETTINGS
+        try:
+            with (
+                override_settings(DEBUG=False),
+                patch.dict("os.environ", _env_without_ci, clear=True),
+            ):
                 errors = check_webpush_settings(app_configs=None)
-            finally:
-                django_settings.WEBPUSH_SETTINGS = webpush_backup
+        finally:
+            django_settings.WEBPUSH_SETTINGS = webpush_backup
 
         assert len(errors) == 3
         assert all(e.id == "core.E001" for e in errors)
