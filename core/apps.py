@@ -6,6 +6,8 @@ class CoreConfig(AppConfig):
     name = "core"
 
     def ready(self):
+        import core.checks  # noqa: F401
+
         from plfog.auto_admin import register_all_models, unregister_hidden_models
 
         register_all_models()
