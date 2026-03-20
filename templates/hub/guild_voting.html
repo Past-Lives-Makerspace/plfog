@@ -2,8 +2,163 @@
 {% block title %}Guild Voting{% endblock %}
 
 {% block content %}
-<div class="hub-card">
-    <h1 class="hub-page-title">Guild Voting</h1>
-    <p class="hub-text-muted">Coming soon.</p>
+<h1 class="hub-page-title">Guild Voting</h1>
+<p class="hub-text-muted" style="margin-bottom: 2rem;">
+    Rank your top three guilds. Your votes determine how the monthly funding pool is distributed.
+    Points awarded: 1st choice = 5 pts, 2nd choice = 3 pts, 3rd choice = 2 pts.
+</p>
+
+{# --- Voting Cycle Info --- #}
+<div class="hub-card" style="margin-bottom: 1.5rem; border-left: 3px solid var(--hub-accent, #3b82f6);">
+    <h2 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem;">About Guild Voting</h2>
+    <p class="hub-text-muted" style="margin-bottom: 0.5rem; font-size: 0.9rem;">
+        Votes are tallied at the end of each month. Your preferences persist until you change them.
+    </p>
+    <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.875rem;">
+        <li style="padding: 0.25rem 0;">
+            <strong>Current cycle:</strong> {{ current_cycle_label }}
+        </li>
+        <li style="padding: 0.25rem 0;">
+            <strong>This cycle closes:</strong> {{ cycle_closes_on }}
+        </li>
+        <li style="padding: 0.25rem 0;">
+            <strong>Next cycle begins:</strong> {{ next_cycle_begins }}
+        </li>
+    </ul>
+</div>
+
+{# --- Vote Form --- #}
+<div class="hub-card" style="margin-bottom: 1.5rem;">
+    <h2 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 1.25rem;">
+        {% if preference %}Update Your Vote{% else %}Submit Your Vote{% endif %}
+    </h2>
+
+    {% if member %}
+    <form method="post" class="hub-form">
+        {% csrf_token %}
+        {% for field in form %}
+        <div class="hub-form-group">
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}
+            <ul class="hub-field-errors">
+                {% for error in field.errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% if form.non_field_errors %}
+        <ul class="hub-field-errors">
+            {% for error in form.non_field_errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        <div style="margin-top: 1.5rem;">
+            <button type="submit" class="hub-btn hub-btn--primary">
+                {% if preference %}Update Vote{% else %}Submit Vote{% endif %}
+            </button>
+        </div>
+    </form>
+    {% else %}
+    <p class="hub-text-muted">
+        Your account is not linked to a membership profile.
+        Contact an admin to have your account connected.
+    </p>
+    {% endif %}
+</div>
+
+{# --- Current Preferences --- #}
+{% if preference %}
+<div class="hub-card" style="margin-bottom: 1.5rem;">
+    <h2 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem;">Your Current Votes</h2>
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th style="text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Rank</th>
+                <th style="text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Guild</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Points</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="padding: 0.5rem 0.75rem;">1st</td>
+                <td style="padding: 0.5rem 0.75rem;">{{ preference.guild_1st }}</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right;">5</td>
+            </tr>
+            <tr>
+                <td style="padding: 0.5rem 0.75rem;">2nd</td>
+                <td style="padding: 0.5rem 0.75rem;">{{ preference.guild_2nd }}</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right;">3</td>
+            </tr>
+            <tr>
+                <td style="padding: 0.5rem 0.75rem;">3rd</td>
+                <td style="padding: 0.5rem 0.75rem;">{{ preference.guild_3rd }}</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right;">2</td>
+            </tr>
+        </tbody>
+    </table>
+    <p class="hub-text-muted" style="margin-top: 0.75rem; font-size: 0.8rem;">
+        Last updated: {{ preference.updated_at|date:"N j, Y, g:i a" }}
+    </p>
+</div>
+{% endif %}
+
+{# --- Funding Results --- #}
+<div class="hub-card" style="margin-bottom: 1.5rem;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+        <h2 style="font-size: 1.1rem; font-weight: 600; margin: 0;">Funding Results</h2>
+        <a href="{% url 'hub_snapshot_history' %}" class="hub-btn hub-btn--secondary" style="font-size: 0.8rem; padding: 0.3rem 0.75rem;">
+            View Full History
+        </a>
+    </div>
+
+    {% if latest_snapshot %}
+    <p class="hub-text-muted" style="margin-bottom: 1rem; font-size: 0.85rem;">
+        {{ latest_snapshot.cycle_label }} snapshot &mdash;
+        pool: <strong>${{ latest_snapshot.funding_pool }}</strong> &mdash;
+        {{ latest_snapshot.contributor_count }} contributing member{{ latest_snapshot.contributor_count|pluralize }} &mdash;
+        taken {{ latest_snapshot.snapshot_at|date:"N j, Y" }} &mdash;
+        <a href="{% url 'hub_snapshot_detail' latest_snapshot.pk %}">View Details</a>
+    </p>
+
+    {% with results=latest_snapshot.results.results %}
+    {% if results %}
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th style="text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Guild</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Points</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Share</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Funding</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in results %}
+            <tr>
+                <td style="padding: 0.5rem 0.75rem;">{{ row.guild_name }}</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right;">{{ row.total_points }}</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right;">{{ row.share_pct }}%</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right;">${{ row.funding }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="3" style="padding: 0.5rem 0.75rem; border-top: 1px solid var(--hub-border); font-weight: 600;">Total Pool</td>
+                <td style="padding: 0.5rem 0.75rem; border-top: 1px solid var(--hub-border); text-align: right; font-weight: 600;">${{ latest_snapshot.funding_pool }}</td>
+            </tr>
+        </tfoot>
+    </table>
+    {% else %}
+    <p class="hub-text-muted">No guild results in this snapshot.</p>
+    {% endif %}
+    {% endwith %}
+
+    {% else %}
+    <p class="hub-text-muted">No funding results yet. Check back after the next snapshot is taken.</p>
+    {% endif %}
 </div>
 {% endblock %}

@@ -3,7 +3,7 @@
  * Vanilla JS implementation for offline shell caching
  */
 
-const CACHE_NAME = 'plfog-shell-v1';
+const CACHE_NAME = 'plfog-shell-v3';
 
 // Assets to precache on install
 const PRECACHE_ASSETS = [
@@ -19,18 +19,16 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('[SW] Precaching shell assets');
         return cache.addAll(PRECACHE_ASSETS);
       })
       .then(() => {
-        console.log('[SW] Install complete, skipping waiting');
         return self.skipWaiting();
       })
   );
 });
 
 /**
- * Activate event - claim clients immediately
+ * Activate event - clear old caches and claim clients immediately
  */
 self.addEventListener('activate', (event) => {
   event.waitUntil(
@@ -39,21 +37,18 @@ self.addEventListener('activate', (event) => {
         return Promise.all(
           cacheNames
             .filter((name) => name !== CACHE_NAME)
-            .map((name) => {
-              console.log('[SW] Deleting old cache:', name);
-              return caches.delete(name);
-            })
+            .map((name) => caches.delete(name))
         );
       })
       .then(() => {
-        console.log('[SW] Claiming clients');
         return self.clients.claim();
       })
   );
 });
 
 /**
- * Fetch event - network-first for HTML, cache-first for static assets
+ * Fetch event - NEVER cache HTML pages (they contain CSRF tokens).
+ * Only cache static assets (CSS, JS, images).
  */
 self.addEventListener('fetch', (event) => {
   const { request } = event;
@@ -64,35 +59,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigation requests (HTML pages) - network-first with offline fallback
+  // Navigation requests (HTML pages) - always go to network, offline fallback only
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
-        .then((response) => {
-          // Clone response for caching
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseClone);
-          });
-          return response;
-        })
         .catch(() => {
-          // Network failed, try cache
-          return caches.match(request)
-            .then((cachedResponse) => {
-              if (cachedResponse) {
-                return cachedResponse;
-              }
-              // Not in cache, show offline page
-              return caches.match('/static/offline.html');
-            });
+          return caches.match('/static/offline.html');
         })
     );
     return;
   }
 
   // Static assets (CSS, JS, images) - cache-first
-  const isStaticAsset = 
+  const isStaticAsset =
     request.destination === 'style' ||
     request.destination === 'script' ||
     request.destination === 'image' ||
@@ -115,9 +94,7 @@ self.addEventListener('fetch', (event) => {
                   });
                 }
               })
-              .catch(() => {
-                // Network failed, that's fine - we served from cache
-              });
+              .catch(() => {});
             return cachedResponse;
           }
 

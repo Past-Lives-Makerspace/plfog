@@ -1,0 +1,38 @@
+{% extends "hub/base.html" %}
+{% block title %}Funding History{% endblock %}
+
+{% block content %}
+<h1 class="hub-page-title">Funding History</h1>
+<p class="hub-text-muted" style="margin-bottom: 2rem;">
+    Monthly snapshots of guild funding allocations based on member votes.
+</p>
+
+<div class="hub-card">
+    {% if snapshots %}
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th style="text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Cycle</th>
+                <th style="text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Date</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Contributors</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Funding Pool</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for snapshot in snapshots %}
+            <tr>
+                <td style="padding: 0.5rem 0.75rem;">
+                    <a href="{% url 'hub_snapshot_detail' snapshot.pk %}">{{ snapshot.cycle_label }}</a>
+                </td>
+                <td style="padding: 0.5rem 0.75rem; font-size: 0.85rem;">{{ snapshot.snapshot_at|date:"N j, Y" }}</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right;">{{ snapshot.contributor_count }}</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right;">${{ snapshot.funding_pool }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="hub-text-muted">No snapshots have been taken yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

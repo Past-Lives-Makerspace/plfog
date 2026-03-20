@@ -1,0 +1,28 @@
+{% extends "hub/base.html" %}
+{% block title %}Members{% endblock %}
+
+{% block content %}
+<h1 class="hub-page-title">Member Directory</h1>
+<p class="hub-text-muted" style="margin-bottom: 1.5rem;">{{ members|length }} active member{{ members|length|pluralize }}.</p>
+
+<div class="hub-card">
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th style="text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Name</th>
+                <th style="text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Role</th>
+                <th style="text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Joined</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for member in members %}
+            <tr>
+                <td style="padding: 0.5rem 0.75rem;">{{ member.display_name }}</td>
+                <td style="padding: 0.5rem 0.75rem;">{{ member.get_role_display }}</td>
+                <td style="padding: 0.5rem 0.75rem; font-size: 0.85rem;">{{ member.join_date|date:"N Y"|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

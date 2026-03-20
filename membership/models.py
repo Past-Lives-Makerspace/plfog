@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date as date_type
 from decimal import Decimal
-
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
@@ -126,6 +125,7 @@ class Member(models.Model):
     join_date = models.DateField(null=True, blank=True)
     cancellation_date = models.DateField(null=True, blank=True)
     committed_until = models.DateField(null=True, blank=True)
+    show_in_directory = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     leases = GenericRelation(
@@ -201,6 +201,7 @@ class Guild(models.Model):
     sublet_count: int
 
     name = models.CharField(max_length=255, unique=True)
+    is_active = models.BooleanField(default=True)
     guild_lead = models.ForeignKey(
         Member,
         null=True,
@@ -244,24 +245,39 @@ class Guild(models.Model):
         return total
 
 
-class GuildVote(models.Model):
-    """Members vote for 3 guilds in priority order."""
+class VotePreference(models.Model):
+    """Persistent guild funding vote per member — updated anytime, one row per member."""
 
-    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name="guild_votes")
-    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="votes")
-    priority = models.PositiveSmallIntegerField(choices=[(1, "First"), (2, "Second"), (3, "Third")])
+    member = models.OneToOneField(Member, on_delete=models.CASCADE, related_name="vote_preference")
+    guild_1st = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="first_choice_votes")
+    guild_2nd = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="second_choice_votes")
+    guild_3rd = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="third_choice_votes")
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["member", "priority"]
-        verbose_name = "Guild Vote"
-        verbose_name_plural = "Guild Votes"
-        constraints = [
-            models.UniqueConstraint(fields=["member", "priority"], name="unique_member_priority"),
-            models.UniqueConstraint(fields=["member", "guild"], name="unique_member_guild"),
-        ]
+        verbose_name = "Vote Preference"
+        verbose_name_plural = "Vote Preferences"
 
     def __str__(self) -> str:
-        return f"{self.member} → {self.guild} (#{self.priority})"
+        return f"{self.member.display_name}: {self.guild_1st} / {self.guild_2nd} / {self.guild_3rd}"
+
+
+class FundingSnapshot(models.Model):
+    """Immutable historical record of a funding calculation at a point in time."""
+
+    cycle_label = models.CharField(max_length=100)
+    snapshot_at = models.DateTimeField(auto_now_add=True)
+    contributor_count = models.PositiveIntegerField()
+    funding_pool = models.DecimalField(max_digits=10, decimal_places=2)
+    results = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ["-snapshot_at"]
+        verbose_name = "Funding Snapshot"
+        verbose_name_plural = "Funding Snapshots"
+
+    def __str__(self) -> str:
+        return f"{self.cycle_label} — ${self.funding_pool}"
 
 
 # ---------------------------------------------------------------------------

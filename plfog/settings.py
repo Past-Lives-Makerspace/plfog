@@ -39,6 +39,9 @@ CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+# Allauth needs to know about the reverse proxy to resolve client IPs for rate limiting
+ALLAUTH_TRUSTED_PROXY_COUNT = int(os.environ.get("ALLAUTH_TRUSTED_PROXY_COUNT", "0"))
+
 INSTALLED_APPS = [
     "unfold",
     "unfold.contrib.forms",
@@ -247,6 +250,7 @@ UNFOLD = {
         "light": lambda request: static("img/favicon.png"),
         "dark": lambda request: static("img/favicon.png"),
     },
+    "DASHBOARD_CALLBACK": "plfog.dashboard.dashboard_callback",
     "SHOW_HISTORY": True,
     "SHOW_VIEW_ON_SITE": True,
     "THEME": "dark",
@@ -304,8 +308,8 @@ UNFOLD = {
                 "title": "Navigation",
                 "items": [
                     {
-                        "title": "Dashboard",
-                        "icon": "dashboard",
+                        "title": "Voting Dashboard",
+                        "icon": "how_to_vote",
                         "link": reverse_lazy("admin:index"),
                     },
                     {
@@ -324,24 +328,9 @@ UNFOLD = {
                         "link": reverse_lazy("admin:membership_member_changelist"),
                     },
                     {
-                        "title": "Membership Plans",
-                        "icon": "card_membership",
-                        "link": reverse_lazy("admin:membership_membershipplan_changelist"),
-                    },
-                    {
                         "title": "Guilds",
                         "icon": "groups",
                         "link": reverse_lazy("admin:membership_guild_changelist"),
-                    },
-                    {
-                        "title": "Spaces",
-                        "icon": "meeting_room",
-                        "link": reverse_lazy("admin:membership_space_changelist"),
-                    },
-                    {
-                        "title": "Leases",
-                        "icon": "description",
-                        "link": reverse_lazy("admin:membership_lease_changelist"),
                     },
                 ],
             },

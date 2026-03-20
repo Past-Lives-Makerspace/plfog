@@ -7,7 +7,15 @@ import factory
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 
-from membership.models import Guild, GuildVote, Lease, Member, MembershipPlan, Space
+from membership.models import (
+    FundingSnapshot,
+    Guild,
+    Lease,
+    Member,
+    MembershipPlan,
+    Space,
+    VotePreference,
+)
 
 
 class MembershipPlanFactory(factory.django.DjangoModelFactory):
@@ -44,15 +52,27 @@ class GuildFactory(factory.django.DjangoModelFactory):
         model = Guild
 
     name = factory.Sequence(lambda n: f"Guild {n}")
+    is_active = True
 
 
-class GuildVoteFactory(factory.django.DjangoModelFactory):
+class VotePreferenceFactory(factory.django.DjangoModelFactory):
     class Meta:
-        model = GuildVote
+        model = VotePreference
 
     member = factory.SubFactory(MemberFactory)
-    guild = factory.SubFactory(GuildFactory)
-    priority = 1
+    guild_1st = factory.SubFactory(GuildFactory)
+    guild_2nd = factory.SubFactory(GuildFactory)
+    guild_3rd = factory.SubFactory(GuildFactory)
+
+
+class FundingSnapshotFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = FundingSnapshot
+
+    cycle_label = factory.Sequence(lambda n: f"Month {n} 2026")
+    contributor_count = 10
+    funding_pool = Decimal("100.00")
+    results = factory.LazyFunction(dict)
 
 
 class LeaseFactory(factory.django.DjangoModelFactory):

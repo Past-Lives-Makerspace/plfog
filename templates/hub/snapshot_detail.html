@@ -1,0 +1,63 @@
+{% extends "hub/base.html" %}
+{% block title %}{{ snapshot.cycle_label }}{% endblock %}
+
+{% block content %}
+<h1 class="hub-page-title">{{ snapshot.cycle_label }}</h1>
+<p style="margin-bottom: 2rem;">
+    <a href="{% url 'hub_snapshot_history' %}" class="hub-text-muted" style="font-size: 0.875rem;">&larr; Back to Funding History</a>
+</p>
+
+{# --- Summary Card --- #}
+<div class="hub-card" style="margin-bottom: 1.5rem;">
+    <h2 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem;">Snapshot Summary</h2>
+    <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.9rem;">
+        <li style="padding: 0.25rem 0;">
+            <strong>Date taken:</strong> {{ snapshot.snapshot_at|date:"N j, Y, g:i a" }}
+        </li>
+        <li style="padding: 0.25rem 0;">
+            <strong>Contributors:</strong> {{ snapshot.contributor_count }}
+        </li>
+        <li style="padding: 0.25rem 0;">
+            <strong>Funding pool:</strong> ${{ snapshot.funding_pool }}
+        </li>
+    </ul>
+</div>
+
+{# --- Results Table --- #}
+<div class="hub-card">
+    <h2 style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem;">Guild Funding Breakdown</h2>
+
+    {% with results=snapshot.results.results %}
+    {% if results %}
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th style="text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Guild</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Points</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Share %</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hub-border); font-weight: 500;">Funding $</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in results %}
+            <tr>
+                <td style="padding: 0.5rem 0.75rem;">{{ row.guild_name }}</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right;">{{ row.total_points }}</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right;">{{ row.share_pct }}%</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right;">${{ row.funding }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="3" style="padding: 0.5rem 0.75rem; border-top: 1px solid var(--hub-border); font-weight: 600;">Total Pool</td>
+                <td style="padding: 0.5rem 0.75rem; border-top: 1px solid var(--hub-border); text-align: right; font-weight: 600;">${{ snapshot.funding_pool }}</td>
+            </tr>
+        </tfoot>
+    </table>
+    {% else %}
+    <p class="hub-text-muted">No guild results recorded in this snapshot.</p>
+    {% endif %}
+    {% endwith %}
+</div>
+{% endblock %}

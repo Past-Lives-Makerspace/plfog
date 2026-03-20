@@ -84,14 +84,36 @@ def describe_guild_voting():
         assert response.status_code == 302
         assert "/accounts/login/" in response.url
 
-    def it_renders_voting_page_with_state_closed(client: Client):
+    def it_renders_voting_page(client: Client):
         User.objects.create_user(username="voter", password="pass")
         client.login(username="voter", password="pass")
 
         response = client.get("/guilds/voting/")
 
         assert response.status_code == 200
-        assert response.context["state"] == "closed"
+
+
+@pytest.mark.django_db
+def describe_member_directory():
+    def it_requires_login(client: Client):
+        response = client.get("/members/")
+        assert response.status_code == 302
+
+    def it_lists_active_opted_in_members(client: Client):
+        User.objects.create_user(username="viewer", password="pass")
+        m1 = MemberFactory(full_legal_name="Alice", status="active", show_in_directory=True)
+        m2 = MemberFactory(full_legal_name="Bob", status="active", show_in_directory=True)
+        MemberFactory(full_legal_name="Hidden", status="active", show_in_directory=False)
+        MemberFactory(full_legal_name="Former", status="former", show_in_directory=True)
+        client.login(username="viewer", password="pass")
+
+        response = client.get("/members/")
+
+        assert response.status_code == 200
+        members = list(response.context["members"])
+        assert m1 in members
+        assert m2 in members
+        assert len(members) == 2
 
 
 @pytest.mark.django_db

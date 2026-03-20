@@ -38,3 +38,9 @@ venv/
 
 # Fixtures with personal data - load manually, never commit
 membership/fixtures/*.json
+
+# Local dev artifacts
+django.log
+.superpowers/
+.ruff_cache/
+.claude/
