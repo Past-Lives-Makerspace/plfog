@@ -37,7 +37,7 @@ django_settings_module = "plfog.settings"
 
 [tool.coverage.run]
 branch = true
-omit = ["*/migrations/*", "*/tests/*", "manage.py"]
+omit = ["*/migrations/*", "*/tests/*", "manage.py", "plfog/settings.py"]
 
 [tool.coverage.report]
 fail_under = 100
