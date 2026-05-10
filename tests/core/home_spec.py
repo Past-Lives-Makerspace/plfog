@@ -74,3 +74,19 @@ def describe_base_template_meta():
         response = client.get("/")
         content = response.content.decode()
         assert '<footer class="site-footer">' in content
+
+
+def describe_google_analytics_on_main_site():
+    def it_omits_ga_tag_when_id_not_set(client):
+        response = client.get("/")
+        assert b"googletagmanager.com" not in response.content
+
+    def it_injects_ga_tag_on_home_when_configured(client):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.google_analytics_measurement_id = "G-MAIN123"
+        config.save()
+        response = client.get("/")
+        assert b"googletagmanager.com" in response.content
+        assert b"G-MAIN123" in response.content

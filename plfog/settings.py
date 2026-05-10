@@ -99,6 +99,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "core.context_processors.registration_mode",
                 "core.context_processors.app_version",
+                "core.context_processors.google_analytics",
                 "billing.context_processors.tab_context",
                 "hub.context_processors.hub_sidebar",
             ],

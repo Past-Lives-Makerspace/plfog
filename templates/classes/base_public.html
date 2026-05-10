@@ -167,14 +167,6 @@ body.classes-portal .hub-content > *{position:relative;z-index:1}
   .cp-page .dc-pbig{font-size:22px}
 }
 </style>
-{% if site_config.google_analytics_measurement_id %}
-<script async src="https://www.googletagmanager.com/gtag/js?id={{ site_config.google_analytics_measurement_id }}"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', '{{ site_config.google_analytics_measurement_id }}');
-</script>
-{% endif %}
+{% include "includes/google_analytics.html" %}
 {% block classes_extra_head %}{% endblock %}
 {% endblock %}

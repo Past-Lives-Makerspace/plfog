@@ -12,7 +12,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from allauth.account.internal.stagekit import clear_login
 
-from .forms import FindAccountForm
+from .forms import FindAccountForm, NewsletterSignupForm
 from .models import PushSubscription
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,22 @@ def home(request):
     if request.user.is_authenticated:
         return redirect("hub_guild_voting")
     return render(request, "home.html")
+
+
+def newsletter_signup(request: HttpRequest) -> HttpResponse:
+    """Standalone Mailchimp signup page — open to the public."""
+    if request.method == "POST":
+        form = NewsletterSignupForm(request.POST)
+        if form.is_valid():
+            success = form.subscribe()
+            return render(
+                request,
+                "core/newsletter_signup.html",
+                {"form": NewsletterSignupForm(), "success": success, "submitted": True},
+            )
+    else:
+        form = NewsletterSignupForm()
+    return render(request, "core/newsletter_signup.html", {"form": form})
 
 
 @require_GET

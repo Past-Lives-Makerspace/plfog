@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from django.core import mail
 
@@ -12,6 +14,7 @@ from classes.factories import (
 )
 from classes.models import ClassOffering, Registration
 from classes.webhook_handlers import handle_checkout_session_completed
+from core.models import SiteConfiguration
 
 pytestmark = pytest.mark.django_db
 
@@ -95,3 +98,61 @@ def describe_handle_checkout_session_completed():
         event = _event()
         event["data"]["object"]["metadata"]["registration_id"] = "999999"
         handle_checkout_session_completed(event)  # should not raise
+
+    def it_subscribes_to_mailchimp_when_registrant_opted_in(pending_registration):
+        site = SiteConfiguration.load()
+        site.mailchimp_api_key = "abc-us17"
+        site.mailchimp_list_id = "LIST"
+        site.save()
+        pending_registration.wants_newsletter = True
+        pending_registration.save(update_fields=["wants_newsletter"])
+
+        event = _event()
+        event["data"]["object"]["metadata"]["registration_id"] = str(pending_registration.pk)
+
+        with patch(
+            "core.integrations.mailchimp.MailchimpClient.subscribe",
+            return_value=True,
+        ) as spy:
+            handle_checkout_session_completed(event)
+
+        spy.assert_called_once()
+        assert spy.call_args.kwargs["tags"] == ["class-registrant"]
+        pending_registration.refresh_from_db()
+        assert pending_registration.subscribed_to_mailchimp is True
+
+    def it_does_not_subscribe_when_registrant_did_not_opt_in(pending_registration):
+        site = SiteConfiguration.load()
+        site.mailchimp_api_key = "abc-us17"
+        site.mailchimp_list_id = "LIST"
+        site.save()
+
+        event = _event()
+        event["data"]["object"]["metadata"]["registration_id"] = str(pending_registration.pk)
+
+        with patch("core.integrations.mailchimp.MailchimpClient.subscribe") as spy:
+            handle_checkout_session_completed(event)
+
+        spy.assert_not_called()
+
+    def it_confirms_registration_even_when_mailchimp_fails(pending_registration):
+        site = SiteConfiguration.load()
+        site.mailchimp_api_key = "abc-us17"
+        site.mailchimp_list_id = "LIST"
+        site.save()
+        pending_registration.wants_newsletter = True
+        pending_registration.save(update_fields=["wants_newsletter"])
+
+        event = _event()
+        event["data"]["object"]["metadata"]["registration_id"] = str(pending_registration.pk)
+
+        with patch(
+            "core.integrations.mailchimp.MailchimpClient.subscribe",
+            return_value=False,
+        ):
+            handle_checkout_session_completed(event)
+
+        pending_registration.refresh_from_db()
+        assert pending_registration.status == Registration.Status.CONFIRMED
+        assert pending_registration.subscribed_to_mailchimp is False
+        assert len(mail.outbox) == 1  # confirmation email still sent

@@ -109,7 +109,8 @@ class SiteConfigurationAdmin(ModelAdmin):
                 ],
                 "description": (
                     "Third-party integrations that apply site-wide. MailChimp auto-subscribes new class "
-                    "registrants; Google Analytics is injected on the public classes portal."
+                    "registrants; Google Analytics is injected on every member-facing and public page "
+                    "(the Django admin is excluded)."
                 ),
             },
         ),

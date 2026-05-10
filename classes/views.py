@@ -237,6 +237,9 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             if registration.discount_code_id:
                 _bump_discount_use_count(registration.discount_code_id)
             send_registration_confirmation(registration)
+            from classes.services.mailchimp_subscribe import subscribe_registration
+
+            subscribe_registration(registration)
             return redirect("classes:register_success", slug=offering.slug)
 
         # Paid class — kick off Stripe Checkout.

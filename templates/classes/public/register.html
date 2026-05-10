@@ -78,6 +78,11 @@
             {% if form.discount_code.errors %}<ul class="reg-errors">{% for e in form.discount_code.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
           </div>
 
+          <label class="reg-check" style="margin-top:4px">
+            {{ form.wants_newsletter }}
+            <span>{{ form.wants_newsletter.label }}</span>
+          </label>
+
           <div class="reg-waiver">
             <h3>Liability Waiver</h3>
             <div class="reg-waiver-text">{{ settings_obj.liability_waiver_text }}</div>

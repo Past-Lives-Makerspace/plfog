@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Newsletter — Past Lives Makerspace{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+    <h1 class="auth-page__title">Stay in the loop</h1>
+    <p class="auth-page__subtitle">
+        Get email about upcoming classes, events, and what's happening at Past Lives Makerspace.
+    </p>
+    <div class="auth-card">
+        {% if submitted %}
+            {% if success %}
+                <p class="auth-page__subtitle" style="text-align:center">
+                    You're in. Watch your inbox for our next update.
+                </p>
+            {% else %}
+                <p class="auth-page__subtitle" style="text-align:center">
+                    We couldn't sign you up just now — please try again in a few minutes.
+                </p>
+            {% endif %}
+            <div class="auth-links">
+                <p><a href="{% url 'home' %}">Back to home</a></p>
+            </div>
+        {% else %}
+        {% if form.non_field_errors %}
+        <ul class="errorlist">
+            {% for error in form.non_field_errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        <form method="POST">
+            {% csrf_token %}
+            <label for="{{ form.email.id_for_label }}">Email address</label>
+            <input type="email" name="{{ form.email.name }}" id="{{ form.email.id_for_label }}" required autofocus
+                   value="{{ form.email.value|default:'' }}">
+            {% if form.email.errors %}
+            <ul class="errorlist">
+                {% for error in form.email.errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+
+            <label for="{{ form.first_name.id_for_label }}">First name (optional)</label>
+            <input type="text" name="{{ form.first_name.name }}" id="{{ form.first_name.id_for_label }}"
+                   value="{{ form.first_name.value|default:'' }}">
+
+            <label for="{{ form.last_name.id_for_label }}">Last name (optional)</label>
+            <input type="text" name="{{ form.last_name.name }}" id="{{ form.last_name.id_for_label }}"
+                   value="{{ form.last_name.value|default:'' }}">
+
+            <button type="submit" class="btn btn--primary btn--full">Subscribe</button>
+        </form>
+        <div class="auth-links">
+            <p><a href="{% url 'home' %}">Back to home</a></p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

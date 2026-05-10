@@ -412,6 +412,10 @@ class Registration(models.Model):
         db_index=True,
         help_text="Random token used in /classes/my/<token>/ self-serve URL.",
     )
+    wants_newsletter = models.BooleanField(
+        default=False,
+        help_text="Did the registrant tick the newsletter opt-in box at signup?",
+    )
     subscribed_to_mailchimp = models.BooleanField(default=False, help_text="Whether MailChimp subscribe succeeded.")
     cancellation_reason = models.TextField(blank=True, help_text="Internal reason recorded when an admin cancels.")
     registered_at = models.DateTimeField(auto_now_add=True, help_text="When this registration was created.")

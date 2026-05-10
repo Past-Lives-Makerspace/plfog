@@ -3,7 +3,7 @@
 import pytest
 from django.test import RequestFactory
 
-from core.context_processors import app_version, registration_mode
+from core.context_processors import app_version, google_analytics, registration_mode
 from core.models import SiteConfiguration
 from plfog.version import CHANGELOG, VERSION
 
@@ -52,3 +52,31 @@ def describe_app_version():
         assert isinstance(result["changelog"], list)
         assert len(result["changelog"]) >= 1
         assert result["changelog"][0]["version"] == CHANGELOG[0]["version"]
+
+
+def describe_google_analytics():
+    def it_returns_empty_when_id_not_configured():
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = google_analytics(request)
+        assert result == {"google_analytics_measurement_id": ""}
+
+    def it_returns_measurement_id_when_configured():
+        config = SiteConfiguration.load()
+        config.google_analytics_measurement_id = "G-TEST123"
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = google_analytics(request)
+        assert result == {"google_analytics_measurement_id": "G-TEST123"}
+
+    def it_returns_empty_on_admin_paths_even_when_configured():
+        config = SiteConfiguration.load()
+        config.google_analytics_measurement_id = "G-TEST123"
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/admin/")
+        result = google_analytics(request)
+        assert result == {"google_analytics_measurement_id": ""}

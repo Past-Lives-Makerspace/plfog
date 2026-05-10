@@ -20,3 +20,17 @@ def app_version(request: HttpRequest) -> dict[str, Any]:
     from plfog.version import CHANGELOG, VERSION
 
     return {"app_version": VERSION, "changelog": CHANGELOG}
+
+
+def google_analytics(request: HttpRequest) -> dict[str, str]:
+    """Expose the GA4 measurement ID site-wide.
+
+    Returns an empty string on the Django admin so analytics never fire on
+    internal back-office pages. The base template gates the gtag block on
+    the truthy value, so an empty string acts as "disabled".
+    """
+    if request.path.startswith("/admin/"):
+        return {"google_analytics_measurement_id": ""}
+    from core.models import SiteConfiguration
+
+    return {"google_analytics_measurement_id": SiteConfiguration.load().google_analytics_measurement_id}

@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.9.0",
+        "date": "2026-05-05",
+        "title": "Mailchimp signup + site-wide Google Analytics",
+        "changes": [
+            "Class registration now has an opt-in checkbox — tick it and you'll start getting our newsletter about future classes, events, and what's happening at Past Lives. Leave it unchecked and nothing changes.",
+            "Brand new Newsletter page at /newsletter/ — anyone (members or not) can drop their email in to get our updates, no account required.",
+            "Site Settings now has working MailChimp credentials — paste in the API key and audience ID and the signup paths above start sending people to the right list, tagged so we can tell who came from a class versus the standalone newsletter form.",
+            "Google Analytics now tracks every page on the site instead of just the public Classes pages — set the GA4 ID once in Site Settings and every member page, every public page, every auth page reports back. The Django admin is excluded so we don't pollute analytics with internal traffic.",
+        ],
+    },
     {
         "version": "1.8.0",
         "date": "2026-05-01",

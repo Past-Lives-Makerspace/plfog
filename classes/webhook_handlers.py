@@ -75,3 +75,6 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
             DiscountCode.objects.filter(pk=registration.discount_code_id).update(use_count=F("use_count") + 1)
 
     send_registration_confirmation(registration)
+    from classes.services.mailchimp_subscribe import subscribe_registration
+
+    subscribe_registration(registration)

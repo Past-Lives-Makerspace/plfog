@@ -325,10 +325,16 @@ class RegistrationForm(forms.ModelForm):
             "phone",
             "prior_experience",
             "looking_for",
+            "wants_newsletter",
         ]
         widgets = {
             "prior_experience": forms.Textarea(attrs={"rows": 3}),
             "looking_for": forms.Textarea(attrs={"rows": 3}),
+        }
+        labels = {
+            "wants_newsletter": (
+                "Keep me in the loop — email me about future classes, events, and what's happening at Past Lives."
+            ),
         }
 
     def __init__(

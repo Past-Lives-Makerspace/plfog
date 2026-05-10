@@ -91,7 +91,7 @@ class SiteConfiguration(models.Model):
         max_length=50,
         blank=True,
         verbose_name="Google Analytics measurement ID",
-        help_text="GA4 measurement ID (e.g. G-XXXXXXX) — injected on the public classes portal. Leave blank to disable.",
+        help_text="GA4 measurement ID (e.g. G-XXXXXXX) — injected site-wide (excludes the Django admin). Leave blank to disable.",
     )
 
     class Meta:

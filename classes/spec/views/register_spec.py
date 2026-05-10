@@ -151,6 +151,44 @@ def describe_register_view():
         assert response.status_code == 200
         assert b"sold out" in response.content.lower()
 
+    def it_subscribes_to_mailchimp_when_free_registrant_opts_in(free_offering, client):
+        from core.models import SiteConfiguration
+
+        site = SiteConfiguration.load()
+        site.mailchimp_api_key = "abc-us17"
+        site.mailchimp_list_id = "LIST"
+        site.save()
+
+        with patch(
+            "core.integrations.mailchimp.MailchimpClient.subscribe",
+            return_value=True,
+        ) as spy:
+            client.post(
+                reverse("classes:register", kwargs={"slug": free_offering.slug}),
+                data=_post_data(wants_newsletter="on"),
+            )
+        spy.assert_called_once()
+        kwargs = spy.call_args.kwargs
+        assert kwargs["email"] == "sam@example.com"
+        assert kwargs["tags"] == ["class-registrant"]
+        registration = Registration.objects.get(class_offering=free_offering)
+        assert registration.subscribed_to_mailchimp is True
+
+    def it_does_not_subscribe_free_registrant_who_did_not_opt_in(free_offering, client):
+        from core.models import SiteConfiguration
+
+        site = SiteConfiguration.load()
+        site.mailchimp_api_key = "abc-us17"
+        site.mailchimp_list_id = "LIST"
+        site.save()
+
+        with patch("core.integrations.mailchimp.MailchimpClient.subscribe") as spy:
+            client.post(
+                reverse("classes:register", kwargs={"slug": free_offering.slug}),
+                data=_post_data(),  # wants_newsletter not set
+            )
+        spy.assert_not_called()
+
 
 def describe_register_success_view():
     def it_renders_a_thanks_page(paid_offering, client):
