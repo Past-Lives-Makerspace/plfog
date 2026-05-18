@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.9.0"
+VERSION = "2.0.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.0.0",
+        "date": "2026-05-18",
+        "title": "Classes & workshops are now open to everyone at book.pastlives.space",
+        "changes": [
+            "We launched a brand new public site at book.pastlives.space — anyone can browse our classes and workshops, sign up, and pay, no Past Lives account required. Send the link to friends, family, or anyone curious about taking a class with us.",
+            "Members: nothing changes for you. Classes still live in the sidebar at /classes/ inside your hub, the member discount still applies automatically, and your dashboard looks exactly the same as it did yesterday.",
+            "One login, two doors — if you're signed in on members.pastlives.space and you wander over to book.pastlives.space, we still recognize you and your member discount still applies. Handy for grabbing a link to share or showing a class to a non-member friend looking over your shoulder.",
+            "Registrations from both surfaces land in the same place — admins manage everything from one Classes admin in the members hub, so there's nothing new to learn and nothing to keep in sync.",
+        ],
+    },
     {
         "version": "1.9.0",
         "date": "2026-05-05",
