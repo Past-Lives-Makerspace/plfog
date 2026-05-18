@@ -40,6 +40,39 @@ CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+# Cross-subdomain cookies. Production sets COOKIE_DOMAIN=.pastlives.space so a
+# member logged in on members.pastlives.space is recognized on book.pastlives.space
+# (and vice versa). Local dev and Hetzner staging leave this unset so cookies
+# stay scoped to their own host.
+_cookie_domain = os.environ.get("COOKIE_DOMAIN", "").strip()
+if _cookie_domain:
+    SESSION_COOKIE_DOMAIN = _cookie_domain
+    CSRF_COOKIE_DOMAIN = _cookie_domain
+
+# Surface routing. PUBLIC_HOSTS is the set of hostnames that serve the public
+# class catalog only; every other host serves the full member application.
+# MEMBER_HOST is where the public surface redirects /accounts/* requests so
+# allauth sessions always land on the members domain.
+PUBLIC_HOSTS = [
+    h.strip().lower() for h in os.environ.get("PUBLIC_HOSTS", "book.pastlives.space").split(",") if h.strip()
+]
+MEMBER_HOST = os.environ.get("MEMBER_HOST", "members.pastlives.space").strip().lower()
+MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
+    "/admin/",
+    "/billing/",
+    "/classes/admin/",
+    "/classes/instructor/",
+    "/feedback/",
+    "/find-account/",
+    "/guilds/",
+    "/members/",
+    "/push/",
+    "/restart-login/",
+    "/settings/",
+    "/site-migration/",
+    "/tab/",
+)
+
 # Allauth needs to know about the reverse proxy to resolve client IPs for rate limiting
 ALLAUTH_TRUSTED_PROXY_COUNT = int(os.environ.get("ALLAUTH_TRUSTED_PROXY_COUNT", "0"))
 
@@ -75,6 +108,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "core.middleware.SurfaceMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -100,6 +134,7 @@ TEMPLATES = [
                 "core.context_processors.registration_mode",
                 "core.context_processors.app_version",
                 "core.context_processors.google_analytics",
+                "core.context_processors.surface",
                 "billing.context_processors.tab_context",
                 "hub.context_processors.hub_sidebar",
             ],

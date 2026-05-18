@@ -22,6 +22,17 @@ def app_version(request: HttpRequest) -> dict[str, Any]:
     return {"app_version": VERSION, "changelog": CHANGELOG}
 
 
+def surface(request: HttpRequest) -> dict[str, str | bool]:
+    """Expose which surface the request arrived on so templates can branch chrome.
+
+    ``surface`` is ``"public"`` on book.pastlives.space and ``"members"``
+    everywhere else (members host, local dev, Hetzner staging, Render preview).
+    ``is_public_surface`` is the convenience boolean templates branch on.
+    """
+    value = getattr(request, "surface", "members")
+    return {"surface": value, "is_public_surface": value == "public"}
+
+
 def google_analytics(request: HttpRequest) -> dict[str, str]:
     """Expose the GA4 measurement ID site-wide.
 

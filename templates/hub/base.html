@@ -40,7 +40,7 @@
 </head>
 <body class="{% block body_class %}{% endblock %}" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
 {% block extra_body %}{% endblock %}
-    {% if user.is_authenticated and not request.GET.public %}
+    {% if user.is_authenticated and not request.GET.public and not is_public_surface %}
     <div class="hub-sidebar-backdrop" :class="{ 'hub-sidebar-backdrop--visible': sidebarOpen }" @click="sidebarOpen = false"></div>
     <aside class="hub-sidebar" :class="{ 'hub-sidebar--closed': !sidebarOpen }">
         <a href="{% url 'hub_community_calendar' %}" class="pl-brand">
@@ -283,8 +283,8 @@
     </a>
     {% endif %}
 
-    <div class="hub-main-wrapper {% if not user.is_authenticated or request.GET.public %}hub-main-wrapper--public hub-main-wrapper--expanded{% endif %}" {% if user.is_authenticated and not request.GET.public %}:class="{ 'hub-main-wrapper--expanded': !sidebarOpen }"{% endif %}>
-        {% if user.is_authenticated and not request.GET.public %}
+    <div class="hub-main-wrapper {% if not user.is_authenticated or request.GET.public or is_public_surface %}hub-main-wrapper--public hub-main-wrapper--expanded{% endif %}" {% if user.is_authenticated and not request.GET.public and not is_public_surface %}:class="{ 'hub-main-wrapper--expanded': !sidebarOpen }"{% endif %}>
+        {% if user.is_authenticated and not request.GET.public and not is_public_surface %}
         <header class="pl-topbar">
             <button class="pl-topbar__toggle" @click="sidebarOpen = !sidebarOpen" aria-label="Toggle sidebar">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

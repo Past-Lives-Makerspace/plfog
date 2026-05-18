@@ -49,7 +49,7 @@
             Events refresh automatically every 5 minutes — no need to reload the page.
         </div>
     </span>
-    {% if user.is_authenticated and not request.GET.public %}
+    {% if user.is_authenticated and not request.GET.public and not is_public_surface %}
     <a href="?public=1" class="hub-btn hub-btn--sm hub-btn--ghost" style="margin-left:auto;" hx-boost="false" title="Preview the calendar the way a logged-out visitor sees it">View Publicly</a>
     {% endif %}
 </div>
