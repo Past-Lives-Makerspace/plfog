@@ -14,6 +14,10 @@
             {% csrf_token %}
             <label for="id_email">Email address</label>
             <input type="email" name="email" id="id_email" required autofocus placeholder="you@pastlives.space">
+            <div aria-hidden="true" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;">
+                <label for="id_website">Leave this field empty</label>
+                <input type="text" name="website" id="id_website" tabindex="-1" autocomplete="off">
+            </div>
             <button type="submit" class="btn btn--primary btn--full">Send Login Code</button>
         </form>
         <div class="auth-links">
