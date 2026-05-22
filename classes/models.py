@@ -412,6 +412,13 @@ class Registration(models.Model):
         db_index=True,
         help_text="Random token used in /classes/my/<token>/ self-serve URL.",
     )
+    order_number = models.CharField(
+        max_length=12,
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text="Human-readable confirmation number shown in emails and used by the guest lookup flow (PL-XXXX-YY).",
+    )
     wants_newsletter = models.BooleanField(
         default=False,
         help_text="Did the registrant tick the newsletter opt-in box at signup?",
@@ -436,9 +443,27 @@ class Registration(models.Model):
         creating = self._state.adding
         if creating and not self.self_serve_token:
             self.self_serve_token = secrets.token_urlsafe(48)
+        if creating and not self.order_number:
+            self.order_number = self._generate_order_number()
         super().save(*args, **kwargs)
         if creating and self.member_id is None:
             self.link_member_by_email()
+
+    @staticmethod
+    def _generate_order_number() -> str:
+        """Generate a unique PL-XXXX-YY order number.
+
+        XXXX uses an unambiguous alphabet (no 0/O/I/1 to avoid typos). YY is
+        the last two digits of the current year. Retries up to 40 times if
+        the random pick collides with an existing row.
+        """
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # 32 chars; no 0, O, I, 1
+        year_suffix = timezone.now().strftime("%y")
+        for _ in range(40):
+            candidate = "PL-" + "".join(secrets.choice(alphabet) for _ in range(4)) + f"-{year_suffix}"
+            if not Registration.objects.filter(order_number=candidate).exists():
+                return candidate
+        raise RuntimeError("Failed to generate a unique order number after 40 tries.")
 
     def link_member_by_email(self) -> None:
         from membership.models import Member
