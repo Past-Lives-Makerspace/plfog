@@ -7,13 +7,15 @@ VERSION = "2.0.0"
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "2.0.0",
-        "date": "2026-05-18",
+        "date": "2026-05-22",
         "title": "Classes & workshops are now open to everyone at book.pastlives.space",
         "changes": [
             "We launched a brand new public site at book.pastlives.space — anyone can browse our classes and workshops, sign up, and pay, no Past Lives account required. Send the link to friends, family, or anyone curious about taking a class with us.",
             "Members: nothing changes for you. Classes still live in the sidebar at /classes/ inside your hub, the member discount still applies automatically, and your dashboard looks exactly the same as it did yesterday.",
             "One login, two doors — if you're signed in on members.pastlives.space and you wander over to book.pastlives.space, we still recognize you and your member discount still applies. Handy for grabbing a link to share or showing a class to a non-member friend looking over your shoulder.",
             "Anyone who registers for a class can now create a free account and log in at book.pastlives.space to see their upcoming classes, past classes, receipts, and edit their contact info. No membership required — it's just a lightweight place for class takers to keep track of what they've booked.",
+            "A short 3-step welcome runs the first time someone signs in at book.pastlives.space — it asks if they've ever taken a class with us before, collects a preferred name and a day-of contact phone, and lets them check off which kinds of classes they'd like to hear about. Every step is skippable, and we only email them about new classes in the categories they picked.",
+            "Booked as a guest and forgot to make an account? There's a new 'Find my booking' page at book.pastlives.space/account/lookup/ — type in your last name and the confirmation order number from your email (the friendly PL-XXXX-YY one we now print at the top of every confirmation) and we'll pull up your booking. No password needed.",
             "Instructors can hop over to book.pastlives.space anytime to see classes they've personally signed up for as a student. A small link inside their account points back to their teaching dashboard on members.pastlives.space — that's still where class management happens.",
             "Registrations from both surfaces land in the same place — admins manage everything from one Classes admin in the members hub, so there's nothing new to learn and nothing to keep in sync.",
         ],

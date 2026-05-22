@@ -29,15 +29,20 @@ def describe_account_profile():
             assert resp.status_code == 200
             assert b"Avery" in resp.content
             # The form fields are not readonly.
-            assert b'readonly' not in resp.content or b'readonly="readonly"' not in resp.content
+            assert b"readonly" not in resp.content or b'readonly="readonly"' not in resp.content
 
         def it_saves_first_and_last_name(book_client, db):
             user = UserFactory()
             book_client.force_login(user)
-            resp = book_client.post("/account/profile/", {
-                "first_name": "Avery", "last_name": "Sandoval",
-                "pronouns": "they/them", "phone": "(503) 555-0146",
-            })
+            resp = book_client.post(
+                "/account/profile/",
+                {
+                    "first_name": "Avery",
+                    "last_name": "Sandoval",
+                    "pronouns": "they/them",
+                    "phone": "(503) 555-0146",
+                },
+            )
             assert resp.status_code == 302  # redirects on success
             user.refresh_from_db()
             assert user.first_name == "Avery"
@@ -48,10 +53,15 @@ def describe_account_profile():
 
             user = UserFactory()
             book_client.force_login(user)
-            book_client.post("/account/profile/", {
-                "first_name": "A", "last_name": "S",
-                "pronouns": "they/them", "phone": "(503) 555-0146",
-            })
+            book_client.post(
+                "/account/profile/",
+                {
+                    "first_name": "A",
+                    "last_name": "S",
+                    "pronouns": "they/them",
+                    "phone": "(503) 555-0146",
+                },
+            )
             profile = UserProfile.objects.get(user=user)
             assert profile.pronouns == "they/them"
             assert profile.phone == "(503) 555-0146"
@@ -73,10 +83,15 @@ def describe_account_profile():
             user.save()
             _airtable_promote(user)
             book_client.force_login(user)
-            book_client.post("/account/profile/", {
-                "first_name": "X", "last_name": "Y",
-                "pronouns": "x/y", "phone": "555",
-            })
+            book_client.post(
+                "/account/profile/",
+                {
+                    "first_name": "X",
+                    "last_name": "Y",
+                    "pronouns": "x/y",
+                    "phone": "555",
+                },
+            )
             user.refresh_from_db()
             assert user.first_name == "Mira"  # unchanged
 
