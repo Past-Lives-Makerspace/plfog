@@ -211,3 +211,39 @@ class Invite(models.Model):
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[self.email],
         )
+
+
+class UserProfile(models.Model):
+    """Per-user profile fields not covered by Django's User model.
+
+    Holds the data the book.pastlives.space /account/profile/ page edits for
+    non-member users. Members are read-only here; their canonical profile
+    lives on Member and is edited at members.pastlives.space.
+
+    Phase 9 will extend this with onboarding answers (first-attendance status,
+    referral source, interest categories, accessibility note,
+    onboarding_completed_at). Kept minimal for Phase 6 — see
+    docs/superpowers/plans/2026-05-21-book-account-dashboard.md.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="profile",
+        help_text="The user this profile belongs to.",
+    )
+    pronouns = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Pronouns shown on roster sheets and confirmation emails.",
+    )
+    phone = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text="Day-of contact phone — only used if an instructor needs to reach you.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"Profile for {self.user.email}"

@@ -7,9 +7,12 @@ can look up their booking without an account.
 
 from __future__ import annotations
 
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import HttpResponseRedirect
+from django.urls import reverse_lazy
 from django.utils import timezone
-from django.views.generic import TemplateView
+from django.views.generic import FormView, TemplateView
 
 
 class _LoggedInAccountView(LoginRequiredMixin, TemplateView):
@@ -82,9 +85,51 @@ class ReceiptsView(_LoggedInAccountView):
         return ctx
 
 
-class ProfileView(_LoggedInAccountView):
+class ProfileView(LoginRequiredMixin, FormView):
+    """Editable for non-members; read-only with an "Edit on FOG" link for members.
+
+    Member-persona POSTs are silently redirected (no error) — the form is
+    invisible to them anyway.
+    """
+
     template_name = "classes/account/profile.html"
     active_tab = "profile"
+    login_url = "/accounts/login/"
+    success_url = reverse_lazy("account:profile")
+
+    @property
+    def form_class(self):
+        from classes.account.forms import AccountProfileForm
+
+        return AccountProfileForm
+
+    def _is_readonly_for_member(self) -> bool:
+        """True when the active persona is 'member' — page is read-only."""
+        from core.context_processors import persona
+
+        return persona(self.request)["persona"] == "member"
+
+    def get_form_kwargs(self):
+        kw = super().get_form_kwargs()
+        kw["instance"] = self.request.user
+        return kw
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["active_tab"] = self.active_tab
+        ctx["is_readonly"] = self._is_readonly_for_member()
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        if self._is_readonly_for_member():
+            messages.info(request, "Your member profile is managed on FOG.")
+            return HttpResponseRedirect(str(self.success_url))
+        return super().post(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        form.save()
+        messages.success(self.request, "Profile updated.")
+        return super().form_valid(form)
 
 
 class LookupView(TemplateView):
