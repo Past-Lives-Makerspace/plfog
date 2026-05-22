@@ -2,6 +2,12 @@
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import RequestFactory
+
+
+@pytest.fixture
+def rf() -> RequestFactory:
+    return RequestFactory()
 
 
 @pytest.fixture()

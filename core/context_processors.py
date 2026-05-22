@@ -45,3 +45,43 @@ def google_analytics(request: HttpRequest) -> dict[str, str]:
     from core.models import SiteConfiguration
 
     return {"google_analytics_measurement_id": SiteConfiguration.load().google_analytics_measurement_id}
+
+
+def persona(request: HttpRequest) -> dict[str, str | bool]:
+    """Derive the active persona for the current request.
+
+    Returns a single string in {"anon", "nonmember", "member", "instructor"} plus
+    convenience booleans so templates can render banners and topbar variants
+    without re-deriving. Cached on the request so it's safe to call from both
+    the context processor and view code.
+    """
+    cached = getattr(request, "_persona", None)
+    if cached is not None:
+        return cached
+
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        result: dict[str, str | bool] = {"persona": "anon", "is_member_persona": False, "is_instructor_persona": False}
+        request._persona = result
+        return result
+
+    from membership.models import Member
+
+    member = getattr(user, "member", None)
+    is_active_member = bool(member and member.status == Member.Status.ACTIVE)
+    is_instructor = hasattr(user, "instructor")
+
+    if is_active_member:
+        slug = "member"
+    elif is_instructor:
+        slug = "instructor"
+    else:
+        slug = "nonmember"
+
+    result = {
+        "persona": slug,
+        "is_member_persona": is_active_member,
+        "is_instructor_persona": is_instructor,
+    }
+    request._persona = result
+    return result

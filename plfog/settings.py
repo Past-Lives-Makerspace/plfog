@@ -135,6 +135,7 @@ TEMPLATES = [
                 "core.context_processors.app_version",
                 "core.context_processors.google_analytics",
                 "core.context_processors.surface",
+                "core.context_processors.persona",
                 "billing.context_processors.tab_context",
                 "hub.context_processors.hub_sidebar",
             ],
