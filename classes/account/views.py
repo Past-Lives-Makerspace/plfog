@@ -74,6 +74,13 @@ class ReceiptsView(_LoggedInAccountView):
     template_name = "classes/account/receipts.html"
     active_tab = "receipts"
 
+    def get_context_data(self, **kwargs):
+        from classes.account.selectors import paid_registrations
+
+        ctx = super().get_context_data(**kwargs)
+        ctx["receipts"] = list(paid_registrations(self.request.user))
+        return ctx
+
 
 class ProfileView(_LoggedInAccountView):
     template_name = "classes/account/profile.html"

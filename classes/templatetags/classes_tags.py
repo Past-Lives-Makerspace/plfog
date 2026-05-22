@@ -11,6 +11,16 @@ register = template.Library()
 
 
 @register.filter
+def cents_as_dollars(cents: int | None) -> str:
+    """Format an integer cents value as $X.YY.
+
+    Used by the /account/receipts/ template. Returns "$0.00" for None/0.
+    """
+    value = int(cents or 0)
+    return f"${value / 100:,.2f}"
+
+
+@register.filter
 def cents_as_price(value: int | None) -> str:
     """Format integer cents as a dollar string. Zero renders as "Free"; whole dollars drop the decimals."""
     if value is None:
