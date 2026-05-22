@@ -162,3 +162,71 @@ class LookupView(FormView):
         ctx = self.get_context_data(form=form)
         ctx["lookup_state"] = "form"
         return self.render_to_response(ctx)
+
+
+class OnboardingStepView(LoginRequiredMixin, FormView):
+    """Common parent for the 3 onboarding steps.
+
+    Each step writes its form's cleaned fields to the user's UserProfile, then
+    advances to the next step (or to /account/ at the end). The Skip link in
+    the template links straight to /account/ without saving anything.
+    """
+
+    login_url = "/accounts/login/"
+    step: int = 1
+    total_steps: int = 3
+
+    def get_template_names(self) -> list[str]:
+        return [f"classes/account/onboarding/step{self.step}.html"]
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["step"] = self.step
+        ctx["total_steps"] = self.total_steps
+        return ctx
+
+    def get_success_url(self) -> str:
+        if self.step < self.total_steps:
+            return reverse_lazy(f"account:onboarding_step{self.step + 1}").__str__()
+        return reverse_lazy("account:overview").__str__()
+
+    def form_valid(self, form):
+        from core.models import UserProfile
+
+        profile, _ = UserProfile.objects.get_or_create(user=self.request.user)
+        for field_name, value in form.cleaned_data.items():
+            setattr(profile, field_name, value)
+        if self.step == self.total_steps:
+            profile.onboarding_completed_at = timezone.now()
+        profile.save()
+        return super().form_valid(form)
+
+
+class OnboardingStep1View(OnboardingStepView):
+    step = 1
+
+    @property
+    def form_class(self):
+        from classes.account.forms import OnboardingStep1Form
+
+        return OnboardingStep1Form
+
+
+class OnboardingStep2View(OnboardingStepView):
+    step = 2
+
+    @property
+    def form_class(self):
+        from classes.account.forms import OnboardingStep2Form
+
+        return OnboardingStep2Form
+
+
+class OnboardingStep3View(OnboardingStepView):
+    step = 3
+
+    @property
+    def form_class(self):
+        from classes.account.forms import OnboardingStep3Form
+
+        return OnboardingStep3Form

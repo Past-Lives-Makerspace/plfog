@@ -216,15 +216,24 @@ class Invite(models.Model):
 class UserProfile(models.Model):
     """Per-user profile fields not covered by Django's User model.
 
-    Holds the data the book.pastlives.space /account/profile/ page edits for
-    non-member users. Members are read-only here; their canonical profile
-    lives on Member and is edited at members.pastlives.space.
-
-    Phase 9 will extend this with onboarding answers (first-attendance status,
-    referral source, interest categories, accessibility note,
-    onboarding_completed_at). Kept minimal for Phase 6 — see
-    docs/superpowers/plans/2026-05-21-book-account-dashboard.md.
+    Holds the data the book.pastlives.space /account/profile/ page edits
+    plus the onboarding wizard answers. Members are read-only on /profile/;
+    their canonical profile lives on Member and is edited at members.pastlives.space.
     """
+
+    class FirstAttendance(models.TextChoices):
+        FIRST_TIME = "first_time", "First time"
+        RETURNING = "returning", "Returning"
+        EVENT_ONLY = "event_only", "Event only, no class"
+        UNKNOWN = "unknown", "Can't remember"
+
+    class Referral(models.TextChoices):
+        FRIEND = "friend", "Friend or family"
+        INSTAGRAM = "instagram", "Instagram"
+        GOOGLE = "google", "Google"
+        EVENT = "event", "Open studio / event"
+        MAIN_SITE = "main_site", "Past Lives main site"
+        OTHER = "other", "Somewhere else"
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -232,6 +241,7 @@ class UserProfile(models.Model):
         related_name="profile",
         help_text="The user this profile belongs to.",
     )
+    preferred_name = models.CharField(max_length=100, blank=True, help_text="Preferred name on rosters.")
     pronouns = models.CharField(
         max_length=50,
         blank=True,
@@ -242,8 +252,38 @@ class UserProfile(models.Model):
         blank=True,
         help_text="Day-of contact phone — only used if an instructor needs to reach you.",
     )
+    first_attendance_status = models.CharField(
+        max_length=20,
+        choices=FirstAttendance.choices,
+        blank=True,
+        help_text="Self-reported on first signup. Used for welcome flows.",
+    )
+    referral_source = models.CharField(
+        max_length=20,
+        choices=Referral.choices,
+        blank=True,
+        help_text="Self-reported referral source. Aggregated for marketing analysis.",
+    )
+    interest_category_slugs = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of Category slugs the user opted into for new-class email notifications.",
+    )
+    accessibility_note = models.TextField(
+        blank=True,
+        help_text="Free-text accessibility note from onboarding step 3.",
+    )
+    onboarding_completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Stamp set when the user finishes (or skips through) the 3-step onboarding.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:
         return f"Profile for {self.user.email}"
+
+    @property
+    def is_onboarded(self) -> bool:
+        return self.onboarding_completed_at is not None

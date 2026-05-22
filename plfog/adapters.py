@@ -86,7 +86,20 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         )
 
     def get_login_redirect_url(self, request: HttpRequest) -> str:
-        """Land everyone on the Community Calendar after login."""
+        """Land on the right place based on surface and onboarding status.
+
+        - Public/book surface, user not yet onboarded → start onboarding wizard.
+        - Public/book surface, user onboarded → /account/ overview.
+        - Members surface (anywhere else) → Community Calendar (existing behavior).
+        """
+        surface = getattr(request, "surface", "members")
+        if surface == "public":
+            from core.models import UserProfile
+
+            profile = UserProfile.objects.filter(user=request.user).first()
+            if profile is None or not profile.is_onboarded:
+                return reverse("account:onboarding_step1")
+            return reverse("account:overview")
         return reverse("hub_community_calendar")
 
     def send_mail(self, template_prefix: str, email: str, context: dict) -> None:
