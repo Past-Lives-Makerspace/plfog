@@ -1,3 +1,22 @@
 {% extends "classes/account/base.html" %}
-{% block account_title %}Past classes.{% endblock %}
-{% block account_body %}<p>History body — Phase 4.</p>{% endblock %}
+
+{% block account_title %}Past <em>classes</em>.{% endblock %}
+{% block account_sub %}
+  <p class="bk-sub">Every class you've taken at Past Lives. Add a note if a project's still rattling around in your head.</p>
+{% endblock %}
+
+{% block account_body %}
+  {% if not grouped %}
+    {% include "classes/account/_components/empty_state.html" with glyph="✶" title="No past classes yet." body="Once you've attended a class, it'll show up here." cta="Browse classes" cta_url="/classes/" %}
+  {% else %}
+    {% for year, regs in grouped %}
+      <div class="bk-section-h">
+        <h2>{{ year }}</h2>
+        <span class="ct">{{ regs|length }} {{ regs|length|pluralize:"item,items" }}</span>
+      </div>
+      {% for reg in regs %}
+        {% include "classes/account/_components/class_card_past.html" with reg=reg %}
+      {% endfor %}
+    {% endfor %}
+  {% endif %}
+{% endblock %}
