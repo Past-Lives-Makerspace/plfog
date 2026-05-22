@@ -1,6 +1,62 @@
 {% extends "classes/base_public.html" %}
+
 {% block portal_content %}
-<div class="bk-page"><div class="bk-container"><div class="bk-auth">
-  <p>Lookup body — Phase 7.</p>
-</div></div></div>
+<div class="bk">
+  <div class="bk-scroll">
+    <div class="bk-auth">
+      <div class="bk-auth-card">
+        <div class="bk-auth-eyebrow">No account? No problem.</div>
+        <h1 class="bk-auth-title">Find your booking.</h1>
+        <p class="bk-auth-sub">Booked as a guest? Enter your last name and the order number from your confirmation email.</p>
+
+        <form method="post" novalidate>{% csrf_token %}
+          <div class="bk-field">
+            <label>Last name</label>
+            <input type="text" name="last_name" value="{{ form.last_name.value|default:'' }}" placeholder="As it appears on your confirmation">
+            {% if form.last_name.errors %}<div class="bk-field-hint" style="color:#f87171">{{ form.last_name.errors.0 }}</div>{% endif %}
+          </div>
+          <div class="bk-field" style="margin-top:12px">
+            <label>Order number</label>
+            <input type="text" name="order_number" value="{{ form.order_number.value|default:'' }}" placeholder="PL-XXXX-YY" style="font-family:'IBM Plex Mono', monospace; letter-spacing:.08em">
+            <div class="bk-field-hint">It's at the top of your "You're booked!" email. Looks like PL-XXXX-YY.</div>
+            {% if form.order_number.errors %}<div class="bk-field-hint" style="color:#f87171">{{ form.order_number.errors.0 }}</div>{% endif %}
+          </div>
+          <div class="bk-auth-actions">
+            <button type="submit" class="bk-btn-primary">Find my booking</button>
+          </div>
+        </form>
+
+        {% if lookup_state == "result" %}
+          <div class="bk-lookup-result">
+            <div class="bk-lookup-result-h">
+              <span class="ok">Found</span>
+              <span class="name">Booking for <b>{{ result.first_name|slice:":1" }}. {{ result.last_name }}</b></span>
+            </div>
+            {% include "classes/account/_components/class_card.html" with reg=result %}
+            <div class="bk-lookup-foot">
+              <b style="color:var(--cream)">Want all your bookings in one place?</b>
+              <a href="{% url 'account_signup' %}">Create an account</a>
+              with this email and we'll connect your past and future classes automatically — no re-typing.
+            </div>
+          </div>
+        {% endif %}
+
+        {% if lookup_state == "notfound" %}
+          <div class="bk-lookup-empty">
+            <b>We couldn't find that one.</b>
+            Double-check your last name (we match the spelling on your confirmation)
+            and the order number format (PL-XXXX-YY).
+            Still stuck? Email <a href="mailto:info@pastlives.space" style="color:var(--gold)">info@pastlives.space</a>
+            and we'll dig it up.
+          </div>
+        {% endif %}
+
+        <div class="bk-auth-divider">or</div>
+        <div class="bk-auth-links">
+          <p>Have an account? <a href="{% url 'account_login' %}">Log in</a></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

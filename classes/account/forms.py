@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import re
+from typing import TYPE_CHECKING
+
 from django import forms
 from django.contrib.auth import get_user_model
+
+if TYPE_CHECKING:
+    from classes.models import Registration
 
 User = get_user_model()
 
@@ -44,3 +50,35 @@ class AccountProfileForm(forms.ModelForm):
             },
         )
         return user
+
+
+class LookupForm(forms.Form):
+    """Guest lookup by last name + confirmation order number.
+
+    Last name is matched case-insensitively. Order number is normalized to
+    uppercase and validated against the `PL-XXXX-YY` shape. Tests cover
+    cross-match prevention (a Sandoval querying with a Smith order number
+    must read as "not found", never accidentally show Smith's booking).
+    """
+
+    last_name = forms.CharField(max_length=100, label="Last name")
+    order_number = forms.CharField(max_length=12, label="Order number")
+
+    _PATTERN = re.compile(r"^PL-[A-HJ-NP-Z2-9]{4}-\d{2}$")
+
+    def clean_order_number(self) -> str:
+        value = self.cleaned_data["order_number"].strip().upper()
+        if not self._PATTERN.match(value):
+            raise forms.ValidationError("Order number should look like PL-XXXX-YY.")
+        return value
+
+    def clean_last_name(self) -> str:
+        return self.cleaned_data["last_name"].strip()
+
+    def find(self) -> "Registration | None":
+        from classes.models import Registration
+
+        return Registration.objects.filter(
+            last_name__iexact=self.cleaned_data["last_name"],
+            order_number=self.cleaned_data["order_number"],
+        ).first()

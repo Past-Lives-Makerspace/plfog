@@ -132,5 +132,33 @@ class ProfileView(LoginRequiredMixin, FormView):
         return super().form_valid(form)
 
 
-class LookupView(TemplateView):
+class LookupView(FormView):
+    """Three states: form (initial GET), result (POST + match), notfound (POST + no match)."""
+
     template_name = "classes/account/lookup.html"
+
+    @property
+    def form_class(self):
+        from classes.account.forms import LookupForm
+
+        return LookupForm
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx.setdefault("lookup_state", "form")
+        ctx.setdefault("result", None)
+        return ctx
+
+    def form_valid(self, form):
+        result = form.find()
+        ctx = self.get_context_data(form=form)
+        ctx["lookup_state"] = "result" if result else "notfound"
+        ctx["result"] = result
+        return self.render_to_response(ctx)
+
+    def form_invalid(self, form):
+        # Form-level validation error (bad order_number format) — re-render the form
+        # state with the field errors visible.
+        ctx = self.get_context_data(form=form)
+        ctx["lookup_state"] = "form"
+        return self.render_to_response(ctx)
