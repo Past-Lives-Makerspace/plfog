@@ -369,10 +369,19 @@
             </a>
             <nav class="pl-public-topbar__nav" aria-label="Public navigation">
                 <a href="{% url 'classes:public_list' %}" class="pl-public-topbar__link">Classes</a>
-                {% if user.is_authenticated and request.GET.public %}
-                <a href="{{ request.path }}" class="pl-public-topbar__exit-preview" hx-boost="false" title="Return to the dashboard view">← Exit public view</a>
+                {% if user.is_authenticated %}
+                    <a href="{% url 'account:overview' %}" class="pl-public-topbar__link">My account</a>
+                    {% if persona == "member" %}
+                        <a href="https://{{ MEMBER_HOST }}/" class="pl-public-topbar__ext" title="Member dashboard">FOG
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M7 17 L17 7"/><path d="M8 7h9v9"/>
+                            </svg>
+                        </a>
+                        <span class="pl-public-topbar__pill" title="Active member">Member</span>
+                    {% endif %}
+                    <a href="{% url 'account_logout' %}" class="pl-public-topbar__logout" hx-boost="false">Log out</a>
                 {% else %}
-                <a href="{% url 'account_login' %}" class="pl-public-topbar__login" hx-boost="false">Log in</a>
+                    <a href="{% url 'account_login' %}" class="pl-public-topbar__login" hx-boost="false">Log in</a>
                 {% endif %}
             </nav>
         </header>

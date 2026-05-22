@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpRequest
 
 
@@ -30,7 +31,11 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
     ``is_public_surface`` is the convenience boolean templates branch on.
     """
     value = getattr(request, "surface", "members")
-    return {"surface": value, "is_public_surface": value == "public"}
+    return {
+        "surface": value,
+        "is_public_surface": value == "public",
+        "MEMBER_HOST": settings.MEMBER_HOST,
+    }
 
 
 def google_analytics(request: HttpRequest) -> dict[str, str]:
