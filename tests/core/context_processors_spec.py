@@ -88,14 +88,24 @@ def describe_surface():
         request = rf.get("/")
         request.surface = "public"
         result = surface(request)
-        assert result == {"surface": "public", "is_public_surface": True, "MEMBER_HOST": settings.MEMBER_HOST}
+        assert result == {
+            "surface": "public",
+            "is_public_surface": True,
+            "MEMBER_HOST": settings.MEMBER_HOST,
+            "parent_template": "classes/base_public.html",
+        }
 
     def it_reports_members_when_request_surface_is_members(settings):
         rf = RequestFactory()
         request = rf.get("/")
         request.surface = "members"
         result = surface(request)
-        assert result == {"surface": "members", "is_public_surface": False, "MEMBER_HOST": settings.MEMBER_HOST}
+        assert result == {
+            "surface": "members",
+            "is_public_surface": False,
+            "MEMBER_HOST": settings.MEMBER_HOST,
+            "parent_template": "base.html",
+        }
 
     def it_defaults_to_members_when_attribute_missing(settings):
         # If the middleware did not run (e.g. a unit test bypassing it), the
@@ -103,4 +113,9 @@ def describe_surface():
         rf = RequestFactory()
         request = rf.get("/")
         result = surface(request)
-        assert result == {"surface": "members", "is_public_surface": False, "MEMBER_HOST": settings.MEMBER_HOST}
+        assert result == {
+            "surface": "members",
+            "is_public_surface": False,
+            "MEMBER_HOST": settings.MEMBER_HOST,
+            "parent_template": "base.html",
+        }

@@ -89,21 +89,21 @@ def describe_SurfaceMiddleware():
             assert response.status_code == 200
 
     def describe_accounts_on_public():
-        def it_redirects_login_to_members_host():
+        def it_serves_accounts_in_place_on_book_host():
+            # Allauth now runs on both surfaces — no cross-host redirect.
             request, middleware = _build("book.pastlives.space", "/accounts/login/")
             response = middleware(request)
-            assert response.status_code == 302
-            assert response["Location"] == "http://members.pastlives.space/accounts/login/"
+            assert response.status_code == 200
 
-        def it_preserves_query_string_on_redirect():
+        def it_serves_accounts_with_query_string_in_place():
             request, middleware = _build("book.pastlives.space", "/accounts/login/", query="next=/classes/")
             response = middleware(request)
-            assert response["Location"] == "http://members.pastlives.space/accounts/login/?next=/classes/"
+            assert response.status_code == 200
 
-        def it_uses_https_when_request_is_secure():
+        def it_serves_accounts_on_secure_request_in_place():
             request, middleware = _build("book.pastlives.space", "/accounts/login/", secure=True)
             response = middleware(request)
-            assert response["Location"].startswith("https://members.pastlives.space/")
+            assert response.status_code == 200
 
         def it_does_not_redirect_accounts_on_members_host():
             request, middleware = _build("members.pastlives.space", "/accounts/login/")

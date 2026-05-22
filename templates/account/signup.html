@@ -1,8 +1,51 @@
-{% extends "base.html" %}
+{% extends parent_template %}
+{% load static %}
 
 {% block title %}Sign Up - Past Lives{% endblock %}
 
 {% block content %}
+{% if is_public_surface %}
+<div class="cp-page">
+{% block portal_content %}
+<div class="bk-themed-signup">
+  <link rel="stylesheet" href="{% static 'css/book-account.css' %}">
+  <div class="bk-auth">
+    <div class="bk-auth-card">
+      <div class="bk-auth-eyebrow">Create an account</div>
+      <h1 class="bk-auth-title">Join the Makerspace.</h1>
+      <p class="bk-auth-sub">Just an email — you'll set everything else up after your first class.</p>
+      <form method="POST">{% csrf_token %}
+        {% if form.non_field_errors %}
+        <div class="bk-field-hint" style="color:#f87171">
+          {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+        {% endif %}
+        <div class="bk-field">
+          <label>Email address</label>
+          <input type="email" name="email" required autofocus placeholder="you@example.com"
+                 value="{{ form.email.value|default:'' }}">
+          {% if form.email.errors %}
+          <div class="bk-field-hint" style="color:#f87171">{{ form.email.errors.0 }}</div>
+          {% endif %}
+          <div class="bk-field-hint">We'll send a 6-digit code to verify it's you.</div>
+        </div>
+        <div class="bk-auth-actions">
+          <button type="submit" class="bk-btn-primary">Send my code</button>
+        </div>
+      </form>
+      <div class="bk-auth-divider">or</div>
+      <div class="bk-auth-links">
+        <p>Already have an account? <a href="{% url 'account_login' %}">Log in</a></p>
+      </div>
+      <div class="bk-auth-foot">
+        You don't need an account to book a class — registering creates a personal booking link for you. An account just keeps your history in one place.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+</div>
+{% else %}
 <div class="auth-page">
     <h1 class="auth-page__title">Join the Community</h1>
     <p class="auth-page__subtitle">Create your Past Lives account</p>
@@ -33,4 +76,5 @@
         </div>
     </div>
 </div>
+{% endif %}
 {% endblock %}

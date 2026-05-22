@@ -29,12 +29,16 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
     ``surface`` is ``"public"`` on book.pastlives.space and ``"members"``
     everywhere else (members host, local dev, Hetzner staging, Render preview).
     ``is_public_surface`` is the convenience boolean templates branch on.
+    ``parent_template`` lets allauth templates pick their base via
+    ``{% extends parent_template %}`` without forking the template files.
     """
     value = getattr(request, "surface", "members")
+    is_public = value == "public"
     return {
         "surface": value,
-        "is_public_surface": value == "public",
+        "is_public_surface": is_public,
         "MEMBER_HOST": settings.MEMBER_HOST,
+        "parent_template": "classes/base_public.html" if is_public else "base.html",
     }
 
 

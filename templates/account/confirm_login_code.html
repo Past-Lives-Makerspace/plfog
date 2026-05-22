@@ -1,8 +1,39 @@
-{% extends "base.html" %}
+{% extends parent_template %}
+{% load static %}
 
 {% block title %}Enter Login Code - Past Lives{% endblock %}
 
 {% block content %}
+{% if is_public_surface %}
+<div class="cp-page">
+{% block portal_content %}
+<div class="bk-themed-code">
+  <link rel="stylesheet" href="{% static 'css/book-account.css' %}">
+  <div class="bk-auth">
+    <div class="bk-auth-card">
+      <div class="bk-auth-eyebrow">Check your email</div>
+      <h1 class="bk-auth-title">Enter your code.</h1>
+      <p class="bk-auth-sub">We sent a 6-digit code. It expires in 10 minutes.</p>
+      <form method="POST">{% csrf_token %}
+        <div class="bk-field">
+          <label>Code</label>
+          {{ form.code }}
+          {% if form.code.errors %}<div class="bk-field-hint" style="color:#f87171">{{ form.code.errors.0 }}</div>{% endif %}
+        </div>
+        <div class="bk-auth-actions">
+          <button type="submit" class="bk-btn-primary">Verify &amp; sign in</button>
+        </div>
+      </form>
+      <div class="bk-auth-links" style="margin-top:18px">
+        <p><a href="{% url 'account_request_login_code' %}">Didn't get a code? Resend</a></p>
+        <p><a href="{% url 'restart_login' %}">Use a different email</a></p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+</div>
+{% else %}
 <div class="auth-page">
     <h1 class="auth-page__title">Check Your Email</h1>
     <p class="auth-page__subtitle">We sent a 6-digit code to your email address. Enter it below to log in.</p>
@@ -18,4 +49,5 @@
         </div>
     </div>
 </div>
+{% endif %}
 {% endblock %}

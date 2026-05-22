@@ -14,9 +14,9 @@ The middleware tags every request with ``request.surface`` so templates and
 views can branch on the chrome they should render, and short-circuits any
 request to a member-only path that arrives on the public surface.
 
-Member auth (``/accounts/*``) on the public surface is redirected to the
-members host so the allauth session cookie always lands on the host where
-the member dashboard lives.
+Member auth (``/accounts/*``) is served on both surfaces. Session cookies
+are scoped to ``.pastlives.space`` so a login completed on book is
+recognised on members automatically.
 
 The root path on the public surface redirects to ``/classes/`` so the bare
 domain lands on the catalog rather than the member hub home.
@@ -63,12 +63,9 @@ class SurfaceMiddleware:
         if path == "/":
             return HttpResponseRedirect("/classes/")
 
-        if path.startswith("/accounts/"):
-            member_host = getattr(settings, "MEMBER_HOST", "")
-            if member_host:
-                scheme = "https" if request.is_secure() else "http"
-                query = f"?{request.META['QUERY_STRING']}" if request.META.get("QUERY_STRING") else ""
-                return HttpResponseRedirect(f"{scheme}://{member_host}{path}{query}")
+        # Allauth runs on both surfaces — session cookies scope to .pastlives.space
+        # (see SESSION_COOKIE_DOMAIN in settings) so a login on book is recognised
+        # on members. The templates branch chrome on is_public_surface.
 
         member_only_prefixes: tuple[str, ...] = tuple(getattr(settings, "MEMBER_ONLY_PATH_PREFIXES", ()))
         for prefix in member_only_prefixes:
