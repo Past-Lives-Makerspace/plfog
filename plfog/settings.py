@@ -73,6 +73,11 @@ MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/tab/",
 )
 
+# Paths that only exist on the public/book surface. Requests to these on the
+# members host get 302-redirected to the book host so members visiting
+# /account/ end up on book.pastlives.space (where /account/ actually lives).
+PUBLIC_ONLY_PATH_PREFIXES: tuple[str, ...] = ("/account/",)
+
 # Allauth needs to know about the reverse proxy to resolve client IPs for rate limiting
 ALLAUTH_TRUSTED_PROXY_COUNT = int(os.environ.get("ALLAUTH_TRUSTED_PROXY_COUNT", "0"))
 

@@ -45,6 +45,10 @@ class SurfaceMiddleware:
             short_circuit = self._handle_public_surface(request)
             if short_circuit is not None:
                 return short_circuit
+        else:
+            short_circuit = self._handle_members_surface(request)
+            if short_circuit is not None:
+                return short_circuit
 
         return self.get_response(request)
 
@@ -71,4 +75,25 @@ class SurfaceMiddleware:
             if path.startswith(prefix):
                 raise Http404("Not available on this surface.")
 
+        return None
+
+    def _handle_members_surface(self, request: HttpRequest) -> HttpResponse | None:
+        """Redirect public-only paths back to the book host.
+
+        The members host serves the full member application. Paths like
+        ``/account/`` only exist on the public surface — bouncing a member who
+        typed the wrong host back to book is friendlier than a 404.
+        """
+        public_only_prefixes: tuple[str, ...] = tuple(getattr(settings, "PUBLIC_ONLY_PATH_PREFIXES", ()))
+        if not public_only_prefixes:
+            return None
+        public_hosts = list(getattr(settings, "PUBLIC_HOSTS", []))
+        if not public_hosts:
+            return None
+        book_host = public_hosts[0]
+        for prefix in public_only_prefixes:
+            if request.path.startswith(prefix):
+                scheme = "https" if request.is_secure() else "http"
+                query = f"?{request.META['QUERY_STRING']}" if request.META.get("QUERY_STRING") else ""
+                return HttpResponseRedirect(f"{scheme}://{book_host}{request.path}{query}")
         return None
