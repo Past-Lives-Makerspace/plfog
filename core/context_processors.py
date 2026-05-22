@@ -54,6 +54,12 @@ def persona(request: HttpRequest) -> dict[str, str | bool]:
     convenience booleans so templates can render banners and topbar variants
     without re-deriving. Cached on the request so it's safe to call from both
     the context processor and view code.
+
+    The "member" persona is reserved for users whose Member record was imported
+    from Airtable (``airtable_record_id`` set). Auto-created shell Members from
+    the ``ensure_user_has_member`` signal — created for everyone who signs up
+    on book.pastlives.space without paying dues — read as "nonmember" here.
+    Airtable is the authoritative roster for real dues-paying members.
     """
     cached = getattr(request, "_persona", None)
     if cached is not None:
@@ -68,7 +74,7 @@ def persona(request: HttpRequest) -> dict[str, str | bool]:
     from membership.models import Member
 
     member = getattr(user, "member", None)
-    is_active_member = bool(member and member.status == Member.Status.ACTIVE)
+    is_active_member = bool(member and member.status == Member.Status.ACTIVE and member.airtable_record_id)
     is_instructor = hasattr(user, "instructor")
 
     if is_active_member:
