@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from django.urls import path
-from django.views.generic import TemplateView
+
+from classes.account import views
 
 app_name = "account"
 
 urlpatterns = [
-    path(
-        "",
-        TemplateView.as_view(template_name="classes/account/_overview_stub.html"),
-        name="overview",
-    ),
+    path("", views.OverviewView.as_view(), name="overview"),
+    path("history/", views.HistoryView.as_view(), name="history"),
+    path("receipts/", views.ReceiptsView.as_view(), name="receipts"),
+    path("profile/", views.ProfileView.as_view(), name="profile"),
+    path("lookup/", views.LookupView.as_view(), name="lookup"),
 ]

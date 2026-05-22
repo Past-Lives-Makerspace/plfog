@@ -1,0 +1,33 @@
+{% extends "classes/base_public.html" %}
+{% load static %}
+
+{% block classes_extra_head %}
+<link rel="stylesheet" href="{% static 'css/book-account.css' %}">
+{% endblock %}
+
+{% block portal_content %}
+<div class="bk-page">
+  <div class="bk-container">
+    {% block account_hero %}
+      <div class="bk-h1-row">
+        <div>
+          <div class="bk-eyebrow">{% block account_eyebrow %}My account{% endblock %}</div>
+          <h1 class="bk-h1">{% block account_title %}{% endblock %}</h1>
+          {% block account_sub %}{% endblock %}
+        </div>
+      </div>
+    {% endblock %}
+
+    {% block account_tabs %}
+    <div class="bk-tabs" role="tablist">
+      <a href="{% url 'account:overview' %}" class="bk-tab {% if active_tab == 'overview' %}is-on{% endif %}">Upcoming</a>
+      <a href="{% url 'account:history' %}" class="bk-tab {% if active_tab == 'history' %}is-on{% endif %}">Past classes</a>
+      <a href="{% url 'account:receipts' %}" class="bk-tab {% if active_tab == 'receipts' %}is-on{% endif %}">Receipts</a>
+      <a href="{% url 'account:profile' %}" class="bk-tab {% if active_tab == 'profile' %}is-on{% endif %}">Profile</a>
+    </div>
+    {% endblock %}
+
+    {% block account_body %}{% endblock %}
+  </div>
+</div>
+{% endblock %}
