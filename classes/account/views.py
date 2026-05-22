@@ -8,6 +8,7 @@ can look up their booking without an account.
 from __future__ import annotations
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.utils import timezone
 from django.views.generic import TemplateView
 
 
@@ -24,6 +25,29 @@ class _LoggedInAccountView(LoginRequiredMixin, TemplateView):
 class OverviewView(_LoggedInAccountView):
     template_name = "classes/account/overview.html"
     active_tab = "overview"
+
+    def get_context_data(self, **kwargs):
+        from classes.account.selectors import upcoming_registrations
+        from classes.models import ClassOffering
+
+        ctx = super().get_context_data(**kwargs)
+        ctx["upcoming"] = list(upcoming_registrations(self.request.user))
+
+        # Instructor banner count — how many classes is this user teaching that
+        # still have a future session?
+        instructor = getattr(self.request.user, "instructor", None)
+        if instructor is not None:
+            ctx["instructor_upcoming_count"] = (
+                ClassOffering.objects.filter(instructor=instructor, status=ClassOffering.Status.PUBLISHED)
+                .filter(sessions__starts_at__gte=timezone.now())
+                .distinct()
+                .count()
+            )
+        else:
+            ctx["instructor_upcoming_count"] = 0
+
+        ctx["nudge_dismissed"] = self.request.COOKIES.get("pl_nudge_dismissed") == "1"
+        return ctx
 
 
 class HistoryView(_LoggedInAccountView):
