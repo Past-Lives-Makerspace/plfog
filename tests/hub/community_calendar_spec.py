@@ -618,6 +618,45 @@ def describe_calendar_events_partial_invalid_params():
         assert response.context["event_page"] == 1
 
 
+def describe_sync_calendar_feed():
+    def it_returns_zero_when_feed_has_no_ical_url():
+        # Line 129: sync_calendar_feed early-return when ical_url is blank.
+        from core.models import CalendarFeed
+        from hub.calendar_service import sync_calendar_feed
+
+        feed = CalendarFeed.objects.create(name="Empty", ical_url="", color="#EEB44B")
+        count = sync_calendar_feed(feed)
+        assert count == 0
+        # last_fetched_at must remain untouched — no network call was made.
+        feed.refresh_from_db()
+        assert feed.last_fetched_at is None
+
+
+def describe_sync_general_calendar_skips_blank_url():
+    def it_skips_feeds_with_no_ical_url_and_only_counts_real_syncs():
+        # Line 142: the `continue` branch inside sync_general_calendar for blank ical_url.
+        from core.models import CalendarFeed
+        from hub.calendar_service import sync_general_calendar
+
+        CalendarFeed.objects.create(name="No URL", ical_url="", color="#EEB44B")
+        CalendarFeed.objects.create(name="With URL", ical_url="https://example.com/valid.ics", color="#7C5CBF")
+        with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
+            count = sync_general_calendar()
+        # Only the feed with a URL contributes; the blank-URL feed is skipped.
+        assert count == 2
+        assert CalendarEvent.objects.filter(guild__isnull=True).count() == 2
+
+
+def describe_refresh_stale_sources_local_class_exception():
+    def it_swallows_exceptions_from_sync_local_class_events():
+        # Lines 316-317: the `except Exception: pass` around sync_local_class_events.
+        from hub.calendar_service import refresh_stale_sources
+
+        with patch("hub.calendar_service.sync_local_class_events", side_effect=RuntimeError("db gone")):
+            # Should not raise — exception is swallowed.
+            refresh_stale_sources(max_age_seconds=0)
+
+
 def describe_calendar_week_label_cross_month():
     def it_uses_full_month_names_when_week_spans_two_months(client: Client):
         """Week label format when start and end months differ (e.g. Apr 28 – May 4)."""

@@ -219,3 +219,205 @@ def describe_instructor_profile():
         instructor_fixture.refresh_from_db()
         assert instructor_fixture.display_name == "New Name"
         assert instructor_fixture.bio == "Updated bio"
+
+    def it_renders_profile_form_on_get(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        response = client.get(reverse("classes:instructor_profile"))
+        assert response.status_code == 200
+        assert instructor_fixture.display_name.encode() in response.content
+
+
+def describe_instructor_class_create_invalid():
+    def it_rerenders_form_on_invalid_post(instructor_fixture, client):
+        """Missing required fields → form re-renders (line 519 fallback path)."""
+        client.force_login(instructor_fixture.user)
+        response = client.post(
+            reverse("classes:instructor_class_create"),
+            {
+                # Missing title, category, price — form will be invalid
+                "sessions-TOTAL_FORMS": "0",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "action": "save",
+            },
+        )
+        assert response.status_code == 200
+
+
+def describe_instructor_class_edit_post():
+    def it_updates_draft_without_submit(instructor_fixture, client):
+        """Edit POST with action=save → plain update path (line 552-553)."""
+        cat = CategoryFactory()
+        mine = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            slug="mine-update",
+            status=ClassOffering.Status.DRAFT,
+            category=cat,
+            title="Original Title",
+        )
+        client.force_login(instructor_fixture.user)
+        start = (timezone.now() + timedelta(days=10)).strftime("%Y-%m-%dT%H:%M")
+        end = (timezone.now() + timedelta(days=10, hours=2)).strftime("%Y-%m-%dT%H:%M")
+        response = client.post(
+            reverse("classes:instructor_class_edit", kwargs={"pk": mine.pk}),
+            {
+                "title": "Updated Title",
+                "category": cat.pk,
+                "description": "Updated description",
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "price_cents": 3000,
+                "member_discount_pct": 0,
+                "capacity": 8,
+                "scheduling_model": "fixed",
+                "flexible_note": "",
+                "recurring_pattern": "",
+                "sessions-TOTAL_FORMS": "1",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "sessions-0-starts_at": start,
+                "sessions-0-ends_at": end,
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "action": "save",
+            },
+        )
+        assert response.status_code == 302
+        mine.refresh_from_db()
+        assert mine.title == "Updated Title"
+        assert mine.status == ClassOffering.Status.DRAFT
+
+    def it_submits_draft_for_review_when_action_is_submit(instructor_fixture, client):
+        """Edit POST with action=submit + draft status → submit_for_review (lines 549-551)."""
+        cat = CategoryFactory()
+        mine = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            slug="mine-submit-edit",
+            status=ClassOffering.Status.DRAFT,
+            category=cat,
+        )
+        client.force_login(instructor_fixture.user)
+        start = (timezone.now() + timedelta(days=10)).strftime("%Y-%m-%dT%H:%M")
+        end = (timezone.now() + timedelta(days=10, hours=2)).strftime("%Y-%m-%dT%H:%M")
+        response = client.post(
+            reverse("classes:instructor_class_edit", kwargs={"pk": mine.pk}),
+            {
+                "title": mine.title,
+                "category": cat.pk,
+                "description": "d",
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "price_cents": mine.price_cents,
+                "member_discount_pct": mine.member_discount_pct,
+                "capacity": mine.capacity,
+                "scheduling_model": "fixed",
+                "flexible_note": "",
+                "recurring_pattern": "",
+                "sessions-TOTAL_FORMS": "1",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "sessions-0-starts_at": start,
+                "sessions-0-ends_at": end,
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "action": "submit",
+            },
+        )
+        assert response.status_code == 302
+        mine.refresh_from_db()
+        assert mine.status == ClassOffering.Status.PENDING
+
+
+def describe_instructor_discount_code_instructor_crud():
+    def it_creates_a_discount_code(instructor_fixture, client):
+        """Instructor creates a discount code via the Teaching portal (lines 647-649)."""
+        client.force_login(instructor_fixture.user)
+        response = client.post(
+            reverse("classes:instructor_discount_code_create"),
+            {"code": "TEACH10", "discount_pct": 10, "is_active": "on"},
+        )
+        assert response.status_code == 302
+        from classes.models import DiscountCode
+
+        assert DiscountCode.objects.filter(code="TEACH10").exists()
+
+    def it_renders_create_form_on_get(instructor_fixture, client):
+        """GET on create renders the empty form (line 650)."""
+        client.force_login(instructor_fixture.user)
+        response = client.get(reverse("classes:instructor_discount_code_create"))
+        assert response.status_code == 200
+
+    def it_edits_a_discount_code(instructor_fixture, client):
+        """Instructor edits an existing discount code (lines 663-665)."""
+        from classes.factories import DiscountCodeFactory
+
+        code = DiscountCodeFactory(discount_pct=10)
+        client.force_login(instructor_fixture.user)
+        response = client.post(
+            reverse("classes:instructor_discount_code_edit", kwargs={"pk": code.pk}),
+            {"code": code.code, "discount_pct": 30, "is_active": "on"},
+        )
+        assert response.status_code == 302
+        code.refresh_from_db()
+        assert code.discount_pct == 30
+
+    def it_renders_edit_form_on_get(instructor_fixture, client):
+        """GET on edit renders the filled form (line 666)."""
+        from classes.factories import DiscountCodeFactory
+
+        code = DiscountCodeFactory(discount_pct=15)
+        client.force_login(instructor_fixture.user)
+        response = client.get(reverse("classes:instructor_discount_code_edit", kwargs={"pk": code.pk}))
+        assert response.status_code == 200
+
+    def it_deletes_a_discount_code(instructor_fixture, client):
+        """POST to delete removes the code (lines 676-678)."""
+        from classes.factories import DiscountCodeFactory
+        from classes.models import DiscountCode
+
+        code = DiscountCodeFactory()
+        client.force_login(instructor_fixture.user)
+        response = client.post(
+            reverse("classes:instructor_discount_code_delete", kwargs={"pk": code.pk}),
+        )
+        assert response.status_code == 302
+        assert not DiscountCode.objects.filter(pk=code.pk).exists()
+
+    def it_ignores_get_on_delete_and_redirects(instructor_fixture, client):
+        """GET on delete does not delete, just redirects (line 679)."""
+        from classes.factories import DiscountCodeFactory
+        from classes.models import DiscountCode
+
+        code = DiscountCodeFactory()
+        client.force_login(instructor_fixture.user)
+        response = client.get(
+            reverse("classes:instructor_discount_code_delete", kwargs={"pk": code.pk}),
+        )
+        assert response.status_code == 302
+        assert DiscountCode.objects.filter(pk=code.pk).exists()
+
+
+def describe_instructor_required_admin_without_instructor():
+    def it_redirects_admin_with_no_instructor_profile(admin_user, client):
+        """Admin who has no Instructor record gets bounced to admin_instructors (lines 422-426)."""
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:instructor_dashboard"))
+        assert response.status_code == 302
+        assert "instructors" in response.url

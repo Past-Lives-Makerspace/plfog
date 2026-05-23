@@ -98,6 +98,21 @@ def describe_past_registrations():
         assert past_registrations(user).count() == 0
 
 
+def describe_registrations_for_user_with_no_email_and_no_member():
+    def it_returns_empty_queryset_for_user_with_no_email_and_no_member(db):
+        from unittest.mock import MagicMock
+
+        from classes.account.selectors import upcoming_registrations
+
+        # Simulate a user with no email and no member attribute.
+        user = MagicMock()
+        user.email = ""
+        del user.member  # accessing user.member raises AttributeError → getattr returns None
+
+        result = upcoming_registrations(user)
+        assert result.count() == 0
+
+
 def describe_paid_registrations():
     def it_returns_only_registrations_with_a_stripe_payment_id(db):
         user = UserFactory()

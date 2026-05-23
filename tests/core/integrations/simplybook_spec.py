@@ -92,3 +92,69 @@ def describe_SimplybookClient():
                 client.has_completed_tour("c@d.com")
             # 1 login + 2 bookings = 3 calls total; login not repeated.
             assert m.call_count == 3
+
+
+def describe__get_token():
+    def it_returns_none_when_login_response_is_not_ok():
+        client = sb.SimplybookClient(config=sb.SimplybookConfig(api_key="k", company_login="c"))
+        bad_response = MagicMock()
+        bad_response.ok = False
+        bad_response.status_code = 503
+        bad_response.text = "Service Unavailable"
+        with patch("requests.post", return_value=bad_response):
+            token = client._get_token()
+        assert token is None
+
+    def it_returns_none_when_login_response_is_non_json():
+        client = sb.SimplybookClient(config=sb.SimplybookConfig(api_key="k", company_login="c"))
+        bad_response = MagicMock()
+        bad_response.ok = True
+        bad_response.text = "<html>Not JSON</html>"
+        bad_response.json.side_effect = ValueError("No JSON")
+        with patch("requests.post", return_value=bad_response):
+            token = client._get_token()
+        assert token is None
+
+    def it_returns_none_when_result_field_is_missing():
+        client = sb.SimplybookClient(config=sb.SimplybookConfig(api_key="k", company_login="c"))
+        response = _json_response({"error": "unauthorized"})
+        with patch("requests.post", return_value=response):
+            token = client._get_token()
+        assert token is None
+
+    def it_returns_none_when_result_field_is_falsy():
+        client = sb.SimplybookClient(config=sb.SimplybookConfig(api_key="k", company_login="c"))
+        response = _json_response({"result": ""})
+        with patch("requests.post", return_value=response):
+            token = client._get_token()
+        assert token is None
+
+
+def describe__rpc():
+    def it_returns_none_on_network_error_during_rpc():
+        client = sb.SimplybookClient(config=sb.SimplybookConfig(api_key="k", company_login="c"))
+        login_response = _json_response({"result": "sessiontoken"})
+        with patch("requests.post", side_effect=[login_response, requests.ConnectionError("timeout")]):
+            result = client._rpc("getBookings", [{}])
+        assert result is None
+
+    def it_returns_none_when_rpc_response_is_not_ok():
+        client = sb.SimplybookClient(config=sb.SimplybookConfig(api_key="k", company_login="c"))
+        login_response = _json_response({"result": "sessiontoken"})
+        bad_response = MagicMock()
+        bad_response.ok = False
+        bad_response.status_code = 403
+        bad_response.text = "Forbidden"
+        with patch("requests.post", side_effect=[login_response, bad_response]):
+            result = client._rpc("getBookings", [{}])
+        assert result is None
+
+    def it_returns_none_when_rpc_response_is_non_json():
+        client = sb.SimplybookClient(config=sb.SimplybookConfig(api_key="k", company_login="c"))
+        login_response = _json_response({"result": "sessiontoken"})
+        bad_response = MagicMock()
+        bad_response.ok = True
+        bad_response.json.side_effect = ValueError("No JSON")
+        with patch("requests.post", side_effect=[login_response, bad_response]):
+            result = client._rpc("getBookings", [{}])
+        assert result is None

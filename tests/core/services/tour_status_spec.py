@@ -84,3 +84,24 @@ def describe_force_refresh():
         ) as spy:
             force_refresh(user)
         spy.assert_called_once()
+
+    def it_no_ops_when_user_has_no_profile(simplybook_enabled):
+        # Line 41: force_refresh returns early when profile is None.
+        User = get_user_model()
+        user = User.objects.create_user(username="noprofile@example.com", email="noprofile@example.com", password="x")
+        with patch("core.integrations.simplybook.SimplybookClient.has_completed_tour") as spy:
+            force_refresh(user)
+        spy.assert_not_called()
+
+
+def describe__refresh():
+    def it_no_ops_when_user_email_is_blank(simplybook_enabled):
+        # Line 53: _refresh returns early when email strips to empty.
+        user = _user_with_profile(username="blank@example.com", email="")
+        # Give the profile a blank email by blanking the user's email directly.
+        user.email = ""
+        user.save()
+        with patch("core.integrations.simplybook.SimplybookClient.has_completed_tour") as spy:
+            # force_refresh calls _refresh unconditionally.
+            force_refresh(user)
+        spy.assert_not_called()

@@ -39,9 +39,9 @@ class SurfaceMiddleware:
     def __call__(self, request: HttpRequest) -> HttpResponse:
         host = request.get_host().split(":", 1)[0].lower()
         public_hosts: set[str] = set(getattr(settings, "PUBLIC_HOSTS", []))
-        request.surface = "public" if host in public_hosts else "members"
+        request.surface = "public" if host in public_hosts else "members"  # type: ignore[attr-defined]
 
-        if request.surface == "public":
+        if request.surface == "public":  # type: ignore[attr-defined]
             short_circuit = self._handle_public_surface(request)
             if short_circuit is not None:
                 return short_circuit

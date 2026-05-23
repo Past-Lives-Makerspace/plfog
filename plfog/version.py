@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-VERSION = "2.0.6"
+VERSION = "2.0.7"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.0.7",
+        "date": "2026-05-23",
+        "title": "Fix: production deploy blocked by migration conflict",
+        "changes": [
+            "Fixed a migration conflict that was preventing the app from starting on production. Two independent changes landed on the same migration number and Django refused to run until they were merged — no data was affected, the app just couldn't start.",
+        ],
+    },
     {
         "version": "2.0.6",
         "date": "2026-05-23",

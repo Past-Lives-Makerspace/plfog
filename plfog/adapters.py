@@ -108,7 +108,7 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         if surface == "public":
             from core.models import UserProfile
 
-            profile = UserProfile.objects.filter(user=request.user).first()
+            profile = UserProfile.objects.filter(user=request.user).first()  # type: ignore[misc]
             if profile is None or not profile.is_onboarded:
                 return reverse("account:onboarding_step1")
             return reverse("account:overview")

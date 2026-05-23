@@ -82,6 +82,32 @@ def describe_normalize_image():
         assert not img.getexif()
 
 
+def describe_normalize_image_non_rgb_mode():
+    def it_converts_grayscale_to_rgb():
+        # "L" mode is grayscale — not RGBA, not RGB; triggers the convert("RGB") branch (line 54).
+        img = Image.new("L", (100, 100), 128)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+
+        out = normalize_image(buf, max_long_edge=200)
+
+        result = Image.open(out)
+        assert result.mode == "RGB"
+
+    def it_converts_palette_mode_to_rgb():
+        # "P" mode (palette) is another non-RGB, non-RGBA mode.
+        img = Image.new("P", (100, 100))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+
+        out = normalize_image(buf, max_long_edge=200)
+
+        result = Image.open(out)
+        assert result.mode == "RGB"
+
+
 def describe_normalize_field_if_uploaded():
     def it_replaces_fresh_uploads_with_normalized_version():
         class Holder:

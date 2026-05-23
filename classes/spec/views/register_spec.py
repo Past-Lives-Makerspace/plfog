@@ -239,3 +239,116 @@ def describe_my_registration_view():
         assert response.status_code == 302
         registration.refresh_from_db()
         assert registration.status == Registration.Status.CONFIRMED  # unchanged
+
+    def it_does_nothing_when_registration_already_cancelled(paid_offering, client):
+        registration = RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CANCELLED)
+        url = reverse("classes:my_registration_cancel", kwargs={"token": registration.self_serve_token})
+        response = client.post(url)
+        assert response.status_code == 302
+        registration.refresh_from_db()
+        assert registration.status == Registration.Status.CANCELLED
+
+
+def describe_registration_initial_for_user():
+    def it_returns_email_when_user_has_no_member_record(db, client):
+        """Authenticated user whose Member was deleted — only email is pre-filled."""
+        from classes.factories import UserFactory
+
+        user = UserFactory(username="nomember@example.com", email="nomember@example.com")
+        # The signal auto-creates a Member; delete it so user.member raises RelatedObjectDoesNotExist,
+        # causing getattr(user, "member", None) to return None (line 188 branch).
+        user.member.delete()
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            slug="nomember-test",
+            category=CategoryFactory(),
+            instructor=InstructorFactory(),
+        )
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=5),
+            ends_at=timezone.now() + timedelta(days=5, hours=2),
+        )
+        client.force_login(user)
+        response = client.get(reverse("classes:register", kwargs={"slug": offering.slug}))
+        assert response.status_code == 200
+        assert b"nomember@example.com" in response.content
+
+
+def describe_register_with_discount_code():
+    def it_bumps_discount_use_count_on_free_class_with_code(db, client):
+        """Free class + active discount code → use_count increments on confirm."""
+        from classes.factories import DiscountCodeFactory
+
+        code = DiscountCodeFactory(code="FREEBIE", discount_pct=100, is_active=True)
+        offering = ClassOfferingFactory(
+            title="Free With Code",
+            slug="free-with-code",
+            category=CategoryFactory(),
+            instructor=InstructorFactory(),
+            status=ClassOffering.Status.PUBLISHED,
+            price_cents=5000,
+            member_discount_pct=0,
+            capacity=10,
+        )
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=7),
+            ends_at=timezone.now() + timedelta(days=7, hours=2),
+        )
+        data = {
+            "first_name": "Dee",
+            "last_name": "Count",
+            "pronouns": "",
+            "email": "dee@example.com",
+            "phone": "",
+            "prior_experience": "",
+            "looking_for": "",
+            "discount_code": "FREEBIE",
+            "liability_signature": "Dee Count",
+            "accepts_liability": "on",
+        }
+        response = client.post(reverse("classes:register", kwargs={"slug": offering.slug}), data=data)
+        assert response.status_code == 302
+        code.refresh_from_db()
+        assert code.use_count == 1
+
+
+def describe_client_ip():
+    def it_extracts_ip_from_x_forwarded_for_header(db, client):
+        """When X-Forwarded-For is present, the first IP is used — verified via registration."""
+        offering = ClassOfferingFactory(
+            title="Proxy Class",
+            slug="proxy-class",
+            category=CategoryFactory(),
+            instructor=InstructorFactory(),
+            status=ClassOffering.Status.PUBLISHED,
+            price_cents=0,
+            member_discount_pct=0,
+            capacity=10,
+        )
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=2),
+            ends_at=timezone.now() + timedelta(days=2, hours=2),
+        )
+        data = {
+            "first_name": "Proxy",
+            "last_name": "User",
+            "pronouns": "",
+            "email": "proxy@example.com",
+            "phone": "",
+            "prior_experience": "",
+            "looking_for": "",
+            "discount_code": "",
+            "liability_signature": "Proxy User",
+            "accepts_liability": "on",
+        }
+        response = client.post(
+            reverse("classes:register", kwargs={"slug": offering.slug}),
+            data=data,
+            HTTP_X_FORWARDED_FOR="203.0.113.42, 10.0.0.1",
+        )
+        # Registration succeeds — form received the proxied IP without error.
+        assert response.status_code == 302
+        assert Registration.objects.filter(class_offering=offering).exists()

@@ -73,3 +73,67 @@ def describe_demo_data_remove():
     def it_is_safe_to_run_on_an_empty_database():
         # No prior seed — remove should no-op cleanly.
         call_command("demo_data", "--remove")
+
+
+def describe_demo_data_seed_email_repair():
+    def it_repairs_blank_email_on_existing_user():
+        """The _ensure_user branch `if not user.email: user.email = email` is hit
+        when a user row already exists but its email column was cleared externally."""
+        User = get_user_model()
+        # Create the user manually with a blank email so get_or_create finds it.
+        user = User.objects.create_user(username=PERSONA_STUDENT_EMAIL, email="", password="x")
+        assert user.email == ""
+
+        # Seeding should repair the email.
+        call_command("demo_data")
+
+        user.refresh_from_db()
+        assert user.email == PERSONA_STUDENT_EMAIL
+
+
+def describe_demo_data_status():
+    def it_prints_counts_without_modifying_data():
+        import io
+
+        from django.core.management import call_command as cc
+
+        # Seed first so there's something to report.
+        cc("demo_data")
+
+        User = get_user_model()
+        user_count_before = User.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count()
+        reg_count_before = Registration.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count()
+
+        out = io.StringIO()
+        cc("demo_data", "--status", stdout=out)
+
+        # No objects were created or destroyed.
+        assert User.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == user_count_before
+        assert Registration.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == reg_count_before
+        # Output contains summary labels.
+        output = out.getvalue()
+        assert "Users:" in output
+        assert "Classes:" in output
+        assert "Registrations:" in output
+
+    def it_lists_each_seeded_user_email_in_status_output():
+        import io
+
+        from django.core.management import call_command as cc
+
+        cc("demo_data")
+        out = io.StringIO()
+        cc("demo_data", "--status", stdout=out)
+        output = out.getvalue()
+        assert PERSONA_STUDENT_EMAIL in output
+        assert PERSONA_INSTRUCTOR_EMAIL in output
+
+    def it_prints_status_even_when_no_data_seeded():
+        import io
+
+        from django.core.management import call_command as cc
+
+        out = io.StringIO()
+        cc("demo_data", "--status", stdout=out)
+        output = out.getvalue()
+        assert "Users:" in output
