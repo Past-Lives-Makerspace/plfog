@@ -19,7 +19,7 @@
     {% elif request.view_as.is_instructor %}
       <a class="cta-secondary" href="{% url 'classes:instructor_dashboard' %}">Manage My Classes</a>
     {% endif %}
-    {% if user.is_authenticated and not request.GET.public %}
+    {% if user.is_authenticated and not request.GET.public and not is_public_surface %}
       <a class="cta-secondary" href="?public=1" hx-boost="false" title="Preview the page the way a logged-out visitor sees it">View Publicly</a>
     {% endif %}
   </div>
@@ -56,7 +56,8 @@
               <a class="cls-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}" aria-label="{{ offering.title }}"></a>
               <div class="cls-media">
                 {% if offering.image %}
-                  <img class="cls-img" src="{{ offering.image.url }}" alt="" loading="lazy">
+                  <img class="cls-img" src="{{ offering.image.url }}" alt="" loading="lazy"
+                       {% if offering.hero_crop_w %}style="object-position: {{ offering.hero_object_position }};"{% endif %}>
                 {% elif offering.category.hero_image %}
                   <img class="cls-img" src="{{ offering.category.hero_image.url }}" alt="" loading="lazy">
                 {% else %}

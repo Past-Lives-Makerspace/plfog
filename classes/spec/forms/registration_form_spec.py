@@ -85,6 +85,16 @@ def describe_RegistrationForm():
             form = RegistrationForm(data=_post_data(discount_code="OLD"), offering=offering, settings_obj=settings_obj)
             assert not form.is_valid()
 
+        def it_rejects_when_final_price_is_below_stripe_minimum(offering, settings_obj):
+            # 99% off a $100 class = $1.00, still fine. 99% off a $40 class = $0.40, below Stripe's $0.50 floor.
+            offering.price_cents = 4000
+            offering.member_discount_pct = 0
+            offering.save()
+            DiscountCodeFactory(code="DEEP", discount_pct=99)
+            form = RegistrationForm(data=_post_data(discount_code="DEEP"), offering=offering, settings_obj=settings_obj)
+            assert not form.is_valid()
+            assert "$0.50" in str(form.errors)
+
         def it_requires_model_release_when_class_demands_it(offering, settings_obj):
             offering.requires_model_release = True
             offering.save()

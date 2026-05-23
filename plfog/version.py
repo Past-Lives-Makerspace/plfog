@@ -2,9 +2,86 @@
 
 from __future__ import annotations
 
-VERSION = "1.9.1"
+VERSION = "2.0.6"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.0.6",
+        "date": "2026-05-23",
+        "title": "Classes: smarter photos, newsletter tagging, custom questions, and instructor messaging",
+        "changes": [
+            "Class photos now auto-resize on upload — drop in a 4MB iPhone HEIC and we'll downscale and convert it to a clean web JPEG. The hero image gets a built-in crop tool: pick the 16:9 focal point and the public page crops to your selection.",
+            "Newsletter tagging picks up more context. When someone registers for a class, their newsletter contact now gets tagged with the category, the instructor, the guild (if the category is linked to one), and 'first-time-student' if it's their first class with us.",
+            "Categories can now be linked to a guild. Admins set the link from the category edit page, and it drives the new guild Mailchimp tag.",
+            "When a member finishes onboarding on book.pastlives.space, their account is now synced to Mailchimp with their persona, referral source, and category interests as tags — so newsletter campaigns can target by 'how they found us' or 'what they're interested in', not just who's already registered for a class.",
+            "Tour status from Simplybook is now pulled into member profiles. The account overview and instructor roster can show whether a member has completed a tour, refreshed at most once a day per member.",
+            "You can now set up global registration questions that get asked on every class registration. Admins manage the list from the Django admin — short text, paragraph, yes/no, or pick-one — and instructors see the answers next to each registrant on their registrations page.",
+            "Instructors can now email their students directly from the registrations page. Tick the rows you want to message, type a subject and body, and send. Recipients are BCC'd so no one sees the others' addresses, and every send is logged for the audit trail.",
+        ],
+    },
+    {
+        "version": "2.0.5",
+        "date": "2026-05-22",
+        "title": "Classes: multi-image galleries with hover-zoom + a preview button",
+        "changes": [
+            "When you create or edit a class, you can now upload extra gallery photos in addition to the hero banner — finished pieces, the studio space, tool close-ups, anything that helps a visitor picture the workshop. Each photo gets an optional alt-text field and a sort number so you can put them in the order you want.",
+            "Picking a new image instantly shows a thumbnail in the form so you can tell which file you grabbed before saving.",
+            "On the public class page, the hero now leads a real gallery — thumbnails along the bottom, hover anywhere on the main image to magnify a close-up of that spot (great for showing detail on glasswork, ceramics, fiber pieces), and click to open a full-screen lightbox with arrow-key navigation.",
+            "A new 'Preview' button on the class form opens the public class page in a new tab — instructors and admins can see exactly how the page will look to visitors before submitting for review or publishing, including drafts.",
+            "The hero image field now has a small '?' tooltip showing the recommended dimensions (1600 × 900, 16:9) and max file size so you know what to aim for before uploading.",
+        ],
+    },
+    {
+        "version": "2.0.4",
+        "date": "2026-05-22",
+        "title": "book.pastlives.space: an obvious way to sign up",
+        "changes": [
+            "The public site at book.pastlives.space now has a 'Sign up' button right in the navbar next to 'Log in' — new visitors don't have to know to click through Log in to find the signup link anymore.",
+            "Signing up on book.pastlives.space is always open, regardless of the invite-only setting in Site Settings. The invite-only gate was meant for makerspace membership signups on members.pastlives.space — it shouldn't be blocking someone from making a book account just to track their class registrations.",
+        ],
+    },
+    {
+        "version": "2.0.3",
+        "date": "2026-05-22",
+        "title": "Site Settings: add multiple calendars to the Community Calendar",
+        "changes": [
+            "Site Settings now has its own Calendar tab with a list of named calendar feeds — General, Workshops, Open Studio, anything you want. Click '+ Add calendar' to drop in another iCal URL, give it a name and a color, and it shows up on the Community Calendar legend with its own colored chips.",
+            "The Site Settings page is now organized into two tabs (General and Calendar) so finding registration, MailChimp, and analytics settings stays out of the way when you're just managing calendars.",
+            "Existing General Calendar setups were automatically migrated into the new list as a 'General Calendar' feed — nothing to do, no events go missing.",
+        ],
+    },
+    {
+        "version": "2.0.2",
+        "date": "2026-05-22",
+        "title": "Delete classes outright, and a $1 minimum on paid classes",
+        "changes": [
+            "Admins can now delete any class that has no registrations — not just drafts. The Delete button shows up on the class detail page next to Archive whenever no one has signed up yet. Classes with registrations still have to be archived so we keep the history.",
+            "When you set a price on a class, the minimum is now $1.00. Anything cheaper should just be a free class — tick 'This is a free class / workshop' and the price goes to zero. (This only affects new prices you set going forward; classes that were already priced below a dollar still work.)",
+        ],
+    },
+    {
+        "version": "2.0.1",
+        "date": "2026-05-22",
+        "title": "Class registration: friendlier error when a price comes out too low",
+        "changes": [
+            "Fixed a bug where the 'Continue to payment' button on a class registration page could show an error screen if the total ended up less than $0.50 (for example after applying a big discount code). You'll now see a clear message asking you to remove the code or get in touch with the studio.",
+        ],
+    },
+    {
+        "version": "2.0.0",
+        "date": "2026-05-22",
+        "title": "Classes & workshops are now open to everyone at book.pastlives.space",
+        "changes": [
+            "We launched a brand new public site at book.pastlives.space — anyone can browse our classes and workshops, sign up, and pay, no Past Lives account required. Send the link to friends, family, or anyone curious about taking a class with us.",
+            "Members: nothing changes for you. Classes still live in the sidebar at /classes/ inside your hub, the member discount still applies automatically, and your dashboard looks exactly the same as it did yesterday.",
+            "One login, two doors — if you're signed in on members.pastlives.space and you wander over to book.pastlives.space, we still recognize you and your member discount still applies. Handy for grabbing a link to share or showing a class to a non-member friend looking over your shoulder.",
+            "Anyone who registers for a class can now create a free account and log in at book.pastlives.space to see their upcoming classes, past classes, receipts, and edit their contact info. No membership required — it's just a lightweight place for class takers to keep track of what they've booked.",
+            "A short 3-step welcome runs the first time someone signs in at book.pastlives.space — it asks if they've ever taken a class with us before, collects a preferred name and a day-of contact phone, and lets them check off which kinds of classes they'd like to hear about. Every step is skippable, and we only email them about new classes in the categories they picked.",
+            "Booked as a guest and forgot to make an account? There's a new 'Find my booking' page at book.pastlives.space/account/lookup/ — type in your last name and the confirmation order number from your email (the friendly PL-XXXX-YY one we now print at the top of every confirmation) and we'll pull up your booking. No password needed.",
+            "Instructors can hop over to book.pastlives.space anytime to see classes they've personally signed up for as a student. A small link inside their account points back to their teaching dashboard on members.pastlives.space — that's still where class management happens.",
+            "Registrations from both surfaces land in the same place — admins manage everything from one Classes admin in the members hub, so there's nothing new to learn and nothing to keep in sync.",
+        ],
+    },
     {
         "version": "1.9.1",
         "date": "2026-05-21",

@@ -35,13 +35,13 @@
                 @click="$dispatch('open-confirm', '{{ archive_modal_id }}')">Archive</button>
         {% include "components/confirm_modal.html" with confirm_id=archive_modal_id confirm_title="Archive this class?" confirm_message="The class is hidden from the public portal and the instructor dashboard. Registrations are preserved. You can re-open it later via the Archived filter on the classes list." confirm_action_url=archive_url confirm_button_text="Archive Class" %}
     {% endif %}
-    {% if offering.status == 'draft' and not offering.registrations.exists %}
+    {% if not offering.registrations.exists %}
         {% url 'classes:admin_class_delete' pk=offering.pk as delete_url %}
         {% concat "delete-class-" offering.pk as delete_modal_id %}
         <button type="button"
                 class="hub-btn hub-btn--sm hub-btn--danger"
                 @click="$dispatch('open-confirm', '{{ delete_modal_id }}')">Delete</button>
-        {% include "components/confirm_modal.html" with confirm_id=delete_modal_id confirm_title="Delete this draft?" confirm_message="This permanently removes the class and its sessions. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete Draft" %}
+        {% include "components/confirm_modal.html" with confirm_id=delete_modal_id confirm_title="Delete this class?" confirm_message="This permanently removes the class and its sessions. This cannot be undone. (Classes with any registrations must be archived instead.)" confirm_action_url=delete_url confirm_button_text="Delete Class" %}
     {% endif %}
 </div>
 <h3>Sessions</h3>

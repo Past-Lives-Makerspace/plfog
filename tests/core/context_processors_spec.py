@@ -3,7 +3,7 @@
 import pytest
 from django.test import RequestFactory
 
-from core.context_processors import app_version, google_analytics, registration_mode
+from core.context_processors import app_version, google_analytics, registration_mode, surface
 from core.models import SiteConfiguration
 from plfog.version import CHANGELOG, VERSION
 
@@ -80,3 +80,42 @@ def describe_google_analytics():
         request = rf.get("/admin/")
         result = google_analytics(request)
         assert result == {"google_analytics_measurement_id": ""}
+
+
+def describe_surface():
+    def it_reports_public_when_request_surface_is_public(settings):
+        rf = RequestFactory()
+        request = rf.get("/")
+        request.surface = "public"
+        result = surface(request)
+        assert result == {
+            "surface": "public",
+            "is_public_surface": True,
+            "MEMBER_HOST": settings.MEMBER_HOST,
+            "parent_template": "classes/base_public.html",
+        }
+
+    def it_reports_members_when_request_surface_is_members(settings):
+        rf = RequestFactory()
+        request = rf.get("/")
+        request.surface = "members"
+        result = surface(request)
+        assert result == {
+            "surface": "members",
+            "is_public_surface": False,
+            "MEMBER_HOST": settings.MEMBER_HOST,
+            "parent_template": "base.html",
+        }
+
+    def it_defaults_to_members_when_attribute_missing(settings):
+        # If the middleware did not run (e.g. a unit test bypassing it), the
+        # context processor should default to the safer chrome.
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = surface(request)
+        assert result == {
+            "surface": "members",
+            "is_public_surface": False,
+            "MEMBER_HOST": settings.MEMBER_HOST,
+            "parent_template": "base.html",
+        }

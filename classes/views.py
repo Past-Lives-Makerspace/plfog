@@ -13,6 +13,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 if TYPE_CHECKING:
     from membership.models import Member
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
 from classes.emails import send_registration_confirmation
 from classes.forms import (
     CategoryForm,
+    ClassImageFormSet,
     ClassOfferingForm,
     ClassSessionFormSet,
     ClassSettingsForm,
@@ -475,6 +477,7 @@ def _render_instructor_class_form(
     *,
     form: InstructorClassOfferingForm,
     formset: Any,
+    image_formset: Any,
     instructor: Instructor,
     mode: str,
     offering: ClassOffering | None = None,
@@ -487,6 +490,7 @@ def _render_instructor_class_form(
             "instructor": instructor,
             "form": form,
             "formset": formset,
+            "image_formset": image_formset,
             "mode": mode,
             "offering": offering,
         },
@@ -498,10 +502,13 @@ def instructor_class_create(request: HttpRequest) -> HttpResponse:
     instructor: Instructor = request.instructor  # type: ignore[attr-defined]
     form = InstructorClassOfferingForm(request.POST or None, request.FILES or None, instructor=instructor)
     formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
-    if request.method == "POST" and form.is_valid() and formset.is_valid():
+    image_formset = ClassImageFormSet(request.POST or None, request.FILES or None, prefix="images")
+    if request.method == "POST" and form.is_valid() and formset.is_valid() and image_formset.is_valid():
         offering = form.save()
         formset.instance = offering
         formset.save()
+        image_formset.instance = offering
+        image_formset.save()
         submit_now = request.POST.get("action") == "submit"
         if submit_now:
             offering.submit_for_review()
@@ -509,7 +516,14 @@ def instructor_class_create(request: HttpRequest) -> HttpResponse:
         else:
             messages.success(request, f"Saved draft “{offering.title}”.")
         return redirect("classes:instructor_class_edit", pk=offering.pk)
-    return _render_instructor_class_form(request, form=form, formset=formset, instructor=instructor, mode="create")
+    return _render_instructor_class_form(
+        request,
+        form=form,
+        formset=formset,
+        image_formset=image_formset,
+        instructor=instructor,
+        mode="create",
+    )
 
 
 @instructor_required
@@ -526,9 +540,11 @@ def instructor_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         request.POST or None, request.FILES or None, instance=offering, instructor=instructor
     )
     formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
-    if request.method == "POST" and form.is_valid() and formset.is_valid():
+    image_formset = ClassImageFormSet(request.POST or None, request.FILES or None, instance=offering, prefix="images")
+    if request.method == "POST" and form.is_valid() and formset.is_valid() and image_formset.is_valid():
         offering = form.save()
         formset.save()
+        image_formset.save()
         submit_now = request.POST.get("action") == "submit"
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
             offering.submit_for_review()
@@ -537,7 +553,13 @@ def instructor_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
             messages.success(request, "Class updated.")
         return redirect("classes:instructor_class_edit", pk=offering.pk)
     return _render_instructor_class_form(
-        request, form=form, formset=formset, instructor=instructor, mode="edit", offering=offering
+        request,
+        form=form,
+        formset=formset,
+        image_formset=image_formset,
+        instructor=instructor,
+        mode="edit",
+        offering=offering,
     )
 
 
@@ -558,6 +580,7 @@ def instructor_registrations(request: HttpRequest) -> HttpResponse:
     registrations = (
         Registration.objects.filter(class_offering__instructor=instructor)
         .select_related("class_offering", "member")
+        .prefetch_related("custom_answers__question")
         .order_by("-registered_at")
     )
     return render(
@@ -569,6 +592,30 @@ def instructor_registrations(request: HttpRequest) -> HttpResponse:
             "registrations": registrations,
         },
     )
+
+
+@instructor_required
+@require_POST
+def instructor_registrations_email(request: HttpRequest) -> HttpResponse:
+    """Send a manual email to selected registrants of one of the instructor's classes.
+
+    Submitted as a POST from the registrations table; on success bounces back
+    with a flash message so the instructor sees the confirmation inline.
+    """
+    from classes.forms import InstructorEmailForm
+
+    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    form = InstructorEmailForm(request.POST, instructor=instructor)
+    if not form.is_valid():
+        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
+        messages.error(request, first_error)
+        return redirect("classes:instructor_registrations")
+    message = form.send()
+    messages.success(
+        request,
+        f"Sent “{message.subject}” to {message.recipient_count} recipient(s).",
+    )
+    return redirect("classes:instructor_registrations")
 
 
 @instructor_required
@@ -647,6 +694,45 @@ def instructor_profile(request: HttpRequest) -> HttpResponse:
     )
 
 
+@login_required
+def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
+    """Preview the public detail page for any class — including drafts.
+
+    Access: the assigned instructor (owner) OR any actual admin. The view
+    renders ``classes/public/detail.html`` but skips the ``status=published``
+    filter so drafts/pending can be reviewed before going live. A banner is
+    rendered at the top so it's clear this is a preview.
+    """
+    offering = get_object_or_404(
+        ClassOffering.objects.select_related("category", "instructor").prefetch_related("sessions", "gallery_images"),
+        pk=pk,
+    )
+    view_as = getattr(request, "view_as", None)
+    is_admin = view_as is not None and view_as.has_actual("admin")
+    user_instructor = Instructor.objects.filter(user=request.user).first()
+    is_owner = user_instructor is not None and offering.instructor_id == user_instructor.pk
+    if not (is_admin or is_owner):
+        return HttpResponseForbidden("You can only preview your own classes.")
+    settings_obj = ClassSettings.load()
+    member_price_cents = None
+    if offering.member_discount_pct:
+        member_price_cents = int(offering.price_cents * (100 - offering.member_discount_pct) / 100)
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    return render(
+        request,
+        "classes/public/detail.html",
+        {
+            "offering": offering,
+            "settings_obj": settings_obj,
+            "site_config": SiteConfiguration.load(),
+            "upcoming_sessions": upcoming_sessions,
+            "member_price_cents": member_price_cents,
+            "spots_remaining": offering.spots_remaining,
+            "is_preview": True,
+        },
+    )
+
+
 @classes_admin_access_required
 def admin_classes(request: HttpRequest) -> HttpResponse:
     valid_statuses = {choice.value for choice in ClassOffering.Status}
@@ -678,16 +764,19 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
 @classes_admin_access_required
 def admin_class_create(request: HttpRequest) -> HttpResponse:
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
-    if request.method == "POST" and form.is_valid():
+    image_formset = ClassImageFormSet(request.POST or None, request.FILES or None, prefix="images")
+    if request.method == "POST" and form.is_valid() and image_formset.is_valid():
         offering = form.save(commit=False)
         offering.status = ClassOffering.Status.PUBLISHED
         offering.save()
+        image_formset.instance = offering
+        image_formset.save()
         messages.success(request, f"{offering.title} is published.")
         return redirect("classes:admin_classes")
     return render(
         request,
         "classes/admin/class_form.html",
-        {"active_tab": "classes", "form": form, "mode": "create"},
+        {"active_tab": "classes", "form": form, "image_formset": image_formset, "mode": "create"},
     )
 
 
@@ -695,14 +784,22 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
 def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering, pk=pk)
     form = ClassOfferingForm(request.POST or None, request.FILES or None, instance=offering)
-    if request.method == "POST" and form.is_valid():
+    image_formset = ClassImageFormSet(request.POST or None, request.FILES or None, instance=offering, prefix="images")
+    if request.method == "POST" and form.is_valid() and image_formset.is_valid():
         form.save()
+        image_formset.save()
         messages.success(request, "Class updated.")
         return redirect("classes:admin_class_detail", pk=offering.pk)
     return render(
         request,
         "classes/admin/class_form.html",
-        {"active_tab": "classes", "form": form, "offering": offering, "mode": "edit"},
+        {
+            "active_tab": "classes",
+            "form": form,
+            "image_formset": image_formset,
+            "offering": offering,
+            "mode": "edit",
+        },
     )
 
 

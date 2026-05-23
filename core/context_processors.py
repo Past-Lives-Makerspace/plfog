@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpRequest
 
 
@@ -22,6 +23,25 @@ def app_version(request: HttpRequest) -> dict[str, Any]:
     return {"app_version": VERSION, "changelog": CHANGELOG}
 
 
+def surface(request: HttpRequest) -> dict[str, str | bool]:
+    """Expose which surface the request arrived on so templates can branch chrome.
+
+    ``surface`` is ``"public"`` on book.pastlives.space and ``"members"``
+    everywhere else (members host, local dev, Hetzner staging, Render preview).
+    ``is_public_surface`` is the convenience boolean templates branch on.
+    ``parent_template`` lets allauth templates pick their base via
+    ``{% extends parent_template %}`` without forking the template files.
+    """
+    value = getattr(request, "surface", "members")
+    is_public = value == "public"
+    return {
+        "surface": value,
+        "is_public_surface": is_public,
+        "MEMBER_HOST": settings.MEMBER_HOST,
+        "parent_template": "classes/base_public.html" if is_public else "base.html",
+    }
+
+
 def google_analytics(request: HttpRequest) -> dict[str, str]:
     """Expose the GA4 measurement ID site-wide.
 
@@ -34,3 +54,49 @@ def google_analytics(request: HttpRequest) -> dict[str, str]:
     from core.models import SiteConfiguration
 
     return {"google_analytics_measurement_id": SiteConfiguration.load().google_analytics_measurement_id}
+
+
+def persona(request: HttpRequest) -> dict[str, str | bool]:
+    """Derive the active persona for the current request.
+
+    Returns a single string in {"anon", "nonmember", "member", "instructor"} plus
+    convenience booleans so templates can render banners and topbar variants
+    without re-deriving. Cached on the request so it's safe to call from both
+    the context processor and view code.
+
+    The "member" persona is reserved for users whose Member record was imported
+    from Airtable (``airtable_record_id`` set). Auto-created shell Members from
+    the ``ensure_user_has_member`` signal — created for everyone who signs up
+    on book.pastlives.space without paying dues — read as "nonmember" here.
+    Airtable is the authoritative roster for real dues-paying members.
+    """
+    cached = getattr(request, "_persona", None)
+    if cached is not None:
+        return cached
+
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        result: dict[str, str | bool] = {"persona": "anon", "is_member_persona": False, "is_instructor_persona": False}
+        request._persona = result
+        return result
+
+    from membership.models import Member
+
+    member = getattr(user, "member", None)
+    is_active_member = bool(member and member.status == Member.Status.ACTIVE and member.airtable_record_id)
+    is_instructor = hasattr(user, "instructor")
+
+    if is_active_member:
+        slug = "member"
+    elif is_instructor:
+        slug = "instructor"
+    else:
+        slug = "nonmember"
+
+    result = {
+        "persona": slug,
+        "is_member_persona": is_active_member,
+        "is_instructor_persona": is_instructor,
+    }
+    request._persona = result
+    return result

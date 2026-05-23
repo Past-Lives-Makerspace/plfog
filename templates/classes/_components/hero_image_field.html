@@ -1,0 +1,43 @@
+{% comment %}
+Hero/banner image input for class forms — wraps Django's ClearableFileInput
+with the standard pl-help tooltip showing size recommendations, plus a
+thumbnail of the current image when one is set, plus a 16:9 cropper (the
+JS glue at static/js/hero_cropper.js attaches Cropper.js to the preview img
+and writes the crop box into the hidden [data-hero-crop-input] field).
+
+Params:
+  field          — bound ImageField form field
+  current_image  — model FileField attr (e.g. offering.image), may be falsy
+  crop_field     — bound hidden hero_crop CharField (optional; when present,
+                   enables the cropper)
+{% endcomment %}
+<div class="pl-form-group" data-hero-image-field>
+    <label class="pl-form-label" for="{{ field.id_for_label }}" style="display:inline-flex;align-items:center;gap:0.4rem;">
+        Hero / banner image
+        <span class="pl-help" tabindex="0" aria-label="Image size guidance">
+            <span class="pl-help__icon" aria-hidden="true">?</span>
+            <span class="pl-help__bubble" role="tooltip">
+                <strong>Recommended:</strong> 1600&nbsp;&times;&nbsp;900&nbsp;px (16:9).<br>
+                After upload, drag the crop box to pick the focal point — the rest of the image stays in storage but the page crops to your selection.<br>
+                <strong>Format:</strong> JPG, PNG, or HEIC (iPhone). <strong>Max size:</strong> 5&nbsp;MB. Larger images are auto-resized.<br>
+                Tip: use a clean, well-lit shot of the finished work or the class in action — close-ups read better than wide rooms.
+            </span>
+        </span>
+    </label>
+    {% if current_image %}
+    <img src="{{ current_image.url }}"
+         alt="Current hero image"
+         data-hero-cropper-preview
+         style="max-width:100%;max-height:320px;border-radius:6px;border:1px solid var(--hub-border,#1a4568);margin-bottom:0.5rem;display:block;">
+    {% endif %}
+    {{ field }}
+    {% if crop_field %}{{ crop_field }}{% endif %}
+    {% if field.errors %}
+    <ul class="pl-field-errors">
+        {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% if field.help_text %}
+    <p class="pl-field-hint">{{ field.help_text }}</p>
+    {% endif %}
+</div>

@@ -1,0 +1,52 @@
+{% extends "classes/base_public.html" %}
+{% load static %}
+
+{% block classes_extra_head %}
+<link rel="stylesheet" href="{% static 'css/book-account.css' %}">
+{% endblock %}
+
+{% block portal_content %}
+<div class="bk"><div class="bk-scroll"><div class="bk-auth">
+  <div class="bk-onb">
+    <div class="bk-onb-progress">
+      {% for i in "123" %}<div class="bk-onb-step {% if forloop.counter <= step %}is-done{% endif %}"></div>{% endfor %}
+    </div>
+    <div class="bk-onb-eyebrow">
+      <span>Step {{ step }} of {{ total_steps }}</span>
+      <a class="skip" href="{% url 'account:overview' %}">Skip for now</a>
+    </div>
+    <h1>A bit <em>about you</em>.</h1>
+    <p class="bk-onb-sub">For instructors and roster sheets. None of this is shared publicly.</p>
+    <form method="post">{% csrf_token %}
+      <div class="bk-form" style="padding:0; background:transparent; border:none;">
+        <div class="bk-field">
+          <label>Preferred name</label>
+          <input type="text" name="preferred_name" value="{{ form.preferred_name.value|default:'' }}">
+        </div>
+        <div class="bk-field">
+          <label>Pronouns</label>
+          <input type="text" name="pronouns" placeholder="they / them" value="{{ form.pronouns.value|default:'' }}">
+        </div>
+        <div class="bk-field full">
+          <label>Phone (day-of contact only)</label>
+          <input type="text" name="phone" placeholder="(503) ___-____" value="{{ form.phone.value|default:'' }}">
+          <div class="bk-field-hint">We'll only text you if class is moved or cancelled.</div>
+        </div>
+        <div class="bk-field full">
+          <label>How did you hear about Past Lives?</label>
+          <select name="referral_source">
+            {% for value, label in form.referral_source.field.choices %}
+              <option value="{{ value }}" {% if form.referral_source.value == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="bk-onb-actions">
+        <a class="bk-onb-back" href="{% url 'account:onboarding_step1' %}">← Back</a>
+        <div class="spacer"></div>
+        <button type="submit" class="bk-btn-primary">Continue →</button>
+      </div>
+    </form>
+  </div>
+</div></div></div>
+{% endblock %}

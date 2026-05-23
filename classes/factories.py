@@ -56,6 +56,15 @@ class ClassOfferingFactory(DjangoModelFactory):
     status = models.ClassOffering.Status.DRAFT
 
 
+class ClassImageFactory(DjangoModelFactory):
+    class Meta:
+        model = models.ClassImage
+
+    class_offering = factory.SubFactory(ClassOfferingFactory)
+    alt_text = ""
+    sort_order = 0
+
+
 class ClassSessionFactory(DjangoModelFactory):
     class Meta:
         model = models.ClassSession

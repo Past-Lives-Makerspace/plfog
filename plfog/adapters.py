@@ -39,9 +39,16 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
     def is_open_for_signup(self, request: HttpRequest) -> bool:
         """Check whether signup is allowed for the current request.
 
-        In open mode, always returns True. In invite-only mode, checks
+        Public/book surface: always open. A book account is just a way to
+        view your past class registrations — invite-only is a members-surface
+        concept and doesn't apply here.
+
+        Members surface: open mode allows everyone; invite-only mode checks
         whether the email from POST or GET data has a pending invite.
         """
+        if getattr(request, "surface", "members") == "public":
+            return True
+
         from core.models import Invite, SiteConfiguration
 
         config = SiteConfiguration.load()
@@ -91,7 +98,20 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         )
 
     def get_login_redirect_url(self, request: HttpRequest) -> str:
-        """Land everyone on the Community Calendar after login."""
+        """Land on the right place based on surface and onboarding status.
+
+        - Public/book surface, user not yet onboarded → start onboarding wizard.
+        - Public/book surface, user onboarded → /account/ overview.
+        - Members surface (anywhere else) → Community Calendar (existing behavior).
+        """
+        surface = getattr(request, "surface", "members")
+        if surface == "public":
+            from core.models import UserProfile
+
+            profile = UserProfile.objects.filter(user=request.user).first()
+            if profile is None or not profile.is_onboarded:
+                return reverse("account:onboarding_step1")
+            return reverse("account:overview")
         return reverse("hub_community_calendar")
 
     def send_mail(self, template_prefix: str, email: str, context: dict) -> None:

@@ -75,6 +75,7 @@ urlpatterns = admin_custom_urls + [
     path("accounts/", include("allauth.urls")),
     path("billing/", include("billing.urls")),
     path("classes/", include("classes.urls")),
+    path("account/", include("classes.account.urls", namespace="account")),
     # Member hub
     path("", include("hub.urls")),
     path("", include("core.urls")),

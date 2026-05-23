@@ -2021,7 +2021,7 @@ a:hover { color: var(--color-yellow-hover); }
     letter-spacing: 0.04em;
 }
 .pl-public-topbar__link:hover { color: var(--color-tuscan-yellow, #EEB44B); text-decoration: none; }
-.pl-public-topbar__login {
+.pl-public-topbar__signup {
     background: var(--color-tuscan-yellow, #EEB44B);
     color: #061f33;
     padding: 8px 18px;
@@ -2032,7 +2032,23 @@ a:hover { color: var(--color-yellow-hover); }
     letter-spacing: 0.04em;
     text-decoration: none;
 }
-.pl-public-topbar__login:hover { background: #f5ca6e; text-decoration: none; }
+.pl-public-topbar__signup:hover { background: #f5ca6e; text-decoration: none; }
+.pl-public-topbar__login {
+    color: var(--color-tuscan-yellow, #EEB44B);
+    padding: 8px 14px;
+    border-radius: 4px;
+    border: 1px solid rgba(238, 180, 75, 0.45);
+    background: rgba(238, 180, 75, 0.06);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+}
+.pl-public-topbar__login:hover {
+    background: rgba(238, 180, 75, 0.18);
+    text-decoration: none;
+}
 .pl-public-topbar__exit-preview {
     background: rgba(238, 180, 75, 0.12);
     color: var(--color-tuscan-yellow, #EEB44B);
@@ -2048,6 +2064,52 @@ a:hover { color: var(--color-yellow-hover); }
 }
 .pl-public-topbar__exit-preview:hover {
     background: rgba(238, 180, 75, 0.22);
+    text-decoration: none;
+}
+
+.pl-public-topbar__ext {
+    color: var(--color-tuscan-yellow, #EEB44B);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 8px 12px;
+    border-radius: 4px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.pl-public-topbar__ext:hover { background: rgba(238, 180, 75, 0.08); text-decoration: none; }
+
+.pl-public-topbar__pill {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(238, 180, 75, 0.12);
+    border: 1px solid rgba(238, 180, 75, 0.4);
+    color: var(--color-tuscan-yellow, #EEB44B);
+}
+
+.pl-public-topbar__logout {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 7px 14px;
+    border-radius: 4px;
+    border: 1px solid rgba(26, 69, 104, 0.6);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--color-steel, #96acbb);
+    text-decoration: none;
+}
+.pl-public-topbar__logout:hover {
+    border-color: rgba(238, 180, 75, 0.35);
+    color: var(--color-cream, #f4efdd);
     text-decoration: none;
 }
 

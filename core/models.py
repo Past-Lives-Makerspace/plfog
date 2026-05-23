@@ -113,6 +113,45 @@ class SiteConfiguration(models.Model):
         return obj
 
 
+class CalendarFeed(models.Model):
+    """A named iCal feed displayed on the Community Calendar.
+
+    Multiple feeds (e.g. "General Calendar", "Workshops", "Open Studio") can be
+    configured from the Site Settings → Calendar tab. Each is fetched on demand
+    by ``hub.calendar_service`` and rendered as its own legend entry.
+    """
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Display name shown on the Community Calendar legend (e.g. 'General Calendar', 'Workshops').",
+    )
+    ical_url = models.URLField(
+        help_text="Public iCal URL. Paste the 'Secret address in iCal format' from Google Calendar settings.",
+    )
+    color = models.CharField(
+        max_length=7,
+        default="#EEB44B",
+        help_text="Hex color for this feed's events on the Community Calendar (e.g. #EEB44B).",
+    )
+    last_fetched_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this feed was last synced. Set by the calendar service.",
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values appear first on the legend.",
+    )
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+        verbose_name = "Calendar Feed"
+        verbose_name_plural = "Calendar Feeds"
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class Invite(models.Model):
     """Tracks email invitations sent by admins for invite-only registration."""
 
@@ -211,3 +250,94 @@ class Invite(models.Model):
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[self.email],
         )
+
+
+class UserProfile(models.Model):
+    """Per-user profile fields not covered by Django's User model.
+
+    Holds the data the book.pastlives.space /account/profile/ page edits
+    plus the onboarding wizard answers. Members are read-only on /profile/;
+    their canonical profile lives on Member and is edited at members.pastlives.space.
+    """
+
+    class FirstAttendance(models.TextChoices):
+        FIRST_TIME = "first_time", "First time"
+        RETURNING = "returning", "Returning"
+        EVENT_ONLY = "event_only", "Event only, no class"
+        UNKNOWN = "unknown", "Can't remember"
+
+    class Referral(models.TextChoices):
+        FRIEND = "friend", "Friend or family"
+        INSTAGRAM = "instagram", "Instagram"
+        GOOGLE = "google", "Google"
+        EVENT = "event", "Open studio / event"
+        MAIN_SITE = "main_site", "Past Lives main site"
+        OTHER = "other", "Somewhere else"
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="profile",
+        help_text="The user this profile belongs to.",
+    )
+    preferred_name = models.CharField(max_length=100, blank=True, help_text="Preferred name on rosters.")
+    pronouns = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Pronouns shown on roster sheets and confirmation emails.",
+    )
+    phone = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text="Day-of contact phone — only used if an instructor needs to reach you.",
+    )
+    first_attendance_status = models.CharField(
+        max_length=20,
+        choices=FirstAttendance.choices,
+        blank=True,
+        help_text="Self-reported on first signup. Used for welcome flows.",
+    )
+    referral_source = models.CharField(
+        max_length=20,
+        choices=Referral.choices,
+        blank=True,
+        help_text="Self-reported referral source. Aggregated for marketing analysis.",
+    )
+    interest_category_slugs = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of Category slugs the user opted into for new-class email notifications.",
+    )
+    accessibility_note = models.TextField(
+        blank=True,
+        help_text="Free-text accessibility note from onboarding step 3.",
+    )
+    onboarding_completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Stamp set when the user finishes (or skips through) the 3-step onboarding.",
+    )
+    subscribed_to_mailchimp_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Stamp set when the account-signup push to Mailchimp succeeded.",
+    )
+    completed_tour_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Cached from Simplybook; refreshed by the tour-status sync.",
+    )
+    tour_status_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time Simplybook was polled for this user's tour status.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"Profile for {self.user.email}"
+
+    @property
+    def is_onboarded(self) -> bool:
+        return self.onboarding_completed_at is not None

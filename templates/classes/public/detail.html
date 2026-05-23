@@ -6,12 +6,13 @@
 {% block portal_content %}
 <div class="view">
   <div class="cp-container">
+    {% if is_preview %}
+    <div class="cp-preview-banner">
+        <strong>Preview</strong> — this page is only visible to you and admins. Status: {{ offering.get_status_display }}.
+    </div>
+    {% endif %}
     <div class="detail-card">
-      {% if offering.image %}
-        <img class="detail-hero" src="{{ offering.image.url }}" alt="">
-      {% elif offering.category.hero_image %}
-        <img class="detail-hero" src="{{ offering.category.hero_image.url }}" alt="">
-      {% endif %}
+      {% include "classes/_components/gallery.html" with offering=offering %}
       <div class="detail-head">
         <div>
           <div class="dc-cat">{{ offering.category.name }}</div>

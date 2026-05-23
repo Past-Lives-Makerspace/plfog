@@ -78,6 +78,19 @@
             {% if form.discount_code.errors %}<ul class="reg-errors">{% for e in form.discount_code.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
           </div>
 
+          {% if form.custom_question_fields %}
+          <fieldset class="reg-custom-questions" style="margin:14px 0 4px;padding:12px 14px;border:1px solid var(--steel-dim,#1a4568);border-radius:8px;">
+            <legend style="padding:0 6px;font-size:12px;color:var(--steel-dim);">A few more questions</legend>
+            {% for cf in form.custom_question_fields %}
+            <div class="reg-field" style="margin-top:8px;">
+              <label for="{{ cf.id_for_label }}">{{ cf.label }}{% if cf.field.required %} <span aria-hidden="true">*</span>{% endif %}</label>
+              {{ cf }}
+              {% if cf.errors %}<ul class="reg-errors">{% for e in cf.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            </div>
+            {% endfor %}
+          </fieldset>
+          {% endif %}
+
           <label class="reg-check" style="margin-top:4px">
             {{ form.wants_newsletter }}
             <span>{{ form.wants_newsletter.label }}</span>

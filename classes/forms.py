@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from django import forms
@@ -11,17 +12,79 @@ from django.utils.text import slugify
 
 from classes.models import (
     Category,
+    ClassImage,
     ClassOffering,
     ClassSession,
     ClassSettings,
     DiscountCode,
     Instructor,
+    InstructorMessage,
+    InstructorMessageRecipient,
     Registration,
+    RegistrationAnswer,
+    RegistrationQuestion,
     Waiver,
 )
 
 if TYPE_CHECKING:
     from membership.models import Member
+
+
+STRIPE_MIN_CHARGE_CENTS = 50  # Stripe's minimum USD charge is $0.50.
+MIN_PAID_PRICE_CENTS = 100  # Floor for paid classes ($1.00) — anything cheaper should just be free.
+
+
+class _HeroCropMixin:
+    """Adds a hidden ``hero_crop`` JSON field bound to the four hero_crop_* ints.
+
+    The Cropper.js glue in ``static/js/hero_cropper.js`` writes the crop box to
+    this field as ``{"x": int, "y": int, "w": int, "h": int}`` (or an empty
+    string when the user hasn't cropped). On ``save()``, the four pixel ints
+    land on the model.
+    """
+
+    def add_hero_crop_field(self) -> None:
+        instance = getattr(self, "instance", None)
+        initial = ""
+        if instance and instance.pk and instance.hero_crop_w and instance.hero_crop_h:
+            initial = json.dumps(
+                {
+                    "x": instance.hero_crop_x or 0,
+                    "y": instance.hero_crop_y or 0,
+                    "w": instance.hero_crop_w,
+                    "h": instance.hero_crop_h,
+                }
+            )
+        self.fields["hero_crop"] = forms.CharField(  # type: ignore[attr-defined]
+            required=False,
+            initial=initial,
+            widget=forms.HiddenInput(attrs={"data-hero-crop-input": ""}),
+        )
+
+    def clean_hero_crop(self):
+        raw = (self.cleaned_data.get("hero_crop") or "").strip()  # type: ignore[attr-defined]
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+            x = int(data["x"])
+            y = int(data["y"])
+            w = int(data["w"])
+            h = int(data["h"])
+        except (ValueError, KeyError, TypeError):
+            raise forms.ValidationError("Crop box is malformed; clear it and try again.") from None
+        if w <= 0 or h <= 0 or x < 0 or y < 0:
+            raise forms.ValidationError("Crop box must be a positive rectangle.")
+        return {"x": x, "y": y, "w": w, "h": h}
+
+    def apply_hero_crop_to_instance(self, offering: ClassOffering) -> None:
+        crop = self.cleaned_data.get("hero_crop")  # type: ignore[attr-defined]
+        if crop is None:
+            return
+        offering.hero_crop_x = crop["x"]
+        offering.hero_crop_y = crop["y"]
+        offering.hero_crop_w = crop["w"]
+        offering.hero_crop_h = crop["h"]
 
 
 class _FreeClassMixin:
@@ -61,9 +124,16 @@ class _FreeClassMixin:
         cleaned = self.cleaned_data  # type: ignore[attr-defined]
         if cleaned.get("is_free"):
             return
-        if cleaned.get("price_cents") in (None, ""):
+        price = cleaned.get("price_cents")
+        if price in (None, ""):
             self.add_error(  # type: ignore[attr-defined]
                 "price_cents", "Set a price (in cents) or check 'This is a free class / workshop'."
+            )
+            return
+        if price < MIN_PAID_PRICE_CENTS:
+            self.add_error(  # type: ignore[attr-defined]
+                "price_cents",
+                "Paid classes must cost at least $1.00. Check 'This is a free class / workshop' for free classes.",
             )
 
     def apply_is_free_to_instance(self, offering: ClassOffering) -> None:
@@ -72,7 +142,7 @@ class _FreeClassMixin:
             offering.member_discount_pct = 0
 
 
-class ClassOfferingForm(_FreeClassMixin, forms.ModelForm):
+class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
     class Meta:
         model = ClassOffering
         fields = [
@@ -102,6 +172,7 @@ class ClassOfferingForm(_FreeClassMixin, forms.ModelForm):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.add_is_free_field()
+        self.add_hero_crop_field()
 
     def clean(self) -> dict:
         data = super().clean()
@@ -111,13 +182,14 @@ class ClassOfferingForm(_FreeClassMixin, forms.ModelForm):
     def save(self, commit: bool = True) -> ClassOffering:
         offering = super().save(commit=False)
         self.apply_is_free_to_instance(offering)
+        self.apply_hero_crop_to_instance(offering)
         if commit:
             offering.save()
             self.save_m2m()
         return offering
 
 
-class InstructorClassOfferingForm(_FreeClassMixin, forms.ModelForm):
+class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
     """Class form for instructors — no `instructor`, no `is_private`, slug auto-generated."""
 
     class Meta:
@@ -146,6 +218,7 @@ class InstructorClassOfferingForm(_FreeClassMixin, forms.ModelForm):
         self.instructor = instructor
         super().__init__(*args, **kwargs)
         self.add_is_free_field()
+        self.add_hero_crop_field()
 
     def clean(self) -> dict:
         data = super().clean()
@@ -155,6 +228,7 @@ class InstructorClassOfferingForm(_FreeClassMixin, forms.ModelForm):
     def save(self, commit: bool = True) -> ClassOffering:
         offering = super().save(commit=False)
         self.apply_is_free_to_instance(offering)
+        self.apply_hero_crop_to_instance(offering)
         if self.instructor is not None and not offering.instructor_id:
             offering.instructor = self.instructor
             if not offering.created_by_id:
@@ -201,6 +275,25 @@ ClassSessionFormSet = inlineformset_factory(
     ClassSession,
     form=ClassSessionForm,
     extra=1,
+    can_delete=True,
+)
+
+
+class ClassImageForm(forms.ModelForm):
+    class Meta:
+        model = ClassImage
+        fields = ["image", "alt_text", "sort_order"]
+        widgets = {
+            "alt_text": forms.TextInput(attrs={"placeholder": "Short description (optional)"}),
+            "sort_order": forms.NumberInput(attrs={"min": 0, "step": 1, "style": "width:5rem"}),
+        }
+
+
+ClassImageFormSet = inlineformset_factory(
+    ClassOffering,
+    ClassImage,
+    form=ClassImageForm,
+    extra=3,
     can_delete=True,
 )
 
@@ -356,6 +449,44 @@ class RegistrationForm(forms.ModelForm):
             # Hide model release fields entirely when the class doesn't need them.
             self.fields.pop("model_release_signature")
             self.fields.pop("accepts_model_release")
+        self._custom_questions = list(RegistrationQuestion.objects.filter(is_active=True))
+        self._inject_custom_question_fields()
+
+    def _inject_custom_question_fields(self) -> None:
+        """Add one dynamic form field per active RegistrationQuestion.
+
+        Field name pattern: ``custom_q_<pk>``. Type is mapped from the
+        question's ``question_type``. Required flag follows the question's
+        ``is_required``. choices_json drives the options for SINGLE_CHOICE.
+        """
+        for q in self._custom_questions:
+            field_name = f"custom_q_{q.pk}"
+            if q.question_type == RegistrationQuestion.QuestionType.LONG_TEXT:
+                field = forms.CharField(
+                    required=q.is_required,
+                    label=q.prompt,
+                    widget=forms.Textarea(attrs={"rows": 3}),
+                )
+            elif q.question_type == RegistrationQuestion.QuestionType.YES_NO:
+                field = forms.TypedChoiceField(
+                    required=q.is_required,
+                    label=q.prompt,
+                    choices=[("", "Choose…"), ("yes", "Yes"), ("no", "No")],
+                )
+            elif q.question_type == RegistrationQuestion.QuestionType.SINGLE_CHOICE:
+                options = [(c, c) for c in (q.choices_json or [])]
+                field = forms.ChoiceField(
+                    required=q.is_required,
+                    label=q.prompt,
+                    choices=[("", "Choose…")] + options,
+                )
+            else:  # SHORT_TEXT and any future fallthrough
+                field = forms.CharField(
+                    required=q.is_required,
+                    label=q.prompt,
+                    max_length=500,
+                )
+            self.fields[field_name] = field
 
     def clean_discount_code(self) -> DiscountCode | None:
         raw = (self.cleaned_data.get("discount_code") or "").strip().upper()
@@ -376,6 +507,13 @@ class RegistrationForm(forms.ModelForm):
             raise forms.ValidationError("This class is sold out.")
         if self.offering.requires_model_release and not data.get("accepts_model_release"):
             self.add_error("accepts_model_release", "Model release acceptance is required for this class.")
+        # Stripe rejects USD charges under $0.50. Either drop to 0 (free) or be at/above the minimum.
+        final_price = self.compute_final_price_cents()
+        if 0 < final_price < STRIPE_MIN_CHARGE_CENTS:
+            raise forms.ValidationError(
+                "The total comes out to less than $0.50, which we can't charge online. "
+                "Please remove any discount code, or contact the studio if this looks wrong."
+            )
         return data
 
     @property
@@ -402,7 +540,27 @@ class RegistrationForm(forms.ModelForm):
         if commit:
             registration.save()
             self._create_waivers(registration)
+            self._create_custom_answers(registration)
         return registration
+
+    def _create_custom_answers(self, registration: Registration) -> None:
+        answers = []
+        for q in self._custom_questions:
+            raw = self.cleaned_data.get(f"custom_q_{q.pk}")
+            if raw in (None, ""):
+                continue
+            answers.append(RegistrationAnswer(registration=registration, question=q, answer_text=str(raw)))
+        if answers:
+            RegistrationAnswer.objects.bulk_create(answers)
+
+    @property
+    def custom_question_fields(self):
+        """Iterable of bound BoundField objects for the dynamic custom questions.
+
+        Lets templates render the custom questions as their own fieldset
+        without iterating the entire form.
+        """
+        return [self[f"custom_q_{q.pk}"] for q in self._custom_questions]
 
     def _create_waivers(self, registration: Registration) -> None:
         Waiver.objects.create(
@@ -438,3 +596,79 @@ class ClassSettingsForm(forms.ModelForm):
             "model_release_waiver_text": forms.Textarea(attrs={"rows": 10}),
             "confirmation_email_footer": forms.Textarea(attrs={"rows": 3}),
         }
+
+
+class InstructorEmailForm(forms.Form):
+    """Form for an instructor to send a manual email to selected registrants of one of their classes.
+
+    Recipient selection is bounded to ``Registration.objects.filter(class_offering__instructor=instructor)``
+    so the form will not accept registration IDs outside the instructor's own
+    classes even if a hostile client submits them.
+    """
+
+    subject = forms.CharField(max_length=255, label="Subject")
+    body = forms.CharField(widget=forms.Textarea(attrs={"rows": 8}), label="Message")
+    registration_ids = forms.ModelMultipleChoiceField(
+        queryset=Registration.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        label="Recipients",
+    )
+    bcc_self = forms.BooleanField(required=False, initial=True, label="Send me a copy", help_text="BCC your own email.")
+
+    def __init__(self, *args, instructor: Instructor, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.instructor = instructor
+        self.fields["registration_ids"].queryset = Registration.objects.filter(
+            class_offering__instructor=instructor,
+        ).select_related("class_offering")
+
+    def send(self) -> InstructorMessage:
+        """Send the email and record the InstructorMessage + recipient audit rows.
+
+        Returns the created InstructorMessage. Caller is responsible for any
+        success/error flash messages. Uses Django's mail backend, so the test
+        suite can assert on ``mail.outbox``.
+        """
+        from django.conf import settings as django_settings
+        from django.core.mail import EmailMessage
+        from django.db import transaction
+
+        registrations = list(self.cleaned_data["registration_ids"])
+        # All selected regs share the same class_offering only if the instructor
+        # is sending to a single class. We anchor the message to the first
+        # registration's class — typical UX is one class at a time.
+        offering = registrations[0].class_offering
+        bcc_emails = [r.email for r in registrations]
+        bcc_self = self.cleaned_data.get("bcc_self", True)
+        instructor_email = (self.instructor.user.email or "").strip()
+        to_addresses = [instructor_email] if instructor_email else []
+        if (
+            bcc_self
+            and instructor_email
+            and instructor_email not in bcc_emails
+            and instructor_email not in to_addresses
+        ):
+            bcc_emails.append(instructor_email)
+
+        email_message = EmailMessage(
+            subject=self.cleaned_data["subject"],
+            body=self.cleaned_data["body"],
+            from_email=django_settings.DEFAULT_FROM_EMAIL,
+            to=to_addresses,
+            bcc=bcc_emails,
+        )
+        email_message.send(fail_silently=False)
+
+        with transaction.atomic():
+            message = InstructorMessage.objects.create(
+                instructor=self.instructor,
+                class_offering=offering,
+                subject=self.cleaned_data["subject"],
+                body=self.cleaned_data["body"],
+                recipient_count=len(registrations),
+                bcc_self=bool(bcc_self),
+            )
+            InstructorMessageRecipient.objects.bulk_create(
+                [InstructorMessageRecipient(message=message, registration=r, email=r.email) for r in registrations]
+            )
+        return message

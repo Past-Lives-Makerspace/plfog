@@ -11,7 +11,7 @@ from django.core.mail import send_mail
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-from core.models import SiteConfiguration
+from core.models import CalendarFeed, SiteConfiguration
 from membership.models import Guild, Member
 
 
@@ -205,14 +205,17 @@ class MemberAdminEditForm(forms.ModelForm):
 
 
 class SiteSettingsForm(forms.ModelForm):
-    """Admin form for the SiteConfiguration singleton."""
+    """Admin form for the SiteConfiguration singleton.
+
+    Calendar feed rows live on the separate ``CalendarFeedFormSet`` below — keeping
+    them off this form lets the Calendar tab manage an arbitrary number of feeds
+    via a Django inline-style formset.
+    """
 
     class Meta:
         model = SiteConfiguration
         fields = [
             "registration_mode",
-            "general_calendar_url",
-            "general_calendar_color",
             "sync_classes_enabled",
             "classes_calendar_color",
             "mailchimp_api_key",
@@ -220,10 +223,29 @@ class SiteSettingsForm(forms.ModelForm):
             "google_analytics_measurement_id",
         ]
         widgets = {
-            "general_calendar_color": forms.TextInput(attrs={"type": "color"}),
             "classes_calendar_color": forms.TextInput(attrs={"type": "color"}),
-            "general_calendar_url": forms.URLInput(attrs={"placeholder": "https://…"}),
         }
+
+
+class CalendarFeedForm(forms.ModelForm):
+    """One row in the Calendar tab's feeds list."""
+
+    class Meta:
+        model = CalendarFeed
+        fields = ["name", "ical_url", "color"]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. Workshops"}),
+            "ical_url": forms.URLInput(attrs={"placeholder": "https://calendar.google.com/calendar/ical/..."}),
+            "color": forms.TextInput(attrs={"type": "color"}),
+        }
+
+
+CalendarFeedFormSet = forms.modelformset_factory(
+    CalendarFeed,
+    form=CalendarFeedForm,
+    extra=0,
+    can_delete=True,
+)
 
 
 class VotePreferenceForm(forms.Form):

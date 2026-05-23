@@ -1,8 +1,42 @@
-{% extends "base.html" %}
+{% extends parent_template %}
+{% load static %}
 
 {% block title %}Log In - Past Lives{% endblock %}
 
 {% block content %}
+{% if is_public_surface %}
+<div class="cp-page">
+{% block portal_content %}
+<div class="bk-themed-login">
+  <link rel="stylesheet" href="{% static 'css/book-account.css' %}">
+  <div class="bk-auth">
+    <div class="bk-auth-card">
+      <div class="bk-auth-eyebrow">Sign in</div>
+      <h1 class="bk-auth-title">Welcome back.</h1>
+      <p class="bk-auth-sub">We'll email you a 6-digit code — no password to remember.</p>
+      <form method="POST" action="{% url 'account_request_login_code' %}">{% csrf_token %}
+        <div class="bk-field">
+          <label>Email address</label>
+          <input type="email" name="email" required autofocus placeholder="you@pastlives.space">
+        </div>
+        <div class="bk-auth-actions">
+          <button type="submit" class="bk-btn-primary">Email me a login code</button>
+        </div>
+      </form>
+      <div class="bk-auth-divider">or</div>
+      <div class="bk-auth-links">
+        <p>New to Past Lives? <a href="{% url 'account_signup' %}">Create an account</a></p>
+        <p>Booked as a guest? <a href="{% url 'account:lookup' %}">Look up your class.</a></p>
+      </div>
+      <div class="bk-auth-foot">
+        <b>Heads up:</b> if you registered for a class as a guest, use the same email you signed up with — that's how we find your bookings.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+</div>
+{% else %}
 <div class="auth-page">
     <h1 class="auth-page__title">Welcome Back</h1>
     <p class="auth-page__subtitle">Enter your email to receive a login code</p>
@@ -28,4 +62,5 @@
         </div>
     </div>
 </div>
+{% endif %}
 {% endblock %}

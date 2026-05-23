@@ -35,15 +35,19 @@ def describe_home_page_hero():
 
 
 def describe_nav_anonymous():
-    def it_does_not_show_log_in_link(client):
+    def it_shows_log_in_cta(client):
+        # The home hero now exposes a "Log In" CTA for anonymous visitors.
+        # Assert the actual link, not the substring — the changelog modal text
+        # also contains the literal phrase "Log in" and would yield a false positive.
         response = client.get("/")
         content = response.content.decode()
-        assert "Log in" not in content
+        assert 'href="/accounts/login/"' in content
 
-    def it_does_not_show_sign_up_link(client):
+    def it_shows_join_the_community_cta(client):
+        # The home hero now exposes a signup CTA ("Join the Community") next to Log In.
         response = client.get("/")
         content = response.content.decode()
-        assert "Sign up" not in content
+        assert 'href="/accounts/signup/"' in content
 
 
 def describe_nav_authenticated():

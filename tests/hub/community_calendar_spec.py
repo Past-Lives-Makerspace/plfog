@@ -196,33 +196,60 @@ def describe_calendar_service():
 
     def describe_sync_general_calendar():
         def it_creates_general_events_with_null_guild():
-            from core.models import SiteConfiguration
+            from core.models import CalendarFeed
             from hub.calendar_service import sync_general_calendar
 
-            config = SiteConfiguration.load()
-            config.general_calendar_url = "https://calendar.google.com/calendar/ical/general.ics"
-            config.save()
+            CalendarFeed.objects.create(
+                name="General", ical_url="https://calendar.google.com/calendar/ical/general.ics", color="#EEB44B"
+            )
             with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
                 count = sync_general_calendar()
             assert count == 2
             assert CalendarEvent.objects.filter(guild__isnull=True).count() == 2
 
         def it_sets_source_to_general():
-            from core.models import SiteConfiguration
+            from core.models import CalendarFeed
             from hub.calendar_service import sync_general_calendar
 
-            config = SiteConfiguration.load()
-            config.general_calendar_url = "https://calendar.google.com/calendar/ical/general.ics"
-            config.save()
+            CalendarFeed.objects.create(
+                name="General", ical_url="https://calendar.google.com/calendar/ical/general.ics", color="#EEB44B"
+            )
             with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
                 sync_general_calendar()
             assert CalendarEvent.objects.filter(source="general").count() == 2
 
-        def it_returns_zero_when_no_general_calendar_configured():
+        def it_returns_zero_when_no_feeds_configured():
             from hub.calendar_service import sync_general_calendar
 
             count = sync_general_calendar()
             assert count == 0
+
+        def it_iterates_over_multiple_feeds():
+            from core.models import CalendarFeed
+            from hub.calendar_service import sync_general_calendar
+
+            CalendarFeed.objects.create(name="Feed A", ical_url="https://example.com/a.ics", color="#EEB44B")
+            CalendarFeed.objects.create(name="Feed B", ical_url="https://example.com/b.ics", color="#7C5CBF")
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
+                count = sync_general_calendar()
+            # Each feed parses the same 2-event sample → 4 events upserted, tagged
+            # with their respective feed FK. UID uniqueness is per-guild only, so
+            # both feeds independently insert their copies (guild=None, distinct feed_id).
+            assert count == 4
+            assert CalendarEvent.objects.filter(feed__name="Feed A").count() == 2
+            assert CalendarEvent.objects.filter(feed__name="Feed B").count() == 2
+
+        def it_stamps_last_fetched_at_on_each_feed():
+            from core.models import CalendarFeed
+            from hub.calendar_service import sync_general_calendar
+
+            feed = CalendarFeed.objects.create(
+                name="General", ical_url="https://example.com/general.ics", color="#EEB44B"
+            )
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
+                sync_general_calendar()
+            feed.refresh_from_db()
+            assert feed.last_fetched_at is not None
 
     def describe_refresh_stale_sources():
         def it_skips_sources_fetched_recently():
@@ -266,54 +293,56 @@ def describe_calendar_service():
                 # Should not raise — exceptions are swallowed
                 refresh_stale_sources(max_age_seconds=900)
 
-        def it_refreshes_stale_general_calendar():
+        def it_refreshes_stale_calendar_feeds():
             from datetime import timedelta
 
-            from core.models import SiteConfiguration
+            from core.models import CalendarFeed
             from hub.calendar_service import refresh_stale_sources
 
-            config = SiteConfiguration.load()
-            config.general_calendar_url = "https://example.com/general.ics"
-            config.general_calendar_last_fetched_at = timezone.now() - timedelta(seconds=1000)
-            config.save()
+            feed = CalendarFeed.objects.create(
+                name="General",
+                ical_url="https://example.com/general.ics",
+                color="#EEB44B",
+                last_fetched_at=timezone.now() - timedelta(seconds=1000),
+            )
             with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
                 refresh_stale_sources(max_age_seconds=900)
-            config.refresh_from_db()
-            assert config.general_calendar_last_fetched_at >= timezone.now() - timedelta(seconds=5)
+            feed.refresh_from_db()
+            assert feed.last_fetched_at >= timezone.now() - timedelta(seconds=5)
 
-        def it_refreshes_general_calendar_never_fetched():
-            from core.models import SiteConfiguration
+        def it_refreshes_calendar_feed_never_fetched():
+            from core.models import CalendarFeed
             from hub.calendar_service import refresh_stale_sources
 
-            config = SiteConfiguration.load()
-            config.general_calendar_url = "https://example.com/general2.ics"
-            config.general_calendar_last_fetched_at = None
-            config.save()
+            feed = CalendarFeed.objects.create(
+                name="General", ical_url="https://example.com/general2.ics", color="#EEB44B", last_fetched_at=None
+            )
             with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
                 refresh_stale_sources(max_age_seconds=900)
-            config.refresh_from_db()
-            assert config.general_calendar_last_fetched_at is not None
+            feed.refresh_from_db()
+            assert feed.last_fetched_at is not None
 
-        def it_swallows_exceptions_from_stale_general_sync():
-            from core.models import SiteConfiguration
+        def it_swallows_exceptions_from_stale_feed_sync():
+            from core.models import CalendarFeed
             from hub.calendar_service import refresh_stale_sources
 
-            config = SiteConfiguration.load()
-            config.general_calendar_url = "https://example.com/broken-general.ics"
-            config.general_calendar_last_fetched_at = None
-            config.save()
-            with patch("hub.calendar_service.sync_general_calendar", side_effect=RuntimeError("network error")):
-                # Should not raise — exceptions are swallowed
+            CalendarFeed.objects.create(
+                name="Broken", ical_url="https://example.com/broken-general.ics", color="#EEB44B", last_fetched_at=None
+            )
+            with patch("hub.calendar_service.sync_calendar_feed", side_effect=RuntimeError("network error")):
+                # Should not raise — exceptions are swallowed per-feed
                 refresh_stale_sources(max_age_seconds=900)
 
-        def it_skips_general_calendar_fetched_recently():
-            from core.models import SiteConfiguration
+        def it_skips_calendar_feed_fetched_recently():
+            from core.models import CalendarFeed
             from hub.calendar_service import refresh_stale_sources
 
-            config = SiteConfiguration.load()
-            config.general_calendar_url = "https://example.com/recent-general.ics"
-            config.general_calendar_last_fetched_at = timezone.now()
-            config.save()
+            CalendarFeed.objects.create(
+                name="Recent",
+                ical_url="https://example.com/recent-general.ics",
+                color="#EEB44B",
+                last_fetched_at=timezone.now(),
+            )
             with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen) as mock_open:
                 refresh_stale_sources(max_age_seconds=900)
             mock_open.assert_not_called()
@@ -568,17 +597,14 @@ def describe_calendar_export_ics_view():
 
 
 def describe_community_calendar_default_filters():
-    def it_includes_general_in_default_filters_when_general_calendar_configured(client: Client):
-        from core.models import SiteConfiguration
+    def it_includes_each_calendar_feed_in_default_filters(client: Client):
+        from core.models import CalendarFeed
 
         _logged_in_user(client, username="caluser_gen")
-        config = SiteConfiguration.load()
-        config.general_calendar_url = "https://example.com/general.ics"
-        config.save()
+        feed = CalendarFeed.objects.create(name="General", ical_url="https://example.com/general.ics", color="#EEB44B")
         response = client.get("/calendar/")
         assert response.status_code == 200
-        # default_filters_json should contain "general"
-        assert "general" in response.context["default_filters_json"]
+        assert f"feed-{feed.pk}" in response.context["default_filters_json"]
 
 
 def describe_calendar_events_partial_invalid_params():

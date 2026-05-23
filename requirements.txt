@@ -9,6 +9,7 @@ django-extensions>=3.2
 django-anymail[resend]>=12.0
 sentry-sdk>=2.0
 Pillow>=10.0
+pillow-heif>=0.18
 django-storages[s3]>=1.14
 Faker>=33.0
 pyairtable>=3.0

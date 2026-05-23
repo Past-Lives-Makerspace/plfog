@@ -1,0 +1,36 @@
+{% extends "classes/account/base.html" %}
+
+{% block account_title %}Welcome back, <em>{{ user.first_name|default:user.email }}</em>.{% endblock %}
+
+{% block account_sub %}
+  <p class="bk-sub">
+    {% if persona == 'member' %}Your upcoming classes. The rest of your membership — tab, voting, the works — lives on FOG.
+    {% elif persona == 'instructor' %}Classes you've registered for. Your teaching tools stay on FOG.
+    {% else %}Your upcoming Past Lives classes and workshops, in one place.{% endif %}
+  </p>
+{% endblock %}
+
+{% block account_body %}
+  {% if persona == 'instructor' and instructor_upcoming_count %}
+    {% include "classes/account/_components/instructor_banner.html" with count=instructor_upcoming_count %}
+  {% endif %}
+  {% if persona == 'member' %}
+    {% include "classes/account/_components/member_banner.html" %}
+  {% endif %}
+
+  {% if not upcoming %}
+    {% include "classes/account/_components/empty_state.html" with glyph="✶" title="No upcoming classes yet." body="Browse the Makerspace — blacksmithing, lampworking, ceramics, framing, jewelry, and more on the schedule." cta="Browse classes" cta_url="/classes/" %}
+  {% else %}
+    <div class="bk-section-h">
+      <h2>Upcoming</h2>
+      <span class="ct">{{ upcoming|length }} {{ upcoming|length|pluralize:"item,items" }}</span>
+    </div>
+    {% for reg in upcoming %}
+      {% include "classes/account/_components/class_card.html" with reg=reg %}
+    {% endfor %}
+  {% endif %}
+
+  {% if persona == 'nonmember' and upcoming and not nudge_dismissed %}
+    {% include "classes/account/_components/member_nudge.html" %}
+  {% endif %}
+{% endblock %}

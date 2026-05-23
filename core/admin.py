@@ -11,7 +11,7 @@ from django.urls import path
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 
-from .models import SiteConfiguration
+from .models import CalendarFeed, SiteConfiguration
 
 
 _ICAL_TOOLTIP = (
@@ -57,6 +57,19 @@ class _SiteConfigurationAdminForm(dj_forms.ModelForm):
             "{}</div></span>",
             _ICAL_TOOLTIP,
         )
+
+
+@admin.register(CalendarFeed)
+class CalendarFeedAdmin(ModelAdmin):
+    """Direct edit access to CalendarFeed rows.
+
+    Admins normally manage these through Site Settings → Calendar tab; this admin
+    is for convenience and read-only auditing of last-fetched timestamps.
+    """
+
+    list_display = ["name", "ical_url", "color", "last_fetched_at", "sort_order"]
+    readonly_fields = ["last_fetched_at"]
+    search_fields = ["name"]
 
 
 @admin.register(SiteConfiguration)
@@ -174,11 +187,17 @@ class SiteConfigurationAdmin(ModelAdmin):
         return False
 
     def save_model(self, request: HttpRequest, obj: SiteConfiguration, form: Any, change: bool) -> None:
-        """Trigger an immediate general calendar sync when the URL is set."""
+        """Trigger an immediate sync of every configured CalendarFeed when the URL is set.
+
+        The legacy ``general_calendar_url`` field is kept on the model for one release
+        so existing Django-admin workflows continue to function during the migration
+        to the new multi-feed list. Either path triggers ``sync_general_calendar``,
+        which now iterates every ``CalendarFeed`` row.
+        """
         super().save_model(request, obj, form, change)
         from hub.calendar_service import sync_general_calendar
 
-        if obj.general_calendar_url:
+        if obj.general_calendar_url or CalendarFeed.objects.exists():
             try:
                 count = sync_general_calendar()
             except Exception as exc:  # noqa: BLE001

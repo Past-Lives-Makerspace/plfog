@@ -62,6 +62,24 @@ def describe_ClassOfferingForm():
             assert not form.is_valid()
             assert "price_cents" in form.errors
 
+        def describe_minimum_paid_price():
+            def it_rejects_paid_price_below_one_dollar():
+                form = ClassOfferingForm(data=_admin_post_data(price_cents="99"))
+                assert not form.is_valid()
+                assert "price_cents" in form.errors
+                assert any("$1.00" in e for e in form.errors["price_cents"])
+
+            def it_accepts_paid_price_at_exactly_one_dollar():
+                form = ClassOfferingForm(data=_admin_post_data(price_cents="100"))
+                assert form.is_valid(), form.errors
+
+            def it_still_allows_zero_when_marked_free():
+                form = ClassOfferingForm(
+                    data=_admin_post_data(is_free="on", price_cents="", member_discount_pct=""),
+                )
+                assert form.is_valid(), form.errors
+                assert form.save().price_cents == 0
+
         def it_pre_checks_for_existing_free_class():
             offering = ClassOfferingFactory(price_cents=0, member_discount_pct=0)
             form = ClassOfferingForm(instance=offering)
@@ -118,3 +136,13 @@ def describe_InstructorClassOfferingForm():
             )
             assert not form.is_valid()
             assert "price_cents" in form.errors
+
+        def it_rejects_paid_price_below_one_dollar():
+            instructor = InstructorFactory()
+            form = InstructorClassOfferingForm(
+                data=_instructor_post_data(price_cents="50"),
+                instructor=instructor,
+            )
+            assert not form.is_valid()
+            assert "price_cents" in form.errors
+            assert any("$1.00" in e for e in form.errors["price_cents"])

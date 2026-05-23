@@ -1070,6 +1070,14 @@ class CalendarEvent(models.Model):
         related_name="calendar_events",
         help_text="Guild this event belongs to. Null for general or classes events.",
     )
+    feed = models.ForeignKey(
+        "core.CalendarFeed",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="calendar_events",
+        help_text="The named general-calendar feed this event came from. Null for guild and classes events.",
+    )
     source = models.CharField(
         max_length=20,
         choices=Source.choices,
@@ -1094,7 +1102,7 @@ class CalendarEvent(models.Model):
             models.Index(fields=["start_dt", "end_dt"], name="idx_calendarevent_start_end"),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["guild", "uid"], name="uq_calendarevent_guild_uid"),
+            models.UniqueConstraint(fields=["guild", "feed", "uid"], name="uq_calendarevent_guild_feed_uid"),
         ]
         verbose_name = "Calendar Event"
         verbose_name_plural = "Calendar Events"
@@ -1107,6 +1115,8 @@ class CalendarEvent(models.Model):
         """Key used to look up this event's display color in the source_colors dict."""
         if self.source == self.Source.GUILD and self.guild_id:
             return str(self.guild_id)
+        if self.source == self.Source.GENERAL and self.feed_id:
+            return f"feed-{self.feed_id}"
         return self.source
 
     @property

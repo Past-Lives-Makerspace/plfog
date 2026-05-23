@@ -117,7 +117,7 @@ def describe_handle_checkout_session_completed():
             handle_checkout_session_completed(event)
 
         spy.assert_called_once()
-        assert spy.call_args.kwargs["tags"] == ["class-registrant"]
+        assert "class-registrant" in spy.call_args.kwargs["tags"]
         pending_registration.refresh_from_db()
         assert pending_registration.subscribed_to_mailchimp is True
 

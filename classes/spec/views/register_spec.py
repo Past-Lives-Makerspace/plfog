@@ -170,7 +170,7 @@ def describe_register_view():
         spy.assert_called_once()
         kwargs = spy.call_args.kwargs
         assert kwargs["email"] == "sam@example.com"
-        assert kwargs["tags"] == ["class-registrant"]
+        assert "class-registrant" in kwargs["tags"]
         registration = Registration.objects.get(class_offering=free_offering)
         assert registration.subscribed_to_mailchimp is True
 

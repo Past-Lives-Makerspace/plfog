@@ -24,6 +24,7 @@ from hub.calendar_service import refresh_stale_sources
 from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
+    CalendarFeedFormSet,
     EmailPreferencesForm,
     GuildEditForm,
     MemberAdminEditForm,
@@ -786,7 +787,7 @@ def _get_calendar_context(
     """
     from collections import defaultdict
 
-    from core.models import SiteConfiguration
+    from core.models import CalendarFeed, SiteConfiguration
     from membership.models import CalendarEvent, Guild
 
     now = dj_timezone.now()
@@ -808,7 +809,7 @@ def _get_calendar_context(
 
     all_events = list(
         CalendarEvent.objects.filter(start_dt__date__gte=fetch_from, start_dt__date__lte=fetch_to)
-        .select_related("guild")
+        .select_related("guild", "feed")
         .order_by("start_dt")
     )
 
@@ -831,12 +832,13 @@ def _get_calendar_context(
     guilds_with_calendars = list(Guild.objects.filter(is_active=True, calendar_url__gt="").order_by("name"))
 
     config = SiteConfiguration.load()
-    general_enabled = bool(config.general_calendar_url)
-    general_color = config.general_calendar_color
+    calendar_feeds = list(CalendarFeed.objects.filter(ical_url__gt=""))
     classes_enabled = config.sync_classes_enabled
     classes_color = config.classes_calendar_color
 
-    source_colors: dict[str, str] = {"general": general_color, "classes": classes_color}
+    source_colors: dict[str, str] = {"classes": classes_color}
+    for feed in calendar_feeds:
+        source_colors[f"feed-{feed.pk}"] = feed.color
     for g in guilds_with_calendars:
         source_colors[str(g.pk)] = g.calendar_color
 
@@ -882,8 +884,7 @@ def _get_calendar_context(
         "event_page": event_page,
         "event_total_pages": total_pages,
         "guilds_with_calendars": guilds_with_calendars,
-        "general_enabled": general_enabled,
-        "general_color": general_color,
+        "calendar_feeds": calendar_feeds,
         "classes_enabled": classes_enabled,
         "classes_color": classes_color,
         "source_colors": source_colors,
@@ -905,8 +906,8 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     cal_ctx = _get_calendar_context(request)
 
     default_filters = []
-    if cal_ctx["general_enabled"]:
-        default_filters.append("general")
+    for feed in cal_ctx["calendar_feeds"]:
+        default_filters.append(f"feed-{feed.pk}")
     if cal_ctx["classes_enabled"]:
         default_filters.append("classes")
     for g in cal_ctx["guilds_with_calendars"]:
@@ -1098,19 +1099,51 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 @fog_admin_required
 def admin_site_settings(request: HttpRequest) -> HttpResponse:
-    """Admin site settings — edit the SiteConfiguration singleton."""
-    from core.models import SiteConfiguration
+    """Admin site settings — edit the SiteConfiguration singleton and its calendar feeds.
+
+    The page exposes two tabs (``general`` and ``calendar``). The Calendar tab
+    owns a ``CalendarFeedFormSet`` so admins can add/remove iCal feeds inline.
+    """
+    from core.models import CalendarFeed, SiteConfiguration
 
     config = SiteConfiguration.load()
+    active_tab = request.GET.get("tab", "general")
+    if active_tab not in {"general", "calendar"}:
+        active_tab = "general"
+
+    feed_queryset = CalendarFeed.objects.all()
 
     if request.method == "POST":
         form = SiteSettingsForm(request.POST, instance=config)
-        if form.is_valid():
+        feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
+        if form.is_valid() and feed_formset.is_valid():
             form.save()
+            instances = feed_formset.save(commit=False)
+            for obj in feed_formset.deleted_objects:
+                obj.delete()
+            for inst in instances:
+                # Skip blank "+ Add" rows the user never filled in.
+                if not inst.name and not inst.ical_url:
+                    continue
+                inst.save()
             messages.success(request, "Site settings saved.")
-            return redirect("hub_admin_site_settings")
+            target_tab = request.POST.get("submitted_tab", active_tab)
+            url = reverse("hub_admin_site_settings")
+            return redirect(f"{url}?tab={target_tab}")
     else:
         form = SiteSettingsForm(instance=config)
+        feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
 
     ctx = _get_hub_context(request)
-    return render(request, "hub/admin/site_settings.html", {**ctx, "form": form})
+    return render(
+        request,
+        "hub/admin/site_settings.html",
+        {
+            **ctx,
+            "form": form,
+            "feed_formset": feed_formset,
+            "active_tab": active_tab,
+            "classes_color_field": form["classes_calendar_color"],
+            "sync_classes_field": form["sync_classes_enabled"],
+        },
+    )
