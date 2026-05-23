@@ -77,7 +77,7 @@ def persona(request: HttpRequest) -> dict[str, str | bool]:
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
         result: dict[str, str | bool] = {"persona": "anon", "is_member_persona": False, "is_instructor_persona": False}
-        request._persona = result
+        request._persona = result  # type: ignore[attr-defined]
         return result
 
     from membership.models import Member
@@ -98,5 +98,5 @@ def persona(request: HttpRequest) -> dict[str, str | bool]:
         "is_member_persona": is_active_member,
         "is_instructor_persona": is_instructor,
     }
-    request._persona = result
+    request._persona = result  # type: ignore[attr-defined]
     return result

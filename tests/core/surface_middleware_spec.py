@@ -166,3 +166,41 @@ def describe_SurfaceMiddleware():
             request, middleware = _build("book.pastlives.space", "/classes/instructors/")
             response = middleware(request)
             assert response.status_code == 200
+
+
+def describe_handle_members_surface_early_returns():
+    def it_passes_through_when_public_only_prefixes_is_empty():
+        with override_settings(
+            PUBLIC_ONLY_PATH_PREFIXES=(),
+            PUBLIC_HOSTS=["book.pastlives.space"],
+            MEMBER_HOST="members.pastlives.space",
+            MEMBER_ONLY_PATH_PREFIXES=(),
+        ):
+            request, middleware = _build("members.pastlives.space", "/some/path/")
+            response = middleware(request)
+            assert response.status_code == 200
+
+    def it_passes_through_when_public_hosts_is_empty():
+        with override_settings(
+            PUBLIC_ONLY_PATH_PREFIXES=("/account/",),
+            PUBLIC_HOSTS=[],
+            MEMBER_HOST="members.pastlives.space",
+            MEMBER_ONLY_PATH_PREFIXES=(),
+        ):
+            request, middleware = _build("members.pastlives.space", "/account/")
+            response = middleware(request)
+            assert response.status_code == 200
+
+    def it_redirects_public_only_path_on_members_surface_to_book_host():
+        with override_settings(
+            PUBLIC_ONLY_PATH_PREFIXES=("/account/",),
+            PUBLIC_HOSTS=["book.pastlives.space"],
+            MEMBER_HOST="members.pastlives.space",
+            MEMBER_ONLY_PATH_PREFIXES=(),
+            ALLOWED_HOSTS=["book.pastlives.space", "members.pastlives.space", "testserver"],
+        ):
+            request, middleware = _build("members.pastlives.space", "/account/overview/")
+            response = middleware(request)
+            assert response.status_code == 302
+            assert "book.pastlives.space" in response["Location"]
+            assert "/account/overview/" in response["Location"]

@@ -111,3 +111,12 @@ def describe_subscribe_user():
             subscribe_user(user)
         user.profile.refresh_from_db()
         assert user.profile.subscribed_to_mailchimp_at is None
+
+    def it_no_ops_when_user_email_is_blank(mailchimp_configured):
+        # Line 56: subscribe_user returns early when email strips to empty.
+        user = _user_with_profile(email="ada@example.com")
+        user.email = ""
+        user.save()
+        with patch("core.integrations.mailchimp.MailchimpClient.subscribe") as spy:
+            subscribe_user(user)
+        spy.assert_not_called()
