@@ -146,15 +146,15 @@
 
     {# ── Filter toggles ── #}
     <div class="pl-calendar-filters">
-        {% if general_enabled %}
+        {% for feed in calendar_feeds %}
         <button class="pl-calendar-filter"
-                :class="{ 'pl-calendar-filter--active': isActive('general') }"
-                @click="toggleFilter('general')"
-                style="--filter-color: {{ general_color }};">
-            <span class="pl-calendar-filter__dot" style="background: {{ general_color }};"></span>
-            General
+                :class="{ 'pl-calendar-filter--active': isActive('feed-{{ feed.pk }}') }"
+                @click="toggleFilter('feed-{{ feed.pk }}')"
+                style="--filter-color: {{ feed.color }};">
+            <span class="pl-calendar-filter__dot" style="background: {{ feed.color }};"></span>
+            {{ feed.name }}
         </button>
-        {% endif %}
+        {% endfor %}
         {% if classes_enabled %}
         <button class="pl-calendar-filter"
                 :class="{ 'pl-calendar-filter--active': isActive('classes') }"
@@ -173,7 +173,7 @@
             {{ guild.name }}
         </button>
         {% endfor %}
-        {% if not general_enabled and not classes_enabled and not guilds_with_calendars %}
+        {% if not calendar_feeds and not classes_enabled and not guilds_with_calendars %}
         <p class="pl-calendar-empty-notice">No calendars configured yet. Guild officers can add a Google Calendar link from their guild page.</p>
         {% endif %}
     </div>

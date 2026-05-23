@@ -2,9 +2,36 @@
 
 from __future__ import annotations
 
-VERSION = "2.0.0"
+VERSION = "2.0.3"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.0.3",
+        "date": "2026-05-22",
+        "title": "Site Settings: add multiple calendars to the Community Calendar",
+        "changes": [
+            "Site Settings now has its own Calendar tab with a list of named calendar feeds — General, Workshops, Open Studio, anything you want. Click '+ Add calendar' to drop in another iCal URL, give it a name and a color, and it shows up on the Community Calendar legend with its own colored chips.",
+            "The Site Settings page is now organized into two tabs (General and Calendar) so finding registration, MailChimp, and analytics settings stays out of the way when you're just managing calendars.",
+            "Existing General Calendar setups were automatically migrated into the new list as a 'General Calendar' feed — nothing to do, no events go missing.",
+        ],
+    },
+    {
+        "version": "2.0.2",
+        "date": "2026-05-22",
+        "title": "Delete classes outright, and a $1 minimum on paid classes",
+        "changes": [
+            "Admins can now delete any class that has no registrations — not just drafts. The Delete button shows up on the class detail page next to Archive whenever no one has signed up yet. Classes with registrations still have to be archived so we keep the history.",
+            "When you set a price on a class, the minimum is now $1.00. Anything cheaper should just be a free class — tick 'This is a free class / workshop' and the price goes to zero. (This only affects new prices you set going forward; classes that were already priced below a dollar still work.)",
+        ],
+    },
+    {
+        "version": "2.0.1",
+        "date": "2026-05-22",
+        "title": "Class registration: friendlier error when a price comes out too low",
+        "changes": [
+            "Fixed a bug where the 'Continue to payment' button on a class registration page could show an error screen if the total ended up less than $0.50 (for example after applying a big discount code). You'll now see a clear message asking you to remove the code or get in touch with the studio.",
+        ],
+    },
     {
         "version": "2.0.0",
         "date": "2026-05-22",

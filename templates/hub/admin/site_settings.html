@@ -48,29 +48,208 @@
   }
   .site-settings-form .field-row { display: flex; flex-direction: column; gap: 0.35rem; }
   .site-settings-form .field-checkbox { flex-direction: row; align-items: center; gap: 0.625rem; }
+
+  .pl-feed-list { display: flex; flex-direction: column; gap: 0.75rem; }
+  .pl-feed-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr auto auto;
+    gap: 0.5rem;
+    align-items: end;
+    padding: 0.75rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+  }
+  .pl-feed-row label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    margin-bottom: 0.25rem;
+  }
+  .pl-feed-row__remove {
+    height: 40px;
+  }
+  .pl-feed-add {
+    align-self: flex-start;
+    background: rgba(238,180,75,0.12);
+    color: #EEB44B;
+    border: 1px dashed rgba(238,180,75,0.4);
+    padding: 0.5rem 0.9rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .pl-feed-add:hover { background: rgba(238,180,75,0.18); }
+  .pl-feed-empty {
+    color: var(--hub-text-muted);
+    font-style: italic;
+    padding: 0.75rem 0;
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="hub-card">
+<div class="hub-card" x-data="{ tab: '{{ active_tab|default:"general" }}' }">
   <h1 class="hub-page-title" style="margin:0 0 0.25rem;">Site Settings</h1>
-  <p style="color:var(--hub-text-muted);margin:0 0 1.5rem;">Site-wide configuration. Singleton — saves overwrite the existing record.</p>
+  <p style="color:var(--hub-text-muted);margin:0 0 1.25rem;">Site-wide configuration. Singleton — saves overwrite the existing record.</p>
 
-  <form method="post" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:680px;">
+  <div style="display: flex; border-bottom: 1px solid var(--hub-border); gap: 0; margin-bottom: 1.25rem; flex-wrap: wrap;">
+    <button type="button"
+            @click="tab = 'general'"
+            :class="{ 'vote-tab--active': tab === 'general' }"
+            class="vote-tab">
+      General
+    </button>
+    <button type="button"
+            @click="tab = 'calendar'"
+            :class="{ 'vote-tab--active': tab === 'calendar' }"
+            class="vote-tab">
+      Calendar
+    </button>
+  </div>
+
+  <form method="post" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
     {% csrf_token %}
-    {% for field in form %}
-    <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
-      {% if field.field.widget.input_type == 'checkbox' %}
-        {{ field }}
-        <label for="{{ field.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ field.label }}</label>
-      {% else %}
-        <label for="{{ field.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ field.label }}</label>
-        {{ field }}
-      {% endif %}
-      {% if field.help_text %}<small style="color:var(--hub-text-muted);">{{ field.help_text }}</small>{% endif %}
-      {% if field.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ field.errors }}</div>{% endif %}
+    <input type="hidden" name="submitted_tab" :value="tab">
+
+    {# -------- General tab -------- #}
+    <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
+      {% for field in form %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' %}
+        <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
+          {% if field.field.widget.input_type == 'checkbox' %}
+            {{ field }}
+            <label for="{{ field.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ field.label }}</label>
+          {% else %}
+            <label for="{{ field.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ field.label }}</label>
+            {{ field }}
+          {% endif %}
+          {% if field.help_text %}<small style="color:var(--hub-text-muted);">{{ field.help_text }}</small>{% endif %}
+          {% if field.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ field.errors }}</div>{% endif %}
+        </div>
+        {% endif %}
+      {% endfor %}
     </div>
-    {% endfor %}
+
+    {# -------- Calendar tab -------- #}
+    <div x-show="tab === 'calendar'" x-cloak
+         style="display:flex;flex-direction:column;gap:1.5rem;"
+         x-data="{ count: {{ feed_formset.total_form_count }} }">
+
+      <div>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Calendar feeds</h2>
+        <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
+          Each feed shows up as its own colored entry on the Community Calendar legend. Add as many as you like — workshops, official members calendar, open studio, etc.
+        </p>
+
+        {{ feed_formset.management_form }}
+
+        <div class="pl-feed-list">
+          {% for feed_form in feed_formset %}
+          <div class="pl-feed-row" x-data="{ deleted: false }" :style="deleted ? 'opacity:0.45;' : ''">
+            {% for hidden in feed_form.hidden_fields %}{{ hidden }}{% endfor %}
+            <div>
+              <label for="{{ feed_form.name.id_for_label }}">Name</label>
+              {{ feed_form.name }}
+            </div>
+            <div>
+              <label for="{{ feed_form.ical_url.id_for_label }}">iCal URL</label>
+              {{ feed_form.ical_url }}
+            </div>
+            <div>
+              <label for="{{ feed_form.color.id_for_label }}">Color</label>
+              {{ feed_form.color }}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:0.25rem;">
+              <label>&nbsp;</label>
+              {% if feed_form.instance.pk %}
+                <label class="pl-feed-row__remove" style="display:flex;align-items:center;gap:0.35rem;font-size:0.8125rem;color:#f87171;cursor:pointer;">
+                  {{ feed_form.DELETE }} Remove
+                </label>
+              {% else %}
+                <button type="button"
+                        class="pl-feed-row__remove hub-btn hub-btn--sm hub-btn--secondary"
+                        @click="$el.closest('.pl-feed-row').remove()">
+                  Remove
+                </button>
+              {% endif %}
+            </div>
+            {% if feed_form.non_field_errors %}
+            <div style="grid-column:1/-1;color:#f87171;font-size:0.8125rem;">{{ feed_form.non_field_errors }}</div>
+            {% endif %}
+            {% for field in feed_form.visible_fields %}
+              {% if field.errors %}<div style="grid-column:1/-1;color:#f87171;font-size:0.8125rem;">{{ field.label }}: {{ field.errors|join:", " }}</div>{% endif %}
+            {% endfor %}
+          </div>
+          {% empty %}
+          <p class="pl-feed-empty" id="pl-feed-empty">No calendar feeds yet. Click "+ Add calendar" below to add one.</p>
+          {% endfor %}
+        </div>
+
+        {# Hidden empty-form template, cloned by the +Add button. #}
+        <template id="pl-feed-empty-template">
+          <div class="pl-feed-row">
+            {% with feed_formset.empty_form as ef %}
+            {% for hidden in ef.hidden_fields %}{{ hidden }}{% endfor %}
+            <div>
+              <label>Name</label>
+              {{ ef.name }}
+            </div>
+            <div>
+              <label>iCal URL</label>
+              {{ ef.ical_url }}
+            </div>
+            <div>
+              <label>Color</label>
+              {{ ef.color }}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:0.25rem;">
+              <label>&nbsp;</label>
+              <button type="button"
+                      class="pl-feed-row__remove hub-btn hub-btn--sm hub-btn--secondary"
+                      onclick="this.closest('.pl-feed-row').remove();">
+                Remove
+              </button>
+            </div>
+            {% endwith %}
+          </div>
+        </template>
+
+        <button type="button"
+                class="pl-feed-add"
+                style="margin-top:0.75rem;"
+                onclick="
+                  const tpl = document.getElementById('pl-feed-empty-template');
+                  const totalInput = document.getElementById('id_feeds-TOTAL_FORMS');
+                  const idx = parseInt(totalInput.value, 10);
+                  const html = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  const list = document.querySelector('.pl-feed-list');
+                  const empty = document.getElementById('pl-feed-empty');
+                  if (empty) empty.remove();
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = html;
+                  list.appendChild(wrap.firstElementChild);
+                  totalInput.value = idx + 1;
+                ">
+          + Add calendar
+        </button>
+      </div>
+
+      <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Classes (classes.pastlives.space)</h2>
+        <div class="field-row field-checkbox" style="margin-top:0.75rem;">
+          {{ sync_classes_field }}
+          <label for="{{ sync_classes_field.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ sync_classes_field.label }}</label>
+        </div>
+        {% if sync_classes_field.help_text %}<small style="color:var(--hub-text-muted);">{{ sync_classes_field.help_text }}</small>{% endif %}
+        <div class="field-row" style="margin-top:0.75rem;">
+          <label for="{{ classes_color_field.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ classes_color_field.label }}</label>
+          {{ classes_color_field }}
+          {% if classes_color_field.help_text %}<small style="color:var(--hub-text-muted);">{{ classes_color_field.help_text }}</small>{% endif %}
+        </div>
+      </div>
+    </div>
+
     <div>
       <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
     </div>

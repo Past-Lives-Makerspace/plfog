@@ -38,8 +38,10 @@
         </div>
         {% elif event.guild %}
         <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }};">{{ event.guild.name }}</div>
+        {% elif event.feed %}
+        <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }};">{{ event.feed.name }}</div>
         {% else %}
-        <div class="pl-calendar-list__guild" style="color: {{ general_color }};">General</div>
+        <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }};">General</div>
         {% endif %}
     </div>
 </div>

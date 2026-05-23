@@ -12,7 +12,7 @@ from typing import Any
 from django.utils import timezone
 from django.utils.html import strip_tags
 
-from core.models import SiteConfiguration
+from core.models import CalendarFeed, SiteConfiguration
 from membership.models import CalendarEvent, Guild
 
 CLASSES_API_BASE = "https://classes.pastlives.space"
@@ -80,12 +80,22 @@ def _fetch_and_parse(url: str) -> list[dict[str, Any]]:
     return _parse_ical_events(raw)
 
 
-def _upsert_events(events: list[dict[str, Any]], guild: Guild | None, source: str) -> int:
-    """Insert or update CalendarEvent records for the given source."""
+def _upsert_events(
+    events: list[dict[str, Any]],
+    guild: Guild | None,
+    source: str,
+    feed: CalendarFeed | None = None,
+) -> int:
+    """Insert or update CalendarEvent records for the given source.
+
+    Uniqueness is per-``(guild, feed, uid)`` so two ``CalendarFeed`` rows whose
+    upstream calendars happen to share a UID don't clobber each other.
+    """
     now = timezone.now()
     for evt in events:
         CalendarEvent.objects.update_or_create(
             guild=guild,
+            feed=feed,
             uid=evt["uid"],
             defaults={
                 "source": source,
@@ -113,16 +123,25 @@ def sync_guild_calendar(guild: Guild) -> int:
     return count
 
 
-def sync_general_calendar() -> int:
-    """Fetch and sync the general makerspace calendar. Returns events synced (0 if no URL)."""
-    config = SiteConfiguration.load()
-    if not config.general_calendar_url:
+def sync_calendar_feed(feed: CalendarFeed) -> int:
+    """Fetch and sync one named CalendarFeed. Returns events synced (0 if no URL)."""
+    if not feed.ical_url:
         return 0
-    events = _fetch_and_parse(config.general_calendar_url)
-    count = _upsert_events(events, guild=None, source="general")
-    config.general_calendar_last_fetched_at = timezone.now()
-    config.save(update_fields=["general_calendar_last_fetched_at"])
+    events = _fetch_and_parse(feed.ical_url)
+    count = _upsert_events(events, guild=None, source="general", feed=feed)
+    feed.last_fetched_at = timezone.now()
+    feed.save(update_fields=["last_fetched_at"])
     return count
+
+
+def sync_general_calendar() -> int:
+    """Fetch and sync every configured CalendarFeed. Returns total events synced."""
+    total = 0
+    for feed in CalendarFeed.objects.all():
+        if not feed.ical_url:
+            continue
+        total += sync_calendar_feed(feed)
+    return total
 
 
 def _fetch_json(url: str) -> dict[str, Any]:
@@ -274,17 +293,14 @@ def refresh_stale_sources(max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS) -> Non
         except Exception:  # noqa: BLE001
             pass
 
-    config = SiteConfiguration.load()
-    if config.general_calendar_url:
-        general_stale = (
-            config.general_calendar_last_fetched_at is None or config.general_calendar_last_fetched_at < cutoff
-        )
-        if general_stale:
-            try:
-                sync_general_calendar()
-            except Exception:  # noqa: BLE001
-                pass
+    stale_feeds = CalendarFeed.objects.filter(ical_url__gt="").exclude(last_fetched_at__gte=cutoff)
+    for feed in stale_feeds:
+        try:
+            sync_calendar_feed(feed)
+        except Exception:  # noqa: BLE001
+            pass
 
+    config = SiteConfiguration.load()
     if config.sync_classes_enabled:
         classes_stale = config.classes_last_synced_at is None or config.classes_last_synced_at < cutoff
         if classes_stale:

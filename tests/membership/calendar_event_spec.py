@@ -160,6 +160,50 @@ def describe_CalendarEvent():
             )
             assert event.source_key == "classes"
 
+        def it_returns_feed_pk_for_general_events_linked_to_a_feed():
+            from django.utils import timezone
+
+            from core.models import CalendarFeed
+            from membership.models import CalendarEvent
+
+            now = timezone.now()
+            feed = CalendarFeed.objects.create(
+                name="Workshops", ical_url="https://example.com/workshops.ics", color="#FF8800"
+            )
+            event = CalendarEvent.objects.create(
+                guild=None,
+                feed=feed,
+                source=CalendarEvent.Source.GENERAL,
+                uid="feed-key-test",
+                title="Feed Event",
+                start_dt=now,
+                end_dt=now,
+                fetched_at=now,
+            )
+            assert event.source_key == f"feed-{feed.pk}"
+
+
+def describe_CalendarFeed():
+    def it_orders_by_sort_order_then_pk():
+        from core.models import CalendarFeed
+
+        b = CalendarFeed.objects.create(name="B", ical_url="https://example.com/b.ics", sort_order=2)
+        a = CalendarFeed.objects.create(name="A", ical_url="https://example.com/a.ics", sort_order=1)
+        names = list(CalendarFeed.objects.values_list("name", flat=True))
+        assert names == [a.name, b.name]
+
+    def it_has_default_color():
+        from core.models import CalendarFeed
+
+        feed = CalendarFeed.objects.create(name="Default", ical_url="https://example.com/default.ics")
+        assert feed.color == "#EEB44B"
+
+    def it_str_returns_name():
+        from core.models import CalendarFeed
+
+        feed = CalendarFeed.objects.create(name="General Calendar", ical_url="https://example.com/g.ics")
+        assert str(feed) == "General Calendar"
+
     def describe_upcoming():
         def it_returns_events_whose_end_time_is_in_the_future():
             from membership.models import CalendarEvent

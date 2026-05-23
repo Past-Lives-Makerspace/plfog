@@ -113,6 +113,45 @@ class SiteConfiguration(models.Model):
         return obj
 
 
+class CalendarFeed(models.Model):
+    """A named iCal feed displayed on the Community Calendar.
+
+    Multiple feeds (e.g. "General Calendar", "Workshops", "Open Studio") can be
+    configured from the Site Settings → Calendar tab. Each is fetched on demand
+    by ``hub.calendar_service`` and rendered as its own legend entry.
+    """
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Display name shown on the Community Calendar legend (e.g. 'General Calendar', 'Workshops').",
+    )
+    ical_url = models.URLField(
+        help_text="Public iCal URL. Paste the 'Secret address in iCal format' from Google Calendar settings.",
+    )
+    color = models.CharField(
+        max_length=7,
+        default="#EEB44B",
+        help_text="Hex color for this feed's events on the Community Calendar (e.g. #EEB44B).",
+    )
+    last_fetched_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this feed was last synced. Set by the calendar service.",
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values appear first on the legend.",
+    )
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+        verbose_name = "Calendar Feed"
+        verbose_name_plural = "Calendar Feeds"
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class Invite(models.Model):
     """Tracks email invitations sent by admins for invite-only registration."""
 

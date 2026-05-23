@@ -233,19 +233,104 @@ def describe_admin_site_settings():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
-                "general_calendar_url": "https://example.com/cal.ics",
-                "general_calendar_color": "#123456",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
                 "mailchimp_list_id": "",
                 "google_analytics_measurement_id": "",
+                "feeds-TOTAL_FORMS": "0",
+                "feeds-INITIAL_FORMS": "0",
+                "feeds-MIN_NUM_FORMS": "0",
+                "feeds-MAX_NUM_FORMS": "1000",
             },
         )
         assert response.status_code == 302
         config = SiteConfiguration.load()
         assert config.registration_mode == SiteConfiguration.RegistrationMode.OPEN
-        assert config.general_calendar_url == "https://example.com/cal.ics"
+
+    def it_creates_calendar_feed_from_formset(client):
+        from core.models import CalendarFeed
+
+        _create_superuser(client)
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={
+                "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "sync_classes_enabled": "",
+                "classes_calendar_color": "#abcdef",
+                "mailchimp_api_key": "",
+                "mailchimp_list_id": "",
+                "google_analytics_measurement_id": "",
+                "feeds-TOTAL_FORMS": "1",
+                "feeds-INITIAL_FORMS": "0",
+                "feeds-MIN_NUM_FORMS": "0",
+                "feeds-MAX_NUM_FORMS": "1000",
+                "feeds-0-name": "Workshops",
+                "feeds-0-ical_url": "https://example.com/workshops.ics",
+                "feeds-0-color": "#FF8800",
+            },
+        )
+        assert response.status_code == 302
+        assert CalendarFeed.objects.filter(name="Workshops").exists()
+
+    def it_discards_blank_calendar_feed_rows(client):
+        from core.models import CalendarFeed
+
+        _create_superuser(client)
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={
+                "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "sync_classes_enabled": "",
+                "classes_calendar_color": "#abcdef",
+                "mailchimp_api_key": "",
+                "mailchimp_list_id": "",
+                "google_analytics_measurement_id": "",
+                "feeds-TOTAL_FORMS": "1",
+                "feeds-INITIAL_FORMS": "0",
+                "feeds-MIN_NUM_FORMS": "0",
+                "feeds-MAX_NUM_FORMS": "1000",
+                "feeds-0-name": "",
+                "feeds-0-ical_url": "",
+                "feeds-0-color": "#EEB44B",
+            },
+        )
+        assert response.status_code == 302
+        assert CalendarFeed.objects.count() == 0
+
+    def it_deletes_calendar_feed_via_formset(client):
+        from core.models import CalendarFeed
+
+        _create_superuser(client)
+        feed = CalendarFeed.objects.create(name="Old", ical_url="https://example.com/old.ics", color="#EEB44B")
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={
+                "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "sync_classes_enabled": "",
+                "classes_calendar_color": "#abcdef",
+                "mailchimp_api_key": "",
+                "mailchimp_list_id": "",
+                "google_analytics_measurement_id": "",
+                "feeds-TOTAL_FORMS": "1",
+                "feeds-INITIAL_FORMS": "1",
+                "feeds-MIN_NUM_FORMS": "0",
+                "feeds-MAX_NUM_FORMS": "1000",
+                "feeds-0-id": str(feed.pk),
+                "feeds-0-name": feed.name,
+                "feeds-0-ical_url": feed.ical_url,
+                "feeds-0-color": feed.color,
+                "feeds-0-DELETE": "on",
+            },
+        )
+        assert response.status_code == 302
+        assert not CalendarFeed.objects.filter(pk=feed.pk).exists()
+
+    def it_renders_calendar_tab_when_requested(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=calendar")
+        assert response.status_code == 200
+        assert response.context["active_tab"] == "calendar"
 
     def it_re_renders_on_invalid_post(client):
         _create_superuser(client)
