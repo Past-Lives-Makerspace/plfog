@@ -48,7 +48,6 @@ class Migration(migrations.Migration):
             name="order_number",
             field=models.CharField(
                 blank=True,
-                db_index=True,
                 default="",
                 max_length=12,
                 help_text="Human-readable confirmation number shown in emails and used by the guest lookup flow (PL-XXXX-YY).",
@@ -61,7 +60,6 @@ class Migration(migrations.Migration):
             name="order_number",
             field=models.CharField(
                 blank=True,
-                db_index=True,
                 max_length=12,
                 unique=True,
                 help_text="Human-readable confirmation number shown in emails and used by the guest lookup flow (PL-XXXX-YY).",

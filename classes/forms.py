@@ -24,6 +24,10 @@ if TYPE_CHECKING:
     from membership.models import Member
 
 
+STRIPE_MIN_CHARGE_CENTS = 50  # Stripe's minimum USD charge is $0.50.
+MIN_PAID_PRICE_CENTS = 100  # Floor for paid classes ($1.00) — anything cheaper should just be free.
+
+
 class _FreeClassMixin:
     """Adds an `is_free` checkbox that, when checked, forces price/discount to 0.
 
@@ -61,9 +65,16 @@ class _FreeClassMixin:
         cleaned = self.cleaned_data  # type: ignore[attr-defined]
         if cleaned.get("is_free"):
             return
-        if cleaned.get("price_cents") in (None, ""):
+        price = cleaned.get("price_cents")
+        if price in (None, ""):
             self.add_error(  # type: ignore[attr-defined]
                 "price_cents", "Set a price (in cents) or check 'This is a free class / workshop'."
+            )
+            return
+        if price < MIN_PAID_PRICE_CENTS:
+            self.add_error(  # type: ignore[attr-defined]
+                "price_cents",
+                "Paid classes must cost at least $1.00. Check 'This is a free class / workshop' for free classes.",
             )
 
     def apply_is_free_to_instance(self, offering: ClassOffering) -> None:
@@ -376,6 +387,13 @@ class RegistrationForm(forms.ModelForm):
             raise forms.ValidationError("This class is sold out.")
         if self.offering.requires_model_release and not data.get("accepts_model_release"):
             self.add_error("accepts_model_release", "Model release acceptance is required for this class.")
+        # Stripe rejects USD charges under $0.50. Either drop to 0 (free) or be at/above the minimum.
+        final_price = self.compute_final_price_cents()
+        if 0 < final_price < STRIPE_MIN_CHARGE_CENTS:
+            raise forms.ValidationError(
+                "The total comes out to less than $0.50, which we can't charge online. "
+                "Please remove any discount code, or contact the studio if this looks wrong."
+            )
         return data
 
     @property

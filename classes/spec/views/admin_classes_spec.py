@@ -42,6 +42,16 @@ def describe_delete_class():
         assert response.status_code == 302
         assert not ClassOffering.objects.filter(pk=offering.pk).exists()
 
+    def it_deletes_a_published_class_with_no_registrations(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        response = client.post(reverse("classes:admin_class_delete", kwargs={"pk": offering.pk}))
+        assert response.status_code == 302
+        assert not ClassOffering.objects.filter(pk=offering.pk).exists()
+
     def it_refuses_to_delete_when_registrations_exist(admin_user, client, db):
         from classes.factories import ClassOfferingFactory, RegistrationFactory
         from classes.models import ClassOffering
@@ -62,6 +72,30 @@ def describe_delete_class():
         response = client.get(reverse("classes:admin_class_delete", kwargs={"pk": offering.pk}))
         assert response.status_code == 302
         assert ClassOffering.objects.filter(pk=offering.pk).exists()
+
+    def describe_delete_button_visibility_on_detail():
+        def it_shows_delete_on_a_published_class_with_no_registrations(admin_user, client, db):
+            from classes.factories import ClassOfferingFactory
+            from classes.models import ClassOffering
+
+            client.force_login(admin_user)
+            offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+            response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+            assert response.status_code == 200
+            delete_url = reverse("classes:admin_class_delete", kwargs={"pk": offering.pk})
+            assert delete_url.encode() in response.content
+
+        def it_hides_delete_when_class_has_registrations(admin_user, client, db):
+            from classes.factories import ClassOfferingFactory, RegistrationFactory
+            from classes.models import ClassOffering
+
+            client.force_login(admin_user)
+            offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+            RegistrationFactory(class_offering=offering)
+            response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+            assert response.status_code == 200
+            delete_url = reverse("classes:admin_class_delete", kwargs={"pk": offering.pk})
+            assert delete_url.encode() not in response.content
 
 
 def describe_admin_classes_routing():

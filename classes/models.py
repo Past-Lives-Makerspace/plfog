@@ -416,7 +416,6 @@ class Registration(models.Model):
         max_length=12,
         blank=True,
         unique=True,
-        db_index=True,
         help_text="Human-readable confirmation number shown in emails and used by the guest lookup flow (PL-XXXX-YY).",
     )
     wants_newsletter = models.BooleanField(
