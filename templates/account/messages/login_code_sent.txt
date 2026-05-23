@@ -1,0 +1,1 @@
+{% load i18n %}{% blocktrans %}If you are a member at Past Lives, we sent a sign-in code to {{ recipient }}.{% endblocktrans %}

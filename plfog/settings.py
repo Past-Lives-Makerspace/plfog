@@ -174,6 +174,25 @@ else:
         "between local dev and prod."
     )
 
+# Cache — must be shared across gunicorn workers for allauth's rate limits
+# (and our login-abuse circuit breaker) to actually hold. Defaults to the same
+# Postgres database in any deployment that has DATABASE_URL set; falls back to
+# in-process LocMemCache for tests so suites don't need a separate table.
+if _IS_PYTEST:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "plfog-test-cache",
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+            "LOCATION": "plfog_cache_table",
+        }
+    }
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
@@ -299,6 +318,27 @@ ACCOUNT_FORMS = {"request_login_code": "plfog.adapters.AutoCreateUserLoginCodeFo
 ACCOUNT_LOGIN_BY_CODE_ENABLED = True
 ACCOUNT_LOGIN_BY_CODE_TIMEOUT = 300  # 5 minutes
 ACCOUNT_LOGIN_BY_CODE_MAX_ATTEMPTS = 5
+
+# Anti-abuse: random-email submissions to /accounts/login/code/ used to trigger
+# an "unknown account" email per attempt, which is what burned through our
+# Resend daily quota. Silently dropping these emails preserves the standard
+# enumeration-prevention UX (the form still reports "we sent you a code") while
+# eliminating the spam vector entirely.
+ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS = False
+
+# Tighten allauth's built-in per-IP/per-key rate limits for login-code requests.
+# Defaults are 20/m/ip,3/m/key which is too generous given the 3,000/day Resend
+# free-tier ceiling. These keys merge into allauth.account.app_settings defaults.
+ACCOUNT_RATE_LIMITS = {
+    "request_login_code": "5/m/ip,3/h/key",
+}
+
+# Global circuit breaker on outgoing login-code emails. Hard backstop in case
+# the per-IP/per-key limits are bypassed (e.g. distributed attack). Hourly cap
+# protects against bursts; daily cap protects against slow drip. Both are
+# best-effort counters in the shared cache.
+LOGIN_CODE_HOURLY_LIMIT = int(os.environ.get("LOGIN_CODE_HOURLY_LIMIT", "100"))
+LOGIN_CODE_DAILY_LIMIT = int(os.environ.get("LOGIN_CODE_DAILY_LIMIT", "500"))
 
 # Auto-admin: comma-separated list of email domains that get admin privileges on login.
 # Empty/unset means no auto-admin. Malformed values raise ValueError at startup.

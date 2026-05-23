@@ -808,3 +808,122 @@ def describe_AutoCreateUserLoginCodeForm():
                 form.clean_email()
 
             assert User.objects.filter(email__iexact="alias@example.com").exists()
+
+    def describe_honeypot():
+        def it_rejects_submission_when_honeypot_is_filled():
+            from django.core.exceptions import ValidationError
+
+            from plfog.adapters import AutoCreateUserLoginCodeForm
+
+            form = AutoCreateUserLoginCodeForm(data={"email": "ok@example.com", "website": "http://spam"})
+            form.cleaned_data = {"website": "http://spam"}
+
+            with pytest.raises(ValidationError):
+                form.clean_website()
+
+        def it_treats_whitespace_only_honeypot_as_empty():
+            from plfog.adapters import AutoCreateUserLoginCodeForm
+
+            form = AutoCreateUserLoginCodeForm(data={"email": "ok@example.com", "website": "   "})
+            form.cleaned_data = {"website": "   "}
+
+            assert form.clean_website() == "   "
+
+        def it_accepts_missing_honeypot_field():
+            from plfog.adapters import AutoCreateUserLoginCodeForm
+
+            form = AutoCreateUserLoginCodeForm(data={"email": "ok@example.com"})
+            form.cleaned_data = {}
+
+            assert form.clean_website() == ""
+
+        def it_logs_a_warning_when_honeypot_trips(caplog):
+            import logging
+
+            from django.core.exceptions import ValidationError
+
+            from plfog.adapters import AutoCreateUserLoginCodeForm
+
+            form = AutoCreateUserLoginCodeForm(data={"email": "ok@example.com", "website": "buy-now"})
+            form.cleaned_data = {"website": "buy-now"}
+
+            with caplog.at_level(logging.WARNING, logger="plfog.adapters"):
+                with pytest.raises(ValidationError):
+                    form.clean_website()
+
+            assert "Login honeypot triggered" in caplog.text
+
+
+def describe_login_code_circuit_breaker():
+    """The send_mail override should consult core.abuse_limits before delegating."""
+
+    def it_passes_login_code_through_when_under_caps(rf, settings):
+        from core import abuse_limits
+        from plfog.adapters import AdminRedirectAccountAdapter
+
+        abuse_limits.reset()
+        settings.LOGIN_CODE_HOURLY_LIMIT = 50
+        settings.LOGIN_CODE_DAILY_LIMIT = 500
+        settings.DEBUG = False
+
+        adapter = AdminRedirectAccountAdapter()
+        context = {"request": rf.get("/"), "code": "123456"}
+
+        with patch.object(AdminRedirectAccountAdapter.__bases__[0], "send_mail") as super_send:
+            adapter.send_mail("account/email/login_code", "user@example.com", context)
+
+        super_send.assert_called_once()
+
+    def it_suppresses_login_code_when_hourly_cap_exceeded(rf, settings, caplog):
+        import logging
+
+        from core import abuse_limits
+        from plfog.adapters import AdminRedirectAccountAdapter
+
+        abuse_limits.reset()
+        settings.LOGIN_CODE_HOURLY_LIMIT = 2
+        settings.LOGIN_CODE_DAILY_LIMIT = 500
+        settings.DEBUG = False
+
+        adapter = AdminRedirectAccountAdapter()
+        context = {"request": rf.get("/"), "code": "123456"}
+
+        with patch.object(AdminRedirectAccountAdapter.__bases__[0], "send_mail") as super_send:
+            adapter.send_mail("account/email/login_code", "a@example.com", context)
+            adapter.send_mail("account/email/login_code", "b@example.com", context)
+            with caplog.at_level(logging.ERROR, logger="plfog.adapters"):
+                adapter.send_mail("account/email/login_code", "c@example.com", context)
+
+        assert super_send.call_count == 2
+        assert "circuit breaker tripped" in caplog.text
+        assert "hourly" in caplog.text
+
+    def it_does_not_consume_quota_for_non_login_code_templates(rf, settings):
+        from core import abuse_limits
+        from plfog.adapters import AdminRedirectAccountAdapter
+
+        abuse_limits.reset()
+        settings.LOGIN_CODE_HOURLY_LIMIT = 1
+        settings.LOGIN_CODE_DAILY_LIMIT = 1
+        settings.DEBUG = False
+
+        adapter = AdminRedirectAccountAdapter()
+        context = {"request": rf.get("/")}
+
+        with patch.object(AdminRedirectAccountAdapter.__bases__[0], "send_mail") as super_send:
+            adapter.send_mail("account/email/password_reset", "user@example.com", context)
+            adapter.send_mail("account/email/password_reset", "user@example.com", context)
+            adapter.send_mail("account/email/password_reset", "user@example.com", context)
+
+        assert super_send.call_count == 3
+
+
+def describe_unknown_account_email_suppression():
+    """ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS=False means allauth never asks the adapter
+    to send the 'no account found' email — the primary abuse vector. Confirm
+    the setting is in place so a future contributor doesn't flip it back on
+    without realizing what they're enabling.
+    """
+
+    def it_is_disabled_at_the_settings_level(settings):
+        assert getattr(settings, "ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS", True) is False

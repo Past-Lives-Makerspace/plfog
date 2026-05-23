@@ -7,14 +7,19 @@ from typing import Any
 
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.account.forms import RequestLoginCodeForm
+from django import forms
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils import timezone
 
+from core import abuse_limits
+
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+LOGIN_CODE_TEMPLATE = "account/email/login_code"
 
 
 class AdminRedirectAccountAdapter(DefaultAccountAdapter):
@@ -110,8 +115,24 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         return reverse("hub_community_calendar")
 
     def send_mail(self, template_prefix: str, email: str, context: dict) -> None:
-        """In DEBUG mode, stash the login code on the request for display in the UI."""
-        if settings.DEBUG and template_prefix == "account/email/login_code" and "code" in context:
+        """Gate login-code emails through the global circuit breaker, then send.
+
+        In DEBUG mode, also stash the login code on the request for display in
+        the UI so devs don't have to copy it out of the console.
+        """
+        if template_prefix == LOGIN_CODE_TEMPLATE:
+            hourly_limit = getattr(settings, "LOGIN_CODE_HOURLY_LIMIT", 100)
+            daily_limit = getattr(settings, "LOGIN_CODE_DAILY_LIMIT", 500)
+            allowed, reason = abuse_limits.record_send_attempt(hourly_limit=hourly_limit, daily_limit=daily_limit)
+            if not allowed:
+                logger.error(
+                    "Login-code circuit breaker tripped (%s cap) — suppressing send to %s",
+                    reason,
+                    email,
+                )
+                return
+
+        if settings.DEBUG and template_prefix == LOGIN_CODE_TEMPLATE and "code" in context:
             request = context.get("request")
             if request:
                 request._dev_login_code = context["code"]
@@ -171,7 +192,29 @@ class AutoCreateUserLoginCodeForm(RequestLoginCodeForm):
     but a Member record does exist (from Airtable sync or admin invite),
     auto-create the User so they can receive a login code immediately.
     The post_save signal (ensure_user_has_member) links the Member automatically.
+
+    Also carries a honeypot field: a hidden 'website' input that real browsers
+    won't populate. Bots that auto-fill every field trip the same validation
+    error allauth uses for rate-limited submissions, so the response stays
+    indistinguishable from a normal throttle.
     """
+
+    website = forms.CharField(
+        required=False,
+        widget=forms.TextInput(
+            attrs={"autocomplete": "off", "tabindex": "-1", "aria-hidden": "true"},
+        ),
+        label="",
+    )
+
+    def clean_website(self) -> str:
+        value: str = self.cleaned_data.get("website", "") or ""
+        if value.strip():
+            from allauth.account.adapter import get_adapter
+
+            logger.warning("Login honeypot triggered (value=%r)", value[:80])
+            raise get_adapter().validation_error("too_many_login_attempts")
+        return value
 
     def clean_email(self) -> str:
         """Auto-create User for known Members, then run normal allauth lookup."""
