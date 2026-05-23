@@ -37,6 +37,7 @@ urlpatterns = [
     path("admin/", views.admin_classes, name="admin_classes"),
     path("admin/new/", views.admin_class_create, name="admin_class_create"),
     path("admin/<int:pk>/", views.admin_class_detail, name="admin_class_detail"),
+    path("admin/<int:pk>/preview/", views.class_preview, name="class_preview"),
     path("admin/<int:pk>/edit/", views.admin_class_edit, name="admin_class_edit"),
     path("admin/<int:pk>/approve/", views.admin_class_approve, name="admin_class_approve"),
     path("admin/<int:pk>/archive/", views.admin_class_archive, name="admin_class_archive"),

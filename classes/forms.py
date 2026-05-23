@@ -11,6 +11,7 @@ from django.utils.text import slugify
 
 from classes.models import (
     Category,
+    ClassImage,
     ClassOffering,
     ClassSession,
     ClassSettings,
@@ -212,6 +213,25 @@ ClassSessionFormSet = inlineformset_factory(
     ClassSession,
     form=ClassSessionForm,
     extra=1,
+    can_delete=True,
+)
+
+
+class ClassImageForm(forms.ModelForm):
+    class Meta:
+        model = ClassImage
+        fields = ["image", "alt_text", "sort_order"]
+        widgets = {
+            "alt_text": forms.TextInput(attrs={"placeholder": "Short description (optional)"}),
+            "sort_order": forms.NumberInput(attrs={"min": 0, "step": 1, "style": "width:5rem"}),
+        }
+
+
+ClassImageFormSet = inlineformset_factory(
+    ClassOffering,
+    ClassImage,
+    form=ClassImageForm,
+    extra=3,
     can_delete=True,
 )
 

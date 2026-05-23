@@ -143,6 +143,10 @@ def describe_create_class():
                 "flexible_note": "",
                 "private_for_name": "",
                 "recurring_pattern": "",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
             },
         )
         assert response.status_code == 302
@@ -186,6 +190,10 @@ def describe_edit_class():
                 "flexible_note": "",
                 "private_for_name": "",
                 "recurring_pattern": "",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
             },
         )
         assert response.status_code == 302

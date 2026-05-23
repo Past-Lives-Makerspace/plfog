@@ -1,0 +1,39 @@
+{% comment %}
+Hero/banner image input for class forms — wraps Django's ClearableFileInput
+with the standard pl-help tooltip showing size recommendations, plus a
+thumbnail of the current image when one is set.
+
+Params:
+  field          — bound ImageField form field
+  current_image  — model FileField attr (e.g. offering.image), may be falsy
+{% endcomment %}
+<div class="pl-form-group" data-hero-image-field>
+    <label class="pl-form-label" for="{{ field.id_for_label }}" style="display:inline-flex;align-items:center;gap:0.4rem;">
+        Hero / banner image
+        <span class="pl-help" tabindex="0" aria-label="Image size guidance">
+            <span class="pl-help__icon" aria-hidden="true">?</span>
+            <span class="pl-help__bubble" role="tooltip">
+                <strong>Recommended:</strong> 1600&nbsp;&times;&nbsp;900&nbsp;px (16:9).<br>
+                Displayed up to 720&nbsp;px wide on the class detail page, cropped from the centre.<br>
+                <strong>Format:</strong> JPG or PNG. <strong>Max size:</strong> 5&nbsp;MB.<br>
+                Tip: use a clean, well-lit shot of the finished work or the class in action — close-ups read better than wide rooms.
+            </span>
+        </span>
+    </label>
+    {% if current_image %}
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+        <img src="{{ current_image.url }}"
+             alt="Current hero image"
+             style="width:240px;height:120px;border-radius:6px;object-fit:cover;border:1px solid var(--hub-border,#1a4568);">
+    </div>
+    {% endif %}
+    {{ field }}
+    {% if field.errors %}
+    <ul class="pl-field-errors">
+        {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% if field.help_text %}
+    <p class="pl-field-hint">{{ field.help_text }}</p>
+    {% endif %}
+</div>

@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
-VERSION = "2.0.3"
+VERSION = "2.0.5"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.0.5",
+        "date": "2026-05-22",
+        "title": "Classes: multi-image galleries with hover-zoom + a preview button",
+        "changes": [
+            "When you create or edit a class, you can now upload extra gallery photos in addition to the hero banner — finished pieces, the studio space, tool close-ups, anything that helps a visitor picture the workshop. Each photo gets an optional alt-text field and a sort number so you can put them in the order you want.",
+            "Picking a new image instantly shows a thumbnail in the form so you can tell which file you grabbed before saving.",
+            "On the public class page, the hero now leads a real gallery — thumbnails along the bottom, hover anywhere on the main image to magnify a close-up of that spot (great for showing detail on glasswork, ceramics, fiber pieces), and click to open a full-screen lightbox with arrow-key navigation.",
+            "A new 'Preview' button on the class form opens the public class page in a new tab — instructors and admins can see exactly how the page will look to visitors before submitting for review or publishing, including drafts.",
+            "The hero image field now has a small '?' tooltip showing the recommended dimensions (1600 × 900, 16:9) and max file size so you know what to aim for before uploading.",
+        ],
+    },
+    {
+        "version": "2.0.4",
+        "date": "2026-05-22",
+        "title": "book.pastlives.space: an obvious way to sign up",
+        "changes": [
+            "The public site at book.pastlives.space now has a 'Sign up' button right in the navbar next to 'Log in' — new visitors don't have to know to click through Log in to find the signup link anymore.",
+            "Signing up on book.pastlives.space is always open, regardless of the invite-only setting in Site Settings. The invite-only gate was meant for makerspace membership signups on members.pastlives.space — it shouldn't be blocking someone from making a book account just to track their class registrations.",
+        ],
+    },
     {
         "version": "2.0.3",
         "date": "2026-05-22",

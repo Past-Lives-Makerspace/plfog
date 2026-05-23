@@ -99,6 +99,10 @@ def describe_instructor_create_class():
                 "sessions-MAX_NUM_FORMS": "1000",
                 "sessions-0-starts_at": start,
                 "sessions-0-ends_at": end,
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
                 "action": "save",
             },
         )
@@ -132,6 +136,10 @@ def describe_instructor_create_class():
                 "sessions-INITIAL_FORMS": "0",
                 "sessions-MIN_NUM_FORMS": "0",
                 "sessions-MAX_NUM_FORMS": "1000",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
                 "action": "submit",
             },
         )

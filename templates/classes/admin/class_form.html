@@ -6,7 +6,11 @@
 <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
     {% for field in form %}
-        {% include "components/form_field.html" with field=field %}
+        {% if field.name == 'image' %}
+            {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image %}
+        {% else %}
+            {% include "components/form_field.html" with field=field %}
+        {% endif %}
     {% endfor %}
     {% if form.non_field_errors %}
     <ul class="pl-field-errors" style="margin-bottom:1rem;">
@@ -15,8 +19,16 @@
         {% endfor %}
     </ul>
     {% endif %}
+
+    <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Gallery images</h3>
+    <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Optional. Extra photos shown below the hero on the public class page.</p>
+    {% include "classes/_components/image_formset.html" with image_formset=image_formset %}
+
     <div style="display:flex; gap:0.75rem; margin-top:1.5rem; flex-wrap:wrap;">
         <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+        {% if offering and offering.pk %}
+            <a href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener" class="hub-btn">Preview</a>
+        {% endif %}
         <a href="{% url 'classes:admin_classes' %}" class="hub-btn">Cancel</a>
     </div>
 </form>

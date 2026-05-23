@@ -1,0 +1,292 @@
+{% comment %}
+Class image gallery for the public detail page.
+
+Uses ``offering.display_images`` (see ClassOffering.display_images) which
+returns an ordered list of {url, alt} dicts — hero first, then gallery rows,
+with a category-hero fallback when the class has no images of its own.
+
+Features:
+  - Main image with inner-zoom on hover (Amazon-style — cursor reveals a
+    cropped, scaled-up view inside the same frame).
+  - Thumbnail strip below for quick switching when there's more than one.
+  - Click main image to open a full-screen lightbox; arrow keys + on-screen
+    arrows step through, Esc closes.
+  - Touch devices fall back to tap-to-lightbox (no hover zoom).
+{% endcomment %}
+{% with images=offering.display_images %}
+{% if images %}
+<div class="cls-gallery"
+     x-data="clsGallery({{ images|length }})">
+    <div class="cls-gallery__main"
+         @mousemove="onZoomMove($event)"
+         @mouseenter="zoomActive = true"
+         @mouseleave="zoomActive = false"
+         @click="openLightbox(activeIndex)"
+         :class="{ 'is-zooming': zoomActive }">
+        {% for img in images %}
+            <div class="cls-gallery__slide"
+                 :class="{ 'is-active': activeIndex === {{ forloop.counter0 }} }"
+                 data-slide-index="{{ forloop.counter0 }}"
+                 data-slide-src="{{ img.url }}"
+                 data-slide-alt="{{ img.alt }}">
+                <img class="cls-gallery__img" src="{{ img.url }}" alt="{{ img.alt }}">
+                <div class="cls-gallery__zoom-lens"
+                     :style="activeIndex === {{ forloop.counter0 }} ? zoomLensStyle({{ forloop.counter0 }}) : {}"></div>
+            </div>
+        {% endfor %}
+
+        <span class="cls-gallery__zoom-hint" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            Hover to zoom · click to expand
+        </span>
+    </div>
+
+    {% if images|length > 1 %}
+    <div class="cls-gallery__thumbs" role="tablist" aria-label="Class images">
+        {% for img in images %}
+        <button type="button"
+                class="cls-gallery__thumb"
+                :class="{ 'is-active': activeIndex === {{ forloop.counter0 }} }"
+                @click="activeIndex = {{ forloop.counter0 }}"
+                aria-label="Image {{ forloop.counter }}">
+            <img src="{{ img.url }}" alt="">
+        </button>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="cls-lightbox"
+         x-show="lightboxOpen"
+         x-transition.opacity
+         @keydown.escape.window="closeLightbox()"
+         @keydown.arrow-left.window="prev()"
+         @keydown.arrow-right.window="next()"
+         @click.self="closeLightbox()"
+         style="display:none">
+        <button class="cls-lightbox__close" type="button" @click="closeLightbox()" aria-label="Close">&times;</button>
+        <button class="cls-lightbox__nav cls-lightbox__nav--prev"
+                type="button" @click.stop="prev()"
+                x-show="totalSlides > 1" aria-label="Previous image">&lsaquo;</button>
+        <img class="cls-lightbox__img"
+             :src="slideSrc(activeIndex)"
+             :alt="slideAlt(activeIndex)">
+        <button class="cls-lightbox__nav cls-lightbox__nav--next"
+                type="button" @click.stop="next()"
+                x-show="totalSlides > 1" aria-label="Next image">&rsaquo;</button>
+        <div class="cls-lightbox__counter" x-show="totalSlides > 1">
+            <span x-text="activeIndex + 1"></span> / <span x-text="totalSlides"></span>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endwith %}
+
+<style>
+.cls-gallery { position: relative; }
+.cls-gallery__main {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: 420px;
+    background: var(--bg4, #133d5f);
+    overflow: hidden;
+    cursor: zoom-in;
+    user-select: none;
+}
+.cls-gallery__slide {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .25s ease;
+}
+.cls-gallery__slide.is-active { opacity: 1; visibility: visible; }
+.cls-gallery__img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+}
+.cls-gallery__zoom-lens {
+    position: absolute;
+    inset: 0;
+    background-repeat: no-repeat;
+    background-size: 220% 220%;
+    opacity: 0;
+    transition: opacity .15s ease;
+    pointer-events: none;
+}
+.cls-gallery__main.is-zooming .cls-gallery__slide.is-active .cls-gallery__zoom-lens {
+    opacity: 1;
+}
+.cls-gallery__zoom-hint {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border-radius: 4px;
+    background: rgba(7, 30, 50, 0.7);
+    color: var(--cream, #f4efdd);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid rgba(238, 180, 75, 0.35);
+    pointer-events: none;
+    opacity: 0.9;
+}
+.cls-gallery__main.is-zooming .cls-gallery__zoom-hint { opacity: 0; }
+.cls-gallery__thumbs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    background: rgba(7, 30, 50, 0.6);
+    border-top: 1px solid rgba(26, 69, 104, 0.4);
+    scrollbar-width: thin;
+}
+.cls-gallery__thumb {
+    flex: 0 0 auto;
+    width: 64px;
+    height: 48px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 4px;
+    background: var(--bg4, #133d5f);
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .15s ease, transform .15s ease;
+}
+.cls-gallery__thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cls-gallery__thumb:hover { border-color: rgba(238, 180, 75, 0.55); transform: translateY(-1px); }
+.cls-gallery__thumb.is-active { border-color: var(--gold, #eeb44b); box-shadow: 0 0 12px rgba(238, 180, 75, 0.25); }
+
+.cls-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(4, 16, 28, 0.92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+}
+.cls-lightbox__img {
+    max-width: 92vw;
+    max-height: 88vh;
+    object-fit: contain;
+    border-radius: 6px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+.cls-lightbox__close,
+.cls-lightbox__nav {
+    position: absolute;
+    background: rgba(7, 30, 50, 0.85);
+    color: var(--cream, #f4efdd);
+    border: 1px solid rgba(238, 180, 75, 0.3);
+    font-size: 28px;
+    line-height: 1;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .15s ease, transform .15s ease;
+}
+.cls-lightbox__close { top: 18px; right: 18px; font-size: 22px; }
+.cls-lightbox__nav--prev { left: 24px; top: 50%; transform: translateY(-50%); }
+.cls-lightbox__nav--next { right: 24px; top: 50%; transform: translateY(-50%); }
+.cls-lightbox__close:hover,
+.cls-lightbox__nav:hover { background: var(--gold, #eeb44b); color: var(--navy-dark, #061f33); border-color: var(--gold, #eeb44b); }
+.cls-lightbox__nav--prev:hover { transform: translateY(-50%) translateX(-2px); }
+.cls-lightbox__nav--next:hover { transform: translateY(-50%) translateX(2px); }
+.cls-lightbox__counter {
+    position: absolute;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--steel, #96acbb);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.cp-preview-banner {
+    background: rgba(238, 180, 75, 0.12);
+    border: 1px solid rgba(238, 180, 75, 0.35);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 12px auto 14px;
+    max-width: 720px;
+    color: var(--cream, #f4efdd);
+    font-size: 13px;
+}
+
+@media (hover: none) {
+    .cls-gallery__main.is-zooming .cls-gallery__zoom-lens { opacity: 0; }
+    .cls-gallery__zoom-hint { display: none; }
+    .cls-gallery__main { cursor: pointer; }
+}
+@media (max-width: 768px) {
+    .cls-gallery__main { max-height: 280px; }
+    .cls-gallery__thumb { width: 52px; height: 40px; }
+    .cls-lightbox__nav--prev { left: 8px; }
+    .cls-lightbox__nav--next { right: 8px; }
+}
+</style>
+
+<script>
+function clsGallery(totalSlides) {
+    return {
+        activeIndex: 0,
+        zoomActive: false,
+        zoomX: 50,
+        zoomY: 50,
+        lightboxOpen: false,
+        totalSlides: totalSlides,
+
+        onZoomMove(event) {
+            const rect = event.currentTarget.getBoundingClientRect();
+            this.zoomX = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+            this.zoomY = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
+        },
+        zoomLensStyle(index) {
+            const slide = this.$root.querySelector('[data-slide-index="' + index + '"]');
+            if (!slide) return {};
+            return {
+                backgroundImage: 'url("' + slide.dataset.slideSrc + '")',
+                backgroundPosition: this.zoomX + '% ' + this.zoomY + '%',
+            };
+        },
+        slideSrc(index) {
+            const slide = this.$root.querySelector('[data-slide-index="' + index + '"]');
+            return slide ? slide.dataset.slideSrc : '';
+        },
+        slideAlt(index) {
+            const slide = this.$root.querySelector('[data-slide-index="' + index + '"]');
+            return slide ? slide.dataset.slideAlt : '';
+        },
+        openLightbox(index) {
+            this.activeIndex = index;
+            this.lightboxOpen = true;
+            document.body.style.overflow = 'hidden';
+        },
+        closeLightbox() {
+            this.lightboxOpen = false;
+            document.body.style.overflow = '';
+        },
+        prev() {
+            this.activeIndex = (this.activeIndex - 1 + this.totalSlides) % this.totalSlides;
+        },
+        next() {
+            this.activeIndex = (this.activeIndex + 1) % this.totalSlides;
+        },
+    };
+}
+</script>

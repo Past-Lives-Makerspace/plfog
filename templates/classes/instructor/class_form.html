@@ -10,8 +10,16 @@
 <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
     {% for field in form %}
-        {% include "components/form_field.html" with field=field %}
+        {% if field.name == 'image' %}
+            {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image %}
+        {% else %}
+            {% include "components/form_field.html" with field=field %}
+        {% endif %}
     {% endfor %}
+
+    <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Gallery images</h3>
+    <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Optional. Add extra photos shown below the hero — finished pieces, the studio space, tool close-ups, etc. Drag or upload up to 12.</p>
+    {% include "classes/_components/image_formset.html" with image_formset=image_formset %}
 
     <h3 style="margin-top:1.5rem;">Sessions</h3>
     <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Add one row per scheduled session. Leave empty for flexible-scheduling classes.</p>
@@ -44,6 +52,9 @@
 
     <div style="display:flex; gap:0.5rem; margin-top:1rem; flex-wrap:wrap;">
         <button class="hub-btn hub-btn--sm hub-btn--ghost" name="action" value="save" type="submit">Save Draft</button>
+        {% if offering and offering.pk %}
+            <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview</a>
+        {% endif %}
         {% if not offering or offering.status == 'draft' %}
             <button class="hub-btn hub-btn--sm hub-btn--primary" name="action" value="submit" type="submit">Save &amp; Submit for Review</button>
         {% endif %}

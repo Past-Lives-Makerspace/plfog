@@ -214,6 +214,25 @@ class ClassOffering(models.Model):
         return max(0, self.capacity - used)
 
     @property
+    def display_images(self) -> list[dict]:
+        """Ordered image list for the public detail gallery.
+
+        Combines the hero (offering.image) with the gallery_images rows. When
+        no images at all are uploaded, falls back to the category hero so the
+        detail page never renders an empty hero. Each entry is ``{"url": str,
+        "alt": str}`` so the template doesn't need to know whether a row came
+        from a ClassImage or the ClassOffering itself.
+        """
+        items: list[dict] = []
+        if self.image:
+            items.append({"url": self.image.url, "alt": self.title})
+        for gi in self.gallery_images.all():
+            items.append({"url": gi.image.url, "alt": gi.alt_text or self.title})
+        if not items and self.category and self.category.hero_image:
+            items.append({"url": self.category.hero_image.url, "alt": self.category.name})
+        return items
+
+    @property
     def first_upcoming_session_at(self):
         session = self.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at").first()
         return session.starts_at if session else None
@@ -234,6 +253,45 @@ class ClassOffering(models.Model):
         self.approved_by = None
         self.save()
         return self
+
+
+class ClassImage(models.Model):
+    """Additional gallery image for a class.
+
+    The ClassOffering.image field remains the single hero/banner; rows here
+    are the extra gallery shots shown below the hero on the public detail
+    page. Ordering uses sort_order then created_at so instructors can drag
+    images around without rewriting timestamps.
+    """
+
+    class_offering = models.ForeignKey(
+        ClassOffering,
+        on_delete=models.CASCADE,
+        related_name="gallery_images",
+        help_text="Parent class offering.",
+    )
+    image = models.ImageField(
+        upload_to="classes/images/",
+        validators=[validate_image_size],
+        help_text="Additional class photo.",
+    )
+    alt_text = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Short description of the image for accessibility.",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+
+    def __str__(self) -> str:
+        return f"Image #{self.pk} for {self.class_offering.title}"
+
+    def save(self, *args, **kwargs) -> None:
+        delete_orphan_on_replace(self, "image")
+        super().save(*args, **kwargs)
 
 
 class ClassSession(models.Model):
