@@ -25,7 +25,7 @@
       </form>
       <div class="bk-auth-divider">or</div>
       <div class="bk-auth-links">
-        {% if registration_is_open %}<p>New to Past Lives? <a href="{% url 'account_signup' %}">Create an account</a></p>{% endif %}
+        <p>New to Past Lives? <a href="{% url 'account_signup' %}">Create an account</a></p>
         <p>Booked as a guest? <a href="{% url 'account:lookup' %}">Look up your class.</a></p>
       </div>
       <div class="bk-auth-foot">

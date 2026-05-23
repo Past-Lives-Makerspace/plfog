@@ -381,6 +381,7 @@
                     {% endif %}
                     <a href="{% url 'account_logout' %}" class="pl-public-topbar__logout" hx-boost="false">Log out</a>
                 {% else %}
+                    <a href="{% url 'account_signup' %}" class="pl-public-topbar__signup" hx-boost="false">Sign up</a>
                     <a href="{% url 'account_login' %}" class="pl-public-topbar__login" hx-boost="false">Log in</a>
                 {% endif %}
             </nav>

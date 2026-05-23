@@ -565,6 +565,31 @@ def describe_AdminRedirectAccountAdapter():
             request = rf.get("/accounts/signup/?email=getparam@example.com")
             assert adapter.is_open_for_signup(request) is True
 
+        def context_on_public_surface():
+            def it_returns_true_even_when_members_surface_is_invite_only(rf):
+                from plfog.adapters import AdminRedirectAccountAdapter
+
+                config = SiteConfiguration.load()
+                config.registration_mode = SiteConfiguration.RegistrationMode.INVITE_ONLY
+                config.save()
+
+                adapter = AdminRedirectAccountAdapter()
+                request = rf.get("/accounts/signup/")
+                request.surface = "public"
+                assert adapter.is_open_for_signup(request) is True
+
+            def it_returns_true_with_no_email_unlike_members_surface(rf):
+                from plfog.adapters import AdminRedirectAccountAdapter
+
+                config = SiteConfiguration.load()
+                config.registration_mode = SiteConfiguration.RegistrationMode.INVITE_ONLY
+                config.save()
+
+                adapter = AdminRedirectAccountAdapter()
+                request = rf.get("/accounts/signup/")
+                request.surface = "public"
+                assert adapter.is_open_for_signup(request) is True
+
     def describe_pre_login():
         def it_marks_invite_accepted_on_signup(rf):
             from plfog.adapters import AdminRedirectAccountAdapter

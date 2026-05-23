@@ -34,9 +34,16 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
     def is_open_for_signup(self, request: HttpRequest) -> bool:
         """Check whether signup is allowed for the current request.
 
-        In open mode, always returns True. In invite-only mode, checks
+        Public/book surface: always open. A book account is just a way to
+        view your past class registrations — invite-only is a members-surface
+        concept and doesn't apply here.
+
+        Members surface: open mode allows everyone; invite-only mode checks
         whether the email from POST or GET data has a pending invite.
         """
+        if getattr(request, "surface", "members") == "public":
+            return True
+
         from core.models import Invite, SiteConfiguration
 
         config = SiteConfiguration.load()

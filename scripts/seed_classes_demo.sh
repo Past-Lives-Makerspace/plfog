@@ -176,6 +176,21 @@ watercolor = get_or_create_offering(
 )
 # No sessions yet — intentionally, to test the empty-session state on the catalog.
 
+# 7. Free workshop — exercises the no-Stripe registration path end-to-end.
+open_house = get_or_create_offering(
+    "free-tool-orientation",
+    title="Free Tool Orientation",
+    category=Category.objects.get(slug="general"),
+    instructor=tobias,
+    description="A free 45-minute walk-through of the shop's hand and power tools. No project, no take-home — just a chance to meet the space and ask anything.",
+    prerequisites="None.",
+    materials_included="None — bring closed-toe shoes.",
+    price_cents=0,
+    member_discount_pct=0,
+    capacity=12,
+)
+ensure_sessions(open_house, [2], duration_hours=0.75)
+
 published = ClassOffering.objects.filter(status=ClassOffering.Status.PUBLISHED, is_private=False)
 print(f"Published, public class offerings: {published.count()}")
 for o in published.order_by("title"):
