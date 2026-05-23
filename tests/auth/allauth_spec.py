@@ -85,13 +85,16 @@ def describe_signup_gating():
         assert "account/signup.html" in template_names
 
     def it_hides_signup_link_on_login_page_when_invite_only(client):
+        # Assert the actual <a href="/accounts/signup/"> link is absent on the
+        # members-surface login page. The substring "Sign up" alone leaks via
+        # the changelog modal (which quotes button names) and is unreliable.
         config = SiteConfiguration.load()
         config.registration_mode = SiteConfiguration.RegistrationMode.INVITE_ONLY
         config.save()
 
         response = client.get("/accounts/login/")
         content = response.content.decode()
-        assert "Sign up" not in content
+        assert 'href="/accounts/signup/"' not in content
 
     def it_shows_signup_link_on_login_page_when_open(client):
         config = SiteConfiguration.load()
@@ -100,7 +103,7 @@ def describe_signup_gating():
 
         response = client.get("/accounts/login/")
         content = response.content.decode()
-        assert "Sign up" in content
+        assert 'href="/accounts/signup/"' in content
 
     def it_allows_signup_with_valid_invite_in_invite_only_mode(client):
         config = SiteConfiguration.load()

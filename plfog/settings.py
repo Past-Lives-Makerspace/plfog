@@ -207,6 +207,16 @@ _R2_READY = all([R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCE
 # Maximum upload size for ImageField uploads (members, guilds, classes).
 MAX_UPLOAD_IMAGE_BYTES = int(os.environ.get("MAX_UPLOAD_IMAGE_BYTES", str(5 * 1024 * 1024)))  # 5 MB
 
+# Auto-resize ceilings (longest edge in pixels) applied by core.images.normalize_image
+# on save. Hero/banner images get a higher cap; gallery/profile images sit lower.
+IMAGE_MAX_LONG_EDGE_HERO = int(os.environ.get("IMAGE_MAX_LONG_EDGE_HERO", "2400"))
+IMAGE_MAX_LONG_EDGE_GALLERY = int(os.environ.get("IMAGE_MAX_LONG_EDGE_GALLERY", "1600"))
+IMAGE_MAX_LONG_EDGE_PROFILE = int(os.environ.get("IMAGE_MAX_LONG_EDGE_PROFILE", "1200"))
+
+# Simplybook (https://simplybook.me) — tour status lookups. Disabled when blank.
+SIMPLYBOOK_API_KEY = os.environ.get("SIMPLYBOOK_API_KEY", "")
+SIMPLYBOOK_COMPANY_LOGIN = os.environ.get("SIMPLYBOOK_COMPANY_LOGIN", "")
+
 if _R2_READY:
     _default_storage = {
         "BACKEND": "storages.backends.s3.S3Storage",

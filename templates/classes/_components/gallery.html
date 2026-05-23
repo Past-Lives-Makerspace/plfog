@@ -29,7 +29,8 @@ Features:
                  data-slide-index="{{ forloop.counter0 }}"
                  data-slide-src="{{ img.url }}"
                  data-slide-alt="{{ img.alt }}">
-                <img class="cls-gallery__img" src="{{ img.url }}" alt="{{ img.alt }}">
+                <img class="cls-gallery__img" src="{{ img.url }}" alt="{{ img.alt }}"
+                     {% if forloop.first and offering.hero_crop_w %}style="object-position: {{ offering.hero_object_position }};"{% endif %}>
                 <div class="cls-gallery__zoom-lens"
                      :style="activeIndex === {{ forloop.counter0 }} ? zoomLensStyle({{ forloop.counter0 }}) : {}"></div>
             </div>

@@ -1,28 +1,79 @@
 {% extends "classes/instructor/base.html" %}
 {% block tab_content %}
-{% if registrations %}
-<table style="width:100%; border-collapse:collapse;">
-    <thead>
-        <tr style="border-bottom:2px solid var(--hub-border);">
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Name</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Email</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Class</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Status</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Registered</th>
-        </tr>
-    </thead>
-    <tbody>
-    {% for reg in registrations %}
-        <tr style="border-bottom:1px solid var(--hub-border);">
-            <td style="padding:0.5rem 0.75rem;">{{ reg.first_name }} {{ reg.last_name }}{% if reg.pronouns %} <span style="color:var(--hub-text-muted); font-size:0.8rem;">({{ reg.pronouns }})</span>{% endif %}</td>
-            <td style="padding:0.5rem 0.75rem;">{{ reg.email }}</td>
-            <td style="padding:0.5rem 0.75rem;">{{ reg.class_offering.title }}</td>
-            <td style="padding:0.5rem 0.75rem;">{{ reg.get_status_display }}</td>
-            <td style="padding:0.5rem 0.75rem;">{{ reg.registered_at|date:"M j, Y" }}</td>
-        </tr>
+{% if messages %}
+<ul class="messages" style="list-style:none;padding:0;margin:0 0 1rem;">
+    {% for message in messages %}
+    <li class="message {{ message.tags }}" style="padding:0.5rem 0.75rem;border-radius:6px;margin-bottom:0.25rem;background:rgba(76,175,80,0.1);border:1px solid rgba(76,175,80,0.25);color:var(--hub-text);">{{ message }}</li>
     {% endfor %}
-    </tbody>
-</table>
+</ul>
+{% endif %}
+{% if registrations %}
+<form method="post" action="{% url 'classes:instructor_registrations_email' %}" id="instructor-email-form">
+    {% csrf_token %}
+    <table style="width:100%; border-collapse:collapse;">
+        <thead>
+            <tr style="border-bottom:2px solid var(--hub-border);">
+                <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">
+                    <input type="checkbox" id="ie-check-all" aria-label="Select all">
+                </th>
+                <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Name</th>
+                <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Email</th>
+                <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Class</th>
+                <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Status</th>
+                <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Registered</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for reg in registrations %}
+            <tr style="border-bottom:1px solid var(--hub-border); vertical-align:top;">
+                <td style="padding:0.5rem 0.75rem;">
+                    <input type="checkbox" name="registration_ids" value="{{ reg.pk }}" class="ie-row-check" aria-label="Select {{ reg.first_name }} {{ reg.last_name }}">
+                </td>
+                <td style="padding:0.5rem 0.75rem;">{{ reg.first_name }} {{ reg.last_name }}{% if reg.pronouns %} <span style="color:var(--hub-text-muted); font-size:0.8rem;">({{ reg.pronouns }})</span>{% endif %}</td>
+                <td style="padding:0.5rem 0.75rem;">{{ reg.email }}</td>
+                <td style="padding:0.5rem 0.75rem;">{{ reg.class_offering.title }}</td>
+                <td style="padding:0.5rem 0.75rem;">{{ reg.get_status_display }}</td>
+                <td style="padding:0.5rem 0.75rem;">{{ reg.registered_at|date:"M j, Y" }}</td>
+            </tr>
+            {% if reg.custom_answers.all %}
+            <tr style="border-bottom:1px solid var(--hub-border);">
+                <td></td>
+                <td colspan="5" style="padding:0 0.75rem 0.5rem; color:var(--hub-text-muted); font-size:0.85rem;">
+                    {% for ans in reg.custom_answers.all %}
+                    <div><strong>{{ ans.question.prompt }}</strong> {{ ans.answer_text }}</div>
+                    {% endfor %}
+                </td>
+            </tr>
+            {% endif %}
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <div style="margin-top:1rem;padding:0.75rem 1rem;border:1px solid var(--hub-border);border-radius:6px;">
+        <h3 style="margin:0 0 0.5rem;font-size:1rem;">Email selected registrants</h3>
+        <p style="margin:0 0 0.5rem;color:var(--hub-text-muted);font-size:0.85rem;">
+            Recipients are BCC'd so no one sees the others' emails. Tick the rows above first.
+        </p>
+        <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem;color:var(--hub-text-muted);">Subject</label>
+        <input type="text" name="subject" maxlength="255" required style="width:100%;padding:0.4rem 0.6rem;margin-bottom:0.5rem;">
+        <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem;color:var(--hub-text-muted);">Message</label>
+        <textarea name="body" rows="6" required style="width:100%;padding:0.4rem 0.6rem;margin-bottom:0.5rem;"></textarea>
+        <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;color:var(--hub-text-muted);margin-bottom:0.5rem;">
+            <input type="checkbox" name="bcc_self" checked> Send me a copy
+        </label>
+        <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send</button>
+    </div>
+</form>
+<script>
+(function(){
+    var all = document.getElementById('ie-check-all');
+    if (!all) return;
+    var rows = document.querySelectorAll('.ie-row-check');
+    all.addEventListener('change', function(){
+        rows.forEach(function(r){ r.checked = all.checked; });
+    });
+})();
+</script>
 {% else %}
     <div style="padding:2rem 1rem; text-align:center; color:var(--hub-text-muted);">No registrations yet.</div>
 {% endif %}

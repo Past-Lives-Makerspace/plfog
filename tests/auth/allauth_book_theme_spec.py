@@ -73,15 +73,19 @@ def describe_signup_on_book():
         assert resp.status_code == 200
         assert b"bk-themed-signup" in resp.content
 
-    def it_serves_signup_closed_page_in_invite_only_mode(book_client):
+    def it_keeps_signup_open_on_book_even_in_invite_only_mode(book_client):
+        # The invite-only setting on SiteConfiguration is meant to gate
+        # members.pastlives.space membership signups, not book.pastlives.space
+        # account creation. The book surface ignores the gate so visitors can
+        # always create an account to track their class registrations.
         config = SiteConfiguration.load()
         config.registration_mode = SiteConfiguration.RegistrationMode.INVITE_ONLY
         config.save()
 
         resp = book_client.get("/accounts/signup/")
         assert resp.status_code == 200
-        # signup_closed template renders, not the signup form
-        assert b"invitation only" in resp.content.lower()
+        assert b"bk-themed-signup" in resp.content
+        assert b"invitation only" not in resp.content.lower()
 
 
 def describe_confirm_login_code_on_book():

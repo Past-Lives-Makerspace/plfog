@@ -11,6 +11,7 @@ from django.db.models import CheckConstraint, F, Q
 from django.utils import timezone
 
 from core.files import delete_orphan_on_replace
+from core.images import normalize_field_if_uploaded
 from core.validators import validate_image_size
 
 DEFAULT_LIABILITY_TEXT = """ASSUMPTION OF RISK AND WAIVER OF LIABILITY
@@ -45,6 +46,14 @@ class Category(models.Model):
         validators=[validate_image_size],
         help_text="Optional header image.",
     )
+    guild = models.ForeignKey(
+        "membership.Guild",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="categories",
+        help_text="Optional link to the makerspace Guild that owns this category. Used for Mailchimp tagging.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -55,7 +64,10 @@ class Category(models.Model):
         return self.name
 
     def save(self, *args, **kwargs) -> None:
+        from django.conf import settings
+
         delete_orphan_on_replace(self, "hero_image")
+        normalize_field_if_uploaded(self, "hero_image", settings.IMAGE_MAX_LONG_EDGE_HERO)
         super().save(*args, **kwargs)
 
 
@@ -88,7 +100,10 @@ class Instructor(models.Model):
         return self.display_name
 
     def save(self, *args, **kwargs) -> None:
+        from django.conf import settings
+
         delete_orphan_on_replace(self, "photo")
+        normalize_field_if_uploaded(self, "photo", settings.IMAGE_MAX_LONG_EDGE_PROFILE)
         super().save(*args, **kwargs)
 
 
@@ -149,6 +164,18 @@ class ClassOffering(models.Model):
         validators=[validate_image_size],
         help_text="Hero image.",
     )
+    hero_crop_x = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Crop box left edge in source-image pixels — set by the hero cropper."
+    )
+    hero_crop_y = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Crop box top edge in source-image pixels — set by the hero cropper."
+    )
+    hero_crop_w = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Crop box width in source-image pixels — set by the hero cropper."
+    )
+    hero_crop_h = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Crop box height in source-image pixels — set by the hero cropper."
+    )
     requires_model_release = models.BooleanField(
         default=False, help_text="When on, registrants also sign model release."
     )
@@ -184,7 +211,23 @@ class ClassOffering(models.Model):
         return self.title
 
     def save(self, *args, **kwargs) -> None:
+        from django.conf import settings
+
         delete_orphan_on_replace(self, "image")
+        # If the hero image is changing, also clear the stale crop box.
+        if self.pk:
+            try:
+                old = type(self)._default_manager.only("image").get(pk=self.pk)
+            except type(self).DoesNotExist:
+                old = None
+            new_name = getattr(self.image, "name", "") or ""
+            old_name = getattr(getattr(old, "image", None), "name", "") or ""
+            if old is not None and old_name and old_name != new_name:
+                self.hero_crop_x = None
+                self.hero_crop_y = None
+                self.hero_crop_w = None
+                self.hero_crop_h = None
+        normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)
         super().save(*args, **kwargs)
 
     def submit_for_review(self) -> None:
@@ -231,6 +274,27 @@ class ClassOffering(models.Model):
         if not items and self.category and self.category.hero_image:
             items.append({"url": self.category.hero_image.url, "alt": self.category.name})
         return items
+
+    @property
+    def hero_object_position(self) -> str:
+        """CSS ``object-position`` value to keep the cropped focal point centered.
+
+        When the hero crop box is set, returns ``"X% Y%"`` where the coords are
+        the crop-box center expressed as a percentage of the source image.
+        Templates pair this with ``object-fit: cover`` on the hero <img>/banner.
+        Returns ``"50% 50%"`` (CSS default) when the crop box or source size is
+        unknown.
+        """
+        try:
+            src_w = self.image.width
+            src_h = self.image.height
+        except (FileNotFoundError, ValueError, AttributeError, OSError):
+            return "50% 50%"
+        if not (self.hero_crop_w and self.hero_crop_h and src_w and src_h):
+            return "50% 50%"
+        cx = (self.hero_crop_x or 0) + self.hero_crop_w / 2
+        cy = (self.hero_crop_y or 0) + self.hero_crop_h / 2
+        return f"{(cx / src_w) * 100:.1f}% {(cy / src_h) * 100:.1f}%"
 
     @property
     def first_upcoming_session_at(self):
@@ -290,7 +354,10 @@ class ClassImage(models.Model):
         return f"Image #{self.pk} for {self.class_offering.title}"
 
     def save(self, *args, **kwargs) -> None:
+        from django.conf import settings
+
         delete_orphan_on_replace(self, "image")
+        normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
         super().save(*args, **kwargs)
 
 
@@ -542,6 +609,137 @@ class Registration(models.Model):
         self.cancelled_at = timezone.now()
         self.cancellation_reason = reason
         self.save(update_fields=["status", "cancelled_at", "cancellation_reason"])
+
+
+class RegistrationQuestion(models.Model):
+    """A custom question asked of every registrant on every class registration.
+
+    Global by design — no per-class or per-category attachment. Admins curate
+    the list via the Django admin. To retire a question without losing
+    historical answers, uncheck ``is_active`` rather than deleting.
+    """
+
+    class QuestionType(models.TextChoices):
+        SHORT_TEXT = "short_text", "Short text"
+        LONG_TEXT = "long_text", "Long text"
+        YES_NO = "yes_no", "Yes/No"
+        SINGLE_CHOICE = "single_choice", "Single choice"
+
+    prompt = models.CharField(max_length=500, help_text="The question shown to the registrant.")
+    question_type = models.CharField(
+        max_length=20,
+        choices=QuestionType.choices,
+        default=QuestionType.SHORT_TEXT,
+        help_text="Input style — short text, paragraph, yes/no, or pick-one.",
+    )
+    choices_json = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Options for SINGLE_CHOICE as a JSON list of strings; ignored for other types.",
+    )
+    is_required = models.BooleanField(default=False, help_text="When on, the registrant must answer.")
+    is_active = models.BooleanField(
+        default=True, help_text="Uncheck to retire a question without deleting historical answers."
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending sort; lower shows first.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        return self.prompt[:80]
+
+
+class RegistrationAnswer(models.Model):
+    """A registrant's answer to one RegistrationQuestion."""
+
+    registration = models.ForeignKey(
+        "Registration",
+        on_delete=models.CASCADE,
+        related_name="custom_answers",
+        help_text="The registration the answer belongs to.",
+    )
+    question = models.ForeignKey(
+        RegistrationQuestion,
+        on_delete=models.PROTECT,
+        related_name="answers",
+        help_text="The question being answered.",
+    )
+    answer_text = models.TextField(blank=True, help_text="Free-form answer text.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["question__sort_order", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["registration", "question"], name="uq_registration_answer_question"),
+        ]
+        indexes = [
+            models.Index(fields=["registration"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Answer to #{self.question_id} on registration #{self.registration_id}"
+
+
+class InstructorMessage(models.Model):
+    """An email an instructor sent to a selected set of their class registrants.
+
+    The body and recipient list are snapshotted at send time so the audit trail
+    stays accurate even if registrations get cancelled or email addresses change
+    afterwards.
+    """
+
+    instructor = models.ForeignKey(
+        Instructor,
+        on_delete=models.CASCADE,
+        related_name="sent_messages",
+        help_text="The instructor who composed and sent this message.",
+    )
+    class_offering = models.ForeignKey(
+        ClassOffering,
+        on_delete=models.CASCADE,
+        related_name="instructor_messages",
+        help_text="The class the recipients are registered for.",
+    )
+    subject = models.CharField(max_length=255, help_text="Email subject line.")
+    body = models.TextField(help_text="Email body as composed (plain text).")
+    recipient_count = models.PositiveIntegerField(help_text="Number of registrants BCC'd at send time.")
+    bcc_self = models.BooleanField(default=True, help_text="Whether a copy was sent to the instructor's own email.")
+    sent_at = models.DateTimeField(auto_now_add=True, help_text="When the message was sent.")
+
+    class Meta:
+        ordering = ["-sent_at"]
+
+    def __str__(self) -> str:
+        return f"{self.subject} → {self.recipient_count} recipient(s)"
+
+
+class InstructorMessageRecipient(models.Model):
+    """Audit row: one registration that received an InstructorMessage at send time."""
+
+    message = models.ForeignKey(
+        InstructorMessage,
+        on_delete=models.CASCADE,
+        related_name="recipients",
+        help_text="The message this row belongs to.",
+    )
+    registration = models.ForeignKey(
+        "Registration",
+        on_delete=models.PROTECT,
+        related_name="received_instructor_messages",
+        help_text="The registration the message was sent to.",
+    )
+    email = models.EmailField(help_text="The email address used at send time (snapshot).")
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(fields=["message", "registration"], name="uq_instructor_message_recipient"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.email} on message #{self.message_id}"
 
 
 class ClassSettings(models.Model):

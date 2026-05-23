@@ -1,5 +1,5 @@
 {% extends "classes/instructor/base.html" %}
-{% load classes_tags %}
+{% load classes_tags static %}
 {% block tab_content %}
 <h2 style="margin-top:0;">{% if mode == 'create' %}New Class{% else %}Edit Class — {{ offering.title }}{% endif %}</h2>
 {% if offering and offering.status == 'pending' %}
@@ -11,7 +11,8 @@
     {% csrf_token %}
     {% for field in form %}
         {% if field.name == 'image' %}
-            {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image %}
+            {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image crop_field=form.hero_crop %}
+        {% elif field.name == 'hero_crop' %}{# rendered inside hero_image_field.html #}
         {% else %}
             {% include "components/form_field.html" with field=field %}
         {% endif %}
@@ -61,4 +62,5 @@
         <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:instructor_dashboard' %}">Cancel</a>
     </div>
 </form>
+<script src="{% static 'js/hero_cropper.js' %}" defer></script>
 {% endblock %}

@@ -13,6 +13,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 if TYPE_CHECKING:
     from membership.models import Member
@@ -579,6 +580,7 @@ def instructor_registrations(request: HttpRequest) -> HttpResponse:
     registrations = (
         Registration.objects.filter(class_offering__instructor=instructor)
         .select_related("class_offering", "member")
+        .prefetch_related("custom_answers__question")
         .order_by("-registered_at")
     )
     return render(
@@ -590,6 +592,30 @@ def instructor_registrations(request: HttpRequest) -> HttpResponse:
             "registrations": registrations,
         },
     )
+
+
+@instructor_required
+@require_POST
+def instructor_registrations_email(request: HttpRequest) -> HttpResponse:
+    """Send a manual email to selected registrants of one of the instructor's classes.
+
+    Submitted as a POST from the registrations table; on success bounces back
+    with a flash message so the instructor sees the confirmation inline.
+    """
+    from classes.forms import InstructorEmailForm
+
+    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    form = InstructorEmailForm(request.POST, instructor=instructor)
+    if not form.is_valid():
+        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
+        messages.error(request, first_error)
+        return redirect("classes:instructor_registrations")
+    message = form.send()
+    messages.success(
+        request,
+        f"Sent “{message.subject}” to {message.recipient_count} recipient(s).",
+    )
+    return redirect("classes:instructor_registrations")
 
 
 @instructor_required

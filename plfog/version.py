@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-VERSION = "2.0.5"
+VERSION = "2.0.6"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.0.6",
+        "date": "2026-05-23",
+        "title": "Classes: smarter photos, newsletter tagging, custom questions, and instructor messaging",
+        "changes": [
+            "Class photos now auto-resize on upload — drop in a 4MB iPhone HEIC and we'll downscale and convert it to a clean web JPEG. The hero image gets a built-in crop tool: pick the 16:9 focal point and the public page crops to your selection.",
+            "Newsletter tagging picks up more context. When someone registers for a class, their newsletter contact now gets tagged with the category, the instructor, the guild (if the category is linked to one), and 'first-time-student' if it's their first class with us.",
+            "Categories can now be linked to a guild. Admins set the link from the category edit page, and it drives the new guild Mailchimp tag.",
+            "When a member finishes onboarding on book.pastlives.space, their account is now synced to Mailchimp with their persona, referral source, and category interests as tags — so newsletter campaigns can target by 'how they found us' or 'what they're interested in', not just who's already registered for a class.",
+            "Tour status from Simplybook is now pulled into member profiles. The account overview and instructor roster can show whether a member has completed a tour, refreshed at most once a day per member.",
+            "You can now set up global registration questions that get asked on every class registration. Admins manage the list from the Django admin — short text, paragraph, yes/no, or pick-one — and instructors see the answers next to each registrant on their registrations page.",
+            "Instructors can now email their students directly from the registrations page. Tick the rows you want to message, type a subject and body, and send. Recipients are BCC'd so no one sees the others' addresses, and every send is logged for the audit trail.",
+        ],
+    },
     {
         "version": "2.0.5",
         "date": "2026-05-22",

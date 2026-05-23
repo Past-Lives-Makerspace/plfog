@@ -1,4 +1,5 @@
 {% extends "classes/admin/base.html" %}
+{% load static %}
 {% block tab_content %}
 <h2 style="margin-bottom:1.5rem;">
     {% if mode == 'create' %}New Class{% else %}Edit: {{ offering.title }}{% endif %}
@@ -7,7 +8,8 @@
     {% csrf_token %}
     {% for field in form %}
         {% if field.name == 'image' %}
-            {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image %}
+            {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image crop_field=form.hero_crop %}
+        {% elif field.name == 'hero_crop' %}{# rendered inside hero_image_field.html #}
         {% else %}
             {% include "components/form_field.html" with field=field %}
         {% endif %}
@@ -32,6 +34,7 @@
         <a href="{% url 'classes:admin_classes' %}" class="hub-btn">Cancel</a>
     </div>
 </form>
+<script src="{% static 'js/hero_cropper.js' %}" defer></script>
 <script>
 (function() {
     const source = document.querySelector('[name="title"]');

@@ -56,7 +56,8 @@
               <a class="cls-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}" aria-label="{{ offering.title }}"></a>
               <div class="cls-media">
                 {% if offering.image %}
-                  <img class="cls-img" src="{{ offering.image.url }}" alt="" loading="lazy">
+                  <img class="cls-img" src="{{ offering.image.url }}" alt="" loading="lazy"
+                       {% if offering.hero_crop_w %}style="object-position: {{ offering.hero_object_position }};"{% endif %}>
                 {% elif offering.category.hero_image %}
                   <img class="cls-img" src="{{ offering.category.hero_image.url }}" alt="" loading="lazy">
                 {% else %}

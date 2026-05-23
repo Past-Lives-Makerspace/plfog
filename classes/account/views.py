@@ -192,13 +192,22 @@ class OnboardingStepView(LoginRequiredMixin, FormView):
 
     def form_valid(self, form):
         from core.models import UserProfile
+        from core.services.mailchimp_account import subscribe_user
 
         profile, _ = UserProfile.objects.get_or_create(user=self.request.user)
         for field_name, value in form.cleaned_data.items():
             setattr(profile, field_name, value)
-        if self.step == self.total_steps:
+        is_final_step = self.step == self.total_steps
+        if is_final_step:
             profile.onboarding_completed_at = timezone.now()
         profile.save()
+        if is_final_step:
+            # Push to Mailchimp now that we have the full persona/referral/interest
+            # context. subscribe_user is idempotent and never raises.
+            try:
+                subscribe_user(self.request.user)
+            except Exception:  # pragma: no cover - defensive; subscribe_user already swallows
+                pass
         return super().form_valid(form)
 
 

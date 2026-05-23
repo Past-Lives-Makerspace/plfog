@@ -317,6 +317,21 @@ class UserProfile(models.Model):
         blank=True,
         help_text="Stamp set when the user finishes (or skips through) the 3-step onboarding.",
     )
+    subscribed_to_mailchimp_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Stamp set when the account-signup push to Mailchimp succeeded.",
+    )
+    completed_tour_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Cached from Simplybook; refreshed by the tour-status sync.",
+    )
+    tour_status_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time Simplybook was polled for this user's tour status.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
