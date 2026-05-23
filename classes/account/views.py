@@ -65,8 +65,8 @@ class HistoryView(_LoggedInAccountView):
         ctx = super().get_context_data(**kwargs)
         grouped: dict[int, list] = defaultdict(list)
         for reg in past_registrations(self.request.user):
-            sess = reg.class_offering.sessions.order_by("-starts_at").first()
-            year = sess.starts_at.year if sess else reg.registered_at.year
+            sessions = sorted(reg.class_offering.sessions.all(), key=lambda s: s.starts_at, reverse=True)
+            year = sessions[0].starts_at.year if sessions else reg.registered_at.year
             grouped[year].append(reg)
         # Convert to a sorted list of (year, regs) tuples — descending year.
         ctx["grouped"] = sorted(grouped.items(), reverse=True)

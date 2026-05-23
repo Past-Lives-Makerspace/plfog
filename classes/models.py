@@ -285,12 +285,14 @@ class ClassOffering(models.Model):
         Returns ``"50% 50%"`` (CSS default) when the crop box or source size is
         unknown.
         """
+        if not (self.hero_crop_w and self.hero_crop_h):
+            return "50% 50%"
         try:
             src_w = self.image.width
             src_h = self.image.height
         except (FileNotFoundError, ValueError, AttributeError, OSError):
             return "50% 50%"
-        if not (self.hero_crop_w and self.hero_crop_h and src_w and src_h):
+        if not (src_w and src_h):
             return "50% 50%"
         cx = (self.hero_crop_x or 0) + self.hero_crop_w / 2
         cy = (self.hero_crop_y or 0) + self.hero_crop_h / 2

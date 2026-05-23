@@ -642,7 +642,7 @@ class InstructorEmailForm(forms.Form):
         bcc_self = self.cleaned_data.get("bcc_self", True)
         instructor_email = (self.instructor.user.email or "").strip()
         to_addresses = [instructor_email] if instructor_email else []
-        if bcc_self and instructor_email and instructor_email not in bcc_emails:
+        if bcc_self and instructor_email and instructor_email not in bcc_emails and instructor_email not in to_addresses:
             bcc_emails.append(instructor_email)
 
         email_message = EmailMessage(

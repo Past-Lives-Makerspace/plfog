@@ -61,9 +61,10 @@ PERSONA_INSTRUCTOR_EMAIL = f"instructor@{DEMO_EMAIL_DOMAIN}"
 PERSONA_GUEST_EMAIL = f"guest@{DEMO_EMAIL_DOMAIN}"
 
 # Predictable order numbers for the guest-lookup demo.
-GUEST_ORDER_NUMBER = "PL-DEMO-26"
-STUDENT_PAST_ORDER_NUMBER = "PL-DMP1-26"
-STUDENT_FUTURE_ORDER_NUMBER = "PL-DMF1-26"
+# Characters must be in the unambiguous alphabet [A-HJ-NP-Z2-9] (no I, O, 0, 1).
+GUEST_ORDER_NUMBER = "PL-DEM2-26"
+STUDENT_PAST_ORDER_NUMBER = "PL-DMP2-26"
+STUDENT_FUTURE_ORDER_NUMBER = "PL-DMF2-26"
 
 
 class Command(BaseCommand):
@@ -293,7 +294,7 @@ class Command(BaseCommand):
         for i, last in enumerate(["Alvarez", "Brooks"], start=1):
             self._upsert_registration(
                 offering=past_class,
-                order_number=f"PL-DMA{i}-26",
+                order_number=f"PL-DMA{i + 1}-26",
                 email=f"past{i}@{DEMO_EMAIL_DOMAIN}",
                 first_name="Past",
                 last_name=last,
@@ -304,7 +305,7 @@ class Command(BaseCommand):
         # Current free class: 1 extra confirmed registrant (+ guest added later)
         self._upsert_registration(
             offering=current_free_class,
-            order_number="PL-DMC1-26",
+            order_number="PL-DMC2-26",
             email=f"current1@{DEMO_EMAIL_DOMAIN}",
             first_name="Current",
             last_name="Chen",
@@ -315,7 +316,7 @@ class Command(BaseCommand):
         # Future paid class: 1 extra pending registrant alongside the student's confirmed
         self._upsert_registration(
             offering=future_paid_class,
-            order_number="PL-DMU1-26",
+            order_number="PL-DMU2-26",
             email=f"future1@{DEMO_EMAIL_DOMAIN}",
             first_name="Future",
             last_name="Yamamoto",

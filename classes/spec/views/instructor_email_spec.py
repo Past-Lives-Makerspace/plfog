@@ -95,7 +95,8 @@ def describe_instructor_email_composer():
         assert sent.body == "See you tomorrow at 10am."
         assert "alice@example.com" in sent.bcc
         assert "bob@example.com" in sent.bcc
-        assert "teacher@example.com" in sent.bcc  # bcc_self was on
+        assert "teacher@example.com" in sent.to
+        assert "teacher@example.com" not in sent.bcc
         message = InstructorMessage.objects.get()
         assert message.recipient_count == 2
         assert message.instructor == instructor

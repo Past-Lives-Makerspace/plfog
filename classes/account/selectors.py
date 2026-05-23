@@ -10,7 +10,7 @@ bookings.
 
 from __future__ import annotations
 
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Exists, Max, Min, OuterRef, Q, QuerySet
 from django.db.models.functions import Lower
 from django.utils import timezone
 
@@ -31,8 +31,10 @@ def _emails_for(user) -> list[str]:
 def _registrations_for(user) -> QuerySet[Registration]:
     """All registrations linked to this user via Member FK or by case-insensitive email match."""
     emails = _emails_for(user)
-    qs = Registration.objects.annotate(_email_lower=Lower("email")).select_related(
-        "class_offering", "class_offering__instructor"
+    qs = (
+        Registration.objects.annotate(_email_lower=Lower("email"))
+        .select_related("class_offering", "class_offering__instructor")
+        .prefetch_related("class_offering__sessions")
     )
     filters = Q()
     member = getattr(user, "member", None)
@@ -66,8 +68,8 @@ def upcoming_registrations(user) -> QuerySet[Registration]:
         .filter(status__in=statuses_visible)
         .annotate(_has_future=Exists(future_sessions))
         .filter(_has_future=True)
-        .order_by("class_offering__sessions__starts_at")
-        .distinct()
+        .annotate(_earliest_session=Min("class_offering__sessions__starts_at"))
+        .order_by("_earliest_session")
     )
 
 
@@ -81,14 +83,15 @@ def past_registrations(user) -> QuerySet[Registration]:
         class_offering=OuterRef("class_offering"),
         starts_at__gte=now,
     )
+    any_sessions = ClassSession.objects.filter(class_offering=OuterRef("class_offering"))
     statuses_visible = [Registration.Status.CONFIRMED, Registration.Status.WAITLISTED]
     return (
         _registrations_for(user)
         .filter(status__in=statuses_visible)
-        .annotate(_has_future=Exists(future_sessions))
-        .filter(_has_future=False)
-        .order_by("-class_offering__sessions__starts_at")
-        .distinct()
+        .annotate(_has_future=Exists(future_sessions), _has_any_session=Exists(any_sessions))
+        .filter(_has_future=False, _has_any_session=True)
+        .annotate(_latest_session=Max("class_offering__sessions__starts_at"))
+        .order_by("-_latest_session")
     )
 
 
