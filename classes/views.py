@@ -18,7 +18,11 @@ from django.views.decorators.http import require_POST
 if TYPE_CHECKING:
     from membership.models import Member
 
-from classes.emails import send_registration_confirmation
+from classes.emails import (
+    send_admin_registration_notification,
+    send_instructor_registration_notification,
+    send_registration_confirmation,
+)
 from classes.table import prepare_table
 from classes.forms import (
     CategoryForm,
@@ -249,6 +253,8 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             if registration.discount_code_id:
                 _bump_discount_use_count(registration.discount_code_id)
             send_registration_confirmation(registration)
+            send_instructor_registration_notification(registration)
+            send_admin_registration_notification(registration)
             from classes.services.mailchimp_subscribe import subscribe_registration
 
             subscribe_registration(registration)

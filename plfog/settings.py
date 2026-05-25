@@ -371,6 +371,9 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@pastlives.spa
 # Base URL for the public booking site, used to build absolute links in emails.
 BOOK_BASE_URL = os.environ.get("BOOK_BASE_URL", "https://book.pastlives.space")
 
+# Admins to notify on new class registrations (comma-delimited emails). Empty = no admin notifications.
+CLASS_ADMIN_NOTIFY_EMAILS = os.environ.get("CLASS_ADMIN_NOTIFY_EMAILS", "")
+
 # Beta feedback — comma-delimited list of recipient email addresses
 BETA_FEEDBACK_EMAILS: list[str] = [
     e.strip() for e in os.environ.get("BETA_FEEDBACK_EMAILS", "josh@plaza.codes").split(",") if e.strip()

@@ -21,7 +21,7 @@
         <tr>
             <td>{{ r.registered_at|date:"Y-m-d H:i" }}</td>
             <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.class_offering.title }}</a></td>
-            <td>{{ r.first_name }} {{ r.last_name }} <small style="color:var(--hub-text-muted);">({{ r.email }})</small></td>
+            <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.first_name }} {{ r.last_name }}</a> <small style="color:var(--hub-text-muted);">({{ r.email }})</small></td>
             <td>{% if r.member %}Yes{% else %}—{% endif %}</td>
             <td>{{ r.get_status_display }}</td>
             <td>{{ r.amount_paid_cents|cents_as_dollars }}</td>
