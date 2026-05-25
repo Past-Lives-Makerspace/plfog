@@ -1,18 +1,22 @@
 {% extends "classes/admin/base.html" %}
+{% load classes_tags %}
 {% block tab_content %}
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; gap:0.75rem; flex-wrap:wrap;">
+    {% include "components/table_search.html" with q=q placeholder="Search registrations…" %}
+</div>
 <table style="width:100%; border-collapse:collapse;">
     <thead>
         <tr style="border-bottom:2px solid var(--hub-border);">
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Date</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Class</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Registrant</th>
+            {% sort_header "Date" "registered_at" sort sort_dir base_params %}
+            {% sort_header "Class" "class_offering__title" sort sort_dir base_params %}
+            {% sort_header "Registrant" "last_name" sort sort_dir base_params %}
             <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Member</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Status</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Paid</th>
+            {% sort_header "Status" "status" sort sort_dir base_params %}
+            {% sort_header "Paid" "amount_paid_cents" sort sort_dir base_params %}
         </tr>
     </thead>
     <tbody>
-    {% for r in registrations %}
+    {% for r in page %}
         <tr style="border-bottom:1px solid var(--hub-border);">
             <td style="padding:0.5rem 0.75rem;">{{ r.registered_at|date:"Y-m-d H:i" }}</td>
             <td style="padding:0.5rem 0.75rem;"><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.class_offering.title }}</a></td>
@@ -23,9 +27,12 @@
         </tr>
     {% empty %}
         <tr>
-            <td colspan="6" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">No registrations yet.</td>
+            <td colspan="6" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
+                {% if q %}No registrations matching "{{ q }}".{% else %}No registrations yet.{% endif %}
+            </td>
         </tr>
     {% endfor %}
     </tbody>
 </table>
+{% include "components/table_pagination.html" with page=page base_params=base_params %}
 {% endblock %}

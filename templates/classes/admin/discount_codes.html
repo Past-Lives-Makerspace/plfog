@@ -1,24 +1,25 @@
 {% extends "classes/admin/base.html" %}
 {% load classes_tags %}
 {% block tab_content %}
-<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; gap:0.75rem; flex-wrap:wrap;">
+    {% include "components/table_search.html" with q=q placeholder="Search codes…" %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_discount_code_create' %}">+ New Code</a>
 </div>
 <table style="width:100%; border-collapse:collapse;">
     <thead style="border-bottom:2px solid var(--hub-border);">
         <tr style="text-align:left;">
-            <th style="padding:0.5rem 0.75rem; font-weight:600;">Code</th>
+            {% sort_header "Code" "code" sort sort_dir base_params %}
             <th style="padding:0.5rem 0.75rem; font-weight:600;">%</th>
             <th style="padding:0.5rem 0.75rem; font-weight:600;">Fixed</th>
             <th style="padding:0.5rem 0.75rem; font-weight:600;">Valid</th>
             <th style="padding:0.5rem 0.75rem; font-weight:600;">Uses</th>
-            <th style="padding:0.5rem 0.75rem; font-weight:600;">Active</th>
-            <th style="padding:0.5rem 0.75rem; font-weight:600;">Approved</th>
+            {% sort_header "Active" "is_active" sort sort_dir base_params %}
+            {% sort_header "Approved" "is_approved" sort sort_dir base_params %}
             <th style="padding:0.5rem 0.75rem; font-weight:600;"></th>
         </tr>
     </thead>
     <tbody>
-    {% for c in codes %}
+    {% for c in page %}
         {% url 'classes:admin_discount_code_delete' pk=c.pk as code_delete_url %}
         {% concat "del-code-" c.pk as code_modal_id %}
         <tr style="border-bottom:1px solid var(--hub-border);{% if not c.is_approved %} background:rgba(248,180,75,0.06);{% endif %}">
@@ -48,8 +49,11 @@
             </td>
         </tr>
     {% empty %}
-        <tr><td colspan="8" style="padding:0.5rem 0.75rem; color:var(--hub-text-muted);">No discount codes yet.</td></tr>
+        <tr><td colspan="8" style="padding:0.5rem 0.75rem; color:var(--hub-text-muted);">
+            {% if q %}No codes matching "{{ q }}".{% else %}No discount codes yet.{% endif %}
+        </td></tr>
     {% endfor %}
     </tbody>
 </table>
+{% include "components/table_pagination.html" with page=page base_params=base_params %}
 {% endblock %}

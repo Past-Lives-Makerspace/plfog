@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from membership.models import Member
 
 from classes.emails import send_registration_confirmation
+from classes.table import prepare_table
 from classes.forms import (
     CategoryForm,
     ClassImageFormSet,
@@ -761,21 +762,27 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     base = ClassOffering.objects.select_related("instructor", "category").annotate(
         registration_count=Count("registrations")
     )
-    classes = base.filter(status=status_filter) if status_filter else base
-    classes = classes.order_by("-created_at")
+    qs = base.filter(status=status_filter) if status_filter else base
     status_counts = {row["status"]: row["count"] for row in base.values("status").annotate(count=Count("pk"))}
     filters = [("", "All", base.count())] + [
         (choice.value, choice.label, status_counts.get(choice.value, 0)) for choice in ClassOffering.Status
     ]
+    table = prepare_table(
+        request,
+        qs,
+        search_fields=["title", "instructor__display_name", "category__name"],
+        default_sort="created_at",
+        default_dir="desc",
+    )
     return render(
         request,
         "classes/admin/classes_list.html",
         {
             "active_tab": "classes",
-            "classes": classes,
             "pending_count": ClassOffering.objects.pending_review().count(),
             "status_filters": filters,
             "selected_status": status_filter,
+            **table,
         },
     )
 
@@ -882,11 +889,16 @@ def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_categories(request: HttpRequest) -> HttpResponse:
-    categories = Category.objects.all()
+    table = prepare_table(
+        request,
+        Category.objects.all(),
+        search_fields=["name"],
+        default_sort="sort_order",
+    )
     return render(
         request,
         "classes/admin/categories.html",
-        {"active_tab": "categories", "categories": categories},
+        {"active_tab": "categories", **table},
     )
 
 
@@ -930,11 +942,16 @@ def admin_category_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_instructors(request: HttpRequest) -> HttpResponse:
-    instructors = Instructor.objects.select_related("user").annotate(class_count=Count("classes"))
+    table = prepare_table(
+        request,
+        Instructor.objects.select_related("user").annotate(class_count=Count("classes")),
+        search_fields=["display_name", "user__email"],
+        default_sort="display_name",
+    )
     return render(
         request,
         "classes/admin/instructors.html",
-        {"active_tab": "instructors", "instructors": instructors},
+        {"active_tab": "instructors", **table},
     )
 
 
@@ -955,11 +972,17 @@ def admin_instructor_promote(request: HttpRequest) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_registrations(request: HttpRequest) -> HttpResponse:
-    registrations = Registration.objects.select_related("class_offering", "member").order_by("-registered_at")
+    table = prepare_table(
+        request,
+        Registration.objects.select_related("class_offering", "member"),
+        search_fields=["first_name", "last_name", "email", "class_offering__title"],
+        default_sort="registered_at",
+        default_dir="desc",
+    )
     return render(
         request,
         "classes/admin/registrations.html",
-        {"active_tab": "registrations", "registrations": registrations},
+        {"active_tab": "registrations", **table},
     )
 
 
@@ -987,11 +1010,16 @@ def admin_registration_cancel(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_discount_codes(request: HttpRequest) -> HttpResponse:
-    codes = DiscountCode.objects.all()
+    table = prepare_table(
+        request,
+        DiscountCode.objects.all(),
+        search_fields=["code", "description"],
+        default_sort="code",
+    )
     return render(
         request,
         "classes/admin/discount_codes.html",
-        {"active_tab": "discount_codes", "codes": codes},
+        {"active_tab": "discount_codes", **table},
     )
 
 
@@ -1046,11 +1074,16 @@ def admin_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_registration_questions(request: HttpRequest) -> HttpResponse:
-    questions = RegistrationQuestion.objects.all()
+    table = prepare_table(
+        request,
+        RegistrationQuestion.objects.all(),
+        search_fields=["prompt"],
+        default_sort="sort_order",
+    )
     return render(
         request,
         "classes/admin/registration_questions.html",
-        {"active_tab": "questions", "questions": questions},
+        {"active_tab": "questions", **table},
     )
 
 

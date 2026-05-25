@@ -6,8 +6,25 @@ from datetime import timedelta
 from typing import Iterable
 
 from django import template
+from django.http import QueryDict
 
 register = template.Library()
+
+
+@register.inclusion_tag("components/table_sort_header.html")
+def sort_header(label: str, field: str, current_sort: str, current_dir: str, base_params: str) -> dict:
+    """Render a sortable table header cell."""
+    is_active = current_sort == field
+    next_dir = "desc" if is_active and current_dir == "asc" else "asc"
+    qd = QueryDict(base_params, mutable=True)
+    qd["sort"] = field
+    qd["dir"] = next_dir
+    return {
+        "label": label,
+        "href": f"?{qd.urlencode()}",
+        "is_active": is_active,
+        "direction": current_dir if is_active else "",
+    }
 
 
 @register.filter

@@ -1,0 +1,6 @@
+<form method="get" style="display:flex; gap:0.5rem; align-items:center; flex:1; max-width:320px;">
+    <input type="search" name="q" value="{{ q }}" placeholder="{{ placeholder|default:'Search…' }}"
+           style="flex:1; padding:0.4rem 0.6rem; border:1px solid var(--hub-border); border-radius:4px; background:var(--hub-bg, transparent); color:var(--hub-text, inherit);">
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Search</button>
+    {% if q %}<a href="?" class="hub-btn hub-btn--sm hub-btn--ghost" title="Clear search">&#10005;</a>{% endif %}
+</form>
