@@ -379,6 +379,56 @@ class DiscountCodeForm(forms.ModelForm):
         return data
 
 
+class RegistrationQuestionForm(forms.ModelForm):
+    """Admin form for creating/editing global registration questions.
+
+    The ``choices_json`` list is presented as a Textarea where each line
+    is one option. Lines are converted to/from a JSON list on clean/init.
+    """
+
+    choices_text = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 4}),
+        label="Choices (one per line)",
+        help_text="Only used for Single Choice questions. Enter one option per line.",
+    )
+
+    class Meta:
+        model = RegistrationQuestion
+        fields = [
+            "prompt",
+            "question_type",
+            "is_required",
+            "is_active",
+            "sort_order",
+        ]
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk and self.instance.choices_json:
+            self.fields["choices_text"].initial = "\n".join(self.instance.choices_json)
+
+    def clean_choices_text(self) -> list[str]:
+        raw = self.cleaned_data.get("choices_text", "")
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        return lines
+
+    def clean(self) -> dict:
+        data = super().clean()
+        qtype = data.get("question_type")
+        choices = data.get("choices_text", [])
+        if qtype == RegistrationQuestion.QuestionType.SINGLE_CHOICE and not choices:
+            self.add_error("choices_text", "Single choice questions need at least one option.")
+        return data
+
+    def save(self, commit: bool = True) -> RegistrationQuestion:
+        question = super().save(commit=False)
+        question.choices_json = self.cleaned_data.get("choices_text", [])
+        if commit:
+            question.save()
+        return question
+
+
 class RegistrationForm(forms.ModelForm):
     """Public registration form — collects registrant + waiver signatures.
 
