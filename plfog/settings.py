@@ -368,6 +368,9 @@ ANYMAIL = {
 
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@pastlives.space")
 
+# Base URL for the public booking site, used to build absolute links in emails.
+BOOK_BASE_URL = os.environ.get("BOOK_BASE_URL", "https://book.pastlives.space")
+
 # Beta feedback — comma-delimited list of recipient email addresses
 BETA_FEEDBACK_EMAILS: list[str] = [
     e.strip() for e in os.environ.get("BETA_FEEDBACK_EMAILS", "josh@plaza.codes").split(",") if e.strip()

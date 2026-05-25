@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "2.0.7"
+VERSION = "2.1.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.1.0",
+        "date": "2026-05-25",
+        "title": "Polished emails for class confirmations, reminders, and billing receipts",
+        "changes": [
+            "Class confirmation and reminder emails now match the polished look of our login emails — dark card with gold accents, clear schedule and location details, and a big 'Manage Registration' button so you can view or cancel right from the email.",
+            "Billing receipt emails got the same treatment — itemized charges in a clean card layout with a link to your Stripe receipt.",
+            "All email links are now full clickable URLs instead of bare paths, so they work in every email client.",
+        ],
+    },
     {
         "version": "2.0.7",
         "date": "2026-05-23",
