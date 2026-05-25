@@ -115,7 +115,7 @@ def describe_register_view():
         assert registration.status == Registration.Status.CONFIRMED
         assert registration.confirmed_at is not None
         assert registration.amount_paid_cents == 0
-        assert len(mail.outbox) == 1
+        assert len(mail.outbox) == 2  # confirmation + instructor notification
         assert "confirmed" in mail.outbox[0].subject.lower()
 
     @patch("billing.stripe_utils.create_class_checkout_session")

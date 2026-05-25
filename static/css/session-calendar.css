@@ -1,0 +1,203 @@
+/* Session Calendar — visual scheduler for class sessions */
+
+.session-cal {
+    position: relative;
+    margin-top: 0.5rem;
+}
+.session-cal__hint {
+    color: var(--hub-text-muted);
+    font-size: 0.85rem;
+    margin: 0 0 0.75rem;
+}
+
+/* Header: nav + month label */
+.session-cal__header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+.session-cal__month-label {
+    font-weight: 700;
+    font-size: 1rem;
+    min-width: 140px;
+    text-align: center;
+}
+.session-cal__nav-btn {
+    background: none;
+    border: 1px solid var(--hub-border);
+    border-radius: 4px;
+    color: inherit;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1rem;
+}
+.session-cal__nav-btn:hover { border-color: var(--color-tuscan-yellow, #EEB44B); }
+.session-cal__today-btn {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--color-tuscan-yellow, #EEB44B);
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* 7-column grid */
+.session-cal__grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--hub-card-bg, rgba(9, 46, 76, 0.18));
+}
+.session-cal__dow {
+    text-align: center;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--hub-text-muted);
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--hub-border);
+}
+.session-cal__day {
+    min-height: 52px;
+    padding: 4px 5px;
+    cursor: pointer;
+    border-right: 1px solid rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    transition: background 0.12s;
+    position: relative;
+}
+.session-cal__day:nth-child(7n + 14) { border-right: none; }
+.session-cal__day:hover { background: rgba(238, 180, 75, 0.05); }
+.session-cal__day--faded { opacity: 0.3; }
+.session-cal__day--today { background: rgba(238, 180, 75, 0.08); }
+.session-cal__day--today .session-cal__day-num { color: var(--color-tuscan-yellow, #EEB44B); font-weight: 700; }
+.session-cal__day--selected { background: rgba(238, 180, 75, 0.15); }
+.session-cal__day-num {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    line-height: 1;
+}
+
+/* Session dots */
+.session-cal__dots {
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+    margin-top: 3px;
+}
+.session-cal__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-tuscan-yellow, #EEB44B);
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    transition: transform 0.1s;
+}
+.session-cal__dot:hover { transform: scale(1.4); }
+
+/* Session list below calendar */
+.session-cal__list {
+    margin-top: 0.75rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.session-cal__list-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.session-cal__list-item:last-child { border-bottom: none; }
+.session-cal__list-item:hover { background: rgba(238, 180, 75, 0.04); }
+.session-cal__list-date {
+    font-weight: 500;
+    font-size: 0.85rem;
+    min-width: 100px;
+}
+.session-cal__list-time {
+    color: var(--hub-text-muted);
+    font-size: 0.8rem;
+}
+.session-cal__list-remove {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--hub-error, #e57373);
+    font-size: 1.2rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 0.25rem;
+}
+.session-cal__list-remove:hover { color: #ff6b6b; }
+
+/* Popover */
+.session-cal__popover {
+    margin-top: 0.75rem;
+    background: var(--hub-card-bg, #0d2d47);
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    max-width: 320px;
+}
+.session-cal__popover-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+.session-cal__popover-close {
+    background: none;
+    border: none;
+    color: var(--hub-text-muted);
+    font-size: 1.3rem;
+    cursor: pointer;
+    line-height: 1;
+}
+.session-cal__popover-label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--hub-text-muted);
+    margin-top: 0.5rem;
+    margin-bottom: 0.2rem;
+}
+.session-cal__popover-input {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.15);
+    color: inherit;
+    font-size: 0.875rem;
+}
+.session-cal__popover-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    .session-cal__day { min-height: 40px; }
+    .session-cal__popover { max-width: 100%; }
+}

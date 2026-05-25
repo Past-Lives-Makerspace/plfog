@@ -14,7 +14,11 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-from classes.emails import send_registration_confirmation
+from classes.emails import (
+    send_admin_registration_notification,
+    send_instructor_registration_notification,
+    send_registration_confirmation,
+)
 from classes.models import DiscountCode, Registration
 
 logger = logging.getLogger(__name__)
@@ -75,6 +79,8 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
             DiscountCode.objects.filter(pk=registration.discount_code_id).update(use_count=F("use_count") + 1)
 
     send_registration_confirmation(registration)
+    send_instructor_registration_notification(registration)
+    send_admin_registration_notification(registration)
     from classes.services.mailchimp_subscribe import subscribe_registration
 
     subscribe_registration(registration)

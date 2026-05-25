@@ -1,32 +1,153 @@
 {% extends "classes/admin/base.html" %}
+{% load classes_tags %}
 {% block tab_content %}
-<h2>Registration #{{ registration.pk }}</h2>
-<dl>
-    <dt>Class</dt><dd>{{ registration.class_offering.title }}</dd>
-    <dt>Registrant</dt><dd>{{ registration.first_name }} {{ registration.last_name }} — {{ registration.email }}</dd>
-    <dt>Member</dt><dd>{% if registration.member %}{{ registration.member.full_legal_name }}{% else %}—{% endif %}</dd>
-    <dt>Status</dt><dd>{{ registration.get_status_display }}</dd>
-    <dt>Paid</dt><dd>${{ registration.amount_paid_cents|floatformat:2 }}</dd>
-    <dt>Registered at</dt><dd>{{ registration.registered_at }}</dd>
-</dl>
+<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:1.25rem;">
+    <div>
+        <h2 style="margin:0 0 0.25rem;">{{ registration.first_name }} {{ registration.last_name }}{% if registration.pronouns %} <span style="font-weight:400; font-size:0.85rem; color:var(--hub-text-muted);">({{ registration.pronouns }})</span>{% endif %}</h2>
+        <span style="font-size:0.8rem; padding:0.15rem 0.6rem; border-radius:4px; background:rgba(238,180,75,0.1); color:var(--hub-text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">{{ registration.get_status_display }}</span>
+        {% if registration.order_number %}<span style="margin-left:0.5rem; font-size:0.8rem; color:var(--hub-text-muted);">{{ registration.order_number }}</span>{% endif %}
+    </div>
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_registrations' %}">← All Registrations</a>
+</div>
 
-<h3>Waivers</h3>
-{% for waiver in registration.waivers.all %}
-    <details>
-        <summary>{{ waiver.get_kind_display }} — signed {{ waiver.signed_at }} by "{{ waiver.signature_text }}"</summary>
-        <pre style="white-space:pre-wrap;">{{ waiver.waiver_text }}</pre>
-    </details>
-{% empty %}
-    <p style="color:var(--hub-text-muted);">No waivers on file (likely an admin-created registration).</p>
-{% endfor %}
+<div class="admin-table-wrap" style="margin-bottom:1rem;">
+<table>
+    <thead><tr><th colspan="2">Registration Details</th></tr></thead>
+    <tbody>
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted); width:140px;">Class</td>
+            <td><a href="{% url 'classes:admin_class_detail' pk=registration.class_offering.pk %}">{{ registration.class_offering.title }}</a></td>
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Email</td>
+            <td>{{ registration.email }}</td>
+        </tr>
+        {% if registration.phone %}
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Phone</td>
+            <td>{{ registration.phone }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Member</td>
+            <td>{% if registration.member %}{{ registration.member.full_legal_name }}{% else %}<span style="color:var(--hub-text-muted);">—</span>{% endif %}</td>
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Paid</td>
+            <td>{{ registration.amount_paid_cents|cents_as_dollars }}{% if registration.discount_code %} <span style="font-size:0.8rem; color:var(--hub-text-muted);">(code: {{ registration.discount_code.code }})</span>{% endif %}</td>
+        </tr>
+        {% if registration.stripe_payment_id %}
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Stripe</td>
+            <td style="font-size:0.85rem; font-family:monospace;">{{ registration.stripe_payment_id }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Registered</td>
+            <td>{{ registration.registered_at|date:"M j, Y g:i A" }}</td>
+        </tr>
+        {% if registration.confirmed_at %}
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Confirmed</td>
+            <td>{{ registration.confirmed_at|date:"M j, Y g:i A" }}</td>
+        </tr>
+        {% endif %}
+        {% if registration.cancelled_at %}
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Cancelled</td>
+            <td>{{ registration.cancelled_at|date:"M j, Y g:i A" }}{% if registration.cancellation_reason %} <span style="color:var(--hub-text-muted); font-size:0.85rem;">— {{ registration.cancellation_reason }}</span>{% endif %}</td>
+        </tr>
+        {% endif %}
+        {% if registration.wants_newsletter %}
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Newsletter</td>
+            <td>Opted in{% if registration.subscribed_to_mailchimp %} <span style="color:var(--hub-success, #4caf50);">(synced)</span>{% endif %}</td>
+        </tr>
+        {% endif %}
+    </tbody>
+</table>
+</div>
 
-<h3>Actions</h3>
-{% if registration.status != 'cancelled' %}
-    <form method="post" action="{% url 'classes:admin_registration_cancel' pk=registration.pk %}" style="display:flex; gap:0.5rem; align-items:center;">
-        {% csrf_token %}
-        <input name="reason" placeholder="Reason (internal)" style="padding:0.5rem; flex:1;">
-        <button class="hub-btn">Cancel Registration</button>
-    </form>
+{% if registration.address_line1 %}
+<div class="admin-table-wrap" style="margin-bottom:1rem;">
+<table>
+    <thead><tr><th colspan="2">Address</th></tr></thead>
+    <tbody>
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted); width:140px;">Street</td>
+            <td>{{ registration.address_line1 }}</td>
+        </tr>
+        {% if registration.address_city %}<tr><td style="font-weight:600; color:var(--hub-text-muted);">City</td><td>{{ registration.address_city }}</td></tr>{% endif %}
+        {% if registration.address_state %}<tr><td style="font-weight:600; color:var(--hub-text-muted);">State</td><td>{{ registration.address_state }}</td></tr>{% endif %}
+        {% if registration.address_zip %}<tr><td style="font-weight:600; color:var(--hub-text-muted);">ZIP</td><td>{{ registration.address_zip }}</td></tr>{% endif %}
+    </tbody>
+</table>
+</div>
 {% endif %}
-<p style="color:var(--hub-text-muted); margin-top:1rem;"><small>Refunds land in Plan 2 (Stripe integration). Void Tab entries in billing if needed.</small></p>
+
+{% if registration.custom_answers.all %}
+<div class="admin-table-wrap" style="margin-bottom:1rem;">
+<table>
+    <thead><tr><th colspan="2">Custom Questions</th></tr></thead>
+    <tbody>
+        {% for ans in registration.custom_answers.all %}
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted); width:40%;">{{ ans.question.prompt }}</td>
+            <td>{{ ans.answer_text }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if registration.prior_experience or registration.looking_for %}
+<div class="admin-table-wrap" style="margin-bottom:1rem;">
+<table>
+    <thead><tr><th colspan="2">Student Info</th></tr></thead>
+    <tbody>
+        {% if registration.prior_experience %}
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted); width:140px;">Experience</td>
+            <td>{{ registration.prior_experience }}</td>
+        </tr>
+        {% endif %}
+        {% if registration.looking_for %}
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Looking for</td>
+            <td>{{ registration.looking_for }}</td>
+        </tr>
+        {% endif %}
+    </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if registration.waivers.all %}
+<div class="admin-table-wrap" style="margin-bottom:1rem;">
+<table>
+    <thead><tr><th>Waivers</th><th>Signed</th><th>Signature</th></tr></thead>
+    <tbody>
+        {% for waiver in registration.waivers.all %}
+        <tr>
+            <td>{{ waiver.get_kind_display }}</td>
+            <td style="color:var(--hub-text-muted); font-size:0.85rem;">{{ waiver.signed_at|date:"M j, Y g:i A" }}</td>
+            <td style="font-style:italic;">{{ waiver.signature_text }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if registration.status != 'cancelled' %}
+<div style="margin-top:1.5rem; padding:1rem; border:1px solid var(--hub-border); border-radius:8px;">
+    <h3 style="margin:0 0 0.5rem; font-size:0.95rem;">Cancel Registration</h3>
+    <form method="post" action="{% url 'classes:admin_registration_cancel' pk=registration.pk %}" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+        {% csrf_token %}
+        <input name="reason" placeholder="Reason (internal note)" style="padding:0.45rem 0.75rem; flex:1; min-width:200px; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
+        <button class="hub-btn hub-btn--sm hub-btn--danger" type="submit">Cancel Registration</button>
+    </form>
+</div>
+{% endif %}
 {% endblock %}

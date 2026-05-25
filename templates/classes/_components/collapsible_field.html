@@ -1,0 +1,22 @@
+{% comment %}
+Optional form field that starts collapsed unless it has a value.
+Click the header to expand and reveal the textarea/input.
+{% endcomment %}
+<div class="pl-form-group pl-collapsible-field" x-data="{ open: {% if field.value %}true{% else %}false{% endif %} }">
+    <div @click="open = !open" style="cursor:pointer; display:flex; align-items:center; gap:0.4rem; padding:0.3rem 0;">
+        <span style="font-size:0.7rem; color:var(--color-tuscan-yellow, #EEB44B); transition:transform 0.15s; display:inline-block;" :style="open ? 'transform:rotate(90deg)' : ''">&#9654;</span>
+        <label class="pl-form-label" style="margin:0; cursor:pointer;">{{ field.label }}</label>
+        <span x-show="!open" style="font-size:0.75rem; color:var(--hub-text-muted);">(click to add)</span>
+    </div>
+    <div x-show="open" x-transition.duration.150ms style="margin-top:0.35rem;">
+        {{ field }}
+        {% if field.errors %}
+        <ul class="pl-field-errors">
+            {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        {% if field.help_text %}
+        <p class="pl-field-hint">{{ field.help_text }}</p>
+        {% endif %}
+    </div>
+</div>

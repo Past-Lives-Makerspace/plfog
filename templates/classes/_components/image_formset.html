@@ -1,134 +1,240 @@
 {% comment %}
-Renders the ClassImage inline formset as a thumbnail grid with file inputs.
-Each existing row shows its thumbnail + alt-text + sort-order + delete checkbox.
-New rows render as empty cells with a file picker. Hidden id/management fields
-are kept inline.
+AJAX-driven gallery image manager. Uploads immediately without page save.
+Supports drag-and-drop reordering, inline alt-text editing, and delete.
+Works for both admin and instructor class forms.
 {% endcomment %}
-{{ image_formset.management_form }}
-{% if image_formset.non_form_errors %}
-<div style="color:var(--hub-error,#e57373); font-size:0.85rem; margin-bottom:0.5rem;">
-    {{ image_formset.non_form_errors }}
-</div>
-{% endif %}
-<div class="cls-image-grid">
-    {% for sub in image_formset %}
-        <div class="cls-image-cell {% if sub.instance.pk %}has-image{% else %}empty{% endif %}"
-             data-image-cell>
-            {% if sub.instance.pk and sub.instance.image %}
-                <div class="cls-image-thumb">
-                    <img src="{{ sub.instance.image.url }}" alt="{{ sub.instance.alt_text|default:'' }}">
-                </div>
-            {% else %}
-                <div class="cls-image-thumb cls-image-thumb--placeholder" data-image-preview>
-                    <span>+ Add image</span>
-                </div>
-            {% endif %}
-            <div class="cls-image-fields">
-                <label class="cls-image-flabel">Image
-                    {{ sub.image }}
-                </label>
-                <label class="cls-image-flabel">Alt text
-                    {{ sub.alt_text }}
-                </label>
-                <label class="cls-image-flabel cls-image-flabel--inline">Order
-                    {{ sub.sort_order }}
-                </label>
-                {% if sub.instance.pk %}
-                    <label class="cls-image-delete">
-                        {{ sub.DELETE }} Remove
-                    </label>
-                {% endif %}
-                {{ sub.id }}
+{% if offering and offering.pk %}
+<div id="gallery-manager"
+     data-upload-url="{% url 'classes:admin_class_image_upload' pk=offering.pk %}"
+     data-reorder-url="{% url 'classes:admin_class_image_reorder' pk=offering.pk %}"
+     data-csrf="{{ csrf_token }}">
+
+    <div id="gallery-grid" class="cls-image-grid">
+        {% for img in offering.gallery_images.all %}
+        <div class="cls-image-cell has-image" draggable="true" data-id="{{ img.pk }}">
+            <div class="cls-image-thumb">
+                <img src="{{ img.image.url }}" alt="{{ img.alt_text|default:'' }}">
             </div>
-            {% if sub.errors %}
-            <ul class="pl-field-errors" style="margin-top:0.25rem;">
-                {% for field_name, errs in sub.errors.items %}{% for e in errs %}<li class="pl-field-error">{{ field_name }}: {{ e }}</li>{% endfor %}{% endfor %}
-            </ul>
-            {% endif %}
+            <div class="cls-image-fields">
+                <input type="text" class="cls-image-alt" value="{{ img.alt_text }}" placeholder="Alt text (optional)" data-id="{{ img.pk }}">
+                <button type="button" class="cls-image-remove" data-id="{{ img.pk }}" title="Remove image">&times;</button>
+            </div>
+            <div class="cls-image-drag-handle" title="Drag to reorder">⠿</div>
         </div>
-    {% endfor %}
+        {% endfor %}
+    </div>
+
+    <label class="cls-image-upload-zone" id="gallery-upload-zone">
+        <input type="file" accept="image/*" id="gallery-file-input" style="display:none;">
+        <span class="cls-image-upload-label">+ Add image</span>
+        <span class="cls-image-upload-hint">Click or drag a file here</span>
+    </label>
 </div>
 
 <style>
 .cls-image-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 0.75rem;
-    margin: 0.5rem 0 1rem;
+    margin: 0.5rem 0 0.75rem;
 }
 .cls-image-cell {
+    position: relative;
     background: rgba(9,46,76,0.18);
     border: 1px solid rgba(26,69,104,0.4);
     border-radius: 8px;
-    padding: 0.6rem;
+    padding: 0.5rem;
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
+    cursor: grab;
+    transition: opacity 0.2s, transform 0.15s;
 }
+.cls-image-cell.dragging { opacity: 0.4; transform: scale(0.95); }
+.cls-image-cell.drag-over { border-color: var(--color-tuscan-yellow, #EEB44B); box-shadow: 0 0 0 2px rgba(238,180,75,0.3); }
 .cls-image-thumb {
     width: 100%;
-    height: 110px;
+    height: 100px;
     border-radius: 6px;
     overflow: hidden;
     background: rgba(255,255,255,0.04);
-    border: 1px dashed rgba(238,180,75,0.18);
-    display: flex;
-    align-items: center;
-    justify-content: center;
 }
 .cls-image-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.cls-image-thumb--placeholder span {
-    color: var(--hub-text-muted, #96acbb);
-    font-size: 0.8rem;
-    letter-spacing: 0.04em;
+.cls-image-fields {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
 }
-.cls-image-fields { display: flex; flex-direction: column; gap: 0.35rem; }
-.cls-image-flabel {
+.cls-image-alt {
+    flex: 1;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 4px;
+    background: rgba(0,0,0,0.15);
+    color: inherit;
+}
+.cls-image-remove {
+    background: none;
+    border: none;
+    color: var(--hub-error, #e57373);
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0 0.3rem;
+    line-height: 1;
+}
+.cls-image-remove:hover { color: #ff6b6b; }
+.cls-image-drag-handle {
+    position: absolute;
+    top: 0.3rem;
+    right: 0.4rem;
+    font-size: 0.9rem;
+    color: var(--hub-text-muted);
+    opacity: 0.5;
+    cursor: grab;
+}
+.cls-image-upload-zone {
     display: flex;
     flex-direction: column;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--hub-text-muted, #96acbb);
-    gap: 0.15rem;
-}
-.cls-image-flabel--inline {
-    flex-direction: row;
     align-items: center;
-    gap: 0.4rem;
-    text-transform: uppercase;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 1.25rem;
+    border: 2px dashed rgba(238,180,75,0.3);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
 }
-.cls-image-flabel--inline input { width: 4.5rem; }
-.cls-image-flabel input[type="file"] { font-size: 0.8rem; }
-.cls-image-delete {
+.cls-image-upload-zone:hover,
+.cls-image-upload-zone.drag-hover {
+    border-color: rgba(238,180,75,0.6);
+    background: rgba(238,180,75,0.04);
+}
+.cls-image-upload-zone.uploading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+.cls-image-upload-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-tuscan-yellow, #EEB44B);
+}
+.cls-image-upload-hint {
     font-size: 0.75rem;
-    color: var(--hub-error, #e57373);
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
+    color: var(--hub-text-muted);
 }
 </style>
 
 <script>
-(function () {
-    // Live thumbnail preview when an instructor picks a file in an empty cell.
-    document.querySelectorAll('[data-image-cell]').forEach(function (cell) {
-        var input = cell.querySelector('input[type="file"]');
-        var preview = cell.querySelector('[data-image-preview]');
-        if (!input || !preview) return;
-        input.addEventListener('change', function () {
-            var f = input.files && input.files[0];
-            if (!f) return;
-            var reader = new FileReader();
-            reader.onload = function (e) {
-                preview.innerHTML = '';
-                var img = document.createElement('img');
-                img.src = e.target.result;
-                preview.appendChild(img);
-                preview.classList.remove('cls-image-thumb--placeholder');
-            };
-            reader.readAsDataURL(f);
-        });
+(function() {
+    const manager = document.getElementById('gallery-manager');
+    if (!manager) return;
+    const grid = document.getElementById('gallery-grid');
+    const zone = document.getElementById('gallery-upload-zone');
+    const fileInput = document.getElementById('gallery-file-input');
+    const uploadUrl = manager.dataset.uploadUrl;
+    const reorderUrl = manager.dataset.reorderUrl;
+    const csrf = manager.dataset.csrf;
+
+    // --- Upload ---
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) uploadFile(fileInput.files[0]);
+        fileInput.value = '';
     });
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-hover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-hover'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag-hover');
+        const f = e.dataTransfer.files[0];
+        if (f && f.type.startsWith('image/')) uploadFile(f);
+    });
+
+    function uploadFile(file) {
+        zone.classList.add('uploading');
+        zone.querySelector('.cls-image-upload-label').textContent = 'Uploading…';
+        const fd = new FormData();
+        fd.append('image', file);
+        fetch(uploadUrl, { method: 'POST', headers: {'X-CSRFToken': csrf}, body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { alert(data.error); return; }
+                addImageCard(data);
+            })
+            .catch(() => alert('Upload failed.'))
+            .finally(() => {
+                zone.classList.remove('uploading');
+                zone.querySelector('.cls-image-upload-label').textContent = '+ Add image';
+            });
+    }
+
+    function addImageCard(data) {
+        const card = document.createElement('div');
+        card.className = 'cls-image-cell has-image';
+        card.draggable = true;
+        card.dataset.id = data.id;
+        card.innerHTML = `
+            <div class="cls-image-thumb"><img src="${data.url}" alt=""></div>
+            <div class="cls-image-fields">
+                <input type="text" class="cls-image-alt" value="" placeholder="Alt text (optional)" data-id="${data.id}">
+                <button type="button" class="cls-image-remove" data-id="${data.id}" title="Remove image">&times;</button>
+            </div>
+            <div class="cls-image-drag-handle" title="Drag to reorder">⠿</div>`;
+        grid.appendChild(card);
+        bindCard(card);
+    }
+
+    // --- Delete ---
+    function bindCard(card) {
+        card.querySelector('.cls-image-remove').addEventListener('click', function() {
+            const id = this.dataset.id;
+            fetch(`/classes/admin/images/${id}/delete/`, { method: 'POST', headers: {'X-CSRFToken': csrf} })
+                .then(r => { if (r.ok) card.remove(); });
+        });
+        card.querySelector('.cls-image-alt').addEventListener('change', function() {
+            const id = this.dataset.id;
+            fetch(`/classes/admin/images/${id}/alt/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrf, 'Content-Type': 'application/json'},
+                body: JSON.stringify({alt_text: this.value})
+            });
+        });
+        bindDrag(card);
+    }
+
+    // --- Drag & drop reorder ---
+    let dragSrc = null;
+    function bindDrag(card) {
+        card.addEventListener('dragstart', e => { dragSrc = card; card.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+        card.addEventListener('dragend', () => { card.classList.remove('dragging'); dragSrc = null; });
+        card.addEventListener('dragover', e => { e.preventDefault(); if (dragSrc && dragSrc !== card) card.classList.add('drag-over'); });
+        card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+        card.addEventListener('drop', e => {
+            e.preventDefault();
+            card.classList.remove('drag-over');
+            if (!dragSrc || dragSrc === card) return;
+            const cards = [...grid.children];
+            const fromIdx = cards.indexOf(dragSrc);
+            const toIdx = cards.indexOf(card);
+            if (fromIdx < toIdx) card.after(dragSrc);
+            else card.before(dragSrc);
+            saveOrder();
+        });
+    }
+
+    function saveOrder() {
+        const order = [...grid.querySelectorAll('[data-id]')].map(c => parseInt(c.dataset.id));
+        fetch(reorderUrl, {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrf, 'Content-Type': 'application/json'},
+            body: JSON.stringify({order})
+        });
+    }
+
+    // Bind existing cards
+    grid.querySelectorAll('.cls-image-cell').forEach(bindCard);
 })();
 </script>
+{% else %}
+<p style="color:var(--hub-text-muted); font-size:0.85rem;">Save the class first, then you can add gallery images.</p>
+{% endif %}

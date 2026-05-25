@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -9,7 +10,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.db.models import Count, Min, Q
-from django.http import HttpRequest, HttpResponse, HttpResponseForbidden
+from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -18,11 +19,14 @@ from django.views.decorators.http import require_POST
 if TYPE_CHECKING:
     from membership.models import Member
 
-from classes.emails import send_registration_confirmation
+from classes.emails import (
+    send_admin_registration_notification,
+    send_instructor_registration_notification,
+    send_registration_confirmation,
+)
 from classes.table import prepare_table
 from classes.forms import (
     CategoryForm,
-    ClassImageFormSet,
     ClassOfferingForm,
     ClassSessionFormSet,
     ClassSettingsForm,
@@ -35,6 +39,7 @@ from classes.forms import (
 )
 from classes.models import (
     Category,
+    ClassImage,
     ClassOffering,
     ClassSettings,
     DiscountCode,
@@ -249,6 +254,8 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             if registration.discount_code_id:
                 _bump_discount_use_count(registration.discount_code_id)
             send_registration_confirmation(registration)
+            send_instructor_registration_notification(registration)
+            send_admin_registration_notification(registration)
             from classes.services.mailchimp_subscribe import subscribe_registration
 
             subscribe_registration(registration)
@@ -487,11 +494,29 @@ def _render_instructor_class_form(
     *,
     form: InstructorClassOfferingForm,
     formset: Any,
-    image_formset: Any,
     instructor: Instructor,
     mode: str,
     offering: ClassOffering | None = None,
 ) -> HttpResponse:
+    sessions_data: list[dict] = []
+    if formset.is_bound:
+        for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
+            starts = request.POST.get(f"sessions-{i}-starts_at", "")
+            ends = request.POST.get(f"sessions-{i}-ends_at", "")
+            pk = request.POST.get(f"sessions-{i}-id", "")
+            delete = request.POST.get(f"sessions-{i}-DELETE", "")
+            if starts and ends:
+                sessions_data.append({"id": pk, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
+    elif offering and offering.pk:
+        for s in offering.sessions.order_by("starts_at"):
+            sessions_data.append(
+                {
+                    "id": s.pk,
+                    "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
+                    "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
+                }
+            )
+
     return render(
         request,
         "classes/instructor/class_form.html",
@@ -500,7 +525,8 @@ def _render_instructor_class_form(
             "instructor": instructor,
             "form": form,
             "formset": formset,
-            "image_formset": image_formset,
+            "sessions_json": json.dumps(sessions_data),
+            "initial_forms": formset.initial_form_count() if hasattr(formset, "initial_form_count") else 0,
             "mode": mode,
             "offering": offering,
         },
@@ -512,25 +538,21 @@ def instructor_class_create(request: HttpRequest) -> HttpResponse:
     instructor: Instructor = request.instructor  # type: ignore[attr-defined]
     form = InstructorClassOfferingForm(request.POST or None, request.FILES or None, instructor=instructor)
     formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
-    image_formset = ClassImageFormSet(request.POST or None, request.FILES or None, prefix="images")
-    if request.method == "POST" and form.is_valid() and formset.is_valid() and image_formset.is_valid():
+    if request.method == "POST" and form.is_valid() and formset.is_valid():
         offering = form.save()
         formset.instance = offering
         formset.save()
-        image_formset.instance = offering
-        image_formset.save()
         submit_now = request.POST.get("action") == "submit"
         if submit_now:
             offering.submit_for_review()
             messages.success(request, f"Submitted “{offering.title}” for admin review.")
         else:
-            messages.success(request, f"Saved draft “{offering.title}”.")
+            messages.success(request, f"Saved draft ‘{offering.title}’.")
         return redirect("classes:instructor_class_edit", pk=offering.pk)
     return _render_instructor_class_form(
         request,
         form=form,
         formset=formset,
-        image_formset=image_formset,
         instructor=instructor,
         mode="create",
     )
@@ -540,7 +562,7 @@ def instructor_class_create(request: HttpRequest) -> HttpResponse:
 def instructor_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     instructor: Instructor = request.instructor  # type: ignore[attr-defined]
     offering = get_object_or_404(
-        ClassOffering.objects.filter(instructor=instructor),
+        ClassOffering.objects.filter(instructor=instructor).prefetch_related("gallery_images"),
         pk=pk,
     )
     if offering.status in {ClassOffering.Status.PUBLISHED, ClassOffering.Status.ARCHIVED}:
@@ -550,11 +572,9 @@ def instructor_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         request.POST or None, request.FILES or None, instance=offering, instructor=instructor
     )
     formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
-    image_formset = ClassImageFormSet(request.POST or None, request.FILES or None, instance=offering, prefix="images")
-    if request.method == "POST" and form.is_valid() and formset.is_valid() and image_formset.is_valid():
+    if request.method == "POST" and form.is_valid() and formset.is_valid():
         offering = form.save()
         formset.save()
-        image_formset.save()
         submit_now = request.POST.get("action") == "submit"
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
             offering.submit_for_review()
@@ -566,7 +586,6 @@ def instructor_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         request,
         form=form,
         formset=formset,
-        image_formset=image_formset,
         instructor=instructor,
         mode="edit",
         offering=offering,
@@ -631,7 +650,7 @@ def instructor_registrations_email(request: HttpRequest) -> HttpResponse:
     message = form.send()
     messages.success(
         request,
-        f"Sent “{message.subject}” to {message.recipient_count} recipient(s).",
+        f"Sent ‘{message.subject}’ to {message.recipient_count} recipient(s).",
     )
     return redirect("classes:instructor_registrations")
 
@@ -790,40 +809,58 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
 @classes_admin_access_required
 def admin_class_create(request: HttpRequest) -> HttpResponse:
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
-    image_formset = ClassImageFormSet(request.POST or None, request.FILES or None, prefix="images")
-    if request.method == "POST" and form.is_valid() and image_formset.is_valid():
+    if request.method == "POST" and form.is_valid():
         offering = form.save(commit=False)
         offering.status = ClassOffering.Status.PUBLISHED
         offering.save()
-        image_formset.instance = offering
-        image_formset.save()
         messages.success(request, f"{offering.title} is published.")
-        return redirect("classes:admin_classes")
+        return redirect("classes:admin_class_edit", pk=offering.pk)
     return render(
         request,
         "classes/admin/class_form.html",
-        {"active_tab": "classes", "form": form, "image_formset": image_formset, "mode": "create"},
+        {"active_tab": "classes", "form": form, "mode": "create"},
     )
 
 
 @classes_admin_access_required
 def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    offering = get_object_or_404(ClassOffering.objects.prefetch_related("gallery_images", "sessions"), pk=pk)
     form = ClassOfferingForm(request.POST or None, request.FILES or None, instance=offering)
-    image_formset = ClassImageFormSet(request.POST or None, request.FILES or None, instance=offering, prefix="images")
-    if request.method == "POST" and form.is_valid() and image_formset.is_valid():
+    session_formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
+    if request.method == "POST" and form.is_valid() and session_formset.is_valid():
         form.save()
-        image_formset.save()
+        session_formset.save()
         messages.success(request, "Class updated.")
         return redirect("classes:admin_class_detail", pk=offering.pk)
+
+    sessions_data: list[dict] = []
+    if session_formset.is_bound:
+        for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
+            starts = request.POST.get(f"sessions-{i}-starts_at", "")
+            ends = request.POST.get(f"sessions-{i}-ends_at", "")
+            pk_val = request.POST.get(f"sessions-{i}-id", "")
+            delete = request.POST.get(f"sessions-{i}-DELETE", "")
+            if starts and ends:
+                sessions_data.append({"id": pk_val, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
+    else:
+        for s in offering.sessions.order_by("starts_at"):
+            sessions_data.append(
+                {
+                    "id": s.pk,
+                    "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
+                    "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
+                }
+            )
+
     return render(
         request,
         "classes/admin/class_form.html",
         {
             "active_tab": "classes",
             "form": form,
-            "image_formset": image_formset,
             "offering": offering,
+            "sessions_json": json.dumps(sessions_data),
+            "initial_forms": session_formset.initial_form_count(),
             "mode": "edit",
         },
     )
@@ -887,9 +924,81 @@ def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
             return redirect("classes:admin_class_detail", pk=offering.pk)
         title = offering.title
         offering.delete()
-        messages.success(request, f"Deleted “{title}”.")
+        messages.success(request, f"Deleted ‘{title}’.")
         return redirect("classes:admin_classes")
     return redirect("classes:admin_class_detail", pk=offering.pk)
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    file = request.FILES.get("image")
+    if not file:
+        return JsonResponse({"error": "No file provided."}, status=400)
+    offering.image = file
+    offering.hero_crop_x = None
+    offering.hero_crop_y = None
+    offering.hero_crop_w = None
+    offering.hero_crop_h = None
+    offering.save()
+    return JsonResponse({"url": offering.image.url})
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    if offering.gallery_images.count() >= 10:
+        return JsonResponse({"error": "Maximum 10 gallery images."}, status=400)
+    file = request.FILES.get("image")
+    if not file:
+        return JsonResponse({"error": "No file provided."}, status=400)
+    if file.size > 3 * 1024 * 1024:
+        return JsonResponse({"error": "Image must be under 3 MB."}, status=400)
+    next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
+    img = ClassImage(class_offering=offering, image=file, sort_order=next_order)
+    img.full_clean()
+    img.save()
+    return JsonResponse({"id": img.pk, "url": img.image.url, "alt_text": "", "sort_order": img.sort_order})
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    try:
+        order = json.loads(request.body)["order"]
+    except (json.JSONDecodeError, KeyError):
+        return JsonResponse({"error": "Invalid payload."}, status=400)
+    images = {img.pk: img for img in offering.gallery_images.all()}
+    for idx, image_id in enumerate(order):
+        if image_id in images:
+            images[image_id].sort_order = idx
+            images[image_id].save(update_fields=["sort_order"])
+    return JsonResponse({"ok": True})
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    img = get_object_or_404(ClassImage, pk=pk)
+    img.image.delete(save=False)
+    img.delete()
+    return JsonResponse({"ok": True})
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
+    img = get_object_or_404(ClassImage, pk=pk)
+    try:
+        alt_text = json.loads(request.body)["alt_text"]
+    except (json.JSONDecodeError, KeyError):
+        return JsonResponse({"error": "Invalid payload."}, status=400)
+    img.alt_text = alt_text[:255]
+    img.save(update_fields=["alt_text"])
+    return JsonResponse({"ok": True})
 
 
 @classes_admin_access_required
@@ -994,7 +1103,9 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
 @classes_admin_access_required
 def admin_registration_detail(request: HttpRequest, pk: int) -> HttpResponse:
     registration = get_object_or_404(
-        Registration.objects.select_related("class_offering", "member").prefetch_related("waivers"),
+        Registration.objects.select_related("class_offering", "member", "discount_code").prefetch_related(
+            "waivers", "custom_answers__question"
+        ),
         pk=pk,
     )
     return render(

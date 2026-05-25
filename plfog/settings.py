@@ -224,7 +224,7 @@ R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "").rstrip("/")
 _R2_READY = all([R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_PUBLIC_URL])
 
 # Maximum upload size for ImageField uploads (members, guilds, classes).
-MAX_UPLOAD_IMAGE_BYTES = int(os.environ.get("MAX_UPLOAD_IMAGE_BYTES", str(5 * 1024 * 1024)))  # 5 MB
+MAX_UPLOAD_IMAGE_BYTES = int(os.environ.get("MAX_UPLOAD_IMAGE_BYTES", str(3 * 1024 * 1024)))  # 3 MB
 
 # Auto-resize ceilings (longest edge in pixels) applied by core.images.normalize_image
 # on save. Hero/banner images get a higher cap; gallery/profile images sit lower.
@@ -370,6 +370,9 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@pastlives.spa
 
 # Base URL for the public booking site, used to build absolute links in emails.
 BOOK_BASE_URL = os.environ.get("BOOK_BASE_URL", "https://book.pastlives.space")
+
+# Admins to notify on new class registrations (comma-delimited emails). Empty = no admin notifications.
+CLASS_ADMIN_NOTIFY_EMAILS = os.environ.get("CLASS_ADMIN_NOTIFY_EMAILS", "")
 
 # Beta feedback — comma-delimited list of recipient email addresses
 BETA_FEEDBACK_EMAILS: list[str] = [
