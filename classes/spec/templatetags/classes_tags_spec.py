@@ -14,9 +14,41 @@ from classes.templatetags.classes_tags import (
     initials,
     member_price_cents,
     session_duration_words,
+    sort_header,
     spots_class,
     total_session_minutes,
 )
+
+
+# ---------------------------------------------------------------------------
+# sort_header
+# ---------------------------------------------------------------------------
+
+
+def describe_sort_header():
+    def it_returns_ascending_link_when_not_active():
+        result = sort_header("Title", "title", "created_at", "desc", "")
+        assert result["label"] == "Title"
+        assert result["is_active"] is False
+        assert "sort=title" in result["href"]
+        assert "dir=asc" in result["href"]
+
+    def it_toggles_to_desc_when_active_and_asc():
+        result = sort_header("Title", "title", "title", "asc", "")
+        assert result["is_active"] is True
+        assert result["direction"] == "asc"
+        assert "dir=desc" in result["href"]
+
+    def it_toggles_to_asc_when_active_and_desc():
+        result = sort_header("Title", "title", "title", "desc", "")
+        assert result["is_active"] is True
+        assert result["direction"] == "desc"
+        assert "dir=asc" in result["href"]
+
+    def it_preserves_base_params():
+        result = sort_header("Title", "title", "created_at", "asc", "q=foo&status=active")
+        assert "q=foo" in result["href"]
+        assert "status=active" in result["href"]
 
 
 # ---------------------------------------------------------------------------

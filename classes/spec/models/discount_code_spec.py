@@ -50,6 +50,14 @@ def describe_DiscountCode():
             code = DiscountCodeFactory(valid_until=date.today() - timedelta(days=1))
             assert code.is_currently_valid() is False
 
+        def it_is_invalid_when_unapproved(db):
+            code = DiscountCodeFactory(is_active=True, is_approved=False)
+            assert code.is_currently_valid() is False
+
+        def it_is_valid_when_approved(db):
+            code = DiscountCodeFactory(is_active=True, is_approved=True)
+            assert code.is_currently_valid() is True
+
         def it_is_invalid_when_at_max_uses(db):
             code = DiscountCodeFactory(max_uses=1, use_count=1)
             assert code.is_currently_valid() is False
