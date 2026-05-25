@@ -1,5 +1,5 @@
 {% extends "classes/admin/base.html" %}
-{% load static %}
+{% load static classes_tags %}
 {% block tab_content %}
 <h2 style="margin-bottom:1.5rem;">
     {% if mode == 'create' %}New Class{% else %}Edit: {{ offering.title }}{% endif %}
@@ -22,6 +22,11 @@
     </ul>
     {% endif %}
 
+    {% if offering and offering.pk %}
+    <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Sessions</h3>
+    {% include "classes/_components/session_calendar.html" %}
+    {% endif %}
+
     <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Gallery images</h3>
     <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Optional. Extra photos shown below the hero on the public class page. Images save instantly — no need to hit Save.</p>
     {% include "classes/_components/image_formset.html" with offering=offering %}
@@ -34,6 +39,8 @@
         <a href="{% url 'classes:admin_classes' %}" class="hub-btn">Cancel</a>
     </div>
 </form>
+<script src="{% static 'js/session_calendar.js' %}" defer></script>
+<link rel="stylesheet" href="{% static 'css/session-calendar.css' %}">
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>
 <script>
 (function() {

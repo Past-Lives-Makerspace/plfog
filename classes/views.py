@@ -823,12 +823,34 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering.objects.prefetch_related("gallery_images"), pk=pk)
+    import json
+
+    offering = get_object_or_404(ClassOffering.objects.prefetch_related("gallery_images", "sessions"), pk=pk)
     form = ClassOfferingForm(request.POST or None, request.FILES or None, instance=offering)
-    if request.method == "POST" and form.is_valid():
+    session_formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
+    if request.method == "POST" and form.is_valid() and session_formset.is_valid():
         form.save()
+        session_formset.save()
         messages.success(request, "Class updated.")
         return redirect("classes:admin_class_detail", pk=offering.pk)
+
+    sessions_data: list[dict] = []
+    if session_formset.is_bound:
+        for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
+            starts = request.POST.get(f"sessions-{i}-starts_at", "")
+            ends = request.POST.get(f"sessions-{i}-ends_at", "")
+            pk_val = request.POST.get(f"sessions-{i}-id", "")
+            delete = request.POST.get(f"sessions-{i}-DELETE", "")
+            if starts and ends:
+                sessions_data.append({"id": pk_val, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
+    else:
+        for s in offering.sessions.order_by("starts_at"):
+            sessions_data.append({
+                "id": s.pk,
+                "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
+                "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
+            })
+
     return render(
         request,
         "classes/admin/class_form.html",
@@ -836,6 +858,8 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "active_tab": "classes",
             "form": form,
             "offering": offering,
+            "sessions_json": json.dumps(sessions_data),
+            "initial_forms": session_formset.initial_form_count(),
             "mode": "edit",
         },
     )

@@ -189,11 +189,14 @@ def describe_edit_class():
                 "age_guardian_note": "",
                 "flexible_note": "",
                 "private_for_name": "",
-                "recurring_pattern": "",
                 "images-TOTAL_FORMS": "0",
                 "images-INITIAL_FORMS": "0",
                 "images-MIN_NUM_FORMS": "0",
                 "images-MAX_NUM_FORMS": "1000",
+                "sessions-TOTAL_FORMS": "0",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
             },
         )
         assert response.status_code == 302
