@@ -1,0 +1,49 @@
+{% extends "classes/admin/base.html" %}
+{% load classes_tags %}
+{% block tab_content %}
+<div class="admin-toolbar">
+    {% include "components/table_search.html" with q=q placeholder="Search questions…" %}
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_registration_question_create' %}">+ New Question</a>
+</div>
+<div class="admin-table-wrap">
+<table>
+    <thead>
+        <tr>
+            {% sort_header "Sort" "sort_order" sort sort_dir base_params %}
+            {% sort_header "Prompt" "prompt" sort sort_dir base_params %}
+            {% sort_header "Type" "question_type" sort sort_dir base_params %}
+            {% sort_header "Required" "is_required" sort sort_dir base_params %}
+            {% sort_header "Active" "is_active" sort sort_dir base_params %}
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for question in page %}
+        {% url 'classes:admin_registration_question_delete' pk=question.pk as q_delete_url %}
+        {% concat "del-question-" question.pk as q_modal_id %}
+        <tr>
+            <td>{{ question.sort_order }}</td>
+            <td>{{ question.prompt|truncatechars:60 }}</td>
+            <td>{{ question.get_question_type_display }}</td>
+            <td>{{ question.is_required|yesno }}</td>
+            <td>{{ question.is_active|yesno }}</td>
+            <td>
+                <div class="admin-actions">
+                    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_registration_question_edit' pk=question.pk %}">Edit</a>
+                    <button type="button"
+                            class="hub-btn hub-btn--sm hub-btn--danger"
+                            @click="$dispatch('open-confirm', '{{ q_modal_id }}')">Delete</button>
+                    {% include "components/confirm_modal.html" with confirm_id=q_modal_id confirm_title="Delete this question?" confirm_message="The question will be permanently removed. Existing answers from past registrations will be kept." confirm_action_url=q_delete_url confirm_button_text="Delete Question" %}
+                </div>
+            </td>
+        </tr>
+    {% empty %}
+        <tr><td colspan="6" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
+            {% if q %}No questions matching "{{ q }}".{% else %}No registration questions yet.{% endif %}
+        </td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% include "components/table_pagination.html" with page=page base_params=base_params %}
+{% endblock %}

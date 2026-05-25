@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from membership.models import Member
 
 from classes.emails import send_registration_confirmation
+from classes.table import prepare_table
 from classes.forms import (
     CategoryForm,
     ClassImageFormSet,
@@ -30,8 +31,17 @@ from classes.forms import (
     InstructorProfileForm,
     PromoteUserToInstructorForm,
     RegistrationForm,
+    RegistrationQuestionForm,
 )
-from classes.models import Category, ClassOffering, ClassSettings, DiscountCode, Instructor, Registration
+from classes.models import (
+    Category,
+    ClassOffering,
+    ClassSettings,
+    DiscountCode,
+    Instructor,
+    Registration,
+    RegistrationQuestion,
+)
 from core.models import SiteConfiguration
 
 _ViewFunc = Callable[..., HttpResponse]
@@ -577,19 +587,27 @@ def instructor_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
 @instructor_required
 def instructor_registrations(request: HttpRequest) -> HttpResponse:
     instructor: Instructor = request.instructor  # type: ignore[attr-defined]
-    registrations = (
-        Registration.objects.filter(class_offering__instructor=instructor)
-        .select_related("class_offering", "member")
-        .prefetch_related("custom_answers__question")
-        .order_by("-registered_at")
+    offerings = (
+        ClassOffering.objects.for_instructor(instructor)
+        .annotate(registration_count=Count("registrations"))
+        .order_by("-created_at")
     )
+    class_groups = []
+    for offering in offerings:
+        regs = (
+            Registration.objects.filter(class_offering=offering)
+            .select_related("member")
+            .prefetch_related("custom_answers__question")
+            .order_by("-registered_at")
+        )
+        class_groups.append({"offering": offering, "registrations": list(regs)})
     return render(
         request,
         "classes/instructor/registrations.html",
         {
             "active_tab": "registrations",
             "instructor": instructor,
-            "registrations": registrations,
+            "class_groups": class_groups,
         },
     )
 
@@ -644,8 +662,10 @@ def instructor_discount_code_create(request: HttpRequest) -> HttpResponse:
     instructor: Instructor = request.instructor  # type: ignore[attr-defined]
     form = DiscountCodeForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "Discount code created.")
+        code = form.save(commit=False)
+        code.is_approved = False
+        code.save()
+        messages.success(request, "Discount code created — an admin will review and approve it.")
         return redirect("classes:instructor_discount_codes")
     return render(
         request,
@@ -742,21 +762,27 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     base = ClassOffering.objects.select_related("instructor", "category").annotate(
         registration_count=Count("registrations")
     )
-    classes = base.filter(status=status_filter) if status_filter else base
-    classes = classes.order_by("-created_at")
+    qs = base.filter(status=status_filter) if status_filter else base
     status_counts = {row["status"]: row["count"] for row in base.values("status").annotate(count=Count("pk"))}
     filters = [("", "All", base.count())] + [
         (choice.value, choice.label, status_counts.get(choice.value, 0)) for choice in ClassOffering.Status
     ]
+    table = prepare_table(
+        request,
+        qs,
+        search_fields=["title", "instructor__display_name", "category__name"],
+        default_sort="created_at",
+        default_dir="desc",
+    )
     return render(
         request,
         "classes/admin/classes_list.html",
         {
             "active_tab": "classes",
-            "classes": classes,
             "pending_count": ClassOffering.objects.pending_review().count(),
             "status_filters": filters,
             "selected_status": status_filter,
+            **table,
         },
     )
 
@@ -805,7 +831,12 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    offering = get_object_or_404(
+        ClassOffering.objects.select_related("instructor", "category")
+        .prefetch_related("sessions", "registrations")
+        .annotate(registration_count=Count("registrations")),
+        pk=pk,
+    )
     return render(
         request,
         "classes/admin/class_detail.html",
@@ -863,11 +894,16 @@ def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_categories(request: HttpRequest) -> HttpResponse:
-    categories = Category.objects.all()
+    table = prepare_table(
+        request,
+        Category.objects.all(),
+        search_fields=["name"],
+        default_sort="sort_order",
+    )
     return render(
         request,
         "classes/admin/categories.html",
-        {"active_tab": "categories", "categories": categories},
+        {"active_tab": "categories", **table},
     )
 
 
@@ -911,11 +947,16 @@ def admin_category_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_instructors(request: HttpRequest) -> HttpResponse:
-    instructors = Instructor.objects.select_related("user").annotate(class_count=Count("classes"))
+    table = prepare_table(
+        request,
+        Instructor.objects.select_related("user").annotate(class_count=Count("classes")),
+        search_fields=["display_name", "user__email"],
+        default_sort="display_name",
+    )
     return render(
         request,
         "classes/admin/instructors.html",
-        {"active_tab": "instructors", "instructors": instructors},
+        {"active_tab": "instructors", **table},
     )
 
 
@@ -936,11 +977,17 @@ def admin_instructor_promote(request: HttpRequest) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_registrations(request: HttpRequest) -> HttpResponse:
-    registrations = Registration.objects.select_related("class_offering", "member").order_by("-registered_at")
+    table = prepare_table(
+        request,
+        Registration.objects.select_related("class_offering", "member"),
+        search_fields=["first_name", "last_name", "email", "class_offering__title"],
+        default_sort="registered_at",
+        default_dir="desc",
+    )
     return render(
         request,
         "classes/admin/registrations.html",
-        {"active_tab": "registrations", "registrations": registrations},
+        {"active_tab": "registrations", **table},
     )
 
 
@@ -968,11 +1015,16 @@ def admin_registration_cancel(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_discount_codes(request: HttpRequest) -> HttpResponse:
-    codes = DiscountCode.objects.all()
+    table = prepare_table(
+        request,
+        DiscountCode.objects.all(),
+        search_fields=["code", "description"],
+        default_sort="code",
+    )
     return render(
         request,
         "classes/admin/discount_codes.html",
-        {"active_tab": "discount_codes", "codes": codes},
+        {"active_tab": "discount_codes", **table},
     )
 
 
@@ -1012,6 +1064,70 @@ def admin_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
         code.delete()
         messages.success(request, "Discount code deleted.")
     return redirect("classes:admin_discount_codes")
+
+
+@classes_admin_access_required
+@require_POST
+def admin_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    code = get_object_or_404(DiscountCode, pk=pk)
+    code.is_approved = not code.is_approved
+    code.save(update_fields=["is_approved"])
+    label = "approved" if code.is_approved else "unapproved"
+    messages.success(request, f"Discount code {code.code} {label}.")
+    return redirect("classes:admin_discount_codes")
+
+
+@classes_admin_access_required
+def admin_registration_questions(request: HttpRequest) -> HttpResponse:
+    table = prepare_table(
+        request,
+        RegistrationQuestion.objects.all(),
+        search_fields=["prompt"],
+        default_sort="sort_order",
+    )
+    return render(
+        request,
+        "classes/admin/registration_questions.html",
+        {"active_tab": "questions", **table},
+    )
+
+
+@classes_admin_access_required
+def admin_registration_question_create(request: HttpRequest) -> HttpResponse:
+    form = RegistrationQuestionForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Registration question created.")
+        return redirect("classes:admin_registration_questions")
+    return render(
+        request,
+        "classes/admin/registration_question_form.html",
+        {"active_tab": "questions", "form": form, "mode": "create"},
+    )
+
+
+@classes_admin_access_required
+def admin_registration_question_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    question = get_object_or_404(RegistrationQuestion, pk=pk)
+    form = RegistrationQuestionForm(request.POST or None, instance=question)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Registration question updated.")
+        return redirect("classes:admin_registration_questions")
+    return render(
+        request,
+        "classes/admin/registration_question_form.html",
+        {"active_tab": "questions", "form": form, "question": question, "mode": "edit"},
+    )
+
+
+@classes_admin_access_required
+def admin_registration_question_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    question = get_object_or_404(RegistrationQuestion, pk=pk)
+    if request.method == "POST":
+        question.delete()
+        messages.success(request, "Registration question deleted.")
+    return redirect("classes:admin_registration_questions")
 
 
 @admin_required

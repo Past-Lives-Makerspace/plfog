@@ -61,6 +61,23 @@ urlpatterns = [
     path("admin/discount-codes/new/", views.admin_discount_code_create, name="admin_discount_code_create"),
     path("admin/discount-codes/<int:pk>/edit/", views.admin_discount_code_edit, name="admin_discount_code_edit"),
     path("admin/discount-codes/<int:pk>/delete/", views.admin_discount_code_delete, name="admin_discount_code_delete"),
+    path(
+        "admin/discount-codes/<int:pk>/approve/",
+        views.admin_discount_code_approve,
+        name="admin_discount_code_approve",
+    ),
+    path("admin/questions/", views.admin_registration_questions, name="admin_registration_questions"),
+    path("admin/questions/new/", views.admin_registration_question_create, name="admin_registration_question_create"),
+    path(
+        "admin/questions/<int:pk>/edit/",
+        views.admin_registration_question_edit,
+        name="admin_registration_question_edit",
+    ),
+    path(
+        "admin/questions/<int:pk>/delete/",
+        views.admin_registration_question_delete,
+        name="admin_registration_question_delete",
+    ),
     path("admin/settings/", views.admin_settings, name="admin_settings"),
     # Public registration — must come before the bare slug catch-all below.
     path("<slug:slug>/register/", views.register, name="register"),

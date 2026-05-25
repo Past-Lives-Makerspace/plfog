@@ -9,7 +9,8 @@ You're confirmed for "{{ offering.title }}" with {{ offering.instructor.display_
 Location: Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202
 
 {% if amount_paid_cents %}You paid: ${{ amount_paid_dollars }}
-{% endif %}Manage your registration (or cancel): {{ self_serve_url }}
+{% endif %}Manage your registration (or cancel):
+{{ self_serve_url }}
 {% if footer %}
 {{ footer }}{% endif %}
 See you soon!

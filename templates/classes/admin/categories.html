@@ -1,39 +1,47 @@
 {% extends "classes/admin/base.html" %}
 {% load classes_tags %}
 {% block tab_content %}
-<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+<div class="admin-toolbar">
+    {% include "components/table_search.html" with q=q placeholder="Search categories…" %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_category_create' %}">+ New Category</a>
 </div>
-<table style="width:100%; border-collapse:collapse;">
+<div class="admin-table-wrap">
+<table>
     <thead>
-        <tr style="border-bottom:2px solid var(--hub-border);">
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Name</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Slug</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Sort</th>
-            <th style="padding:0.5rem 0.75rem;"></th>
+        <tr>
+            {% sort_header "Name" "name" sort sort_dir base_params %}
+            {% sort_header "Slug" "slug" sort sort_dir base_params %}
+            {% sort_header "Sort" "sort_order" sort sort_dir base_params %}
+            <th></th>
         </tr>
     </thead>
     <tbody>
-    {% for c in categories %}
+    {% for c in page %}
         {% url 'classes:admin_category_delete' pk=c.pk as cat_delete_url %}
         {% concat "del-cat-" c.pk as cat_modal_id %}
-        <tr style="border-bottom:1px solid var(--hub-border);">
-            <td style="padding:0.5rem 0.75rem;">{{ c.name }}</td>
-            <td style="padding:0.5rem 0.75rem;">{{ c.slug }}</td>
-            <td style="padding:0.5rem 0.75rem;">{{ c.sort_order }}</td>
-            <td style="padding:0.5rem 0.75rem; display:flex; gap:0.375rem; justify-content:flex-end;">
-                <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_category_edit' pk=c.pk %}">Edit</a>
-                <button type="button"
-                        class="hub-btn hub-btn--sm hub-btn--danger"
-                        @click="$dispatch('open-confirm', '{{ cat_modal_id }}')">Delete</button>
-                {% include "components/confirm_modal.html" with confirm_id=cat_modal_id confirm_title="Delete this category?" confirm_message="Any classes still in this category will block the delete." confirm_action_url=cat_delete_url confirm_button_text="Delete Category" %}
+        <tr>
+            <td>{{ c.name }}</td>
+            <td>{{ c.slug }}</td>
+            <td>{{ c.sort_order }}</td>
+            <td>
+                <div class="admin-actions">
+                    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_category_edit' pk=c.pk %}">Edit</a>
+                    <button type="button"
+                            class="hub-btn hub-btn--sm hub-btn--danger"
+                            @click="$dispatch('open-confirm', '{{ cat_modal_id }}')">Delete</button>
+                    {% include "components/confirm_modal.html" with confirm_id=cat_modal_id confirm_title="Delete this category?" confirm_message="Any classes still in this category will block the delete." confirm_action_url=cat_delete_url confirm_button_text="Delete Category" %}
+                </div>
             </td>
         </tr>
     {% empty %}
         <tr>
-            <td colspan="4" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">No categories yet.</td>
+            <td colspan="4" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
+                {% if q %}No categories matching "{{ q }}".{% else %}No categories yet.{% endif %}
+            </td>
         </tr>
     {% endfor %}
     </tbody>
 </table>
+</div>
+{% include "components/table_pagination.html" with page=page base_params=base_params %}
 {% endblock %}

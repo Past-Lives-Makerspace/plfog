@@ -1,0 +1,15 @@
+{% extends "classes/admin/base.html" %}
+{% block tab_content %}
+<h2>{% if mode == 'create' %}New Registration Question{% else %}Edit: {{ question.prompt|truncatechars:50 }}{% endif %}</h2>
+<form method="post">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+        <div style="padding:0.75rem; border:1px solid var(--hub-danger, #b45454); color:var(--hub-danger, #b45454); border-radius:4px; margin-bottom:1rem;">
+            {{ form.non_field_errors }}
+        </div>
+    {% endif %}
+    {% for field in form %}{% include "components/form_field.html" with field=field %}{% endfor %}
+    <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+    <a href="{% url 'classes:admin_registration_questions' %}" class="hub-btn">Cancel</a>
+</form>
+{% endblock %}

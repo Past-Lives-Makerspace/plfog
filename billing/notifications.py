@@ -32,12 +32,14 @@ def send_receipt(charge: TabCharge) -> None:
     }
 
     text_body = render_to_string("billing/email/receipt.txt", context)
+    html_body = render_to_string("billing/email/receipt.html", context)
 
     send_mail(
         subject=f"Past Lives Makerspace — Receipt for ${charge.amount}",
         message=text_body,
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[member.primary_email],
+        html_message=html_body,
     )
 
     charge.receipt_sent_at = timezone.now()

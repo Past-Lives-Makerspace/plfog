@@ -4,7 +4,8 @@ This is a reminder that your class "{{ offering.title }}" starts on {{ session.s
 
 Location: Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202
 
-Manage your registration (or cancel): {{ self_serve_url }}
+Manage your registration (or cancel):
+{{ self_serve_url }}
 
 See you soon!
 — Past Lives Makerspace

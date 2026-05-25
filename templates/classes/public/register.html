@@ -34,7 +34,7 @@
           </div>
         {% endif %}
 
-        <form method="post" class="reg-form" style="margin-top:14px">
+        <form method="post" class="reg-form" style="margin-top:14px" hx-boost="false">
           {% csrf_token %}
           <div class="reg-row">
             <div class="reg-field">

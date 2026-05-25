@@ -83,6 +83,35 @@ def describe_admin_discount_codes():
         assert response.status_code == 302
         assert DiscountCode.objects.filter(pk=code.pk).exists()
 
+    def describe_approve_toggle():
+        def it_approves_an_unapproved_code(admin_user, client, db):
+            from classes.factories import DiscountCodeFactory
+
+            client.force_login(admin_user)
+            code = DiscountCodeFactory(is_approved=False)
+            response = client.post(reverse("classes:admin_discount_code_approve", kwargs={"pk": code.pk}))
+            assert response.status_code == 302
+            code.refresh_from_db()
+            assert code.is_approved is True
+
+        def it_unapproves_an_approved_code(admin_user, client, db):
+            from classes.factories import DiscountCodeFactory
+
+            client.force_login(admin_user)
+            code = DiscountCodeFactory(is_approved=True)
+            response = client.post(reverse("classes:admin_discount_code_approve", kwargs={"pk": code.pk}))
+            assert response.status_code == 302
+            code.refresh_from_db()
+            assert code.is_approved is False
+
+        def it_rejects_get_requests(admin_user, client, db):
+            from classes.factories import DiscountCodeFactory
+
+            client.force_login(admin_user)
+            code = DiscountCodeFactory(is_approved=False)
+            response = client.get(reverse("classes:admin_discount_code_approve", kwargs={"pk": code.pk}))
+            assert response.status_code == 405
+
     def it_gates_behind_admin_role(member_user, client, db):
         client.force_login(member_user)
         response = client.get(reverse("classes:admin_discount_codes"))
