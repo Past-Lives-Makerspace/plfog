@@ -1,4 +1,5 @@
 {% extends "classes/admin/base.html" %}
+{% load classes_tags %}
 {% block tab_content %}
 <h2>Registration #{{ registration.pk }}</h2>
 <dl>
@@ -6,7 +7,7 @@
     <dt>Registrant</dt><dd>{{ registration.first_name }} {{ registration.last_name }} — {{ registration.email }}</dd>
     <dt>Member</dt><dd>{% if registration.member %}{{ registration.member.full_legal_name }}{% else %}—{% endif %}</dd>
     <dt>Status</dt><dd>{{ registration.get_status_display }}</dd>
-    <dt>Paid</dt><dd>${{ registration.amount_paid_cents|floatformat:2 }}</dd>
+    <dt>Paid</dt><dd>{{ registration.amount_paid_cents|cents_as_dollars }}</dd>
     <dt>Registered at</dt><dd>{{ registration.registered_at }}</dd>
 </dl>
 

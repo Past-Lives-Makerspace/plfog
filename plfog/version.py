@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.1.1",
+        "date": "2026-05-25",
+        "title": "Bug fixes",
+        "changes": [
+            "Fixed the admin registrations page showing payment amounts in cents instead of dollars (e.g. $7200 instead of $72). The actual Stripe charges were correct — this was a display-only bug.",
+            "Member pricing on the classes page now says 'for PL members' instead of just 'member'.",
+        ],
+    },
     {
         "version": "2.1.0",
         "date": "2026-05-25",

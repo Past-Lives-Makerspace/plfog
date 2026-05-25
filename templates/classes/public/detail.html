@@ -26,7 +26,7 @@
       <div class="detail-body">
         <div class="dc-pbar">
           <div class="dc-pbig">{{ offering.price_cents|cents_as_price }}</div>
-          {% if member_price_cents %}<div class="dc-pmem">{{ member_price_cents|cents_as_price }} for members</div>{% endif %}
+          {% if member_price_cents %}<div class="dc-pmem">{{ member_price_cents|cents_as_price }} for PL members</div>{% endif %}
           <div class="dc-pspot {{ spots_remaining|spots_class }}">
             {% if spots_remaining == 0 %}
               Sold out

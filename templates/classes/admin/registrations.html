@@ -24,7 +24,7 @@
             <td>{{ r.first_name }} {{ r.last_name }} <small style="color:var(--hub-text-muted);">({{ r.email }})</small></td>
             <td>{% if r.member %}Yes{% else %}—{% endif %}</td>
             <td>{{ r.get_status_display }}</td>
-            <td>${{ r.amount_paid_cents|floatformat:2 }}</td>
+            <td>{{ r.amount_paid_cents|cents_as_dollars }}</td>
         </tr>
     {% empty %}
         <tr>
