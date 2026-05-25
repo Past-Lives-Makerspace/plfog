@@ -8,11 +8,15 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "2.1.0",
         "date": "2026-05-25",
-        "title": "Polished emails for class confirmations, reminders, and billing receipts",
+        "title": "CMS polish: styled emails, admin consolidation, instructor registrations",
         "changes": [
             "Class confirmation and reminder emails now match the polished look of our login emails — dark card with gold accents, clear schedule and location details, and a big 'Manage Registration' button so you can view or cancel right from the email.",
             "Billing receipt emails got the same treatment — itemized charges in a clean card layout with a link to your Stripe receipt.",
             "All email links are now full clickable URLs instead of bare paths, so they work in every email client.",
+            "The classes admin area is now one consolidated workspace — Settings and Registration Questions are tabs alongside Classes, Registrations, Instructors, Categories, and Discount Codes. No more hunting across separate pages.",
+            "Instructors now see their registrations grouped by class. Each class section expands to show its registrants and has its own email compose tool, so you can quickly see who's signed up and message them without switching tabs.",
+            "Registration Questions (the custom questions asked on every class sign-up) can now be managed from the classes admin tab instead of the Django admin.",
+            "Fixed paid class registration not redirecting to Stripe checkout when submitting the registration form.",
         ],
     },
     {
