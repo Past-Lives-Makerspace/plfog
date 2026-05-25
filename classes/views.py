@@ -903,9 +903,13 @@ def admin_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering, pk=pk)
+    if offering.gallery_images.count() >= 10:
+        return JsonResponse({"error": "Maximum 10 gallery images."}, status=400)
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
+    if file.size > 3 * 1024 * 1024:
+        return JsonResponse({"error": "Image must be under 3 MB."}, status=400)
     next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
     img = ClassImage(class_offering=offering, image=file, sort_order=next_order)
     img.full_clean()

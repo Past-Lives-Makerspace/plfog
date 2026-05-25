@@ -164,13 +164,14 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
             "flexible_note",
             "is_private",
             "private_for_name",
-            "recurring_pattern",
             "image",
-            "requires_model_release",
         ]
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.fields["price_cents"].label = "Price (in cents)"
+        self.fields["price_cents"].help_text = "Enter in cents, e.g. 8000 = $80."
+        self.fields["member_discount_pct"].label = "Member discount (%)"
         self.add_is_free_field()
         self.add_hero_crop_field()
 
@@ -209,14 +210,15 @@ class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelFo
             "capacity",
             "scheduling_model",
             "flexible_note",
-            "recurring_pattern",
             "image",
-            "requires_model_release",
         ]
 
     def __init__(self, *args, instructor: Instructor | None = None, **kwargs) -> None:
         self.instructor = instructor
         super().__init__(*args, **kwargs)
+        self.fields["price_cents"].label = "Price (in cents)"
+        self.fields["price_cents"].help_text = "Enter in cents, e.g. 8000 = $80."
+        self.fields["member_discount_pct"].label = "Member discount (%)"
         self.add_is_free_field()
         self.add_hero_crop_field()
 
