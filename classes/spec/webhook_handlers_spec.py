@@ -55,7 +55,7 @@ def describe_handle_checkout_session_completed():
         assert pending_registration.confirmed_at is not None
         assert pending_registration.stripe_payment_id == "pi_test_xyz"
         assert pending_registration.amount_paid_cents == 9000
-        assert len(mail.outbox) >= 1
+        assert len(mail.outbox) == 2  # confirmation + instructor notification
         assert "confirmed" in mail.outbox[0].subject.lower()
         assert mail.outbox[0].to == ["buyer@example.com"]
 
@@ -156,4 +156,4 @@ def describe_handle_checkout_session_completed():
         pending_registration.refresh_from_db()
         assert pending_registration.status == Registration.Status.CONFIRMED
         assert pending_registration.subscribed_to_mailchimp is False
-        assert len(mail.outbox) >= 1  # confirmation email still sent
+        assert len(mail.outbox) == 2  # confirmation + instructor notification still sent

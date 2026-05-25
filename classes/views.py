@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -497,8 +498,6 @@ def _render_instructor_class_form(
     mode: str,
     offering: ClassOffering | None = None,
 ) -> HttpResponse:
-    import json
-
     sessions_data: list[dict] = []
     if formset.is_bound:
         for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
@@ -510,11 +509,13 @@ def _render_instructor_class_form(
                 sessions_data.append({"id": pk, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
     elif offering and offering.pk:
         for s in offering.sessions.order_by("starts_at"):
-            sessions_data.append({
-                "id": s.pk,
-                "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
-                "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
-            })
+            sessions_data.append(
+                {
+                    "id": s.pk,
+                    "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
+                    "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
+                }
+            )
 
     return render(
         request,
@@ -823,8 +824,6 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    import json
-
     offering = get_object_or_404(ClassOffering.objects.prefetch_related("gallery_images", "sessions"), pk=pk)
     form = ClassOfferingForm(request.POST or None, request.FILES or None, instance=offering)
     session_formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
@@ -845,11 +844,13 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 sessions_data.append({"id": pk_val, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
     else:
         for s in offering.sessions.order_by("starts_at"):
-            sessions_data.append({
-                "id": s.pk,
-                "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
-                "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
-            })
+            sessions_data.append(
+                {
+                    "id": s.pk,
+                    "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
+                    "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
+                }
+            )
 
     return render(
         request,
@@ -965,8 +966,6 @@ def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
 @classes_admin_access_required
 @require_POST
 def admin_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
-    import json
-
     offering = get_object_or_404(ClassOffering, pk=pk)
     try:
         order = json.loads(request.body)["order"]
@@ -993,8 +992,6 @@ def admin_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def admin_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
     img = get_object_or_404(ClassImage, pk=pk)
-    import json
-
     try:
         alt_text = json.loads(request.body)["alt_text"]
     except (json.JSONDecodeError, KeyError):

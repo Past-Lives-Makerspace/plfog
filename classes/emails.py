@@ -65,7 +65,7 @@ def send_instructor_registration_notification(registration: "Registration") -> N
     subject = f"New registration: {registration.first_name} {registration.last_name} for {offering.title}"
     body = (
         f"{registration.first_name} {registration.last_name} ({registration.email}) "
-        f"just registered for your class \"{offering.title}\".\n\n"
+        f'just registered for your class "{offering.title}".\n\n'
         f"Status: {registration.get_status_display()}\n"
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n\n"
         f"You now have {offering.registrations.count()}/{offering.capacity} spots filled."
@@ -88,7 +88,7 @@ def send_admin_registration_notification(registration: "Registration") -> None:
     subject = f"[Classes] New registration: {registration.first_name} {registration.last_name} — {offering.title}"
     body = (
         f"{registration.first_name} {registration.last_name} ({registration.email}) "
-        f"registered for \"{offering.title}\" (instructor: {offering.instructor.display_name}).\n\n"
+        f'registered for "{offering.title}" (instructor: {offering.instructor.display_name}).\n\n'
         f"Status: {registration.get_status_display()}\n"
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
         f"Capacity: {offering.registrations.count()}/{offering.capacity}"
