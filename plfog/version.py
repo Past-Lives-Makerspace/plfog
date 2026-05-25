@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-VERSION = "2.1.1"
+VERSION = "2.1.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "2.1.1",
+        "version": "2.1.2",
         "date": "2026-05-25",
-        "title": "Bug fixes",
+        "title": "Image gallery overhaul + admin polish",
         "changes": [
+            "Gallery images now upload instantly — no more hitting Save. Just drag a photo or click '+ Add image' and it appears immediately.",
+            "Drag and drop to reorder gallery images. Alt text saves inline too.",
+            "The registration detail page got a full redesign — all info at a glance in clean card sections instead of a bare list.",
             "Fixed the admin registrations page showing payment amounts in cents instead of dollars (e.g. $7200 instead of $72). The actual Stripe charges were correct — this was a display-only bug.",
             "Member pricing on the classes page now says 'for PL members' instead of just 'member'.",
         ],

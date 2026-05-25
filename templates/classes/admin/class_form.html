@@ -23,8 +23,8 @@
     {% endif %}
 
     <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Gallery images</h3>
-    <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Optional. Extra photos shown below the hero on the public class page.</p>
-    {% include "classes/_components/image_formset.html" with image_formset=image_formset %}
+    <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Optional. Extra photos shown below the hero on the public class page. Images save instantly — no need to hit Save.</p>
+    {% include "classes/_components/image_formset.html" with offering=offering %}
 
     <div style="display:flex; gap:0.75rem; margin-top:1.5rem; flex-wrap:wrap;">
         <button type="submit" class="hub-btn hub-btn--primary">Save</button>

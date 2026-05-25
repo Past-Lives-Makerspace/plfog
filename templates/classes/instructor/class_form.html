@@ -19,8 +19,8 @@
     {% endfor %}
 
     <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Gallery images</h3>
-    <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Optional. Add extra photos shown below the hero — finished pieces, the studio space, tool close-ups, etc. Drag or upload up to 12.</p>
-    {% include "classes/_components/image_formset.html" with image_formset=image_formset %}
+    <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Optional. Add extra photos shown below the hero — finished pieces, the studio space, tool close-ups, etc. Images save instantly.</p>
+    {% include "classes/_components/image_formset.html" with offering=offering %}
 
     <h3 style="margin-top:1.5rem;">Sessions</h3>
     <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Add one row per scheduled session. Leave empty for flexible-scheduling classes.</p>
