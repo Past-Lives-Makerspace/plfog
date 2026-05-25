@@ -1,29 +1,92 @@
 {% comment %}
-Hero/banner image input for class forms — wraps Django's ClearableFileInput
-with the standard pl-help tooltip showing size recommendations, plus a
-thumbnail of the current image when one is set, plus a 16:9 cropper (the
-JS glue at static/js/hero_cropper.js attaches Cropper.js to the preview img
-and writes the crop box into the hidden [data-hero-crop-input] field).
+Hero/banner image input — AJAX upload with instant preview and optional cropper.
 
 Params:
   field          — bound ImageField form field
   current_image  — model FileField attr (e.g. offering.image), may be falsy
-  crop_field     — bound hidden hero_crop CharField (optional; when present,
-                   enables the cropper)
+  crop_field     — bound hidden hero_crop CharField (optional; enables cropper)
+  offering       — the ClassOffering instance (needed for AJAX upload URL)
 {% endcomment %}
 <div class="pl-form-group" data-hero-image-field>
-    <label class="pl-form-label" for="{{ field.id_for_label }}" style="display:inline-flex;align-items:center;gap:0.4rem;">
+    <label class="pl-form-label" style="display:inline-flex;align-items:center;gap:0.4rem;">
         Hero / banner image
         <span class="pl-help" tabindex="0" aria-label="Image size guidance">
             <span class="pl-help__icon" aria-hidden="true">?</span>
             <span class="pl-help__bubble" role="tooltip">
                 <strong>Recommended:</strong> 1600&nbsp;&times;&nbsp;900&nbsp;px (16:9).<br>
-                After upload, drag the crop box to pick the focal point — the rest of the image stays in storage but the page crops to your selection.<br>
+                After upload, drag the crop box to pick the focal point.<br>
                 <strong>Format:</strong> JPG, PNG, or HEIC (iPhone). <strong>Max size:</strong> 5&nbsp;MB. Larger images are auto-resized.<br>
-                Tip: use a clean, well-lit shot of the finished work or the class in action — close-ups read better than wide rooms.
+                Tip: use a clean, well-lit shot of the finished work or the class in action.
             </span>
         </span>
     </label>
+
+    {% if offering and offering.pk %}
+    <div id="hero-upload-area"
+         data-upload-url="{% url 'classes:admin_class_hero_upload' pk=offering.pk %}"
+         data-csrf="{{ csrf_token }}">
+        <div id="hero-preview" style="margin-bottom:0.5rem;">
+            {% if current_image %}
+            <img src="{{ current_image.url }}"
+                 alt="Current hero image"
+                 data-hero-cropper-preview
+                 style="max-width:100%;max-height:320px;border-radius:6px;border:1px solid var(--hub-border,#1a4568);display:block;">
+            {% endif %}
+        </div>
+        <label class="cls-image-upload-zone" id="hero-upload-zone" style="margin-bottom:0.5rem;">
+            <input type="file" accept="image/*" id="hero-file-input" style="display:none;">
+            <span class="cls-image-upload-label">{% if current_image %}Replace image{% else %}+ Upload hero image{% endif %}</span>
+            <span class="cls-image-upload-hint">Click or drag a file here — saves instantly</span>
+        </label>
+    </div>
+    {% if crop_field %}{{ crop_field }}{% endif %}
+    <script>
+    (function() {
+        const area = document.getElementById('hero-upload-area');
+        if (!area) return;
+        const zone = document.getElementById('hero-upload-zone');
+        const fileInput = document.getElementById('hero-file-input');
+        const preview = document.getElementById('hero-preview');
+        const uploadUrl = area.dataset.uploadUrl;
+        const csrf = area.dataset.csrf;
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) uploadHero(fileInput.files[0]);
+            fileInput.value = '';
+        });
+        zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-hover'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('drag-hover'));
+        zone.addEventListener('drop', e => {
+            e.preventDefault();
+            zone.classList.remove('drag-hover');
+            const f = e.dataTransfer.files[0];
+            if (f && f.type.startsWith('image/')) uploadHero(f);
+        });
+
+        function uploadHero(file) {
+            zone.classList.add('uploading');
+            zone.querySelector('.cls-image-upload-label').textContent = 'Uploading...';
+            const fd = new FormData();
+            fd.append('image', file);
+            fetch(uploadUrl, { method: 'POST', headers: {'X-CSRFToken': csrf}, body: fd })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) { alert(data.error); return; }
+                    preview.innerHTML = '<img src="' + data.url + '" alt="Hero image" data-hero-cropper-preview style="max-width:100%;max-height:320px;border-radius:6px;border:1px solid var(--hub-border,#1a4568);display:block;">';
+                    zone.querySelector('.cls-image-upload-label').textContent = 'Replace image';
+                    // Clear old crop data since image changed
+                    const cropInput = document.querySelector('[data-hero-crop-input]');
+                    if (cropInput) cropInput.value = '';
+                    // Re-init cropper if available
+                    if (window.initHeroCropper) window.initHeroCropper();
+                })
+                .catch(() => alert('Upload failed.'))
+                .finally(() => { zone.classList.remove('uploading'); });
+        }
+    })();
+    </script>
+    {% else %}
+    {# Not yet saved — fall back to normal file input #}
     {% if current_image %}
     <img src="{{ current_image.url }}"
          alt="Current hero image"
@@ -32,12 +95,11 @@ Params:
     {% endif %}
     {{ field }}
     {% if crop_field %}{{ crop_field }}{% endif %}
+    {% endif %}
+
     {% if field.errors %}
     <ul class="pl-field-errors">
         {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
     </ul>
-    {% endif %}
-    {% if field.help_text %}
-    <p class="pl-field-hint">{{ field.help_text }}</p>
     {% endif %}
 </div>

@@ -885,6 +885,22 @@ def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 @require_POST
+def admin_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    file = request.FILES.get("image")
+    if not file:
+        return JsonResponse({"error": "No file provided."}, status=400)
+    offering.image = file
+    offering.hero_crop_x = None
+    offering.hero_crop_y = None
+    offering.hero_crop_w = None
+    offering.hero_crop_h = None
+    offering.save()
+    return JsonResponse({"url": offering.image.url})
+
+
+@classes_admin_access_required
+@require_POST
 def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering, pk=pk)
     file = request.FILES.get("image")

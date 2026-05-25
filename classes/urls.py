@@ -48,6 +48,7 @@ urlpatterns = [
     path("admin/<int:pk>/archive/", views.admin_class_archive, name="admin_class_archive"),
     path("admin/<int:pk>/duplicate/", views.admin_class_duplicate, name="admin_class_duplicate"),
     path("admin/<int:pk>/delete/", views.admin_class_delete, name="admin_class_delete"),
+    path("admin/<int:pk>/hero/upload/", views.admin_class_hero_upload, name="admin_class_hero_upload"),
     path("admin/<int:pk>/images/upload/", views.admin_class_image_upload, name="admin_class_image_upload"),
     path("admin/<int:pk>/images/reorder/", views.admin_class_image_reorder, name="admin_class_image_reorder"),
     path("admin/images/<int:pk>/delete/", views.admin_class_image_delete, name="admin_class_image_delete"),
