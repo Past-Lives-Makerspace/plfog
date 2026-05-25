@@ -12,7 +12,9 @@
     {% for field in form %}
         {% if field.name == 'image' %}
             {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image crop_field=form.hero_crop offering=offering %}
-        {% elif field.name == 'hero_crop' %}{# rendered inside hero_image_field.html #}
+        {% elif field.name == 'hero_crop' %}
+        {% elif field.name == 'description' or field.name == 'prerequisites' or field.name == 'materials_included' or field.name == 'materials_to_bring' or field.name == 'safety_requirements' or field.name == 'age_guardian_note' or field.name == 'flexible_note' %}
+            {% include "classes/_components/collapsible_field.html" with field=field %}
         {% else %}
             {% include "components/form_field.html" with field=field %}
         {% endif %}
