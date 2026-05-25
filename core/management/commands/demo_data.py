@@ -45,8 +45,10 @@ from classes.models import (
     Category,
     ClassOffering,
     ClassSession,
+    DiscountCode,
     Instructor,
     Registration,
+    RegistrationQuestion,
     Waiver,
 )
 from core.models import UserProfile
@@ -100,6 +102,8 @@ class Command(BaseCommand):
         self._ensure_student_registrations(student, past_class, future_paid_class)
         self._ensure_instructor_class_rosters(past_class, current_free_class, future_paid_class)
         self._ensure_guest_registration(current_free_class)
+        self._ensure_discount_codes()
+        self._ensure_registration_questions()
 
         self.stdout.write(self.style.SUCCESS("\nDemo data ready. Log in details:"))
         self.stdout.write(f"  Student (non-member): {PERSONA_STUDENT_EMAIL}  /  password: {password}")
@@ -373,6 +377,67 @@ class Command(BaseCommand):
         )
         return registration
 
+    def _ensure_discount_codes(self) -> None:
+        DiscountCode.objects.update_or_create(
+            code="DEMO10",
+            defaults={
+                "description": "[DEMO] 10% off — admin-approved.",
+                "discount_pct": 10,
+                "is_active": True,
+                "is_approved": True,
+            },
+        )
+        DiscountCode.objects.update_or_create(
+            code="DEMO5OFF",
+            defaults={
+                "description": "[DEMO] $5 flat discount — admin-approved.",
+                "discount_fixed_cents": 500,
+                "is_active": True,
+                "is_approved": True,
+            },
+        )
+        DiscountCode.objects.update_or_create(
+            code="DEMOINSTRUCTOR20",
+            defaults={
+                "description": "[DEMO] Instructor-created, pending admin approval.",
+                "discount_pct": 20,
+                "is_active": True,
+                "is_approved": False,
+            },
+        )
+        self.stdout.write("  Discount codes: DEMO10 (approved), DEMO5OFF (approved), DEMOINSTRUCTOR20 (pending)")
+
+    def _ensure_registration_questions(self) -> None:
+        RegistrationQuestion.objects.update_or_create(
+            prompt="How did you hear about this class?",
+            defaults={
+                "question_type": RegistrationQuestion.QuestionType.SHORT_TEXT,
+                "is_required": False,
+                "is_active": True,
+                "sort_order": 1,
+            },
+        )
+        RegistrationQuestion.objects.update_or_create(
+            prompt="Do you have any allergies or medical conditions we should know about?",
+            defaults={
+                "question_type": RegistrationQuestion.QuestionType.YES_NO,
+                "is_required": True,
+                "is_active": True,
+                "sort_order": 2,
+            },
+        )
+        RegistrationQuestion.objects.update_or_create(
+            prompt="What's your experience level?",
+            defaults={
+                "question_type": RegistrationQuestion.QuestionType.SINGLE_CHOICE,
+                "choices_json": ["Complete beginner", "Some experience", "Intermediate", "Advanced"],
+                "is_required": True,
+                "is_active": True,
+                "sort_order": 3,
+            },
+        )
+        self.stdout.write("  Registration questions: 3 seeded (short text, yes/no, single choice)")
+
     # --- Remove -------------------------------------------------------------
 
     @transaction.atomic
@@ -415,10 +480,21 @@ class Command(BaseCommand):
         user_count = User.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count()
         User.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").delete()
 
+        code_count = DiscountCode.objects.filter(code__startswith="DEMO").count()
+        DiscountCode.objects.filter(code__startswith="DEMO").delete()
+
+        question_count = RegistrationQuestion.objects.filter(prompt__startswith="How did you hear").count()
+        question_count += RegistrationQuestion.objects.filter(prompt__startswith="Do you have any allergies").count()
+        question_count += RegistrationQuestion.objects.filter(prompt__startswith="What's your experience").count()
+        RegistrationQuestion.objects.filter(prompt__startswith="How did you hear").delete()
+        RegistrationQuestion.objects.filter(prompt__startswith="Do you have any allergies").delete()
+        RegistrationQuestion.objects.filter(prompt__startswith="What's your experience").delete()
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"Removed: {user_count} user(s), {member_count} member(s), {instructor_count} instructor(s), "
-                f"{class_count} class(es), {category_count} categor(ies), {reg_count} registration(s)."
+                f"{class_count} class(es), {category_count} categor(ies), {reg_count} registration(s), "
+                f"{code_count} discount code(s), {question_count} registration question(s)."
             )
         )
 

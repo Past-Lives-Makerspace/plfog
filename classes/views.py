@@ -661,8 +661,10 @@ def instructor_discount_code_create(request: HttpRequest) -> HttpResponse:
     instructor: Instructor = request.instructor  # type: ignore[attr-defined]
     form = DiscountCodeForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "Discount code created.")
+        code = form.save(commit=False)
+        code.is_approved = False
+        code.save()
+        messages.success(request, "Discount code created — an admin will review and approve it.")
         return redirect("classes:instructor_discount_codes")
     return render(
         request,
@@ -1028,6 +1030,17 @@ def admin_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST":
         code.delete()
         messages.success(request, "Discount code deleted.")
+    return redirect("classes:admin_discount_codes")
+
+
+@classes_admin_access_required
+@require_POST
+def admin_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    code = get_object_or_404(DiscountCode, pk=pk)
+    code.is_approved = not code.is_approved
+    code.save(update_fields=["is_approved"])
+    label = "approved" if code.is_approved else "unapproved"
+    messages.success(request, f"Discount code {code.code} {label}.")
     return redirect("classes:admin_discount_codes")
 
 

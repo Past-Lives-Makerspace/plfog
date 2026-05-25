@@ -392,6 +392,9 @@ class DiscountCode(models.Model):
     max_uses = models.PositiveIntegerField(null=True, blank=True, help_text="Cap total uses. Null = unlimited.")
     use_count = models.PositiveIntegerField(default=0, help_text="Incremented on each successful registration.")
     is_active = models.BooleanField(default=True, help_text="Admin toggle to disable without deleting.")
+    is_approved = models.BooleanField(
+        default=True, help_text="Admin-approved codes are usable. Instructor-created codes start unapproved."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -419,6 +422,8 @@ class DiscountCode(models.Model):
 
     def is_currently_valid(self) -> bool:
         if not self.is_active:
+            return False
+        if not self.is_approved:
             return False
         today = date_type.today()
         if self.valid_from and today < self.valid_from:
