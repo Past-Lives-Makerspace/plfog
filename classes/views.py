@@ -831,7 +831,12 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    offering = get_object_or_404(
+        ClassOffering.objects.select_related("instructor", "category")
+        .prefetch_related("sessions", "registrations")
+        .annotate(registration_count=Count("registrations")),
+        pk=pk,
+    )
     return render(
         request,
         "classes/admin/class_detail.html",

@@ -1,19 +1,22 @@
 {% if page.has_other_pages %}
-<nav style="display:flex; justify-content:center; align-items:center; gap:0.25rem; margin-top:1rem; flex-wrap:wrap;" aria-label="Pagination">
-    {% if page.has_previous %}
-        <a href="?page={{ page.previous_page_number }}{% if base_params %}&{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Prev</a>
-    {% endif %}
-    {% for num in page.paginator.page_range %}
-        {% if num == page.number %}
-            <span class="hub-btn hub-btn--sm hub-btn--primary" style="pointer-events:none;">{{ num }}</span>
-        {% elif num > page.number|add:"-3" and num < page.number|add:"3" or num == 1 or num == page.paginator.num_pages %}
-            <a href="?page={{ num }}{% if base_params %}&{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ num }}</a>
-        {% elif num == page.number|add:"-3" or num == page.number|add:"3" %}
-            <span style="color:var(--hub-text-muted);">&hellip;</span>
+<div class="admin-table-footer">
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }} &middot; {{ page.paginator.count }} total</span>
+    <nav aria-label="Pagination">
+        {% if page.has_previous %}
+            <a href="?page={{ page.previous_page_number }}{% if base_params %}&{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Prev</a>
         {% endif %}
-    {% endfor %}
-    {% if page.has_next %}
-        <a href="?page={{ page.next_page_number }}{% if base_params %}&{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">Next &rarr;</a>
-    {% endif %}
-</nav>
+        {% for num in page.paginator.page_range %}
+            {% if num == page.number %}
+                <span class="hub-btn hub-btn--sm hub-btn--primary" style="pointer-events:none;">{{ num }}</span>
+            {% elif num > page.number|add:"-3" and num < page.number|add:"3" or num == 1 or num == page.paginator.num_pages %}
+                <a href="?page={{ num }}{% if base_params %}&{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ num }}</a>
+            {% elif num == page.number|add:"-3" or num == page.number|add:"3" %}
+                <span style="color:var(--hub-text-muted);">&hellip;</span>
+            {% endif %}
+        {% endfor %}
+        {% if page.has_next %}
+            <a href="?page={{ page.next_page_number }}{% if base_params %}&{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">Next &rarr;</a>
+        {% endif %}
+    </nav>
+</div>
 {% endif %}
