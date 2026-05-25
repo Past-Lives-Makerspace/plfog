@@ -17,6 +17,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Instructors now see their registrations grouped by class. Each class section expands to show its registrants and has its own email compose tool, so you can quickly see who's signed up and message them without switching tabs.",
             "Registration Questions (the custom questions asked on every class sign-up) can now be managed from the classes admin tab instead of the Django admin.",
             "Fixed paid class registration not redirecting to Stripe checkout when submitting the registration form.",
+            "Discount codes created by instructors now require admin approval before they can be used. Admins see an approve/unapprove toggle on each code.",
+            "Every admin table (Classes, Registrations, Instructors, Categories, Discount Codes, Questions) now has a search bar, clickable sortable column headers, and pagination.",
         ],
     },
     {
