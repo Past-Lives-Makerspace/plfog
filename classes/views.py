@@ -497,6 +497,25 @@ def _render_instructor_class_form(
     mode: str,
     offering: ClassOffering | None = None,
 ) -> HttpResponse:
+    import json
+
+    sessions_data: list[dict] = []
+    if formset.is_bound:
+        for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
+            starts = request.POST.get(f"sessions-{i}-starts_at", "")
+            ends = request.POST.get(f"sessions-{i}-ends_at", "")
+            pk = request.POST.get(f"sessions-{i}-id", "")
+            delete = request.POST.get(f"sessions-{i}-DELETE", "")
+            if starts and ends:
+                sessions_data.append({"id": pk, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
+    elif offering and offering.pk:
+        for s in offering.sessions.order_by("starts_at"):
+            sessions_data.append({
+                "id": s.pk,
+                "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
+                "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
+            })
+
     return render(
         request,
         "classes/instructor/class_form.html",
@@ -505,6 +524,8 @@ def _render_instructor_class_form(
             "instructor": instructor,
             "form": form,
             "formset": formset,
+            "sessions_json": json.dumps(sessions_data),
+            "initial_forms": formset.initial_form_count() if hasattr(formset, "initial_form_count") else 0,
             "mode": mode,
             "offering": offering,
         },

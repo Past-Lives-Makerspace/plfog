@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "2.1.2"
+VERSION = "2.2.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "2.1.2",
+        "version": "2.2.0",
         "date": "2026-05-25",
-        "title": "Image gallery overhaul + admin polish",
+        "title": "Visual session calendar, AJAX images, admin polish",
         "changes": [
-            "Gallery images now upload instantly — no more hitting Save. Just drag a photo or click '+ Add image' and it appears immediately.",
-            "Drag and drop to reorder gallery images. Alt text saves inline too.",
-            "The registration detail page got a full redesign — all info at a glance in clean card sections instead of a bare list.",
-            "Fixed the admin registrations page showing payment amounts in cents instead of dollars (e.g. $7200 instead of $72). The actual Stripe charges were correct — this was a display-only bug.",
-            "Member pricing on the classes page now says 'for PL members' instead of just 'member'.",
+            "Instructors now schedule class sessions on a visual month-view calendar — click a day, pick a time and duration, done. No more fiddling with raw datetime fields. Sessions show as gold dots on the calendar and are listed below with times.",
+            "Gallery images upload instantly without hitting Save. Drag and drop to reorder, inline alt text, one-click delete. Max 10 images, 3 MB each, auto-compressed.",
+            "Hero image also uploads instantly via drag-and-drop — no more needing to save the whole form.",
+            "Instructors get an email notification when someone registers for their class. Admins can subscribe to registration notifications via CLASS_ADMIN_NOTIFY_EMAILS.",
+            "The registration detail page got a full redesign — all info at a glance in clean card sections.",
+            "Fixed the admin registrations page showing payment amounts in cents instead of dollars ($7200 → $72.00). Stripe charges were always correct — display-only bug.",
+            "Member pricing now says 'for PL members' on public class pages.",
+            "Removed the 'Recurring pattern' and 'Requires model release' fields from class forms — they were confusing and unused.",
+            "Fixed hero image stretching on the edit page preview.",
+            "Fixed gallery hover-zoom distorting images that aren't 16:9.",
+            "Registrant names are now clickable links in the admin registrations table.",
         ],
     },
     {
