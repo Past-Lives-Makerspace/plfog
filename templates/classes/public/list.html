@@ -19,8 +19,8 @@
     {% elif request.view_as.is_instructor %}
       <a class="cta-secondary" href="{% url 'classes:instructor_dashboard' %}">Manage My Classes</a>
     {% endif %}
-    {% if user.is_authenticated and not request.GET.public and not is_public_surface %}
-      <a class="cta-secondary" href="?public=1" hx-boost="false" title="Preview the page the way a logged-out visitor sees it">View Publicly</a>
+    {% if user.is_authenticated and not is_public_surface %}
+      <a class="cta-secondary" href="{{ BOOK_BASE_URL }}" target="_blank" rel="noopener" title="See the public booking site at book.pastlives.space">View Publicly</a>
     {% endif %}
   </div>
 </div>

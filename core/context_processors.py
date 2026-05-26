@@ -38,6 +38,7 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
         "surface": value,
         "is_public_surface": is_public,
         "MEMBER_HOST": settings.MEMBER_HOST,
+        "BOOK_BASE_URL": getattr(settings, "BOOK_BASE_URL", "https://book.pastlives.space"),
         "parent_template": "classes/base_public.html" if is_public else "base.html",
     }
 

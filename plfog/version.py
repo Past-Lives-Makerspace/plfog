@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.2.1",
+        "date": "2026-05-26",
+        "title": "Fix: new class form now has the same features as the edit form",
+        "changes": [
+            "The 'New Class' form for admins now has the session calendar and gallery image section, matching what you see when editing an existing class. Previously, creating a new class gave you a stripped-down form with no way to schedule sessions or see the gallery uploader until after you saved and landed on the edit page.",
+            "The hero image field on the new class form now shows the same upload guidance and preview as the edit form.",
+            "The 'View Publicly' button on the Classes page now opens book.pastlives.space in a new tab instead of showing a simulated preview on the members site.",
+        ],
+    },
     {
         "version": "2.2.0",
         "date": "2026-05-25",

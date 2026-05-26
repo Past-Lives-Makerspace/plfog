@@ -809,16 +809,36 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
 @classes_admin_access_required
 def admin_class_create(request: HttpRequest) -> HttpResponse:
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
-    if request.method == "POST" and form.is_valid():
+    session_formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
+    if request.method == "POST" and form.is_valid() and session_formset.is_valid():
         offering = form.save(commit=False)
         offering.status = ClassOffering.Status.PUBLISHED
         offering.save()
-        messages.success(request, f"{offering.title} is published.")
+        session_formset.instance = offering
+        session_formset.save()
+        messages.success(request, f"{offering.title} is published. You can now add gallery images.")
         return redirect("classes:admin_class_edit", pk=offering.pk)
+
+    sessions_data: list[dict] = []
+    if session_formset.is_bound:
+        for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
+            starts = request.POST.get(f"sessions-{i}-starts_at", "")
+            ends = request.POST.get(f"sessions-{i}-ends_at", "")
+            pk_val = request.POST.get(f"sessions-{i}-id", "")
+            delete = request.POST.get(f"sessions-{i}-DELETE", "")
+            if starts and ends:
+                sessions_data.append({"id": pk_val, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
+
     return render(
         request,
         "classes/admin/class_form.html",
-        {"active_tab": "classes", "form": form, "mode": "create"},
+        {
+            "active_tab": "classes",
+            "form": form,
+            "sessions_json": json.dumps(sessions_data),
+            "initial_forms": session_formset.initial_form_count(),
+            "mode": "create",
+        },
     )
 
 
