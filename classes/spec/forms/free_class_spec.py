@@ -28,7 +28,7 @@ def _admin_post_data(**overrides) -> dict:
         "safety_requirements": "",
         "age_minimum": "",
         "age_guardian_note": "",
-        "price_cents": "10000",
+        "price_cents": "100.00",
         "member_discount_pct": "10",
         "capacity": "6",
         "scheduling_model": ClassOffering.SchedulingModel.FIXED,
@@ -55,7 +55,7 @@ def describe_ClassOfferingForm():
             assert offering.member_discount_pct == 0
 
         def it_keeps_paid_pricing_when_unchecked():
-            form = ClassOfferingForm(data=_admin_post_data(price_cents="2500", member_discount_pct="15"))
+            form = ClassOfferingForm(data=_admin_post_data(price_cents="25.00", member_discount_pct="15"))
             assert form.is_valid(), form.errors
             offering = form.save()
             assert offering.price_cents == 2500
@@ -68,13 +68,13 @@ def describe_ClassOfferingForm():
 
         def describe_minimum_paid_price():
             def it_rejects_paid_price_below_one_dollar():
-                form = ClassOfferingForm(data=_admin_post_data(price_cents="99"))
+                form = ClassOfferingForm(data=_admin_post_data(price_cents="0.99"))
                 assert not form.is_valid()
                 assert "price_cents" in form.errors
                 assert any("$1.00" in e for e in form.errors["price_cents"])
 
             def it_accepts_paid_price_at_exactly_one_dollar():
-                form = ClassOfferingForm(data=_admin_post_data(price_cents="100"))
+                form = ClassOfferingForm(data=_admin_post_data(price_cents="1.00"))
                 assert form.is_valid(), form.errors
 
             def it_still_allows_zero_when_marked_free():
@@ -144,7 +144,7 @@ def describe_InstructorClassOfferingForm():
         def it_rejects_paid_price_below_one_dollar():
             instructor = InstructorFactory()
             form = InstructorClassOfferingForm(
-                data=_instructor_post_data(price_cents="50"),
+                data=_instructor_post_data(price_cents="0.50"),
                 instructor=instructor,
             )
             assert not form.is_valid()
@@ -226,7 +226,7 @@ def describe_HeroCropMixin():
         def it_writes_crop_coords_to_offering():
             crop = json.dumps({"x": 7, "y": 3, "w": 400, "h": 250})
             form = ClassOfferingForm(
-                data=_admin_post_data(price_cents="2500", member_discount_pct="10", hero_crop=crop),
+                data=_admin_post_data(price_cents="25.00", member_discount_pct="10", hero_crop=crop),
             )
             assert form.is_valid(), form.errors
             offering = form.save()

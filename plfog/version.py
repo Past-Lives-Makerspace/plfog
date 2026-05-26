@@ -8,11 +8,14 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "2.2.1",
         "date": "2026-05-26",
-        "title": "Fix: new class form now has the same features as the edit form",
+        "title": "Students on class detail, dollar pricing, admin create form fix",
         "changes": [
-            "The 'New Class' form for admins now has the session calendar and gallery image section, matching what you see when editing an existing class. Previously, creating a new class gave you a stripped-down form with no way to schedule sessions or see the gallery uploader until after you saved and landed on the edit page.",
-            "The hero image field on the new class form now shows the same upload guidance and preview as the edit form.",
-            "The 'View Publicly' button on the Classes page now opens book.pastlives.space in a new tab instead of showing a simulated preview on the members site.",
+            "The class detail page now shows all registered students right on the page. You can see who signed up, their email, payment status, and registration date without leaving the class. Cancelled or refunded registrations appear dimmed for reference.",
+            "Admins can email students directly from the class detail page. Check the students you want to reach, click 'Email selected students', type your message, and send. Recipients are BCC'd so no one sees the others' emails, and every send is logged.",
+            "Price fields on class forms now accept dollars (e.g. 80.00) instead of cents (e.g. 8000). Same for the fixed discount field on discount codes. Existing prices display correctly; nothing changes behind the scenes.",
+            "Fixed the discount code list showing dollar amounts wrong (e.g. '$2000.00' instead of '$20.00').",
+            "The 'New Class' form for admins now has the session calendar and gallery image section, matching the edit form.",
+            "The 'View Publicly' button on the Classes page now opens book.pastlives.space in a new tab.",
         ],
     },
     {

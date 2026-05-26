@@ -890,15 +890,46 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
 def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(
         ClassOffering.objects.select_related("instructor", "category")
-        .prefetch_related("sessions", "registrations")
+        .prefetch_related("sessions")
         .annotate(registration_count=Count("registrations")),
         pk=pk,
     )
+    registrations = (
+        offering.registrations.select_related("member").prefetch_related("custom_answers__question").order_by("-registered_at")
+    )
+    active_count = registrations.exclude(
+        status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED],
+    ).count()
     return render(
         request,
         "classes/admin/class_detail.html",
-        {"active_tab": "classes", "offering": offering},
+        {
+            "active_tab": "classes",
+            "offering": offering,
+            "registrations": registrations,
+            "active_registration_count": active_count,
+        },
     )
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_email(request: HttpRequest, pk: int) -> HttpResponse:
+    from classes.forms import AdminClassEmailForm
+
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    sender_member: Member | None = getattr(request.user, "member", None)
+    form = AdminClassEmailForm(request.POST, offering=offering)
+    if not form.is_valid():
+        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
+        messages.error(request, first_error)
+        return redirect("classes:admin_class_detail", pk=pk)
+    message = form.send(sender_member=sender_member)
+    messages.success(
+        request,
+        f"Sent '{message.subject}' to {message.recipient_count} recipient(s).",
+    )
+    return redirect("classes:admin_class_detail", pk=pk)
 
 
 @classes_admin_access_required

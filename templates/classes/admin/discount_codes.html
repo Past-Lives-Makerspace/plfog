@@ -26,7 +26,7 @@
         <tr{% if not c.is_approved %} style="background:rgba(248,180,75,0.06);"{% endif %}>
             <td>{{ c.code }}</td>
             <td>{{ c.discount_pct|default:"—" }}</td>
-            <td>{% if c.discount_fixed_cents %}${{ c.discount_fixed_cents|floatformat:2 }}{% else %}—{% endif %}</td>
+            <td>{% if c.discount_fixed_cents %}{{ c.discount_fixed_cents|cents_as_dollars }}{% else %}—{% endif %}</td>
             <td>{{ c.valid_from|default:"—" }} → {{ c.valid_until|default:"—" }}</td>
             <td>{{ c.use_count }}/{{ c.max_uses|default:"∞" }}</td>
             <td>{{ c.is_active|yesno }}</td>

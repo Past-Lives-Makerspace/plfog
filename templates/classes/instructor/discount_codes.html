@@ -25,7 +25,7 @@
         <tr style="border-bottom:1px solid var(--hub-border);{% if not c.is_approved %} background:rgba(248,180,75,0.06);{% endif %}">
             <td style="padding:0.5rem 0.75rem;">{{ c.code }}</td>
             <td style="padding:0.5rem 0.75rem;">{{ c.discount_pct|default:"—" }}</td>
-            <td style="padding:0.5rem 0.75rem;">{% if c.discount_fixed_cents %}${{ c.discount_fixed_cents|floatformat:2 }}{% else %}—{% endif %}</td>
+            <td style="padding:0.5rem 0.75rem;">{% if c.discount_fixed_cents %}{{ c.discount_fixed_cents|cents_as_dollars }}{% else %}—{% endif %}</td>
             <td style="padding:0.5rem 0.75rem;">{{ c.valid_from|default:"—" }} → {{ c.valid_until|default:"—" }}</td>
             <td style="padding:0.5rem 0.75rem;">{{ c.use_count }}/{{ c.max_uses|default:"∞" }}</td>
             <td style="padding:0.5rem 0.75rem;">
