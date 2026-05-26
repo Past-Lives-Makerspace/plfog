@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+from io import BytesIO
+
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from classes.factories import ClassOfferingFactory, InstructorFactory
 from classes.models import ClassOffering
+
+
+def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
+    buf = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
 def describe_ClassOffering():
@@ -60,3 +68,17 @@ def describe_ClassOffering():
             ClassOfferingFactory(instructor=instructor)
             ClassOfferingFactory()
             assert ClassOffering.objects.for_instructor(instructor).count() == 1
+
+    def describe_add_gallery_images():
+        def it_creates_class_images_with_sort_order(db):
+            offering = ClassOfferingFactory()
+            files = [_image_file("a.png"), _image_file("b.png"), _image_file("c.png")]
+            offering.add_gallery_images(files)
+            images = list(offering.gallery_images.all())
+            assert len(images) == 3
+            assert [img.sort_order for img in images] == [0, 1, 2]
+
+        def it_handles_empty_list(db):
+            offering = ClassOfferingFactory()
+            offering.add_gallery_images([])
+            assert offering.gallery_images.count() == 0

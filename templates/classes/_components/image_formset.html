@@ -269,9 +269,10 @@ On create (no pk): multi-file input that submits with the form, with local previ
                 card.innerHTML = `
                     <div class="cls-image-thumb"><img src="${e.target.result}" alt=""></div>
                     <div class="cls-image-fields">
-                        <span class="cls-image-alt" style="flex:1;font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${file.name}</span>
+                        <span class="cls-image-alt" style="flex:1;font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
                         <button type="button" class="cls-image-remove" title="Remove image">&times;</button>
                     </div>`;
+                card.querySelector('.cls-image-alt').textContent = file.name;
                 card.querySelector('.cls-image-remove').addEventListener('click', function() {
                     card.remove();
                     rebuildFileList();
