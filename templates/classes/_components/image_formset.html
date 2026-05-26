@@ -1,35 +1,8 @@
 {% comment %}
-AJAX-driven gallery image manager. Uploads immediately without page save.
-Supports drag-and-drop reordering, inline alt-text editing, and delete.
-Works for both admin and instructor class forms.
+Gallery image manager for class forms.
+On edit (has pk): AJAX uploads with instant save, drag-to-reorder, inline alt-text.
+On create (no pk): multi-file input that submits with the form, with local previews.
 {% endcomment %}
-{% if offering and offering.pk %}
-<div id="gallery-manager"
-     data-upload-url="{% url 'classes:admin_class_image_upload' pk=offering.pk %}"
-     data-reorder-url="{% url 'classes:admin_class_image_reorder' pk=offering.pk %}"
-     data-csrf="{{ csrf_token }}">
-
-    <div id="gallery-grid" class="cls-image-grid">
-        {% for img in offering.gallery_images.all %}
-        <div class="cls-image-cell has-image" draggable="true" data-id="{{ img.pk }}">
-            <div class="cls-image-thumb">
-                <img src="{{ img.image.url }}" alt="{{ img.alt_text|default:'' }}">
-            </div>
-            <div class="cls-image-fields">
-                <input type="text" class="cls-image-alt" value="{{ img.alt_text }}" placeholder="Alt text (optional)" data-id="{{ img.pk }}">
-                <button type="button" class="cls-image-remove" data-id="{{ img.pk }}" title="Remove image">&times;</button>
-            </div>
-            <div class="cls-image-drag-handle" title="Drag to reorder">⠿</div>
-        </div>
-        {% endfor %}
-    </div>
-
-    <label class="cls-image-upload-zone" id="gallery-upload-zone">
-        <input type="file" accept="image/*" id="gallery-file-input" style="display:none;">
-        <span class="cls-image-upload-label">+ Add image</span>
-        <span class="cls-image-upload-hint">Click or drag a file here</span>
-    </label>
-</div>
 
 <style>
 .cls-image-grid {
@@ -125,6 +98,34 @@ Works for both admin and instructor class forms.
 }
 </style>
 
+{% if offering and offering.pk %}
+<div id="gallery-manager"
+     data-upload-url="{% url 'classes:admin_class_image_upload' pk=offering.pk %}"
+     data-reorder-url="{% url 'classes:admin_class_image_reorder' pk=offering.pk %}"
+     data-csrf="{{ csrf_token }}">
+
+    <div id="gallery-grid" class="cls-image-grid">
+        {% for img in offering.gallery_images.all %}
+        <div class="cls-image-cell has-image" draggable="true" data-id="{{ img.pk }}">
+            <div class="cls-image-thumb">
+                <img src="{{ img.image.url }}" alt="{{ img.alt_text|default:'' }}">
+            </div>
+            <div class="cls-image-fields">
+                <input type="text" class="cls-image-alt" value="{{ img.alt_text }}" placeholder="Alt text (optional)" data-id="{{ img.pk }}">
+                <button type="button" class="cls-image-remove" data-id="{{ img.pk }}" title="Remove image">&times;</button>
+            </div>
+            <div class="cls-image-drag-handle" title="Drag to reorder">&#x2807;</div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <label class="cls-image-upload-zone" id="gallery-upload-zone">
+        <input type="file" accept="image/*" id="gallery-file-input" style="display:none;">
+        <span class="cls-image-upload-label">+ Add image</span>
+        <span class="cls-image-upload-hint">Click or drag a file here</span>
+    </label>
+</div>
+
 <script>
 (function() {
     const manager = document.getElementById('gallery-manager');
@@ -179,7 +180,7 @@ Works for both admin and instructor class forms.
                 <input type="text" class="cls-image-alt" value="" placeholder="Alt text (optional)" data-id="${data.id}">
                 <button type="button" class="cls-image-remove" data-id="${data.id}" title="Remove image">&times;</button>
             </div>
-            <div class="cls-image-drag-handle" title="Drag to reorder">⠿</div>`;
+            <div class="cls-image-drag-handle" title="Drag to reorder">&#x2807;</div>`;
         grid.appendChild(card);
         bindCard(card);
     }
@@ -236,5 +237,78 @@ Works for both admin and instructor class forms.
 })();
 </script>
 {% else %}
-<p style="color:var(--hub-text-muted); font-size:0.85rem;">Save the class first, then you can add gallery images.</p>
+{# Create mode — multi-file input, previews shown locally, uploaded with form #}
+<div id="gallery-create">
+    <div id="gallery-preview-grid" class="cls-image-grid"></div>
+    <label class="cls-image-upload-zone" id="gallery-upload-zone">
+        <input type="file" name="gallery_images" accept="image/*" multiple id="gallery-file-input" style="display:none;">
+        <span class="cls-image-upload-label">+ Add images</span>
+        <span class="cls-image-upload-hint">Click or drag files here &mdash; uploaded when you save</span>
+    </label>
+</div>
+<script>
+(function() {
+    const zone = document.getElementById('gallery-upload-zone');
+    const fileInput = document.getElementById('gallery-file-input');
+    const grid = document.getElementById('gallery-preview-grid');
+    if (!zone || !fileInput || !grid) return;
+
+    // Accumulate files in a DataTransfer so the input carries all of them on submit
+    const dt = new DataTransfer();
+
+    function addFiles(files) {
+        for (const file of files) {
+            if (!file.type.startsWith('image/')) continue;
+            dt.items.add(file);
+            const idx = dt.files.length - 1;
+            const card = document.createElement('div');
+            card.className = 'cls-image-cell has-image';
+            card.dataset.idx = idx;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                card.innerHTML = `
+                    <div class="cls-image-thumb"><img src="${e.target.result}" alt=""></div>
+                    <div class="cls-image-fields">
+                        <span class="cls-image-alt" style="flex:1;font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+                        <button type="button" class="cls-image-remove" title="Remove image">&times;</button>
+                    </div>`;
+                card.querySelector('.cls-image-alt').textContent = file.name;
+                card.querySelector('.cls-image-remove').addEventListener('click', function() {
+                    card.remove();
+                    rebuildFileList();
+                });
+            };
+            reader.readAsDataURL(file);
+            grid.appendChild(card);
+        }
+        fileInput.files = dt.files;
+    }
+
+    function rebuildFileList() {
+        const newDt = new DataTransfer();
+        grid.querySelectorAll('.cls-image-cell').forEach((card, i) => {
+            const idx = parseInt(card.dataset.idx);
+            if (idx < dt.files.length) {
+                newDt.items.add(dt.files[idx]);
+                card.dataset.idx = i;
+            }
+        });
+        dt.items.clear();
+        for (const f of newDt.files) dt.items.add(f);
+        fileInput.files = dt.files;
+    }
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) addFiles([...fileInput.files]);
+    });
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-hover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-hover'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag-hover');
+        const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+        if (files.length) addFiles(files);
+    });
+})();
+</script>
 {% endif %}

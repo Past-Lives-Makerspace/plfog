@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+from io import BytesIO
+
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+
+
+def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
+    buf = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
 def describe_status_filter():
@@ -158,6 +166,48 @@ def describe_create_class():
 
         created = ClassOffering.objects.get(slug="new-class")
         assert created.status == ClassOffering.Status.PUBLISHED
+
+    def it_saves_gallery_images_on_create(admin_user, client, db):
+        from classes.factories import CategoryFactory, InstructorFactory
+        from classes.models import ClassImage, ClassOffering
+
+        client.force_login(admin_user)
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        response = client.post(
+            reverse("classes:admin_class_create"),
+            {
+                "title": "Gallery Class",
+                "slug": "gallery-class",
+                "category": cat.pk,
+                "instructor": inst.pk,
+                "price_cents": "50.00",
+                "member_discount_pct": 10,
+                "capacity": 6,
+                "scheduling_model": "fixed",
+                "description": "d",
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "flexible_note": "",
+                "private_for_name": "",
+                "recurring_pattern": "",
+                "sessions-TOTAL_FORMS": "0",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "gallery_images": [_image_file("a.png"), _image_file("b.png")],
+            },
+        )
+        assert response.status_code == 302
+        offering = ClassOffering.objects.get(slug="gallery-class")
+        assert ClassImage.objects.filter(class_offering=offering).count() == 2
 
 
 def describe_edit_class():

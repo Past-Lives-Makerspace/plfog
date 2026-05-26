@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import date as date_type
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import models
@@ -13,6 +14,9 @@ from django.utils import timezone
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
 from core.validators import validate_image_size
+
+if TYPE_CHECKING:
+    from django.core.files.uploadedfile import UploadedFile
 
 DEFAULT_LIABILITY_TEXT = """ASSUMPTION OF RISK AND WAIVER OF LIABILITY
 
@@ -247,6 +251,11 @@ class ClassOffering(models.Model):
     def archive(self) -> None:
         self.status = self.Status.ARCHIVED
         self.save(update_fields=["status", "updated_at"])
+
+    def add_gallery_images(self, files: list[UploadedFile]) -> None:
+        """Create ClassImage rows from uploaded files."""
+        for i, img_file in enumerate(files):
+            ClassImage.objects.create(class_offering=self, image=img_file, sort_order=i)
 
     @property
     def spots_remaining(self) -> int:
