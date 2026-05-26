@@ -809,16 +809,36 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
 @classes_admin_access_required
 def admin_class_create(request: HttpRequest) -> HttpResponse:
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
-    if request.method == "POST" and form.is_valid():
+    session_formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
+    if request.method == "POST" and form.is_valid() and session_formset.is_valid():
         offering = form.save(commit=False)
         offering.status = ClassOffering.Status.PUBLISHED
         offering.save()
-        messages.success(request, f"{offering.title} is published.")
+        session_formset.instance = offering
+        session_formset.save()
+        messages.success(request, f"{offering.title} is published. You can now add gallery images.")
         return redirect("classes:admin_class_edit", pk=offering.pk)
+
+    sessions_data: list[dict] = []
+    if session_formset.is_bound:
+        for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
+            starts = request.POST.get(f"sessions-{i}-starts_at", "")
+            ends = request.POST.get(f"sessions-{i}-ends_at", "")
+            pk_val = request.POST.get(f"sessions-{i}-id", "")
+            delete = request.POST.get(f"sessions-{i}-DELETE", "")
+            if starts and ends:
+                sessions_data.append({"id": pk_val, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
+
     return render(
         request,
         "classes/admin/class_form.html",
-        {"active_tab": "classes", "form": form, "mode": "create"},
+        {
+            "active_tab": "classes",
+            "form": form,
+            "sessions_json": json.dumps(sessions_data),
+            "initial_forms": session_formset.initial_form_count(),
+            "mode": "create",
+        },
     )
 
 
@@ -870,15 +890,48 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
 def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(
         ClassOffering.objects.select_related("instructor", "category")
-        .prefetch_related("sessions", "registrations")
+        .prefetch_related("sessions")
         .annotate(registration_count=Count("registrations")),
         pk=pk,
     )
+    registrations = (
+        offering.registrations.select_related("member")
+        .prefetch_related("custom_answers__question")
+        .order_by("-registered_at")
+    )
+    active_count = registrations.exclude(
+        status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED],
+    ).count()
     return render(
         request,
         "classes/admin/class_detail.html",
-        {"active_tab": "classes", "offering": offering},
+        {
+            "active_tab": "classes",
+            "offering": offering,
+            "registrations": registrations,
+            "active_registration_count": active_count,
+        },
     )
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_email(request: HttpRequest, pk: int) -> HttpResponse:
+    from classes.forms import AdminClassEmailForm
+
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    sender_member: Member | None = getattr(request.user, "member", None)
+    form = AdminClassEmailForm(request.POST, offering=offering)
+    if not form.is_valid():
+        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
+        messages.error(request, first_error)
+        return redirect("classes:admin_class_detail", pk=pk)
+    message = form.send(sender_member=sender_member)
+    messages.success(
+        request,
+        f"Sent '{message.subject}' to {message.recipient_count} recipient(s).",
+    )
+    return redirect("classes:admin_class_detail", pk=pk)
 
 
 @classes_admin_access_required

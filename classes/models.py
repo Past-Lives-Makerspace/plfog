@@ -699,9 +699,19 @@ class InstructorMessage(models.Model):
 
     instructor = models.ForeignKey(
         Instructor,
-        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="sent_messages",
-        help_text="The instructor who composed and sent this message.",
+        help_text="The instructor who sent this, or NULL if sent by an admin.",
+    )
+    sent_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="sent_class_messages",
+        help_text="The user who actually sent the message (admin or instructor).",
     )
     class_offering = models.ForeignKey(
         ClassOffering,

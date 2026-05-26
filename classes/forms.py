@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 from django import forms
@@ -32,6 +33,30 @@ if TYPE_CHECKING:
 
 STRIPE_MIN_CHARGE_CENTS = 50  # Stripe's minimum USD charge is $0.50.
 MIN_PAID_PRICE_CENTS = 100  # Floor for paid classes ($1.00) — anything cheaper should just be free.
+
+
+class CentsAsDollarsField(forms.DecimalField):
+    """Accepts dollar input, stores as cents. Model stays PositiveIntegerField."""
+
+    def __init__(self, **kwargs) -> None:
+        kwargs.setdefault("max_digits", 8)
+        kwargs.setdefault("decimal_places", 2)
+        kwargs.setdefault("min_value", Decimal("0"))
+        super().__init__(**kwargs)
+
+    def prepare_value(self, value: int | str | None) -> Decimal | str | None:
+        if value is None or value == "":
+            return value
+        try:
+            return Decimal(int(value)) / 100
+        except (ValueError, TypeError, InvalidOperation):
+            return value
+
+    def clean(self, value: str) -> int | None:
+        dollars = super().clean(value)
+        if dollars is None:
+            return None
+        return int((dollars * 100).to_integral_value())
 
 
 class _HeroCropMixin:
@@ -127,7 +152,7 @@ class _FreeClassMixin:
         price = cleaned.get("price_cents")
         if price in (None, ""):
             self.add_error(  # type: ignore[attr-defined]
-                "price_cents", "Set a price (in cents) or check 'This is a free class / workshop'."
+                "price_cents", "Set a price or check 'This is a free class / workshop'."
             )
             return
         if price < MIN_PAID_PRICE_CENTS:
@@ -143,6 +168,8 @@ class _FreeClassMixin:
 
 
 class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
+    price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
+
     class Meta:
         model = ClassOffering
         fields = [
@@ -169,8 +196,6 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["price_cents"].label = "Price (in cents)"
-        self.fields["price_cents"].help_text = "Enter in cents, e.g. 8000 = $80."
         self.fields["member_discount_pct"].label = "Member discount (%)"
         self.add_is_free_field()
         self.add_hero_crop_field()
@@ -192,6 +217,8 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
 
 class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
     """Class form for instructors — no `instructor`, no `is_private`, slug auto-generated."""
+
+    price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
 
     class Meta:
         model = ClassOffering
@@ -216,8 +243,6 @@ class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelFo
     def __init__(self, *args, instructor: Instructor | None = None, **kwargs) -> None:
         self.instructor = instructor
         super().__init__(*args, **kwargs)
-        self.fields["price_cents"].label = "Price (in cents)"
-        self.fields["price_cents"].help_text = "Enter in cents, e.g. 8000 = $80."
         self.fields["member_discount_pct"].label = "Member discount (%)"
         self.add_is_free_field()
         self.add_hero_crop_field()
@@ -361,6 +386,12 @@ class PromoteUserToInstructorForm(forms.Form):
 
 
 class DiscountCodeForm(forms.ModelForm):
+    discount_fixed_cents = CentsAsDollarsField(
+        required=False,
+        label="Fixed discount ($)",
+        help_text="Flat dollar amount off, e.g. 20.00 for $20 off.",
+    )
+
     class Meta:
         model = DiscountCode
         fields = [
@@ -714,7 +745,75 @@ class InstructorEmailForm(forms.Form):
         with transaction.atomic():
             message = InstructorMessage.objects.create(
                 instructor=self.instructor,
+                sent_by=getattr(self.instructor.user, "member", None),
                 class_offering=offering,
+                subject=self.cleaned_data["subject"],
+                body=self.cleaned_data["body"],
+                recipient_count=len(registrations),
+                bcc_self=bool(bcc_self),
+            )
+            InstructorMessageRecipient.objects.bulk_create(
+                [InstructorMessageRecipient(message=message, registration=r, email=r.email) for r in registrations]
+            )
+        return message
+
+
+class AdminClassEmailForm(forms.Form):
+    """Form for an admin to email registrants of a specific class.
+
+    Scoped to one ClassOffering (not instructor-scoped). Excludes cancelled/refunded
+    registrations from the selectable queryset.
+    """
+
+    subject = forms.CharField(max_length=255, label="Subject")
+    body = forms.CharField(widget=forms.Textarea(attrs={"rows": 6}), label="Message")
+    registration_ids = forms.ModelMultipleChoiceField(
+        queryset=Registration.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        label="Recipients",
+    )
+    bcc_self = forms.BooleanField(required=False, initial=True, label="Send me a copy")
+
+    def __init__(self, *args, offering: ClassOffering, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.offering = offering
+        self.fields["registration_ids"].queryset = (
+            Registration.objects.filter(
+                class_offering=offering,
+            )
+            .exclude(
+                status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED],
+            )
+            .select_related("class_offering")
+        )
+
+    def send(self, *, sender_member: Member | None = None) -> InstructorMessage:
+        from django.conf import settings as django_settings
+        from django.core.mail import EmailMessage
+        from django.db import transaction
+
+        registrations = list(self.cleaned_data["registration_ids"])
+        bcc_emails = [r.email for r in registrations]
+        bcc_self = self.cleaned_data.get("bcc_self", True)
+        sender_email = (sender_member.primary_email if sender_member else "") or ""
+        to_addresses = [sender_email] if sender_email else []
+        if bcc_self and sender_email and sender_email not in bcc_emails:
+            bcc_emails.append(sender_email)
+
+        email_message = EmailMessage(
+            subject=self.cleaned_data["subject"],
+            body=self.cleaned_data["body"],
+            from_email=django_settings.DEFAULT_FROM_EMAIL,
+            to=to_addresses,
+            bcc=bcc_emails,
+        )
+        email_message.send(fail_silently=False)
+
+        with transaction.atomic():
+            message = InstructorMessage.objects.create(
+                instructor=None,
+                sent_by=sender_member,
+                class_offering=self.offering,
                 subject=self.cleaned_data["subject"],
                 body=self.cleaned_data["body"],
                 recipient_count=len(registrations),
