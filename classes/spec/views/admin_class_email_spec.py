@@ -64,8 +64,12 @@ def describe_admin_class_email():
 
     def it_excludes_cancelled_registrations_from_queryset(admin_user, client):
         offering = ClassOfferingFactory()
-        active = RegistrationFactory(class_offering=offering, email="a@example.com", status=Registration.Status.CONFIRMED)
-        cancelled = RegistrationFactory(class_offering=offering, email="c@example.com", status=Registration.Status.CANCELLED)
+        active = RegistrationFactory(
+            class_offering=offering, email="a@example.com", status=Registration.Status.CONFIRMED
+        )
+        cancelled = RegistrationFactory(
+            class_offering=offering, email="c@example.com", status=Registration.Status.CANCELLED
+        )
         client.force_login(admin_user)
         response = client.post(
             reverse("classes:admin_class_email", kwargs={"pk": offering.pk}),
@@ -93,7 +97,9 @@ def describe_admin_class_email():
 def describe_admin_class_detail_students():
     def it_shows_registrations_on_class_detail(admin_user, client):
         offering = ClassOfferingFactory()
-        RegistrationFactory(class_offering=offering, first_name="Alice", last_name="Smith", status=Registration.Status.CONFIRMED)
+        RegistrationFactory(
+            class_offering=offering, first_name="Alice", last_name="Smith", status=Registration.Status.CONFIRMED
+        )
         client.force_login(admin_user)
         response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
         assert response.status_code == 200

@@ -895,7 +895,9 @@ def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
         pk=pk,
     )
     registrations = (
-        offering.registrations.select_related("member").prefetch_related("custom_answers__question").order_by("-registered_at")
+        offering.registrations.select_related("member")
+        .prefetch_related("custom_answers__question")
+        .order_by("-registered_at")
     )
     active_count = registrations.exclude(
         status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED],

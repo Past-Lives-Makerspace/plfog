@@ -777,11 +777,15 @@ class AdminClassEmailForm(forms.Form):
     def __init__(self, *args, offering: ClassOffering, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.offering = offering
-        self.fields["registration_ids"].queryset = Registration.objects.filter(
-            class_offering=offering,
-        ).exclude(
-            status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED],
-        ).select_related("class_offering")
+        self.fields["registration_ids"].queryset = (
+            Registration.objects.filter(
+                class_offering=offering,
+            )
+            .exclude(
+                status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED],
+            )
+            .select_related("class_offering")
+        )
 
     def send(self, *, sender_member: Member | None = None) -> InstructorMessage:
         from django.conf import settings as django_settings
