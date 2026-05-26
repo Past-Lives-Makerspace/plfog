@@ -542,6 +542,8 @@ def instructor_class_create(request: HttpRequest) -> HttpResponse:
         offering = form.save()
         formset.instance = offering
         formset.save()
+        for i, img_file in enumerate(request.FILES.getlist("gallery_images")):
+            ClassImage.objects.create(class_offering=offering, image=img_file, sort_order=i)
         submit_now = request.POST.get("action") == "submit"
         if submit_now:
             offering.submit_for_review()
@@ -816,7 +818,9 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
         offering.save()
         session_formset.instance = offering
         session_formset.save()
-        messages.success(request, f"{offering.title} is published. You can now add gallery images.")
+        for i, img_file in enumerate(request.FILES.getlist("gallery_images")):
+            ClassImage.objects.create(class_offering=offering, image=img_file, sort_order=i)
+        messages.success(request, f"{offering.title} is published.")
         return redirect("classes:admin_class_edit", pk=offering.pk)
 
     sessions_data: list[dict] = []

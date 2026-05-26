@@ -86,15 +86,47 @@ Params:
     })();
     </script>
     {% else %}
-    {# Not yet saved — fall back to normal file input #}
-    {% if current_image %}
-    <img src="{{ current_image.url }}"
-         alt="Current hero image"
-         data-hero-cropper-preview
-         style="max-width:100%;max-height:320px;border-radius:6px;border:1px solid var(--hub-border,#1a4568);margin-bottom:0.5rem;display:block;">
-    {% endif %}
-    {{ field }}
+    {# Create mode — same styled zone, file submits with the form #}
+    <div id="hero-preview" style="margin-bottom:0.5rem;"></div>
+    <label class="cls-image-upload-zone" id="hero-upload-zone" style="margin-bottom:0.5rem;">
+        {{ field }}
+        <span class="cls-image-upload-label">+ Upload hero image</span>
+        <span class="cls-image-upload-hint">Click or drag a file here</span>
+    </label>
     {% if crop_field %}{{ crop_field }}{% endif %}
+    <script>
+    (function() {
+        const zone = document.getElementById('hero-upload-zone');
+        if (!zone) return;
+        const input = zone.querySelector('input[type="file"]');
+        const preview = document.getElementById('hero-preview');
+        if (!input) return;
+        input.style.display = 'none';
+        input.addEventListener('change', function() {
+            if (!this.files.length) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                preview.innerHTML = '<img src="' + e.target.result + '" alt="Hero image preview" data-hero-cropper-preview style="max-width:100%;max-height:320px;object-fit:contain;border-radius:6px;border:1px solid var(--hub-border,#1a4568);display:block;">';
+                zone.querySelector('.cls-image-upload-label').textContent = 'Replace image';
+                if (window.initHeroCropper) window.initHeroCropper();
+            };
+            reader.readAsDataURL(this.files[0]);
+        });
+        zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('drag-hover'); });
+        zone.addEventListener('dragleave', function() { zone.classList.remove('drag-hover'); });
+        zone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            zone.classList.remove('drag-hover');
+            const f = e.dataTransfer.files[0];
+            if (f && f.type.startsWith('image/')) {
+                const dt = new DataTransfer();
+                dt.items.add(f);
+                input.files = dt.files;
+                input.dispatchEvent(new Event('change'));
+            }
+        });
+    })();
+    </script>
     {% endif %}
 
     {% if field.errors %}

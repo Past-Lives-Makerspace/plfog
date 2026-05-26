@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-VERSION = "2.2.1"
+VERSION = "2.2.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.2.2",
+        "date": "2026-05-26",
+        "title": "Image uploads work on the New Class form",
+        "changes": [
+            "The 'New Class' form now has the same hero image and gallery image upload experience as the edit form — drag-and-drop zone with instant preview instead of a plain file picker. Gallery images are uploaded when you hit Save.",
+        ],
+    },
     {
         "version": "2.2.1",
         "date": "2026-05-26",
