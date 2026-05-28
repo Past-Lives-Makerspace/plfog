@@ -762,17 +762,43 @@ def instructor_discount_codes(request: HttpRequest) -> HttpResponse:
 @instructor_required
 def instructor_discount_code_create(request: HttpRequest) -> HttpResponse:
     instructor: Instructor = request.instructor  # type: ignore[attr-defined]
-    form = DiscountCodeForm(request.POST or None)
+    scoped_to: ClassOffering | None = None
+    raw_class = request.GET.get("class") or request.POST.get("class")
+    if raw_class:
+        try:
+            scoped_to = ClassOffering.objects.filter(instructor=instructor).get(pk=int(raw_class))
+        except (ClassOffering.DoesNotExist, ValueError, TypeError):
+            scoped_to = None
+    form = DiscountCodeForm(request.POST or None, scoped_to=scoped_to, created_by=request.user)
     if request.method == "POST" and form.is_valid():
         code = form.save(commit=False)
-        code.is_approved = False
+        # Class-scoped codes created by the offering's own instructor are
+        # auto-approved by DiscountCodeForm.save. Other instructor codes
+        # (global, or scoped to another instructor's class) need admin review.
+        if scoped_to is None:
+            code.is_approved = False
+        if scoped_to is not None and not code.class_offering_id:
+            code.class_offering = scoped_to
+        if not code.created_by_id:
+            code.created_by = request.user
         code.save()
-        messages.success(request, "Discount code created — an admin will review and approve it.")
+        if code.is_approved:
+            messages.success(request, "Discount code created and active for this class.")
+        else:
+            messages.success(request, "Discount code created — an admin will review and approve it.")
+        if scoped_to is not None:
+            return redirect("classes:instructor_class_edit", pk=scoped_to.pk)
         return redirect("classes:instructor_discount_codes")
     return render(
         request,
         "classes/instructor/discount_code_form.html",
-        {"active_tab": "discount_codes", "instructor": instructor, "form": form, "mode": "create"},
+        {
+            "active_tab": "discount_codes",
+            "instructor": instructor,
+            "form": form,
+            "mode": "create",
+            "scoped_to": scoped_to,
+        },
     )
 
 
@@ -1278,15 +1304,29 @@ def admin_discount_codes(request: HttpRequest) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_discount_code_create(request: HttpRequest) -> HttpResponse:
-    form = DiscountCodeForm(request.POST or None)
+    scoped_to: ClassOffering | None = None
+    raw_class = request.GET.get("class") or request.POST.get("class")
+    if raw_class:
+        try:
+            scoped_to = ClassOffering.objects.get(pk=int(raw_class))
+        except (ClassOffering.DoesNotExist, ValueError, TypeError):
+            scoped_to = None
+    form = DiscountCodeForm(request.POST or None, scoped_to=scoped_to, created_by=request.user)
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Discount code created.")
+        if scoped_to is not None:
+            return redirect("classes:admin_class_detail", pk=scoped_to.pk)
         return redirect("classes:admin_discount_codes")
     return render(
         request,
         "classes/admin/discount_code_form.html",
-        {"active_tab": "discount_codes", "form": form, "mode": "create"},
+        {
+            "active_tab": "discount_codes",
+            "form": form,
+            "mode": "create",
+            "scoped_to": scoped_to,
+        },
     )
 
 

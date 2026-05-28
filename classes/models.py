@@ -416,6 +416,32 @@ class DiscountCode(models.Model):
     is_approved = models.BooleanField(
         default=True, help_text="Admin-approved codes are usable. Instructor-created codes start unapproved."
     )
+    class_offering = models.ForeignKey(
+        "ClassOffering",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="discount_codes",
+        help_text=(
+            "When set, this code only applies to that one class. "
+            "When null, the code is global and any class can use it."
+        ),
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="User who created this code (audit + lets instructors manage their own codes).",
+    )
+    auto_apply = models.BooleanField(
+        default=False,
+        help_text=(
+            "When on, the code is automatically applied for any eligible registrant. "
+            "Useful for class-scoped promotional pricing without making customers type a code."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

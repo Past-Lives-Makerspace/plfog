@@ -427,13 +427,45 @@ class DiscountCodeForm(forms.ModelForm):
             "valid_until",
             "max_uses",
             "is_active",
+            "auto_apply",
         ]
+        labels = {
+            "auto_apply": "Auto-apply for eligible registrants (no need for them to type the code)",
+        }
+
+    def __init__(self, *args, scoped_to: ClassOffering | None = None, created_by=None, **kwargs) -> None:
+        """Optionally bind this code to a single class and an audit user.
+
+        Passing ``scoped_to`` makes a class-scoped code: registrations for any
+        other class won't honor it. Passing ``created_by`` records who made it
+        (and, for instructor-created class-scoped codes, auto-approves it
+        since the instructor already controls that class's pricing).
+        """
+        super().__init__(*args, **kwargs)
+        self._scoped_to = scoped_to
+        self._created_by = created_by
 
     def clean(self) -> dict:
         data = super().clean()
         if not data.get("discount_pct") and not data.get("discount_fixed_cents"):
             raise forms.ValidationError("Set either a percent OR a fixed-cents discount.")
         return data
+
+    def save(self, commit: bool = True) -> DiscountCode:
+        code = super().save(commit=False)
+        if self._scoped_to is not None and not code.class_offering_id:
+            code.class_offering = self._scoped_to
+            # Class-scoped codes created by the instructor of that class auto-approve;
+            # the instructor already controls the class price, so admin gating adds
+            # friction without protecting anything.
+            if self._created_by is not None and self._scoped_to.instructor.user_id == self._created_by.pk:
+                code.is_approved = True
+        if self._created_by is not None and not code.created_by_id:
+            code.created_by = self._created_by
+        if commit:
+            code.save()
+            self.save_m2m()
+        return code
 
 
 class RegistrationQuestionForm(forms.ModelForm):
@@ -552,12 +584,51 @@ class RegistrationForm(forms.ModelForm):
         self.member = member
         self.client_ip = client_ip
         self._validated_discount: DiscountCode | None = None
+        self.auto_applied_discount: DiscountCode | None = None
         if not offering.requires_model_release:
             # Hide model release fields entirely when the class doesn't need them.
             self.fields.pop("model_release_signature")
             self.fields.pop("accepts_model_release")
         self._custom_questions = list(RegistrationQuestion.objects.filter(is_active=True))
         self._inject_custom_question_fields()
+        # On the first GET render, pre-fill the discount field with the best
+        # class-scoped auto-apply code (if one exists). The registrant can
+        # still clear it before submitting.
+        if not self.is_bound:
+            applied = self._find_auto_apply_discount()
+            if applied is not None:
+                self.fields["discount_code"].initial = applied.code
+                self.auto_applied_discount = applied
+
+    def _find_auto_apply_discount(self) -> DiscountCode | None:
+        """Pick the class-scoped auto-apply code that yields the lowest final price.
+
+        Walks every currently-valid DiscountCode where ``class_offering`` is
+        this offering and ``auto_apply=True``. Returns the one that drops the
+        post-member-discount price furthest. Returns ``None`` when no such
+        code exists.
+        """
+        from django.db.models import Q  # local import keeps top-of-file tidy
+
+        base = self.offering.price_cents
+        if self.member is not None and self.offering.member_discount_pct:
+            base = int(base * (100 - self.offering.member_discount_pct) / 100)
+        best: DiscountCode | None = None
+        best_price: int | None = None
+        candidates = DiscountCode.objects.filter(
+            class_offering=self.offering,
+            is_active=True,
+            is_approved=True,
+            auto_apply=True,
+        )
+        for code in candidates:
+            if not code.is_currently_valid():
+                continue
+            final = code.apply_to(base)
+            if best_price is None or final < best_price:
+                best = code
+                best_price = final
+        return best
 
     def _inject_custom_question_fields(self) -> None:
         """Add one dynamic form field per active RegistrationQuestion.
@@ -596,11 +667,17 @@ class RegistrationForm(forms.ModelForm):
             self.fields[field_name] = field
 
     def clean_discount_code(self) -> DiscountCode | None:
+        from django.db.models import Q
+
         raw = (self.cleaned_data.get("discount_code") or "").strip().upper()
         if not raw:
             return None
+        # Codes are either global (class_offering is null) or scoped to this
+        # class. A code scoped to some other class is not recognized here.
         try:
-            code = DiscountCode.objects.get(code=raw)
+            code = DiscountCode.objects.filter(
+                Q(class_offering__isnull=True) | Q(class_offering=self.offering)
+            ).get(code=raw)
         except DiscountCode.DoesNotExist:
             raise forms.ValidationError("That discount code isn't recognized.") from None
         if not code.is_currently_valid():
