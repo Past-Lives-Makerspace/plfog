@@ -1,0 +1,10 @@
+SPOT OPENED
+
+{{ offering.title }}
+
+A confirmed spot just opened up and you're next in line. You have
+{{ claim_window_hours }} hours to claim it before we move on to the
+next person on the waitlist.
+
+Claim my spot:
+{{ register_url }}

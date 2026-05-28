@@ -238,6 +238,69 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
     )
 
 
+def send_waitlist_joined_confirmation(registration: "Registration") -> None:
+    """Confirm to a registrant that they're on the waitlist + their position.
+
+    Fires on the WAITLISTED-creating branch of the register view (sold-out
+    class + waitlist intent). Tells them what position they're in and what
+    happens if a spot opens.
+    """
+    offering = registration.class_offering
+    self_serve_url = _absolute_url(
+        reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
+    )
+    ctx = {
+        "registration": registration,
+        "offering": offering,
+        "position": registration.waitlist_position,
+        "self_serve_url": self_serve_url,
+    }
+    text_body = render_to_string("classes/emails/waitlist_joined.txt", ctx)
+    html_body = render_to_string("classes/emails/waitlist_joined.html", ctx)
+    send_mail(
+        subject=f"You're on the waitlist for {offering.title}",
+        message=text_body,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        recipient_list=[registration.email],
+        html_message=html_body,
+        fail_silently=False,
+    )
+
+
+def send_waitlist_spot_opened(registration: "Registration") -> None:
+    """Notify a waitlisted registrant that a spot just opened.
+
+    Fires from ``ClassOffering.promote_next_from_waitlist`` after a confirmed
+    registration cancels or refunds. The link lands on the registration page
+    where the registrant can complete payment within the claim window
+    configured on ClassSettings.
+    """
+    from classes.models import ClassSettings
+
+    offering = registration.class_offering
+    register_url = _absolute_url(
+        reverse("classes:register", kwargs={"slug": offering.slug})
+        + f"?waitlist_token={registration.self_serve_token}"
+    )
+    settings_obj = ClassSettings.load()
+    ctx = {
+        "registration": registration,
+        "offering": offering,
+        "register_url": register_url,
+        "claim_window_hours": settings_obj.waitlist_claim_window_hours,
+    }
+    text_body = render_to_string("classes/emails/waitlist_spot_opened.txt", ctx)
+    html_body = render_to_string("classes/emails/waitlist_spot_opened.html", ctx)
+    send_mail(
+        subject=f"A spot opened in {offering.title}!",
+        message=text_body,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        recipient_list=[registration.email],
+        html_message=html_body,
+        fail_silently=False,
+    )
+
+
 def send_reminder_email(registration: "Registration", session: "ClassSession") -> None:
     """Email a registrant a reminder for an upcoming session."""
     offering = session.class_offering

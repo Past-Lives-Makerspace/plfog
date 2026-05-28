@@ -25,6 +25,7 @@ from classes.emails import (
     send_class_review_requests,
     send_instructor_registration_notification,
     send_registration_confirmation,
+    send_waitlist_joined_confirmation,
 )
 from classes.table import prepare_table
 from classes.forms import (
@@ -311,6 +312,12 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     )
     settings_obj = ClassSettings.load()
 
+    # Waitlist intent: ?waitlist=1 (offered when the class is sold out) routes
+    # to the no-charge waitlist branch below. Forced on automatically when the
+    # class has no spots left so we never hide the option from a registrant
+    # who lands here from a stale link.
+    is_waitlist = request.GET.get("waitlist") == "1" or offering.spots_remaining <= 0
+
     # Two-pass form: first POST validates email so we can detect a member
     # before computing price, then re-binds to surface the discounted total.
     # GET requests pre-fill from the logged-in user's Member record when present.
@@ -325,7 +332,20 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         member=member,
         client_ip=_client_ip(request),
         initial=initial,
+        is_waitlist=is_waitlist,
     )
+
+    if request.method == "POST" and form.is_valid() and is_waitlist:
+        registration = form.save()
+        registration.status = Registration.Status.WAITLISTED
+        registration.amount_paid_cents = 0
+        registration.save(update_fields=["status", "amount_paid_cents"])
+        send_waitlist_joined_confirmation(registration)
+        messages.success(
+            request,
+            f"You're on the waitlist for {offering.title}. We'll email you if a spot opens.",
+        )
+        return redirect("classes:my_registration", token=registration.self_serve_token)
 
     if request.method == "POST" and form.is_valid():
         registration = form.save()
@@ -396,6 +416,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             "site_config": SiteConfiguration.load(),
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
+            "is_waitlist": is_waitlist,
         },
     )
 
@@ -1021,11 +1042,15 @@ def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
     active_count = registrations.exclude(
         status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED],
     ).count()
+    waitlist_registrations = list(
+        offering.registrations.filter(status=Registration.Status.WAITLISTED).order_by("registered_at")
+    )
     return render(
         request,
         "classes/admin/class_detail.html",
         {
             "active_tab": "classes",
+            "waitlist_registrations": waitlist_registrations,
             "offering": offering,
             "registrations": registrations,
             "active_registration_count": active_count,

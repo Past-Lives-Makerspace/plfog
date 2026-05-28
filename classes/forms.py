@@ -607,6 +607,7 @@ class RegistrationForm(forms.ModelForm):
         settings_obj: ClassSettings,
         member: "Member | None" = None,
         client_ip: str = "",
+        is_waitlist: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -614,12 +615,17 @@ class RegistrationForm(forms.ModelForm):
         self.settings_obj = settings_obj
         self.member = member
         self.client_ip = client_ip
+        self.is_waitlist = is_waitlist
         self._validated_discount: DiscountCode | None = None
         self.auto_applied_discount: DiscountCode | None = None
         if not offering.requires_model_release:
             # Hide model release fields entirely when the class doesn't need them.
             self.fields.pop("model_release_signature")
             self.fields.pop("accepts_model_release")
+        if is_waitlist:
+            # Waitlist signups don't transact money so the discount field is
+            # noise on the form. Drop it so the registrant isn't confused.
+            self.fields.pop("discount_code", None)
         self._custom_questions = list(RegistrationQuestion.objects.filter(is_active=True))
         self._inject_custom_question_fields()
         # On the first GET render, pre-fill the discount field with the best
@@ -718,17 +724,18 @@ class RegistrationForm(forms.ModelForm):
 
     def clean(self) -> dict:
         data = super().clean()
-        if self.offering.spots_remaining <= 0:
+        if not self.is_waitlist and self.offering.spots_remaining <= 0:
             raise forms.ValidationError("This class is sold out.")
         if self.offering.requires_model_release and not data.get("accepts_model_release"):
             self.add_error("accepts_model_release", "Model release acceptance is required for this class.")
-        # Stripe rejects USD charges under $0.50. Either drop to 0 (free) or be at/above the minimum.
-        final_price = self.compute_final_price_cents()
-        if 0 < final_price < STRIPE_MIN_CHARGE_CENTS:
-            raise forms.ValidationError(
-                "The total comes out to less than $0.50, which we can't charge online. "
-                "Please remove any discount code, or contact the studio if this looks wrong."
-            )
+        if not self.is_waitlist:
+            # Stripe rejects USD charges under $0.50. Either drop to 0 (free) or be at/above the minimum.
+            final_price = self.compute_final_price_cents()
+            if 0 < final_price < STRIPE_MIN_CHARGE_CENTS:
+                raise forms.ValidationError(
+                    "The total comes out to less than $0.50, which we can't charge online. "
+                    "Please remove any discount code, or contact the studio if this looks wrong."
+                )
         return data
 
     @property

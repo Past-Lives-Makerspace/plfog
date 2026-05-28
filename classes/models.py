@@ -297,6 +297,38 @@ class ClassOffering(models.Model):
         self.status = self.Status.ARCHIVED
         self.save(update_fields=["status", "updated_at"])
 
+    def promote_next_from_waitlist(self) -> "Registration | None":
+        """Notify the next waitlisted person when a confirmed spot opens.
+
+        Called after a confirmed registration cancels or refunds. Picks the
+        oldest WAITLISTED row that hasn't been notified yet, stamps
+        ``waitlist_notified_at``, and emails them a claim link. Does
+        nothing when no spots have actually opened (e.g. capacity bumps
+        elsewhere) or no eligible waitlist row exists.
+
+        Returns the notified registration so callers can introspect for
+        logging or tests.
+        """
+        if self.spots_remaining <= 0:
+            return None
+        next_up = (
+            self.registrations.filter(
+                status=Registration.Status.WAITLISTED,
+                waitlist_notified_at__isnull=True,
+            )
+            .order_by("registered_at")
+            .first()
+        )
+        if next_up is None:
+            return None
+        next_up.waitlist_notified_at = timezone.now()
+        next_up.save(update_fields=["waitlist_notified_at"])
+        # Lazy import to avoid a circular import between models.py and emails.py.
+        from classes.emails import send_waitlist_spot_opened
+
+        send_waitlist_spot_opened(next_up)
+        return next_up
+
     def on_review_decision_recorded(self, row: "ClassApproval") -> None:
         """Lifecycle hook: called by ClassApproval.decide.
 
@@ -755,6 +787,15 @@ class Registration(models.Model):
         db_index=True,
         help_text="Random token used in /classes/my/<token>/ self-serve URL.",
     )
+    waitlist_notified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Stamped when this waitlisted registrant has been emailed that a "
+            "spot opened up. Used to avoid double-notifying and to expire the "
+            "claim window."
+        ),
+    )
     order_number = models.CharField(
         max_length=12,
         blank=True,
@@ -823,10 +864,30 @@ class Registration(models.Model):
             super().save(update_fields=["member"])
 
     def cancel(self, reason: str = "") -> None:
+        previously_held_a_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
         self.status = self.Status.CANCELLED
         self.cancelled_at = timezone.now()
         self.cancellation_reason = reason
         self.save(update_fields=["status", "cancelled_at", "cancellation_reason"])
+        if previously_held_a_spot:
+            self.class_offering.promote_next_from_waitlist()
+
+    @property
+    def waitlist_position(self) -> int | None:
+        """Rank among WAITLISTED rows for the same class, lowest = first in line.
+
+        Returns ``None`` for non-waitlisted registrations.
+        """
+        if self.status != self.Status.WAITLISTED:
+            return None
+        ahead = (
+            Registration.objects.filter(
+                class_offering=self.class_offering,
+                status=self.Status.WAITLISTED,
+                registered_at__lt=self.registered_at,
+            ).count()
+        )
+        return ahead + 1
 
 
 class RegistrationQuestion(models.Model):
@@ -983,6 +1044,13 @@ class ClassSettings(models.Model):
     )
     instructor_approval_required = models.BooleanField(
         default=True, help_text="When on, new classes go to admin for review before being published."
+    )
+    waitlist_claim_window_hours = models.PositiveIntegerField(
+        default=24,
+        help_text=(
+            "When a waitlisted person is notified that a spot opened, how many "
+            "hours they have to register before we move on to the next person."
+        ),
     )
     confirmation_email_footer = models.TextField(blank=True, help_text="Custom footer appended to confirmation emails.")
 
