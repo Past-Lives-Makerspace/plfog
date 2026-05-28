@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
-VERSION = "2.2.2"
+VERSION = "2.3.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.3.0",
+        "date": "2026-05-28",
+        "title": "Classes CMS round 2: rebrand, waitlist, dual approval, activity feed, and more",
+        "changes": [
+            "The public Classes site at book.pastlives.space now matches the look of pastlives.space. The old blue Squarespace backdrop is gone, the whole portal uses the Past Lives palette, and there is a slim PAST LIVES header at the top with Home, Guilds, Membership, Classes, and Contact links so it feels like one site to your customers.",
+            "Light theme is the default on book.pastlives.space. The dark/light toggle in the top bar still works on the member hub the same way it always has.",
+            "Class detail pages are now full width with bigger, easier-to-read text (16px floor everywhere). New sections appear automatically when the class has them: a video block, gallery, schedule, materials and prereqs side by side, an instructor card, a guild card, a short FAQ, related classes, and a sticky booking card on the right that follows you as you scroll.",
+            "Instructors can paste a YouTube link onto any class and it embeds right in the description. Works with watch links, youtu.be short links, embed URLs, and shorts.",
+            "Each of the 14 guild categories has a small icon next to its name on the public list. Admins can swap any icon for a custom one from the category admin.",
+            "All Classes page got a Filter button. Sort by category from a dropdown, then click Filter to pick instructors, set a price range, or show only classes with a member discount, free classes, or classes with upcoming sessions. The URL updates as you filter so you can share a link to exactly what you are looking at.",
+            "Discount codes can now be made for a single class. Open Edit on any class and look at the new \"Discount codes for this class\" section. Codes you make here only work for that class. There is also an Auto-apply toggle, which drops the price for every registrant without them needing to type the code. Global codes still live on the Discount Codes tab and still require an admin to make.",
+            "New approval flow for classes. When an instructor submits a class, it now goes to both an admin AND the Guild Lead of that class's guild (when one is set). Each reviewer gets an email with their own link so they can approve, request changes, or decline with notes. The instructor gets an email each step of the way: the class only goes live when every reviewer has approved. Requesting changes or declining bounces the class back to Draft so the instructor can edit and resubmit.",
+            "Waitlists for sold-out classes. When a class is full the Register button changes to \"Join the waitlist\" and the registrant gets confirmation of their spot in line, no charge. When somebody cancels, we email the next person on the waitlist with a 24-hour window to register. Admins see the waitlist on each class's admin page.",
+            "New Activity tab in the Classes admin area. Reverse chronological feed of everything that happens with classes: who created a class, who submitted it for review, who approved or requested changes, who registered, who got refunded, who joined the waitlist, when a discount code was used. Filter chips for Classes, Registrations, Waitlist, and Discount codes plus a search box for class title, name, or email.",
+        ],
+    },
     {
         "version": "2.2.2",
         "date": "2026-05-26",
