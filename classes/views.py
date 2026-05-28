@@ -71,21 +71,71 @@ def _browsable_classes() -> Any:
     )
 
 
+def _coerce_dollars_to_cents(raw: str | None) -> int:
+    """Parse a form-submitted dollar amount into cents. Empty/invalid → 0."""
+    if not raw:
+        return 0
+    try:
+        return int(round(float(raw) * 100))
+    except (TypeError, ValueError):
+        return 0
+
+
 def public_list(request: HttpRequest) -> HttpResponse:
-    """Public portal — hero + sticky category filter + grouped class cards."""
+    """Public portal — hero + sticky category filter + grouped class cards.
+
+    Supports HTMX partial swaps: when the request carries an ``HX-Request``
+    header, returns just the results grid so the filter form can update the
+    page in place without a full reload. The querystring is the source of
+    truth for filter state; ``hx-push-url`` keeps the URL shareable.
+    """
     settings_obj = ClassSettings.load()
-    selected_category_slug = request.GET.get("category", "").strip()
     classes_qs = _browsable_classes()
+
+    # ── Filter inputs ─────────────────────────────────────
+    selected_category_slug = request.GET.get("category", "").strip()
     if selected_category_slug:
         classes_qs = classes_qs.filter(category__slug=selected_category_slug)
+
+    selected_instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
+    if selected_instructor_slugs:
+        classes_qs = classes_qs.filter(instructor__slug__in=selected_instructor_slugs)
+
+    min_price_cents = _coerce_dollars_to_cents(request.GET.get("min_price"))
+    if min_price_cents > 0:
+        classes_qs = classes_qs.filter(price_cents__gte=min_price_cents)
+    max_price_cents = _coerce_dollars_to_cents(request.GET.get("max_price"))
+    if max_price_cents > 0:
+        classes_qs = classes_qs.filter(price_cents__lte=max_price_cents)
+
+    members_only = request.GET.get("members_only") == "1"
+    if members_only:
+        classes_qs = classes_qs.filter(member_discount_pct__gt=0)
+    free_only = request.GET.get("free") == "1"
+    if free_only:
+        classes_qs = classes_qs.filter(price_cents=0)
+    upcoming_only = request.GET.get("upcoming") == "1"
+    if upcoming_only:
+        classes_qs = classes_qs.exclude(first_session_at__isnull=True)
+
     classes = list(classes_qs)
-    # Category chips show only categories with at least one browsable class.
+
+    # Category chips and per-category counts always reflect the unfiltered
+    # universe of browsable classes so users can see what else is out there.
     category_counts: dict[int, int] = {}
     for offering in _browsable_classes():
         category_counts[offering.category_id] = category_counts.get(offering.category_id, 0) + 1
     categories = [cat for cat in Category.objects.all() if category_counts.get(cat.id)]
     for cat in categories:
         cat.class_count = category_counts[cat.id]  # type: ignore[attr-defined]
+
+    # Instructors-for-filter: everyone who teaches at least one browsable class.
+    instructors_for_filter = list(
+        Instructor.objects.filter(classes__in=_browsable_classes())
+        .distinct()
+        .order_by("display_name")
+    )
+
     # Group classes by category for the rendered sections.
     grouped: dict[int, dict[str, Any]] = {}
     for offering in classes:
@@ -93,20 +143,44 @@ def public_list(request: HttpRequest) -> HttpResponse:
         bucket["classes"].append(offering)
     category_sections = [grouped[cat.id] for cat in categories if cat.id in grouped]
     distinct_instructor_ids = {offering.instructor_id for offering in classes}
-    return render(
-        request,
-        "classes/public/list.html",
-        {
-            "settings_obj": settings_obj,
-            "site_config": SiteConfiguration.load(),
-            "categories": categories,
-            "selected_category_slug": selected_category_slug,
-            "category_sections": category_sections,
-            "total_classes": len(classes),
-            "total_instructors": len(distinct_instructor_ids),
-            "total_categories": len(categories),
-        },
+
+    active_filter_count = sum(
+        1
+        for v in (
+            selected_instructor_slugs,
+            request.GET.get("min_price"),
+            request.GET.get("max_price"),
+            members_only,
+            free_only,
+            upcoming_only,
+        )
+        if v
     )
+
+    context = {
+        "settings_obj": settings_obj,
+        "site_config": SiteConfiguration.load(),
+        "categories": categories,
+        "selected_category_slug": selected_category_slug,
+        "selected_instructor_slugs": selected_instructor_slugs,
+        "instructors_for_filter": instructors_for_filter,
+        "min_price": request.GET.get("min_price", ""),
+        "max_price": request.GET.get("max_price", ""),
+        "members_only": members_only,
+        "free_only": free_only,
+        "upcoming_only": upcoming_only,
+        "active_filter_count": active_filter_count,
+        "category_sections": category_sections,
+        "total_classes": len(classes),
+        "total_instructors": len(distinct_instructor_ids),
+        "total_categories": len(categories),
+    }
+
+    # HTMX partial: return just the results grid so the filter form can swap
+    # in place without rerendering hero + filter chrome.
+    if request.headers.get("HX-Request"):
+        return render(request, "classes/public/_list_results.html", context)
+    return render(request, "classes/public/list.html", context)
 
 
 def public_category(request: HttpRequest, slug: str) -> HttpResponse:

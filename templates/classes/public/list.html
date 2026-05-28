@@ -39,72 +39,106 @@
   </div>
 </div>
 
+{# ── Filter bar: category dropdown + Filter popover button ── #}
+<form id="cp-filter-form"
+      class="cp-filter"
+      method="get"
+      action="{% url 'classes:public_list' %}"
+      hx-get="{% url 'classes:public_list' %}"
+      hx-target="#cls-results"
+      hx-swap="innerHTML"
+      hx-push-url="true"
+      hx-trigger="change, submit"
+      x-data="{ open: false }">
+  <div class="cp-filter__row">
+    <label class="cp-filter__field cp-filter__field--select">
+      <span class="cp-filter__field-label">Category</span>
+      <select name="category" class="cp-filter__select">
+        <option value="">All categories</option>
+        {% for cat in categories %}
+          <option value="{{ cat.slug }}" {% if selected_category_slug == cat.slug %}selected{% endif %}>{{ cat.name }} ({{ cat.class_count }})</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <button type="button"
+            class="cp-filter__toggle"
+            :class="{ 'cp-filter__toggle--on': open, 'cp-filter__toggle--has-active': {{ active_filter_count }} > 0 }"
+            @click="open = !open"
+            :aria-expanded="open">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>
+      </svg>
+      <span>Filter</span>
+      {% if active_filter_count %}<span class="cp-filter__badge">{{ active_filter_count }}</span>{% endif %}
+    </button>
+
+    {% if active_filter_count %}
+      <a class="cp-filter__reset" href="{% url 'classes:public_list' %}">Reset all</a>
+    {% endif %}
+  </div>
+
+  <div class="cp-filter__popover" x-show="open" x-cloak @click.outside="open = false" x-transition>
+    <fieldset class="cp-filter__group">
+      <legend>Instructor</legend>
+      <div class="cp-filter__checks">
+        {% for inst in instructors_for_filter %}
+          <label class="cp-filter__check">
+            <input type="checkbox" name="instructor" value="{{ inst.slug }}"
+                   {% if inst.slug in selected_instructor_slugs %}checked{% endif %}>
+            <span>{{ inst.display_name }}</span>
+          </label>
+        {% empty %}
+          <span class="cp-filter__empty">No instructors to filter by yet.</span>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <fieldset class="cp-filter__group cp-filter__group--inline">
+      <legend>Price (USD)</legend>
+      <div class="cp-filter__price">
+        <label>
+          <span class="cp-filter__field-label">Min</span>
+          <input type="number" name="min_price" value="{{ min_price }}" min="0" step="1" inputmode="numeric" placeholder="0">
+        </label>
+        <label>
+          <span class="cp-filter__field-label">Max</span>
+          <input type="number" name="max_price" value="{{ max_price }}" min="0" step="1" inputmode="numeric" placeholder="any">
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset class="cp-filter__group">
+      <legend>Show only</legend>
+      <div class="cp-filter__checks cp-filter__checks--inline">
+        <label class="cp-filter__check">
+          <input type="checkbox" name="members_only" value="1" {% if members_only %}checked{% endif %}>
+          <span>Member discount available</span>
+        </label>
+        <label class="cp-filter__check">
+          <input type="checkbox" name="free" value="1" {% if free_only %}checked{% endif %}>
+          <span>Free classes</span>
+        </label>
+        <label class="cp-filter__check">
+          <input type="checkbox" name="upcoming" value="1" {% if upcoming_only %}checked{% endif %}>
+          <span>Has upcoming session</span>
+        </label>
+      </div>
+    </fieldset>
+
+    <div class="cp-filter__actions">
+      <a href="{% url 'classes:public_list' %}" class="cp-filter__action cp-filter__action--ghost">Reset</a>
+      <button type="submit" class="cp-filter__action cp-filter__action--apply">Apply filters</button>
+    </div>
+  </div>
+</form>
+
 <div class="view">
   <div class="cp-container" id="catalog">
-    {% if not category_sections %}
-      <div class="empty">No classes scheduled in this category yet.</div>
-    {% endif %}
-    {% for section in category_sections %}
-      <div class="cat-sec" id="sec-{{ section.category.slug }}">
-        <div class="cat-hd">
-          <h2>{% if section.category.icon_svg %}{{ section.category.icon_svg|safe }}{% endif %}{{ section.category.name }}</h2>
-          <span class="cc">{{ section.classes|length }} listing{{ section.classes|length|pluralize }}</span>
-        </div>
-        <div class="cls-grid">
-          {% for offering in section.classes %}
-            <div class="cls-card">
-              <a class="cls-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}" aria-label="{{ offering.title }}"></a>
-              <div class="cls-media">
-                {% if offering.image %}
-                  <img class="cls-img" src="{{ offering.image.url }}" alt="" loading="lazy"
-                       {% if offering.hero_crop_w %}style="object-position: {{ offering.hero_object_position }};"{% endif %}>
-                {% elif offering.category.hero_image %}
-                  <img class="cls-img" src="{{ offering.category.hero_image.url }}" alt="" loading="lazy">
-                {% elif offering.category.icon_svg %}
-                  <div class="cls-img-ph cls-img-ph--icon">{{ offering.category.icon_svg|safe }}</div>
-                {% else %}
-                  <div class="cls-img-ph">{{ offering.category.name|initials }}</div>
-                {% endif %}
-              </div>
-              <div class="cls-body">
-                <div class="cls-title">
-                  {{ offering.title }}
-                  {% if offering.scheduling_model == 'flexible' %}<span class="badge fx">Flex</span>{% endif %}
-                </div>
-                <div class="cls-inst">
-                  with <a href="{% url 'classes:public_instructor' slug=offering.instructor.slug %}">{{ offering.instructor.display_name }}</a>
-                </div>
-                <div class="cls-when">
-                  {% if offering.scheduling_model == 'flexible' %}
-                    Schedule with instructor
-                  {% else %}
-                    {% with first_session=offering.first_upcoming_session_at %}
-                      {% if first_session %}
-                        {{ first_session|date:"D, M j" }} · {{ first_session|time:"g:i A" }}
-                      {% else %}
-                        Upcoming dates TBA
-                      {% endif %}
-                    {% endwith %}
-                  {% endif %}
-                </div>
-                <div class="cls-footer">
-                  <div>
-                    <span class="cls-price">{{ offering.price_cents|cents_as_price }}</span>
-                    {% member_price_cents offering.price_cents offering.member_discount_pct as mp %}
-                    {% if mp %}<span class="cls-price-member">({{ mp|cents_as_price }} for PL members)</span>{% endif %}
-                  </div>
-                  {% with spots=offering.spots_remaining %}
-                    <span class="cls-spots {{ spots|spots_class }}">
-                      {% if spots == 0 %}Sold out{% elif spots <= 3 %}{{ spots }} left{% else %}{{ spots }} spots{% endif %}
-                    </span>
-                  {% endwith %}
-                </div>
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-    {% endfor %}
+    <div id="cls-results">
+      {% include "classes/public/_list_results.html" %}
+    </div>
   </div>
 </div>
 {% endblock %}
+

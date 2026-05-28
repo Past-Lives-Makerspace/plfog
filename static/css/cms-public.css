@@ -844,3 +844,217 @@ body.classes-portal {
   margin-right: 5px;
 }
 
+/* ====================================================================
+   .cp-filter — list-page filter bar + popover
+   Category dropdown is always visible; the Filter button toggles a
+   popover with instructor multi-select, price range, and toggles.
+   Form submission is HTMX-swapped into #cls-results.
+==================================================================== */
+.cp-filter {
+  position: relative;
+  max-width: var(--max);
+  margin: 0 auto 18px;
+  padding: 0 24px;
+}
+.cp-filter__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+.cp-filter__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+  flex: 1;
+}
+.cp-filter__field-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text2);
+}
+.cp-filter__select,
+.cp-filter__price input {
+  appearance: none;
+  background: var(--bg2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 36px 10px 14px;
+  font-family: var(--font);
+  font-size: 16px;
+  min-height: 44px;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--gold) 50%),
+                    linear-gradient(135deg, var(--gold) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.cp-filter__price input {
+  background-image: none;
+  padding-right: 12px;
+  min-width: 0;
+}
+.cp-filter__select:focus,
+.cp-filter__price input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+.cp-filter__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: var(--bg2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+}
+.cp-filter__toggle:hover { border-color: var(--gold); color: var(--gold); }
+.cp-filter__toggle--on { border-color: var(--gold); color: var(--gold); background: var(--gold-glow); }
+.cp-filter__toggle--has-active { border-color: var(--gold); }
+.cp-filter__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  background: var(--gold);
+  color: var(--navy-dark);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+.cp-filter__reset {
+  align-self: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gold);
+  padding: 10px 14px;
+  border-radius: 6px;
+  text-decoration: none;
+}
+.cp-filter__reset:hover { background: var(--gold-glow); text-decoration: none; color: var(--gold); }
+
+.cp-filter__popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 24px;
+  right: 24px;
+  z-index: 60;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 22px;
+  box-shadow: 0 16px 48px rgba(9,46,76,0.18);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+@media (max-width: 760px) {
+  .cp-filter__popover { grid-template-columns: 1fr; }
+}
+.cp-filter__group { border: none; padding: 0; margin: 0; min-width: 0; }
+.cp-filter__group legend {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gold);
+  margin-bottom: 10px;
+  padding: 0;
+}
+.cp-filter__checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.cp-filter__checks--inline { flex-direction: column; gap: 10px; max-height: none; }
+.cp-filter__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  color: var(--text);
+  cursor: pointer;
+  padding: 6px 0;
+}
+.cp-filter__check input { width: 18px; height: 18px; accent-color: var(--gold); cursor: pointer; }
+.cp-filter__empty { font-size: 14px; color: var(--text2); font-style: italic; }
+.cp-filter__price {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.cp-filter__price label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cp-filter__group--inline { grid-column: 1 / -1; }
+.cp-filter__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.cp-filter__action {
+  padding: 11px 22px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  min-height: 44px;
+}
+.cp-filter__action--ghost {
+  background: transparent;
+  color: var(--text2);
+  border: 1px solid var(--border);
+}
+.cp-filter__action--ghost:hover { color: var(--text); text-decoration: none; }
+.cp-filter__action--apply {
+  background: var(--gold);
+  color: var(--navy-dark);
+}
+.cp-filter__action--apply:hover { background: var(--gold-light); text-decoration: none; }
+
+/* ── Results summary line ─────────────────── */
+.cp-results__summary {
+  max-width: var(--max);
+  margin: 0 auto 14px;
+  padding: 10px 24px 0;
+  font-size: 15px;
+  color: var(--text2);
+}
+.cp-results__summary strong { color: var(--text); font-weight: 700; }
+.cp-results__summary em { font-style: normal; color: var(--text); font-weight: 600; }
+.cp-results__reset-inline {
+  margin-left: 10px;
+  font-weight: 600;
+  color: var(--gold);
+  text-decoration: none;
+}
+.cp-results__reset-inline:hover { color: var(--gold-light); text-decoration: underline; }
+
