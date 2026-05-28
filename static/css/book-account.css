@@ -2,18 +2,11 @@
 .bk {
   width:100%; height:100%;
   display:flex; flex-direction:column;
-  background:#061f33;
-  background-image:url('https://images.squarespace-cdn.com/content/v1/634b3a44e68be653dc708619/1666300097251-9IIOE8TATR0ZNXU037QK/BACKDROP+reduced+copy.jpg?format=2500w');
-  background-size:cover; background-position:center;
+  background: var(--hub-bg);
   font-family: var(--font);
   color: var(--text);
   position:relative;
   overflow:hidden;
-}
-.bk::before {
-  content:''; position:absolute; inset:0;
-  background:radial-gradient(ellipse 70% 50% at 50% 10%, rgba(6,26,44,.4) 0%, rgba(6,26,44,.62) 35%, rgba(6,26,44,.82) 70%, rgba(6,26,44,.9) 100%);
-  pointer-events:none;
 }
 .bk > * { position:relative; z-index:1; }
 .bk-scroll { flex:1; overflow:auto; }

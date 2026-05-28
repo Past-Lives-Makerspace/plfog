@@ -128,6 +128,13 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     if offering.member_discount_pct:
         member_price_cents = int(offering.price_cents * (100 - offering.member_discount_pct) / 100)
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    related_offerings = list(
+        ClassOffering.objects.public()
+        .filter(category=offering.category)
+        .exclude(pk=offering.pk)
+        .select_related("instructor")
+        .order_by("-created_at")[:3]
+    )
     return render(
         request,
         "classes/public/detail.html",
@@ -138,6 +145,7 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "upcoming_sessions": upcoming_sessions,
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
+            "related_offerings": related_offerings,
         },
     )
 

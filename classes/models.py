@@ -50,6 +50,13 @@ class Category(models.Model):
         validators=[validate_image_size],
         help_text="Optional header image.",
     )
+    icon_svg = models.TextField(
+        blank=True,
+        help_text=(
+            "Inline SVG markup shown next to the category name on public pages. "
+            "Tint via currentColor. Defaults to a Lucide icon seeded for known categories."
+        ),
+    )
     guild = models.ForeignKey(
         "membership.Guild",
         null=True,
@@ -167,6 +174,11 @@ class ClassOffering(models.Model):
         blank=True,
         validators=[validate_image_size],
         help_text="Hero image.",
+    )
+    video_url = models.URLField(
+        blank=True,
+        max_length=500,
+        help_text="Optional YouTube link (watch, youtu.be, embed, or shorts URL). Embeds on the public class page.",
     )
     hero_crop_x = models.PositiveIntegerField(
         null=True, blank=True, help_text="Crop box left edge in source-image pixels — set by the hero cropper."

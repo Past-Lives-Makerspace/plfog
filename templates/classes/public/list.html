@@ -33,7 +33,7 @@
     {% for cat in categories %}
       <a class="cp {% if selected_category_slug == cat.slug %}on{% endif %}"
          href="{% url 'classes:public_category' slug=cat.slug %}">
-        {{ cat.name }}<span class="ct">{{ cat.class_count }}</span>
+        {% if cat.icon_svg %}{{ cat.icon_svg|safe }}{% endif %}{{ cat.name }}<span class="ct">{{ cat.class_count }}</span>
       </a>
     {% endfor %}
   </div>
@@ -47,7 +47,7 @@
     {% for section in category_sections %}
       <div class="cat-sec" id="sec-{{ section.category.slug }}">
         <div class="cat-hd">
-          <h2>{{ section.category.name }}</h2>
+          <h2>{% if section.category.icon_svg %}{{ section.category.icon_svg|safe }}{% endif %}{{ section.category.name }}</h2>
           <span class="cc">{{ section.classes|length }} listing{{ section.classes|length|pluralize }}</span>
         </div>
         <div class="cls-grid">
@@ -60,6 +60,8 @@
                        {% if offering.hero_crop_w %}style="object-position: {{ offering.hero_object_position }};"{% endif %}>
                 {% elif offering.category.hero_image %}
                   <img class="cls-img" src="{{ offering.category.hero_image.url }}" alt="" loading="lazy">
+                {% elif offering.category.icon_svg %}
+                  <div class="cls-img-ph cls-img-ph--icon">{{ offering.category.icon_svg|safe }}</div>
                 {% else %}
                   <div class="cls-img-ph">{{ offering.category.name|initials }}</div>
                 {% endif %}

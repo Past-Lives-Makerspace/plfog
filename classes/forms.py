@@ -8,8 +8,24 @@ from typing import TYPE_CHECKING
 
 from django import forms
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.forms import inlineformset_factory
 from django.utils.text import slugify
+
+from classes.templatetags.classes_tags import youtube_embed_id as _youtube_embed_id
+
+
+def _validate_youtube_url(url: str) -> str:
+    """Return a stripped YouTube URL, raising ValidationError when given a
+    non-YouTube link. Empty/blank values pass through (the field is optional)."""
+    cleaned = (url or "").strip()
+    if not cleaned:
+        return ""
+    if not _youtube_embed_id(cleaned):
+        raise ValidationError(
+            "Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…"
+        )
+    return cleaned
 
 from classes.models import (
     Category,
@@ -192,6 +208,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
             "is_private",
             "private_for_name",
             "image",
+            "video_url",
         ]
 
     def __init__(self, *args, **kwargs) -> None:
@@ -199,6 +216,9 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
         self.fields["member_discount_pct"].label = "Member discount (%)"
         self.add_is_free_field()
         self.add_hero_crop_field()
+
+    def clean_video_url(self) -> str:
+        return _validate_youtube_url(self.cleaned_data.get("video_url", ""))
 
     def clean(self) -> dict:
         data = super().clean()
@@ -238,6 +258,7 @@ class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelFo
             "scheduling_model",
             "flexible_note",
             "image",
+            "video_url",
         ]
 
     def __init__(self, *args, instructor: Instructor | None = None, **kwargs) -> None:
@@ -246,6 +267,9 @@ class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelFo
         self.fields["member_discount_pct"].label = "Member discount (%)"
         self.add_is_free_field()
         self.add_hero_crop_field()
+
+    def clean_video_url(self) -> str:
+        return _validate_youtube_url(self.cleaned_data.get("video_url", ""))
 
     def clean(self) -> dict:
         data = super().clean()
