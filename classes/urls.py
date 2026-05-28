@@ -63,6 +63,7 @@ urlpatterns = [
     path("admin/categories/<int:pk>/delete/", views.admin_category_delete, name="admin_category_delete"),
     path("admin/instructors/", views.admin_instructors, name="admin_instructors"),
     path("admin/instructors/add/", views.admin_instructor_promote, name="admin_instructor_promote"),
+    path("admin/activity/", views.admin_activity, name="admin_activity"),
     path("admin/registrations/", views.admin_registrations, name="admin_registrations"),
     path("admin/registrations/<int:pk>/", views.admin_registration_detail, name="admin_registration_detail"),
     path("admin/registrations/<int:pk>/cancel/", views.admin_registration_cancel, name="admin_registration_cancel"),

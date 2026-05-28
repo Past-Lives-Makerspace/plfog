@@ -77,6 +77,15 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
         )
         if registration.discount_code_id:
             DiscountCode.objects.filter(pk=registration.discount_code_id).update(use_count=F("use_count") + 1)
+            from classes import activity
+            from classes.models import CmsActivity
+
+            activity.log(
+                CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
+                class_offering=registration.class_offering,
+                registration=registration,
+                payload={"code": registration.discount_code.code},
+            )
 
     send_registration_confirmation(registration)
     send_instructor_registration_notification(registration)

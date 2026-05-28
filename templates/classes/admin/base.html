@@ -12,6 +12,7 @@
     </div>
     <nav style="display: flex; border-bottom: 1px solid var(--hub-border); gap: 0; margin-bottom: 1.25rem; flex-wrap: wrap;" role="tablist">
         <a href="{% url 'classes:admin_classes' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}">Classes</a>
+        <a href="{% url 'classes:admin_activity' %}" class="vote-tab{% if active_tab == 'activity' %} vote-tab--active{% endif %}">Activity</a>
         <a href="{% url 'classes:admin_registrations' %}" class="vote-tab{% if active_tab == 'registrations' %} vote-tab--active{% endif %}">Registrations</a>
         <a href="{% url 'classes:admin_instructors' %}" class="vote-tab{% if active_tab == 'instructors' %} vote-tab--active{% endif %}">Instructors</a>
         <a href="{% url 'classes:admin_categories' %}" class="vote-tab{% if active_tab == 'categories' %} vote-tab--active{% endif %}">Categories</a>

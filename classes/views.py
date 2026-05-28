@@ -47,6 +47,7 @@ from classes.models import (
     ClassImage,
     ClassOffering,
     ClassSettings,
+    CmsActivity,
     DiscountCode,
     Instructor,
     Registration,
@@ -359,6 +360,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             registration.save(update_fields=["status", "confirmed_at", "amount_paid_cents"])
             if registration.discount_code_id:
                 _bump_discount_use_count(registration.discount_code_id)
+                _log_discount_redeemed(registration)
             send_registration_confirmation(registration)
             send_instructor_registration_notification(registration)
             send_admin_registration_notification(registration)
@@ -504,6 +506,21 @@ def my_registration_cancel(request: HttpRequest, token: str) -> HttpResponse:
     registration.cancel(reason="self-serve")
     messages.success(request, "Your registration is cancelled.")
     return redirect("classes:my_registration", token=token)
+
+
+def _log_discount_redeemed(registration: Registration) -> None:
+    """Append a DISCOUNT_CODE_REDEEMED activity row when a discount applied."""
+    from classes import activity
+    from classes.models import CmsActivity
+
+    if not registration.discount_code_id:
+        return
+    activity.log(
+        CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
+        class_offering=registration.class_offering,
+        registration=registration,
+        payload={"code": registration.discount_code.code},
+    )
 
 
 def _bump_discount_use_count(discount_code_id: int) -> None:
@@ -1103,6 +1120,90 @@ def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
                 f"Admin approval recorded. Waiting on the remaining reviewer(s) before {offering.title} publishes.",
             )
     return redirect("classes:admin_class_detail", pk=offering.pk)
+
+
+_ACTIVITY_GROUPS = {
+    "classes": [
+        CmsActivity.Kind.CLASS_CREATED,
+        CmsActivity.Kind.CLASS_SUBMITTED,
+        CmsActivity.Kind.CLASS_APPROVED,
+        CmsActivity.Kind.CLASS_CHANGES_REQUESTED,
+        CmsActivity.Kind.CLASS_DENIED,
+        CmsActivity.Kind.CLASS_PUBLISHED,
+        CmsActivity.Kind.CLASS_ARCHIVED,
+    ],
+    "registrations": [
+        CmsActivity.Kind.REGISTRATION_CREATED,
+        CmsActivity.Kind.REGISTRATION_CONFIRMED,
+        CmsActivity.Kind.REGISTRATION_CANCELLED,
+        CmsActivity.Kind.REGISTRATION_REFUNDED,
+    ],
+    "waitlist": [
+        CmsActivity.Kind.WAITLIST_JOINED,
+        CmsActivity.Kind.WAITLIST_NOTIFIED,
+        CmsActivity.Kind.WAITLIST_LEFT,
+    ],
+    "discount_codes": [
+        CmsActivity.Kind.DISCOUNT_CODE_CREATED,
+        CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
+    ],
+}
+
+
+@classes_admin_access_required
+def admin_activity(request: HttpRequest) -> HttpResponse:
+    """Chronological feed of every CMS event for admins.
+
+    Filters: group (classes/registrations/waitlist/discount_codes/all) and
+    a free-text search across class title, actor name, and registration
+    email. Pagination is 50 rows; older rows fall off the bottom.
+    """
+    from django.core.paginator import Paginator
+
+    qs = CmsActivity.objects.select_related(
+        "class_offering",
+        "registration",
+        "actor",
+    ).order_by("-created_at")
+
+    selected_group = request.GET.get("group", "all").strip() or "all"
+    if selected_group in _ACTIVITY_GROUPS:
+        qs = qs.filter(kind__in=_ACTIVITY_GROUPS[selected_group])
+
+    search = (request.GET.get("q") or "").strip()
+    if search:
+        qs = qs.filter(
+            Q(class_offering__title__icontains=search)
+            | Q(actor__email__icontains=search)
+            | Q(actor__first_name__icontains=search)
+            | Q(actor__last_name__icontains=search)
+            | Q(registration__email__icontains=search)
+            | Q(registration__first_name__icontains=search)
+            | Q(registration__last_name__icontains=search)
+        )
+
+    paginator = Paginator(qs, 50)
+    page = paginator.get_page(request.GET.get("page") or 1)
+
+    return render(
+        request,
+        "classes/admin/activity.html",
+        {
+            "active_tab": "activity",
+            "events": page.object_list,
+            "page_obj": page,
+            "paginator": paginator,
+            "selected_group": selected_group,
+            "search": search,
+            "groups": [
+                ("all", "All"),
+                ("classes", "Classes"),
+                ("registrations", "Registrations"),
+                ("waitlist", "Waitlist"),
+                ("discount_codes", "Discount codes"),
+            ],
+        },
+    )
 
 
 @classes_admin_access_required
