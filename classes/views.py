@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
 from classes.emails import (
     send_admin_registration_notification,
+    send_class_review_decision,
+    send_class_review_requests,
     send_instructor_registration_notification,
     send_registration_confirmation,
 )
@@ -28,6 +30,7 @@ from classes.table import prepare_table
 from classes.forms import (
     CategoryForm,
     ClassOfferingForm,
+    ClassReviewDecisionForm,
     ClassSessionFormSet,
     ClassSettingsForm,
     DiscountCodeForm,
@@ -39,6 +42,7 @@ from classes.forms import (
 )
 from classes.models import (
     Category,
+    ClassApproval,
     ClassImage,
     ClassOffering,
     ClassSettings,
@@ -681,8 +685,13 @@ def instructor_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     instructor: Instructor = request.instructor  # type: ignore[attr-defined]
     offering = get_object_or_404(ClassOffering.objects.filter(instructor=instructor), pk=pk)
     if request.method == "POST" and offering.status == ClassOffering.Status.DRAFT:
-        offering.submit_for_review()
-        messages.success(request, f"Submitted “{offering.title}” for admin review.")
+        approvals = offering.submit_for_review()
+        send_class_review_requests(offering, approvals)
+        roles_label = " + ".join(a.get_role_display() for a in approvals)
+        messages.success(
+            request,
+            f"Submitted “{offering.title}” for review by {roles_label}.",
+        )
     return redirect("classes:instructor_dashboard")
 
 
@@ -1046,11 +1055,109 @@ def admin_class_email(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    """Quick-approve from the admin class detail page.
+
+    Records an admin-role decision via ClassApproval; the offering publishes
+    only when every required gate (admin + guild lead, if any) is satisfied.
+    For request-changes / decline with notes, use the dedicated review page
+    at /classes/admin/<pk>/review/.
+    """
     offering = get_object_or_404(ClassOffering, pk=pk)
     if request.method == "POST":
-        offering.approve(request.user)
-        messages.success(request, f"{offering.title} is published.")
+        row = (
+            offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first()
+            or ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        )
+        row.decide(ClassApproval.Decision.APPROVED, user=request.user)
+        send_class_review_decision(offering, row)
+        if offering.status == ClassOffering.Status.PUBLISHED:
+            messages.success(request, f"{offering.title} is published.")
+        else:
+            messages.success(
+                request,
+                f"Admin approval recorded. Waiting on the remaining reviewer(s) before {offering.title} publishes.",
+            )
     return redirect("classes:admin_class_detail", pk=offering.pk)
+
+
+@classes_admin_access_required
+def admin_class_review(request: HttpRequest, pk: int) -> HttpResponse:
+    """Full reviewer page for admins. Mirrors the tokenized public review page."""
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    return _class_review_view(
+        request,
+        offering=offering,
+        role=ClassApproval.Role.ADMIN,
+        token=None,
+    )
+
+
+def class_review(request: HttpRequest, token: str) -> HttpResponse:
+    """Tokenized reviewer page — no hub login required.
+
+    Token is single-use per decision; reopening after a decision shows the
+    current state. The token identifies the ClassApproval row and therefore
+    which role's gate the visitor satisfies.
+    """
+    approval = get_object_or_404(ClassApproval, token=token)
+    return _class_review_view(
+        request,
+        offering=approval.class_offering,
+        role=approval.role,
+        token=token,
+        approval=approval,
+    )
+
+
+def _class_review_view(
+    request: HttpRequest,
+    *,
+    offering: ClassOffering,
+    role: str,
+    token: str | None,
+    approval: ClassApproval | None = None,
+) -> HttpResponse:
+    """Shared logic for /classes/admin/<pk>/review/ and /classes/review/<token>/."""
+    if approval is None:
+        approval = (
+            offering.approvals.filter(role=role, decision="").order_by("-created_at").first()
+            or ClassApproval.objects.create(class_offering=offering, role=role)
+        )
+    settings_obj = ClassSettings.load()
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    history = list(offering.approvals.exclude(pk=approval.pk).order_by("-created_at"))
+
+    form = ClassReviewDecisionForm(request.POST or None)
+    if request.method == "POST" and not approval.decision and form.is_valid():
+        approval.decide(
+            form.cleaned_data["decision"],
+            user=request.user if request.user.is_authenticated else None,
+            notes=form.cleaned_data.get("notes", ""),
+        )
+        # refresh from DB to pick up the new state
+        approval.refresh_from_db()
+        offering.refresh_from_db()
+        send_class_review_decision(offering, approval)
+        messages.success(request, "Your decision has been recorded. Thanks for reviewing.")
+        if token:
+            return redirect("classes:class_review", token=token)
+        return redirect("classes:admin_class_review", pk=offering.pk)
+
+    return render(
+        request,
+        "classes/admin/class_review.html",
+        {
+            "offering": offering,
+            "settings_obj": settings_obj,
+            "approval": approval,
+            "history": history,
+            "form": form,
+            "role": role,
+            "upcoming_sessions": upcoming_sessions,
+            "is_tokenized": token is not None,
+            "active_tab": "classes",
+        },
+    )
 
 
 @classes_admin_access_required

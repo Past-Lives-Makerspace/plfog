@@ -246,23 +246,83 @@ class ClassOffering(models.Model):
         normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)
         super().save(*args, **kwargs)
 
-    def submit_for_review(self) -> None:
+    @property
+    def required_review_roles(self) -> list[str]:
+        """Reviewer roles whose approval is needed to publish this offering.
+
+        Admin is always required. Guild Lead is added when the class's category
+        is linked to a guild that has a lead set — otherwise we'd be blocking
+        on a role that has no human attached.
+        """
+        roles = [ClassApproval.Role.ADMIN]
+        if self.category_id and self.category.guild_id and self.category.guild.guild_lead_id:
+            roles.append(ClassApproval.Role.GUILD_LEAD)
+        return roles
+
+    def submit_for_review(self) -> list["ClassApproval"]:
+        """Move from DRAFT to PENDING and create one approval row per required role.
+
+        Returns the freshly created approval rows so the caller (typically a
+        view) can pass them to the review-request email senders.
+        """
         if self.status != self.Status.DRAFT:
             raise ValueError(f"Only draft classes can be submitted; got {self.status}.")
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
+        # Clear out any stale approval rows from a prior submission cycle, then
+        # create one pending row per required role for this fresh round.
+        self.approvals.all().delete()
+        rows = [
+            ClassApproval.objects.create(class_offering=self, role=role)
+            for role in self.required_review_roles
+        ]
+        return rows
 
     def approve(self, admin_user) -> None:
+        """Record an admin approval via the ClassApproval pathway.
+
+        Maintained for callers (views, tests) that already used this name.
+        Creates a fresh ADMIN approval row if one doesn't exist for the
+        current cycle and decides it APPROVED on the admin's behalf.
+        """
         if self.status != self.Status.PENDING:
             raise ValueError(f"Only pending classes can be approved; got {self.status}.")
-        self.status = self.Status.PUBLISHED
-        self.approved_by = admin_user
-        self.published_at = timezone.now()
-        self.save(update_fields=["status", "approved_by", "published_at", "updated_at"])
+        row = (
+            self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first()
+            or ClassApproval.objects.create(class_offering=self, role=ClassApproval.Role.ADMIN)
+        )
+        row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
 
     def archive(self) -> None:
         self.status = self.Status.ARCHIVED
         self.save(update_fields=["status", "updated_at"])
+
+    def on_review_decision_recorded(self, row: "ClassApproval") -> None:
+        """Lifecycle hook: called by ClassApproval.decide.
+
+        APPROVED: if every required role has now signed off, publish.
+        CHANGES_REQUESTED / DENIED: bounce back to DRAFT so the instructor
+        can edit and resubmit. Per the locked decision in PLAN.md §14,
+        a guild-lead denial is recoverable (returns to DRAFT) rather than
+        archival; admin-level archival is a separate explicit action.
+        """
+        if row.decision == ClassApproval.Decision.APPROVED:
+            required = set(self.required_review_roles)
+            approved = {
+                r.role
+                for r in self.approvals.filter(decision=ClassApproval.Decision.APPROVED)
+            }
+            if required.issubset(approved):
+                self.status = self.Status.PUBLISHED
+                self.approved_by = row.decided_by
+                self.published_at = timezone.now()
+                self.save(update_fields=["status", "approved_by", "published_at", "updated_at"])
+        elif row.decision in (
+            ClassApproval.Decision.CHANGES_REQUESTED,
+            ClassApproval.Decision.DENIED,
+        ):
+            self.status = self.Status.DRAFT
+            self.save(update_fields=["status", "updated_at"])
 
     def add_gallery_images(self, files: list[UploadedFile]) -> None:
         """Create ClassImage rows from uploaded files."""
@@ -340,6 +400,110 @@ class ClassOffering(models.Model):
         self.approved_by = None
         self.save()
         return self
+
+
+class ClassApprovalQuerySet(models.QuerySet["ClassApproval"]):
+    def pending(self) -> "ClassApprovalQuerySet":
+        return self.filter(decision="")
+
+    def for_offering(self, offering: "ClassOffering") -> "ClassApprovalQuerySet":
+        return self.filter(class_offering=offering)
+
+
+class ClassApproval(models.Model):
+    """One reviewer gate on a ClassOffering submission.
+
+    When an instructor calls ``ClassOffering.submit_for_review()``, one row
+    is created per required reviewer role (``Role.ADMIN`` always; plus
+    ``Role.GUILD_LEAD`` when the class's category is linked to a guild that
+    has a lead). Each row gets a unique ``token`` so the emailed reviewer
+    can act without a hub login.
+
+    Rows start with ``decision = ""`` (still pending). Calling ``decide()``
+    on a row records the decision and triggers the lifecycle hook on the
+    offering (publish when every required row is APPROVED; back to DRAFT
+    when any reviewer requests changes or denies).
+    """
+
+    class Role(models.TextChoices):
+        ADMIN = "admin", "Admin"
+        GUILD_LEAD = "guild_lead", "Guild Lead"
+
+    class Decision(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        CHANGES_REQUESTED = "changes_requested", "Changes Requested"
+        DENIED = "denied", "Denied"
+
+    class_offering = models.ForeignKey(
+        "ClassOffering",
+        on_delete=models.CASCADE,
+        related_name="approvals",
+        help_text="The class submission this review row gates.",
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        help_text="Which reviewer gate this row represents.",
+    )
+    decision = models.CharField(
+        max_length=20,
+        choices=Decision.choices,
+        blank=True,
+        default="",
+        help_text="Reviewer's verdict; empty means still pending.",
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Authenticated user who recorded the decision, when known.",
+    )
+    notes = models.TextField(
+        blank=True,
+        help_text="Reviewer comments shown to the instructor.",
+    )
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="Random token used in the emailed /classes/review/<token>/ link.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the review was requested.")
+    decided_at = models.DateTimeField(null=True, blank=True, help_text="When the reviewer acted.")
+
+    objects = ClassApprovalQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["class_offering", "role"]),
+        ]
+
+    def __str__(self) -> str:
+        state = self.get_decision_display() if self.decision else "Pending"
+        return f"{self.get_role_display()} review of {self.class_offering_id}: {state}"
+
+    def save(self, *args, **kwargs) -> None:
+        if not self.token:
+            self.token = secrets.token_urlsafe(32)
+        super().save(*args, **kwargs)
+
+    def decide(self, decision: str, user=None, notes: str = "") -> None:
+        """Record a reviewer decision and trigger the offering's lifecycle hook."""
+        if decision not in {
+            self.Decision.APPROVED,
+            self.Decision.CHANGES_REQUESTED,
+            self.Decision.DENIED,
+        }:
+            raise ValueError(f"Unknown decision: {decision!r}")
+        self.decision = decision
+        self.decided_by = user
+        self.notes = notes
+        self.decided_at = timezone.now()
+        self.save(update_fields=["decision", "decided_by", "notes", "decided_at"])
+        self.class_offering.on_review_decision_recorded(self)
 
 
 class ClassImage(models.Model):

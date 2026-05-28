@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Your class is in review</title>
+</head>
+<body style="margin:0;padding:24px;background:#12121f;font-family:Helvetica,Arial,sans-serif;color:#F4EFDD;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#092E4C;border-radius:10px;overflow:hidden;">
+    <tr><td style="padding:24px 28px 8px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.18em;color:#EEB44B;">In review</div>
+      <h1 style="font-family:'Lato',sans-serif;font-size:26px;font-weight:800;margin:8px 0 4px;color:#F4EFDD;">{{ offering.title }}</h1>
+    </td></tr>
+    <tr><td style="padding:14px 28px;">
+      <p style="margin:0 0 14px;color:#F4EFDD;font-size:15px;line-height:1.55;">
+        Your class submission is now in front of the reviewers. Here's what happens next.
+      </p>
+      <ol style="padding-left:20px;color:#F4EFDD;font-size:15px;line-height:1.7;margin:0 0 16px;">
+        <li>Each reviewer (admin{% for row in approvals %}{% if row.role == 'guild_lead' %}, plus the Guild Lead{% endif %}{% endfor %}) gets a link to your class.</li>
+        <li>They can <strong>Approve</strong>, <strong>Request changes</strong>, or <strong>Decline</strong>.</li>
+        <li>You'll get an email at each step. If anyone requests changes, the class drops back to Draft so you can edit and resubmit.</li>
+        <li>Once <em>every</em> required reviewer has approved, your class publishes automatically.</li>
+      </ol>
+      <p style="margin:18px 0;">
+        <a href="{{ instructor_url }}"
+           style="display:inline-block;padding:12px 22px;background:#EEB44B;color:#092E4C;font-weight:800;letter-spacing:0.04em;text-decoration:none;border-radius:6px;font-size:13px;text-transform:uppercase;">
+          View status
+        </a>
+      </p>
+    </td></tr>
+  </table>
+</body>
+</html>

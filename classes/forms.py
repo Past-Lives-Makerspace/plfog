@@ -409,6 +409,37 @@ class PromoteUserToInstructorForm(forms.Form):
         )
 
 
+class ClassReviewDecisionForm(forms.Form):
+    """Reviewer's decision form on the tokenized review page.
+
+    Notes are required when the decision is changes_requested or denied so
+    the instructor gets actionable feedback. They're optional on approve.
+    """
+
+    decision = forms.ChoiceField(
+        choices=[
+            ("approved", "Approve"),
+            ("changes_requested", "Request changes"),
+            ("denied", "Decline"),
+        ],
+        widget=forms.RadioSelect,
+        label="Decision",
+    )
+    notes = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 4, "placeholder": "Optional on approve; required on request-changes and decline."}),
+        required=False,
+        label="Notes for the instructor",
+    )
+
+    def clean(self) -> dict:
+        data = super().clean()
+        decision = data.get("decision")
+        notes = (data.get("notes") or "").strip()
+        if decision in ("changes_requested", "denied") and not notes:
+            self.add_error("notes", "Please leave a note so the instructor knows what to change.")
+        return data
+
+
 class DiscountCodeForm(forms.ModelForm):
     discount_fixed_cents = CentsAsDollarsField(
         required=False,

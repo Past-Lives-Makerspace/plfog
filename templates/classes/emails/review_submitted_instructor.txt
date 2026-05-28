@@ -1,0 +1,17 @@
+IN REVIEW
+
+{{ offering.title }}
+
+Your class submission is now in front of the reviewers. Here's what
+happens next.
+
+1. Each reviewer (admin{% for row in approvals %}{% if row.role == 'guild_lead' %}, plus the Guild Lead{% endif %}{% endfor %}) gets a link
+   to your class.
+2. They can Approve, Request changes, or Decline.
+3. You'll get an email at each step. If anyone requests changes, the
+   class drops back to Draft so you can edit and resubmit.
+4. Once every required reviewer has approved, your class publishes
+   automatically.
+
+View status:
+{{ instructor_url }}

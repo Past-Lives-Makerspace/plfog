@@ -22,6 +22,20 @@ _YOUTUBE_PATTERNS = (
 
 
 @register.filter
+def first_with_role(approvals, role: str):
+    """Return the first ClassApproval row from ``approvals`` with the given role.
+
+    Used by the reviewer page to render a per-required-role progress list
+    without N database queries. The ``approvals`` argument is the prefetched
+    iterable on ``offering.approvals.all``.
+    """
+    for row in approvals:
+        if row.role == role:
+            return row
+    return None
+
+
+@register.filter
 def youtube_embed_id(url: str | None) -> str:
     """Extract the 11-char video ID from any common YouTube URL form.
 

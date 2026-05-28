@@ -1,0 +1,24 @@
+{% if fully_approved %}PUBLISHED{% elif approval.decision == 'approved' %}{{ approval.get_role_display|upper }} APPROVED{% elif approval.decision == 'changes_requested' %}CHANGES REQUESTED{% else %}DECLINED{% endif %}
+
+{{ offering.title }}
+
+{% if fully_approved %}Every required reviewer has approved your class. It's now live on the public site.
+
+View public page:
+{{ public_url }}
+{% elif approval.decision == 'approved' %}{{ approval.get_role_display }} approved your class. {% if pending_rows %}Waiting on: {% for p in pending_rows %}{{ p.get_role_display }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% else %}That was the last gate.{% endif %}
+{% elif approval.decision == 'changes_requested' %}{{ approval.get_role_display }} reviewed your class and asked for changes before approving. The class is back in Draft so you can edit and resubmit.
+
+{% if approval.notes %}Reviewer notes:
+{{ approval.notes }}
+
+{% endif %}Open the class to edit:
+{{ edit_url }}
+{% else %}{{ approval.get_role_display }} declined your class. The class is back in Draft. If you'd like to discuss, reach out to info@pastlives.space.
+
+{% if approval.notes %}Reviewer notes:
+{{ approval.notes }}
+
+{% endif %}Open the class:
+{{ edit_url }}
+{% endif %}
