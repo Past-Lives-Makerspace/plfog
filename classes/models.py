@@ -259,8 +259,8 @@ class ClassOffering(models.Model):
         is linked to a guild that has a lead set — otherwise we'd be blocking
         on a role that has no human attached.
         """
-        roles = [ClassApproval.Role.ADMIN]
-        if self.category_id and self.category.guild_id and self.category.guild.guild_lead_id:
+        roles: list[str] = [ClassApproval.Role.ADMIN]
+        if self.category_id and self.category.guild_id and self.category.guild is not None and self.category.guild.guild_lead_id:
             roles.append(ClassApproval.Role.GUILD_LEAD)
         return roles
 

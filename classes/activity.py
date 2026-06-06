@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser
+    from django.contrib.auth.models import User
 
     from classes.models import ClassOffering, CmsActivity, Registration
 
@@ -20,7 +20,7 @@ def log(
     *,
     class_offering: "ClassOffering | None" = None,
     registration: "Registration | None" = None,
-    actor: "AbstractBaseUser | None" = None,
+    actor: "User | None" = None,
     payload: dict[str, Any] | None = None,
 ) -> "CmsActivity":
     """Create a single CmsActivity row. Safe to call from save()/signals."""
