@@ -146,9 +146,7 @@ def public_list(request: HttpRequest) -> HttpResponse:
 
     # Instructors-for-filter: everyone who teaches at least one browsable class.
     instructors_for_filter = list(
-        Instructor.objects.filter(classes__in=_browsable_classes())
-        .distinct()
-        .order_by("display_name")
+        Instructor.objects.filter(classes__in=_browsable_classes()).distinct().order_by("display_name")
     )
 
     # Group classes by category for the rendered sections.
@@ -1115,10 +1113,9 @@ def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
     """
     offering = get_object_or_404(ClassOffering, pk=pk)
     if request.method == "POST":
-        row = (
-            offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first()
-            or ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
-        )
+        row = offering.approvals.filter(
+            role=ClassApproval.Role.ADMIN, decision=""
+        ).first() or ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         row.decide(ClassApproval.Decision.APPROVED, user=request.user)
         send_class_review_decision(offering, row)
         if offering.status == ClassOffering.Status.PUBLISHED:
@@ -1254,10 +1251,9 @@ def _class_review_view(
 ) -> HttpResponse:
     """Shared logic for /classes/admin/<pk>/review/ and /classes/review/<token>/."""
     if approval is None:
-        approval = (
-            offering.approvals.filter(role=role, decision="").order_by("-created_at").first()
-            or ClassApproval.objects.create(class_offering=offering, role=role)
-        )
+        approval = offering.approvals.filter(role=role, decision="").order_by(
+            "-created_at"
+        ).first() or ClassApproval.objects.create(class_offering=offering, role=role)
     settings_obj = ClassSettings.load()
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
     history = list(offering.approvals.exclude(pk=approval.pk).order_by("-created_at"))

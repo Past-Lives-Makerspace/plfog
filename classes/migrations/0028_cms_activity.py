@@ -113,7 +113,6 @@ def drop_backfilled_activity(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("classes", "0027_waitlist"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),

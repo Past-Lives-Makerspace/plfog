@@ -37,10 +37,9 @@ def _validate_youtube_url(url: str) -> str:
     if not cleaned:
         return ""
     if not _youtube_embed_id(cleaned):
-        raise ValidationError(
-            "Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…"
-        )
+        raise ValidationError("Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…")
     return cleaned
+
 
 if TYPE_CHECKING:
     from membership.models import Member
@@ -425,7 +424,9 @@ class ClassReviewDecisionForm(forms.Form):
         label="Decision",
     )
     notes = forms.CharField(
-        widget=forms.Textarea(attrs={"rows": 4, "placeholder": "Optional on approve; required on request-changes and decline."}),
+        widget=forms.Textarea(
+            attrs={"rows": 4, "placeholder": "Optional on approve; required on request-changes and decline."}
+        ),
         required=False,
         label="Notes for the instructor",
     )
@@ -709,9 +710,9 @@ class RegistrationForm(forms.ModelForm):
         # Codes are either global (class_offering is null) or scoped to this
         # class. A code scoped to some other class is not recognized here.
         try:
-            code = DiscountCode.objects.filter(
-                Q(class_offering__isnull=True) | Q(class_offering=self.offering)
-            ).get(code=raw)
+            code = DiscountCode.objects.filter(Q(class_offering__isnull=True) | Q(class_offering=self.offering)).get(
+                code=raw
+            )
         except DiscountCode.DoesNotExist:
             raise forms.ValidationError("That discount code isn't recognized.") from None
         if not code.is_currently_valid():

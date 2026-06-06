@@ -60,7 +60,6 @@ def unseed(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("classes", "0023_class_offering_video_url"),
     ]
