@@ -11,7 +11,18 @@ from django.urls import reverse
 from django.utils import timezone
 
 if TYPE_CHECKING:
-    from classes.models import ClassSession, Registration
+    from classes.models import ClassApproval, ClassOffering, ClassSession, Registration
+
+
+def _admin_review_recipients() -> list[str]:
+    """Return the configured admin reviewer email list, deduplicated."""
+    raw = getattr(settings, "CLASS_ADMIN_NOTIFY_EMAILS", "") or ""
+    seen: list[str] = []
+    for chunk in raw.split(","):
+        email = chunk.strip()
+        if email and email not in seen:
+            seen.append(email)
+    return seen
 
 
 def _absolute_url(path: str) -> str:
@@ -99,6 +110,186 @@ def send_admin_registration_notification(registration: "Registration") -> None:
         from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
         recipient_list=admin_emails,
         fail_silently=True,
+    )
+
+
+def send_class_review_requests(offering: "ClassOffering", approvals: list["ClassApproval"]) -> None:
+    """Fire the review-request emails created by ``submit_for_review()``.
+
+    Sends one email per approval row:
+      * Admin rows go to every address in ``CLASS_ADMIN_NOTIFY_EMAILS``.
+      * Guild-lead rows go to the guild_lead's user email when set.
+
+    Each email carries a tokenized ``/classes/review/<token>/`` link so the
+    reviewer can act without a hub login. Also sends the instructor a
+    "here's what happens next" explainer in the same call.
+    """
+    from classes.models import ClassApproval
+
+    for row in approvals:
+        review_url = _absolute_url(reverse("classes:class_review", kwargs={"token": row.token}))
+        recipients: list[str] = []
+        if row.role == ClassApproval.Role.ADMIN:
+            recipients = _admin_review_recipients()
+            role_label = "Admin"
+        elif row.role == ClassApproval.Role.GUILD_LEAD:
+            guild = offering.category.guild
+            lead = guild.guild_lead if guild else None
+            if lead and lead.user and lead.user.email:
+                recipients = [lead.user.email]
+            role_label = "Guild Lead"
+        else:
+            role_label = row.get_role_display()
+        if not recipients:
+            continue
+        context = {
+            "offering": offering,
+            "approval": row,
+            "review_url": review_url,
+            "role_label": role_label,
+        }
+        text_body = render_to_string("classes/emails/review_request.txt", context)
+        html_body = render_to_string("classes/emails/review_request.html", context)
+        send_mail(
+            subject=f"Review request: {offering.title}",
+            message=text_body,
+            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+            recipient_list=recipients,
+            html_message=html_body,
+            fail_silently=True,
+        )
+
+    # Tell the instructor what's happening so they don't wonder.
+    if offering.instructor and offering.instructor.user and offering.instructor.user.email:
+        instructor_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        ctx = {
+            "offering": offering,
+            "approvals": approvals,
+            "instructor_url": instructor_url,
+        }
+        text_body = render_to_string("classes/emails/review_submitted_instructor.txt", ctx)
+        html_body = render_to_string("classes/emails/review_submitted_instructor.html", ctx)
+        send_mail(
+            subject=f"Your class “{offering.title}” is in review",
+            message=text_body,
+            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+            recipient_list=[offering.instructor.user.email],
+            html_message=html_body,
+            fail_silently=True,
+        )
+
+
+def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") -> None:
+    """Email the instructor when any reviewer records a decision.
+
+    Subject lines vary by outcome so the instructor's inbox tells the story:
+      * "Approved" while other gates pending.
+      * "Your class is live!" when fully approved.
+      * "Changes requested" with reviewer notes verbatim.
+      * "Declined" with reviewer notes.
+    """
+    from classes.models import ClassApproval
+
+    instructor = offering.instructor
+    if not (instructor and instructor.user and instructor.user.email):
+        return
+
+    fully_approved = offering.status == offering.Status.PUBLISHED and row.decision == ClassApproval.Decision.APPROVED
+    if fully_approved:
+        subject = f"Your class “{offering.title}” is live!"
+        public_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        edit_url = public_url
+    elif row.decision == ClassApproval.Decision.APPROVED:
+        subject = f"{row.get_role_display()} approved “{offering.title}”"
+        edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        public_url = ""
+    elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
+        subject = f"Changes requested on “{offering.title}”"
+        edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        public_url = ""
+    else:  # DENIED
+        subject = f"Your class submission was declined: “{offering.title}”"
+        edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        public_url = ""
+
+    pending_rows = list(offering.approvals.filter(decision=""))
+    context = {
+        "offering": offering,
+        "approval": row,
+        "edit_url": edit_url,
+        "public_url": public_url,
+        "fully_approved": fully_approved,
+        "pending_rows": pending_rows,
+    }
+    text_body = render_to_string("classes/emails/review_decision.txt", context)
+    html_body = render_to_string("classes/emails/review_decision.html", context)
+    send_mail(
+        subject=subject,
+        message=text_body,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        recipient_list=[instructor.user.email],
+        html_message=html_body,
+        fail_silently=True,
+    )
+
+
+def send_waitlist_joined_confirmation(registration: "Registration") -> None:
+    """Confirm to a registrant that they're on the waitlist + their position.
+
+    Fires on the WAITLISTED-creating branch of the register view (sold-out
+    class + waitlist intent). Tells them what position they're in and what
+    happens if a spot opens.
+    """
+    offering = registration.class_offering
+    self_serve_url = _absolute_url(reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}))
+    ctx = {
+        "registration": registration,
+        "offering": offering,
+        "position": registration.waitlist_position,
+        "self_serve_url": self_serve_url,
+    }
+    text_body = render_to_string("classes/emails/waitlist_joined.txt", ctx)
+    html_body = render_to_string("classes/emails/waitlist_joined.html", ctx)
+    send_mail(
+        subject=f"You're on the waitlist for {offering.title}",
+        message=text_body,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        recipient_list=[registration.email],
+        html_message=html_body,
+        fail_silently=False,
+    )
+
+
+def send_waitlist_spot_opened(registration: "Registration") -> None:
+    """Notify a waitlisted registrant that a spot just opened.
+
+    Fires from ``ClassOffering.promote_next_from_waitlist`` after a confirmed
+    registration cancels or refunds. The link lands on the registration page
+    where the registrant can complete payment within the claim window
+    configured on ClassSettings.
+    """
+    from classes.models import ClassSettings
+
+    offering = registration.class_offering
+    register_url = _absolute_url(
+        reverse("classes:register", kwargs={"slug": offering.slug}) + f"?waitlist_token={registration.self_serve_token}"
+    )
+    settings_obj = ClassSettings.load()
+    ctx = {
+        "registration": registration,
+        "offering": offering,
+        "register_url": register_url,
+        "claim_window_hours": settings_obj.waitlist_claim_window_hours,
+    }
+    text_body = render_to_string("classes/emails/waitlist_spot_opened.txt", ctx)
+    html_body = render_to_string("classes/emails/waitlist_spot_opened.html", ctx)
+    send_mail(
+        subject=f"A spot opened in {offering.title}!",
+        message=text_body,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        recipient_list=[registration.email],
+        html_message=html_body,
+        fail_silently=False,
     )
 
 

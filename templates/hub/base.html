@@ -10,11 +10,15 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/hub.css' %}">
     <link rel="stylesheet" href="{% static 'css/components.css' %}">
+    <meta name="default-theme" content="{% block default_theme %}dark{% endblock %}">
     <script>
         (function() {
             var t = localStorage.getItem('theme');
             var h = document.documentElement;
-            if (t === 'light') {
+            var meta = document.querySelector('meta[name="default-theme"]');
+            var def = (meta && meta.content === 'light') ? 'light' : 'dark';
+            var effective = (t === 'light' || t === 'dark') ? t : def;
+            if (effective === 'light') {
                 h.setAttribute('data-theme', 'light');
                 h.classList.remove('dark');
             } else {
@@ -30,7 +34,7 @@
                 } else {
                     h.removeAttribute('data-theme');
                     h.classList.add('dark');
-                    localStorage.removeItem('theme');
+                    localStorage.setItem('theme', 'dark');
                     localStorage.setItem('_x_adminTheme', '"dark"');
                 }
             };

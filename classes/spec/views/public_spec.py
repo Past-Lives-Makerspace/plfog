@@ -195,7 +195,7 @@ def describe_public_class_detail():
             RegistrationFactory(class_offering=published_class, status=Registration.Status.CONFIRMED)
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
         assert response.status_code == 200
-        assert b"Sold Out" in response.content
+        assert b"Sold out" in response.content
 
 
 def describe_public_instructor():

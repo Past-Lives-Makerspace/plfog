@@ -4,107 +4,272 @@
 {% block title %}{{ offering.title }} — Past Lives Makerspace{% endblock %}
 
 {% block portal_content %}
-<div class="view">
-  <div class="cp-container">
-    {% if is_preview %}
-    <div class="cp-preview-banner">
-        <strong>Preview</strong> — this page is only visible to you and admins. Status: {{ offering.get_status_display }}.
-    </div>
+<article class="cp-detail">
+  {% if is_preview %}
+  <div class="cp-detail__preview-banner">
+    <strong>Preview</strong> — this page is only visible to you and admins. Status: {{ offering.get_status_display }}.
+  </div>
+  {% endif %}
+
+  {# ── HERO ─────────────────────────────────────────────── #}
+  <header class="cp-detail__hero">
+    {% if offering.image %}
+      <img class="cp-detail__hero-img"
+           src="{{ offering.image.url }}"
+           alt="{{ offering.title }}"
+           style="object-position: {{ offering.hero_object_position }};">
     {% endif %}
-    <div class="detail-card">
-      {% include "classes/_components/gallery.html" with offering=offering %}
-      <div class="detail-head">
-        <div>
-          <div class="dc-cat">{{ offering.category.name }}</div>
-          <div class="dc-title">{{ offering.title }}</div>
-          <div class="dc-inst">
-            with <a href="{% url 'classes:public_instructor' slug=offering.instructor.slug %}">{{ offering.instructor.display_name }}</a>{% if offering.instructor.social_handle %} · {{ offering.instructor.social_handle }}{% endif %}
-          </div>
-        </div>
-        <a class="back-link" href="{% url 'classes:public_list' %}">&larr; All classes</a>
-      </div>
-      <div class="detail-body">
-        <div class="dc-pbar">
-          <div class="dc-pbig">{{ offering.price_cents|cents_as_price }}</div>
-          {% if member_price_cents %}<div class="dc-pmem">{{ member_price_cents|cents_as_price }} for PL members</div>{% endif %}
-          <div class="dc-pspot {{ spots_remaining|spots_class }}">
-            {% if spots_remaining == 0 %}
-              Sold out
-            {% elif spots_remaining <= 2 %}
-              {{ spots_remaining }} spot{{ spots_remaining|pluralize }} left
-            {% else %}
-              {{ spots_remaining }} spots available
-            {% endif %}
-          </div>
-        </div>
-
-        {% if upcoming_sessions %}
-          <div class="dc-sec">
-            {% with total_min=upcoming_sessions|total_session_minutes %}
-              <div class="dc-lbl">Schedule{% if total_min %} · {{ total_min|duration_words }} total{% endif %}</div>
-            {% endwith %}
-            {% for session in upcoming_sessions %}
-              <div class="dc-srow">
-                {% if upcoming_sessions|length > 1 %}<span class="dc-snum">{{ forloop.counter }}</span>{% endif %}
-                <span class="dc-sdate">{{ session.starts_at|date:"l, F j, Y" }}</span>
-                <span class="dc-stime">{{ session.starts_at|time:"g:i A" }} – {{ session.ends_at|time:"g:i A" }}</span>
-                <span class="dc-sdur">{{ session|session_duration_words }}</span>
-              </div>
-            {% endfor %}
-          </div>
+    <div class="cp-detail__hero-overlay"></div>
+    <div class="cp-detail__hero-content">
+      <a class="cp-detail__back" href="{% url 'classes:public_list' %}">&larr; All classes &amp; workshops</a>
+      <div class="cp-detail__cat-row">
+        <a class="cp-detail__cat-chip" href="{% url 'classes:public_category' slug=offering.category.slug %}">
+          {% if offering.category.icon_svg %}{{ offering.category.icon_svg|safe }}{% endif %}{{ offering.category.name }}
+        </a>
+        {% if offering.first_upcoming_session_at %}
+          <span class="cp-detail__next-pill">Next session {{ offering.first_upcoming_session_at|date:"D, M j" }}</span>
         {% elif offering.scheduling_model == 'flexible' %}
-          <div class="dc-sec">
-            <div class="dc-lbl">Schedule</div>
-            <div class="dc-txt" style="color:var(--purple)">Flexible — schedule directly with the instructor.{% if offering.flexible_note %}
-
-{{ offering.flexible_note }}{% endif %}</div>
-          </div>
+          <span class="cp-detail__next-pill cp-detail__next-pill--flex">Flexible scheduling</span>
         {% endif %}
+      </div>
+      <h1 class="cp-detail__title">{{ offering.title }}</h1>
+      <div class="cp-detail__byline">
+        with <a href="{% url 'classes:public_instructor' slug=offering.instructor.slug %}">{{ offering.instructor.display_name }}</a>{% if offering.instructor.social_handle %} · {{ offering.instructor.social_handle }}{% endif %}
+      </div>
+    </div>
+  </header>
 
-        {% if offering.description %}
-          <div class="dc-sec">
-            <div class="dc-lbl">About This Class</div>
-            <div class="dc-txt">{{ offering.description }}</div>
+  {# ── BODY GRID — main content left, sticky booking right ──── #}
+  <div class="cp-detail__grid">
+    <main class="cp-detail__main">
+
+      {# Description (above-fold story) #}
+      {% if offering.description %}
+        <section class="cp-detail__section">
+          <h2 class="cp-detail__h2">About this class</h2>
+          <div class="cp-detail__prose">{{ offering.description|linebreaks }}</div>
+        </section>
+      {% endif %}
+
+      {# YouTube video embed (added in v2.3.0; template-safe when field is empty) #}
+      {% if offering.video_url %}
+        {% with embed_id=offering.video_url|youtube_embed_id %}
+          {% if embed_id %}
+            <section class="cp-detail__section">
+              <h2 class="cp-detail__h2">Watch</h2>
+              <div class="cp-detail__video">
+                <iframe
+                  src="https://www.youtube-nocookie.com/embed/{{ embed_id }}"
+                  title="{{ offering.title }} — preview video"
+                  frameborder="0"
+                  allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  referrerpolicy="strict-origin-when-cross-origin"
+                  allowfullscreen></iframe>
+              </div>
+            </section>
+          {% endif %}
+        {% endwith %}
+      {% endif %}
+
+      {# Gallery (hover-zoom + lightbox come from the component) #}
+      {% include "classes/_components/gallery.html" with offering=offering %}
+
+      {# Schedule #}
+      {% if upcoming_sessions %}
+        <section class="cp-detail__section">
+          {% with total_min=upcoming_sessions|total_session_minutes %}
+            <h2 class="cp-detail__h2">Schedule{% if total_min %} <span class="cp-detail__h2-sub">· {{ total_min|duration_words }} total</span>{% endif %}</h2>
+          {% endwith %}
+          <ol class="cp-detail__sessions">
+            {% for session in upcoming_sessions %}
+              <li class="cp-detail__session">
+                {% if upcoming_sessions|length > 1 %}<span class="cp-detail__session-num">{{ forloop.counter }}</span>{% endif %}
+                <div class="cp-detail__session-body">
+                  <div class="cp-detail__session-date">{{ session.starts_at|date:"l, F j, Y" }}</div>
+                  <div class="cp-detail__session-time">{{ session.starts_at|time:"g:i A" }} – {{ session.ends_at|time:"g:i A" }}<span class="cp-detail__session-dur"> · {{ session|session_duration_words }}</span></div>
+                </div>
+              </li>
+            {% endfor %}
+          </ol>
+        </section>
+      {% elif offering.scheduling_model == 'flexible' %}
+        <section class="cp-detail__section">
+          <h2 class="cp-detail__h2">Schedule</h2>
+          <div class="cp-detail__flex-note">
+            <strong>Flexible scheduling</strong> — arrange dates and times directly with the instructor after registering.
+            {% if offering.flexible_note %}<p>{{ offering.flexible_note|linebreaks }}</p>{% endif %}
           </div>
-        {% endif %}
+        </section>
+      {% endif %}
 
-        <div class="dc-igrid">
+      {# Two-up info: prerequisites + safety #}
+      {% if offering.prerequisites or offering.safety_requirements %}
+        <section class="cp-detail__section cp-detail__section--split">
           {% if offering.prerequisites %}
-            <div class="dc-icard"><div class="dc-lbl">Prerequisites</div><div class="dc-txt">{{ offering.prerequisites }}</div></div>
-          {% endif %}
-          {% if offering.materials_included %}
-            <div class="dc-icard"><div class="dc-lbl">Materials Included</div><div class="dc-txt">{{ offering.materials_included }}</div></div>
-          {% endif %}
-          {% if offering.materials_to_bring %}
-            <div class="dc-icard"><div class="dc-lbl">Bring With You</div><div class="dc-txt">{{ offering.materials_to_bring }}</div></div>
+            <div class="cp-detail__info-block">
+              <h3 class="cp-detail__h3">Prerequisites</h3>
+              <div class="cp-detail__prose">{{ offering.prerequisites|linebreaks }}</div>
+            </div>
           {% endif %}
           {% if offering.safety_requirements %}
-            <div class="dc-icard"><div class="dc-lbl">Safety</div><div class="dc-txt">{{ offering.safety_requirements }}</div></div>
+            <div class="cp-detail__info-block">
+              <h3 class="cp-detail__h3">Safety</h3>
+              <div class="cp-detail__prose">{{ offering.safety_requirements|linebreaks }}</div>
+            </div>
           {% endif %}
-          {% if offering.age_minimum %}
-            <div class="dc-icard"><div class="dc-lbl">Age</div><div class="dc-txt">{{ offering.age_minimum }}+{% if offering.age_guardian_note %} — {{ offering.age_guardian_note }}{% endif %}</div></div>
-          {% endif %}
-          {% if offering.instructor.bio %}
-            <div class="dc-icard"><div class="dc-lbl">About {{ offering.instructor.display_name }}</div><div class="dc-txt">{{ offering.instructor.bio }}</div></div>
-          {% endif %}
-        </div>
+        </section>
+      {% endif %}
 
-        <div class="dc-sec" style="margin-top:12px">
-          <div class="dc-lbl">Location</div>
-          <div class="dc-txt">Past Lives Makerspace · 2808 SE 9th Ave, Portland, OR 97202</div>
-        </div>
+      {# Materials #}
+      {% if offering.materials_included or offering.materials_to_bring %}
+        <section class="cp-detail__section cp-detail__section--split">
+          {% if offering.materials_included %}
+            <div class="cp-detail__info-block cp-detail__info-block--accent">
+              <h3 class="cp-detail__h3">What's included</h3>
+              <div class="cp-detail__prose">{{ offering.materials_included|linebreaks }}</div>
+            </div>
+          {% endif %}
+          {% if offering.materials_to_bring %}
+            <div class="cp-detail__info-block">
+              <h3 class="cp-detail__h3">Bring with you</h3>
+              <div class="cp-detail__prose">{{ offering.materials_to_bring|linebreaks }}</div>
+            </div>
+          {% endif %}
+        </section>
+      {% endif %}
 
-        <div class="dc-reg">
-          {% if spots_remaining > 0 %}
-            <a class="btn-reg" href="{% url 'classes:register' slug=offering.slug %}">
-              {% if offering.price_cents == 0 %}Register — Free{% else %}Register — {{ offering.price_cents|cents_as_price }}{% endif %}
-            </a>
+      {# Age requirements #}
+      {% if offering.age_minimum %}
+        <section class="cp-detail__section">
+          <h3 class="cp-detail__h3">Age</h3>
+          <div class="cp-detail__prose">Open to ages {{ offering.age_minimum }}+{% if offering.age_guardian_note %} — {{ offering.age_guardian_note }}{% endif %}.</div>
+        </section>
+      {% endif %}
+
+      {# Instructor card #}
+      <section class="cp-detail__section">
+        <h2 class="cp-detail__h2">Your instructor</h2>
+        <div class="cp-detail__instructor">
+          {% if offering.instructor.photo %}
+            <img class="cp-detail__instructor-photo" src="{{ offering.instructor.photo.url }}" alt="{{ offering.instructor.display_name }}">
           {% else %}
-            <div class="btn-sold">Sold Out</div>
+            <div class="cp-detail__instructor-photo cp-detail__instructor-photo--ph">{{ offering.instructor.display_name|slice:":1" }}</div>
+          {% endif %}
+          <div class="cp-detail__instructor-body">
+            <a class="cp-detail__instructor-name" href="{% url 'classes:public_instructor' slug=offering.instructor.slug %}">{{ offering.instructor.display_name }}</a>
+            {% if offering.instructor.bio %}
+              <div class="cp-detail__prose">{{ offering.instructor.bio|linebreaks }}</div>
+            {% endif %}
+            <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=offering.instructor.slug %}">See all classes by {{ offering.instructor.display_name }} &rarr;</a>
+          </div>
+        </div>
+      </section>
+
+      {# Guild card — renders only when the category is linked to a guild #}
+      {% if offering.category.guild %}
+        <section class="cp-detail__section">
+          <h2 class="cp-detail__h2">Supported by the {{ offering.category.guild.name }} Guild</h2>
+          <div class="cp-detail__guild">
+            <p class="cp-detail__prose">{% if offering.category.guild.description %}{{ offering.category.guild.description }}{% else %}This class is offered in partnership with the {{ offering.category.guild.name }} Guild at Past Lives Makerspace.{% endif %}</p>
+            <a class="cp-detail__guild-link" href="https://pastlives.space/guilds" hx-boost="false">About our guilds &rarr;</a>
+          </div>
+        </section>
+      {% endif %}
+
+      {# Location #}
+      <section class="cp-detail__section">
+        <h3 class="cp-detail__h3">Where</h3>
+        <div class="cp-detail__prose">
+          Past Lives Makerspace<br>
+          2808 SE 9th Ave, Portland, OR 97202
+        </div>
+      </section>
+
+      {# FAQ #}
+      <section class="cp-detail__section cp-detail__faq" x-data>
+        <h2 class="cp-detail__h2">Questions</h2>
+        <details class="cp-detail__faq-item">
+          <summary>What's your cancellation policy?</summary>
+          <div class="cp-detail__prose">Cancel up to 7 days before the first session for a full refund. Within 7 days, we can usually transfer your spot to a future class or to someone on the waitlist.</div>
+        </details>
+        <details class="cp-detail__faq-item">
+          <summary>Is the space accessible?</summary>
+          <div class="cp-detail__prose">Yes — our studio has step-free entry, accessible restrooms, and adjustable-height workstations available on request. Email <a href="mailto:info@pastlives.space">info@pastlives.space</a> with any specific needs and we'll make it work.</div>
+        </details>
+        <details class="cp-detail__faq-item">
+          <summary>What if I've never done this before?</summary>
+          <div class="cp-detail__prose">Most of our classes are designed for beginners and welcome curious newcomers. Check the Prerequisites section above for any required experience.</div>
+        </details>
+      </section>
+
+    </main>
+
+    {# ── Sticky booking rail ─────────────────────────────── #}
+    <aside class="cp-detail__rail">
+      <div class="cp-detail__rail-card">
+        <div class="cp-detail__price-row">
+          <div class="cp-detail__price">{{ offering.price_cents|cents_as_price }}</div>
+          {% if member_price_cents %}
+            <div class="cp-detail__price-member">{{ member_price_cents|cents_as_price }} <span>for PL members</span></div>
           {% endif %}
         </div>
+        <div class="cp-detail__spots cp-detail__spots--{{ spots_remaining|spots_class }}">
+          {% if spots_remaining == 0 %}
+            Sold out
+          {% elif spots_remaining <= 2 %}
+            Only {{ spots_remaining }} spot{{ spots_remaining|pluralize }} left
+          {% else %}
+            {{ spots_remaining }} spots available
+          {% endif %}
+        </div>
+        {% if spots_remaining > 0 %}
+          <a class="cp-detail__cta" href="{% url 'classes:register' slug=offering.slug %}">
+            {% if offering.price_cents == 0 %}Register — Free{% else %}Register now{% endif %}
+          </a>
+        {% else %}
+          <a class="cp-detail__cta cp-detail__cta--waitlist" href="{% url 'classes:register' slug=offering.slug %}?waitlist=1">
+            Join the waitlist
+          </a>
+          <div class="cp-detail__waitlist-hint">We'll email you the moment a spot opens. No charge to hold your place.</div>
+        {% endif %}
+        <ul class="cp-detail__rail-meta">
+          {% if upcoming_sessions %}
+            <li><strong>{{ upcoming_sessions|length }}</strong> session{{ upcoming_sessions|length|pluralize }}</li>
+          {% endif %}
+          <li><strong>{{ offering.capacity }}</strong> max class size</li>
+          {% if offering.category %}
+            <li><strong>{{ offering.category.name }}</strong></li>
+          {% endif %}
+        </ul>
       </div>
-    </div>
+    </aside>
   </div>
-</div>
+
+  {# ── Related classes ────────────────────────────────── #}
+  {% if related_offerings %}
+    <section class="cp-detail__related">
+      <h2 class="cp-detail__h2">More {{ offering.category.name }} classes</h2>
+      <div class="cls-grid">
+        {% for related in related_offerings %}
+          <a class="cls-card" href="{% url 'classes:public_class_detail' slug=related.slug %}">
+            <div class="cls-media">
+              {% if related.image %}
+                <img class="cls-img" src="{{ related.image.url }}" alt="{{ related.title }}">
+              {% else %}
+                <div class="cls-img-ph">{{ related.title|slice:":1" }}</div>
+              {% endif %}
+            </div>
+            <div class="cls-body">
+              <div class="cls-title">{{ related.title }}</div>
+              <div class="cls-inst">with {{ related.instructor.display_name }}</div>
+              <div class="cls-footer">
+                <span class="cls-price">{{ related.price_cents|cents_as_price }}</span>
+              </div>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+</article>
 {% endblock %}

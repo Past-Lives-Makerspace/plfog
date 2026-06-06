@@ -1,172 +1,73 @@
 {% extends "hub/base.html" %}
+{% load static %}
 {% comment %}
-Base template for public /classes/* pages. Visual styling is ported from the
-plm-classes prototype (github.com/Past-Lives-Makerspace/plm-classes). Ported
-CSS is scoped to .cp-page so the plfog site chrome stays unaffected.
+Base template for public /classes/* pages. The portal-specific styles
+live in static/css/cms-public.css (lifted out of this template in
+v2.3.0 so the portal can be theme-aware via the same data-theme system
+the hub uses). Light is the default on public class pages; the topbar
+toggle still wins.
 {% endcomment %}
 
+{% block default_theme %}light{% endblock %}
+
 {% block body_class %}classes-portal{% endblock %}
+
+{% block extra_body %}
+{% if not user.is_authenticated or request.GET.public or is_public_surface %}
+<header class="cp-topbar" role="banner" x-data="{ drawerOpen: false }" @click.outside="drawerOpen = false">
+  <div class="cp-topbar__inner">
+    <a href="https://pastlives.space" class="cp-topbar__brand" hx-boost="false">
+      <img src="{% static 'img/favicon.png' %}" alt="" class="cp-topbar__mark" width="22" height="22">
+      <span class="cp-topbar__wordmark">Past Lives</span>
+    </a>
+    <nav class="cp-topbar__nav" aria-label="Public navigation">
+      <a href="https://pastlives.space" class="cp-topbar__link" hx-boost="false">Home</a>
+      <a href="https://pastlives.space/guilds" class="cp-topbar__link" hx-boost="false">Guilds</a>
+      <a href="https://pastlives.space/membership" class="cp-topbar__link" hx-boost="false">Membership</a>
+      <a href="{% url 'classes:public_list' %}" class="cp-topbar__link cp-topbar__link--current" aria-current="page">Classes</a>
+      <a href="https://pastlives.space/contact" class="cp-topbar__link" hx-boost="false">Contact</a>
+    </nav>
+    <div class="cp-topbar__right">
+      {% if user.is_authenticated %}
+        <a href="{% url 'account:overview' %}" class="cp-topbar__ghost">My account</a>
+      {% else %}
+        <a href="{% url 'account_login' %}" class="cp-topbar__ghost">Log in</a>
+      {% endif %}
+      <a href="https://pastlives.space/membership" class="cp-topbar__cta" hx-boost="false">Become a member</a>
+    </div>
+    <button type="button"
+            class="cp-topbar__burger"
+            @click="drawerOpen = !drawerOpen"
+            :aria-expanded="drawerOpen"
+            aria-label="Toggle menu">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 6h18M3 12h18M3 18h18"/>
+      </svg>
+    </button>
+  </div>
+  <div class="cp-topbar__drawer" :class="{ 'cp-topbar__drawer--open': drawerOpen }">
+    <a href="https://pastlives.space" class="cp-topbar__drawer-link" hx-boost="false">Home</a>
+    <a href="https://pastlives.space/guilds" class="cp-topbar__drawer-link" hx-boost="false">Guilds</a>
+    <a href="https://pastlives.space/membership" class="cp-topbar__drawer-link" hx-boost="false">Membership</a>
+    <a href="{% url 'classes:public_list' %}" class="cp-topbar__drawer-link cp-topbar__drawer-link--current">Classes</a>
+    <a href="https://pastlives.space/contact" class="cp-topbar__drawer-link" hx-boost="false">Contact</a>
+    <div class="cp-topbar__drawer-divider"></div>
+    {% if user.is_authenticated %}
+      <a href="{% url 'account:overview' %}" class="cp-topbar__drawer-link">My account</a>
+    {% else %}
+      <a href="{% url 'account_login' %}" class="cp-topbar__drawer-link">Log in</a>
+    {% endif %}
+    <a href="https://pastlives.space/membership" class="cp-topbar__drawer-link cp-topbar__drawer-link--cta" hx-boost="false">Become a member</a>
+  </div>
+</header>
+{% endif %}
+{% endblock %}
 
 {% block content %}<div class="cp-page">{% block portal_content %}{% endblock %}</div>{% endblock %}
 
 {% block extra_head %}
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
-<style>
-body.classes-portal {
-  background:#061f33;
-  background-image:url('https://images.squarespace-cdn.com/content/v1/634b3a44e68be653dc708619/1666300097251-9IIOE8TATR0ZNXU037QK/BACKDROP+reduced+copy.jpg?format=2500w');
-  background-size:cover;background-attachment:fixed;background-position:center;
-}
-body.classes-portal .hub-content::before{
-  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
-  background:radial-gradient(ellipse 70% 50% at 50% 15%,rgba(6,26,44,.45) 0%,rgba(6,26,44,.6) 30%,rgba(6,26,44,.78) 60%,rgba(6,26,44,.85) 100%);
-}
-body.classes-portal .hub-content > *{position:relative;z-index:1}
-
-.cp-page {
-  --navy:#092e4c;--navy-light:#0d3a5e;--navy-dark:#061f33;
-  --gold:#eeb44b;--gold-light:#f5ca6e;--gold-glow:#eeb44b30;
-  --cream:#f4efdd;--cream-dim:#d4cfc0;
-  --steel:#96acbb;--steel-dim:#6b8396;
-  --bg:#071e32;--bg2:#0a2740;--bg3:#0e3250;--bg4:#133d5f;
-  --border:#1a4568;--border2:#245880;
-  --text:#f4efdd;--text2:#96acbb;--text3:#5a7a92;
-  --accent:#eeb44b;--accent2:#f5ca6e;--accent-glow:#eeb44b25;
-  --green:#2dd4a0;--red:#f87171;--blue:#60a5fa;--purple:#a78bfa;
-  --r:10px;--r2:14px;--max:1100px;
-  --heading:'Playfair Display',Georgia,serif;
-  --font:'Lato',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-}
-.cp-page a{color:var(--gold);text-decoration:none;cursor:pointer}
-.cp-page a:hover{text-decoration:underline;color:var(--gold-light)}
-.cp-page .cp-container{max-width:var(--max);margin:0 auto;padding:0 24px}
-
-.cp-page #hero{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:56px 24px 60px;background:transparent}
-.cp-page #hero::after{content:'';position:absolute;inset:-20% -10%;pointer-events:none;background:radial-gradient(ellipse 50% 60% at 50% 35%,rgba(238,180,75,.08) 0%,rgba(200,150,50,.03) 30%,transparent 60%)}
-.cp-page #hero img{width:100%;max-width:560px;margin-bottom:16px;filter:brightness(1.25) drop-shadow(0 0 60px rgba(238,180,75,.15));mask-image:radial-gradient(ellipse 70% 70% at center,black 0%,rgba(0,0,0,.85) 35%,rgba(0,0,0,.5) 55%,rgba(0,0,0,.15) 75%,transparent 92%);-webkit-mask-image:radial-gradient(ellipse 70% 70% at center,black 0%,rgba(0,0,0,.85) 35%,rgba(0,0,0,.5) 55%,rgba(0,0,0,.15) 75%,transparent 92%)}
-.cp-page #hero h1{font-family:var(--heading);font-size:38px;font-weight:800;letter-spacing:-.02em;color:var(--cream)}
-.cp-page #hero h1 span{color:var(--gold)}
-.cp-page #hero p{font-size:15px;color:var(--steel);margin-top:8px;max-width:480px;font-weight:300}
-.cp-page #hero-stats{display:flex;gap:48px;justify-content:center;margin-top:28px}
-.cp-page .hs-n{font-size:32px;font-weight:900;color:var(--gold);font-family:var(--heading)}
-.cp-page .hs-l{font-size:9px;color:var(--steel);text-transform:uppercase;letter-spacing:.14em;margin-top:3px}
-.cp-page #hero-cta{margin-top:24px;display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
-.cp-page #hero-cta a{padding:11px 32px;border-radius:4px;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;text-decoration:none;letter-spacing:.03em;text-transform:uppercase}
-.cp-page .cta-primary{background:var(--gold);color:var(--navy-dark);box-shadow:0 4px 20px var(--gold-glow)}
-.cp-page .cta-primary:hover{background:var(--gold-light);text-decoration:none;box-shadow:0 6px 28px var(--gold-glow)}
-.cp-page .cta-secondary{background:transparent;color:var(--cream);border:1px solid var(--steel-dim) !important}
-.cp-page .cta-secondary:hover{border-color:var(--gold) !important;color:var(--gold);text-decoration:none}
-
-.cp-page #cat-nav{position:sticky;top:var(--topbar-height,56px);z-index:50;background:rgba(238,180,75,0.08);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid rgba(238,180,75,0.18);border-bottom:1px solid rgba(238,180,75,0.18);padding:10px 2.5rem;margin:0 -2.5rem 12px}
-.cp-page #cat-inner{display:flex;gap:6px;flex-wrap:wrap;align-items:center;max-width:var(--max);margin:0 auto;padding:0}
-@media(max-width:768px){.cp-page #cat-nav{padding:10px 1rem;margin:0 -1rem 12px}}
-.cp-page .cp{padding:6px 16px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--steel-dim);transition:all .2s;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em;text-decoration:none;display:inline-block}
-.cp-page .cp:hover{color:var(--cream);border-color:var(--gold);background:var(--gold-glow);text-decoration:none}
-.cp-page .cp.on{background:var(--gold);color:var(--navy-dark);border-color:var(--gold);box-shadow:0 0 16px var(--gold-glow)}
-.cp-page .cp .ct{opacity:.4;font-size:9px;margin-left:3px}
-
-.cp-page .view{padding:20px 0 60px}
-.cp-page .cat-sec{margin-bottom:40px;position:relative;padding:20px;margin-left:-20px;margin-right:-20px;border-radius:var(--r2)}
-.cp-page .cat-sec::before{content:'';position:absolute;inset:0;border-radius:var(--r2);background:radial-gradient(ellipse 80% 60% at 50% 20%,rgba(238,180,75,.03) 0%,rgba(9,46,76,.15) 50%,transparent 100%);pointer-events:none}
-.cp-page .cat-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid rgba(238,180,75,.1)}
-.cp-page .cat-hd h2{font-family:var(--heading);font-size:20px;font-weight:800;color:var(--gold)}
-.cp-page .cat-hd .cc{font-size:11px;color:var(--steel-dim)}
-
-.cp-page .cls-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
-.cp-page .cls-card{position:relative;display:flex;flex-direction:column;background:rgba(9,46,76,.3);border:1px solid rgba(26,69,104,.3);border-radius:var(--r);overflow:hidden;transition:all .25s}
-.cp-page .cls-card:hover{background:rgba(14,50,80,.5);border-color:rgba(238,180,75,.3);box-shadow:0 0 40px rgba(238,180,75,.05),0 4px 20px rgba(0,0,0,.2);transform:translateY(-1px)}
-.cp-page .cls-link{position:absolute;inset:0;z-index:1}
-.cp-page .cls-link:hover{text-decoration:none}
-.cp-page .cls-media{position:relative;width:100%;height:150px;background:var(--bg4);overflow:hidden}
-.cp-page .cls-img{width:100%;height:100%;object-fit:cover;display:block}
-.cp-page .cls-img-ph{width:100%;height:100%;background:linear-gradient(135deg,var(--navy),var(--navy-light));display:flex;align-items:center;justify-content:center;font-size:40px;font-family:var(--heading);color:var(--gold);font-weight:800;opacity:.6;letter-spacing:.04em}
-.cp-page .cls-body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:6px;flex:1}
-.cp-page .cls-title{font-family:var(--heading);font-size:16px;font-weight:800;line-height:1.25;color:var(--cream)}
-.cp-page .cls-inst{font-size:12px;color:var(--steel);position:relative;z-index:2}
-.cp-page .cls-inst a{color:var(--gold);font-weight:400;position:relative;z-index:2}
-.cp-page .cls-inst a:hover{color:var(--gold-light)}
-.cp-page .cls-when{font-size:11px;color:var(--text3);margin-top:-2px}
-.cp-page .cls-footer{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:auto;padding-top:8px;border-top:1px solid rgba(255,255,255,.05)}
-.cp-page .cls-price{font-size:18px;font-weight:900;color:var(--gold);font-family:var(--heading)}
-.cp-page .cls-price-member{font-size:10px;color:var(--steel-dim);margin-left:4px;font-family:var(--font);font-weight:400}
-.cp-page .cls-spots{font-size:11px;font-weight:700}
-.cp-page .cls-spots.ok{color:var(--green)}
-.cp-page .cls-spots.low{color:var(--red)}
-.cp-page .cls-spots.full{color:var(--red);text-transform:uppercase;letter-spacing:.06em}
-.cp-page .badge{display:inline-block;font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;text-transform:uppercase;letter-spacing:.05em;vertical-align:middle;margin-left:6px}
-.cp-page .badge.fx{background:#a78bfa15;color:var(--purple);border:1px solid #a78bfa25}
-.cp-page .badge.pv{background:#f8717115;color:var(--red);border:1px solid #f8717125}
-
-.cp-page .detail-card{background:rgba(7,30,50,.85);border:1px solid rgba(238,180,75,.12);border-radius:var(--r2);max-width:720px;margin:24px auto;overflow:hidden;box-shadow:0 0 80px rgba(238,180,75,.04),0 32px 80px rgba(0,0,0,.4);position:relative}
-.cp-page .detail-card::before{content:'';position:absolute;top:-1px;left:20%;right:20%;height:1px;background:linear-gradient(90deg,transparent,rgba(238,180,75,.3),transparent);pointer-events:none}
-.cp-page .detail-hero{width:100%;height:220px;object-fit:cover;display:block}
-.cp-page .detail-head{padding:18px 24px 14px;border-bottom:1px solid rgba(26,69,104,.3);display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-.cp-page .detail-body{padding:0 24px 24px}
-.cp-page .dc-cat{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--gold)}
-.cp-page .dc-title{font-family:var(--heading);font-size:22px;font-weight:800;letter-spacing:-.01em;margin-top:4px;line-height:1.2;color:var(--cream)}
-.cp-page .dc-inst{font-size:13px;color:var(--steel);margin-top:4px}
-.cp-page .dc-inst a{color:var(--gold);font-weight:400}
-.cp-page .back-link{color:var(--steel-dim);font-size:11px;text-transform:uppercase;letter-spacing:.08em;background:rgba(9,46,76,.3);border:1px solid rgba(26,69,104,.3);padding:6px 12px;border-radius:4px;white-space:nowrap}
-.cp-page .back-link:hover{border-color:rgba(238,180,75,.3);background:rgba(238,180,75,.08);color:var(--cream);text-decoration:none}
-.cp-page .dc-pbar{display:flex;align-items:baseline;gap:12px;margin:14px 0;padding:14px 16px;background:rgba(238,180,75,.04);border-radius:var(--r);border:1px solid rgba(238,180,75,.1);flex-wrap:wrap}
-.cp-page .dc-pbig{font-size:28px;font-weight:900;color:var(--gold);font-family:var(--heading)}
-.cp-page .dc-pmem{font-size:12px;color:var(--steel-dim)}
-.cp-page .dc-pspot{margin-left:auto;font-size:13px;font-weight:600}
-.cp-page .dc-pspot.ok{color:var(--green)}
-.cp-page .dc-pspot.low{color:var(--red)}
-.cp-page .dc-pspot.full{color:var(--red);font-weight:800}
-.cp-page .dc-sec{margin-top:16px}
-.cp-page .dc-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px}
-.cp-page .dc-txt{font-size:13px;color:var(--text);line-height:1.7;white-space:pre-wrap}
-.cp-page .dc-srow{display:flex;gap:8px;align-items:center;padding:7px 10px;margin-bottom:2px;background:rgba(9,46,76,.25);border-radius:6px;font-size:12px;border:1px solid rgba(26,69,104,.2)}
-.cp-page .dc-snum{font-size:9px;font-weight:800;color:var(--gold);background:rgba(238,180,75,.1);border-radius:4px;padding:2px 6px;min-width:20px;text-align:center}
-.cp-page .dc-sdate{font-weight:600;flex:1}
-.cp-page .dc-stime{color:var(--text2)}
-.cp-page .dc-sdur{font-size:10px;color:var(--text3)}
-.cp-page .dc-igrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
-.cp-page .dc-icard{padding:10px 12px;background:rgba(9,46,76,.2);border-radius:var(--r);border:1px solid rgba(26,69,104,.2)}
-.cp-page .dc-icard .dc-lbl{margin-bottom:2px}
-.cp-page .dc-icard .dc-txt{font-size:11px}
-.cp-page .dc-reg{margin-top:20px;padding-top:16px;border-top:1px solid rgba(238,180,75,.1)}
-.cp-page .btn-reg{display:block;width:100%;padding:14px;border:none;border-radius:4px;background:var(--gold);color:var(--navy-dark);font-size:15px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;text-align:center;transition:all .2s;box-shadow:0 4px 20px var(--gold-glow);text-decoration:none}
-.cp-page .btn-reg:hover{background:var(--gold-light);transform:translateY(-1px);box-shadow:0 6px 28px var(--gold-glow);text-decoration:none;color:var(--navy-dark)}
-.cp-page .btn-sold{display:block;width:100%;padding:14px;border-radius:4px;background:rgba(14,50,80,.4);color:var(--red);font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;text-align:center;cursor:default;border:1px solid rgba(248,113,113,.12)}
-
-.cp-page .ip-hero{display:flex;gap:20px;align-items:flex-start;margin-bottom:20px}
-.cp-page .ip-photo{width:120px;height:120px;border-radius:var(--r2);object-fit:cover;background:var(--bg4);flex-shrink:0}
-.cp-page .ip-photo-ph{width:120px;height:120px;border-radius:var(--r2);background:rgba(14,50,80,.5);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:36px;color:var(--gold);flex-shrink:0}
-.cp-page .ip-name{font-family:var(--heading);font-size:24px;font-weight:800;line-height:1.2;color:var(--cream)}
-.cp-page .ip-links{margin-top:6px;font-size:12px;color:var(--text2);display:flex;gap:10px;flex-wrap:wrap}
-.cp-page .ip-links a{color:var(--accent)}
-.cp-page .ip-bio{font-size:13px;color:var(--steel);line-height:1.7;margin-top:10px;font-weight:300;white-space:pre-wrap}
-.cp-page .ip-sec{margin-top:20px}
-.cp-page .ip-sec h3{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text3);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)}
-.cp-page .ip-cls{padding:10px 12px;background:rgba(9,46,76,.2);border-radius:var(--r);margin-bottom:4px;transition:all .2s;border:1px solid rgba(26,69,104,.2);display:block;color:inherit;text-decoration:none}
-.cp-page .ip-cls:hover{border-color:rgba(238,180,75,.25);background:rgba(14,50,80,.35);text-decoration:none;color:inherit}
-.cp-page .ip-cls.past{opacity:.5;cursor:default}
-.cp-page .ip-cls-t{font-size:13px;font-weight:600}
-.cp-page .ip-cls-m{font-size:10px;color:var(--text3);margin-top:1px}
-
-.cp-page .empty{padding:24px;text-align:center;color:var(--text3);font-size:11px}
-
-@media(max-width:768px){
-  .cp-page .cls-card{grid-template-columns:64px 1fr auto;gap:10px;padding:10px 12px}
-  .cp-page .cls-img,.cp-page .cls-img-ph{width:64px;height:48px}
-  .cp-page .dc-igrid{grid-template-columns:1fr}
-  .cp-page #hero{padding:32px 20px}
-  .cp-page #hero h1{font-size:24px}
-  .cp-page #hero p{font-size:12px}
-  .cp-page #hero-stats{gap:24px}
-  .cp-page .hs-n{font-size:22px}
-  .cp-page #hero img{max-width:360px}
-  .cp-page #hero-cta a{padding:8px 20px;font-size:12px}
-  .cp-page .ip-hero{flex-direction:column;align-items:center;text-align:center}
-  .cp-page .ip-photo,.cp-page .ip-photo-ph{width:100px;height:100px}
-  .cp-page .ip-links{justify-content:center}
-  .cp-page .dc-title{font-size:17px}
-  .cp-page .dc-pbig{font-size:22px}
-}
-</style>
+<link rel="stylesheet" href="{% static 'css/cms-public.css' %}">
 {% include "includes/google_analytics.html" %}
 {% block classes_extra_head %}{% endblock %}
 {% endblock %}

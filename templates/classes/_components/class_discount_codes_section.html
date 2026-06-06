@@ -1,0 +1,69 @@
+{% load classes_tags %}
+{# Per-class discount codes section, used in admin/class_form.html and
+   instructor/class_form.html. Only renders when editing a saved class
+   (no offering, no class to scope codes to). Caller passes:
+     * offering — the ClassOffering being edited
+     * create_url — URL name for the "new code" link (admin or instructor)
+     * edit_url — URL name for editing a code
+   Example: {% include "classes/_components/class_discount_codes_section.html"
+              with offering=offering
+                   create_url='classes:instructor_discount_code_create'
+                   edit_url='classes:instructor_discount_code_edit' %} #}
+{% if offering and offering.pk %}
+<h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Discount codes for this class</h3>
+<p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">
+  Codes scoped to this class only. Use them for a class-only sale, an early-bird discount, or
+  turn on <strong>Auto-apply</strong> to drop the price for every registrant without making
+  them type a code.
+</p>
+<div class="hub-card" style="padding:0.75rem 1rem;">
+  {% with codes=offering.discount_codes.all %}
+    {% if codes %}
+      <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+        <thead>
+          <tr style="text-align:left; border-bottom:1px solid var(--hub-card-border);">
+            <th style="padding:6px 8px;">Code</th>
+            <th style="padding:6px 8px;">Discount</th>
+            <th style="padding:6px 8px;">Auto-apply</th>
+            <th style="padding:6px 8px;">Status</th>
+            <th style="padding:6px 8px;">Used</th>
+            <th style="padding:6px 8px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for code in codes %}
+            <tr style="border-bottom:1px solid var(--hub-card-border);">
+              <td style="padding:8px;"><code style="font-weight:700;">{{ code.code }}</code></td>
+              <td style="padding:8px;">
+                {% if code.discount_pct %}{{ code.discount_pct }}% off
+                {% elif code.discount_fixed_cents %}{{ code.discount_fixed_cents|cents_as_price }} off
+                {% endif %}
+              </td>
+              <td style="padding:8px;">{% if code.auto_apply %}<strong>Yes</strong>{% else %}No{% endif %}</td>
+              <td style="padding:8px;">
+                {% if not code.is_active %}<span style="color:var(--hub-text-muted);">Inactive</span>
+                {% elif not code.is_approved %}<span style="color:var(--color-tuscan-yellow);">Pending review</span>
+                {% else %}<span style="color:var(--color-success);">Active</span>
+                {% endif %}
+              </td>
+              <td style="padding:8px;">{{ code.use_count }}{% if code.max_uses %} / {{ code.max_uses }}{% endif %}</td>
+              <td style="padding:8px; text-align:right;">
+                <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url edit_url pk=code.pk %}">Edit</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p style="color:var(--hub-text-muted); font-size:0.9rem; margin:0 0 0.75rem;">
+        No class-specific discount codes yet.
+      </p>
+    {% endif %}
+    <div style="margin-top:0.75rem;">
+      <a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url create_url %}?class={{ offering.pk }}">
+        + New code for this class
+      </a>
+    </div>
+  {% endwith %}
+</div>
+{% endif %}

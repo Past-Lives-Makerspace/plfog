@@ -1,0 +1,150 @@
+{% extends "hub/base.html" %}
+{% load static classes_tags %}
+
+{% block title %}Review: {{ offering.title }} — Past Lives{% endblock %}
+
+{% block content %}
+<div class="hub-card" style="max-width:900px;margin:0 auto;">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">
+    <div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:var(--color-tuscan-yellow);">
+        {{ approval.get_role_display }} review
+      </div>
+      <h1 style="margin:6px 0 4px;font-size:1.75rem;">{{ offering.title }}</h1>
+      <div style="color:var(--hub-text-muted);font-size:0.95rem;">
+        by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
+      </div>
+    </div>
+    {% if is_tokenized %}
+      <span style="font-size:11px;color:var(--hub-text-muted);">Token review · no login needed</span>
+    {% endif %}
+  </div>
+
+  {# Already-decided summary OR the decision form #}
+  {% if approval.decision %}
+    <div style="padding:14px 16px;background:rgba(123,200,143,0.10);border:1px solid var(--color-success);border-radius:8px;margin-bottom:1.25rem;">
+      <div style="font-weight:700;color:var(--hub-text);margin-bottom:4px;">
+        You already decided this {{ approval.get_decision_display|lower }}.
+      </div>
+      <div style="color:var(--hub-text-muted);font-size:0.9rem;">
+        Decided {{ approval.decided_at|date:"M j, Y, g:i A" }}
+        {% if approval.decided_by %} by {{ approval.decided_by.get_full_name|default:approval.decided_by.email }}{% endif %}.
+      </div>
+      {% if approval.notes %}
+        <div style="margin-top:10px;padding:10px 12px;background:var(--hub-bg);border-radius:6px;font-size:0.9rem;white-space:pre-wrap;">{{ approval.notes }}</div>
+      {% endif %}
+    </div>
+  {% else %}
+    <form method="post" style="margin-bottom:1.5rem;">
+      {% csrf_token %}
+      {% for field in form %}
+        {% if field.errors %}
+          <ul class="pl-field-errors" style="margin-bottom:0.5rem;">
+            {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+      {% endfor %}
+      <fieldset style="border:none;padding:0;margin:0 0 1rem;">
+        <legend style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--hub-text-muted);margin-bottom:8px;">Decision</legend>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          {% for radio in form.decision %}
+            <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--hub-card-border);border-radius:8px;cursor:pointer;">
+              {{ radio.tag }}
+              <span style="font-size:15px;font-weight:600;">{{ radio.choice_label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <div style="margin-bottom:1rem;">
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--hub-text-muted);margin-bottom:6px;display:block;">
+          {{ form.notes.label }}
+        </label>
+        {{ form.notes }}
+      </div>
+      <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+        <button class="hub-btn hub-btn--primary" type="submit">Submit decision</button>
+        <a class="hub-btn hub-btn--ghost" href="{% if is_tokenized %}{% url 'classes:public_class_detail' slug=offering.slug %}{% else %}{% url 'classes:admin_class_detail' pk=offering.pk %}{% endif %}">Cancel</a>
+      </div>
+    </form>
+  {% endif %}
+
+  {# Approval progress across all required roles #}
+  <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Approval progress</h2>
+  <ul style="list-style:none;padding:0;margin:0 0 1.5rem;display:flex;flex-direction:column;gap:6px;">
+    {% for required_role in offering.required_review_roles %}
+      {% with row=offering.approvals.all|first_with_role:required_role %}
+        <li style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--hub-bg);border:1px solid var(--hub-card-border);border-radius:6px;font-size:14px;">
+          <span>
+            {% if required_role == 'admin' %}Admin reviewer{% else %}Guild Lead ({{ offering.category.guild.name }}){% endif %}
+          </span>
+          <span style="font-weight:700;">
+            {% if row %}
+              {% if row.decision == 'approved' %}<span style="color:var(--color-success);">✓ Approved</span>
+              {% elif row.decision == 'changes_requested' %}<span style="color:var(--color-tuscan-yellow);">Changes requested</span>
+              {% elif row.decision == 'denied' %}<span style="color:var(--color-error);">Declined</span>
+              {% else %}<span style="color:var(--hub-text-muted);">Pending</span>
+              {% endif %}
+            {% else %}
+              <span style="color:var(--hub-text-muted);">Not yet requested</span>
+            {% endif %}
+          </span>
+        </li>
+      {% endwith %}
+    {% endfor %}
+  </ul>
+
+  {# Class details for the reviewer to read #}
+  <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Class details</h2>
+  <dl style="display:grid;grid-template-columns:140px 1fr;gap:10px 18px;font-size:14px;margin:0 0 1.5rem;">
+    <dt style="color:var(--hub-text-muted);">Price</dt><dd>{{ offering.price_cents|cents_as_price }}</dd>
+    {% if offering.member_discount_pct %}<dt style="color:var(--hub-text-muted);">Member discount</dt><dd>{{ offering.member_discount_pct }}%</dd>{% endif %}
+    <dt style="color:var(--hub-text-muted);">Capacity</dt><dd>{{ offering.capacity }}</dd>
+    <dt style="color:var(--hub-text-muted);">Sessions</dt>
+    <dd>
+      {% if upcoming_sessions %}
+        <ul style="margin:0;padding-left:18px;">
+          {% for session in upcoming_sessions %}
+            <li>{{ session.starts_at|date:"D, M j, Y" }} · {{ session.starts_at|time:"g:i A" }} – {{ session.ends_at|time:"g:i A" }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <em style="color:var(--hub-text-muted);">No upcoming sessions scheduled yet.</em>
+      {% endif %}
+    </dd>
+    {% if offering.description %}
+      <dt style="color:var(--hub-text-muted);">Description</dt>
+      <dd style="white-space:pre-wrap;">{{ offering.description }}</dd>
+    {% endif %}
+    {% if offering.prerequisites %}
+      <dt style="color:var(--hub-text-muted);">Prerequisites</dt>
+      <dd style="white-space:pre-wrap;">{{ offering.prerequisites }}</dd>
+    {% endif %}
+    {% if offering.materials_included %}
+      <dt style="color:var(--hub-text-muted);">Materials included</dt>
+      <dd style="white-space:pre-wrap;">{{ offering.materials_included }}</dd>
+    {% endif %}
+    {% if offering.materials_to_bring %}
+      <dt style="color:var(--hub-text-muted);">Bring with you</dt>
+      <dd style="white-space:pre-wrap;">{{ offering.materials_to_bring }}</dd>
+    {% endif %}
+    {% if offering.safety_requirements %}
+      <dt style="color:var(--hub-text-muted);">Safety</dt>
+      <dd style="white-space:pre-wrap;">{{ offering.safety_requirements }}</dd>
+    {% endif %}
+  </dl>
+
+  {% if history %}
+    <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Review history</h2>
+    <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px;">
+      {% for h in history %}
+        <li style="padding:10px 14px;background:var(--hub-bg);border:1px solid var(--hub-card-border);border-radius:6px;font-size:13px;">
+          <strong>{{ h.get_role_display }}</strong> ·
+          {% if h.decision %}{{ h.get_decision_display }}{% else %}<em>still pending</em>{% endif %} ·
+          {{ h.created_at|date:"M j, Y g:i A" }}{% if h.decided_at %} (decided {{ h.decided_at|date:"M j, g:i A" }}){% endif %}
+          {% if h.notes %}<div style="margin-top:6px;color:var(--hub-text-muted);white-space:pre-wrap;">{{ h.notes }}</div>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</div>
+{% endblock %}

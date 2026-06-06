@@ -5,25 +5,25 @@
 {% block content %}
 <style>
   .pl-dashboard { display: flex; flex-direction: column; gap: 1.5rem; padding: 2rem 2.5rem; }
-  .pl-card { background-color: #092E4C; border: 1px solid transparent; border-radius: 10px; padding: 2rem; }
-  .pl-card__title { font-family: 'Lato', system-ui, sans-serif; font-size: 1.75rem; font-weight: 700; color: #F4EFDD; margin-bottom: 0.5rem; }
-  .pl-text-muted { color: #96ACBB; font-size: 0.9375rem; }
-  .pl-section-label { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #96ACBB; margin-bottom: 0.75rem; }
+  .pl-card { background-color: var(--hub-card-bg); border: 1px solid var(--hub-card-border); border-radius: 10px; padding: 2rem; }
+  .pl-card__title { font-family: 'Lato', system-ui, sans-serif; font-size: 1.75rem; font-weight: 700; color: var(--hub-text); margin-bottom: 0.5rem; }
+  .pl-text-muted { color: var(--hub-text-muted); font-size: 0.9375rem; }
+  .pl-section-label { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--hub-text-muted); margin-bottom: 0.75rem; }
   .pl-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
-  .pl-table thead th { text-align: left; padding: 0.5rem 0.75rem; font-weight: 500; color: #96ACBB; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 0.875rem; }
+  .pl-table thead th { text-align: left; padding: 0.5rem 0.75rem; font-weight: 500; color: var(--hub-text-muted); border-bottom: 1px solid var(--hub-input-border); font-size: 0.875rem; }
   .pl-table thead th.text-right { text-align: right; }
-  .pl-table tbody td { padding: 0.5rem 0.75rem; color: #F4EFDD; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .pl-table tbody td { padding: 0.5rem 0.75rem; color: var(--hub-text); border-bottom: 1px solid var(--hub-input-border); }
   .pl-table tbody td.text-right { text-align: right; }
   .pl-btn { display: inline-flex; align-items: center; padding: 0.625rem 1.5rem; font-family: 'Inter', system-ui, sans-serif; font-size: 0.9375rem; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; transition: background-color 0.15s ease; }
-  .pl-btn--primary { background-color: #EEB44B; color: #092E4C; }
-  .pl-btn--primary:hover { background-color: #d4a043; }
-  .pl-btn--secondary { background-color: transparent; border: 1px solid rgba(255,255,255,0.12); color: #F4EFDD; }
-  .pl-btn--secondary:hover { background-color: rgba(255,255,255,0.06); }
+  .pl-btn--primary { background-color: var(--color-tuscan-yellow); color: var(--color-navy); }
+  .pl-btn--primary:hover { background-color: var(--color-yellow-hover); }
+  .pl-btn--secondary { background-color: transparent; border: 1px solid var(--hub-input-border); color: var(--hub-text); }
+  .pl-btn--secondary:hover { background-color: var(--hub-input-bg); }
   .pl-filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
-  .pl-filter-grid label { display: block; font-size: 0.8125rem; color: #96ACBB; margin-bottom: 0.25rem; }
-  .pl-filter-grid input[type="date"], .pl-filter-grid select { width: 100%; padding: 0.5rem 0.6rem; background: #0a1929; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #F4EFDD; font-size: 0.875rem; box-sizing: border-box; }
-  .pl-checkbox-group { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; color: #F4EFDD; }
-  .pl-checkbox-group label { display: flex; align-items: center; gap: 0.5rem; color: #F4EFDD; }
+  .pl-filter-grid label { display: block; font-size: 0.8125rem; color: var(--hub-text-muted); margin-bottom: 0.25rem; }
+  .pl-filter-grid input[type="date"], .pl-filter-grid select { width: 100%; padding: 0.5rem 0.6rem; background: var(--hub-input-bg); border: 1px solid var(--hub-input-border); border-radius: 6px; color: var(--hub-text); font-size: 0.875rem; box-sizing: border-box; }
+  .pl-checkbox-group { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; color: var(--hub-text); }
+  .pl-checkbox-group label { display: flex; align-items: center; gap: 0.5rem; color: var(--hub-text); }
   .pl-filter-actions { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
 </style>
 

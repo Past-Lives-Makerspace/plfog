@@ -27,6 +27,8 @@
     <h3 style="margin-top:1.5rem;">Sessions</h3>
     {% include "classes/_components/session_calendar.html" %}
 
+    {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:instructor_discount_code_create' edit_url='classes:instructor_discount_code_edit' %}
+
     <div style="display:flex; gap:0.5rem; margin-top:1rem; flex-wrap:wrap;">
         <button class="hub-btn hub-btn--sm hub-btn--ghost" name="action" value="save" type="submit">Save Draft</button>
         {% if offering and offering.pk %}

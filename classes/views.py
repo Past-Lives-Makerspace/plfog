@@ -21,13 +21,17 @@ if TYPE_CHECKING:
 
 from classes.emails import (
     send_admin_registration_notification,
+    send_class_review_decision,
+    send_class_review_requests,
     send_instructor_registration_notification,
     send_registration_confirmation,
+    send_waitlist_joined_confirmation,
 )
 from classes.table import prepare_table
 from classes.forms import (
     CategoryForm,
     ClassOfferingForm,
+    ClassReviewDecisionForm,
     ClassSessionFormSet,
     ClassSettingsForm,
     DiscountCodeForm,
@@ -39,9 +43,11 @@ from classes.forms import (
 )
 from classes.models import (
     Category,
+    ClassApproval,
     ClassImage,
     ClassOffering,
     ClassSettings,
+    CmsActivity,
     DiscountCode,
     Instructor,
     Registration,
@@ -71,21 +77,78 @@ def _browsable_classes() -> Any:
     )
 
 
+def _coerce_dollars_to_cents(raw: str | None) -> int:
+    """Parse a form-submitted dollar amount into cents. Empty/invalid → 0."""
+    if not raw:
+        return 0
+    try:
+        return int(round(float(raw) * 100))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
+    """Apply all GET-param browse filters to the class listing queryset."""
+    slug = request.GET.get("category", "").strip()
+    if slug:
+        qs = qs.filter(category__slug=slug)
+
+    instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
+    if instructor_slugs:
+        qs = qs.filter(instructor__slug__in=instructor_slugs)
+
+    min_price = _coerce_dollars_to_cents(request.GET.get("min_price"))
+    if min_price > 0:
+        qs = qs.filter(price_cents__gte=min_price)
+
+    max_price = _coerce_dollars_to_cents(request.GET.get("max_price"))
+    if max_price > 0:
+        qs = qs.filter(price_cents__lte=max_price)
+
+    if request.GET.get("members_only") == "1":
+        qs = qs.filter(member_discount_pct__gt=0)
+    if request.GET.get("free") == "1":
+        qs = qs.filter(price_cents=0)
+    if request.GET.get("upcoming") == "1":
+        qs = qs.exclude(first_session_at__isnull=True)
+
+    return qs
+
+
 def public_list(request: HttpRequest) -> HttpResponse:
-    """Public portal — hero + sticky category filter + grouped class cards."""
+    """Public portal — hero + sticky category filter + grouped class cards.
+
+    Supports HTMX partial swaps: when the request carries an ``HX-Request``
+    header, returns just the results grid so the filter form can update the
+    page in place without a full reload. The querystring is the source of
+    truth for filter state; ``hx-push-url`` keeps the URL shareable.
+    """
     settings_obj = ClassSettings.load()
+
     selected_category_slug = request.GET.get("category", "").strip()
-    classes_qs = _browsable_classes()
-    if selected_category_slug:
-        classes_qs = classes_qs.filter(category__slug=selected_category_slug)
+    selected_instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
+    members_only = request.GET.get("members_only") == "1"
+    free_only = request.GET.get("free") == "1"
+    upcoming_only = request.GET.get("upcoming") == "1"
+
+    classes_qs = _apply_browse_filters(_browsable_classes(), request)
+
     classes = list(classes_qs)
-    # Category chips show only categories with at least one browsable class.
+
+    # Category chips and per-category counts always reflect the unfiltered
+    # universe of browsable classes so users can see what else is out there.
     category_counts: dict[int, int] = {}
     for offering in _browsable_classes():
         category_counts[offering.category_id] = category_counts.get(offering.category_id, 0) + 1
     categories = [cat for cat in Category.objects.all() if category_counts.get(cat.id)]
     for cat in categories:
         cat.class_count = category_counts[cat.id]  # type: ignore[attr-defined]
+
+    # Instructors-for-filter: everyone who teaches at least one browsable class.
+    instructors_for_filter = list(
+        Instructor.objects.filter(classes__in=_browsable_classes()).distinct().order_by("display_name")
+    )
+
     # Group classes by category for the rendered sections.
     grouped: dict[int, dict[str, Any]] = {}
     for offering in classes:
@@ -93,20 +156,44 @@ def public_list(request: HttpRequest) -> HttpResponse:
         bucket["classes"].append(offering)
     category_sections = [grouped[cat.id] for cat in categories if cat.id in grouped]
     distinct_instructor_ids = {offering.instructor_id for offering in classes}
-    return render(
-        request,
-        "classes/public/list.html",
-        {
-            "settings_obj": settings_obj,
-            "site_config": SiteConfiguration.load(),
-            "categories": categories,
-            "selected_category_slug": selected_category_slug,
-            "category_sections": category_sections,
-            "total_classes": len(classes),
-            "total_instructors": len(distinct_instructor_ids),
-            "total_categories": len(categories),
-        },
+
+    active_filter_count = sum(
+        1
+        for v in (
+            selected_instructor_slugs,
+            request.GET.get("min_price"),
+            request.GET.get("max_price"),
+            members_only,
+            free_only,
+            upcoming_only,
+        )
+        if v
     )
+
+    context = {
+        "settings_obj": settings_obj,
+        "site_config": SiteConfiguration.load(),
+        "categories": categories,
+        "selected_category_slug": selected_category_slug,
+        "selected_instructor_slugs": selected_instructor_slugs,
+        "instructors_for_filter": instructors_for_filter,
+        "min_price": request.GET.get("min_price", ""),
+        "max_price": request.GET.get("max_price", ""),
+        "members_only": members_only,
+        "free_only": free_only,
+        "upcoming_only": upcoming_only,
+        "active_filter_count": active_filter_count,
+        "category_sections": category_sections,
+        "total_classes": len(classes),
+        "total_instructors": len(distinct_instructor_ids),
+        "total_categories": len(categories),
+    }
+
+    # HTMX partial: return just the results grid so the filter form can swap
+    # in place without rerendering hero + filter chrome.
+    if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"):
+        return render(request, "classes/public/_list_results.html", context)
+    return render(request, "classes/public/list.html", context)
 
 
 def public_category(request: HttpRequest, slug: str) -> HttpResponse:
@@ -128,6 +215,13 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     if offering.member_discount_pct:
         member_price_cents = int(offering.price_cents * (100 - offering.member_discount_pct) / 100)
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    related_offerings = list(
+        ClassOffering.objects.public()
+        .filter(category=offering.category)
+        .exclude(pk=offering.pk)
+        .select_related("instructor")
+        .order_by("-created_at")[:3]
+    )
     return render(
         request,
         "classes/public/detail.html",
@@ -138,6 +232,7 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "upcoming_sessions": upcoming_sessions,
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
+            "related_offerings": related_offerings,
         },
     )
 
@@ -225,6 +320,12 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     )
     settings_obj = ClassSettings.load()
 
+    # Waitlist intent: ?waitlist=1 (offered when the class is sold out) routes
+    # to the no-charge waitlist branch below. Forced on automatically when the
+    # class has no spots left so we never hide the option from a registrant
+    # who lands here from a stale link.
+    is_waitlist = request.GET.get("waitlist") == "1" or offering.spots_remaining <= 0
+
     # Two-pass form: first POST validates email so we can detect a member
     # before computing price, then re-binds to surface the discounted total.
     # GET requests pre-fill from the logged-in user's Member record when present.
@@ -239,7 +340,20 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         member=member,
         client_ip=_client_ip(request),
         initial=initial,
+        is_waitlist=is_waitlist,
     )
+
+    if request.method == "POST" and form.is_valid() and is_waitlist:
+        registration = form.save()
+        registration.status = Registration.Status.WAITLISTED
+        registration.amount_paid_cents = 0
+        registration.save(update_fields=["status", "amount_paid_cents"])
+        send_waitlist_joined_confirmation(registration)
+        messages.success(
+            request,
+            f"You're on the waitlist for {offering.title}. We'll email you if a spot opens.",
+        )
+        return redirect("classes:my_registration", token=registration.self_serve_token)
 
     if request.method == "POST" and form.is_valid():
         registration = form.save()
@@ -253,6 +367,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             registration.save(update_fields=["status", "confirmed_at", "amount_paid_cents"])
             if registration.discount_code_id:
                 _bump_discount_use_count(registration.discount_code_id)
+                _log_discount_redeemed(registration)
             send_registration_confirmation(registration)
             send_instructor_registration_notification(registration)
             send_admin_registration_notification(registration)
@@ -310,6 +425,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             "site_config": SiteConfiguration.load(),
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
+            "is_waitlist": is_waitlist,
         },
     )
 
@@ -397,6 +513,21 @@ def my_registration_cancel(request: HttpRequest, token: str) -> HttpResponse:
     registration.cancel(reason="self-serve")
     messages.success(request, "Your registration is cancelled.")
     return redirect("classes:my_registration", token=token)
+
+
+def _log_discount_redeemed(registration: Registration) -> None:
+    """Append a DISCOUNT_CODE_REDEEMED activity row when a discount applied."""
+    from classes import activity
+    from classes.models import CmsActivity
+
+    if not registration.discount_code_id:
+        return
+    activity.log(
+        CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
+        class_offering=registration.class_offering,
+        registration=registration,
+        payload={"code": registration.discount_code.code},
+    )
 
 
 def _bump_discount_use_count(discount_code_id: int) -> None:
@@ -599,8 +730,13 @@ def instructor_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     instructor: Instructor = request.instructor  # type: ignore[attr-defined]
     offering = get_object_or_404(ClassOffering.objects.filter(instructor=instructor), pk=pk)
     if request.method == "POST" and offering.status == ClassOffering.Status.DRAFT:
-        offering.submit_for_review()
-        messages.success(request, f"Submitted “{offering.title}” for admin review.")
+        approvals = offering.submit_for_review()
+        send_class_review_requests(offering, approvals)
+        roles_label = " + ".join(a.get_role_display() for a in approvals)
+        messages.success(
+            request,
+            f"Submitted “{offering.title}” for review by {roles_label}.",
+        )
     return redirect("classes:instructor_dashboard")
 
 
@@ -680,17 +816,43 @@ def instructor_discount_codes(request: HttpRequest) -> HttpResponse:
 @instructor_required
 def instructor_discount_code_create(request: HttpRequest) -> HttpResponse:
     instructor: Instructor = request.instructor  # type: ignore[attr-defined]
-    form = DiscountCodeForm(request.POST or None)
+    scoped_to: ClassOffering | None = None
+    raw_class = request.GET.get("class") or request.POST.get("class")
+    if raw_class:
+        try:
+            scoped_to = ClassOffering.objects.filter(instructor=instructor).get(pk=int(raw_class))
+        except (ClassOffering.DoesNotExist, ValueError, TypeError):
+            scoped_to = None
+    form = DiscountCodeForm(request.POST or None, scoped_to=scoped_to, created_by=request.user)
     if request.method == "POST" and form.is_valid():
         code = form.save(commit=False)
-        code.is_approved = False
+        # Class-scoped codes created by the offering's own instructor are
+        # auto-approved by DiscountCodeForm.save. Other instructor codes
+        # (global, or scoped to another instructor's class) need admin review.
+        if scoped_to is None:
+            code.is_approved = False
+        if scoped_to is not None and not code.class_offering_id:
+            code.class_offering = scoped_to
+        if not code.created_by_id:
+            code.created_by = request.user
         code.save()
-        messages.success(request, "Discount code created — an admin will review and approve it.")
+        if code.is_approved:
+            messages.success(request, "Discount code created and active for this class.")
+        else:
+            messages.success(request, "Discount code created — an admin will review and approve it.")
+        if scoped_to is not None:
+            return redirect("classes:instructor_class_edit", pk=scoped_to.pk)
         return redirect("classes:instructor_discount_codes")
     return render(
         request,
         "classes/instructor/discount_code_form.html",
-        {"active_tab": "discount_codes", "instructor": instructor, "form": form, "mode": "create"},
+        {
+            "active_tab": "discount_codes",
+            "instructor": instructor,
+            "form": form,
+            "mode": "create",
+            "scoped_to": scoped_to,
+        },
     )
 
 
@@ -904,11 +1066,15 @@ def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
     active_count = registrations.exclude(
         status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED],
     ).count()
+    waitlist_registrations = list(
+        offering.registrations.filter(status=Registration.Status.WAITLISTED).order_by("registered_at")
+    )
     return render(
         request,
         "classes/admin/class_detail.html",
         {
             "active_tab": "classes",
+            "waitlist_registrations": waitlist_registrations,
             "offering": offering,
             "registrations": registrations,
             "active_registration_count": active_count,
@@ -938,11 +1104,191 @@ def admin_class_email(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    """Quick-approve from the admin class detail page.
+
+    Records an admin-role decision via ClassApproval; the offering publishes
+    only when every required gate (admin + guild lead, if any) is satisfied.
+    For request-changes / decline with notes, use the dedicated review page
+    at /classes/admin/<pk>/review/.
+    """
     offering = get_object_or_404(ClassOffering, pk=pk)
     if request.method == "POST":
-        offering.approve(request.user)
-        messages.success(request, f"{offering.title} is published.")
+        row = offering.approvals.filter(
+            role=ClassApproval.Role.ADMIN, decision=""
+        ).first() or ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        row.decide(ClassApproval.Decision.APPROVED, user=request.user)
+        send_class_review_decision(offering, row)
+        if offering.status == ClassOffering.Status.PUBLISHED:
+            messages.success(request, f"{offering.title} is published.")
+        else:
+            messages.success(
+                request,
+                f"Admin approval recorded. Waiting on the remaining reviewer(s) before {offering.title} publishes.",
+            )
     return redirect("classes:admin_class_detail", pk=offering.pk)
+
+
+_ACTIVITY_GROUPS = {
+    "classes": [
+        CmsActivity.Kind.CLASS_CREATED,
+        CmsActivity.Kind.CLASS_SUBMITTED,
+        CmsActivity.Kind.CLASS_APPROVED,
+        CmsActivity.Kind.CLASS_CHANGES_REQUESTED,
+        CmsActivity.Kind.CLASS_DENIED,
+        CmsActivity.Kind.CLASS_PUBLISHED,
+        CmsActivity.Kind.CLASS_ARCHIVED,
+    ],
+    "registrations": [
+        CmsActivity.Kind.REGISTRATION_CREATED,
+        CmsActivity.Kind.REGISTRATION_CONFIRMED,
+        CmsActivity.Kind.REGISTRATION_CANCELLED,
+        CmsActivity.Kind.REGISTRATION_REFUNDED,
+    ],
+    "waitlist": [
+        CmsActivity.Kind.WAITLIST_JOINED,
+        CmsActivity.Kind.WAITLIST_NOTIFIED,
+        CmsActivity.Kind.WAITLIST_LEFT,
+    ],
+    "discount_codes": [
+        CmsActivity.Kind.DISCOUNT_CODE_CREATED,
+        CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
+    ],
+}
+
+
+@classes_admin_access_required
+def admin_activity(request: HttpRequest) -> HttpResponse:
+    """Chronological feed of every CMS event for admins.
+
+    Filters: group (classes/registrations/waitlist/discount_codes/all) and
+    a free-text search across class title, actor name, and registration
+    email. Pagination is 50 rows; older rows fall off the bottom.
+    """
+    from django.core.paginator import Paginator
+
+    qs = CmsActivity.objects.select_related(
+        "class_offering",
+        "registration",
+        "actor",
+    ).order_by("-created_at")
+
+    selected_group = request.GET.get("group", "all").strip() or "all"
+    if selected_group in _ACTIVITY_GROUPS:
+        qs = qs.filter(kind__in=_ACTIVITY_GROUPS[selected_group])
+
+    search = (request.GET.get("q") or "").strip()
+    if search:
+        qs = qs.filter(
+            Q(class_offering__title__icontains=search)
+            | Q(actor__email__icontains=search)
+            | Q(actor__first_name__icontains=search)
+            | Q(actor__last_name__icontains=search)
+            | Q(registration__email__icontains=search)
+            | Q(registration__first_name__icontains=search)
+            | Q(registration__last_name__icontains=search)
+        )
+
+    paginator = Paginator(qs, 50)
+    page = paginator.get_page(request.GET.get("page") or 1)
+
+    return render(
+        request,
+        "classes/admin/activity.html",
+        {
+            "active_tab": "activity",
+            "events": page.object_list,
+            "page_obj": page,
+            "paginator": paginator,
+            "selected_group": selected_group,
+            "search": search,
+            "groups": [
+                ("all", "All"),
+                ("classes", "Classes"),
+                ("registrations", "Registrations"),
+                ("waitlist", "Waitlist"),
+                ("discount_codes", "Discount codes"),
+            ],
+        },
+    )
+
+
+@classes_admin_access_required
+def admin_class_review(request: HttpRequest, pk: int) -> HttpResponse:
+    """Full reviewer page for admins. Mirrors the tokenized public review page."""
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    return _class_review_view(
+        request,
+        offering=offering,
+        role=ClassApproval.Role.ADMIN,
+        token=None,
+    )
+
+
+def class_review(request: HttpRequest, token: str) -> HttpResponse:
+    """Tokenized reviewer page — no hub login required.
+
+    Token is single-use per decision; reopening after a decision shows the
+    current state. The token identifies the ClassApproval row and therefore
+    which role's gate the visitor satisfies.
+    """
+    approval = get_object_or_404(ClassApproval, token=token)
+    return _class_review_view(
+        request,
+        offering=approval.class_offering,
+        role=approval.role,
+        token=token,
+        approval=approval,
+    )
+
+
+def _class_review_view(
+    request: HttpRequest,
+    *,
+    offering: ClassOffering,
+    role: str,
+    token: str | None,
+    approval: ClassApproval | None = None,
+) -> HttpResponse:
+    """Shared logic for /classes/admin/<pk>/review/ and /classes/review/<token>/."""
+    if approval is None:
+        approval = offering.approvals.filter(role=role, decision="").order_by(
+            "-created_at"
+        ).first() or ClassApproval.objects.create(class_offering=offering, role=role)
+    settings_obj = ClassSettings.load()
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    history = list(offering.approvals.exclude(pk=approval.pk).order_by("-created_at"))
+
+    form = ClassReviewDecisionForm(request.POST or None)
+    if request.method == "POST" and not approval.decision and form.is_valid():
+        approval.decide(
+            form.cleaned_data["decision"],
+            user=request.user if request.user.is_authenticated else None,
+            notes=form.cleaned_data.get("notes", ""),
+        )
+        # refresh from DB to pick up the new state
+        approval.refresh_from_db()
+        offering.refresh_from_db()
+        send_class_review_decision(offering, approval)
+        messages.success(request, "Your decision has been recorded. Thanks for reviewing.")
+        if token:
+            return redirect("classes:class_review", token=token)
+        return redirect("classes:admin_class_review", pk=offering.pk)
+
+    return render(
+        request,
+        "classes/admin/class_review.html",
+        {
+            "offering": offering,
+            "settings_obj": settings_obj,
+            "approval": approval,
+            "history": history,
+            "form": form,
+            "role": role,
+            "upcoming_sessions": upcoming_sessions,
+            "is_tokenized": token is not None,
+            "active_tab": "classes",
+        },
+    )
 
 
 @classes_admin_access_required
@@ -1196,15 +1542,29 @@ def admin_discount_codes(request: HttpRequest) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_discount_code_create(request: HttpRequest) -> HttpResponse:
-    form = DiscountCodeForm(request.POST or None)
+    scoped_to: ClassOffering | None = None
+    raw_class = request.GET.get("class") or request.POST.get("class")
+    if raw_class:
+        try:
+            scoped_to = ClassOffering.objects.get(pk=int(raw_class))
+        except (ClassOffering.DoesNotExist, ValueError, TypeError):
+            scoped_to = None
+    form = DiscountCodeForm(request.POST or None, scoped_to=scoped_to, created_by=request.user)
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Discount code created.")
+        if scoped_to is not None:
+            return redirect("classes:admin_class_detail", pk=scoped_to.pk)
         return redirect("classes:admin_discount_codes")
     return render(
         request,
         "classes/admin/discount_code_form.html",
-        {"active_tab": "discount_codes", "form": form, "mode": "create"},
+        {
+            "active_tab": "discount_codes",
+            "form": form,
+            "mode": "create",
+            "scoped_to": scoped_to,
+        },
     )
 
 

@@ -1,0 +1,104 @@
+{% extends "classes/admin/base.html" %}
+{% load classes_tags %}
+{% block tab_content %}
+<h2 style="margin-top:0;margin-bottom:0.25rem;">Activity</h2>
+<p style="color:var(--hub-text-muted);margin-top:0;margin-bottom:1.25rem;font-size:0.9rem;">
+  Reverse-chronological feed of every classes-app event: class lifecycle, registrations, waitlist
+  movement, and discount-code activity. For the registrations-only management table with email
+  tools, use the Registrations tab.
+</p>
+
+<form method="get" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:end;margin-bottom:1.25rem;">
+  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+    {% for value, label in groups %}
+      <a href="?group={{ value }}{% if search %}&q={{ search }}{% endif %}"
+         class="hub-btn hub-btn--sm {% if selected_group == value %}hub-btn--primary{% else %}hub-btn--ghost{% endif %}">
+        {{ label }}
+      </a>
+    {% endfor %}
+  </div>
+  <label style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:240px;">
+    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--hub-text-muted);">Search</span>
+    <input type="text" name="q" value="{{ search }}" placeholder="class title, name, or email"
+           style="padding:8px 12px;border-radius:6px;border:1px solid var(--hub-card-border);background:var(--hub-input-bg);color:var(--hub-text);">
+  </label>
+  <input type="hidden" name="group" value="{{ selected_group }}">
+  <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
+</form>
+
+{% if events %}
+<div class="admin-table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th style="width:170px;">When</th>
+        <th>Event</th>
+        <th>Class</th>
+        <th>Actor</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ev in events %}
+        <tr>
+          <td style="white-space:nowrap;color:var(--hub-text-muted);font-size:0.85rem;">
+            {{ ev.created_at|date:"M j, Y" }}<br>
+            <span style="color:var(--hub-text-muted);font-size:0.8rem;">{{ ev.created_at|time:"g:i A" }}</span>
+          </td>
+          <td>
+            <strong>{{ ev.get_kind_display }}</strong>
+            {% if ev.registration %}
+              <br>
+              <span style="font-size:0.85rem;color:var(--hub-text-muted);">
+                {{ ev.registration.first_name }} {{ ev.registration.last_name }}
+                · <a href="mailto:{{ ev.registration.email }}">{{ ev.registration.email }}</a>
+              </span>
+            {% endif %}
+            {% if ev.payload.code %}
+              <br><span style="font-size:0.85rem;color:var(--hub-text-muted);">Code: <code>{{ ev.payload.code }}</code></span>
+            {% endif %}
+            {% if ev.payload.notes_excerpt %}
+              <br><span style="font-size:0.85rem;color:var(--hub-text-muted);white-space:pre-wrap;">{{ ev.payload.notes_excerpt }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if ev.class_offering %}
+              <a href="{% url 'classes:admin_class_detail' pk=ev.class_offering.pk %}">{{ ev.class_offering.title }}</a>
+            {% else %}
+              <span style="color:var(--hub-text-muted);">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if ev.actor %}
+              {{ ev.actor.get_full_name|default:ev.actor.email }}
+            {% else %}
+              <span style="color:var(--hub-text-muted);">system</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if page_obj.has_other_pages %}
+<nav style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;">
+  <span style="color:var(--hub-text-muted);font-size:0.9rem;">
+    Page {{ page_obj.number }} of {{ paginator.num_pages }} · {{ paginator.count }} events
+  </span>
+  <div style="display:flex;gap:6px;">
+    {% if page_obj.has_previous %}
+      <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?group={{ selected_group }}{% if search %}&q={{ search }}{% endif %}&page={{ page_obj.previous_page_number }}">← Previous</a>
+    {% endif %}
+    {% if page_obj.has_next %}
+      <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?group={{ selected_group }}{% if search %}&q={{ search }}{% endif %}&page={{ page_obj.next_page_number }}">Next →</a>
+    {% endif %}
+  </div>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="hub-card" style="padding:32px;text-align:center;color:var(--hub-text-muted);">
+  No activity matching these filters.
+</div>
+{% endif %}
+{% endblock %}

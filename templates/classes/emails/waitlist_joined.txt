@@ -1,0 +1,10 @@
+ON THE WAITLIST
+
+{{ offering.title }}
+
+You're number {{ position }} in line for this class. If a spot opens,
+we'll email you a link to register. There's no charge to hold your
+spot on the waitlist.
+
+You can leave the waitlist any time from your self-serve page:
+{{ self_serve_url }}

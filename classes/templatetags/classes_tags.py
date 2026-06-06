@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 from typing import Iterable
 
@@ -9,6 +10,45 @@ from django import template
 from django.http import QueryDict
 
 register = template.Library()
+
+
+_YOUTUBE_PATTERNS = (
+    re.compile(r"(?:youtube\.com/watch\?(?:[^&]+&)*v=)([A-Za-z0-9_-]{11})"),
+    re.compile(r"(?:youtu\.be/)([A-Za-z0-9_-]{11})"),
+    re.compile(r"(?:youtube\.com/embed/)([A-Za-z0-9_-]{11})"),
+    re.compile(r"(?:youtube\.com/shorts/)([A-Za-z0-9_-]{11})"),
+    re.compile(r"(?:youtube-nocookie\.com/embed/)([A-Za-z0-9_-]{11})"),
+)
+
+
+@register.filter
+def first_with_role(approvals, role: str):
+    """Return the first ClassApproval row from ``approvals`` with the given role.
+
+    Used by the reviewer page to render a per-required-role progress list
+    without N database queries. The ``approvals`` argument is the prefetched
+    iterable on ``offering.approvals.all``.
+    """
+    for row in approvals:
+        if row.role == role:
+            return row
+    return None
+
+
+@register.filter
+def youtube_embed_id(url: str | None) -> str:
+    """Extract the 11-char video ID from any common YouTube URL form.
+
+    Returns an empty string when the URL is missing or doesn't parse — the
+    detail template uses this to skip rendering the iframe.
+    """
+    if not url:
+        return ""
+    for pat in _YOUTUBE_PATTERNS:
+        m = pat.search(url)
+        if m:
+            return m.group(1)
+    return ""
 
 
 @register.inclusion_tag("components/table_sort_header.html")

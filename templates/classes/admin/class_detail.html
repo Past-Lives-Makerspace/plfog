@@ -50,6 +50,46 @@
 </table>
 </div>
 
+{# --- Waitlist section --- #}
+{% if waitlist_registrations %}
+<div style="margin-bottom:1rem;">
+    <h3 style="margin:0 0 0.5rem; display:flex; align-items:center; gap:0.5rem;">
+        Waitlist
+        <span style="color:var(--hub-text-muted); font-size:0.85rem; font-weight:400;">{{ waitlist_registrations|length }} waiting</span>
+    </h3>
+    <div class="admin-table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:3rem;">#</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Joined</th>
+                    <th>Notified</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for reg in waitlist_registrations %}
+                <tr>
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ reg.first_name }} {{ reg.last_name }}</td>
+                    <td>{{ reg.email }}</td>
+                    <td>{{ reg.registered_at|date:"M j, Y g:i A" }}</td>
+                    <td>
+                        {% if reg.waitlist_notified_at %}
+                            <span style="color:var(--color-tuscan-yellow);">{{ reg.waitlist_notified_at|date:"M j, g:i A" }}</span>
+                        {% else %}
+                            <span style="color:var(--hub-text-muted);">Not yet</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 {# --- Students section --- #}
 <div x-data="{ emailOpen: false, allChecked: false, toggleAll(ev) { this.$refs.studentTable.querySelectorAll('input[name=registration_ids]').forEach(cb => cb.checked = ev.target.checked); this.allChecked = ev.target.checked; } }" style="margin-bottom:1rem;">
     <h3 style="margin:0 0 0.5rem; display:flex; align-items:center; gap:0.5rem;">
@@ -124,6 +164,9 @@
                 {% csrf_token %}
                 <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Approve</button>
             </form>
+            <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=offering.pk %}">
+                Review with notes…
+            </a>
         {% endif %}
         <form method="post" action="{% url 'classes:admin_class_duplicate' pk=offering.pk %}" style="display:inline;">
             {% csrf_token %}

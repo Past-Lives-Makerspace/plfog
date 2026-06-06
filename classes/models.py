@@ -50,6 +50,13 @@ class Category(models.Model):
         validators=[validate_image_size],
         help_text="Optional header image.",
     )
+    icon_svg = models.TextField(
+        blank=True,
+        help_text=(
+            "Inline SVG markup shown next to the category name on public pages. "
+            "Tint via currentColor. Defaults to a Lucide icon seeded for known categories."
+        ),
+    )
     guild = models.ForeignKey(
         "membership.Guild",
         null=True,
@@ -168,6 +175,11 @@ class ClassOffering(models.Model):
         validators=[validate_image_size],
         help_text="Hero image.",
     )
+    video_url = models.URLField(
+        blank=True,
+        max_length=500,
+        help_text="Optional YouTube link (watch, youtu.be, embed, or shorts URL). Embeds on the public class page.",
+    )
     hero_crop_x = models.PositiveIntegerField(
         null=True, blank=True, help_text="Crop box left edge in source-image pixels — set by the hero cropper."
     )
@@ -218,6 +230,7 @@ class ClassOffering(models.Model):
         from django.conf import settings
 
         delete_orphan_on_replace(self, "image")
+        creating = self._state.adding
         # If the hero image is changing, also clear the stale crop box.
         if self.pk:
             try:
@@ -233,24 +246,160 @@ class ClassOffering(models.Model):
                 self.hero_crop_h = None
         normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)
         super().save(*args, **kwargs)
+        if creating:
+            from classes import activity
 
-    def submit_for_review(self) -> None:
+            activity.log(CmsActivity.Kind.CLASS_CREATED, class_offering=self)
+
+    @property
+    def required_review_roles(self) -> list[str]:
+        """Reviewer roles whose approval is needed to publish this offering.
+
+        Admin is always required. Guild Lead is added when the class's category
+        is linked to a guild that has a lead set — otherwise we'd be blocking
+        on a role that has no human attached.
+        """
+        roles: list[str] = [ClassApproval.Role.ADMIN]
+        if (
+            self.category_id
+            and self.category.guild_id
+            and self.category.guild is not None
+            and self.category.guild.guild_lead_id
+        ):
+            roles.append(ClassApproval.Role.GUILD_LEAD)
+        return roles
+
+    def submit_for_review(self) -> list["ClassApproval"]:
+        """Move from DRAFT to PENDING and create one approval row per required role.
+
+        Returns the freshly created approval rows so the caller (typically a
+        view) can pass them to the review-request email senders.
+        """
         if self.status != self.Status.DRAFT:
             raise ValueError(f"Only draft classes can be submitted; got {self.status}.")
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
+        # Clear out any stale approval rows from a prior submission cycle, then
+        # create one pending row per required role for this fresh round.
+        self.approvals.all().delete()
+        rows = [ClassApproval.objects.create(class_offering=self, role=role) for role in self.required_review_roles]
+        from classes import activity
+
+        activity.log(
+            CmsActivity.Kind.CLASS_SUBMITTED,
+            class_offering=self,
+            payload={"required_roles": [r.role for r in rows]},
+        )
+        return rows
 
     def approve(self, admin_user) -> None:
+        """Record an admin approval via the ClassApproval pathway.
+
+        Maintained for callers (views, tests) that already used this name.
+        Creates a fresh ADMIN approval row if one doesn't exist for the
+        current cycle and decides it APPROVED on the admin's behalf.
+        """
         if self.status != self.Status.PENDING:
             raise ValueError(f"Only pending classes can be approved; got {self.status}.")
-        self.status = self.Status.PUBLISHED
-        self.approved_by = admin_user
-        self.published_at = timezone.now()
-        self.save(update_fields=["status", "approved_by", "published_at", "updated_at"])
+        row = self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first() or ClassApproval.objects.create(
+            class_offering=self, role=ClassApproval.Role.ADMIN
+        )
+        row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
 
     def archive(self) -> None:
         self.status = self.Status.ARCHIVED
         self.save(update_fields=["status", "updated_at"])
+        from classes import activity
+
+        activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=self)
+
+    def promote_next_from_waitlist(self) -> "Registration | None":
+        """Notify the next waitlisted person when a confirmed spot opens.
+
+        Called after a confirmed registration cancels or refunds. Picks the
+        oldest WAITLISTED row that hasn't been notified yet, stamps
+        ``waitlist_notified_at``, and emails them a claim link. Does
+        nothing when no spots have actually opened (e.g. capacity bumps
+        elsewhere) or no eligible waitlist row exists.
+
+        Returns the notified registration so callers can introspect for
+        logging or tests.
+        """
+        if self.spots_remaining <= 0:
+            return None
+        next_up = (
+            self.registrations.filter(
+                status=Registration.Status.WAITLISTED,
+                waitlist_notified_at__isnull=True,
+            )
+            .order_by("registered_at")
+            .first()
+        )
+        if next_up is None:
+            return None
+        next_up.waitlist_notified_at = timezone.now()
+        next_up.save(update_fields=["waitlist_notified_at"])
+        # Lazy imports to avoid a circular dependency between models.py and the
+        # emails / activity helpers.
+        from classes import activity
+        from classes.emails import send_waitlist_spot_opened
+
+        send_waitlist_spot_opened(next_up)
+        activity.log(
+            CmsActivity.Kind.WAITLIST_NOTIFIED,
+            class_offering=self,
+            registration=next_up,
+        )
+        return next_up
+
+    def on_review_decision_recorded(self, row: "ClassApproval") -> None:
+        """Lifecycle hook: called by ClassApproval.decide.
+
+        APPROVED: if every required role has now signed off, publish.
+        CHANGES_REQUESTED / DENIED: bounce back to DRAFT so the instructor
+        can edit and resubmit. Per the locked decision in PLAN.md §14,
+        a guild-lead denial is recoverable (returns to DRAFT) rather than
+        archival; admin-level archival is a separate explicit action.
+        """
+        from classes import activity
+
+        if row.decision == ClassApproval.Decision.APPROVED:
+            activity.log(
+                CmsActivity.Kind.CLASS_APPROVED,
+                class_offering=self,
+                actor=row.decided_by,
+                payload={"role": row.role},
+            )
+            required = set(self.required_review_roles)
+            approved = {r.role for r in self.approvals.filter(decision=ClassApproval.Decision.APPROVED)}
+            if required.issubset(approved):
+                self.status = self.Status.PUBLISHED
+                self.approved_by = row.decided_by
+                self.published_at = timezone.now()
+                self.save(update_fields=["status", "approved_by", "published_at", "updated_at"])
+                activity.log(
+                    CmsActivity.Kind.CLASS_PUBLISHED,
+                    class_offering=self,
+                    actor=row.decided_by,
+                )
+        elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
+            self.status = self.Status.DRAFT
+            self.save(update_fields=["status", "updated_at"])
+            activity.log(
+                CmsActivity.Kind.CLASS_CHANGES_REQUESTED,
+                class_offering=self,
+                actor=row.decided_by,
+                payload={"role": row.role, "notes_excerpt": (row.notes or "")[:200]},
+            )
+        elif row.decision == ClassApproval.Decision.DENIED:
+            self.status = self.Status.DRAFT
+            self.save(update_fields=["status", "updated_at"])
+            activity.log(
+                CmsActivity.Kind.CLASS_DENIED,
+                class_offering=self,
+                actor=row.decided_by,
+                payload={"role": row.role, "notes_excerpt": (row.notes or "")[:200]},
+            )
 
     def add_gallery_images(self, files: list[UploadedFile]) -> None:
         """Create ClassImage rows from uploaded files."""
@@ -330,6 +479,110 @@ class ClassOffering(models.Model):
         return self
 
 
+class ClassApprovalQuerySet(models.QuerySet["ClassApproval"]):
+    def pending(self) -> "ClassApprovalQuerySet":
+        return self.filter(decision="")
+
+    def for_offering(self, offering: "ClassOffering") -> "ClassApprovalQuerySet":
+        return self.filter(class_offering=offering)
+
+
+class ClassApproval(models.Model):
+    """One reviewer gate on a ClassOffering submission.
+
+    When an instructor calls ``ClassOffering.submit_for_review()``, one row
+    is created per required reviewer role (``Role.ADMIN`` always; plus
+    ``Role.GUILD_LEAD`` when the class's category is linked to a guild that
+    has a lead). Each row gets a unique ``token`` so the emailed reviewer
+    can act without a hub login.
+
+    Rows start with ``decision = ""`` (still pending). Calling ``decide()``
+    on a row records the decision and triggers the lifecycle hook on the
+    offering (publish when every required row is APPROVED; back to DRAFT
+    when any reviewer requests changes or denies).
+    """
+
+    class Role(models.TextChoices):
+        ADMIN = "admin", "Admin"
+        GUILD_LEAD = "guild_lead", "Guild Lead"
+
+    class Decision(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        CHANGES_REQUESTED = "changes_requested", "Changes Requested"
+        DENIED = "denied", "Denied"
+
+    class_offering = models.ForeignKey(
+        "ClassOffering",
+        on_delete=models.CASCADE,
+        related_name="approvals",
+        help_text="The class submission this review row gates.",
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        help_text="Which reviewer gate this row represents.",
+    )
+    decision = models.CharField(
+        max_length=20,
+        choices=Decision.choices,
+        blank=True,
+        default="",
+        help_text="Reviewer's verdict; empty means still pending.",
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Authenticated user who recorded the decision, when known.",
+    )
+    notes = models.TextField(
+        blank=True,
+        help_text="Reviewer comments shown to the instructor.",
+    )
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="Random token used in the emailed /classes/review/<token>/ link.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the review was requested.")
+    decided_at = models.DateTimeField(null=True, blank=True, help_text="When the reviewer acted.")
+
+    objects = ClassApprovalQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["class_offering", "role"]),
+        ]
+
+    def __str__(self) -> str:
+        state = self.get_decision_display() if self.decision else "Pending"
+        return f"{self.get_role_display()} review of {self.class_offering_id}: {state}"
+
+    def save(self, *args, **kwargs) -> None:
+        if not self.token:
+            self.token = secrets.token_urlsafe(32)
+        super().save(*args, **kwargs)
+
+    def decide(self, decision: str, user=None, notes: str = "") -> None:
+        """Record a reviewer decision and trigger the offering's lifecycle hook."""
+        if decision not in {
+            self.Decision.APPROVED,
+            self.Decision.CHANGES_REQUESTED,
+            self.Decision.DENIED,
+        }:
+            raise ValueError(f"Unknown decision: {decision!r}")
+        self.decision = decision
+        self.decided_by = user
+        self.notes = notes
+        self.decided_at = timezone.now()
+        self.save(update_fields=["decision", "decided_by", "notes", "decided_at"])
+        self.class_offering.on_review_decision_recorded(self)
+
+
 class ClassImage(models.Model):
     """Additional gallery image for a class.
 
@@ -404,6 +657,32 @@ class DiscountCode(models.Model):
     is_approved = models.BooleanField(
         default=True, help_text="Admin-approved codes are usable. Instructor-created codes start unapproved."
     )
+    class_offering = models.ForeignKey(
+        "ClassOffering",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="discount_codes",
+        help_text=(
+            "When set, this code only applies to that one class. "
+            "When null, the code is global and any class can use it."
+        ),
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="User who created this code (audit + lets instructors manage their own codes).",
+    )
+    auto_apply = models.BooleanField(
+        default=False,
+        help_text=(
+            "When on, the code is automatically applied for any eligible registrant. "
+            "Useful for class-scoped promotional pricing without making customers type a code."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -419,8 +698,18 @@ class DiscountCode(models.Model):
         return self.code
 
     def save(self, *args, **kwargs) -> None:
+        creating = self._state.adding
         self.code = self.code.strip().upper()
         super().save(*args, **kwargs)
+        if creating:
+            from classes import activity
+
+            activity.log(
+                CmsActivity.Kind.DISCOUNT_CODE_CREATED,
+                class_offering=self.class_offering,
+                actor=self.created_by,
+                payload={"code": self.code, "auto_apply": self.auto_apply},
+            )
 
     def apply_to(self, price_cents: int) -> int:
         if self.discount_pct is not None:
@@ -553,6 +842,15 @@ class Registration(models.Model):
         db_index=True,
         help_text="Random token used in /classes/my/<token>/ self-serve URL.",
     )
+    waitlist_notified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Stamped when this waitlisted registrant has been emailed that a "
+            "spot opened up. Used to avoid double-notifying and to expire the "
+            "claim window."
+        ),
+    )
     order_number = models.CharField(
         max_length=12,
         blank=True,
@@ -581,6 +879,9 @@ class Registration(models.Model):
 
     def save(self, *args, **kwargs) -> None:
         creating = self._state.adding
+        prior_status = None
+        if not creating:
+            prior_status = type(self)._default_manager.only("status").get(pk=self.pk).status
         if creating and not self.self_serve_token:
             self.self_serve_token = secrets.token_urlsafe(48)
         if creating and not self.order_number:
@@ -588,6 +889,34 @@ class Registration(models.Model):
         super().save(*args, **kwargs)
         if creating and self.member_id is None:
             self.link_member_by_email()
+        from classes import activity
+
+        if creating:
+            if self.status == self.Status.WAITLISTED:
+                activity.log(
+                    CmsActivity.Kind.WAITLIST_JOINED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                )
+            else:
+                activity.log(
+                    CmsActivity.Kind.REGISTRATION_CREATED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                )
+        elif prior_status is not None and prior_status != self.status:
+            if self.status == self.Status.CONFIRMED:
+                activity.log(
+                    CmsActivity.Kind.REGISTRATION_CONFIRMED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                )
+            elif self.status == self.Status.REFUNDED:
+                activity.log(
+                    CmsActivity.Kind.REGISTRATION_REFUNDED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                )
 
     @staticmethod
     def _generate_order_number() -> str:
@@ -621,10 +950,37 @@ class Registration(models.Model):
             super().save(update_fields=["member"])
 
     def cancel(self, reason: str = "") -> None:
+        previously_held_a_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
+        was_waitlisted = self.status == self.Status.WAITLISTED
         self.status = self.Status.CANCELLED
         self.cancelled_at = timezone.now()
         self.cancellation_reason = reason
         self.save(update_fields=["status", "cancelled_at", "cancellation_reason"])
+        from classes import activity
+
+        activity.log(
+            CmsActivity.Kind.WAITLIST_LEFT if was_waitlisted else CmsActivity.Kind.REGISTRATION_CANCELLED,
+            class_offering=self.class_offering,
+            registration=self,
+            payload={"reason": reason} if reason else {},
+        )
+        if previously_held_a_spot:
+            self.class_offering.promote_next_from_waitlist()
+
+    @property
+    def waitlist_position(self) -> int | None:
+        """Rank among WAITLISTED rows for the same class, lowest = first in line.
+
+        Returns ``None`` for non-waitlisted registrations.
+        """
+        if self.status != self.Status.WAITLISTED:
+            return None
+        ahead = Registration.objects.filter(
+            class_offering=self.class_offering,
+            status=self.Status.WAITLISTED,
+            registered_at__lt=self.registered_at,
+        ).count()
+        return ahead + 1
 
 
 class RegistrationQuestion(models.Model):
@@ -768,6 +1124,83 @@ class InstructorMessageRecipient(models.Model):
         return f"{self.email} on message #{self.message_id}"
 
 
+class CmsActivity(models.Model):
+    """Append-only event log for every meaningful CMS happening.
+
+    One row per event. Written via ``classes.activity.log()`` from each
+    workflow point (class lifecycle, registration lifecycle, waitlist,
+    discount code redemption, etc.) so the admin Activity tab can show a
+    single chronological feed. The Kind enum below is the canonical list of
+    events the UI knows about; ``payload`` carries any free-form per-kind
+    detail the feed wants to render.
+    """
+
+    class Kind(models.TextChoices):
+        CLASS_CREATED = "class_created", "Class created"
+        CLASS_SUBMITTED = "class_submitted", "Submitted for review"
+        CLASS_APPROVED = "class_approved", "Approved"
+        CLASS_CHANGES_REQUESTED = "class_changes_requested", "Changes requested"
+        CLASS_DENIED = "class_denied", "Declined"
+        CLASS_PUBLISHED = "class_published", "Published"
+        CLASS_ARCHIVED = "class_archived", "Archived"
+        REGISTRATION_CREATED = "registration_created", "Registered"
+        REGISTRATION_CONFIRMED = "registration_confirmed", "Payment confirmed"
+        REGISTRATION_CANCELLED = "registration_cancelled", "Cancelled"
+        REGISTRATION_REFUNDED = "registration_refunded", "Refunded"
+        WAITLIST_JOINED = "waitlist_joined", "Joined waitlist"
+        WAITLIST_NOTIFIED = "waitlist_notified", "Notified of open spot"
+        WAITLIST_LEFT = "waitlist_left", "Left waitlist"
+        DISCOUNT_CODE_CREATED = "discount_code_created", "Discount code created"
+        DISCOUNT_CODE_REDEEMED = "discount_code_redeemed", "Discount code redeemed"
+
+    kind = models.CharField(max_length=40, choices=Kind.choices, help_text="What happened.")
+    class_offering = models.ForeignKey(
+        "ClassOffering",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="activity",
+        help_text="Class this event belongs to, when applicable.",
+    )
+    registration = models.ForeignKey(
+        "Registration",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="activity",
+        help_text="Registration this event belongs to, when applicable.",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="User who triggered this. Null for system or anonymous events.",
+    )
+    payload = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Free-form per-kind detail: discount code, notes excerpt, refund "
+            "amount, etc. The feed UI is the only consumer."
+        ),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["-created_at"]),
+            models.Index(fields=["class_offering", "-created_at"]),
+            models.Index(fields=["kind", "-created_at"]),
+        ]
+        verbose_name_plural = "CMS activity"
+
+    def __str__(self) -> str:
+        return f"{self.get_kind_display()} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
 class ClassSettings(models.Model):
     liability_waiver_text = models.TextField(help_text="Full liability waiver text shown to all registrants.")
     model_release_waiver_text = models.TextField(
@@ -781,6 +1214,13 @@ class ClassSettings(models.Model):
     )
     instructor_approval_required = models.BooleanField(
         default=True, help_text="When on, new classes go to admin for review before being published."
+    )
+    waitlist_claim_window_hours = models.PositiveIntegerField(
+        default=24,
+        help_text=(
+            "When a waitlisted person is notified that a spot opened, how many "
+            "hours they have to register before we move on to the next person."
+        ),
     )
     confirmation_email_footer = models.TextField(blank=True, help_text="Custom footer appended to confirmation emails.")
 

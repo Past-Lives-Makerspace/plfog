@@ -46,6 +46,9 @@ urlpatterns = [
     path("admin/<int:pk>/edit/", views.admin_class_edit, name="admin_class_edit"),
     path("admin/<int:pk>/email/", views.admin_class_email, name="admin_class_email"),
     path("admin/<int:pk>/approve/", views.admin_class_approve, name="admin_class_approve"),
+    path("admin/<int:pk>/review/", views.admin_class_review, name="admin_class_review"),
+    # Tokenized review page — emailed reviewers act without a hub login.
+    path("review/<str:token>/", views.class_review, name="class_review"),
     path("admin/<int:pk>/archive/", views.admin_class_archive, name="admin_class_archive"),
     path("admin/<int:pk>/duplicate/", views.admin_class_duplicate, name="admin_class_duplicate"),
     path("admin/<int:pk>/delete/", views.admin_class_delete, name="admin_class_delete"),
@@ -60,6 +63,7 @@ urlpatterns = [
     path("admin/categories/<int:pk>/delete/", views.admin_category_delete, name="admin_category_delete"),
     path("admin/instructors/", views.admin_instructors, name="admin_instructors"),
     path("admin/instructors/add/", views.admin_instructor_promote, name="admin_instructor_promote"),
+    path("admin/activity/", views.admin_activity, name="admin_activity"),
     path("admin/registrations/", views.admin_registrations, name="admin_registrations"),
     path("admin/registrations/<int:pk>/", views.admin_registration_detail, name="admin_registration_detail"),
     path("admin/registrations/<int:pk>/cancel/", views.admin_registration_cancel, name="admin_registration_cancel"),
