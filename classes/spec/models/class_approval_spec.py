@@ -7,7 +7,6 @@ import pytest
 from classes.factories import (
     CategoryFactory,
     ClassOfferingFactory,
-    UserFactory,
 )
 from classes.models import ClassApproval, ClassOffering
 from tests.membership.factories import GuildFactory, MemberFactory

@@ -144,12 +144,13 @@ def describe_register_view():
             client.post(reverse("classes:register", kwargs={"slug": paid_offering.slug}), data=_post_data())
         assert not Registration.objects.filter(class_offering=paid_offering).exists()
 
-    def it_blocks_registration_when_sold_out(paid_offering, client):
+    def it_joins_waitlist_when_sold_out(paid_offering, client):
         for _ in range(paid_offering.capacity):
             RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
         response = client.post(reverse("classes:register", kwargs={"slug": paid_offering.slug}), data=_post_data())
-        assert response.status_code == 200
-        assert b"sold out" in response.content.lower()
+        assert response.status_code == 302
+        registration = Registration.objects.get(email="sam@example.com", class_offering=paid_offering)
+        assert registration.status == Registration.Status.WAITLISTED
 
     def it_subscribes_to_mailchimp_when_free_registrant_opts_in(free_offering, client):
         from core.models import SiteConfiguration

@@ -87,6 +87,34 @@ def _coerce_dollars_to_cents(raw: str | None) -> int:
         return 0
 
 
+def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
+    """Apply all GET-param browse filters to the class listing queryset."""
+    slug = request.GET.get("category", "").strip()
+    if slug:
+        qs = qs.filter(category__slug=slug)
+
+    instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
+    if instructor_slugs:
+        qs = qs.filter(instructor__slug__in=instructor_slugs)
+
+    min_price = _coerce_dollars_to_cents(request.GET.get("min_price"))
+    if min_price > 0:
+        qs = qs.filter(price_cents__gte=min_price)
+
+    max_price = _coerce_dollars_to_cents(request.GET.get("max_price"))
+    if max_price > 0:
+        qs = qs.filter(price_cents__lte=max_price)
+
+    if request.GET.get("members_only") == "1":
+        qs = qs.filter(member_discount_pct__gt=0)
+    if request.GET.get("free") == "1":
+        qs = qs.filter(price_cents=0)
+    if request.GET.get("upcoming") == "1":
+        qs = qs.exclude(first_session_at__isnull=True)
+
+    return qs
+
+
 def public_list(request: HttpRequest) -> HttpResponse:
     """Public portal — hero + sticky category filter + grouped class cards.
 
@@ -96,33 +124,14 @@ def public_list(request: HttpRequest) -> HttpResponse:
     truth for filter state; ``hx-push-url`` keeps the URL shareable.
     """
     settings_obj = ClassSettings.load()
-    classes_qs = _browsable_classes()
 
-    # ── Filter inputs ─────────────────────────────────────
     selected_category_slug = request.GET.get("category", "").strip()
-    if selected_category_slug:
-        classes_qs = classes_qs.filter(category__slug=selected_category_slug)
-
     selected_instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
-    if selected_instructor_slugs:
-        classes_qs = classes_qs.filter(instructor__slug__in=selected_instructor_slugs)
-
-    min_price_cents = _coerce_dollars_to_cents(request.GET.get("min_price"))
-    if min_price_cents > 0:
-        classes_qs = classes_qs.filter(price_cents__gte=min_price_cents)
-    max_price_cents = _coerce_dollars_to_cents(request.GET.get("max_price"))
-    if max_price_cents > 0:
-        classes_qs = classes_qs.filter(price_cents__lte=max_price_cents)
-
     members_only = request.GET.get("members_only") == "1"
-    if members_only:
-        classes_qs = classes_qs.filter(member_discount_pct__gt=0)
     free_only = request.GET.get("free") == "1"
-    if free_only:
-        classes_qs = classes_qs.filter(price_cents=0)
     upcoming_only = request.GET.get("upcoming") == "1"
-    if upcoming_only:
-        classes_qs = classes_qs.exclude(first_session_at__isnull=True)
+
+    classes_qs = _apply_browse_filters(_browsable_classes(), request)
 
     classes = list(classes_qs)
 

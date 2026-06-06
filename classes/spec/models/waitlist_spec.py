@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from classes.factories import ClassOfferingFactory, ClassSessionFactory
+from classes.factories import ClassOfferingFactory
 from classes.models import Registration
 
 

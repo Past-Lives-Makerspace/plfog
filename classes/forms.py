@@ -12,21 +12,6 @@ from django.core.exceptions import ValidationError
 from django.forms import inlineformset_factory
 from django.utils.text import slugify
 
-from classes.templatetags.classes_tags import youtube_embed_id as _youtube_embed_id
-
-
-def _validate_youtube_url(url: str) -> str:
-    """Return a stripped YouTube URL, raising ValidationError when given a
-    non-YouTube link. Empty/blank values pass through (the field is optional)."""
-    cleaned = (url or "").strip()
-    if not cleaned:
-        return ""
-    if not _youtube_embed_id(cleaned):
-        raise ValidationError(
-            "Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…"
-        )
-    return cleaned
-
 from classes.models import (
     Category,
     ClassImage,
@@ -42,6 +27,20 @@ from classes.models import (
     RegistrationQuestion,
     Waiver,
 )
+from classes.templatetags.classes_tags import youtube_embed_id as _youtube_embed_id
+
+
+def _validate_youtube_url(url: str) -> str:
+    """Return a stripped YouTube URL, raising ValidationError when given a
+    non-YouTube link. Empty/blank values pass through (the field is optional)."""
+    cleaned = (url or "").strip()
+    if not cleaned:
+        return ""
+    if not _youtube_embed_id(cleaned):
+        raise ValidationError(
+            "Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…"
+        )
+    return cleaned
 
 if TYPE_CHECKING:
     from membership.models import Member
@@ -645,8 +644,6 @@ class RegistrationForm(forms.ModelForm):
         post-member-discount price furthest. Returns ``None`` when no such
         code exists.
         """
-        from django.db.models import Q  # local import keeps top-of-file tidy
-
         base = self.offering.price_cents
         if self.member is not None and self.offering.member_discount_pct:
             base = int(base * (100 - self.offering.member_discount_pct) / 100)

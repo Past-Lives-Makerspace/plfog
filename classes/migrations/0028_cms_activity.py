@@ -9,15 +9,63 @@ from django.conf import settings
 from django.db import migrations, models
 
 
+def _ts(value, fallback):
+    return value or fallback
+
+
+def _backfill_registration_events(reg, CmsActivity):
+    if reg.status == "waitlisted":
+        CmsActivity.objects.create(
+            kind="waitlist_joined",
+            class_offering=reg.class_offering,
+            registration=reg,
+            actor=None,
+            payload={},
+            created_at=reg.registered_at,
+        )
+    else:
+        CmsActivity.objects.create(
+            kind="registration_created",
+            class_offering=reg.class_offering,
+            registration=reg,
+            actor=None,
+            payload={},
+            created_at=reg.registered_at,
+        )
+    if reg.status == "confirmed" and reg.confirmed_at:
+        CmsActivity.objects.create(
+            kind="registration_confirmed",
+            class_offering=reg.class_offering,
+            registration=reg,
+            actor=None,
+            payload={},
+            created_at=reg.confirmed_at,
+        )
+    if reg.status == "cancelled" and reg.cancelled_at:
+        CmsActivity.objects.create(
+            kind="registration_cancelled",
+            class_offering=reg.class_offering,
+            registration=reg,
+            actor=None,
+            payload={"reason": reg.cancellation_reason} if reg.cancellation_reason else {},
+            created_at=reg.cancelled_at,
+        )
+    if reg.status == "refunded":
+        CmsActivity.objects.create(
+            kind="registration_refunded",
+            class_offering=reg.class_offering,
+            registration=reg,
+            actor=None,
+            payload={},
+            created_at=_ts(reg.cancelled_at, reg.registered_at),
+        )
+
+
 def backfill_activity(apps, schema_editor):
     ClassOffering = apps.get_model("classes", "ClassOffering")
     Registration = apps.get_model("classes", "Registration")
-    ClassApproval = apps.get_model("classes", "ClassApproval")
     DiscountCode = apps.get_model("classes", "DiscountCode")
     CmsActivity = apps.get_model("classes", "CmsActivity")
-
-    def _ts(value, fallback):
-        return value or fallback
 
     # Class lifecycle events
     for offering in ClassOffering.objects.all():
@@ -45,53 +93,8 @@ def backfill_activity(apps, schema_editor):
                 created_at=offering.updated_at,
             )
 
-    # Registration lifecycle events
     for reg in Registration.objects.all():
-        if reg.status == "waitlisted":
-            CmsActivity.objects.create(
-                kind="waitlist_joined",
-                class_offering=reg.class_offering,
-                registration=reg,
-                actor=None,
-                payload={},
-                created_at=reg.registered_at,
-            )
-        else:
-            CmsActivity.objects.create(
-                kind="registration_created",
-                class_offering=reg.class_offering,
-                registration=reg,
-                actor=None,
-                payload={},
-                created_at=reg.registered_at,
-            )
-        if reg.status == "confirmed" and reg.confirmed_at:
-            CmsActivity.objects.create(
-                kind="registration_confirmed",
-                class_offering=reg.class_offering,
-                registration=reg,
-                actor=None,
-                payload={},
-                created_at=reg.confirmed_at,
-            )
-        if reg.status == "cancelled" and reg.cancelled_at:
-            CmsActivity.objects.create(
-                kind="registration_cancelled",
-                class_offering=reg.class_offering,
-                registration=reg,
-                actor=None,
-                payload={"reason": reg.cancellation_reason} if reg.cancellation_reason else {},
-                created_at=reg.cancelled_at,
-            )
-        if reg.status == "refunded":
-            CmsActivity.objects.create(
-                kind="registration_refunded",
-                class_offering=reg.class_offering,
-                registration=reg,
-                actor=None,
-                payload={},
-                created_at=_ts(reg.cancelled_at, reg.registered_at),
-            )
+        _backfill_registration_events(reg, CmsActivity)
 
     # Discount codes created in the past
     for code in DiscountCode.objects.all():

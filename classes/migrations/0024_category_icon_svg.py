@@ -52,7 +52,7 @@ def seed(apps, schema_editor):
 
 def unseed(apps, schema_editor):
     Category = apps.get_model("classes", "Category")
-    seeded_markers = [f'viewBox="0 0 24 24"']  # only clear icons we plausibly seeded
+    seeded_markers = ['viewBox="0 0 24 24"']  # only clear icons we plausibly seeded
     for cat in Category.objects.exclude(icon_svg=""):
         if any(marker in cat.icon_svg for marker in seeded_markers):
             cat.icon_svg = ""
