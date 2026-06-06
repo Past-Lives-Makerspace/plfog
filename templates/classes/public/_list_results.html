@@ -1,6 +1,6 @@
 {% load classes_tags %}
-{# Just the results grid. Rendered standalone for HTMX swaps and embedded
-   into list.html for the initial full-page response. #}
+{% comment %}Just the results grid. Rendered standalone for HTMX swaps and embedded
+into list.html for the initial full-page response.{% endcomment %}
 <div class="cp-results__summary">
   {% if total_classes %}
     Showing <strong>{{ total_classes }}</strong> class{{ total_classes|pluralize:"es" }} across {{ total_categories }} categor{{ total_categories|pluralize:"y,ies" }}.

@@ -436,7 +436,7 @@ body.classes-portal {
 .cp-detail__cat-row {
   display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 8px;
 }
-.cp-detail__cat-chip {
+a.cp-detail__cat-chip {
   display: inline-block;
   padding: 5px 12px;
   border-radius: 999px;
@@ -448,7 +448,7 @@ body.classes-portal {
   letter-spacing: 0.1em;
   text-decoration: none;
 }
-.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); text-decoration: none; }
+a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); text-decoration: none; }
 .cp-detail__next-pill {
   display: inline-block;
   padding: 5px 12px;
@@ -755,7 +755,7 @@ body.classes-portal {
 .cp-detail__spots--ok { color: var(--green); }
 .cp-detail__spots--low { color: var(--red); }
 .cp-detail__spots--full { color: var(--red); text-transform: uppercase; letter-spacing: 0.06em; }
-.cp-detail__cta {
+a.cp-detail__cta {
   display: block;
   width: 100%;
   padding: 16px;
@@ -773,20 +773,20 @@ body.classes-portal {
   transition: transform .15s, box-shadow .15s, background .15s;
   min-height: 44px;
 }
-.cp-detail__cta:hover {
+a.cp-detail__cta:hover {
   background: var(--gold-light);
   transform: translateY(-1px);
   box-shadow: 0 8px 28px var(--gold-glow);
   text-decoration: none;
   color: var(--navy-dark);
 }
-.cp-detail__cta--waitlist {
+a.cp-detail__cta--waitlist {
   background: transparent;
   color: var(--gold);
   border: 2px solid var(--gold);
   box-shadow: none;
 }
-.cp-detail__cta--waitlist:hover {
+a.cp-detail__cta--waitlist:hover {
   background: rgba(238,180,75,0.08);
   color: var(--gold);
 }

@@ -16,21 +16,36 @@
 .cp-page .reg-field input[type=text],
 .cp-page .reg-field input[type=email],
 .cp-page .reg-field input[type=tel],
-.cp-page .reg-field textarea {
+.cp-page .reg-field textarea,
+.cp-page .reg-field select {
     width: 100%;
     padding: 9px 11px;
-    background: rgba(9, 46, 76, 0.35);
-    border: 1px solid var(--border);
+    background: var(--hub-input-bg);
+    border: 1px solid var(--hub-input-border);
     border-radius: 6px;
-    color: var(--cream);
+    color: var(--text);
     font-family: var(--font);
     font-size: 13px;
 }
+.cp-page .reg-field select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 30px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23eeb44b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    cursor: pointer;
+}
+.cp-page .reg-field select option { background: var(--hub-input-bg); color: var(--text); }
 .cp-page .reg-field input:focus,
-.cp-page .reg-field textarea:focus {
+.cp-page .reg-field textarea:focus,
+.cp-page .reg-field select:focus {
     outline: none;
     border-color: var(--gold);
-    background: rgba(14, 50, 80, 0.5);
+    background: var(--hub-input-bg);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23eeb44b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
 }
 .cp-page .reg-field textarea { min-height: 70px; resize: vertical; }
 .cp-page .reg-errors {
@@ -73,7 +88,7 @@
     gap: 8px;
     align-items: flex-start;
     font-size: 12px;
-    color: var(--cream);
+    color: var(--text);
     cursor: pointer;
 }
 .cp-page .reg-check input { margin-top: 3px; accent-color: var(--gold); }
@@ -83,7 +98,7 @@
     border: 1px solid rgba(238, 180, 75, 0.18);
     border-radius: var(--r);
     font-size: 13px;
-    color: var(--cream);
+    color: var(--text);
 }
 .cp-page .reg-summary .total {
     font-size: 20px;

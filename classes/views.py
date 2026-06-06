@@ -191,7 +191,7 @@ def public_list(request: HttpRequest) -> HttpResponse:
 
     # HTMX partial: return just the results grid so the filter form can swap
     # in place without rerendering hero + filter chrome.
-    if request.headers.get("HX-Request"):
+    if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"):
         return render(request, "classes/public/_list_results.html", context)
     return render(request, "classes/public/list.html", context)
 

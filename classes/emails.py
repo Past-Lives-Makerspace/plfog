@@ -161,9 +161,7 @@ def send_class_review_requests(offering: "ClassOffering", approvals: list["Class
 
     # Tell the instructor what's happening so they don't wonder.
     if offering.instructor and offering.instructor.user and offering.instructor.user.email:
-        instructor_url = _absolute_url(
-            reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk})
-        )
+        instructor_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
         ctx = {
             "offering": offering,
             "approvals": approvals,
@@ -196,10 +194,7 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
     if not (instructor and instructor.user and instructor.user.email):
         return
 
-    fully_approved = (
-        offering.status == offering.Status.PUBLISHED
-        and row.decision == ClassApproval.Decision.APPROVED
-    )
+    fully_approved = offering.status == offering.Status.PUBLISHED and row.decision == ClassApproval.Decision.APPROVED
     if fully_approved:
         subject = f"Your class “{offering.title}” is live!"
         public_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
@@ -246,9 +241,7 @@ def send_waitlist_joined_confirmation(registration: "Registration") -> None:
     happens if a spot opens.
     """
     offering = registration.class_offering
-    self_serve_url = _absolute_url(
-        reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
-    )
+    self_serve_url = _absolute_url(reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}))
     ctx = {
         "registration": registration,
         "offering": offering,
@@ -279,8 +272,7 @@ def send_waitlist_spot_opened(registration: "Registration") -> None:
 
     offering = registration.class_offering
     register_url = _absolute_url(
-        reverse("classes:register", kwargs={"slug": offering.slug})
-        + f"?waitlist_token={registration.self_serve_token}"
+        reverse("classes:register", kwargs={"slug": offering.slug}) + f"?waitlist_token={registration.self_serve_token}"
     )
     settings_obj = ClassSettings.load()
     ctx = {

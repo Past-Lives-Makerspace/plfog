@@ -3,7 +3,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("classes", "0024_category_icon_svg"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),

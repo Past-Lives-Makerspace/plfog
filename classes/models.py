@@ -277,10 +277,7 @@ class ClassOffering(models.Model):
         # Clear out any stale approval rows from a prior submission cycle, then
         # create one pending row per required role for this fresh round.
         self.approvals.all().delete()
-        rows = [
-            ClassApproval.objects.create(class_offering=self, role=role)
-            for role in self.required_review_roles
-        ]
+        rows = [ClassApproval.objects.create(class_offering=self, role=role) for role in self.required_review_roles]
         from classes import activity
 
         activity.log(
@@ -299,9 +296,8 @@ class ClassOffering(models.Model):
         """
         if self.status != self.Status.PENDING:
             raise ValueError(f"Only pending classes can be approved; got {self.status}.")
-        row = (
-            self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first()
-            or ClassApproval.objects.create(class_offering=self, role=ClassApproval.Role.ADMIN)
+        row = self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first() or ClassApproval.objects.create(
+            class_offering=self, role=ClassApproval.Role.ADMIN
         )
         row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
 
@@ -370,10 +366,7 @@ class ClassOffering(models.Model):
                 payload={"role": row.role},
             )
             required = set(self.required_review_roles)
-            approved = {
-                r.role
-                for r in self.approvals.filter(decision=ClassApproval.Decision.APPROVED)
-            }
+            approved = {r.role for r in self.approvals.filter(decision=ClassApproval.Decision.APPROVED)}
             if required.issubset(approved):
                 self.status = self.Status.PUBLISHED
                 self.approved_by = row.decided_by
@@ -977,13 +970,11 @@ class Registration(models.Model):
         """
         if self.status != self.Status.WAITLISTED:
             return None
-        ahead = (
-            Registration.objects.filter(
-                class_offering=self.class_offering,
-                status=self.Status.WAITLISTED,
-                registered_at__lt=self.registered_at,
-            ).count()
-        )
+        ahead = Registration.objects.filter(
+            class_offering=self.class_offering,
+            status=self.Status.WAITLISTED,
+            registered_at__lt=self.registered_at,
+        ).count()
         return ahead + 1
 
 

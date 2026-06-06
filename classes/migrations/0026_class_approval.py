@@ -32,7 +32,6 @@ def drop_synthetic_admin_approvals(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("classes", "0025_discount_code_per_class"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),

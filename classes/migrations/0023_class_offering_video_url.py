@@ -2,7 +2,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("classes", "0022_instructor_message_nullable_instructor_sent_by"),
     ]

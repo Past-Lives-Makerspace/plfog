@@ -10,16 +10,7 @@
 <link rel="stylesheet" href="{% static 'css/components.css' %}">
 <style>
   [x-cloak]{display:none !important}
-  body.calendar-portal{
-    background:#061f33;
-    background-image:url('https://images.squarespace-cdn.com/content/v1/634b3a44e68be653dc708619/1666300097251-9IIOE8TATR0ZNXU037QK/BACKDROP+reduced+copy.jpg?format=2500w');
-    background-size:cover;background-attachment:fixed;background-position:center;
-  }
-  body.calendar-portal .hub-content::before{
-    content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
-    background:radial-gradient(ellipse 70% 50% at 50% 15%,rgba(6,26,44,.45) 0%,rgba(6,26,44,.6) 30%,rgba(6,26,44,.78) 60%,rgba(6,26,44,.85) 100%);
-  }
-  body.calendar-portal .hub-content > *{position:relative;z-index:1}
+  body.calendar-portal { background: var(--hub-bg); }
   body.calendar-portal .skip-link{display:none}
 </style>
 {% endblock %}
