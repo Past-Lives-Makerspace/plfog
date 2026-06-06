@@ -59,7 +59,7 @@
 .cp-page .reg-waiver {
     margin-top: 6px;
     padding: 14px 16px;
-    background: rgba(9, 46, 76, 0.3);
+    background: var(--bg3);
     border: 1px solid var(--border);
     border-radius: var(--r);
 }
@@ -73,13 +73,13 @@
 }
 .cp-page .reg-waiver-text {
     font-size: 12px;
-    color: var(--steel);
+    color: var(--text);
     line-height: 1.6;
     max-height: 200px;
     overflow: auto;
     white-space: pre-wrap;
     padding: 10px 12px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--bg4);
     border-radius: 6px;
     margin-bottom: 10px;
 }
