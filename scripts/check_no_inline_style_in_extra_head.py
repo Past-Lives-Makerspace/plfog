@@ -35,7 +35,6 @@ INLINE_STYLE_RE = re.compile(r"<style[\s>]", re.IGNORECASE)
 # reference them with a <link> tag — see templates/classes/public/register.html for the pattern.
 BASELINE: frozenset[str] = frozenset(
     {
-        "templates/classes/base_public.html",
         "templates/hub/admin/member_edit.html",
         "templates/hub/admin/members.html",
         "templates/hub/admin/site_settings.html",
