@@ -147,7 +147,12 @@ class ClassOffering(models.Model):
         Category, on_delete=models.PROTECT, related_name="classes", help_text="Category grouping."
     )
     instructor = models.ForeignKey(
-        Instructor, on_delete=models.PROTECT, related_name="classes", help_text="Assigned instructor."
+        Instructor,
+        on_delete=models.PROTECT,
+        related_name="classes",
+        null=True,
+        blank=True,
+        help_text="Assigned instructor.",
     )
     description = models.TextField(blank=True, help_text="Class description — markdown-safe.")
     prerequisites = models.TextField(blank=True, help_text="What a student should know/own.")
@@ -217,6 +222,16 @@ class ClassOffering(models.Model):
     published_at = models.DateTimeField(null=True, blank=True, help_text="Stamp on first publish.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    legacy_cms_id = models.CharField(
+        max_length=100,
+        blank=True,
+        db_index=True,
+        help_text="Drupal node UUID from classes.pastlives.space. Empty on manually-created offerings.",
+    )
+    legacy_image_url = models.URLField(
+        blank=True,
+        help_text="Hero image URL from the legacy CMS. Cleared after download_legacy_images runs.",
+    )
 
     objects = ClassOfferingQuerySet.as_manager()
 
