@@ -941,14 +941,20 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     status_filter = request.GET.get("status", "").strip()
     if status_filter not in valid_statuses:
         status_filter = ""
+    instructor_filter = request.GET.get("instructor", "").strip()
+
     base = ClassOffering.objects.select_related("instructor", "category").annotate(
         registration_count=Count("registrations")
     )
     qs = base.filter(status=status_filter) if status_filter else base
+    if instructor_filter:
+        qs = qs.filter(instructor_id=instructor_filter)
+
     status_counts = {row["status"]: row["count"] for row in base.values("status").annotate(count=Count("pk"))}
     filters = [("", "All", base.count())] + [
         (choice.value, choice.label, status_counts.get(choice.value, 0)) for choice in ClassOffering.Status
     ]
+    instructors = Instructor.objects.filter(is_active=True).order_by("display_name")
     table = prepare_table(
         request,
         qs,
@@ -964,6 +970,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
             "pending_count": ClassOffering.objects.pending_review().count(),
             "status_filters": filters,
             "selected_status": status_filter,
+            "instructors": instructors,
+            "selected_instructor": instructor_filter,
             **table,
         },
     )

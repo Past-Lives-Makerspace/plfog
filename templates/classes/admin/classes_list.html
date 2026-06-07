@@ -18,6 +18,20 @@
         </span>
     {% endif %}
 </div>
+{% if instructors %}
+<div class="admin-filters" style="margin-top:0.5rem;">
+    <form method="get" style="display:flex;align-items:center;gap:0.5rem;">
+        {% if selected_status %}<input type="hidden" name="status" value="{{ selected_status }}">{% endif %}
+        <select name="instructor" onchange="this.form.submit()" style="font-size:0.875rem;padding:0.25rem 0.5rem;background:var(--hub-card-bg,#0c2236);color:var(--hub-text,#f4efdd);border:1px solid var(--hub-border);border-radius:4px;">
+            <option value="">All instructors</option>
+            {% for inst in instructors %}
+            <option value="{{ inst.pk }}"{% if selected_instructor == inst.pk|stringformat:"s" %} selected{% endif %}>{{ inst.display_name }}</option>
+            {% endfor %}
+        </select>
+        {% if selected_instructor %}<a href="?{% if selected_status %}status={{ selected_status }}&{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">✕ Clear</a>{% endif %}
+    </form>
+</div>
+{% endif %}
 <div class="admin-table-wrap">
 <table>
     <thead>
