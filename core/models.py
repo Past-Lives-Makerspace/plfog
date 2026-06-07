@@ -77,12 +77,15 @@ class SiteConfiguration(models.Model):
     )
     legacy_cms_sync_enabled = models.BooleanField(
         default=False,
+        verbose_name="Sync offerings from legacy CMS",
         help_text="When enabled, classes.pastlives.space offerings sync into plfog every 15 minutes.",
     )
     legacy_cms_last_synced_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Timestamp of the last successful legacy CMS sync. Read-only.",
+        editable=False,
+        verbose_name="Legacy CMS last synced at",
+        help_text="Timestamp of the last successful legacy CMS sync.",
     )
     mailchimp_api_key = models.CharField(
         max_length=255,
