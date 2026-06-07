@@ -164,7 +164,11 @@ def describe_public_list():
             instructor=other_instructor,
             status=ClassOffering.Status.PUBLISHED,
         )
-        ClassSessionFactory(class_offering=other, starts_at=timezone.now() + timedelta(days=2), ends_at=timezone.now() + timedelta(days=2, hours=2))
+        ClassSessionFactory(
+            class_offering=other,
+            starts_at=timezone.now() + timedelta(days=2),
+            ends_at=timezone.now() + timedelta(days=2, hours=2),
+        )
         response = client.get(reverse("classes:public_list") + "?instructor=deenie")
         assert b"Intro to Wheel Throwing" in response.content
         assert b"Newcomer Class" not in response.content
@@ -178,7 +182,11 @@ def describe_public_list():
             status=ClassOffering.Status.PUBLISHED,
             price_cents=500,
         )
-        ClassSessionFactory(class_offering=cheap, starts_at=timezone.now() + timedelta(days=1), ends_at=timezone.now() + timedelta(days=1, hours=2))
+        ClassSessionFactory(
+            class_offering=cheap,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=2),
+        )
         # published_class has price_cents=5000 ($50); filter max=$4 to exclude it and include the $5 class
         response = client.get(reverse("classes:public_list") + "?min_price=1&max_price=9")
         assert b"Intro to Wheel Throwing" not in response.content
@@ -203,8 +211,16 @@ def describe_public_list():
             status=ClassOffering.Status.PUBLISHED,
             member_discount_pct=0,
         )
-        ClassSessionFactory(class_offering=members_only, starts_at=timezone.now() + timedelta(days=1), ends_at=timezone.now() + timedelta(days=1, hours=2))
-        ClassSessionFactory(class_offering=no_discount, starts_at=timezone.now() + timedelta(days=2), ends_at=timezone.now() + timedelta(days=2, hours=2))
+        ClassSessionFactory(
+            class_offering=members_only,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=2),
+        )
+        ClassSessionFactory(
+            class_offering=no_discount,
+            starts_at=timezone.now() + timedelta(days=2),
+            ends_at=timezone.now() + timedelta(days=2, hours=2),
+        )
         response = client.get(reverse("classes:public_list") + "?members_only=1")
         assert b"Members Class" in response.content
         assert b"Open Class" not in response.content
@@ -212,10 +228,32 @@ def describe_public_list():
     def it_filters_free_classes(db, client):
         cat = CategoryFactory()
         inst = InstructorFactory()
-        free = ClassOfferingFactory(title="Free Workshop", slug="free-workshop", category=cat, instructor=inst, status=ClassOffering.Status.PUBLISHED, price_cents=0)
-        paid = ClassOfferingFactory(title="Paid Workshop", slug="paid-workshop", category=cat, instructor=inst, status=ClassOffering.Status.PUBLISHED, price_cents=2000)
-        ClassSessionFactory(class_offering=free, starts_at=timezone.now() + timedelta(days=1), ends_at=timezone.now() + timedelta(days=1, hours=2))
-        ClassSessionFactory(class_offering=paid, starts_at=timezone.now() + timedelta(days=2), ends_at=timezone.now() + timedelta(days=2, hours=2))
+        free = ClassOfferingFactory(
+            title="Free Workshop",
+            slug="free-workshop",
+            category=cat,
+            instructor=inst,
+            status=ClassOffering.Status.PUBLISHED,
+            price_cents=0,
+        )
+        paid = ClassOfferingFactory(
+            title="Paid Workshop",
+            slug="paid-workshop",
+            category=cat,
+            instructor=inst,
+            status=ClassOffering.Status.PUBLISHED,
+            price_cents=2000,
+        )
+        ClassSessionFactory(
+            class_offering=free,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=2),
+        )
+        ClassSessionFactory(
+            class_offering=paid,
+            starts_at=timezone.now() + timedelta(days=2),
+            ends_at=timezone.now() + timedelta(days=2, hours=2),
+        )
         response = client.get(reverse("classes:public_list") + "?free=1")
         assert b"Free Workshop" in response.content
         assert b"Paid Workshop" not in response.content
@@ -223,9 +261,25 @@ def describe_public_list():
     def it_filters_upcoming_classes(db, client):
         cat = CategoryFactory()
         inst = InstructorFactory()
-        upcoming = ClassOfferingFactory(title="Upcoming Class", slug="upcoming-class", category=cat, instructor=inst, status=ClassOffering.Status.PUBLISHED)
-        ClassOfferingFactory(title="No Session Class", slug="no-session-class", category=cat, instructor=inst, status=ClassOffering.Status.PUBLISHED)
-        ClassSessionFactory(class_offering=upcoming, starts_at=timezone.now() + timedelta(days=1), ends_at=timezone.now() + timedelta(days=1, hours=2))
+        upcoming = ClassOfferingFactory(
+            title="Upcoming Class",
+            slug="upcoming-class",
+            category=cat,
+            instructor=inst,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        ClassOfferingFactory(
+            title="No Session Class",
+            slug="no-session-class",
+            category=cat,
+            instructor=inst,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        ClassSessionFactory(
+            class_offering=upcoming,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=2),
+        )
         response = client.get(reverse("classes:public_list") + "?upcoming=1")
         assert b"Upcoming Class" in response.content
         assert b"No Session Class" not in response.content

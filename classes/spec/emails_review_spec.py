@@ -60,9 +60,7 @@ def describe_send_class_review_requests():
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
         User = get_user_model()
         plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
-        noemail_user, _ = User.objects.get_or_create(
-            username="noemail2@example.com", defaults={"email": ""}
-        )
+        noemail_user, _ = User.objects.get_or_create(username="noemail2@example.com", defaults={"email": ""})
         noemail_member, _ = Member.objects.get_or_create(
             user=noemail_user, defaults={"full_legal_name": "No Email Lead", "membership_plan": plan}
         )
