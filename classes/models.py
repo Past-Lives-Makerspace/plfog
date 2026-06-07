@@ -225,7 +225,6 @@ class ClassOffering(models.Model):
     legacy_cms_id = models.CharField(
         max_length=100,
         blank=True,
-        db_index=True,
         help_text="Drupal node UUID from classes.pastlives.space. Empty on manually-created offerings.",
     )
     legacy_image_url = models.URLField(
@@ -237,6 +236,13 @@ class ClassOffering(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["legacy_cms_id"],
+                condition=models.Q(legacy_cms_id__gt=""),
+                name="uq_classoffering_legacy_cms_id",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.title

@@ -1,4 +1,3 @@
-import pytest
 from classes.factories import ClassOfferingFactory
 
 
@@ -16,3 +15,8 @@ def describe_ClassOffering():
             offering = ClassOfferingFactory(instructor=None)
             offering.refresh_from_db()
             assert offering.instructor is None
+
+        def it_persists_legacy_cms_id(db):
+            offering = ClassOfferingFactory(legacy_cms_id="node-abc-123")
+            offering.refresh_from_db()
+            assert offering.legacy_cms_id == "node-abc-123"
