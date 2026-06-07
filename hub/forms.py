@@ -218,6 +218,7 @@ class SiteSettingsForm(forms.ModelForm):
             "registration_mode",
             "sync_classes_enabled",
             "classes_calendar_color",
+            "legacy_cms_sync_enabled",
             "mailchimp_api_key",
             "mailchimp_list_id",
             "google_analytics_measurement_id",

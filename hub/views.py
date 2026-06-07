@@ -1097,23 +1097,60 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "hub/admin/member_edit.html", {**ctx, "form": form, "member": member})
 
 
+def _legacy_instructor_sync_status() -> tuple[list[dict[str, object]], int]:
+    """Return instructor match stats for the Legacy CMS tab.
+
+    For each active instructor, count how many ClassOfferings came from the
+    legacy CMS (legacy_cms_id set) and have that instructor linked.
+    """
+    from classes.models import ClassOffering, Instructor
+
+    rows = []
+    for instructor in Instructor.objects.filter(is_active=True).order_by("display_name"):
+        matched = ClassOffering.objects.filter(
+            legacy_cms_id__gt="",
+            instructor=instructor,
+        ).count()
+        rows.append(
+            {
+                "instructor": instructor,
+                "matched": matched,
+            }
+        )
+    # Also count unmatched offerings (has legacy_cms_id but instructor is null)
+    unmatched = ClassOffering.objects.filter(legacy_cms_id__gt="", instructor__isnull=True).count()
+    return rows, unmatched
+
+
 @fog_admin_required
 def admin_site_settings(request: HttpRequest) -> HttpResponse:
     """Admin site settings — edit the SiteConfiguration singleton and its calendar feeds.
 
-    The page exposes two tabs (``general`` and ``calendar``). The Calendar tab
+    The page exposes three tabs (``general``, ``calendar``, and ``legacy-cms``). The Calendar tab
     owns a ``CalendarFeedFormSet`` so admins can add/remove iCal feeds inline.
     """
     from core.models import CalendarFeed, SiteConfiguration
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
-    if active_tab not in {"general", "calendar"}:
+    if active_tab not in {"general", "calendar", "legacy-cms"}:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()
 
     if request.method == "POST":
+        # Handle "Sync Now" action — separate from the settings form
+        if request.POST.get("action") == "sync_now":
+            from classes.import_service import sync_legacy_cms
+
+            try:
+                count = sync_legacy_cms()
+                messages.success(request, f"Synced {count} offering(s) from the legacy CMS.")
+            except Exception as exc:
+                messages.error(request, f"Sync failed: {exc}")
+            url = reverse("hub_admin_site_settings")
+            return redirect(f"{url}?tab=legacy-cms")
+
         form = SiteSettingsForm(request.POST, instance=config)
         feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
         if form.is_valid() and feed_formset.is_valid():
@@ -1134,6 +1171,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
         form = SiteSettingsForm(instance=config)
         feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
 
+    instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -1145,5 +1183,9 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "active_tab": active_tab,
             "classes_color_field": form["classes_calendar_color"],
             "sync_classes_field": form["sync_classes_enabled"],
+            "legacy_cms_sync_field": form["legacy_cms_sync_enabled"],
+            "instructor_sync_rows": instructor_sync_rows,
+            "legacy_cms_unmatched": legacy_cms_unmatched,
+            "config": config,
         },
     )

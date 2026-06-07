@@ -341,6 +341,50 @@ def describe_admin_site_settings():
         assert response.status_code == 200
 
 
+def describe_admin_site_settings_legacy_cms():
+    def it_renders_legacy_cms_tab_when_active(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
+        assert response.status_code == 200
+        assert b"Legacy CMS" in response.content
+        assert response.context["active_tab"] == "legacy-cms"
+
+    def it_syncs_now_on_post_with_sync_now_action(client):
+        from unittest.mock import patch
+
+        _create_superuser(client)
+        with patch("classes.import_service.sync_legacy_cms", return_value=5) as mock_sync:
+            response = client.post(
+                reverse("hub_admin_site_settings"),
+                data={"action": "sync_now"},
+            )
+        assert response.status_code == 302
+        assert "tab=legacy-cms" in response["Location"]
+        mock_sync.assert_called_once()
+
+    def it_handles_sync_now_failure_gracefully(client):
+        from unittest.mock import patch
+
+        _create_superuser(client)
+        with patch("classes.import_service.sync_legacy_cms", side_effect=RuntimeError("connection refused")):
+            response = client.post(
+                reverse("hub_admin_site_settings"),
+                data={"action": "sync_now"},
+            )
+        assert response.status_code == 302
+        assert "tab=legacy-cms" in response["Location"]
+
+    def it_includes_instructor_sync_rows_in_context(client):
+        from classes.factories import InstructorFactory
+
+        _create_superuser(client)
+        InstructorFactory(display_name="Test Instructor", is_active=True)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
+        assert response.status_code == 200
+        rows = response.context["instructor_sync_rows"]
+        assert any(row["instructor"].display_name == "Test Instructor" for row in rows)
+
+
 def describe_fog_admin_required():
     def it_redirects_anonymous_users_to_login(rf):
         from django.contrib.auth.models import AnonymousUser

@@ -106,6 +106,12 @@
             class="vote-tab">
       Calendar
     </button>
+    <button type="button"
+            @click="tab = 'legacy-cms'"
+            :class="{ 'vote-tab--active': tab === 'legacy-cms' }"
+            class="vote-tab">
+      Legacy CMS
+    </button>
   </div>
 
   <form method="post" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
@@ -115,7 +121,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -248,6 +254,75 @@
           {% if classes_color_field.help_text %}<small style="color:var(--hub-text-muted);">{{ classes_color_field.help_text }}</small>{% endif %}
         </div>
       </div>
+    </div>
+
+    {# -------- Legacy CMS tab -------- #}
+    <div x-show="tab === 'legacy-cms'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
+
+      {# Toggle #}
+      <div>
+        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">Legacy CMS sync</h2>
+        <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
+          When enabled, classes from <code>classes.pastlives.space</code> sync into plfog every 15 minutes.
+          Disable after the DNS flip to manage classes exclusively in plfog.
+        </p>
+        <div class="field-row field-checkbox">
+          {{ legacy_cms_sync_field }}
+          <label for="{{ legacy_cms_sync_field.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">
+            {{ legacy_cms_sync_field.label }}
+          </label>
+        </div>
+        {% if config.legacy_cms_last_synced_at %}
+          <small style="color:var(--hub-text-muted);">Last synced: {{ config.legacy_cms_last_synced_at|date:"N j, Y g:i A" }}</small>
+        {% else %}
+          <small style="color:var(--hub-text-muted);">Never synced.</small>
+        {% endif %}
+      </div>
+
+      {# Sync Now button — separate form so it doesn't require the full settings form to be valid #}
+      <div>
+        <form method="post" style="display:inline;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="sync_now">
+          <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Sync Now</button>
+        </form>
+      </div>
+
+      {# Instructor match table #}
+      <div>
+        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">Instructor matching</h2>
+        <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
+          Classes are matched to instructors by parsing "with [Name]" from the title.
+          Once matched, the instructor link is never overwritten.
+        </p>
+        <table class="hub-table" style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:0.5rem;border-bottom:1px solid var(--hub-border);">Instructor</th>
+              <th style="text-align:right;padding:0.5rem;border-bottom:1px solid var(--hub-border);">Matched classes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in instructor_sync_rows %}
+            <tr>
+              <td style="padding:0.5rem;border-bottom:1px solid var(--hub-border);">{{ row.instructor.display_name }}</td>
+              <td style="text-align:right;padding:0.5rem;border-bottom:1px solid var(--hub-border);">{{ row.matched }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="2" style="padding:0.5rem;color:var(--hub-text-muted);">No active instructors found.</td>
+            </tr>
+            {% endfor %}
+            {% if legacy_cms_unmatched %}
+            <tr style="font-style:italic;">
+              <td style="padding:0.5rem;color:var(--hub-text-muted);">Unmatched (no instructor)</td>
+              <td style="text-align:right;padding:0.5rem;color:var(--hub-text-muted);">{{ legacy_cms_unmatched }}</td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
     </div>
 
     <div>
