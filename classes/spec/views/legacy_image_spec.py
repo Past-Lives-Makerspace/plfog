@@ -37,7 +37,7 @@ def describe_legacy_image():
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
 
-        with patch("urllib.request.urlopen", return_value=mock_resp):
+        with patch("classes.views_legacy_image._OPENER.open", return_value=mock_resp):
             with patch("django.core.cache.cache.get", return_value=None):
                 with patch("django.core.cache.cache.set"):
                     response = legacy_image(request)
@@ -52,7 +52,7 @@ def describe_legacy_image():
         url = "https://classes.pastlives.space/sites/default/files/missing.jpg"
         request = factory.get("/_legacy-image/", {"url": url})
 
-        with patch("urllib.request.urlopen", side_effect=Exception("connection refused")):
+        with patch("classes.views_legacy_image._OPENER.open", side_effect=Exception("connection refused")):
             with patch("django.core.cache.cache.get", return_value=None):
                 response = legacy_image(request)
 
@@ -67,7 +67,7 @@ def describe_legacy_image():
 
         cached_data = ("image/png", b"cached-bytes")
         with patch("django.core.cache.cache.get", return_value=cached_data):
-            with patch("urllib.request.urlopen") as mock_fetch:
+            with patch("classes.views_legacy_image._OPENER.open") as mock_fetch:
                 response = legacy_image(request)
                 mock_fetch.assert_not_called()
 
