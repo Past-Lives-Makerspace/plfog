@@ -1034,7 +1034,7 @@ def admin_voting_dashboard(request: HttpRequest) -> HttpResponse:
 def admin_members(request: HttpRequest) -> HttpResponse:
     """Admin members management — paginated list with search + status/role/type filters."""
     from django.core.paginator import Paginator
-    from django.db.models import Q
+    from django.db.models import Count, Q
 
     ctx = _get_hub_context(request)
     status_filter = request.GET.get("status", "active")
@@ -1042,7 +1042,11 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     type_filter = request.GET.get("type", "")
     search = request.GET.get("q", "").strip()
 
-    qs = Member.objects.select_related("user", "membership_plan").order_by("full_legal_name")
+    qs = (
+        Member.objects.select_related("user", "membership_plan")
+        .annotate(class_count=Count("user__instructor__classes", distinct=True))
+        .order_by("full_legal_name")
+    )
     if status_filter and status_filter != "all":
         qs = qs.filter(status=status_filter)
     if role_filter:
