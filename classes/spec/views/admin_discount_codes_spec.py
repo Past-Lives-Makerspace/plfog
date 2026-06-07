@@ -30,6 +30,26 @@ def describe_admin_discount_codes():
 
         assert DiscountCode.objects.filter(code="SAVE20").exists()
 
+    def it_creates_code_scoped_to_a_class(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering, DiscountCode
+
+        client.force_login(admin_user)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        response = client.post(
+            reverse("classes:admin_discount_code_create") + f"?class={offering.pk}",
+            {"code": "CLASSONLY", "discount_pct": 15, "is_active": "on"},
+        )
+        assert response.status_code == 302
+        code = DiscountCode.objects.get(code="CLASSONLY")
+        assert code.class_offering == offering
+        assert response.url == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+
+    def it_ignores_invalid_class_param_gracefully(admin_user, client, db):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_discount_code_create") + "?class=99999")
+        assert response.status_code == 200
+
     def it_rejects_code_with_no_discount_value(admin_user, client, db):
         client.force_login(admin_user)
         response = client.post(
