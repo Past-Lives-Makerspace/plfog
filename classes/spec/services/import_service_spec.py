@@ -304,3 +304,37 @@ def describe_sync_legacy_cms():
 
         offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
         assert offering.slug == "intro-to-welding-legacy"
+
+    def it_skips_sessions_with_missing_value_key(db):
+        from classes.import_service import sync_legacy_cms
+
+        dates = [{"end_value": "2026-08-01T12:00:00+00:00"}]  # no "value" key
+        resp = _make_mock_resp(_page([_class_item(dates=dates)]))
+        with patch("urllib.request.urlopen", return_value=resp):
+            sync_legacy_cms()
+
+        offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
+        assert ClassSession.objects.filter(class_offering=offering).count() == 0
+
+    def it_skips_sessions_where_parse_datetime_returns_none(db):
+        from classes.import_service import sync_legacy_cms
+
+        dates = [{"value": "not-a-date", "end_value": "also-not-a-date"}]
+        resp = _make_mock_resp(_page([_class_item(dates=dates)]))
+        with patch("urllib.request.urlopen", return_value=resp):
+            sync_legacy_cms()
+
+        offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
+        assert ClassSession.objects.filter(class_offering=offering).count() == 0
+
+    def it_skips_items_with_no_node_id(db):
+        from classes.import_service import sync_legacy_cms
+
+        item_no_id = _class_item()
+        item_no_id["id"] = ""
+        resp = _make_mock_resp(_page([item_no_id]))
+        with patch("urllib.request.urlopen", return_value=resp):
+            count = sync_legacy_cms()
+
+        assert count == 0
+        assert ClassOffering.objects.filter(legacy_cms_id__gt="").count() == 0

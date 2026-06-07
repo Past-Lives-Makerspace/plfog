@@ -73,3 +73,10 @@ def describe_legacy_image():
 
         assert response.status_code == 200
         assert response.content == b"cached-bytes"
+
+    def it_no_redirect_handler_refuses_all_redirects():
+        from classes.views_legacy_image import _NoRedirect
+
+        handler = _NoRedirect()
+        result = handler.redirect_request(None, None, 301, "Moved", {}, "https://evil.example.com/")
+        assert result is None
