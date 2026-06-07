@@ -71,7 +71,7 @@ def send_instructor_registration_notification(registration: "Registration") -> N
     """Notify the instructor that someone registered for their class."""
     offering = registration.class_offering
     instructor = offering.instructor
-    if not instructor.user.email:
+    if not instructor or not instructor.user.email:
         return
     subject = f"New registration: {registration.first_name} {registration.last_name} for {offering.title}"
     body = (
@@ -99,7 +99,7 @@ def send_admin_registration_notification(registration: "Registration") -> None:
     subject = f"[Classes] New registration: {registration.first_name} {registration.last_name} — {offering.title}"
     body = (
         f"{registration.first_name} {registration.last_name} ({registration.email}) "
-        f'registered for "{offering.title}" (instructor: {offering.instructor.display_name}).\n\n'
+        f'registered for "{offering.title}" (instructor: {offering.instructor.display_name if offering.instructor else "N/A"}).\n\n'
         f"Status: {registration.get_status_display()}\n"
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
         f"Capacity: {offering.registrations.count()}/{offering.capacity}"
