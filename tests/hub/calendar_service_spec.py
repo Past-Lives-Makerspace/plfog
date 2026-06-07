@@ -440,3 +440,36 @@ def describe_refresh_stale_sources_classes():
             refresh_stale_sources(max_age_seconds=900)
 
         mock_sync.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# refresh_stale_sources — legacy_cms branch
+# ---------------------------------------------------------------------------
+
+
+def describe_refresh_stale_sources_legacy_cms():
+    def it_calls_sync_legacy_cms_when_enabled_and_stale():
+        from hub.calendar_service import refresh_stale_sources
+
+        config = SiteConfiguration.load()
+        config.legacy_cms_sync_enabled = True
+        config.legacy_cms_last_synced_at = None
+        config.save()
+
+        with patch("classes.import_service.sync_legacy_cms") as mock_sync:
+            refresh_stale_sources(max_age_seconds=900)
+
+        mock_sync.assert_called_once()
+
+    def it_skips_sync_legacy_cms_when_disabled():
+        from hub.calendar_service import refresh_stale_sources
+
+        config = SiteConfiguration.load()
+        config.legacy_cms_sync_enabled = False
+        config.legacy_cms_last_synced_at = None
+        config.save()
+
+        with patch("classes.import_service.sync_legacy_cms") as mock_sync:
+            refresh_stale_sources(max_age_seconds=900)
+
+        mock_sync.assert_not_called()

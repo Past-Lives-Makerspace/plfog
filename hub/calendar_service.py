@@ -273,7 +273,7 @@ def sync_local_class_events() -> int:
     return len(kept_uids)
 
 
-def refresh_stale_sources(max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS) -> None:
+def refresh_stale_sources(max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS) -> None:  # noqa: C901
     """Refresh any calendar sources not synced within max_age_seconds.
 
     Called by the calendar_events_partial view on each HTMX poll.
@@ -306,6 +306,16 @@ def refresh_stale_sources(max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS) -> Non
         if classes_stale:
             try:
                 sync_classes_calendar()
+            except Exception:  # noqa: BLE001
+                pass
+
+    if config.legacy_cms_sync_enabled:
+        legacy_stale = config.legacy_cms_last_synced_at is None or config.legacy_cms_last_synced_at < cutoff
+        if legacy_stale:
+            try:
+                from classes.import_service import sync_legacy_cms
+
+                sync_legacy_cms()
             except Exception:  # noqa: BLE001
                 pass
 
