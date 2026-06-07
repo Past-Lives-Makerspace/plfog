@@ -24,6 +24,8 @@ into list.html for the initial full-page response.{% endcomment %}
             {% if offering.image %}
               <img class="cls-img" src="{{ offering.image.url }}" alt="" loading="lazy"
                    {% if offering.hero_crop_w %}style="object-position: {{ offering.hero_object_position }};"{% endif %}>
+            {% elif offering.legacy_image_url %}
+              <img class="cls-img" src="{% url 'classes:legacy_image' %}?url={{ offering.legacy_image_url|urlencode }}" alt="" loading="lazy">
             {% elif offering.category.hero_image %}
               <img class="cls-img" src="{{ offering.category.hero_image.url }}" alt="" loading="lazy">
             {% elif offering.category.icon_svg %}
