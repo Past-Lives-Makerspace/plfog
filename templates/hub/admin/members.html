@@ -96,7 +96,7 @@
         <td style="padding:0.55rem 0.75rem;color:var(--hub-text-muted);">{{ member.get_fog_role_display }}</td>
         <td style="text-align:right;padding:0.55rem 0.75rem;">
           {% if member.class_count %}
-            <a href="{% url 'classes:admin_classes' %}?instructor={{ member.user.instructor.pk }}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false">{{ member.class_count }} →</a>
+            <a href="{% url 'classes:admin_classes' %}?instructor={{ member.pk }}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false">{{ member.class_count }} →</a>
           {% else %}
             <span style="color:var(--hub-text-muted);">—</span>
           {% endif %}

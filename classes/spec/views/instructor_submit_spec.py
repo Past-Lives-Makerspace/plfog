@@ -12,7 +12,7 @@ from classes.models import ClassOffering, DiscountCode
 @pytest.fixture
 def instructor_fixture(db):
     user = UserFactory(username="teacher2@example.com")
-    return InstructorFactory(user=user, display_name="Teacher Two", slug="teacher-two")
+    return InstructorFactory(user=user, full_legal_name="Teacher Two", instructor_slug="teacher-two")
 
 
 def describe_instructor_class_submit():

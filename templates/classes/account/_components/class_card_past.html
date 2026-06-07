@@ -2,7 +2,7 @@
   <div class="bk-card-thumb">{{ reg.class_offering.category.name|slice:":2"|upper }}</div>
   <div class="bk-card-body">
     <div class="bk-card-title">{{ reg.class_offering.title }}</div>
-    <div class="bk-card-inst">with <a href="{% url 'classes:public_instructor' reg.class_offering.instructor.slug %}">{{ reg.class_offering.instructor.display_name }}</a></div>
+    <div class="bk-card-inst">with <a href="{% url 'classes:public_instructor' reg.class_offering.instructor.instructor_slug %}">{{ reg.class_offering.instructor.display_name }}</a></div>
     <div class="bk-card-when">
       {% with sess=reg.class_offering.sessions.last %}
         {% if sess %}

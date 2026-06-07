@@ -160,6 +160,90 @@ def classes_settings():
     return ClassSettings.load()
 
 
+@register.filter
+def short_date_list(sessions: list) -> str:
+    """Format session dates as 'Jun 7, Jun 14, Jun 21 +2 more' (first 3 shown)."""
+    from django.utils.timezone import localtime
+
+    total = len(sessions)
+    parts = [localtime(s.starts_at).strftime("%b %-d") for s in sessions[:3]]
+    if total > 3:
+        parts.append(f"+{total - 3} more")
+    return ", ".join(parts)
+
+
+@register.filter
+def session_time_range(session) -> str:
+    """Format a session's time window as '6–8 PM' or '10:30 AM–12:30 PM'.
+
+    Drops the period from the start when both times share the same AM/PM half.
+    Returns empty string when starts_at is missing.
+    """
+    from django.utils.timezone import localtime
+
+    if not session or not session.starts_at:
+        return ""
+    start = localtime(session.starts_at)
+
+    def _compact(dt) -> str:
+        return dt.strftime("%-I") if dt.minute == 0 else dt.strftime("%-I:%M")
+
+    if not session.ends_at:
+        return start.strftime("%-I %p") if start.minute == 0 else start.strftime("%-I:%M %p")
+
+    end = localtime(session.ends_at)
+    if start.strftime("%p") == end.strftime("%p"):
+        return f"{_compact(start)}–{_compact(end)} {end.strftime('%p')}"
+    start_str = start.strftime("%-I %p") if start.minute == 0 else start.strftime("%-I:%M %p")
+    end_str = end.strftime("%-I %p") if end.minute == 0 else end.strftime("%-I:%M %p")
+    return f"{start_str}–{end_str}"
+
+
+@register.filter
+def strip_date_suffix(value: str | None) -> str:
+    """Strip CMS-imported date suffixes like ' - 6/5/26' or ' 9/8/26, 9/10/26' from a title."""
+    if not value:
+        return value or ""
+    return re.sub(r"(\s*[-–]\s*|\s+)\d{1,2}/\d{1,2}/\d{2,4}.*", "", value).strip()
+
+
+@register.filter
+def upcoming_sessions(sessions) -> list:
+    """Filter a sessions queryset to upcoming ones, sorted by start time.
+
+    Uses the prefetch cache when sessions have been prefetch_related — no extra
+    DB query on the list page.
+    """
+    from django.utils.timezone import now
+
+    cutoff = now()
+    return sorted(
+        (s for s in sessions if s.starts_at and s.starts_at >= cutoff),
+        key=lambda s: s.starts_at,
+    )
+
+
+@register.filter
+def recurrence_label(sessions: list) -> str:
+    """Return 'Every Friday at 6 PM' if all sessions share the same weekday and time.
+
+    Uses local time so evening classes near midnight UTC don't get the wrong day.
+    """
+    from django.utils.timezone import localtime
+
+    if len(sessions) < 2:
+        return ""
+    local_starts = [localtime(s.starts_at) for s in sessions]
+    weekdays = {dt.weekday() for dt in local_starts}
+    times = {(dt.hour, dt.minute) for dt in local_starts}
+    if len(weekdays) != 1 or len(times) != 1:
+        return ""
+    dt0 = local_starts[0]
+    day = dt0.strftime("%A")
+    t_str = dt0.strftime("%-I %p") if dt0.minute == 0 else dt0.strftime("%-I:%M %p")
+    return f"Every {day} at {t_str}"
+
+
 @register.simple_tag
 def concat(*parts) -> str:
     """Concatenate arbitrary args as strings — safe for building DOM ids.

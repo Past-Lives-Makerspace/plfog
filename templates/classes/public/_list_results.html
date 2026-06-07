@@ -1,75 +1,101 @@
 {% load classes_tags %}
-{% comment %}Just the results grid. Rendered standalone for HTMX swaps and embedded
-into list.html for the initial full-page response.{% endcomment %}
+{% comment %}Results grid — rendered standalone for HTMX swaps and embedded into
+list.html for the initial full-page response.{% endcomment %}
 <div class="cp-results__summary">
-  {% if total_classes %}
-    Showing <strong>{{ total_classes }}</strong> class{{ total_classes|pluralize:"es" }} across {{ total_categories }} categor{{ total_categories|pluralize:"y,ies" }}.
+  {% if paginator.count %}
+    Showing <strong>{{ page_obj.start_index }}–{{ page_obj.end_index }}</strong> of <strong>{{ paginator.count }}</strong> class{{ paginator.count|pluralize:"es" }}
+    {% if paginator.num_pages > 1 %}&mdash; page {{ page_obj.number }} of {{ paginator.num_pages }}{% endif %}
   {% else %}
     <em>No classes match your filters.</em>
     <a href="{% url 'classes:public_list' %}" class="cp-results__reset-inline">Reset all filters</a>
   {% endif %}
 </div>
 
-{% for section in category_sections %}
-  <div class="cat-sec" id="sec-{{ section.category.slug }}">
-    <div class="cat-hd">
-      <h2>{% if section.category.icon_svg %}{{ section.category.icon_svg|safe }}{% endif %}{{ section.category.name }}</h2>
-      <span class="cc">{{ section.classes|length }} listing{{ section.classes|length|pluralize }}</span>
-    </div>
-    <div class="cls-grid">
-      {% for offering in section.classes %}
-        <div class="cls-card">
-          <a class="cls-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}" aria-label="{{ offering.title }}"></a>
-          <div class="cls-media">
-            {% if offering.image %}
-              <img class="cls-img" src="{{ offering.image.url }}" alt="" loading="lazy"
-                   {% if offering.hero_crop_w %}style="object-position: {{ offering.hero_object_position }};"{% endif %}>
-            {% elif offering.legacy_image_url %}
-              <img class="cls-img" src="{% url 'classes:legacy_image' %}?url={{ offering.legacy_image_url|urlencode }}" alt="" loading="lazy">
-            {% elif offering.category.hero_image %}
-              <img class="cls-img" src="{{ offering.category.hero_image.url }}" alt="" loading="lazy">
-            {% elif offering.category.icon_svg %}
-              <div class="cls-img-ph cls-img-ph--icon">{{ offering.category.icon_svg|safe }}</div>
-            {% else %}
-              <div class="cls-img-ph">{{ offering.category.name|initials }}</div>
-            {% endif %}
-          </div>
-          <div class="cls-body">
-            <div class="cls-title">
-              {{ offering.title }}
-              {% if offering.scheduling_model == 'flexible' %}<span class="badge fx">Flex</span>{% endif %}
-            </div>
-            <div class="cls-inst">
-              with <a href="{% url 'classes:public_instructor' slug=offering.instructor.slug %}">{{ offering.instructor.display_name }}</a>
-            </div>
-            <div class="cls-when">
-              {% if offering.scheduling_model == 'flexible' %}
-                Schedule with instructor
-              {% else %}
-                {% with first_session=offering.first_upcoming_session_at %}
-                  {% if first_session %}
-                    {{ first_session|date:"D, M j" }} · {{ first_session|time:"g:i A" }}
-                  {% else %}
-                    Upcoming dates TBA
-                  {% endif %}
-                {% endwith %}
-              {% endif %}
-            </div>
-            <div class="cls-footer">
-              <div>
-                <span class="cls-price">{{ offering.price_cents|cents_as_price }}</span>
-                {% member_price_cents offering.price_cents offering.member_discount_pct as mp %}
-                {% if mp %}<span class="cls-price-member">({{ mp|cents_as_price }} for PL members)</span>{% endif %}
-              </div>
-              {% with spots=offering.spots_remaining %}
-                <span class="cls-spots {{ spots|spots_class }}">
-                  {% if spots == 0 %}Sold out{% elif spots <= 3 %}{{ spots }} left{% else %}{{ spots }} spots{% endif %}
-                </span>
-              {% endwith %}
-            </div>
-          </div>
+<div class="cls-grid">
+  {% for offering in page_obj %}
+    <div class="cls-card">
+      <a class="cls-media" href="{% url 'classes:public_class_detail' slug=offering.slug %}">
+        {% if offering.image %}
+          <img class="cls-img" src="{{ offering.image.url }}" alt="" loading="lazy"
+               {% if offering.hero_crop_w %}style="object-position: {{ offering.hero_object_position }};"{% endif %}>
+        {% elif offering.legacy_image_url %}
+          <img class="cls-img" src="{% url 'classes:legacy_image' %}?url={{ offering.legacy_image_url|urlencode }}" alt="" loading="lazy">
+        {% elif offering.category.hero_image %}
+          <img class="cls-img" src="{{ offering.category.hero_image.url }}" alt="" loading="lazy">
+        {% elif offering.category.icon_svg %}
+          <div class="cls-img-ph cls-img-ph--icon">{{ offering.category.icon_svg|safe }}</div>
+        {% else %}
+          <div class="cls-img-ph">{{ offering.category.name|initials }}</div>
+        {% endif %}
+      </a>
+      <div class="cls-body">
+        <a class="cls-title" href="{% url 'classes:public_class_detail' slug=offering.slug %}">
+          {{ offering.title|strip_date_suffix }}
+          {% if offering.scheduling_model == 'flexible' %}<span class="badge fx">Flex</span>{% endif %}
+        </a>
+        {% if offering.instructor %}
+        <div class="cls-inst">
+          with {% if offering.instructor.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}
         </div>
-      {% endfor %}
+        {% endif %}
+        <div class="cls-schedule">
+          {% if offering.scheduling_model == 'flexible' %}
+            <div class="cls-schedule__flex">Flexible — schedule with instructor</div>
+          {% else %}
+            {% with sessions=offering.sessions.all|upcoming_sessions %}
+              {% if sessions %}
+                {% for session in sessions|slice:":4" %}
+                  <div class="cls-schedule__row">
+                    <span class="cls-schedule__date">{{ session.starts_at|date:"D, M j" }}</span>
+                    <span class="cls-schedule__time">{{ session|session_time_range }}</span>
+                  </div>
+                {% endfor %}
+                {% if sessions|length > 4 %}
+                  <div class="cls-schedule__more">+{{ sessions|length|add:"-4" }} more session{{ sessions|length|add:"-4"|pluralize }}</div>
+                {% endif %}
+              {% else %}
+                <div class="cls-schedule__tba">Upcoming dates TBA</div>
+              {% endif %}
+            {% endwith %}
+          {% endif %}
+        </div>
+        <div class="cls-footer">
+          <div>
+            <span class="cls-price">{{ offering.price_cents|cents_as_price }}</span>
+            {% member_price_cents offering.price_cents offering.member_discount_pct as mp %}
+            {% if mp %}<span class="cls-price-member">({{ mp|cents_as_price }} for PL members)</span>{% endif %}
+          </div>
+          {% with spots=offering.spots_remaining %}
+            <span class="cls-spots {{ spots|spots_class }}">
+              {% if spots == 0 %}Sold out{% elif spots <= 3 %}{{ spots }} left{% else %}{{ spots }} spots{% endif %}
+            </span>
+          {% endwith %}
+        </div>
+      </div>
     </div>
-  </div>
-{% endfor %}
+  {% endfor %}
+</div>
+
+{% if paginator.num_pages > 1 %}
+<nav class="cls-pagination" aria-label="Class listing pages">
+  {% if page_obj.has_previous %}
+    <a class="cls-page-btn"
+       hx-get="{% url 'classes:public_list' %}?page={{ page_obj.previous_page_number }}{% if filter_querystring %}&{{ filter_querystring }}{% endif %}"
+       hx-target="#cls-results"
+       hx-swap="innerHTML"
+       hx-push-url="true">← Previous</a>
+  {% else %}
+    <span class="cls-page-btn cls-page-btn--disabled">← Previous</span>
+  {% endif %}
+  <span class="cls-page-info">{{ page_obj.number }} / {{ paginator.num_pages }}</span>
+  {% if page_obj.has_next %}
+    <a class="cls-page-btn"
+       hx-get="{% url 'classes:public_list' %}?page={{ page_obj.next_page_number }}{% if filter_querystring %}&{{ filter_querystring }}{% endif %}"
+       hx-target="#cls-results"
+       hx-swap="innerHTML"
+       hx-push-url="true">Next →</a>
+  {% else %}
+    <span class="cls-page-btn cls-page-btn--disabled">Next →</span>
+  {% endif %}
+</nav>
+{% endif %}

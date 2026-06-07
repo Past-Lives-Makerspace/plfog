@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-VERSION = "2.3.1"
+VERSION = "2.3.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.3.2",
+        "date": "2026-06-07",
+        "title": "Booking site polish: upcoming-only listing, pagination, and cross-site login",
+        "changes": [
+            "The class list now only shows classes with upcoming sessions — past events no longer clutter the page.",
+            "Classes are paginated 25 at a time, sorted by closest upcoming date first. A Previous/Next bar appears at the bottom when there's more than one page.",
+            "The sticky category strip has been removed. A small arrow button appears in the bottom-right corner when you scroll down — click it to jump back to the top.",
+            "If you're already logged into pastlives.space, visiting your account on book.pastlives.space will automatically sign you in without a second login prompt.",
+            "The Past Lives logo in the top-left of the booking site now links to the class list instead of the main website.",
+            "Class detail pages no longer show a blank instructor tile when the instructor isn't on record.",
+            "Class descriptions now display with proper paragraph breaks instead of running together as a single block of text.",
+        ],
+    },
     {
         "version": "2.3.1",
         "date": "2026-06-06",

@@ -28,18 +28,22 @@ def _email_outbox(settings):
 @pytest.fixture
 def instructor():
     user = UserFactory(username="teacher@example.com", email="teacher@example.com")
-    return InstructorFactory(user=user, display_name="Teacher T", slug="teacher-t")
+    return InstructorFactory(user=user, full_legal_name="Teacher T", instructor_slug="teacher-t")
 
 
 @pytest.fixture
 def other_instructor():
     user = UserFactory(username="other@example.com", email="other@example.com")
-    return InstructorFactory(user=user, display_name="Other", slug="other")
+    return InstructorFactory(user=user, full_legal_name="Other", instructor_slug="other")
 
 
 def describe_instructor_email_composer():
-    def it_requires_an_active_instructor(member_user, client):
-        client.force_login(member_user)
+    def it_requires_an_active_member(client):
+        from membership.models import Member
+
+        user = UserFactory(username="former@example.com", email="former@example.com")
+        InstructorFactory(user=user, status=Member.Status.FORMER)
+        client.force_login(user)
         response = client.post(reverse("classes:instructor_registrations_email"), data={})
         assert response.status_code == 403
 

@@ -46,7 +46,6 @@ from classes.models import (
     ClassOffering,
     ClassSession,
     DiscountCode,
-    Instructor,
     Registration,
     RegistrationQuestion,
     Waiver,
@@ -119,23 +118,46 @@ class Command(BaseCommand):
         )
         return category
 
-    def _ensure_instructor(self, *, password: str) -> Instructor:
-        user = self._ensure_user(
-            email=PERSONA_INSTRUCTOR_EMAIL,
-            first_name="Demo",
-            last_name="Instructor",
-            password=password,
+    def _ensure_instructor(self, *, password: str) -> Any:
+        """Create (or refresh) the demo instructor persona.
+
+        Unlike _ensure_user, this method does NOT delete the auto-created Member —
+        the instructor IS a Member in the new data model, and the Member row is
+        referenced by ClassOffering via a PROTECT FK so we must keep it alive
+        across idempotent re-seeding runs.
+        """
+        from allauth.account.models import EmailAddress as AllauthEmailAddress
+
+        from membership.models import Member, MembershipPlan
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username=PERSONA_INSTRUCTOR_EMAIL,
+            defaults={"email": PERSONA_INSTRUCTOR_EMAIL, "first_name": "Demo", "last_name": "Instructor"},
         )
-        instructor, _ = Instructor.objects.get_or_create(
+        user.set_password(password)
+        if not user.email:
+            user.email = PERSONA_INSTRUCTOR_EMAIL
+        user.first_name = "Demo"
+        user.last_name = "Instructor"
+        user.save()
+        AllauthEmailAddress.objects.update_or_create(
+            user=user,
+            email=PERSONA_INSTRUCTOR_EMAIL,
+            defaults={"verified": True, "primary": True},
+        )
+        plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
+        member, _ = Member.objects.update_or_create(
             user=user,
             defaults={
-                "display_name": "Demo Instructor",
-                "slug": f"{DEMO_SLUG_PREFIX}instructor",
-                "bio": "Seeded demo instructor — safe to delete with `manage.py demo_data --remove`.",
-                "is_active": True,
+                "full_legal_name": "Demo Instructor",
+                "instructor_slug": f"{DEMO_SLUG_PREFIX}instructor",
+                "about_me": "Seeded demo instructor — safe to delete with `manage.py demo_data --remove`.",
+                "status": Member.Status.ACTIVE,
+                "membership_plan": plan,
             },
         )
-        return instructor
+        return member
 
     def _ensure_student(self, *, password: str) -> Any:
         return self._ensure_user(
@@ -195,7 +217,7 @@ class Command(BaseCommand):
         return user
 
     def _ensure_classes(
-        self, category: Category, instructor: Instructor
+        self, category: Category, instructor: Any
     ) -> tuple[ClassOffering, ClassOffering, ClassOffering]:
         now = timezone.now()
 
@@ -235,7 +257,7 @@ class Command(BaseCommand):
         slug: str,
         title: str,
         category: Category,
-        instructor: Instructor,
+        instructor: Any,
         price_cents: int,
         capacity: int,
         session_start,
@@ -463,9 +485,6 @@ class Command(BaseCommand):
         class_count = demo_classes.count()
         demo_classes.delete()  # cascades sessions, gallery images, instructor messages
 
-        instructor_count = Instructor.objects.filter(slug__startswith=DEMO_SLUG_PREFIX).count()
-        Instructor.objects.filter(slug__startswith=DEMO_SLUG_PREFIX).delete()
-
         category_count = Category.objects.filter(slug__startswith=DEMO_SLUG_PREFIX).count()
         Category.objects.filter(slug__startswith=DEMO_SLUG_PREFIX).delete()
 
@@ -492,7 +511,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Removed: {user_count} user(s), {member_count} member(s), {instructor_count} instructor(s), "
+                f"Removed: {user_count} user(s), {member_count} member(s), "
                 f"{class_count} class(es), {category_count} categor(ies), {reg_count} registration(s), "
                 f"{code_count} discount code(s), {question_count} registration question(s)."
             )

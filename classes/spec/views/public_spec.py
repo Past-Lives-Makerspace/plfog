@@ -15,12 +15,13 @@ from classes.factories import (
     InstructorFactory,
 )
 from classes.models import ClassOffering
+from membership.models import Member
 
 
 @pytest.fixture
 def published_class(db):
     category = CategoryFactory(name="Ceramics", slug="ceramics")
-    instructor = InstructorFactory(display_name="Deenie", slug="deenie")
+    instructor = InstructorFactory(full_legal_name="Deenie", instructor_slug="deenie")
     offering = ClassOfferingFactory(
         title="Intro to Wheel Throwing",
         slug="intro-to-wheel-throwing",
@@ -89,7 +90,7 @@ def describe_public_list():
         response = client.get(reverse("classes:public_list"))
         assert b"Private Lesson" not in response.content
 
-    def it_shows_published_classes_with_no_upcoming_sessions(db, client):
+    def it_hides_published_classes_with_no_upcoming_sessions(db, client):
         category = CategoryFactory()
         instructor = InstructorFactory()
         ClassOfferingFactory(
@@ -100,10 +101,9 @@ def describe_public_list():
             status=ClassOffering.Status.PUBLISHED,
         )
         response = client.get(reverse("classes:public_list"))
-        assert b"Brand New Class" in response.content
-        assert b"Upcoming dates TBA" in response.content
+        assert b"Brand New Class" not in response.content
 
-    def it_shows_published_classes_whose_only_sessions_are_past(db, client):
+    def it_hides_published_classes_whose_only_sessions_are_past(db, client):
         category = CategoryFactory()
         instructor = InstructorFactory()
         stale = ClassOfferingFactory(
@@ -120,7 +120,7 @@ def describe_public_list():
             ends_at=past_start + timedelta(hours=2),
         )
         response = client.get(reverse("classes:public_list"))
-        assert b"Past Class" in response.content
+        assert b"Past Class" not in response.content
 
     def it_includes_flexible_classes_even_without_sessions(db, client):
         category = CategoryFactory()
@@ -156,7 +156,7 @@ def describe_public_list():
         assert b"Intro to Forging" not in response.content
 
     def it_filters_by_instructor_slug(published_class, client):
-        other_instructor = InstructorFactory(display_name="Newcomer", slug="newcomer")
+        other_instructor = InstructorFactory(full_legal_name="Newcomer", instructor_slug="newcomer")
         other = ClassOfferingFactory(
             title="Newcomer Class",
             slug="newcomer-class",
@@ -356,12 +356,14 @@ def describe_public_class_detail():
 
 def describe_public_instructor():
     def it_404s_inactive_instructor(db, client):
-        instructor = InstructorFactory(slug="retired", is_active=False)
-        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.slug}))
+        instructor = InstructorFactory(instructor_slug="retired", status=Member.Status.FORMER)
+        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.instructor_slug}))
         assert response.status_code == 404
 
     def it_renders_profile_with_current_classes(published_class, client):
-        response = client.get(reverse("classes:public_instructor", kwargs={"slug": published_class.instructor.slug}))
+        response = client.get(
+            reverse("classes:public_instructor", kwargs={"slug": published_class.instructor.instructor_slug})
+        )
         assert response.status_code == 200
         assert b"Deenie" in response.content
         assert b"Intro to Wheel Throwing" in response.content

@@ -10,12 +10,104 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
+# ── Cross-surface session relay ────────────────────────────────────────────────
+# Django's SESSION_COOKIE_DOMAIN=".localhost" is unreliable: browsers treat
+# `localhost` as a public suffix and scope the cookie to the exact host.  The
+# relay is a fallback: the book surface sends unauthenticated users to the
+# members surface, which checks for an existing session and issues a short-lived
+# signed token.  The book surface accepts the token and logs the user in locally.
+#
+# Security:
+#   • Tokens are HMAC-signed via Django's signing module (SECRET_KEY + salt).
+#   • max_age=30 means tokens expire in 30 seconds.
+#   • book_host is validated against PUBLIC_HOSTS to prevent open-relay abuse.
+#   • next is validated as a relative path to prevent open-redirect via tokens.
+
 from allauth.account.internal.stagekit import clear_login
 
 from .forms import FindAccountForm, NewsletterSignupForm
 from .models import PushSubscription
 
 logger = logging.getLogger(__name__)
+
+
+def relay_issue(request: HttpRequest) -> HttpResponse:
+    """Issue a short-lived session relay token for cross-surface SSO.
+
+    Called by the book surface when a member needs to authenticate.  If the
+    requesting user is already logged in here, signs a 30-second token and
+    redirects to the book surface relay-accept endpoint.  If not logged in,
+    redirects to the book surface login page directly so the user can sign in
+    without a second bounce.
+
+    GET params:
+        book_host  — full host[:port] of the book surface (validated against PUBLIC_HOSTS)
+        next       — relative path to land on after accepting the relay
+    """
+    from urllib.parse import urlencode
+
+    from django.core import signing
+
+    from urllib.parse import urlsplit
+
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    book_host = request.GET.get("book_host", "")
+    next_path = request.GET.get("next", "/")
+
+    # Parse and validate book_host via urlsplit so userinfo (@) and path
+    # components can't smuggle a different hostname past the allowlist check.
+    parsed = urlsplit("//" + book_host)
+    book_host_bare = (parsed.hostname or "").lower()
+    public_hosts: set[str] = set(getattr(settings, "PUBLIC_HOSTS", []))
+    if not book_host_bare or book_host_bare not in public_hosts or "@" in book_host or "/" in book_host:
+        return redirect("account_login")
+
+    if not url_has_allowed_host_and_scheme(next_path, allowed_hosts={book_host}):
+        next_path = "/"
+
+    scheme = "https" if request.is_secure() else "http"
+
+    if not request.user.is_authenticated:
+        return redirect(f"{scheme}://{book_host}/accounts/login/?next={next_path}")
+
+    token = signing.dumps(request.user.pk, salt="session-relay")
+    accept_url = f"{scheme}://{book_host}/auth/relay/accept/?{urlencode({'token': token, 'next': next_path})}"
+    return redirect(accept_url)
+
+
+def relay_accept(request: HttpRequest) -> HttpResponse:
+    """Accept a relay token from the members surface and log the user in.
+
+    Validates the signed token (max 30 seconds old), retrieves the matching
+    user, logs them in via allauth's backend, and redirects to next_path.
+    Falls back to the local login page on any error.
+    """
+    from django.contrib.auth import get_user_model
+    from django.contrib.auth import login as auth_login
+    from django.core import signing
+
+    User = get_user_model()
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    token = request.GET.get("token", "")
+    next_path = request.GET.get("next", "/")
+
+    if not url_has_allowed_host_and_scheme(next_path, allowed_hosts={request.get_host()}):
+        next_path = "/"
+
+    try:
+        user_pk = signing.loads(token, salt="session-relay", max_age=30)
+    except (signing.SignatureExpired, signing.BadSignature):
+        return redirect(f"/accounts/login/?next={next_path}")
+
+    try:
+        user = User.objects.get(pk=user_pk)
+    except User.DoesNotExist:
+        return redirect(f"/accounts/login/?next={next_path}")
+
+    auth_login(request, user, backend="allauth.account.auth_backends.AuthenticationBackend")
+    return redirect(next_path)
 
 
 def health_check(request):

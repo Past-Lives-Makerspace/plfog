@@ -39,7 +39,7 @@ def describe_send_class_review_requests():
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
         cat = _make_guilded_category(db)
         inst_user = UserFactory(username="inst2@example.com")
-        instructor = InstructorFactory(user=inst_user, display_name="Inst2", slug="inst2")
+        instructor = InstructorFactory(user=inst_user, full_legal_name="Inst2", instructor_slug="inst2")
         offering = ClassOfferingFactory(
             instructor=instructor,
             category=cat,
@@ -90,7 +90,7 @@ def describe_send_class_review_decision():
     def it_emails_approved_but_not_yet_published(db):
         """When admin approves but another gate remains, subject reflects partial approval."""
         inst_user = UserFactory(username="teach5@example.com")
-        instructor = InstructorFactory(user=inst_user, display_name="Teach5", slug="teach5")
+        instructor = InstructorFactory(user=inst_user, full_legal_name="Teach5", instructor_slug="teach5")
         offering = ClassOfferingFactory(
             instructor=instructor,
             status=ClassOffering.Status.PENDING,
@@ -109,7 +109,7 @@ def describe_send_class_review_decision():
 
     def it_emails_changes_requested(db):
         inst_user = UserFactory(username="teach6@example.com")
-        instructor = InstructorFactory(user=inst_user, display_name="Teach6", slug="teach6")
+        instructor = InstructorFactory(user=inst_user, full_legal_name="Teach6", instructor_slug="teach6")
         offering = ClassOfferingFactory(
             instructor=instructor,
             status=ClassOffering.Status.PENDING,

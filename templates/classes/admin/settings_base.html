@@ -3,7 +3,6 @@
 {% block tab_content %}
 <nav style="display: flex; gap: 0; margin-bottom: 1.25rem; flex-wrap: wrap;" role="tablist">
     <a href="{% url 'classes:admin_settings' %}" class="vote-tab{% if active_subtab == 'general' %} vote-tab--active{% endif %}">General</a>
-    <a href="{% url 'classes:admin_instructors' %}" class="vote-tab{% if active_subtab == 'instructors' %} vote-tab--active{% endif %}">Instructors</a>
     <a href="{% url 'classes:admin_categories' %}" class="vote-tab{% if active_subtab == 'categories' %} vote-tab--active{% endif %}">Categories</a>
     <a href="{% url 'classes:admin_registration_questions' %}" class="vote-tab{% if active_subtab == 'questions' %} vote-tab--active{% endif %}">Questions</a>
 </nav>

@@ -18,6 +18,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.models import ClassImage, ClassOffering
+from membership.models import Member
 
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
@@ -28,21 +29,21 @@ def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
 @pytest.fixture
 def instructor_fixture(db):
     user = UserFactory(username="teacher@example.com")
-    instructor = InstructorFactory(user=user, display_name="Teacher T", slug="teacher-t")
+    instructor = InstructorFactory(user=user, full_legal_name="Teacher T", instructor_slug="teacher-t")
     return instructor
 
 
 @pytest.fixture
 def other_instructor(db):
     user = UserFactory(username="other@example.com")
-    return InstructorFactory(user=user, display_name="Other", slug="other")
+    return InstructorFactory(user=user, full_legal_name="Other", instructor_slug="other")
 
 
 def describe_instructor_access_gate():
-    def it_blocks_non_instructor(member_user, client):
+    def it_allows_active_members(member_user, client):
         client.force_login(member_user)
         response = client.get(reverse("classes:instructor_dashboard"))
-        assert response.status_code == 403
+        assert response.status_code == 200
 
     def it_blocks_anonymous(db, client):
         response = client.get(reverse("classes:instructor_dashboard"))
@@ -50,7 +51,7 @@ def describe_instructor_access_gate():
 
     def it_blocks_inactive_instructor(db, client):
         user = UserFactory(username="inactive@example.com")
-        InstructorFactory(user=user, is_active=False)
+        InstructorFactory(user=user, status=Member.Status.FORMER)
         client.force_login(user)
         response = client.get(reverse("classes:instructor_dashboard"))
         assert response.status_code == 403
@@ -252,22 +253,22 @@ def describe_instructor_profile():
         response = client.post(
             reverse("classes:instructor_profile"),
             {
-                "display_name": "New Name",
-                "bio": "Updated bio",
-                "website": "",
-                "social_handle": "@whatever",
+                "preferred_name": "New Name",
+                "about_me": "Updated bio",
+                "instructor_website": "",
+                "instructor_social_handle": "@whatever",
             },
         )
         assert response.status_code == 302
         instructor_fixture.refresh_from_db()
-        assert instructor_fixture.display_name == "New Name"
-        assert instructor_fixture.bio == "Updated bio"
+        assert instructor_fixture.preferred_name == "New Name"
+        assert instructor_fixture.about_me == "Updated bio"
 
     def it_renders_profile_form_on_get(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:instructor_profile"))
         assert response.status_code == 200
-        assert instructor_fixture.display_name.encode() in response.content
+        assert instructor_fixture.about_me.encode() in response.content
 
 
 def describe_instructor_class_create_invalid():
@@ -459,8 +460,7 @@ def describe_instructor_discount_code_instructor_crud():
 
 def describe_instructor_required_admin_without_instructor():
     def it_redirects_admin_with_no_instructor_profile(admin_user, client):
-        """Admin who has no Instructor record gets bounced to admin_instructors (lines 422-426)."""
+        """Admin is an active member so can access the teaching portal even without instructor_slug."""
         client.force_login(admin_user)
         response = client.get(reverse("classes:instructor_dashboard"))
-        assert response.status_code == 302
-        assert "instructors" in response.url
+        assert response.status_code == 200

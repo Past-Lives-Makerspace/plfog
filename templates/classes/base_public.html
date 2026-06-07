@@ -10,13 +10,10 @@ toggle still wins.
 
 {% block default_theme %}light{% endblock %}
 
-{% block body_class %}classes-portal{% endblock %}
-
-{% block extra_body %}
-{% if not user.is_authenticated or request.GET.public or is_public_surface %}
+{% block public_topbar %}
 <header class="cp-topbar" role="banner" x-data="{ drawerOpen: false }" @click.outside="drawerOpen = false">
   <div class="cp-topbar__inner">
-    <a href="https://pastlives.space" class="cp-topbar__brand" hx-boost="false">
+    <a href="{% url 'classes:public_list' %}" class="cp-topbar__brand">
       <img src="{% static 'img/favicon.png' %}" alt="" class="cp-topbar__mark" width="22" height="22">
       <span class="cp-topbar__wordmark">Past Lives</span>
     </a>
@@ -30,10 +27,28 @@ toggle still wins.
     <div class="cp-topbar__right">
       {% if user.is_authenticated %}
         <a href="{% url 'account:overview' %}" class="cp-topbar__ghost">My account</a>
+        {% if persona == "member" %}
+          <a href="https://{{ MEMBER_HOST }}/" class="cp-topbar__ext" title="Member dashboard" hx-boost="false">FOG
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 L17 7"/><path d="M8 7h9v9"/></svg>
+          </a>
+          <span class="cp-topbar__pill" title="Active member">Member</span>
+        {% endif %}
+        <a href="{% url 'account_logout' %}" class="cp-topbar__logout" hx-boost="false">Log out</a>
       {% else %}
         <a href="{% url 'account_login' %}" class="cp-topbar__ghost">Log in</a>
       {% endif %}
       <a href="https://pastlives.space/membership" class="cp-topbar__cta" hx-boost="false">Become a member</a>
+      <button class="cp-topbar__theme-toggle"
+              x-data="{ light: localStorage.getItem('theme') === 'light' || (localStorage.getItem('theme') === null) }"
+              @click="light = !light; window.__plSetTheme(light)"
+              aria-label="Toggle theme">
+        <svg x-show="!light" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M4.22 4.22l1.42 1.42"/><path d="M18.36 18.36l1.42 1.42"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="M4.22 19.78l1.42-1.42"/><path d="M18.36 5.64l1.42-1.42"/>
+        </svg>
+        <svg x-show="light" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
     </div>
     <button type="button"
             class="cp-topbar__burger"
@@ -54,14 +69,19 @@ toggle still wins.
     <div class="cp-topbar__drawer-divider"></div>
     {% if user.is_authenticated %}
       <a href="{% url 'account:overview' %}" class="cp-topbar__drawer-link">My account</a>
+      {% if persona == "member" %}
+        <a href="https://{{ MEMBER_HOST }}/" class="cp-topbar__drawer-link" hx-boost="false">FOG dashboard</a>
+      {% endif %}
+      <a href="{% url 'account_logout' %}" class="cp-topbar__drawer-link" hx-boost="false">Log out</a>
     {% else %}
       <a href="{% url 'account_login' %}" class="cp-topbar__drawer-link">Log in</a>
     {% endif %}
     <a href="https://pastlives.space/membership" class="cp-topbar__drawer-link cp-topbar__drawer-link--cta" hx-boost="false">Become a member</a>
   </div>
 </header>
-{% endif %}
-{% endblock %}
+{% endblock public_topbar %}
+
+{% block body_class %}classes-portal{% endblock %}
 
 {% block content %}<div class="cp-page">{% block portal_content %}{% endblock %}</div>{% endblock %}
 

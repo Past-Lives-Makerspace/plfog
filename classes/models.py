@@ -18,6 +18,8 @@ from core.validators import validate_image_size
 if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
 
+    from membership.models import Member
+
 DEFAULT_LIABILITY_TEXT = """ASSUMPTION OF RISK AND WAIVER OF LIABILITY
 
 I understand that participation in classes, workshops, and activities at Past Lives Makerspace ("PLM") involves inherent risks, including but not limited to: exposure to tools, machinery, and equipment; risk of cuts, burns, eye injury, hearing damage, and other physical harm; and exposure to dust, fumes, chemicals, and other materials.
@@ -82,42 +84,6 @@ class Category(models.Model):
         super().save(*args, **kwargs)
 
 
-class Instructor(models.Model):
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="instructor",
-        help_text="Auth identity — required.",
-    )
-    display_name = models.CharField(max_length=255, help_text="Public name shown on class pages.")
-    slug = models.SlugField(max_length=255, unique=True, help_text="URL slug for public profile.")
-    bio = models.TextField(blank=True, help_text="Markdown-safe bio shown on profile.")
-    photo = models.ImageField(
-        upload_to="classes/instructors/",
-        blank=True,
-        validators=[validate_image_size],
-        help_text="Profile photo.",
-    )
-    website = models.URLField(blank=True, help_text="Personal site.")
-    social_handle = models.CharField(max_length=255, blank=True, help_text="e.g. @handle on primary social.")
-    is_active = models.BooleanField(default=True, help_text="Inactive instructors hidden from public browse.")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["display_name"]
-
-    def __str__(self) -> str:
-        return self.display_name
-
-    def save(self, *args, **kwargs) -> None:
-        from django.conf import settings
-
-        delete_orphan_on_replace(self, "photo")
-        normalize_field_if_uploaded(self, "photo", settings.IMAGE_MAX_LONG_EDGE_PROFILE)
-        super().save(*args, **kwargs)
-
-
 class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def public(self) -> "ClassOfferingQuerySet":
         """Published classes visible in the public portal (excludes private)."""
@@ -126,7 +92,7 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def pending_review(self) -> "ClassOfferingQuerySet":
         return self.filter(status="pending")
 
-    def for_instructor(self, instructor: "Instructor") -> "ClassOfferingQuerySet":
+    def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         return self.filter(instructor=instructor)
 
 
@@ -147,12 +113,12 @@ class ClassOffering(models.Model):
         Category, on_delete=models.PROTECT, related_name="classes", help_text="Category grouping."
     )
     instructor = models.ForeignKey(
-        Instructor,
+        "membership.Member",
         on_delete=models.PROTECT,
         related_name="classes",
         null=True,
         blank=True,
-        help_text="Assigned instructor.",
+        help_text="Member who teaches this class.",
     )
     description = models.TextField(blank=True, help_text="Class description — markdown-safe.")
     prerequisites = models.TextField(blank=True, help_text="What a student should know/own.")
@@ -204,12 +170,12 @@ class ClassOffering(models.Model):
         max_length=20, choices=Status.choices, default=Status.DRAFT, help_text="Lifecycle status."
     )
     created_by = models.ForeignKey(
-        Instructor,
+        "membership.Member",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="+",
-        help_text="Instructor who authored the class.",
+        help_text="Member who authored this class.",
     )
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -480,6 +446,12 @@ class ClassOffering(models.Model):
     @property
     def first_upcoming_session_at(self):
         session = self.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at").first()
+        return session.starts_at if session else None
+
+    @property
+    def earliest_session_at(self):
+        """First session ever — past or future. Used as fallback when no upcoming session exists."""
+        session = self.sessions.order_by("starts_at").first()
         return session.starts_at if session else None
 
     def duplicate(self) -> "ClassOffering":
@@ -1084,12 +1056,12 @@ class InstructorMessage(models.Model):
     """
 
     instructor = models.ForeignKey(
-        Instructor,
+        "membership.Member",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
         related_name="sent_messages",
-        help_text="The instructor who sent this, or NULL if sent by an admin.",
+        help_text="The member/instructor who sent this, or NULL if sent by an admin.",
     )
     sent_by = models.ForeignKey(
         "membership.Member",

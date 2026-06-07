@@ -210,6 +210,15 @@ class Member(models.Model):
             "Missing key means public (default-on)."
         ),
     )
+    instructor_slug = models.SlugField(
+        max_length=255,
+        blank=True,
+        help_text="URL slug for this member's public instructor profile. Non-empty = teaches classes.",
+    )
+    instructor_website = models.URLField(blank=True, help_text="Instructor personal site.")
+    instructor_social_handle = models.CharField(
+        max_length=255, blank=True, help_text="e.g. @handle on primary social (instructor profile)."
+    )
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     leases = GenericRelation(
@@ -354,12 +363,8 @@ class Member(models.Model):
 
     @property
     def is_instructor(self) -> bool:
-        """True when this member's user has a linked Instructor record."""
-        if self.user_id is None:
-            return False
-        from classes.models import Instructor
-
-        return Instructor.objects.filter(user_id=self.user_id).exists()
+        """True when this member has a public instructor profile (instructor_slug is set)."""
+        return bool(self.instructor_slug)
 
     @property
     def must_be_listed_in_directory(self) -> bool:
@@ -378,9 +383,11 @@ class Member(models.Model):
 
         Maps the dropdown's role token (`admin` / `guild_officer` / `member` /
         `instructor` / `guest`) onto the right combination of `fog_role`,
-        `status`, and `Instructor` row, then saves. Idempotent — re-promoting
-        an existing instructor is a no-op for the Instructor table.
+        `status`, and instructor_slug. Idempotent — re-promoting an existing
+        instructor is a no-op if they already have a slug.
         """
+        from django.utils.text import slugify
+
         valid = {c.value for c in self.FogRole} | {self.ADMIN_ROLE_INSTRUCTOR, self.ADMIN_ROLE_GUEST}
         if picked_role not in valid:
             raise ValueError(f"Invalid admin role token: {picked_role!r}")
@@ -388,41 +395,20 @@ class Member(models.Model):
         if picked_role == self.ADMIN_ROLE_INSTRUCTOR:
             self.fog_role = self.FogRole.MEMBER
             self.status = self.Status.ACTIVE
+            if not self.instructor_slug:
+                base = slugify(self.display_name or self.full_legal_name) or f"instructor-{self.pk}"
+                slug = base
+                n = 1
+                while Member.objects.filter(instructor_slug=slug).exclude(pk=self.pk).exists():
+                    n += 1
+                    slug = f"{base}-{n}"
+                self.instructor_slug = slug
         elif picked_role == self.ADMIN_ROLE_GUEST:
             self.fog_role = self.FogRole.MEMBER
             self.status = self.Status.FORMER
         else:
             self.fog_role = picked_role
         self.save()
-
-        if picked_role == self.ADMIN_ROLE_INSTRUCTOR:
-            self._ensure_instructor_record()
-
-    def _ensure_instructor_record(self) -> None:
-        """Create an Instructor row for self.user if one doesn't exist.
-
-        No-op when no User is linked — instructors require a real account.
-        """
-        from django.utils.text import slugify
-
-        from classes.models import Instructor
-
-        user = self.user
-        if user is None:
-            return
-
-        if Instructor.objects.filter(user_id=user.pk).exists():
-            return
-
-        display_name = self.display_name or self.full_legal_name or user.email
-        base_slug = slugify(display_name) or f"instructor-{self.pk}"
-        slug = base_slug
-        n = 1
-        while Instructor.objects.filter(slug=slug).exists():
-            n += 1
-            slug = f"{base_slug}-{n}"
-
-        Instructor.objects.create(user=user, display_name=display_name, slug=slug)
 
     def set_fog_role(self, new_role: str, *, changed_by: Member) -> None:
         """Change this member's fog_role with permission checks.

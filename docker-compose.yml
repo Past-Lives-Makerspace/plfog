@@ -9,6 +9,24 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plfog"]
+      interval: 5s
+      retries: 5
+
+  web:
+    build: .
+    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"]
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://plfog:plfog@db:5432/plfog
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:

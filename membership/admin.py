@@ -11,39 +11,6 @@ from .forms import MemberAdminForm
 from .models import FundingSnapshot, Member, MemberEmail, VotePreference
 
 
-def _sync_instructor_toggle(*, member: Member, enabled: bool) -> None:
-    """Mirror the is_instructor toggle onto the classes.Instructor table.
-
-    Toggling on creates an active Instructor record (or reactivates a
-    previously-deactivated one). Toggling off marks it ``is_active=False``
-    rather than deleting, so any classes they authored keep their FK.
-    """
-    from django.utils.text import slugify
-
-    from classes.models import Instructor
-
-    user = member.user
-    if user is None:
-        return
-    instructor = Instructor.objects.filter(user=user).first()
-    if enabled:
-        if instructor is None:
-            base = slugify(member.display_name) or f"instructor-{user.pk}"
-            slug = base
-            counter = 1
-            while Instructor.objects.filter(slug=slug).exists():
-                counter += 1
-                slug = f"{base}-{counter}"
-            Instructor.objects.create(user=user, display_name=member.display_name, slug=slug)
-        elif not instructor.is_active:
-            instructor.is_active = True
-            instructor.save(update_fields=["is_active"])
-    else:
-        if instructor is not None and instructor.is_active:
-            instructor.is_active = False
-            instructor.save(update_fields=["is_active"])
-
-
 # ---------------------------------------------------------------------------
 # MemberEmail Inline
 # ---------------------------------------------------------------------------
@@ -172,8 +139,6 @@ class MemberAdmin(ModelAdmin):
         if obj is not None:
             personal_fields.insert(0, "user")
             personal_fields.insert(1, "email_aliases_link")
-            if obj.user_id is not None:
-                membership_fields.append("is_instructor")
         else:
             personal_fields.append("create_user")
 
@@ -209,7 +174,7 @@ class MemberAdmin(ModelAdmin):
         ]
 
     def save_model(self, request: HttpRequest, obj: Member, form: MemberAdminForm, change: bool) -> None:
-        """Optionally create a User account when adding; sync the instructor toggle on save."""
+        """Optionally create a User account when adding."""
         create_user = form.cleaned_data["create_user"]
 
         if not change and create_user and obj._pre_signup_email:
@@ -229,10 +194,6 @@ class MemberAdmin(ModelAdmin):
             obj.sync_user_permissions()
         else:
             super().save_model(request, obj, form, change)
-
-        # Sync the instructor toggle — creates or deactivates an Instructor record.
-        if obj.user_id is not None and "is_instructor" in form.cleaned_data:
-            _sync_instructor_toggle(member=obj, enabled=form.cleaned_data["is_instructor"])
 
     @admin.display(description="Email aliases")
     def email_aliases_link(self, obj: Member) -> str:

@@ -587,6 +587,15 @@
   padding: 48px 24px;
   position: relative;
 }
+.bk-auth--bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(rgba(7,18,30,.62), rgba(7,18,30,.62)),
+    var(--auth-bg) center / cover no-repeat;
+}
 .bk-auth-card {
   width: 100%;
   max-width: 440px;
@@ -612,7 +621,7 @@
   text-align: center; letter-spacing: -.01em;
 }
 .bk-auth-sub {
-  font-size: 13px; color: var(--steel);
+  font-size: 13px; color: rgba(244,239,221,.65);
   text-align: center; line-height: 1.5;
   margin: 0 0 24px;
 }
@@ -623,14 +632,14 @@
   display:flex; align-items:center; gap:10px;
   margin: 22px 0 14px;
   font-size: 9px; font-weight:700; letter-spacing: .16em;
-  text-transform: uppercase; color: var(--text3);
+  text-transform: uppercase; color: rgba(238,180,75,.5);
 }
 .bk-auth-divider::before, .bk-auth-divider::after {
-  content:''; flex:1; height:1px; background: rgba(238,180,75,.1);
+  content:''; flex:1; height:1px; background: rgba(238,180,75,.18);
 }
 .bk-auth-links {
   text-align:center;
-  font-size: 12px; color: var(--steel);
+  font-size: 12px; color: rgba(244,239,221,.6);
 }
 .bk-auth-links a { color: var(--gold); text-decoration: none; font-weight: 600; }
 .bk-auth-links p { margin: 6px 0; }
@@ -653,13 +662,56 @@
 /* Faux footer hint inside auth */
 .bk-auth-foot {
   margin-top: 18px; padding: 14px 16px;
-  background: rgba(150,172,187,.04);
-  border: 1px solid rgba(150,172,187,.12);
+  background: rgba(238,180,75,.06);
+  border: 1px solid rgba(238,180,75,.18);
   border-radius: 6px;
-  font-size: 12px; color: var(--steel); line-height: 1.6;
+  font-size: 12px; color: rgba(244,239,221,.65); line-height: 1.6;
   text-align: left;
 }
 .bk-auth-foot b { color: var(--cream); }
+/* ── Dev toast (DEBUG=True login code) ────────────────────── */
+.bk-dev-toast {
+  position: fixed;
+  top: 80px; right: 20px;
+  z-index: 9999;
+  width: 260px;
+  background: rgba(20, 6, 6, 0.96);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: 8px;
+  padding: 14px 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.55);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.bk-dev-toast__label {
+  font-size: 9px; font-weight: 800;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: rgba(248,113,113,.65);
+  margin-bottom: 6px;
+}
+.bk-dev-toast__code {
+  font-family: monospace; font-size: 26px; font-weight: 700;
+  letter-spacing: .12em;
+  color: #fca5a5;
+  margin-bottom: 12px;
+}
+.bk-dev-toast__actions {
+  display: flex; gap: 6px; justify-content: flex-end;
+}
+.bk-dev-toast__btn {
+  background: none;
+  border: 1px solid rgba(248,113,113,.3);
+  border-radius: 4px;
+  color: rgba(248,113,113,.75);
+  cursor: pointer;
+  font-family: var(--font); font-size: 10px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+  padding: 5px 10px;
+  transition: all .15s;
+}
+.bk-dev-toast__btn:hover {
+  background: rgba(248,113,113,.1);
+  color: #fca5a5;
+}
 
 /* ── Guest lookup foot link inside auth card ──────────────── */
 .bk-auth-card .bk-auth-divider + .bk-auth-links + .bk-auth-foot,

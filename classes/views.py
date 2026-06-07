@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any, Callable
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-from django.db.models import Count, Min, Q
+from django.core.paginator import Paginator
+from django.db.models import Count, F, Min, Q
 from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -37,7 +38,6 @@ from classes.forms import (
     DiscountCodeForm,
     InstructorClassOfferingForm,
     InstructorProfileForm,
-    PromoteUserToInstructorForm,
     RegistrationForm,
     RegistrationQuestionForm,
 )
@@ -49,7 +49,6 @@ from classes.models import (
     ClassSettings,
     CmsActivity,
     DiscountCode,
-    Instructor,
     Registration,
     RegistrationQuestion,
 )
@@ -59,21 +58,21 @@ _ViewFunc = Callable[..., HttpResponse]
 
 
 def _browsable_classes() -> Any:
-    """Published, non-private classes annotated with first upcoming session date.
+    """Published, non-private classes with at least one upcoming session.
 
-    Every published, non-private class is shown — the template renders an
-    "Upcoming dates TBA" placeholder when no future sessions exist, so a
-    just-created class is visible immediately whether or not its schedule is
-    finalized. Ordered by category sort, then soonest upcoming session
-    (classes with no upcoming session sort to the bottom of each category).
+    Flexible-scheduling classes are always included (no fixed session dates).
+    Classes whose last session has already passed are excluded.
+    Ordered by soonest upcoming session; flexible/TBA classes sort to the end.
     """
     now = timezone.now()
     return (
         ClassOffering.objects.public()
+        .filter(Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) | Q(sessions__starts_at__gte=now))
         .select_related("category", "instructor")
         .prefetch_related("sessions")
         .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
-        .order_by("category__sort_order", "category__name", "first_session_at", "title")
+        .order_by(F("first_session_at").asc(nulls_last=True), "title")
+        .distinct()
     )
 
 
@@ -95,7 +94,7 @@ def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
 
     instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
     if instructor_slugs:
-        qs = qs.filter(instructor__slug__in=instructor_slugs)
+        qs = qs.filter(instructor__instructor_slug__in=instructor_slugs)
 
     min_price = _coerce_dollars_to_cents(request.GET.get("min_price"))
     if min_price > 0:
@@ -133,8 +132,6 @@ def public_list(request: HttpRequest) -> HttpResponse:
 
     classes_qs = _apply_browse_filters(_browsable_classes(), request)
 
-    classes = list(classes_qs)
-
     # Category chips and per-category counts always reflect the unfiltered
     # universe of browsable classes so users can see what else is out there.
     category_counts: dict[int, int] = {}
@@ -144,18 +141,22 @@ def public_list(request: HttpRequest) -> HttpResponse:
     for cat in categories:
         cat.class_count = category_counts[cat.id]  # type: ignore[attr-defined]
 
-    # Instructors-for-filter: everyone who teaches at least one browsable class.
+    # Instructors-for-filter: members who teach at least one browsable class.
+    from membership.models import Member as MemberModel
+
     instructors_for_filter = list(
-        Instructor.objects.filter(classes__in=_browsable_classes()).distinct().order_by("display_name")
+        MemberModel.objects.filter(classes__in=_browsable_classes(), instructor_slug__gt="")
+        .distinct()
+        .order_by("full_legal_name")
     )
 
-    # Group classes by category for the rendered sections.
-    grouped: dict[int, dict[str, Any]] = {}
-    for offering in classes:
-        bucket = grouped.setdefault(offering.category_id, {"category": offering.category, "classes": []})
-        bucket["classes"].append(offering)
-    category_sections = [grouped[cat.id] for cat in categories if cat.id in grouped]
-    distinct_instructor_ids = {offering.instructor_id for offering in classes}
+    paginator = Paginator(classes_qs, 25)
+    page_obj = paginator.get_page(request.GET.get("page", 1))
+
+    # Strip 'page' from the querystring so pagination links can append it cleanly.
+    filter_qs = request.GET.copy()
+    filter_qs.pop("page", None)
+    filter_querystring = filter_qs.urlencode()
 
     active_filter_count = sum(
         1
@@ -183,9 +184,11 @@ def public_list(request: HttpRequest) -> HttpResponse:
         "free_only": free_only,
         "upcoming_only": upcoming_only,
         "active_filter_count": active_filter_count,
-        "category_sections": category_sections,
-        "total_classes": len(classes),
-        "total_instructors": len(distinct_instructor_ids),
+        "page_obj": page_obj,
+        "paginator": paginator,
+        "filter_querystring": filter_querystring,
+        "total_classes": paginator.count,
+        "total_instructors": classes_qs.values("instructor_id").exclude(instructor_id__isnull=True).distinct().count(),
         "total_categories": len(categories),
     }
 
@@ -239,7 +242,9 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
 
 def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
     """Public instructor profile — bio, photo, current + past classes."""
-    instructor = get_object_or_404(Instructor, slug=slug, is_active=True)
+    from membership.models import Member as MemberModel
+
+    instructor = get_object_or_404(MemberModel, instructor_slug=slug, status=MemberModel.Status.ACTIVE)
     now = timezone.now()
     current_classes = (
         ClassOffering.objects.public()
@@ -552,28 +557,17 @@ def admin_required(view_func: _ViewFunc) -> _ViewFunc:
 
 
 def instructor_required(view_func: _ViewFunc) -> _ViewFunc:
-    """Decorator: Teaching portal access.
-
-    Active instructors pass through. Admins without an Instructor record get
-    bounced to the Classes admin Instructors tab — they have a superset view
-    over there, and the Teaching portal is per-instructor so there's no
-    meaningful admin-scoped equivalent.
-    """
+    """Decorator: Teaching portal access — any active logged-in member may teach."""
 
     @wraps(view_func)
     @login_required
     def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        instructor = Instructor.objects.filter(user=request.user, is_active=True).first()
-        if instructor is None:
-            view_as = getattr(request, "view_as", None)
-            if view_as is not None and view_as.has_actual("admin"):
-                messages.info(
-                    request,
-                    "You don't have an Instructor profile — manage instructors here instead.",
-                )
-                return redirect("classes:admin_instructors")
-            return HttpResponseForbidden("Instructor access required.")
-        request.instructor = instructor  # type: ignore[attr-defined]
+        from membership.models import Member as MemberModel
+
+        member = MemberModel.objects.filter(user=request.user, status=MemberModel.Status.ACTIVE).first()
+        if member is None:
+            return HttpResponseForbidden("An active member account is required to access the teaching portal.")
+        request.instructor = member  # type: ignore[attr-defined]
         return view_func(request, *args, **kwargs)
 
     return wrapper  # type: ignore[return-value]
@@ -602,7 +596,7 @@ def classes_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
 @instructor_required
 def instructor_dashboard(request: HttpRequest) -> HttpResponse:
     """My classes — list view for the logged-in instructor."""
-    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
     classes = (
         ClassOffering.objects.for_instructor(instructor)
         .select_related("category")
@@ -625,7 +619,7 @@ def _render_instructor_class_form(
     *,
     form: InstructorClassOfferingForm,
     formset: Any,
-    instructor: Instructor,
+    instructor: Member,
     mode: str,
     offering: ClassOffering | None = None,
 ) -> HttpResponse:
@@ -666,7 +660,7 @@ def _render_instructor_class_form(
 
 @instructor_required
 def instructor_class_create(request: HttpRequest) -> HttpResponse:
-    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
     form = InstructorClassOfferingForm(request.POST or None, request.FILES or None, instructor=instructor)
     formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
     if request.method == "POST" and form.is_valid() and formset.is_valid():
@@ -692,7 +686,7 @@ def instructor_class_create(request: HttpRequest) -> HttpResponse:
 
 @instructor_required
 def instructor_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
     offering = get_object_or_404(
         ClassOffering.objects.filter(instructor=instructor).prefetch_related("gallery_images"),
         pk=pk,
@@ -727,7 +721,7 @@ def instructor_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
 @instructor_required
 def instructor_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     """Transition a draft to 'pending review'."""
-    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
     offering = get_object_or_404(ClassOffering.objects.filter(instructor=instructor), pk=pk)
     if request.method == "POST" and offering.status == ClassOffering.Status.DRAFT:
         approvals = offering.submit_for_review()
@@ -742,7 +736,7 @@ def instructor_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
 
 @instructor_required
 def instructor_registrations(request: HttpRequest) -> HttpResponse:
-    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
     offerings = (
         ClassOffering.objects.for_instructor(instructor)
         .annotate(registration_count=Count("registrations"))
@@ -778,7 +772,7 @@ def instructor_registrations_email(request: HttpRequest) -> HttpResponse:
     """
     from classes.forms import InstructorEmailForm
 
-    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
     form = InstructorEmailForm(request.POST, instructor=instructor)
     if not form.is_valid():
         first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
@@ -800,7 +794,7 @@ def instructor_discount_codes(request: HttpRequest) -> HttpResponse:
     ownership on the DiscountCode model), so any instructor sees every code.
     If that becomes a problem, add an ``owner`` FK and filter here.
     """
-    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
     codes = DiscountCode.objects.all()
     return render(
         request,
@@ -815,7 +809,7 @@ def instructor_discount_codes(request: HttpRequest) -> HttpResponse:
 
 @instructor_required
 def instructor_discount_code_create(request: HttpRequest) -> HttpResponse:
-    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
     scoped_to: ClassOffering | None = None
     raw_class = request.GET.get("class") or request.POST.get("class")
     if raw_class:
@@ -858,7 +852,7 @@ def instructor_discount_code_create(request: HttpRequest) -> HttpResponse:
 
 @instructor_required
 def instructor_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
     code = get_object_or_404(DiscountCode, pk=pk)
     form = DiscountCodeForm(request.POST or None, instance=code)
     if request.method == "POST" and form.is_valid():
@@ -883,7 +877,7 @@ def instructor_discount_code_delete(request: HttpRequest, pk: int) -> HttpRespon
 
 @instructor_required
 def instructor_profile(request: HttpRequest) -> HttpResponse:
-    instructor: Instructor = request.instructor  # type: ignore[attr-defined]
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
     form = InstructorProfileForm(request.POST or None, request.FILES or None, instance=instructor)
     if request.method == "POST" and form.is_valid():
         form.save()
@@ -909,10 +903,12 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
         ClassOffering.objects.select_related("category", "instructor").prefetch_related("sessions", "gallery_images"),
         pk=pk,
     )
+    from membership.models import Member as MemberModel
+
     view_as = getattr(request, "view_as", None)
     is_admin = view_as is not None and view_as.has_actual("admin")
-    user_instructor = Instructor.objects.filter(user=request.user).first()
-    is_owner = user_instructor is not None and offering.instructor_id == user_instructor.pk
+    user_member = MemberModel.objects.filter(user=request.user).first()
+    is_owner = user_member is not None and offering.instructor_id == user_member.pk
     if not (is_admin or is_owner):
         return HttpResponseForbidden("You can only preview your own classes.")
     settings_obj = ClassSettings.load()
@@ -954,11 +950,13 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     filters = [("", "All", base.count())] + [
         (choice.value, choice.label, status_counts.get(choice.value, 0)) for choice in ClassOffering.Status
     ]
-    instructors = Instructor.objects.filter(is_active=True).order_by("display_name")
+    from membership.models import Member as MemberModel
+
+    instructors = MemberModel.objects.filter(instructor_slug__gt="").order_by("full_legal_name")
     table = prepare_table(
         request,
         qs,
-        search_fields=["title", "instructor__display_name", "category__name"],
+        search_fields=["title", "instructor__full_legal_name", "instructor__preferred_name", "category__name"],
         default_sort="created_at",
         default_dir="desc",
     )
@@ -1461,36 +1459,6 @@ def admin_category_delete(request: HttpRequest, pk: int) -> HttpResponse:
         category.delete()
         messages.success(request, "Category deleted.")
     return redirect("classes:admin_categories")
-
-
-@classes_admin_access_required
-def admin_instructors(request: HttpRequest) -> HttpResponse:
-    table = prepare_table(
-        request,
-        Instructor.objects.select_related("user").annotate(class_count=Count("classes")),
-        search_fields=["display_name", "user__email"],
-        default_sort="display_name",
-    )
-    return render(
-        request,
-        "classes/admin/instructors.html",
-        {"active_tab": "instructors", **table},
-    )
-
-
-@classes_admin_access_required
-def admin_instructor_promote(request: HttpRequest) -> HttpResponse:
-    """Add an existing User as an Instructor — grants the role to a member account."""
-    form = PromoteUserToInstructorForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
-        instructor = form.save()
-        messages.success(request, f"{instructor.display_name} is now an instructor.")
-        return redirect("classes:admin_instructors")
-    return render(
-        request,
-        "classes/admin/instructor_promote.html",
-        {"active_tab": "instructors", "form": form},
-    )
 
 
 @classes_admin_access_required

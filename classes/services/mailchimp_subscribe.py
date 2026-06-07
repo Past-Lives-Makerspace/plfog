@@ -34,8 +34,8 @@ def derive_tags(registration: Registration) -> list[str]:
         tags.append(f"category-{category.slug}")
         if category.guild_id and category.guild:
             tags.append(f"guild-{slugify(category.guild.name)}")
-    if offering.instructor and offering.instructor.slug:
-        tags.append(f"instructor-{offering.instructor.slug}")
+    if offering.instructor and offering.instructor.instructor_slug:
+        tags.append(f"instructor-{offering.instructor.instructor_slug}")
 
     prior_confirmed = (
         Registration.objects.filter(

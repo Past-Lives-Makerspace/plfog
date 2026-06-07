@@ -88,8 +88,6 @@ def describe_admin_members():
 
 def describe_admin_member_edit_role_dispatch():
     def it_promotes_to_instructor(client):
-        from classes.models import Instructor
-
         _create_superuser(client)
         target = _create_member_user(username="becomeinst")
         response = client.post(
@@ -110,7 +108,7 @@ def describe_admin_member_edit_role_dispatch():
         target.member.refresh_from_db()
         assert target.member.fog_role == Member.FogRole.MEMBER
         assert target.member.status == Member.Status.ACTIVE
-        assert Instructor.objects.filter(user=target).exists()
+        assert target.member.instructor_slug != ""
 
     def it_demotes_to_guest_by_setting_status_former(client):
         _create_superuser(client)
@@ -378,7 +376,7 @@ def describe_admin_site_settings_legacy_cms():
         from classes.factories import InstructorFactory
 
         _create_superuser(client)
-        InstructorFactory(display_name="Test Instructor", is_active=True)
+        InstructorFactory(full_legal_name="Test Instructor")
         response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
         assert response.status_code == 200
         rows = response.context["instructor_sync_rows"]

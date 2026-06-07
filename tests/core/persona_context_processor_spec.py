@@ -51,7 +51,7 @@ def describe_persona():
         assert persona(req)["is_member_persona"] is True
 
     def it_returns_instructor_for_user_linked_to_instructor_no_airtable_member(rf, db):
-        instructor = InstructorFactory()
+        instructor = InstructorFactory(user=UserFactory())
         req = rf.get("/")
         req.user = instructor.user
         assert persona(req)["persona"] == "instructor"

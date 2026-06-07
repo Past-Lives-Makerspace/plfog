@@ -16,7 +16,7 @@
     <a class="cta-primary" href="#catalog">Browse Classes</a>
     {% if request.view_as.is_admin %}
       <a class="cta-secondary" href="{% url 'classes:admin_classes' %}">Manage Classes &amp; Workshops</a>
-    {% elif request.view_as.is_instructor %}
+    {% elif request.view_as.is_member %}
       <a class="cta-secondary" href="{% url 'classes:instructor_dashboard' %}">Manage My Classes</a>
     {% endif %}
     {% if user.is_authenticated and not is_public_surface %}
@@ -25,19 +25,6 @@
   </div>
 </div>
 
-<div id="cat-nav">
-  <div id="cat-inner">
-    <a class="cp {% if not selected_category_slug %}on{% endif %}" href="{% url 'classes:public_list' %}">
-      All<span class="ct">{{ total_classes }}</span>
-    </a>
-    {% for cat in categories %}
-      <a class="cp {% if selected_category_slug == cat.slug %}on{% endif %}"
-         href="{% url 'classes:public_category' slug=cat.slug %}">
-        {% if cat.icon_svg %}{{ cat.icon_svg|safe }}{% endif %}{{ cat.name }}<span class="ct">{{ cat.class_count }}</span>
-      </a>
-    {% endfor %}
-  </div>
-</div>
 
 {# ── Filter bar: category dropdown + Filter popover button ── #}
 <form id="cp-filter-form"
@@ -140,5 +127,16 @@
     </div>
   </div>
 </div>
+
+<button id="scroll-top-btn"
+        x-data="{ show: false }"
+        x-show="show"
+        x-init="window.addEventListener('scroll', () => { show = window.scrollY > 400 })"
+        @click="window.scrollTo({ top: 0, behavior: 'smooth' })"
+        aria-label="Back to top">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M18 15l-6-6-6 6"/>
+  </svg>
+</button>
 {% endblock %}
 

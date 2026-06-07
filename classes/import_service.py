@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import re
 import urllib.request
@@ -13,7 +14,8 @@ from django.utils.html import strip_tags
 from django.utils.text import slugify
 
 if TYPE_CHECKING:
-    from classes.models import Category, Instructor
+    from classes.models import Category
+    from membership.models import Member
 
 LEGACY_CMS_BASE = "https://classes.pastlives.space"
 LEGACY_CMS_API_URL = f"{LEGACY_CMS_BASE}/jsonapi/node/class"
@@ -56,10 +58,24 @@ def extract_instructor_name(title: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _find_instructor(name: str) -> "Instructor | None":
-    from classes.models import Instructor
+def _html_to_text(raw: str) -> str:
+    """Convert Drupal HTML body to clean plain text with paragraph breaks."""
+    text = re.sub(r"</p>\s*<p[^>]*>", "\n\n", raw, flags=re.IGNORECASE)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</p>", "\n\n", text, flags=re.IGNORECASE)
+    text = strip_tags(text)
+    return html.unescape(text).strip()
 
-    return Instructor.objects.filter(display_name__icontains=name, is_active=True).first()
+
+def _find_instructor(name: str) -> "Member | None":
+    from django.db.models import Q
+
+    from membership.models import Member
+
+    return Member.objects.filter(
+        Q(preferred_name__icontains=name) | Q(full_legal_name__icontains=name),
+        status=Member.Status.ACTIVE,
+    ).first()
 
 
 def _sync_sessions(offering: Any, date_items: list[dict[str, Any]]) -> None:
@@ -96,7 +112,7 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
 
     title = attrs.get("title") or "(Untitled)"
     body = attrs.get("body") or {}
-    description = strip_tags(body.get("processed") or body.get("value") or "")
+    description = _html_to_text(body.get("processed") or body.get("value") or "")
     price_cents = int(float(attrs.get("field_price") or "0") * 100)
     capacity = attrs.get("field_max_students") or 0
     status = ClassOffering.Status.PUBLISHED if attrs.get("status") else ClassOffering.Status.ARCHIVED

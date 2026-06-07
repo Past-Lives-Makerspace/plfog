@@ -234,14 +234,11 @@ def member_directory(request: HttpRequest) -> HttpResponse:
     current_member = _get_member(request)
     view_as = getattr(request, "view_as", None)
     is_admin = view_as is not None and view_as.is_admin
-    from classes.models import Instructor
-
-    instructor_user_ids = Instructor.objects.values_list("user_id", flat=True)
     must_show = (
         Q(fog_role=Member.FogRole.ADMIN)
         | Q(fog_role=Member.FogRole.GUILD_OFFICER)
         | Q(led_guilds__isnull=False)
-        | Q(user_id__in=instructor_user_ids)
+        | Q(instructor_slug__gt="")
     )
     member_qs = Member.objects.filter(status=Member.Status.ACTIVE).distinct()
     if not is_admin:
@@ -1044,7 +1041,7 @@ def admin_members(request: HttpRequest) -> HttpResponse:
 
     qs = (
         Member.objects.select_related("user", "membership_plan")
-        .annotate(class_count=Count("user__instructor__classes", distinct=True))
+        .annotate(class_count=Count("classes", distinct=True))
         .order_by("full_legal_name")
     )
     if status_filter and status_filter != "all":
@@ -1104,20 +1101,22 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
 def _legacy_instructor_sync_status() -> tuple[list[dict[str, object]], int]:
     """Return instructor match stats for the Legacy CMS tab.
 
-    For each active instructor, count how many ClassOfferings came from the
-    legacy CMS (legacy_cms_id set) and have that instructor linked.
+    For each member with an instructor slug, count how many ClassOfferings came
+    from the legacy CMS (legacy_cms_id set) and have that member linked as instructor.
     """
-    from classes.models import ClassOffering, Instructor
+    from classes.models import ClassOffering
+
+    from membership.models import Member as MemberModel
 
     rows = []
-    for instructor in Instructor.objects.filter(is_active=True).order_by("display_name"):
+    for member in MemberModel.objects.filter(instructor_slug__gt="").order_by("full_legal_name"):
         matched = ClassOffering.objects.filter(
             legacy_cms_id__gt="",
-            instructor=instructor,
+            instructor=member,
         ).count()
         rows.append(
             {
-                "instructor": instructor,
+                "instructor": member,
                 "matched": matched,
             }
         )

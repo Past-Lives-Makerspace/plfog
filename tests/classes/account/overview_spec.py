@@ -68,7 +68,7 @@ def describe_account_overview():
 
     def describe_persona_instructor():
         def it_shows_instructor_banner_with_upcoming_count(book_client, db):
-            inst = InstructorFactory()
+            inst = InstructorFactory(user=UserFactory())
             offering = ClassOfferingFactory(status="published", instructor=inst)
             ClassSessionFactory(class_offering=offering, starts_at=timezone.now() + timedelta(days=2))
             book_client.force_login(inst.user)
@@ -77,7 +77,7 @@ def describe_account_overview():
             assert b"/classes/instructor/" in resp.content
 
         def it_hides_instructor_banner_when_no_upcoming_classes(book_client, db):
-            inst = InstructorFactory()
+            inst = InstructorFactory(user=UserFactory())
             book_client.force_login(inst.user)
             resp = book_client.get("/account/")
             assert b"bk-banner is-instructor" not in resp.content

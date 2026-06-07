@@ -6,7 +6,9 @@
 <div class="hub-card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:0.75rem;">
         <h1 style="margin:0;">Manage Classes & Workshops</h1>
-        <a class="hub-btn hub-btn--sm" href="{% url 'classes:public_instructor' slug=instructor.slug %}" target="_blank" rel="noopener">View public profile ↗</a>
+        {% if instructor.instructor_slug %}
+        <a class="hub-btn hub-btn--sm" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}" target="_blank" rel="noopener">View public profile ↗</a>
+        {% endif %}
     </div>
     <nav style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.25rem; flex-wrap:wrap;" role="tablist">
         <a href="{% url 'classes:instructor_dashboard' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}">My Classes</a>

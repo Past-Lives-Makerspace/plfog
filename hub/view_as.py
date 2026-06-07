@@ -1,20 +1,16 @@
 """Session-backed "Viewing as" role preview for the hub.
 
-A user's *actual* roles are derived from ``member.fog_role`` and the presence
-of an ``Instructor`` record. Admins can pick a *view-as* role via the topbar
-dropdown — the picked role name is stored in ``request.session["view_as_role"]``.
+A user's *actual* roles are derived from ``member.fog_role``. Admins can pick
+a *view-as* role via the topbar dropdown — the picked role name is stored in
+``request.session["view_as_role"]``.
 
 Hierarchy roles are a linear ladder: admin > guild_officer > member.
 Effective roles are every role from the user's actual set that sits at or
 below the picked role. When no role is picked (or the picked role is the
 user's highest), effective == actual.
 
-Two roles sit OUTSIDE the hierarchy:
-
-- ``instructor``: a capability granted by having an ``Instructor`` record
-  linked to ``request.user``. All instructors are also members.
-- ``guest``: assigned to anonymous visitors so view-as checks work
-  uniformly on public-facing pages.
+``guest`` sits outside the hierarchy — assigned to anonymous visitors so
+view-as checks work uniformly on public-facing pages.
 
 Every hub-side UI gate should read ``request.view_as`` (attached by
 ``ViewAsMiddleware``) so the session override is respected uniformly.
@@ -34,16 +30,14 @@ _ViewFunc = Callable[..., "HttpResponse"]
 ROLE_MEMBER = "member"
 ROLE_GUILD_OFFICER = "guild_officer"
 ROLE_ADMIN = "admin"
-ROLE_INSTRUCTOR = "instructor"
 ROLE_GUEST = "guest"
 
-ALL_ROLES: frozenset[str] = frozenset({ROLE_MEMBER, ROLE_INSTRUCTOR, ROLE_GUILD_OFFICER, ROLE_ADMIN, ROLE_GUEST})
+ALL_ROLES: frozenset[str] = frozenset({ROLE_MEMBER, ROLE_GUILD_OFFICER, ROLE_ADMIN, ROLE_GUEST})
 
 ROLE_HIERARCHY: tuple[str, ...] = (ROLE_MEMBER, ROLE_GUILD_OFFICER, ROLE_ADMIN)
 
 ROLE_LABELS: tuple[tuple[str, str], ...] = (
     (ROLE_ADMIN, "Admin"),
-    (ROLE_INSTRUCTOR, "Instructor"),
     (ROLE_GUILD_OFFICER, "Guild Officer"),
     (ROLE_MEMBER, "Member"),
     (ROLE_GUEST, "Guest"),
@@ -57,9 +51,7 @@ def compute_actual_roles(user: "AbstractBaseUser | AnonymousUser | None") -> fro
 
     Anonymous visitors get ``{ROLE_GUEST}``. Superusers without a linked
     Member still get the full hierarchy set so emergency access is never
-    dependent on Member data being correct. ``instructor`` is parallel to
-    the member hierarchy — derived from an ``Instructor`` record linked
-    to the user.
+    dependent on Member data being correct.
     """
     if user is None or not getattr(user, "is_authenticated", False):
         return frozenset({ROLE_GUEST})
@@ -67,10 +59,6 @@ def compute_actual_roles(user: "AbstractBaseUser | AnonymousUser | None") -> fro
     from membership.models import Member as MemberModel
 
     member = MemberModel.objects.filter(user_id=user.pk).first()  # type: ignore[misc]
-
-    from classes.models import Instructor
-
-    has_instructor = Instructor.objects.filter(user=user).exists()  # type: ignore[misc]
 
     roles: set[str] = set()
     if member is not None and member.status == MemberModel.Status.ACTIVE:
@@ -80,8 +68,6 @@ def compute_actual_roles(user: "AbstractBaseUser | AnonymousUser | None") -> fro
             roles.update({ROLE_GUILD_OFFICER, ROLE_MEMBER})
         else:
             roles.add(ROLE_MEMBER)
-    if has_instructor:
-        roles.add(ROLE_INSTRUCTOR)
     if getattr(user, "is_superuser", False):
         roles.update({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER})
     if not roles:
@@ -115,7 +101,7 @@ def _read_picked_role(session, actual: frozenset[str]) -> str | None:  # noqa: A
         return None
     if raw in actual:
         return raw
-    if ROLE_ADMIN in actual and raw in {ROLE_GUEST, ROLE_INSTRUCTOR, ROLE_MEMBER, ROLE_GUILD_OFFICER, ROLE_ADMIN}:
+    if ROLE_ADMIN in actual and raw in {ROLE_GUEST, ROLE_MEMBER, ROLE_GUILD_OFFICER, ROLE_ADMIN}:
         return raw
     return None
 
@@ -129,13 +115,7 @@ class ViewAs:
         if picked is None:
             self.effective = actual
         elif picked in ROLE_HIERARCHY:
-            # Hierarchy preview: cap at picked and keep instructor visible
-            # if the user actually has it (so admin-instructors previewing as
-            # Member still see Teaching).
-            self.effective = _roles_up_to(picked, actual) | (actual & {ROLE_INSTRUCTOR})
-        elif picked == ROLE_INSTRUCTOR:
-            # Previewing as Instructor — show instructor + member surfaces only.
-            self.effective = frozenset({ROLE_INSTRUCTOR, ROLE_MEMBER}) & (actual | {ROLE_MEMBER, ROLE_INSTRUCTOR})
+            self.effective = _roles_up_to(picked, actual)
         elif picked == ROLE_GUEST:
             self.effective = frozenset({ROLE_GUEST})
         else:
@@ -158,10 +138,6 @@ class ViewAs:
     @property
     def is_member(self) -> bool:
         return self.has(ROLE_MEMBER)
-
-    @property
-    def is_instructor(self) -> bool:
-        return ROLE_INSTRUCTOR in self.effective
 
     @property
     def is_guest(self) -> bool:

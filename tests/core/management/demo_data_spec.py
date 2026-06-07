@@ -6,7 +6,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 
-from classes.models import ClassOffering, Instructor, Registration
+from classes.models import ClassOffering, Registration
 from core.management.commands.demo_data import (
     DEMO_EMAIL_DOMAIN,
     DEMO_SLUG_PREFIX,
@@ -43,7 +43,9 @@ def describe_demo_data_seed():
 
         call_command("demo_data")
 
-        assert Member.objects.filter(user__email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == 0
+        # The demo instructor is now a Member (instructor == Member in the new model).
+        # The student and guest personas must never create Members — only the 1 instructor.
+        assert Member.objects.filter(user__email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == 1
 
     def it_is_idempotent_across_runs():
         call_command("demo_data")
@@ -66,7 +68,6 @@ def describe_demo_data_remove():
 
         assert User.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == 0
         assert ClassOffering.objects.filter(slug__startswith=DEMO_SLUG_PREFIX).count() == 0
-        assert Instructor.objects.filter(slug__startswith=DEMO_SLUG_PREFIX).count() == 0
         assert Registration.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == 0
         assert Member.objects.filter(user__email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == 0
 

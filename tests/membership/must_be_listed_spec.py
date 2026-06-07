@@ -31,6 +31,7 @@ def describe_must_be_listed_in_directory():
         user = User.objects.create_user(username="teach", email="teach@x.com", password="p")
         InstructorFactory(user=user)
         member = user.member
+        member.refresh_from_db()
         member.fog_role = Member.FogRole.MEMBER
         member.save(update_fields=["fog_role"])
         assert member.is_instructor is True

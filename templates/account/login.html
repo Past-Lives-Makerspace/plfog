@@ -3,12 +3,15 @@
 
 {% block title %}Log In - Past Lives{% endblock %}
 
+{% block classes_extra_head %}
+<link rel="stylesheet" href="{% static 'css/book-account.css' %}">
+{% endblock %}
+
 {% block content %}
 {% if is_public_surface %}
 <div class="cp-page">
 {% block portal_content %}
 <div class="bk-themed-login">
-  <link rel="stylesheet" href="{% static 'css/book-account.css' %}">
   <div class="bk-auth">
     <div class="bk-auth-card">
       <div class="bk-auth-eyebrow">Sign in</div>

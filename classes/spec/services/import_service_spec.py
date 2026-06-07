@@ -232,7 +232,7 @@ def describe_sync_legacy_cms():
     def it_links_instructor_when_title_matches_display_name(db):
         from classes.import_service import sync_legacy_cms
 
-        instructor = InstructorFactory(display_name="Billy")
+        instructor = InstructorFactory(full_legal_name="Billy")
 
         resp = _make_mock_resp(_page([_class_item(title="Blacksmithing 101 with Billy")]))
         with patch("urllib.request.urlopen", return_value=resp):
@@ -254,8 +254,8 @@ def describe_sync_legacy_cms():
     def it_does_not_overwrite_instructor_once_set(db):
         from classes.import_service import sync_legacy_cms
 
-        InstructorFactory(display_name="Billy")
-        ash = InstructorFactory(display_name="Ash")
+        InstructorFactory(full_legal_name="Billy")
+        ash = InstructorFactory(full_legal_name="Ash")
 
         resp = _make_mock_resp(_page([_class_item(title="Forging with Billy")]))
         with patch("urllib.request.urlopen", return_value=resp):
@@ -276,7 +276,7 @@ def describe_sync_legacy_cms():
     def it_does_not_link_when_no_with_pattern_in_title(db):
         from classes.import_service import sync_legacy_cms
 
-        InstructorFactory(display_name="Billy")
+        InstructorFactory(full_legal_name="Billy")
 
         resp = _make_mock_resp(_page([_class_item(title="Intro to Welding")]))
         with patch("urllib.request.urlopen", return_value=resp):
