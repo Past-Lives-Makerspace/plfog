@@ -5,20 +5,27 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('classes', '0023_classoffering_legacy_fields'),
+        ("classes", "0023_classoffering_legacy_fields"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='classoffering',
-            name='legacy_cms_id',
-            field=models.CharField(blank=True, help_text='Drupal node UUID from classes.pastlives.space. Empty on manually-created offerings.', max_length=100),
+            model_name="classoffering",
+            name="legacy_cms_id",
+            field=models.CharField(
+                blank=True,
+                help_text="Drupal node UUID from classes.pastlives.space. Empty on manually-created offerings.",
+                max_length=100,
+            ),
         ),
         migrations.AddConstraint(
-            model_name='classoffering',
-            constraint=models.UniqueConstraint(condition=models.Q(('legacy_cms_id__gt', '')), fields=('legacy_cms_id',), name='uq_classoffering_legacy_cms_id'),
+            model_name="classoffering",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("legacy_cms_id__gt", "")),
+                fields=("legacy_cms_id",),
+                name="uq_classoffering_legacy_cms_id",
+            ),
         ),
     ]

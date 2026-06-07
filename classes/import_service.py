@@ -74,7 +74,7 @@ def _sync_sessions(offering: Any, date_items: list[dict[str, Any]]) -> None:
             continue
         start = parse_datetime(start_str)
         end = parse_datetime(end_str) if end_str else start
-        if not start:
+        if not start or not end:
             continue
         ClassSession.objects.create(
             class_offering=offering,

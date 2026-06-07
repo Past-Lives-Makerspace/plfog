@@ -37,14 +37,10 @@ def _class_item(
             "field_class_type": class_type,
             "field_price": price,
             "field_max_students": capacity,
-            "field_dates": dates or [
-                {"value": "2026-08-01T10:00:00+00:00", "end_value": "2026-08-01T12:00:00+00:00"}
-            ],
+            "field_dates": dates or [{"value": "2026-08-01T10:00:00+00:00", "end_value": "2026-08-01T12:00:00+00:00"}],
             "body": {"processed": "<p>Great class</p>"},
             "path": {"alias": path_alias},
-            "metatag": [
-                {"attributes": {"property": "og:image", "content": image_url}}
-            ],
+            "metatag": [{"attributes": {"property": "og:image", "content": image_url}}],
         },
         "relationships": {},
     }
@@ -123,7 +119,9 @@ def describe_sync_legacy_cms():
         )
 
         # Sync with a NEW image URL from the API — the guard should block the update
-        resp = _make_mock_resp(_page([_class_item(image_url="https://classes.pastlives.space/sites/default/files/new.jpg")]))
+        resp = _make_mock_resp(
+            _page([_class_item(image_url="https://classes.pastlives.space/sites/default/files/new.jpg")])
+        )
         with patch("urllib.request.urlopen", return_value=resp):
             sync_legacy_cms()
 
@@ -267,7 +265,9 @@ def describe_sync_legacy_cms():
         offering.instructor = ash
         offering.save(update_fields=["instructor"])
 
-        with patch("urllib.request.urlopen", return_value=_make_mock_resp(_page([_class_item(title="Forging with Billy")]))):
+        with patch(
+            "urllib.request.urlopen", return_value=_make_mock_resp(_page([_class_item(title="Forging with Billy")]))
+        ):
             sync_legacy_cms()
 
         offering.refresh_from_db()
