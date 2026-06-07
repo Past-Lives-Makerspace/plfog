@@ -1,6 +1,6 @@
 from django.urls import path
 
-from classes import views
+from classes import views, views_legacy_image
 
 app_name = "classes"
 
@@ -89,6 +89,8 @@ urlpatterns = [
         name="admin_registration_question_delete",
     ),
     path("admin/settings/", views.admin_settings, name="admin_settings"),
+    # Legacy CMS image proxy — must come before the bare slug catch-all below.
+    path("_legacy-image/", views_legacy_image.legacy_image, name="legacy_image"),
     # Public registration — must come before the bare slug catch-all below.
     path("<slug:slug>/register/", views.register, name="register"),
     path("<slug:slug>/register/success/", views.register_success, name="register_success"),
