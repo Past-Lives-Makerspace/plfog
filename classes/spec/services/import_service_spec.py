@@ -1,8 +1,6 @@
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from classes.factories import InstructorFactory
 from classes.models import Category, ClassOffering, ClassSession
 from core.models import SiteConfiguration
@@ -112,7 +110,8 @@ def describe_sync_legacy_cms():
         from classes.import_service import sync_legacy_cms
 
         category = Category.objects.create(name="Workshop", slug="workshop")
-        ClassOffering.objects.create(
+        # Pre-set legacy_image_url to simulate a previous sync (real image is also present)
+        offering = ClassOffering.objects.create(
             legacy_cms_id="uuid-1",
             title="Old",
             slug="old",
@@ -120,14 +119,17 @@ def describe_sync_legacy_cms():
             price_cents=0,
             status=ClassOffering.Status.PUBLISHED,
             image="classes/images/existing.jpg",
+            legacy_image_url="https://classes.pastlives.space/sites/default/files/old.jpg",
         )
 
-        resp = _make_mock_resp(_page([_class_item()]))
+        # Sync with a NEW image URL from the API — the guard should block the update
+        resp = _make_mock_resp(_page([_class_item(image_url="https://classes.pastlives.space/sites/default/files/new.jpg")]))
         with patch("urllib.request.urlopen", return_value=resp):
             sync_legacy_cms()
 
-        offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
-        assert offering.legacy_image_url == ""
+        offering.refresh_from_db()
+        # Real image present — legacy_image_url must not be overwritten with the new API URL
+        assert offering.legacy_image_url == "https://classes.pastlives.space/sites/default/files/old.jpg"
 
     def it_creates_class_sessions_from_field_dates(db):
         from classes.import_service import sync_legacy_cms
@@ -254,7 +256,7 @@ def describe_sync_legacy_cms():
     def it_does_not_overwrite_instructor_once_set(db):
         from classes.import_service import sync_legacy_cms
 
-        billy = InstructorFactory(display_name="Billy")
+        InstructorFactory(display_name="Billy")
         ash = InstructorFactory(display_name="Ash")
 
         resp = _make_mock_resp(_page([_class_item(title="Forging with Billy")]))
@@ -282,3 +284,23 @@ def describe_sync_legacy_cms():
 
         offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
         assert offering.instructor is None
+
+    def it_appends_legacy_suffix_when_slug_collides(db):
+        from classes.import_service import sync_legacy_cms
+
+        category = Category.objects.create(name="Workshop", slug="workshop")
+        # Pre-create an offering with the slug that would be generated from path_alias
+        ClassOffering.objects.create(
+            title="Other",
+            slug="intro-to-welding",
+            category=category,
+            price_cents=0,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+
+        resp = _make_mock_resp(_page([_class_item(path_alias="/class/intro-to-welding")]))
+        with patch("urllib.request.urlopen", return_value=resp):
+            sync_legacy_cms()
+
+        offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
+        assert offering.slug == "intro-to-welding-legacy"

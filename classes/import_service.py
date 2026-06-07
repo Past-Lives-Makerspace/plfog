@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 import re
 import urllib.request
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.html import strip_tags
 from django.utils.text import slugify
+
+if TYPE_CHECKING:
+    from classes.models import Category, Instructor
 
 LEGACY_CMS_BASE = "https://classes.pastlives.space"
 LEGACY_CMS_API_URL = f"{LEGACY_CMS_BASE}/jsonapi/node/class"
@@ -30,9 +33,10 @@ def _fetch_json(url: str) -> dict[str, Any]:
         return json.loads(response.read())
 
 
-def _get_or_create_category(class_type: str) -> Any:
+def _get_or_create_category(class_type: str) -> "Category":
     from classes.models import Category
 
+    # Unknown types get a humanised fallback so an unexpected value doesn't abort the whole sync
     name = _CLASS_TYPE_MAP.get(class_type, class_type.replace("_", " ").title())
     category, _ = Category.objects.get_or_create(name=name, defaults={"slug": slugify(name)})
     return category
@@ -52,10 +56,88 @@ def extract_instructor_name(title: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _find_instructor(name: str) -> Any | None:
+def _find_instructor(name: str) -> "Instructor | None":
     from classes.models import Instructor
 
     return Instructor.objects.filter(display_name__icontains=name, is_active=True).first()
+
+
+def _sync_sessions(offering: Any, date_items: list[dict[str, Any]]) -> None:
+    """Replace all sessions for an offering with the supplied date list."""
+    from classes.models import ClassSession
+
+    ClassSession.objects.filter(class_offering=offering).delete()
+    for i, session in enumerate(date_items):
+        start_str = session.get("value")
+        end_str = session.get("end_value") or start_str
+        if not start_str:
+            continue
+        start = parse_datetime(start_str)
+        end = parse_datetime(end_str) if end_str else start
+        if not start:
+            continue
+        ClassSession.objects.create(
+            class_offering=offering,
+            starts_at=start,
+            ends_at=end,
+            sort_order=i,
+        )
+
+
+def _upsert_offering(item: dict[str, Any]) -> str | None:
+    """Upsert a single API node item. Returns the node UUID, or None if skipped."""
+    from classes.models import ClassOffering
+
+    node_id: str = item.get("id") or ""
+    if not node_id:
+        return None
+
+    attrs = item.get("attributes") or {}
+
+    title = attrs.get("title") or "(Untitled)"
+    body = attrs.get("body") or {}
+    description = strip_tags(body.get("processed") or body.get("value") or "")
+    price_cents = int(float(attrs.get("field_price") or "0") * 100)
+    capacity = attrs.get("field_max_students") or 0
+    status = ClassOffering.Status.PUBLISHED if attrs.get("status") else ClassOffering.Status.ARCHIVED
+    image_url = _get_image_url(item)
+    class_type = attrs.get("field_class_type") or "class"
+    category = _get_or_create_category(class_type)
+
+    path_alias: str = (attrs.get("path") or {}).get("alias") or ""
+    raw_slug = path_alias.replace("/class/", "").strip("/") or node_id[:20]
+
+    offering, created = ClassOffering.objects.update_or_create(
+        legacy_cms_id=node_id,
+        defaults={
+            "title": title,
+            "description": description,
+            "price_cents": price_cents,
+            "capacity": capacity,
+            "status": status,
+            "category": category,
+        },
+    )
+
+    if created:
+        slug = raw_slug
+        if ClassOffering.objects.filter(slug=slug).exclude(pk=offering.pk).exists():
+            slug = f"{slug}-legacy"
+        offering.slug = slug
+
+    if image_url and not offering.image:
+        offering.legacy_image_url = image_url
+
+    if not offering.instructor_id:
+        name = extract_instructor_name(title)
+        if name:
+            instructor = _find_instructor(name)
+            if instructor:
+                offering.instructor = instructor
+
+    offering.save()
+    _sync_sessions(offering, attrs.get("field_dates") or [])
+    return node_id
 
 
 def sync_legacy_cms() -> int:
@@ -68,7 +150,7 @@ def sync_legacy_cms() -> int:
     Returns:
         Number of offerings upserted.
     """
-    from classes.models import ClassOffering, ClassSession
+    from classes.models import ClassOffering
     from core.models import SiteConfiguration
 
     now = timezone.now()
@@ -79,75 +161,9 @@ def sync_legacy_cms() -> int:
         data = _fetch_json(next_url)
 
         for item in data.get("data") or []:
-            node_id: str = item.get("id") or ""
-            if not node_id:
-                continue
-
-            attrs = item.get("attributes") or {}
-
-            title = attrs.get("title") or "(Untitled)"
-            body = attrs.get("body") or {}
-            description = strip_tags(body.get("processed") or body.get("value") or "")
-            price_cents = int(float(attrs.get("field_price") or "0") * 100)
-            capacity = attrs.get("field_max_students") or 0
-            status = (
-                ClassOffering.Status.PUBLISHED if attrs.get("status") else ClassOffering.Status.ARCHIVED
-            )
-            image_url = _get_image_url(item)
-            class_type = attrs.get("field_class_type") or "class"
-            category = _get_or_create_category(class_type)
-
-            path_alias: str = (attrs.get("path") or {}).get("alias") or ""
-            raw_slug = path_alias.replace("/class/", "").strip("/") or node_id[:20]
-
-            offering, created = ClassOffering.objects.update_or_create(
-                legacy_cms_id=node_id,
-                defaults={
-                    "title": title,
-                    "description": description,
-                    "price_cents": price_cents,
-                    "capacity": capacity,
-                    "status": status,
-                    "category": category,
-                },
-            )
-
-            # Slug: set only on first import
-            if created:
-                slug = raw_slug
-                if ClassOffering.objects.filter(slug=slug).exclude(pk=offering.pk).exists():
-                    slug = f"{slug}-legacy"
-                offering.slug = slug
-
-            # Legacy image: only set when no real image is uploaded
-            if image_url and not offering.image:
-                offering.legacy_image_url = image_url
-
-            # Instructor: only set when not already assigned
-            if not offering.instructor_id:
-                name = extract_instructor_name(title)
-                if name:
-                    instructor = _find_instructor(name)
-                    if instructor:
-                        offering.instructor = instructor
-
-            offering.save()
-
-            # Sessions: full replace
-            ClassSession.objects.filter(class_offering=offering).delete()
-            for i, session in enumerate(attrs.get("field_dates") or []):
-                start_str = session.get("value")
-                end_str = session.get("end_value") or start_str
-                if not start_str:
-                    continue
-                ClassSession.objects.create(
-                    class_offering=offering,
-                    starts_at=datetime.fromisoformat(start_str),
-                    ends_at=datetime.fromisoformat(end_str),
-                    sort_order=i,
-                )
-
-            seen_ids.append(node_id)
+            node_id = _upsert_offering(item)
+            if node_id:
+                seen_ids.append(node_id)
 
         next_url = ((data.get("links") or {}).get("next") or {}).get("href")
 
