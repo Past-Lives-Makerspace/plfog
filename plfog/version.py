@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "2.3.0"
+VERSION = "2.3.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.3.1",
+        "date": "2026-06-06",
+        "title": "Classes from the old CMS now show up on book.pastlives.space",
+        "changes": [
+            "All classes from classes.pastlives.space now automatically sync into book.pastlives.space every 15 minutes — flip the toggle in Site Settings → Legacy CMS to turn it on. When you're ready to manage classes exclusively here, just turn it off.",
+            "Imported classes link to the right instructor automatically when the class title includes 'with [Instructor Name]'. Once linked, the connection is never overwritten by a re-sync so any manual adjustments stick.",
+            "Hero images from the old CMS are served through a proxy so class cards look complete right away — run 'Download legacy images' when you're ready to move them into plfog's own storage.",
+            "The Members admin table now shows how many classes each instructor is teaching, with a one-click link that filters the Classes table to just their classes.",
+            "The Classes admin table now has an instructor dropdown filter so you can quickly see every class taught by a specific person.",
+            "Site Settings has a new Legacy CMS tab with the sync toggle, a 'Sync Now' button for on-demand imports, and an instructor match table that shows how many of each instructor's classes were automatically linked by name.",
+        ],
+    },
     {
         "version": "2.3.0",
         "date": "2026-05-28",
