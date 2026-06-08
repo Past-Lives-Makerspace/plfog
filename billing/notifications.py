@@ -6,7 +6,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -34,12 +33,14 @@ def send_receipt(charge: TabCharge) -> None:
     text_body = render_to_string("billing/email/receipt.txt", context)
     html_body = render_to_string("billing/email/receipt.html", context)
 
-    send_mail(
+    from core import email as core_email
+
+    core_email.send(
+        to=member.primary_email,
         subject=f"Past Lives Makerspace — Receipt for ${charge.amount}",
-        message=text_body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[member.primary_email],
-        html_message=html_body,
+        trigger_kind="billing.receipt",
+        text_body=text_body,
+        html_body=html_body,
     )
 
     charge.receipt_sent_at = timezone.now()
@@ -58,9 +59,11 @@ def notify_admin_charge_failed(charge: TabCharge) -> None:
 
     admin_emails = getattr(settings, "BILLING_ADMIN_EMAILS", [settings.DEFAULT_FROM_EMAIL])
 
-    send_mail(
+    from core import email as core_email
+
+    core_email.send(
+        to=admin_emails,
         subject=f"[Billing] Failed charge for {member.display_name} — ${charge.amount}",
-        message=text_body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=admin_emails,
+        trigger_kind="billing.charge_failed_admin",
+        text_body=text_body,
     )

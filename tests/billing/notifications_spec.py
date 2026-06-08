@@ -9,6 +9,7 @@ from django.core import mail
 
 from billing.models import TabCharge
 from billing.notifications import notify_admin_charge_failed, send_receipt
+from core.models import TransactionalEmailLog
 from tests.billing.factories import TabChargeFactory, TabEntryFactory, TabFactory
 from tests.membership.factories import MemberFactory
 
@@ -33,6 +34,18 @@ def describe_send_receipt():
         assert "Wood glue" in email.body
         assert "member@example.com" in email.to
 
+    def it_logs_receipt_with_correct_trigger_kind():
+        member = MemberFactory(_pre_signup_email="log@example.com")
+        tab = TabFactory(member=member)
+        charge = TabChargeFactory(tab=tab, status=TabCharge.Status.SUCCEEDED, amount=Decimal("40.00"))
+
+        send_receipt(charge)
+
+        assert TransactionalEmailLog.objects.filter(trigger_kind="billing.receipt").exists()
+        log = TransactionalEmailLog.objects.get(trigger_kind="billing.receipt")
+        assert log.to_email == "log@example.com"
+        assert log.status == TransactionalEmailLog.Status.SENT
+
     def it_sets_receipt_sent_at():
         member = MemberFactory(_pre_signup_email="sent@example.com")
         tab = TabFactory(member=member)
@@ -53,6 +66,7 @@ def describe_send_receipt():
         send_receipt(charge)
 
         assert len(mail.outbox) == 0
+        assert not TransactionalEmailLog.objects.filter(trigger_kind="billing.receipt").exists()
 
 
 def describe_notify_admin_charge_failed():
@@ -73,3 +87,19 @@ def describe_notify_admin_charge_failed():
         assert "Failed charge" in email.subject
         assert "Jane" in email.subject
         assert "Card declined" in email.body
+
+    def it_logs_failure_with_correct_trigger_kind():
+        member = MemberFactory(_pre_signup_email="member@example.com", preferred_name="Alex")
+        tab = TabFactory(member=member)
+        charge = TabChargeFactory(
+            tab=tab,
+            status=TabCharge.Status.FAILED,
+            amount=Decimal("30.00"),
+            failure_reason="Insufficient funds",
+        )
+
+        notify_admin_charge_failed(charge)
+
+        assert TransactionalEmailLog.objects.filter(trigger_kind="billing.charge_failed_admin").exists()
+        log = TransactionalEmailLog.objects.get(trigger_kind="billing.charge_failed_admin")
+        assert log.status == TransactionalEmailLog.Status.SENT
