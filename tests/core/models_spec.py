@@ -6,7 +6,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.db import IntegrityError
 
-from core.models import Invite, SiteConfiguration, TransactionalEmailLog
+from core.models import Invite, SiteActivity, SiteConfiguration, TransactionalEmailLog
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
@@ -158,3 +158,25 @@ def describe_Invite():
             MembershipPlan.objects.all().delete()
             with pytest.raises(ValueError, match="no membership plan"):
                 Invite.create_and_send(email="noplan@example.com", invited_by=admin_user)
+
+        def it_logs_member_invited_site_activity(admin_user):
+            MembershipPlanFactory()
+            with patch("core.email.send_mail"):
+                Invite.create_and_send(email="invited@example.com", invited_by=admin_user)
+
+            row = SiteActivity.objects.filter(kind=SiteActivity.Kind.MEMBER_INVITED).first()
+            assert row is not None
+            assert row.actor == admin_user
+            assert row.payload["email"] == "invited@example.com"
+
+    def describe_mark_accepted_site_activity():
+        def it_logs_invite_accepted_site_activity(admin_user):
+            MembershipPlanFactory()
+            with patch("core.email.send_mail"):
+                invite = Invite.create_and_send(email="accepted@example.com", invited_by=admin_user)
+            SiteActivity.objects.all().delete()
+            invite.mark_accepted()
+
+            row = SiteActivity.objects.filter(kind=SiteActivity.Kind.INVITE_ACCEPTED).first()
+            assert row is not None
+            assert row.target == invite.member

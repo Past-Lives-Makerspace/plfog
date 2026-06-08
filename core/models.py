@@ -203,6 +203,12 @@ class Invite(models.Model):
         """Mark this invite as accepted with the current timestamp."""
         self.accepted_at = timezone.now()
         self.save(update_fields=["accepted_at"])
+        member = self.member
+        SiteActivity.log(
+            SiteActivity.Kind.INVITE_ACCEPTED,
+            actor=member.user if member is not None else None,
+            target=member,
+        )
 
     @classmethod
     def create_and_send(cls, email: str, invited_by: Any) -> Invite:
@@ -239,6 +245,7 @@ class Invite(models.Model):
 
         invite = cls.objects.create(email=email, invited_by=invited_by, member=member)
         invite.send_invite_email()
+        SiteActivity.log(SiteActivity.Kind.MEMBER_INVITED, actor=invited_by, payload={"email": email})
         return invite
 
     def send_invite_email(self) -> None:
