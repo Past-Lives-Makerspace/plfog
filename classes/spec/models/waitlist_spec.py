@@ -6,14 +6,13 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from classes.factories import ClassOfferingFactory
+from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import Registration
 
 
 def _make_reg(offering, status=Registration.Status.CONFIRMED, email_n=0, when=None):
-    reg = Registration.objects.create(
+    reg = RegistrationFactory(
         class_offering=offering,
-        first_name="First",
         last_name=f"Last{email_n}",
         email=f"r{email_n}@example.com",
         status=status,

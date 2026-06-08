@@ -8,6 +8,12 @@ Data migration strategy:
 5. Populate new FKs from temp columns.
 6. Drop temp columns.
 7. Delete the Instructor table.
+
+This migration is intentionally irreversible: the forward direction drops
+``Instructor.display_name``/``bio``/``photo``, none of which are stored on
+``Member``, so the move cannot be undone without data loss. The data-migration
+steps therefore declare no reverse — attempting to reverse raises
+``IrreversibleError``. Restore from a database backup instead of reversing.
 """
 
 from __future__ import annotations
@@ -83,8 +89,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Step 1: copy Instructor → Member data, fill temp columns
-        migrations.RunPython(_copy_instructor_to_member, migrations.RunPython.noop),
+        # Step 1: copy Instructor → Member data, fill temp columns.
+        # No reverse: dropping the Instructor table loses display_name/bio/photo,
+        # so this move is one-way (reversing raises IrreversibleError).
+        migrations.RunPython(_copy_instructor_to_member),
         # Step 2: drop old FK columns (pointing to classes_instructor)
         migrations.RemoveField(model_name="classoffering", name="instructor"),
         migrations.RemoveField(model_name="classoffering", name="created_by"),
@@ -126,8 +134,8 @@ class Migration(migrations.Migration):
                 help_text="The member/instructor who sent this, or NULL if sent by an admin.",
             ),
         ),
-        # Step 4: populate new FKs from temp columns
-        migrations.RunPython(_populate_new_fks, migrations.RunPython.noop),
+        # Step 4: populate new FKs from temp columns (no reverse — see above).
+        migrations.RunPython(_populate_new_fks),
         # Step 5: drop temp bridge columns
         migrations.RemoveField(model_name="classoffering", name="temp_instructor_pk"),
         migrations.RemoveField(model_name="classoffering", name="temp_created_by_pk"),

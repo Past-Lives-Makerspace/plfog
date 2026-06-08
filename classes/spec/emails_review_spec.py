@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from django.contrib.auth import get_user_model
 from django.core import mail
 
 from classes.emails import _admin_review_recipients, send_class_review_decision, send_class_review_requests
-from classes.factories import ClassOfferingFactory, CategoryFactory, InstructorFactory, UserFactory
+from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassApproval, ClassOffering
+from tests.membership.factories import GuildFactory, MemberFactory
 
 
 def describe_admin_review_recipients():
@@ -17,19 +17,10 @@ def describe_admin_review_recipients():
         assert result == ["admin@example.com", "other@example.com"]
 
 
-def _make_guilded_category(db):
-    """Category linked to a Guild whose lead has a user with an email address."""
-    from membership.models import Guild, Member, MembershipPlan
-
-    User = get_user_model()
-    plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
-    lead_user, _ = User.objects.get_or_create(
-        username="emailguildlead@example.com", defaults={"email": "emailguildlead@example.com"}
-    )
-    lead_member, _ = Member.objects.get_or_create(
-        user=lead_user, defaults={"full_legal_name": "Email Guild Lead", "membership_plan": plan}
-    )
-    guild = Guild.objects.create(name="Email Test Guild", guild_lead=lead_member)
+def _make_guilded_category():
+    """Category linked to a Guild whose lead resolves to a known email address."""
+    lead = MemberFactory(_pre_signup_email="emailguildlead@example.com")
+    guild = GuildFactory(name="Email Test Guild", guild_lead=lead)
     return CategoryFactory(guild=guild)
 
 
@@ -37,7 +28,7 @@ def describe_send_class_review_requests():
     def it_emails_the_guild_lead_for_guild_lead_approvals(db, settings):
         """When an offering needs a GUILD_LEAD approval, the guild lead's email is used."""
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
-        cat = _make_guilded_category(db)
+        cat = _make_guilded_category()
         inst_user = UserFactory(username="inst2@example.com")
         instructor = InstructorFactory(user=inst_user, full_legal_name="Inst2", instructor_slug="inst2")
         offering = ClassOfferingFactory(
@@ -55,16 +46,9 @@ def describe_send_class_review_requests():
         assert offering.title in review_email.subject
 
     def it_skips_guild_lead_email_when_lead_has_no_email(db, settings):
-        from membership.models import Guild, Member, MembershipPlan
-
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
-        User = get_user_model()
-        plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
-        noemail_user, _ = User.objects.get_or_create(username="noemail2@example.com", defaults={"email": ""})
-        noemail_member, _ = Member.objects.get_or_create(
-            user=noemail_user, defaults={"full_legal_name": "No Email Lead", "membership_plan": plan}
-        )
-        guild = Guild.objects.create(name="Silent Guild", guild_lead=noemail_member)
+        noemail_member = MemberFactory(_pre_signup_email="")
+        guild = GuildFactory(name="Silent Guild", guild_lead=noemail_member)
         cat = CategoryFactory(guild=guild)
         offering = ClassOfferingFactory(category=cat, status=ClassOffering.Status.DRAFT)
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)

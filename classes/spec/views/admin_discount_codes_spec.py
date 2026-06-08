@@ -45,6 +45,20 @@ def describe_admin_discount_codes():
         assert code.class_offering == offering
         assert response.url == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
 
+    def it_scopes_a_code_to_an_instructorless_class_without_error(admin_user, client, db):
+        """Legacy-imported classes have no instructor; scoping a code to one must not 500."""
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering, DiscountCode
+
+        client.force_login(admin_user)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, instructor=None)
+        response = client.post(
+            reverse("classes:admin_discount_code_create") + f"?class={offering.pk}",
+            {"code": "NOINSTR", "discount_pct": 15, "is_active": "on"},
+        )
+        assert response.status_code == 302
+        assert DiscountCode.objects.get(code="NOINSTR").class_offering == offering
+
     def it_ignores_invalid_class_param_gracefully(admin_user, client, db):
         client.force_login(admin_user)
         response = client.get(reverse("classes:admin_discount_code_create") + "?class=99999")

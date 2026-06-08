@@ -5,6 +5,7 @@ from __future__ import annotations
 from classes.factories import (
     ClassOfferingFactory,
     DiscountCodeFactory,
+    RegistrationFactory,
 )
 from classes.models import ClassOffering, CmsActivity, Registration
 
@@ -28,33 +29,20 @@ def describe_CmsActivity():
     def describe_registration_hooks():
         def it_logs_registration_created_on_create(db):
             offering = ClassOfferingFactory()
-            reg = Registration.objects.create(
-                class_offering=offering,
-                first_name="A",
-                last_name="B",
-                email="ab@example.com",
-            )
+            reg = RegistrationFactory(class_offering=offering, email="ab@example.com")
             assert CmsActivity.objects.filter(kind=CmsActivity.Kind.REGISTRATION_CREATED, registration=reg).exists()
 
         def it_logs_waitlist_joined_when_status_is_waitlisted(db):
             offering = ClassOfferingFactory()
-            reg = Registration.objects.create(
-                class_offering=offering,
-                first_name="A",
-                last_name="B",
-                email="wl@example.com",
-                status=Registration.Status.WAITLISTED,
+            reg = RegistrationFactory(
+                class_offering=offering, email="wl@example.com", status=Registration.Status.WAITLISTED
             )
             assert CmsActivity.objects.filter(kind=CmsActivity.Kind.WAITLIST_JOINED, registration=reg).exists()
 
         def it_logs_registration_cancelled_on_cancel(db):
             offering = ClassOfferingFactory()
-            reg = Registration.objects.create(
-                class_offering=offering,
-                first_name="A",
-                last_name="B",
-                email="cx@example.com",
-                status=Registration.Status.CONFIRMED,
+            reg = RegistrationFactory(
+                class_offering=offering, email="cx@example.com", status=Registration.Status.CONFIRMED
             )
             reg.cancel(reason="changed mind")
             assert CmsActivity.objects.filter(kind=CmsActivity.Kind.REGISTRATION_CANCELLED, registration=reg).exists()

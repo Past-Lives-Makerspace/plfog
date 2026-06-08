@@ -17,7 +17,7 @@ from classes.factories import (
     InstructorFactory,
     RegistrationFactory,
 )
-from classes.models import ClassOffering, Registration
+from classes.models import ClassOffering, CmsActivity, Registration
 
 pytestmark = pytest.mark.django_db
 
@@ -151,6 +151,16 @@ def describe_register_view():
         assert response.status_code == 302
         registration = Registration.objects.get(email="sam@example.com", class_offering=paid_offering)
         assert registration.status == Registration.Status.WAITLISTED
+
+    def it_logs_waitlist_joined_activity_not_registration_created(paid_offering, client):
+        for _ in range(paid_offering.capacity):
+            RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
+        client.post(reverse("classes:register", kwargs={"slug": paid_offering.slug}), data=_post_data())
+        registration = Registration.objects.get(email="sam@example.com", class_offering=paid_offering)
+        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.WAITLIST_JOINED, registration=registration).exists()
+        assert not CmsActivity.objects.filter(
+            kind=CmsActivity.Kind.REGISTRATION_CREATED, registration=registration
+        ).exists()
 
     def it_subscribes_to_mailchimp_when_free_registrant_opts_in(free_offering, client):
         from core.models import SiteConfiguration

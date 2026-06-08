@@ -42,7 +42,7 @@ django_settings_module = "plfog.settings"
 
 [tool.coverage.run]
 branch = true
-omit = ["*/migrations/*", "*/tests/*", "*/spec/*", "manage.py", "plfog/settings.py", "*/management/commands/airtable_*.py", "*/management/commands/create_admin_user.py"]
+omit = ["*/migrations/*", "*/tests/*", "*/spec/*", "manage.py", "plfog/settings.py", "*/management/commands/airtable_*.py"]
 
 [tool.coverage.report]
 fail_under = 98

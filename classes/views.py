@@ -349,10 +349,9 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     )
 
     if request.method == "POST" and form.is_valid() and is_waitlist:
+        # The form sets status=WAITLISTED on save (see RegistrationForm.save), so the
+        # WAITLIST_JOINED activity is logged at creation time.
         registration = form.save()
-        registration.status = Registration.Status.WAITLISTED
-        registration.amount_paid_cents = 0
-        registration.save(update_fields=["status", "amount_paid_cents"])
         send_waitlist_joined_confirmation(registration)
         messages.success(
             request,

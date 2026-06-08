@@ -11,9 +11,6 @@ from django.core.exceptions import ValidationError
 from django.forms import inlineformset_factory
 from django.utils.text import slugify
 
-if TYPE_CHECKING:
-    from membership.models import Member
-
 from classes.models import (
     Category,
     ClassImage,
@@ -438,7 +435,11 @@ class DiscountCodeForm(forms.ModelForm):
             # Class-scoped codes created by the instructor of that class auto-approve;
             # the instructor already controls the class price, so admin gating adds
             # friction without protecting anything.
-            if self._created_by is not None and self._scoped_to.instructor.user_id == self._created_by.pk:
+            if (
+                self._created_by is not None
+                and self._scoped_to.instructor_id
+                and self._scoped_to.instructor.user_id == self._created_by.pk
+            ):
                 code.is_approved = True
         if self._created_by is not None and not code.created_by_id:
             code.created_by = self._created_by
@@ -706,6 +707,10 @@ class RegistrationForm(forms.ModelForm):
         registration.class_offering = self.offering
         registration.discount_code = self._validated_discount
         registration.amount_paid_cents = 0  # set on payment success or, for free classes, on confirm
+        if self.is_waitlist:
+            # Create the row already on the waitlist so Registration.save logs
+            # WAITLIST_JOINED at creation time rather than REGISTRATION_CREATED.
+            registration.status = Registration.Status.WAITLISTED
         if commit:
             registration.save()
             self._create_waivers(registration)
