@@ -17,7 +17,6 @@ from membership.admin import (
     MemberEmailInline,
     PayingMemberFilter,
     VotePreferenceAdmin,
-    _sync_instructor_toggle,
 )
 from membership.models import FundingSnapshot, Guild, Member, VotePreference
 from tests.membership.factories import (
@@ -556,93 +555,3 @@ def describe_admin_create_user_with_member():
         assert member.user is not None
         assert member.user.email == "login@example.com"
         assert member.user.username == "login@example.com"
-
-
-@pytest.mark.django_db
-def describe_sync_instructor_toggle():
-    def it_does_nothing_when_member_has_no_user():
-        from classes.models import Instructor
-
-        member = MemberFactory(user=None)
-        _sync_instructor_toggle(member=member, enabled=True)
-        assert Instructor.objects.count() == 0
-
-    def it_creates_instructor_when_enabled_and_none_exists():
-        from classes.models import Instructor
-
-        user = User.objects.create_user(username="new-instructor", email="new-instructor@example.com", password="pass")
-        member = user.member
-        member.full_legal_name = "New Instructor"
-        member.preferred_name = "New"
-        member.save()
-
-        _sync_instructor_toggle(member=member, enabled=True)
-
-        assert Instructor.objects.filter(user=user).exists()
-        instructor = Instructor.objects.get(user=user)
-        assert instructor.is_active is True
-
-    def it_generates_unique_slug_when_base_is_taken():
-        from classes.models import Instructor
-
-        user1 = User.objects.create_user(username="slug-u1", email="slug-u1@example.com", password="pass")
-        user2 = User.objects.create_user(username="slug-u2", email="slug-u2@example.com", password="pass")
-        member1 = user1.member
-        member2 = user2.member
-        member1.full_legal_name = "Jane Doe"
-        member1.preferred_name = "Jane"
-        member1.save()
-        member2.full_legal_name = "Jane Doe"
-        member2.preferred_name = "Jane"
-        member2.save()
-
-        _sync_instructor_toggle(member=member1, enabled=True)
-        _sync_instructor_toggle(member=member2, enabled=True)
-
-        slugs = list(Instructor.objects.values_list("slug", flat=True))
-        assert len(set(slugs)) == len(slugs), "all slugs must be unique"
-
-    def it_reactivates_deactivated_instructor_when_enabled():
-        from classes.models import Instructor
-
-        user = User.objects.create_user(username="reactivate", email="reactivate@example.com", password="pass")
-        member = user.member
-        instructor = Instructor.objects.create(user=user, display_name="Re-Active", slug="re-active", is_active=False)
-
-        _sync_instructor_toggle(member=member, enabled=True)
-
-        instructor.refresh_from_db()
-        assert instructor.is_active is True
-
-    def it_deactivates_active_instructor_when_disabled():
-        from classes.models import Instructor
-
-        user = User.objects.create_user(username="deactivate", email="deactivate@example.com", password="pass")
-        member = user.member
-        instructor = Instructor.objects.create(user=user, display_name="Going Away", slug="going-away", is_active=True)
-
-        _sync_instructor_toggle(member=member, enabled=False)
-
-        instructor.refresh_from_db()
-        assert instructor.is_active is False
-
-    def it_does_nothing_when_disabling_a_user_with_no_instructor():
-        from classes.models import Instructor
-
-        user = User.objects.create_user(username="no-inst", email="no-inst@example.com", password="pass")
-        member = user.member
-        # No Instructor row exists — disabling should not raise.
-        _sync_instructor_toggle(member=member, enabled=False)
-        assert Instructor.objects.filter(user=user).count() == 0
-
-    def it_does_nothing_to_already_active_instructor_when_enabled_again():
-        from classes.models import Instructor
-
-        user = User.objects.create_user(username="already-active", email="already-active@example.com", password="pass")
-        member = user.member
-        instructor = Instructor.objects.create(user=user, display_name="Already On", slug="already-on", is_active=True)
-
-        _sync_instructor_toggle(member=member, enabled=True)
-
-        instructor.refresh_from_db()
-        assert instructor.is_active is True

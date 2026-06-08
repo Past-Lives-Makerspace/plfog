@@ -41,7 +41,7 @@ def describe_login_on_book():
 
     def it_uses_the_book_chrome(book_client):
         resp = book_client.get("/accounts/login/")
-        assert b"pl-public-topbar" in resp.content
+        assert b"cp-topbar" in resp.content
 
     def it_has_a_guest_lookup_link(book_client):
         resp = book_client.get("/accounts/login/")

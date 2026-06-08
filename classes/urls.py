@@ -1,6 +1,6 @@
 from django.urls import path
 
-from classes import views
+from classes import views, views_legacy_image
 
 app_name = "classes"
 
@@ -61,8 +61,6 @@ urlpatterns = [
     path("admin/categories/new/", views.admin_category_create, name="admin_category_create"),
     path("admin/categories/<int:pk>/edit/", views.admin_category_edit, name="admin_category_edit"),
     path("admin/categories/<int:pk>/delete/", views.admin_category_delete, name="admin_category_delete"),
-    path("admin/instructors/", views.admin_instructors, name="admin_instructors"),
-    path("admin/instructors/add/", views.admin_instructor_promote, name="admin_instructor_promote"),
     path("admin/activity/", views.admin_activity, name="admin_activity"),
     path("admin/registrations/", views.admin_registrations, name="admin_registrations"),
     path("admin/registrations/<int:pk>/", views.admin_registration_detail, name="admin_registration_detail"),
@@ -89,6 +87,8 @@ urlpatterns = [
         name="admin_registration_question_delete",
     ),
     path("admin/settings/", views.admin_settings, name="admin_settings"),
+    # Legacy CMS image proxy — must come before the bare slug catch-all below.
+    path("_legacy-image/", views_legacy_image.legacy_image, name="legacy_image"),
     # Public registration — must come before the bare slug catch-all below.
     path("<slug:slug>/register/", views.register, name="register"),
     path("<slug:slug>/register/success/", views.register_success, name="register_success"),

@@ -106,4 +106,4 @@ def describe_account_receipts():
     def it_redirects_anonymous_to_login(book_client, db):
         resp = book_client.get("/account/receipts/")
         assert resp.status_code == 302
-        assert "/accounts/login/" in resp["Location"]
+        assert "/auth/relay/" in resp["Location"]

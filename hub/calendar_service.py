@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import urllib.request
+from collections.abc import Callable
 from datetime import date as date_type
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
+from functools import partial
 from typing import Any
 
 from django.utils import timezone
@@ -17,8 +19,6 @@ from membership.models import CalendarEvent, Guild
 
 CLASSES_API_BASE = "https://classes.pastlives.space"
 CLASSES_API_URL = f"{CLASSES_API_BASE}/jsonapi/node/class"
-
-DEFAULT_MAX_AGE_SECONDS = 900  # 15 minutes
 
 
 def _to_datetime(val: Any) -> datetime:
@@ -273,45 +273,46 @@ def sync_local_class_events() -> int:
     return len(kept_uids)
 
 
-def refresh_stale_sources(max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS) -> None:
-    """Refresh any calendar sources not synced within max_age_seconds.
+def _run_source(label: str, sync: Callable[[], object], errors: list[str]) -> None:
+    """Run one source sync, capturing any failure into ``errors`` instead of raising.
 
-    Called by the calendar_events_partial view on each HTMX poll.
-    Exceptions from individual sources are caught so one bad calendar
-    cannot crash the page for all users.
+    Keeps a single unreachable feed from aborting the rest of the daily sweep.
     """
-    cutoff = timezone.now() - timedelta(seconds=max_age_seconds)
+    try:
+        sync()
+    except Exception as exc:  # noqa: BLE001 — isolate per-source so one failure can't stop the others
+        errors.append(f"{label}: {exc}")
 
-    stale_guilds = Guild.objects.filter(
-        is_active=True,
-        calendar_url__gt="",
-    ).exclude(calendar_last_fetched_at__gte=cutoff)
 
-    for guild in stale_guilds:
-        try:
-            sync_guild_calendar(guild)
-        except Exception:  # noqa: BLE001
-            pass
+def sync_all_sources() -> list[str]:
+    """Refresh every calendar and class source into the database.
 
-    stale_feeds = CalendarFeed.objects.filter(ical_url__gt="").exclude(last_fetched_at__gte=cutoff)
-    for feed in stale_feeds:
-        try:
-            sync_calendar_feed(feed)
-        except Exception:  # noqa: BLE001
-            pass
+    Run once each morning by the ``sync_all_sources`` management command (a Render
+    cron). The Community Calendar and the book/CMS pages read the resulting
+    ``CalendarEvent`` and ``ClassOffering`` rows straight from the database — they
+    never fetch upstream on page load.
+
+    Each source syncs in isolation. Returns a list of human-readable error messages
+    (empty when every source succeeded) so the caller can fail loudly.
+    """
+    errors: list[str] = []
+
+    for guild in Guild.objects.filter(is_active=True, calendar_url__gt=""):
+        _run_source(f"guild '{guild}'", partial(sync_guild_calendar, guild), errors)
+
+    for feed in CalendarFeed.objects.filter(ical_url__gt=""):
+        _run_source(f"feed '{feed}'", partial(sync_calendar_feed, feed), errors)
 
     config = SiteConfiguration.load()
     if config.sync_classes_enabled:
-        classes_stale = config.classes_last_synced_at is None or config.classes_last_synced_at < cutoff
-        if classes_stale:
-            try:
-                sync_classes_calendar()
-            except Exception:  # noqa: BLE001
-                pass
+        _run_source("classes calendar", sync_classes_calendar, errors)
 
-    # Always publish local plfog classes to the calendar — independent of the
-    # external Drupal feed toggle. Cheap (single join, no network).
-    try:
-        sync_local_class_events()
-    except Exception:  # noqa: BLE001
-        pass
+    if config.legacy_cms_sync_enabled:
+        from classes.import_service import sync_legacy_cms
+
+        _run_source("legacy CMS", sync_legacy_cms, errors)
+
+    # Always materialize local plfog classes — independent of the external feed toggles.
+    _run_source("local classes", sync_local_class_events, errors)
+
+    return errors

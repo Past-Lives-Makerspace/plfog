@@ -9,14 +9,61 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import FormView, TemplateView
 
 
-class _LoggedInAccountView(LoginRequiredMixin, TemplateView):
+class _RelayAwareLoginMixin(LoginRequiredMixin):
+    """LoginRequiredMixin that relays unauthenticated users to the members surface
+    for single-sign-on when on the public/book surface.
+
+    Flow when unauthenticated on book surface:
+    1. Redirect → {MEMBER_HOST}/auth/relay/?book_host=...&next=...
+    2. Members surface checks session; if logged in → issues signed token → redirects
+       to book surface /auth/relay/accept/ → user is now logged in on book surface.
+    3. If not logged in on members surface either → falls back to book-surface login.
+
+    Falls back to the standard login redirect when MEMBER_HOST is unset or matches
+    the current host (e.g., when running on the members surface itself).
+    """
+
     login_url = "/accounts/login/"
+
+    def handle_no_permission(self) -> HttpResponse:
+        if not self.request.user.is_authenticated:
+            relay_url = self._relay_url()
+            if relay_url:
+                return HttpResponseRedirect(relay_url)
+        return super().handle_no_permission()
+
+    def _relay_url(self) -> str:
+        from urllib.parse import urlencode
+
+        from django.conf import settings
+
+        surface = getattr(self.request, "surface", "members")
+        if surface != "public":
+            return ""
+
+        member_host = (getattr(settings, "MEMBER_HOST", "") or "").lower().strip()
+        current_host = self.request.get_host()
+        current_bare = current_host.split(":", 1)[0].lower()
+
+        if not member_host or member_host == current_bare:
+            return ""
+
+        scheme = "https" if self.request.is_secure() else "http"
+        port = self.request.get_port()
+        port_part = f":{port}" if port not in ("80", "443") else ""
+        return (
+            f"{scheme}://{member_host}{port_part}/auth/relay/"
+            f"?{urlencode({'book_host': current_host, 'next': self.request.get_full_path()})}"
+        )
+
+
+class _LoggedInAccountView(_RelayAwareLoginMixin, TemplateView):
     active_tab: str = ""
 
     def get_context_data(self, **kwargs):
@@ -38,10 +85,12 @@ class OverviewView(_LoggedInAccountView):
 
         # Instructor banner count — how many classes is this user teaching that
         # still have a future session?
-        instructor = getattr(self.request.user, "instructor", None)
-        if instructor is not None:
+        from membership.models import Member as MemberModel
+
+        member = MemberModel.objects.filter(user=self.request.user).first()
+        if member is not None and member.is_instructor:
             ctx["instructor_upcoming_count"] = (
-                ClassOffering.objects.filter(instructor=instructor, status=ClassOffering.Status.PUBLISHED)
+                ClassOffering.objects.filter(instructor=member, status=ClassOffering.Status.PUBLISHED)
                 .filter(sessions__starts_at__gte=timezone.now())
                 .distinct()
                 .count()
@@ -85,7 +134,7 @@ class ReceiptsView(_LoggedInAccountView):
         return ctx
 
 
-class ProfileView(LoginRequiredMixin, FormView):
+class ProfileView(_RelayAwareLoginMixin, FormView):
     """Editable for non-members; read-only with an "Edit on FOG" link for members.
 
     Member-persona POSTs are silently redirected (no error) — the form is
@@ -94,7 +143,6 @@ class ProfileView(LoginRequiredMixin, FormView):
 
     template_name = "classes/account/profile.html"
     active_tab = "profile"
-    login_url = "/accounts/login/"
     success_url = reverse_lazy("account:profile")
 
     @property
@@ -164,7 +212,7 @@ class LookupView(FormView):
         return self.render_to_response(ctx)
 
 
-class OnboardingStepView(LoginRequiredMixin, FormView):
+class OnboardingStepView(_RelayAwareLoginMixin, FormView):
     """Common parent for the 3 onboarding steps.
 
     Each step writes its form's cleaned fields to the user's UserProfile, then
@@ -172,7 +220,6 @@ class OnboardingStepView(LoginRequiredMixin, FormView):
     the template links straight to /account/ without saving anything.
     """
 
-    login_url = "/accounts/login/"
     step: int = 1
     total_steps: int = 3
 

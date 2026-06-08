@@ -18,6 +18,14 @@
            src="{{ offering.image.url }}"
            alt="{{ offering.title }}"
            style="object-position: {{ offering.hero_object_position }};">
+    {% elif offering.legacy_image_url %}
+      <img class="cp-detail__hero-img"
+           src="{% url 'classes:legacy_image' %}?url={{ offering.legacy_image_url|urlencode }}"
+           alt="{{ offering.title }}">
+    {% elif offering.category.hero_image %}
+      <img class="cp-detail__hero-img"
+           src="{{ offering.category.hero_image.url }}"
+           alt="{{ offering.category.name }}">
     {% endif %}
     <div class="cp-detail__hero-overlay"></div>
     <div class="cp-detail__hero-content">
@@ -32,10 +40,12 @@
           <span class="cp-detail__next-pill cp-detail__next-pill--flex">Flexible scheduling</span>
         {% endif %}
       </div>
-      <h1 class="cp-detail__title">{{ offering.title }}</h1>
+      <h1 class="cp-detail__title">{{ offering.title|strip_date_suffix }}</h1>
+      {% if offering.instructor %}
       <div class="cp-detail__byline">
-        with <a href="{% url 'classes:public_instructor' slug=offering.instructor.slug %}">{{ offering.instructor.display_name }}</a>{% if offering.instructor.social_handle %} · {{ offering.instructor.social_handle }}{% endif %}
+        with {% if offering.instructor.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}{% if offering.instructor.instructor_social_handle %} · {{ offering.instructor.instructor_social_handle }}{% endif %}
       </div>
+      {% endif %}
     </div>
   </header>
 
@@ -147,23 +157,31 @@
       {% endif %}
 
       {# Instructor card #}
+      {% if offering.instructor %}
       <section class="cp-detail__section">
         <h2 class="cp-detail__h2">Your instructor</h2>
         <div class="cp-detail__instructor">
-          {% if offering.instructor.photo %}
-            <img class="cp-detail__instructor-photo" src="{{ offering.instructor.photo.url }}" alt="{{ offering.instructor.display_name }}">
+          {% if offering.instructor.profile_photo %}
+            <img class="cp-detail__instructor-photo" src="{{ offering.instructor.profile_photo.url }}" alt="{{ offering.instructor.display_name }}">
           {% else %}
             <div class="cp-detail__instructor-photo cp-detail__instructor-photo--ph">{{ offering.instructor.display_name|slice:":1" }}</div>
           {% endif %}
           <div class="cp-detail__instructor-body">
-            <a class="cp-detail__instructor-name" href="{% url 'classes:public_instructor' slug=offering.instructor.slug %}">{{ offering.instructor.display_name }}</a>
-            {% if offering.instructor.bio %}
-              <div class="cp-detail__prose">{{ offering.instructor.bio|linebreaks }}</div>
+            {% if offering.instructor.instructor_slug %}
+              <a class="cp-detail__instructor-name" href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>
+            {% else %}
+              <span class="cp-detail__instructor-name">{{ offering.instructor.display_name }}</span>
             {% endif %}
-            <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=offering.instructor.slug %}">See all classes by {{ offering.instructor.display_name }} &rarr;</a>
+            {% if offering.instructor.about_me %}
+              <div class="cp-detail__prose">{{ offering.instructor.about_me|linebreaks }}</div>
+            {% endif %}
+            {% if offering.instructor.instructor_slug %}
+              <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">See all classes by {{ offering.instructor.display_name }} &rarr;</a>
+            {% endif %}
           </div>
         </div>
       </section>
+      {% endif %}
 
       {# Guild card — renders only when the category is linked to a guild #}
       {% if offering.category.guild %}

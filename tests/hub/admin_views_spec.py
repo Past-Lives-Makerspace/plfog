@@ -88,8 +88,6 @@ def describe_admin_members():
 
 def describe_admin_member_edit_role_dispatch():
     def it_promotes_to_instructor(client):
-        from classes.models import Instructor
-
         _create_superuser(client)
         target = _create_member_user(username="becomeinst")
         response = client.post(
@@ -110,7 +108,7 @@ def describe_admin_member_edit_role_dispatch():
         target.member.refresh_from_db()
         assert target.member.fog_role == Member.FogRole.MEMBER
         assert target.member.status == Member.Status.ACTIVE
-        assert Instructor.objects.filter(user=target).exists()
+        assert target.member.instructor_slug != ""
 
     def it_demotes_to_guest_by_setting_status_former(client):
         _create_superuser(client)
@@ -339,6 +337,50 @@ def describe_admin_site_settings():
             data={"registration_mode": "not-a-real-mode"},
         )
         assert response.status_code == 200
+
+
+def describe_admin_site_settings_legacy_cms():
+    def it_renders_legacy_cms_tab_when_active(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
+        assert response.status_code == 200
+        assert b"Legacy CMS" in response.content
+        assert response.context["active_tab"] == "legacy-cms"
+
+    def it_syncs_now_on_post_with_sync_now_action(client):
+        from unittest.mock import patch
+
+        _create_superuser(client)
+        with patch("classes.import_service.sync_legacy_cms", return_value=5) as mock_sync:
+            response = client.post(
+                reverse("hub_admin_site_settings"),
+                data={"action": "sync_now"},
+            )
+        assert response.status_code == 302
+        assert "tab=legacy-cms" in response["Location"]
+        mock_sync.assert_called_once()
+
+    def it_handles_sync_now_failure_gracefully(client):
+        from unittest.mock import patch
+
+        _create_superuser(client)
+        with patch("classes.import_service.sync_legacy_cms", side_effect=RuntimeError("connection refused")):
+            response = client.post(
+                reverse("hub_admin_site_settings"),
+                data={"action": "sync_now"},
+            )
+        assert response.status_code == 302
+        assert "tab=legacy-cms" in response["Location"]
+
+    def it_includes_instructor_sync_rows_in_context(client):
+        from classes.factories import InstructorFactory
+
+        _create_superuser(client)
+        InstructorFactory(full_legal_name="Test Instructor")
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
+        assert response.status_code == 200
+        rows = response.context["instructor_sync_rows"]
+        assert any(row["instructor"].display_name == "Test Instructor" for row in rows)
 
 
 def describe_fog_admin_required():

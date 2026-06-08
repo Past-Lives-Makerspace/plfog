@@ -16,18 +16,18 @@
       </div>
       <div class="detail-body">
         <div class="ip-hero">
-          {% if instructor.photo %}
-            <img class="ip-photo" src="{{ instructor.photo.url }}" alt="">
+          {% if instructor.profile_photo %}
+            <img class="ip-photo" src="{{ instructor.profile_photo.url }}" alt="">
           {% else %}
             <div class="ip-photo-ph">{{ instructor.display_name|initials }}</div>
           {% endif %}
           <div>
             <div class="ip-name">{{ instructor.display_name }}</div>
             <div class="ip-links">
-              {% if instructor.social_handle %}<span>{{ instructor.social_handle }}</span>{% endif %}
-              {% if instructor.website %}<a href="{{ instructor.website }}" target="_blank" rel="noopener">{{ instructor.website }}</a>{% endif %}
+              {% if instructor.instructor_social_handle %}<span>{{ instructor.instructor_social_handle }}</span>{% endif %}
+              {% if instructor.instructor_website %}<a href="{{ instructor.instructor_website }}" target="_blank" rel="noopener">{{ instructor.instructor_website }}</a>{% endif %}
             </div>
-            {% if instructor.bio %}<div class="ip-bio">{{ instructor.bio }}</div>{% endif %}
+            {% if instructor.about_me %}<div class="ip-bio">{{ instructor.about_me }}</div>{% endif %}
           </div>
         </div>
 

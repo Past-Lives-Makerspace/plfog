@@ -13,7 +13,6 @@ def describe_classes_admin_access():
         for name in (
             "classes:admin_classes",
             "classes:admin_categories",
-            "classes:admin_instructors",
             "classes:admin_registrations",
             "classes:admin_discount_codes",
             "classes:admin_settings",
@@ -22,7 +21,7 @@ def describe_classes_admin_access():
 
     def it_forbids_instructors_from_admin(db, client):
         user = UserFactory(username="inst@example.com")
-        InstructorFactory(user=user, slug="inst")
+        InstructorFactory(user=user, instructor_slug="inst")
         client.force_login(user)
         response = client.get(reverse("classes:admin_classes"))
         assert response.status_code == 403
@@ -42,7 +41,7 @@ def describe_instructor_discount_codes():
         from classes.factories import DiscountCodeFactory
 
         user = UserFactory(username="dc-inst@example.com")
-        InstructorFactory(user=user, slug="dc-inst")
+        InstructorFactory(user=user, instructor_slug="dc-inst")
         client.force_login(user)
         response = client.get(reverse("classes:instructor_discount_codes"))
         assert response.status_code == 200
@@ -50,7 +49,7 @@ def describe_instructor_discount_codes():
         response = client.get(reverse("classes:instructor_discount_codes"))
         assert code.code.encode() in response.content
 
-    def it_blocks_plain_members(member_user, client):
+    def it_lets_plain_members_access_teaching_portal(member_user, client):
         client.force_login(member_user)
         response = client.get(reverse("classes:instructor_discount_codes"))
-        assert response.status_code == 403
+        assert response.status_code == 200

@@ -52,7 +52,7 @@ def describe_subscribe_registration():
 
     def it_calls_subscribe_with_derived_tags(site_with_mailchimp):
         category = CategoryFactory(name="Glass", slug="glass")
-        instructor = InstructorFactory(slug="bea")
+        instructor = InstructorFactory(instructor_slug="bea")
         offering = ClassOfferingFactory(category=category, instructor=instructor)
         reg = RegistrationFactory(
             class_offering=offering,
@@ -99,7 +99,7 @@ def describe_subscribe_registration():
 def describe_derive_tags():
     def it_includes_category_and_instructor_slugs():
         category = CategoryFactory(name="Wood", slug="wood")
-        instructor = InstructorFactory(slug="alex")
+        instructor = InstructorFactory(instructor_slug="alex")
         offering = ClassOfferingFactory(category=category, instructor=instructor)
         reg = RegistrationFactory(class_offering=offering)
         tags = derive_tags(reg)

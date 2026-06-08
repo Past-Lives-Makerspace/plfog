@@ -7,7 +7,6 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 from django import forms
-from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.forms import inlineformset_factory
 from django.utils.text import slugify
@@ -19,7 +18,6 @@ from classes.models import (
     ClassSession,
     ClassSettings,
     DiscountCode,
-    Instructor,
     InstructorMessage,
     InstructorMessageRecipient,
     Registration,
@@ -259,7 +257,7 @@ class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelFo
             "video_url",
         ]
 
-    def __init__(self, *args, instructor: Instructor | None = None, **kwargs) -> None:
+    def __init__(self, *args, instructor: "Member | None" = None, **kwargs) -> None:
         self.instructor = instructor
         super().__init__(*args, **kwargs)
         self.fields["member_discount_pct"].label = "Member discount (%)"
@@ -297,8 +295,10 @@ class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelFo
 
 class InstructorProfileForm(forms.ModelForm):
     class Meta:
-        model = Instructor
-        fields = ["display_name", "bio", "photo", "website", "social_handle"]
+        from membership.models import Member
+
+        model = Member
+        fields = ["preferred_name", "about_me", "profile_photo", "instructor_website", "instructor_social_handle"]
 
 
 class ClassSessionForm(forms.ModelForm):
@@ -351,60 +351,6 @@ class CategoryForm(forms.ModelForm):
     class Meta:
         model = Category
         fields = ["name", "slug", "sort_order", "hero_image"]
-
-
-class _UserByLegalNameField(forms.ModelChoiceField):
-    """ModelChoiceField that labels each User with their Member's full legal name."""
-
-    def label_from_instance(self, obj) -> str:  # noqa: ANN001
-        member = getattr(obj, "member", None)
-        legal_name = (getattr(member, "full_legal_name", "") or "").strip() if member else ""
-        full_name = obj.get_full_name().strip()
-        return legal_name or full_name or obj.email or obj.username
-
-
-class PromoteUserToInstructorForm(forms.Form):
-    """Add an existing User as an Instructor."""
-
-    user = _UserByLegalNameField(
-        queryset=get_user_model().objects.none(),
-        help_text="Pick the member to add as an instructor.",
-    )
-    display_name = forms.CharField(max_length=255, required=False, help_text="Defaults to the user's current name.")
-    bio = forms.CharField(widget=forms.Textarea, required=False)
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        from classes.models import Instructor
-
-        User = get_user_model()
-        already_instructors = Instructor.objects.values_list("user_id", flat=True)
-        self.fields["user"].queryset = (
-            User.objects.filter(is_active=True)
-            .exclude(pk__in=already_instructors)
-            .select_related("member")
-            .order_by("member__full_legal_name", "email")
-        )
-
-    def save(self) -> Instructor:
-        from classes.models import Instructor
-
-        user = self.cleaned_data["user"]
-        display_name = (self.cleaned_data.get("display_name") or user.get_full_name() or user.email).strip()
-
-        base_slug = slugify(display_name) or f"instructor-{user.pk}"
-        slug = base_slug
-        n = 1
-        while Instructor.objects.filter(slug=slug).exists():
-            n += 1
-            slug = f"{base_slug}-{n}"
-
-        return Instructor.objects.create(
-            user=user,
-            display_name=display_name,
-            slug=slug,
-            bio=self.cleaned_data.get("bio", ""),
-        )
 
 
 class ClassReviewDecisionForm(forms.Form):
@@ -489,7 +435,11 @@ class DiscountCodeForm(forms.ModelForm):
             # Class-scoped codes created by the instructor of that class auto-approve;
             # the instructor already controls the class price, so admin gating adds
             # friction without protecting anything.
-            if self._created_by is not None and self._scoped_to.instructor.user_id == self._created_by.pk:
+            if (
+                self._created_by is not None
+                and self._scoped_to.instructor_id
+                and self._scoped_to.instructor.user_id == self._created_by.pk
+            ):
                 code.is_approved = True
         if self._created_by is not None and not code.created_by_id:
             code.created_by = self._created_by
@@ -640,30 +590,14 @@ class RegistrationForm(forms.ModelForm):
     def _find_auto_apply_discount(self) -> DiscountCode | None:
         """Pick the class-scoped auto-apply code that yields the lowest final price.
 
-        Walks every currently-valid DiscountCode where ``class_offering`` is
-        this offering and ``auto_apply=True``. Returns the one that drops the
-        post-member-discount price furthest. Returns ``None`` when no such
-        code exists.
+        Computes the post-member-discount base this registrant would pay, then
+        defers the cheapest-code selection to the DiscountCode manager. Returns
+        ``None`` when no qualifying auto-apply code exists.
         """
         base = self.offering.price_cents
-        if self.member is not None and self.offering.member_discount_pct:
-            base = int(base * (100 - self.offering.member_discount_pct) / 100)
-        best: DiscountCode | None = None
-        best_price: int | None = None
-        candidates = DiscountCode.objects.filter(
-            class_offering=self.offering,
-            is_active=True,
-            is_approved=True,
-            auto_apply=True,
-        )
-        for code in candidates:
-            if not code.is_currently_valid():
-                continue
-            final = code.apply_to(base)
-            if best_price is None or final < best_price:
-                best = code
-                best_price = final
-        return best
+        if self.member is not None and self.offering.member_price_cents is not None:
+            base = self.offering.member_price_cents
+        return DiscountCode.objects.best_auto_apply_for(self.offering, base)
 
     def _inject_custom_question_fields(self) -> None:
         """Add one dynamic form field per active RegistrationQuestion.
@@ -757,6 +691,10 @@ class RegistrationForm(forms.ModelForm):
         registration.class_offering = self.offering
         registration.discount_code = self._validated_discount
         registration.amount_paid_cents = 0  # set on payment success or, for free classes, on confirm
+        if self.is_waitlist:
+            # Create the row already on the waitlist so Registration.save logs
+            # WAITLIST_JOINED at creation time rather than REGISTRATION_CREATED.
+            registration.status = Registration.Status.WAITLISTED
         if commit:
             registration.save()
             self._create_waivers(registration)
@@ -835,7 +773,7 @@ class InstructorEmailForm(forms.Form):
     )
     bcc_self = forms.BooleanField(required=False, initial=True, label="Send me a copy", help_text="BCC your own email.")
 
-    def __init__(self, *args, instructor: Instructor, **kwargs) -> None:
+    def __init__(self, *args, instructor: "Member", **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.instructor = instructor
         self.fields["registration_ids"].queryset = Registration.objects.filter(
@@ -860,7 +798,7 @@ class InstructorEmailForm(forms.Form):
         offering = registrations[0].class_offering
         bcc_emails = [r.email for r in registrations]
         bcc_self = self.cleaned_data.get("bcc_self", True)
-        instructor_email = (self.instructor.user.email or "").strip()
+        instructor_email = (self.instructor.primary_email or "").strip()
         to_addresses = [instructor_email] if instructor_email else []
         if (
             bcc_self
@@ -882,7 +820,7 @@ class InstructorEmailForm(forms.Form):
         with transaction.atomic():
             message = InstructorMessage.objects.create(
                 instructor=self.instructor,
-                sent_by=getattr(self.instructor.user, "member", None),
+                sent_by=self.instructor,
                 class_offering=offering,
                 subject=self.cleaned_data["subject"],
                 body=self.cleaned_data["body"],

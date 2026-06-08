@@ -7,7 +7,7 @@ from datetime import date, timedelta
 import pytest
 from django.db.utils import IntegrityError
 
-from classes.factories import DiscountCodeFactory
+from classes.factories import ClassOfferingFactory, DiscountCodeFactory
 from classes.models import DiscountCode
 
 
@@ -65,3 +65,32 @@ def describe_DiscountCode():
     def it_rejects_code_with_no_value(db):
         with pytest.raises(IntegrityError):
             DiscountCode.objects.create(code="EMPTY", discount_pct=None, discount_fixed_cents=None)
+
+    def describe_best_auto_apply_for():
+        def it_returns_none_when_no_auto_apply_codes(db):
+            offering = ClassOfferingFactory()
+            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) is None
+
+        def it_picks_the_code_that_drops_price_furthest(db):
+            offering = ClassOfferingFactory()
+            DiscountCodeFactory(class_offering=offering, auto_apply=True, discount_pct=10, discount_fixed_cents=None)
+            deepest = DiscountCodeFactory(
+                class_offering=offering, auto_apply=True, discount_pct=40, discount_fixed_cents=None
+            )
+            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) == deepest
+
+        def it_ignores_codes_scoped_to_other_offerings(db):
+            offering = ClassOfferingFactory()
+            other = ClassOfferingFactory()
+            DiscountCodeFactory(class_offering=other, auto_apply=True)
+            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) is None
+
+        def it_skips_currently_invalid_codes(db):
+            offering = ClassOfferingFactory()
+            DiscountCodeFactory(class_offering=offering, auto_apply=True, is_active=False)
+            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) is None
+
+        def it_ignores_non_auto_apply_codes(db):
+            offering = ClassOfferingFactory()
+            DiscountCodeFactory(class_offering=offering, auto_apply=False)
+            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) is None

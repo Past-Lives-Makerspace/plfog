@@ -52,6 +52,15 @@ def describe_ClassOffering():
             c.refresh_from_db()
             assert c.status == ClassOffering.Status.ARCHIVED
 
+    def describe_member_price_cents():
+        def it_returns_discounted_cents_when_there_is_a_member_discount(db):
+            c = ClassOfferingFactory(price_cents=10_000, member_discount_pct=10)
+            assert c.member_price_cents == 9_000
+
+        def it_returns_none_when_there_is_no_member_discount(db):
+            c = ClassOfferingFactory(price_cents=10_000, member_discount_pct=0)
+            assert c.member_price_cents is None
+
     def describe_manager():
         def it_public_filters_to_published(db):
             ClassOfferingFactory(status=ClassOffering.Status.DRAFT)

@@ -8,9 +8,9 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
-from classes.forms import ClassOfferingForm, ClassSessionForm, InstructorClassOfferingForm, PromoteUserToInstructorForm
-from classes.models import ClassOffering, Instructor
+from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory
+from classes.forms import ClassOfferingForm, ClassSessionForm, InstructorClassOfferingForm
+from classes.models import ClassOffering
 
 pytestmark = pytest.mark.django_db
 
@@ -273,19 +273,3 @@ def describe_InstructorClassOfferingForm_slug_collision():
         offering = form.save()
         assert offering.slug != "free-demo"
         assert offering.slug.startswith("free-demo")
-
-
-def describe_PromoteUserToInstructorForm():
-    def it_saves_with_unique_slug_when_base_slug_is_taken():
-        user1 = UserFactory()
-        user2 = UserFactory()
-        # Create an existing instructor whose slug occupies the base name.
-        Instructor.objects.create(user=user1, display_name="Jane Doe", slug="jane-doe")
-
-        form = PromoteUserToInstructorForm(data={"user": user2.pk, "display_name": "Jane Doe", "bio": ""})
-        # Manually prime the queryset so user2 is available.
-        form.fields["user"].queryset = type(user2).objects.filter(pk=user2.pk)
-        assert form.is_valid(), form.errors
-        instructor = form.save()
-        assert instructor.slug != "jane-doe"
-        assert instructor.slug.startswith("jane-doe")

@@ -366,6 +366,7 @@
             {% endif %}
         </header>
         {% else %}
+        {% block public_topbar %}
         <header class="pl-public-topbar">
             <a href="{% url 'classes:public_list' %}" class="pl-public-topbar__brand">
                 <img src="{% static 'img/favicon.png' %}" alt="" width="22" height="22">
@@ -390,6 +391,7 @@
                 {% endif %}
             </nav>
         </header>
+        {% endblock public_topbar %}
         {% endif %}
 
         <main class="hub-content">

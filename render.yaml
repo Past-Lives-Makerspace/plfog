@@ -56,3 +56,19 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"
+
+  # Daily morning sync of every calendar feed + the legacy CMS into the database.
+  # The Community Calendar and book/CMS pages read these rows straight from the DB,
+  # so this is the single scheduled refresh for the whole site (replaces the old
+  # page-load trigger). Toggles in Site Settings still gate the classes/legacy sources.
+  # Requires the same env vars as the web service (DATABASE_URL, DJANGO_SECRET_KEY,
+  # EMAIL_*, WEBPUSH_*, SENTRY_DSN) — set them on this cron in the Render dashboard.
+  - type: cron
+    name: daily-sync
+    runtime: python
+    schedule: "0 13 * * *"  # 13:00 UTC ≈ 6 AM Portland
+    buildCommand: pip install -r requirements.txt
+    command: python manage.py sync_all_sources
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.0"

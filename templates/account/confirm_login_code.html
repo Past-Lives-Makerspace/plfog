@@ -3,13 +3,16 @@
 
 {% block title %}Enter Login Code - Past Lives{% endblock %}
 
+{% block classes_extra_head %}
+<link rel="stylesheet" href="{% static 'css/book-account.css' %}">
+{% endblock %}
+
 {% block content %}
 {% if is_public_surface %}
 <div class="cp-page">
 {% block portal_content %}
 <div class="bk-themed-code">
-  <link rel="stylesheet" href="{% static 'css/book-account.css' %}">
-  <div class="bk-auth">
+  <div class="bk-auth bk-auth--bg" style="--auth-bg: url('{% static 'img/auth-bg.webp' %}')">
     <div class="bk-auth-card">
       <div class="bk-auth-eyebrow">Check your email</div>
       <h1 class="bk-auth-title">Enter your code.</h1>
@@ -30,6 +33,18 @@
       </div>
     </div>
   </div>
+  {% for message in messages %}
+  {% if '[DEV]' in message.message %}
+  <div class="bk-dev-toast">
+    <div class="bk-dev-toast__label">Dev — login code</div>
+    <div class="bk-dev-toast__code">{{ message.message|slice:"18:" }}</div>
+    <div class="bk-dev-toast__actions">
+      <button class="bk-dev-toast__btn" onclick="navigator.clipboard?.writeText('{{ message.message|slice:'18:'|escapejs }}'); this.textContent='Copied!'">Copy</button>
+      <button class="bk-dev-toast__btn bk-dev-toast__btn--close" onclick="this.closest('.bk-dev-toast').remove()">Dismiss</button>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
 </div>
 {% endblock %}
 </div>

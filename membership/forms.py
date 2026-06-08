@@ -13,36 +13,17 @@ from .models import Member
 
 
 class MemberAdminForm(forms.ModelForm):
-    """Admin form for Member with optional User creation + instructor toggle."""
+    """Admin form for Member with optional User creation."""
 
     create_user = forms.BooleanField(
         required=False,
         label="Create login immediately",
         help_text="Creates a User account so this person can log in right away.",
     )
-    is_instructor = forms.BooleanField(
-        required=False,
-        label="Instructor",
-        help_text=(
-            "When on, this member can access the Teaching portal and the Classes admin (except Settings). "
-            "Creates / deletes an Instructor record on save."
-        ),
-    )
 
     class Meta:
         model = Member
         fields = "__all__"
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        instance = kwargs.get("instance")
-        if instance is not None and instance.user_id is not None:
-            from classes.models import Instructor
-
-            self.fields["is_instructor"].initial = Instructor.objects.filter(user=instance.user).exists()
-        else:
-            # No linked User → instructor toggle isn't actionable yet; keep it hidden.
-            self.fields["is_instructor"].widget = forms.HiddenInput()
 
 
 class InviteMemberForm(forms.Form):

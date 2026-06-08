@@ -292,6 +292,17 @@ def describe_approve_class():
         offering.refresh_from_db()
         assert offering.status == ClassOffering.Status.PENDING
 
+    def it_flashes_an_error_when_class_is_not_pending(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        response = client.post(reverse("classes:admin_class_approve", kwargs={"pk": offering.pk}))
+        assert response.status_code == 302
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.DRAFT
+
 
 def describe_archive_class():
     def it_archives_class(admin_user, client, db):

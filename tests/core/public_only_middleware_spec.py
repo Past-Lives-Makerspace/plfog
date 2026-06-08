@@ -23,12 +23,15 @@ def describe_public_only_redirect():
         assert resp.status_code == 302
         assert resp["Location"].endswith("?foo=bar")
 
-    def it_does_not_redirect_account_when_on_book_host(db):
+    def it_does_not_middleware_redirect_account_when_on_book_host(db):
         c = Client(HTTP_HOST="book.pastlives.space")
         resp = c.get("/account/")
-        # On book, the Phase 2.2 stub serves a 200, OR allauth redirects to /accounts/login/ if the view is login-required.
-        # In any case it must NOT redirect cross-host to members.
-        assert "members.pastlives.space" not in resp.get("Location", "")
+        # The PUBLIC_ONLY_MIDDLEWARE redirects members→book for /account/ paths.
+        # On the book host the middleware must NOT issue that redirect in reverse.
+        # Anonymous users are relayed to the members relay endpoint by the view —
+        # that is expected view behaviour, not a middleware redirect.
+        location = resp.get("Location", "")
+        assert not location or "/auth/relay/" in location
 
     def it_does_not_redirect_unrelated_paths_on_members(db):
         c = Client(HTTP_HOST="members.pastlives.space")

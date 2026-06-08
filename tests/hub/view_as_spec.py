@@ -106,11 +106,11 @@ def describe_ViewAs():
 
     def describe_dropdown_options():
         def it_lists_every_role_for_admins_so_they_can_preview():
-            from hub.view_as import ROLE_GUEST, ROLE_INSTRUCTOR
+            from hub.view_as import ROLE_GUEST
 
             v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_GUILD_OFFICER)
             names = [row["name"] for row in v.dropdown_options]
-            assert names == [ROLE_ADMIN, ROLE_INSTRUCTOR, ROLE_GUILD_OFFICER, ROLE_MEMBER, ROLE_GUEST]
+            assert names == [ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER, ROLE_GUEST]
             selected = [row["name"] for row in v.dropdown_options if row["selected"]]
             assert selected == [ROLE_GUILD_OFFICER]
 
@@ -217,7 +217,7 @@ def describe_view_as_set_endpoint():
 
         user, _ = _make_user_member(Member.FogRole.ADMIN, username="set_preview")
         client.login(username=user.username, password="p")
-        for preview_role in ("guest", "instructor", "member", "guild_officer"):
+        for preview_role in ("guest", "member", "guild_officer"):
             response = client.post(
                 "/view-as/set/",
                 data=json.dumps({"role": preview_role}),

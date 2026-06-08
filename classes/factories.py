@@ -10,6 +10,16 @@ from django.utils import timezone
 from factory.django import DjangoModelFactory
 
 from classes import models
+from membership.models import Member, MembershipPlan
+
+
+class _MembershipPlanFactory(DjangoModelFactory):
+    class Meta:
+        model = MembershipPlan
+        django_get_or_create = ("name",)
+
+    name = "Standard"
+    monthly_price = "50.00"
 
 
 class CategoryFactory(DjangoModelFactory):
@@ -31,14 +41,35 @@ class UserFactory(DjangoModelFactory):
 
 
 class InstructorFactory(DjangoModelFactory):
-    class Meta:
-        model = models.Instructor
+    """Creates a Member configured as an instructor (instructor_slug set).
 
-    user = factory.SubFactory(UserFactory)
-    display_name = factory.Sequence(lambda n: f"Instructor {n}")
-    slug = factory.LazyAttribute(lambda o: o.display_name.lower().replace(" ", "-"))
-    bio = "A great teacher."
-    is_active = True
+    When ``user=`` is supplied the signal will have already auto-created a
+    Member for that user. In that case we find and update it so the test isn't
+    left with two conflicting records.
+    """
+
+    class Meta:
+        model = Member
+
+    membership_plan = factory.SubFactory(_MembershipPlanFactory)
+    full_legal_name = factory.Sequence(lambda n: f"Instructor {n}")
+    _pre_signup_email = factory.Sequence(lambda n: f"instructor{n}@example.com")
+    instructor_slug = factory.LazyAttribute(lambda o: o.full_legal_name.lower().replace(" ", "-"))
+    about_me = "A great teacher."
+    status = Member.Status.ACTIVE
+    user = None
+
+    @classmethod
+    def _create(cls, model_class, *args, **kwargs):
+        user = kwargs.get("user")
+        if user is not None:
+            # The signal auto-created a Member when the User was saved. Update it.
+            member, _ = Member.objects.update_or_create(
+                user=user,
+                defaults={k: v for k, v in kwargs.items() if k != "user"},
+            )
+            return member
+        return super()._create(model_class, *args, **kwargs)
 
 
 class ClassOfferingFactory(DjangoModelFactory):

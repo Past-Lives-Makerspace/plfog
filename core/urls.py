@@ -5,6 +5,9 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Cross-surface session relay (SSO between members and book surfaces)
+    path("auth/relay/", views.relay_issue, name="relay_issue"),
+    path("auth/relay/accept/", views.relay_accept, name="relay_accept"),
     # Health check
     path("health/", views.health_check, name="health_check"),
     # Home page

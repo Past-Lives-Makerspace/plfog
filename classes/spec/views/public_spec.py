@@ -15,12 +15,13 @@ from classes.factories import (
     InstructorFactory,
 )
 from classes.models import ClassOffering
+from membership.models import Member
 
 
 @pytest.fixture
 def published_class(db):
     category = CategoryFactory(name="Ceramics", slug="ceramics")
-    instructor = InstructorFactory(display_name="Deenie", slug="deenie")
+    instructor = InstructorFactory(full_legal_name="Deenie", instructor_slug="deenie")
     offering = ClassOfferingFactory(
         title="Intro to Wheel Throwing",
         slug="intro-to-wheel-throwing",
@@ -34,6 +35,23 @@ def published_class(db):
         ends_at=timezone.now() + timedelta(days=7, hours=2),
     )
     return offering
+
+
+def describe_coerce_dollars_to_cents():
+    def it_returns_zero_for_invalid_string():
+        from classes.views import _coerce_dollars_to_cents
+
+        assert _coerce_dollars_to_cents("abc") == 0
+
+    def it_returns_zero_for_none():
+        from classes.views import _coerce_dollars_to_cents
+
+        assert _coerce_dollars_to_cents(None) == 0
+
+    def it_converts_valid_dollar_amount():
+        from classes.views import _coerce_dollars_to_cents
+
+        assert _coerce_dollars_to_cents("12.50") == 1250
 
 
 def describe_public_list():
@@ -72,7 +90,7 @@ def describe_public_list():
         response = client.get(reverse("classes:public_list"))
         assert b"Private Lesson" not in response.content
 
-    def it_shows_published_classes_with_no_upcoming_sessions(db, client):
+    def it_hides_published_classes_with_no_upcoming_sessions(db, client):
         category = CategoryFactory()
         instructor = InstructorFactory()
         ClassOfferingFactory(
@@ -83,10 +101,9 @@ def describe_public_list():
             status=ClassOffering.Status.PUBLISHED,
         )
         response = client.get(reverse("classes:public_list"))
-        assert b"Brand New Class" in response.content
-        assert b"Upcoming dates TBA" in response.content
+        assert b"Brand New Class" not in response.content
 
-    def it_shows_published_classes_whose_only_sessions_are_past(db, client):
+    def it_hides_published_classes_whose_only_sessions_are_past(db, client):
         category = CategoryFactory()
         instructor = InstructorFactory()
         stale = ClassOfferingFactory(
@@ -103,7 +120,7 @@ def describe_public_list():
             ends_at=past_start + timedelta(hours=2),
         )
         response = client.get(reverse("classes:public_list"))
-        assert b"Past Class" in response.content
+        assert b"Past Class" not in response.content
 
     def it_includes_flexible_classes_even_without_sessions(db, client):
         category = CategoryFactory()
@@ -137,6 +154,145 @@ def describe_public_list():
         response = client.get(reverse("classes:public_list") + "?category=ceramics")
         assert b"Intro to Wheel Throwing" in response.content
         assert b"Intro to Forging" not in response.content
+
+    def it_filters_by_instructor_slug(published_class, client):
+        other_instructor = InstructorFactory(full_legal_name="Newcomer", instructor_slug="newcomer")
+        other = ClassOfferingFactory(
+            title="Newcomer Class",
+            slug="newcomer-class",
+            category=published_class.category,
+            instructor=other_instructor,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        ClassSessionFactory(
+            class_offering=other,
+            starts_at=timezone.now() + timedelta(days=2),
+            ends_at=timezone.now() + timedelta(days=2, hours=2),
+        )
+        response = client.get(reverse("classes:public_list") + "?instructor=deenie")
+        assert b"Intro to Wheel Throwing" in response.content
+        assert b"Newcomer Class" not in response.content
+
+    def it_filters_by_min_and_max_price(published_class, client):
+        cheap = ClassOfferingFactory(
+            title="Cheap Class",
+            slug="cheap-class",
+            category=published_class.category,
+            instructor=published_class.instructor,
+            status=ClassOffering.Status.PUBLISHED,
+            price_cents=500,
+        )
+        ClassSessionFactory(
+            class_offering=cheap,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=2),
+        )
+        # published_class has price_cents=5000 ($50); filter max=$4 to exclude it and include the $5 class
+        response = client.get(reverse("classes:public_list") + "?min_price=1&max_price=9")
+        assert b"Intro to Wheel Throwing" not in response.content
+        assert b"Cheap Class" in response.content
+
+    def it_filters_members_only(db, client):
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        members_only = ClassOfferingFactory(
+            title="Members Class",
+            slug="members-class",
+            category=cat,
+            instructor=inst,
+            status=ClassOffering.Status.PUBLISHED,
+            member_discount_pct=15,
+        )
+        no_discount = ClassOfferingFactory(
+            title="Open Class",
+            slug="open-class",
+            category=cat,
+            instructor=inst,
+            status=ClassOffering.Status.PUBLISHED,
+            member_discount_pct=0,
+        )
+        ClassSessionFactory(
+            class_offering=members_only,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=2),
+        )
+        ClassSessionFactory(
+            class_offering=no_discount,
+            starts_at=timezone.now() + timedelta(days=2),
+            ends_at=timezone.now() + timedelta(days=2, hours=2),
+        )
+        response = client.get(reverse("classes:public_list") + "?members_only=1")
+        assert b"Members Class" in response.content
+        assert b"Open Class" not in response.content
+
+    def it_filters_free_classes(db, client):
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        free = ClassOfferingFactory(
+            title="Free Workshop",
+            slug="free-workshop",
+            category=cat,
+            instructor=inst,
+            status=ClassOffering.Status.PUBLISHED,
+            price_cents=0,
+        )
+        paid = ClassOfferingFactory(
+            title="Paid Workshop",
+            slug="paid-workshop",
+            category=cat,
+            instructor=inst,
+            status=ClassOffering.Status.PUBLISHED,
+            price_cents=2000,
+        )
+        ClassSessionFactory(
+            class_offering=free,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=2),
+        )
+        ClassSessionFactory(
+            class_offering=paid,
+            starts_at=timezone.now() + timedelta(days=2),
+            ends_at=timezone.now() + timedelta(days=2, hours=2),
+        )
+        response = client.get(reverse("classes:public_list") + "?free=1")
+        assert b"Free Workshop" in response.content
+        assert b"Paid Workshop" not in response.content
+
+    def it_filters_upcoming_classes(db, client):
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        upcoming = ClassOfferingFactory(
+            title="Upcoming Class",
+            slug="upcoming-class",
+            category=cat,
+            instructor=inst,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        ClassOfferingFactory(
+            title="No Session Class",
+            slug="no-session-class",
+            category=cat,
+            instructor=inst,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        ClassSessionFactory(
+            class_offering=upcoming,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=2),
+        )
+        response = client.get(reverse("classes:public_list") + "?upcoming=1")
+        assert b"Upcoming Class" in response.content
+        assert b"No Session Class" not in response.content
+
+    def it_returns_partial_html_for_htmx_requests(published_class, client):
+        response = client.get(
+            reverse("classes:public_list"),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        assert b"cp-results__summary" in response.content
+        # Partial doesn't include the full page hero
+        assert b"<html" not in response.content
 
 
 def describe_public_category():
@@ -200,12 +356,14 @@ def describe_public_class_detail():
 
 def describe_public_instructor():
     def it_404s_inactive_instructor(db, client):
-        instructor = InstructorFactory(slug="retired", is_active=False)
-        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.slug}))
+        instructor = InstructorFactory(instructor_slug="retired", status=Member.Status.FORMER)
+        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.instructor_slug}))
         assert response.status_code == 404
 
     def it_renders_profile_with_current_classes(published_class, client):
-        response = client.get(reverse("classes:public_instructor", kwargs={"slug": published_class.instructor.slug}))
+        response = client.get(
+            reverse("classes:public_instructor", kwargs={"slug": published_class.instructor.instructor_slug})
+        )
         assert response.status_code == 200
         assert b"Deenie" in response.content
         assert b"Intro to Wheel Throwing" in response.content

@@ -83,6 +83,7 @@
         <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Email</th>
         <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Status</th>
         <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Role</th>
+        <th style="text-align:right;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Classes</th>
         <th style="text-align:right;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Edit</th>
       </tr>
     </thead>
@@ -94,11 +95,18 @@
         <td style="padding:0.55rem 0.75rem;color:var(--hub-text-muted);">{{ member.get_status_display }}</td>
         <td style="padding:0.55rem 0.75rem;color:var(--hub-text-muted);">{{ member.get_fog_role_display }}</td>
         <td style="text-align:right;padding:0.55rem 0.75rem;">
+          {% if member.class_count %}
+            <a href="{% url 'classes:admin_classes' %}?instructor={{ member.pk }}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false">{{ member.class_count }} →</a>
+          {% else %}
+            <span style="color:var(--hub-text-muted);">—</span>
+          {% endif %}
+        </td>
+        <td style="text-align:right;padding:0.55rem 0.75rem;">
           <a href="{% url 'hub_admin_member_edit' member.pk %}" class="hub-btn hub-btn--sm" hx-boost="false">Edit</a>
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="5" style="padding:1.5rem;text-align:center;color:var(--hub-text-muted);">No members match your filters.</td></tr>
+      <tr><td colspan="6" style="padding:1.5rem;text-align:center;color:var(--hub-text-muted);">No members match your filters.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import date as date_type
+from datetime import date as date_type, datetime
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -17,6 +17,8 @@ from core.validators import validate_image_size
 
 if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
+
+    from membership.models import Member
 
 DEFAULT_LIABILITY_TEXT = """ASSUMPTION OF RISK AND WAIVER OF LIABILITY
 
@@ -82,42 +84,6 @@ class Category(models.Model):
         super().save(*args, **kwargs)
 
 
-class Instructor(models.Model):
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="instructor",
-        help_text="Auth identity — required.",
-    )
-    display_name = models.CharField(max_length=255, help_text="Public name shown on class pages.")
-    slug = models.SlugField(max_length=255, unique=True, help_text="URL slug for public profile.")
-    bio = models.TextField(blank=True, help_text="Markdown-safe bio shown on profile.")
-    photo = models.ImageField(
-        upload_to="classes/instructors/",
-        blank=True,
-        validators=[validate_image_size],
-        help_text="Profile photo.",
-    )
-    website = models.URLField(blank=True, help_text="Personal site.")
-    social_handle = models.CharField(max_length=255, blank=True, help_text="e.g. @handle on primary social.")
-    is_active = models.BooleanField(default=True, help_text="Inactive instructors hidden from public browse.")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["display_name"]
-
-    def __str__(self) -> str:
-        return self.display_name
-
-    def save(self, *args, **kwargs) -> None:
-        from django.conf import settings
-
-        delete_orphan_on_replace(self, "photo")
-        normalize_field_if_uploaded(self, "photo", settings.IMAGE_MAX_LONG_EDGE_PROFILE)
-        super().save(*args, **kwargs)
-
-
 class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def public(self) -> "ClassOfferingQuerySet":
         """Published classes visible in the public portal (excludes private)."""
@@ -126,7 +92,7 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def pending_review(self) -> "ClassOfferingQuerySet":
         return self.filter(status="pending")
 
-    def for_instructor(self, instructor: "Instructor") -> "ClassOfferingQuerySet":
+    def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         return self.filter(instructor=instructor)
 
 
@@ -147,7 +113,12 @@ class ClassOffering(models.Model):
         Category, on_delete=models.PROTECT, related_name="classes", help_text="Category grouping."
     )
     instructor = models.ForeignKey(
-        Instructor, on_delete=models.PROTECT, related_name="classes", help_text="Assigned instructor."
+        "membership.Member",
+        on_delete=models.PROTECT,
+        related_name="classes",
+        null=True,
+        blank=True,
+        help_text="Member who teaches this class.",
     )
     description = models.TextField(blank=True, help_text="Class description — markdown-safe.")
     prerequisites = models.TextField(blank=True, help_text="What a student should know/own.")
@@ -199,12 +170,12 @@ class ClassOffering(models.Model):
         max_length=20, choices=Status.choices, default=Status.DRAFT, help_text="Lifecycle status."
     )
     created_by = models.ForeignKey(
-        Instructor,
+        "membership.Member",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="+",
-        help_text="Instructor who authored the class.",
+        help_text="Member who authored this class.",
     )
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -217,11 +188,27 @@ class ClassOffering(models.Model):
     published_at = models.DateTimeField(null=True, blank=True, help_text="Stamp on first publish.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    legacy_cms_id = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Drupal node UUID from classes.pastlives.space. Empty on manually-created offerings.",
+    )
+    legacy_image_url = models.URLField(
+        blank=True,
+        help_text="Hero image URL from the legacy CMS. Cleared after download_legacy_images runs.",
+    )
 
     objects = ClassOfferingQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["legacy_cms_id"],
+                condition=models.Q(legacy_cms_id__gt=""),
+                name="uq_classoffering_legacy_cms_id",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.title
@@ -292,19 +279,25 @@ class ClassOffering(models.Model):
         )
         return rows
 
-    def approve(self, admin_user) -> None:
+    def approve(self, admin_user) -> "ClassApproval":
         """Record an admin approval via the ClassApproval pathway.
 
         Maintained for callers (views, tests) that already used this name.
         Creates a fresh ADMIN approval row if one doesn't exist for the
-        current cycle and decides it APPROVED on the admin's behalf.
+        current cycle and decides it APPROVED on the admin's behalf. Returns
+        the decided row so callers can email the instructor the outcome.
         """
         if self.status != self.Status.PENDING:
             raise ValueError(f"Only pending classes can be approved; got {self.status}.")
         row = self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first() or ClassApproval.objects.create(
             class_offering=self, role=ClassApproval.Role.ADMIN
         )
+        # Pin the offering instance so the lifecycle hook (which may publish)
+        # mutates *this* object's status. The filter path would otherwise load
+        # a separate ClassOffering instance, leaving self.status stale.
+        row.class_offering = self
         row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
+        return row
 
     def archive(self) -> None:
         self.status = self.Status.ARCHIVED
@@ -415,6 +408,17 @@ class ClassOffering(models.Model):
         return max(0, self.capacity - used)
 
     @property
+    def member_price_cents(self) -> int | None:
+        """Discounted price in cents for verified members.
+
+        Returns ``None`` when this offering has no member discount, so callers
+        can treat ``None`` as "no separate member price to show".
+        """
+        if not self.member_discount_pct:
+            return None
+        return int(self.price_cents * (100 - self.member_discount_pct) / 100)
+
+    @property
     def display_images(self) -> list[dict]:
         """Ordered image list for the public detail gallery.
 
@@ -457,8 +461,14 @@ class ClassOffering(models.Model):
         return f"{(cx / src_w) * 100:.1f}% {(cy / src_h) * 100:.1f}%"
 
     @property
-    def first_upcoming_session_at(self):
+    def first_upcoming_session_at(self) -> datetime | None:
         session = self.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at").first()
+        return session.starts_at if session else None
+
+    @property
+    def earliest_session_at(self) -> datetime | None:
+        """First session ever — past or future. Used as fallback when no upcoming session exists."""
+        session = self.sessions.order_by("starts_at").first()
         return session.starts_at if session else None
 
     def duplicate(self) -> "ClassOffering":
@@ -644,6 +654,31 @@ class ClassSession(models.Model):
         return f"{self.class_offering.title} — {self.starts_at:%Y-%m-%d}"
 
 
+class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
+    def best_auto_apply_for(self, offering: "ClassOffering", base_price_cents: int) -> "DiscountCode | None":
+        """The class-scoped auto-apply code that drops ``base_price_cents`` furthest.
+
+        Walks this offering's currently-valid, approved, active auto-apply codes
+        and returns the one yielding the lowest final price, or ``None`` when no
+        such code qualifies.
+        """
+        best: DiscountCode | None = None
+        best_price: int | None = None
+        for code in self.filter(
+            class_offering=offering,
+            is_active=True,
+            is_approved=True,
+            auto_apply=True,
+        ):
+            if not code.is_currently_valid():
+                continue
+            final = code.apply_to(base_price_cents)
+            if best_price is None or final < best_price:
+                best = code
+                best_price = final
+        return best
+
+
 class DiscountCode(models.Model):
     code = models.CharField(max_length=40, unique=True, help_text="Uppercase code — normalized on save.")
     description = models.CharField(max_length=255, blank=True, help_text="Admin-only description.")
@@ -684,6 +719,8 @@ class DiscountCode(models.Model):
         ),
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = DiscountCodeQuerySet.as_manager()
 
     class Meta:
         ordering = ["code"]
@@ -1063,12 +1100,12 @@ class InstructorMessage(models.Model):
     """
 
     instructor = models.ForeignKey(
-        Instructor,
+        "membership.Member",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
         related_name="sent_messages",
-        help_text="The instructor who sent this, or NULL if sent by an admin.",
+        help_text="The member/instructor who sent this, or NULL if sent by an admin.",
     )
     sent_by = models.ForeignKey(
         "membership.Member",

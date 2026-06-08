@@ -20,7 +20,6 @@ from django.views.decorators.http import require_POST, require_http_methods
 
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
-from hub.calendar_service import refresh_stale_sources
 from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
@@ -234,14 +233,11 @@ def member_directory(request: HttpRequest) -> HttpResponse:
     current_member = _get_member(request)
     view_as = getattr(request, "view_as", None)
     is_admin = view_as is not None and view_as.is_admin
-    from classes.models import Instructor
-
-    instructor_user_ids = Instructor.objects.values_list("user_id", flat=True)
     must_show = (
         Q(fog_role=Member.FogRole.ADMIN)
         | Q(fog_role=Member.FogRole.GUILD_OFFICER)
         | Q(led_guilds__isnull=False)
-        | Q(user_id__in=instructor_user_ids)
+        | Q(instructor_slug__gt="")
     )
     member_qs = Member.objects.filter(status=Member.Status.ACTIVE).distinct()
     if not is_admin:
@@ -918,8 +914,11 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
 
 
 def calendar_events_partial(request: HttpRequest) -> HttpResponse:
-    """HTMX partial — refreshes stale calendar sources and returns updated event HTML."""
-    refresh_stale_sources()
+    """HTMX partial — returns calendar event HTML straight from the database.
+
+    Sources are refreshed once each morning by the ``sync_all_sources`` cron, so this
+    view never fetches upstream — it just reads the stored ``CalendarEvent`` rows.
+    """
     try:
         week_offset = max(-52, min(52, int(request.GET.get("week_offset", 0))))
         month_offset = max(-24, min(24, int(request.GET.get("month_offset", 0))))
@@ -1034,7 +1033,7 @@ def admin_voting_dashboard(request: HttpRequest) -> HttpResponse:
 def admin_members(request: HttpRequest) -> HttpResponse:
     """Admin members management — paginated list with search + status/role/type filters."""
     from django.core.paginator import Paginator
-    from django.db.models import Q
+    from django.db.models import Count, Q
 
     ctx = _get_hub_context(request)
     status_filter = request.GET.get("status", "active")
@@ -1042,7 +1041,11 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     type_filter = request.GET.get("type", "")
     search = request.GET.get("q", "").strip()
 
-    qs = Member.objects.select_related("user", "membership_plan").order_by("full_legal_name")
+    qs = (
+        Member.objects.select_related("user", "membership_plan")
+        .annotate(class_count=Count("classes", distinct=True))
+        .order_by("full_legal_name")
+    )
     if status_filter and status_filter != "all":
         qs = qs.filter(status=status_filter)
     if role_filter:
@@ -1097,23 +1100,62 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "hub/admin/member_edit.html", {**ctx, "form": form, "member": member})
 
 
+def _legacy_instructor_sync_status() -> tuple[list[dict[str, object]], int]:
+    """Return instructor match stats for the Legacy CMS tab.
+
+    For each member with an instructor slug, count how many ClassOfferings came
+    from the legacy CMS (legacy_cms_id set) and have that member linked as instructor.
+    """
+    from classes.models import ClassOffering
+
+    from membership.models import Member as MemberModel
+
+    rows = []
+    for member in MemberModel.objects.filter(instructor_slug__gt="").order_by("full_legal_name"):
+        matched = ClassOffering.objects.filter(
+            legacy_cms_id__gt="",
+            instructor=member,
+        ).count()
+        rows.append(
+            {
+                "instructor": member,
+                "matched": matched,
+            }
+        )
+    # Also count unmatched offerings (has legacy_cms_id but instructor is null)
+    unmatched = ClassOffering.objects.filter(legacy_cms_id__gt="", instructor__isnull=True).count()
+    return rows, unmatched
+
+
 @fog_admin_required
 def admin_site_settings(request: HttpRequest) -> HttpResponse:
     """Admin site settings — edit the SiteConfiguration singleton and its calendar feeds.
 
-    The page exposes two tabs (``general`` and ``calendar``). The Calendar tab
+    The page exposes three tabs (``general``, ``calendar``, and ``legacy-cms``). The Calendar tab
     owns a ``CalendarFeedFormSet`` so admins can add/remove iCal feeds inline.
     """
     from core.models import CalendarFeed, SiteConfiguration
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
-    if active_tab not in {"general", "calendar"}:
+    if active_tab not in {"general", "calendar", "legacy-cms"}:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()
 
     if request.method == "POST":
+        # Handle "Sync Now" action — separate from the settings form
+        if request.POST.get("action") == "sync_now":
+            from classes.import_service import sync_legacy_cms
+
+            try:
+                count = sync_legacy_cms()
+                messages.success(request, f"Synced {count} offering(s) from the legacy CMS.")
+            except Exception as exc:
+                messages.error(request, f"Sync failed: {exc}")
+            url = reverse("hub_admin_site_settings")
+            return redirect(f"{url}?tab=legacy-cms")
+
         form = SiteSettingsForm(request.POST, instance=config)
         feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
         if form.is_valid() and feed_formset.is_valid():
@@ -1134,6 +1176,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
         form = SiteSettingsForm(instance=config)
         feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
 
+    instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -1145,5 +1188,9 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "active_tab": active_tab,
             "classes_color_field": form["classes_calendar_color"],
             "sync_classes_field": form["sync_classes_enabled"],
+            "legacy_cms_sync_field": form["legacy_cms_sync_enabled"],
+            "instructor_sync_rows": instructor_sync_rows,
+            "legacy_cms_unmatched": legacy_cms_unmatched,
+            "config": config,
         },
     )

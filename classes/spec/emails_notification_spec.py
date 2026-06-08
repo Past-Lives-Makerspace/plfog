@@ -12,7 +12,7 @@ from classes.models import ClassOffering
 def describe_send_instructor_registration_notification():
     def it_emails_the_instructor_with_registration_details(db):
         user = UserFactory(email="teach@example.com")
-        instructor = InstructorFactory(user=user, display_name="Ms. Paint")
+        instructor = InstructorFactory(user=user, full_legal_name="Ms. Paint")
         offering = ClassOfferingFactory(
             instructor=instructor, title="Watercolors 101", capacity=8, status=ClassOffering.Status.PUBLISHED
         )

@@ -85,7 +85,7 @@ def persona(request: HttpRequest) -> dict[str, str | bool]:
 
     member = getattr(user, "member", None)
     is_active_member = bool(member and member.status == Member.Status.ACTIVE and member.airtable_record_id)
-    is_instructor = hasattr(user, "instructor")
+    is_instructor = bool(member and member.instructor_slug)
 
     if is_active_member:
         slug = "member"

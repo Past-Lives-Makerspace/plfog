@@ -71,7 +71,7 @@ def send_instructor_registration_notification(registration: "Registration") -> N
     """Notify the instructor that someone registered for their class."""
     offering = registration.class_offering
     instructor = offering.instructor
-    if not instructor.user.email:
+    if not instructor or not instructor.primary_email:
         return
     subject = f"New registration: {registration.first_name} {registration.last_name} for {offering.title}"
     body = (
@@ -85,7 +85,7 @@ def send_instructor_registration_notification(registration: "Registration") -> N
         subject=subject,
         message=body,
         from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-        recipient_list=[instructor.user.email],
+        recipient_list=[instructor.primary_email],
         fail_silently=True,
     )
 
@@ -99,7 +99,7 @@ def send_admin_registration_notification(registration: "Registration") -> None:
     subject = f"[Classes] New registration: {registration.first_name} {registration.last_name} — {offering.title}"
     body = (
         f"{registration.first_name} {registration.last_name} ({registration.email}) "
-        f'registered for "{offering.title}" (instructor: {offering.instructor.display_name}).\n\n'
+        f'registered for "{offering.title}" (instructor: {offering.instructor.display_name if offering.instructor else "N/A"}).\n\n'
         f"Status: {registration.get_status_display()}\n"
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
         f"Capacity: {offering.registrations.count()}/{offering.capacity}"
@@ -135,8 +135,8 @@ def send_class_review_requests(offering: "ClassOffering", approvals: list["Class
         elif row.role == ClassApproval.Role.GUILD_LEAD:
             guild = offering.category.guild
             lead = guild.guild_lead if guild else None
-            if lead and lead.user and lead.user.email:
-                recipients = [lead.user.email]
+            if lead and lead.primary_email:
+                recipients = [lead.primary_email]
             role_label = "Guild Lead"
         else:
             role_label = row.get_role_display()
@@ -160,7 +160,7 @@ def send_class_review_requests(offering: "ClassOffering", approvals: list["Class
         )
 
     # Tell the instructor what's happening so they don't wonder.
-    if offering.instructor and offering.instructor.user and offering.instructor.user.email:
+    if offering.instructor and offering.instructor.primary_email:
         instructor_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
         ctx = {
             "offering": offering,
@@ -170,10 +170,10 @@ def send_class_review_requests(offering: "ClassOffering", approvals: list["Class
         text_body = render_to_string("classes/emails/review_submitted_instructor.txt", ctx)
         html_body = render_to_string("classes/emails/review_submitted_instructor.html", ctx)
         send_mail(
-            subject=f"Your class “{offering.title}” is in review",
+            subject=f"Your class '{offering.title}' is in review",
             message=text_body,
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-            recipient_list=[offering.instructor.user.email],
+            recipient_list=[offering.instructor.primary_email],
             html_message=html_body,
             fail_silently=True,
         )
@@ -191,24 +191,24 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
     from classes.models import ClassApproval
 
     instructor = offering.instructor
-    if not (instructor and instructor.user and instructor.user.email):
+    if not (instructor and instructor.primary_email):
         return
 
     fully_approved = offering.status == offering.Status.PUBLISHED and row.decision == ClassApproval.Decision.APPROVED
     if fully_approved:
-        subject = f"Your class “{offering.title}” is live!"
+        subject = f"Your class '{offering.title}' is live!"
         public_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
         edit_url = public_url
     elif row.decision == ClassApproval.Decision.APPROVED:
-        subject = f"{row.get_role_display()} approved “{offering.title}”"
+        subject = f"{row.get_role_display()} approved '{offering.title}'"
         edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
         public_url = ""
     elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
-        subject = f"Changes requested on “{offering.title}”"
+        subject = f"Changes requested on '{offering.title}'"
         edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
         public_url = ""
     else:  # DENIED
-        subject = f"Your class submission was declined: “{offering.title}”"
+        subject = f"Your class submission was declined: '{offering.title}'"
         edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
         public_url = ""
 
@@ -227,7 +227,7 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
         subject=subject,
         message=text_body,
         from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-        recipient_list=[instructor.user.email],
+        recipient_list=[instructor.primary_email],
         html_message=html_body,
         fail_silently=True,
     )

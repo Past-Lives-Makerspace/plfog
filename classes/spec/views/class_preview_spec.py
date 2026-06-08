@@ -12,13 +12,13 @@ from classes.models import ClassOffering
 @pytest.fixture
 def instructor_fixture(db):
     user = UserFactory(username="teacher@example.com")
-    return InstructorFactory(user=user, display_name="Teacher T", slug="teacher-t")
+    return InstructorFactory(user=user, full_legal_name="Teacher T", instructor_slug="teacher-t")
 
 
 @pytest.fixture
 def other_instructor(db):
     user = UserFactory(username="other@example.com")
-    return InstructorFactory(user=user, display_name="Other", slug="other")
+    return InstructorFactory(user=user, full_legal_name="Other", instructor_slug="other")
 
 
 def describe_class_preview():

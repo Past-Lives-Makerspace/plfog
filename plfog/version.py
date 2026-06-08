@@ -2,9 +2,47 @@
 
 from __future__ import annotations
 
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.4.0",
+        "date": "2026-06-08",
+        "title": "Notifications, redesigned Guild Pages, and a site-wide Activity dashboard",
+        "changes": [
+            "You can now get notified about what matters to you. A bell in the top-right corner shows your recent notifications — new classes, voting reminders, billing updates, guild announcements, and more. Head to Settings → Notifications to choose which ones reach you as browser push alerts or emails, and which ones you just see in the bell.",
+            "Guild pages have been completely redesigned. Each guild now has a full hero image, a photo gallery of up to 10 images, an optional YouTube video, a meeting schedule, a FAQ section, an announcements board, a links section, and an optional member roster. Guild leads can manage all of it from the updated edit page.",
+            "Admins now have a site-wide Activity dashboard at /manage/activity. It shows a chronological feed of everything happening across the site — logins, profile updates, votes, tab charges, class registrations, and more — with a second tab for auditing every transactional email that has been sent or failed.",
+            "The class catalog and Community Calendar now refresh themselves automatically every morning. New workshops from the old class site and any updated guild calendars show up on their own — nobody has to open the calendar or press a button to pull them in. The 'Sync Now' buttons in Site Settings are still there whenever you want an instant refresh.",
+        ],
+    },
+    {
+        "version": "2.3.2",
+        "date": "2026-06-07",
+        "title": "Booking site polish: upcoming-only listing, pagination, and cross-site login",
+        "changes": [
+            "The class list now only shows classes with upcoming sessions — past events no longer clutter the page.",
+            "Classes are paginated 25 at a time, sorted by closest upcoming date first. A Previous/Next bar appears at the bottom when there's more than one page.",
+            "The sticky category strip has been removed. A small arrow button appears in the bottom-right corner when you scroll down — click it to jump back to the top.",
+            "If you're already logged into pastlives.space, visiting your account on book.pastlives.space will automatically sign you in without a second login prompt.",
+            "The Past Lives logo in the top-left of the booking site now links to the class list instead of the main website.",
+            "Class detail pages no longer show a blank instructor tile when the instructor isn't on record.",
+            "Class descriptions now display with proper paragraph breaks instead of running together as a single block of text.",
+        ],
+    },
+    {
+        "version": "2.3.1",
+        "date": "2026-06-06",
+        "title": "Classes from the old CMS now show up on book.pastlives.space",
+        "changes": [
+            "All classes from classes.pastlives.space now automatically sync into book.pastlives.space every 15 minutes — flip the toggle in Site Settings → Legacy CMS to turn it on. When you're ready to manage classes exclusively here, just turn it off.",
+            "Imported classes link to the right instructor automatically when the class title includes 'with [Instructor Name]'. Once linked, the connection is never overwritten by a re-sync so any manual adjustments stick.",
+            "Hero images from the old CMS are served through a proxy so class cards look complete right away — run 'Download legacy images' when you're ready to move them into plfog's own storage.",
+            "The Members admin table now shows how many classes each instructor is teaching, with a one-click link that filters the Classes table to just their classes.",
+            "The Classes admin table now has an instructor dropdown filter so you can quickly see every class taught by a specific person.",
+            "Site Settings has a new Legacy CMS tab with the sync toggle, a 'Sync Now' button for on-demand imports, and an instructor match table that shows how many of each instructor's classes were automatically linked by name.",
+        ],
+    },
     {
         "version": "2.3.0",
         "date": "2026-05-28",
