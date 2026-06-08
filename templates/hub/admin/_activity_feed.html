@@ -1,0 +1,43 @@
+<form method="get" class="hub-card" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem;">
+  <input type="hidden" name="tab" value="feed">
+  <label style="display:flex;flex-direction:column;gap:0.25rem;">
+    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--hub-text-muted);">Event</span>
+    <select name="kind" style="background:rgba(255,255,255,0.04);color:var(--hub-text);border:1px solid var(--hub-border);border-radius:6px;padding:0.4rem 0.65rem;font-size:0.875rem;font-family:inherit;">
+      <option value="">All events</option>
+      {% for value, label in kinds %}
+        <option value="{{ value }}" {% if value == kind %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label style="display:flex;flex-direction:column;gap:0.25rem;">
+    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--hub-text-muted);">Actor email</span>
+    <input type="text" name="actor" value="{{ actor_q }}" placeholder="name@example.com"
+           style="background:rgba(255,255,255,0.04);color:var(--hub-text);border:1px solid var(--hub-border);border-radius:6px;padding:0.4rem 0.65rem;font-size:0.875rem;font-family:inherit;">
+  </label>
+  <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Filter</button>
+</form>
+
+<div class="hub-card">
+  {% for a in feed_page %}
+  <div class="hub-member-row" style="justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:0.75rem;">
+      <div class="hub-member-avatar">{% if a.actor %}{{ a.actor.email|make_list|first|upper }}{% else %}•{% endif %}</div>
+      <div>
+        <div class="hub-member-name">{{ a.get_kind_display }}</div>
+        <div class="hub-text-muted" style="font-size:0.8125rem;">
+          {% if a.actor %}{{ a.actor.email }}{% else %}System{% endif %} · {{ a.created_at|date:"M j, Y g:i A" }}
+        </div>
+      </div>
+    </div>
+    {% if a.email_log %}
+      <span class="hub-badge" style="{% if a.email_log.status == 'failed' %}color:#ef4444;{% endif %}">
+        ✉ {{ a.email_log.get_status_display }}
+      </span>
+    {% endif %}
+  </div>
+  {% empty %}
+  <p class="hub-text-muted">No activity yet.</p>
+  {% endfor %}
+</div>
+
+{% include "hub/admin/_activity_pagination.html" with page=feed_page param="page" %}

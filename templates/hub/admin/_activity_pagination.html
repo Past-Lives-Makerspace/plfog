@@ -1,0 +1,11 @@
+{% if page.has_other_pages %}
+<div style="display:flex;gap:0.75rem;justify-content:center;margin-top:1rem;align-items:center;">
+  {% if page.has_previous %}
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?{{ param }}={{ page.previous_page_number }}">Previous</a>
+  {% endif %}
+  <span class="hub-text-muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?{{ param }}={{ page.next_page_number }}">Next</a>
+  {% endif %}
+</div>
+{% endif %}
