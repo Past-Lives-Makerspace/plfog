@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.core.mail import send_mail
 from django.db import models
 from django.utils import timezone
@@ -382,3 +384,102 @@ class TransactionalEmailLog(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_status_display()} → {self.to_email} ({self.trigger_kind})"
+
+
+class SiteActivity(models.Model):
+    """Append-only event log for every meaningful site-wide happening.
+
+    Written via ``SiteActivity.log()`` from each workflow point (auth,
+    profile, voting, billing, classes, membership) so the admin
+    ``/manage/activity/`` feed shows one chronological stream. ``payload``
+    carries free-form per-kind detail; ``email_log`` links to the email that
+    this event triggered, if any.
+    """
+
+    class Kind(models.TextChoices):
+        LOGIN = "login", "Logged in"
+        LOGOUT = "logout", "Logged out"
+        PROFILE_UPDATED = "profile_updated", "Updated profile"
+        VOTE_SUBMITTED = "vote_submitted", "Submitted vote"
+        VOTE_CHANGED = "vote_changed", "Changed vote"
+        TAB_CHARGED = "tab_charged", "Tab charged"
+        TAB_CHARGE_FAILED = "tab_charge_failed", "Tab charge failed"
+        TAB_ENTRY_ADDED = "tab_entry_added", "Tab entry added"
+        CLASS_REGISTERED = "class_registered", "Registered for class"
+        CLASS_REGISTRATION_CANCELLED = "class_registration_cancelled", "Cancelled registration"
+        CLASS_WAITLIST_JOINED = "class_waitlist_joined", "Joined waitlist"
+        CLASS_PUBLISHED = "class_published", "Class published"
+        CLASS_SUBMITTED = "class_submitted", "Class submitted"
+        CLASS_APPROVED = "class_approved", "Class approved"
+        CLASS_CANCELLED = "class_cancelled", "Class cancelled"
+        REFUND_ISSUED = "refund_issued", "Refund issued"
+        FUNDING_SNAPSHOT_TAKEN = "funding_snapshot_taken", "Funding snapshot taken"
+        MEMBER_INVITED = "member_invited", "Member invited"
+        INVITE_ACCEPTED = "invite_accepted", "Invite accepted"
+        MEMBER_SIGNUP = "member_signup", "Member signed up"
+        GUILD_ANNOUNCEMENT = "guild_announcement", "Guild announcement"
+        LEASE_ACTIVATED = "lease_activated", "Lease activated"
+        SITE_ANNOUNCEMENT = "site_announcement", "Site announcement"
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="User who triggered this. Null for system events.",
+    )
+    kind = models.CharField(max_length=50, choices=Kind.choices, help_text="What happened.")
+    target_ct = models.ForeignKey(
+        ContentType,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        help_text="Content type of the related object, when applicable.",
+    )
+    target_id = models.PositiveIntegerField(null=True, blank=True, help_text="PK of the related object.")
+    target = GenericForeignKey("target_ct", "target_id")
+    payload = models.JSONField(default=dict, blank=True, help_text="Free-form per-kind detail.")
+    email_log = models.ForeignKey(
+        "core.TransactionalEmailLog",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="activity",
+        help_text="The email this event sent, if any. Source of the ✉ badge.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["-created_at"]),
+            models.Index(fields=["kind", "-created_at"]),
+            models.Index(fields=["actor", "-created_at"]),
+        ]
+        verbose_name_plural = "Site activity"
+
+    def __str__(self) -> str:
+        return f"{self.get_kind_display()} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+    @classmethod
+    def log(
+        cls,
+        kind: str,
+        *,
+        actor: Any | None = None,
+        target: models.Model | None = None,
+        email_log: Any | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> "SiteActivity":
+        """Append one activity row. Safe to call from views, signals, or model methods."""
+        activity = cls(
+            kind=kind,
+            actor=actor if (actor is not None and getattr(actor, "pk", None)) else None,
+            email_log=email_log,
+            payload=payload or {},
+        )
+        if target is not None:
+            activity.target = target
+        activity.save()
+        return activity
