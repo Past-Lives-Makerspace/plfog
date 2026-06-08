@@ -53,3 +53,9 @@ def describe_SiteActivity():
         def it_defaults_payload_to_empty_dict():
             activity = SiteActivity.log(SiteActivity.Kind.LOGOUT)
             assert activity.payload == {}
+
+    def describe_str():
+        def it_is_readable():
+            user = User.objects.create_user(username="u3", email="u3@example.com")
+            activity = SiteActivity.log(SiteActivity.Kind.LOGIN, actor=user)
+            assert "Logged in" in str(activity)
