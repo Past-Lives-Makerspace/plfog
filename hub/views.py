@@ -20,7 +20,6 @@ from django.views.decorators.http import require_POST, require_http_methods
 
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
-from hub.calendar_service import refresh_stale_sources
 from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
@@ -915,8 +914,11 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
 
 
 def calendar_events_partial(request: HttpRequest) -> HttpResponse:
-    """HTMX partial — refreshes stale calendar sources and returns updated event HTML."""
-    refresh_stale_sources()
+    """HTMX partial — returns calendar event HTML straight from the database.
+
+    Sources are refreshed once each morning by the ``sync_all_sources`` cron, so this
+    view never fetches upstream — it just reads the stored ``CalendarEvent`` rows.
+    """
     try:
         week_offset = max(-52, min(52, int(request.GET.get("week_offset", 0))))
         month_offset = max(-24, min(24, int(request.GET.get("month_offset", 0))))

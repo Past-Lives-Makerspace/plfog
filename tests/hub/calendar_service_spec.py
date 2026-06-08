@@ -1,4 +1,4 @@
-"""BDD specs for hub.calendar_service — _fetch_json, sync_classes_calendar, refresh_stale_sources."""
+"""BDD specs for hub.calendar_service — _fetch_json, sync_classes_calendar, sync_all_sources."""
 
 from __future__ import annotations
 
@@ -372,104 +372,89 @@ def describe_sync_classes_calendar():
 
 
 # ---------------------------------------------------------------------------
-# refresh_stale_sources — classes branch (lines 239-245)
+# sync_all_sources — classes and legacy-CMS branches
 # ---------------------------------------------------------------------------
 
 
-def describe_refresh_stale_sources_classes():
-    def it_syncs_classes_when_stale():
-        from hub.calendar_service import refresh_stale_sources
+def describe_sync_all_sources_classes():
+    def it_syncs_classes_when_enabled():
+        from hub.calendar_service import sync_all_sources
 
         config = SiteConfiguration.load()
         config.sync_classes_enabled = True
-        config.classes_last_synced_at = timezone.now() - timedelta(seconds=1000)
+        config.legacy_cms_sync_enabled = False
         config.save()
 
         with patch("hub.calendar_service.sync_classes_calendar", return_value=3) as mock_sync:
-            refresh_stale_sources(max_age_seconds=900)
+            errors = sync_all_sources()
 
         mock_sync.assert_called_once()
+        assert errors == []
 
-    def it_syncs_classes_when_never_synced():
-        from hub.calendar_service import refresh_stale_sources
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.classes_last_synced_at = None
-        config.save()
-
-        with patch("hub.calendar_service.sync_classes_calendar", return_value=1) as mock_sync:
-            refresh_stale_sources(max_age_seconds=900)
-
-        mock_sync.assert_called_once()
-
-    def it_skips_classes_when_recently_synced():
-        from hub.calendar_service import refresh_stale_sources
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.classes_last_synced_at = timezone.now()
-        config.save()
-
-        with patch("hub.calendar_service.sync_classes_calendar") as mock_sync:
-            refresh_stale_sources(max_age_seconds=900)
-
-        mock_sync.assert_not_called()
-
-    def it_swallows_exceptions_from_classes_sync():
-        from hub.calendar_service import refresh_stale_sources
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.classes_last_synced_at = None
-        config.save()
-
-        with patch("hub.calendar_service.sync_classes_calendar", side_effect=RuntimeError("timeout")):
-            # Should not raise — exception is swallowed
-            refresh_stale_sources(max_age_seconds=900)
-
-    def it_skips_classes_when_sync_disabled():
-        from hub.calendar_service import refresh_stale_sources
+    def it_skips_classes_when_disabled():
+        from hub.calendar_service import sync_all_sources
 
         config = SiteConfiguration.load()
         config.sync_classes_enabled = False
-        config.classes_last_synced_at = None
+        config.legacy_cms_sync_enabled = False
         config.save()
 
         with patch("hub.calendar_service.sync_classes_calendar") as mock_sync:
-            refresh_stale_sources(max_age_seconds=900)
+            sync_all_sources()
 
         mock_sync.assert_not_called()
 
+    def it_captures_exceptions_from_classes_sync():
+        from hub.calendar_service import sync_all_sources
 
-# ---------------------------------------------------------------------------
-# refresh_stale_sources — legacy_cms branch
-# ---------------------------------------------------------------------------
+        config = SiteConfiguration.load()
+        config.sync_classes_enabled = True
+        config.legacy_cms_sync_enabled = False
+        config.save()
+
+        with patch("hub.calendar_service.sync_classes_calendar", side_effect=RuntimeError("timeout")):
+            errors = sync_all_sources()
+
+        assert any("classes calendar" in e and "timeout" in e for e in errors)
 
 
-def describe_refresh_stale_sources_legacy_cms():
-    def it_calls_sync_legacy_cms_when_enabled_and_stale():
-        from hub.calendar_service import refresh_stale_sources
+def describe_sync_all_sources_legacy_cms():
+    def it_calls_sync_legacy_cms_when_enabled():
+        from hub.calendar_service import sync_all_sources
 
         config = SiteConfiguration.load()
         config.legacy_cms_sync_enabled = True
-        config.legacy_cms_last_synced_at = None
+        config.sync_classes_enabled = False
         config.save()
 
         with patch("classes.import_service.sync_legacy_cms") as mock_sync:
-            refresh_stale_sources(max_age_seconds=900)
+            errors = sync_all_sources()
 
         mock_sync.assert_called_once()
+        assert errors == []
 
     def it_skips_sync_legacy_cms_when_disabled():
-        from hub.calendar_service import refresh_stale_sources
+        from hub.calendar_service import sync_all_sources
 
         config = SiteConfiguration.load()
         config.legacy_cms_sync_enabled = False
-        config.legacy_cms_last_synced_at = None
+        config.sync_classes_enabled = False
         config.save()
 
         with patch("classes.import_service.sync_legacy_cms") as mock_sync:
-            refresh_stale_sources(max_age_seconds=900)
+            sync_all_sources()
 
         mock_sync.assert_not_called()
+
+    def it_captures_exceptions_from_legacy_cms_sync():
+        from hub.calendar_service import sync_all_sources
+
+        config = SiteConfiguration.load()
+        config.legacy_cms_sync_enabled = True
+        config.sync_classes_enabled = False
+        config.save()
+
+        with patch("classes.import_service.sync_legacy_cms", side_effect=RuntimeError("drupal down")):
+            errors = sync_all_sources()
+
+        assert any("legacy CMS" in e and "drupal down" in e for e in errors)

@@ -78,7 +78,7 @@ class SiteConfiguration(models.Model):
     legacy_cms_sync_enabled = models.BooleanField(
         default=False,
         verbose_name="Sync offerings from legacy CMS",
-        help_text="When enabled, classes.pastlives.space offerings sync into plfog every 15 minutes.",
+        help_text="When enabled, classes.pastlives.space offerings sync into plfog automatically each morning.",
     )
     legacy_cms_last_synced_at = models.DateTimeField(
         null=True,

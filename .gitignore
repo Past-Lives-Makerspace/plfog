@@ -45,3 +45,6 @@ django.log
 .ruff_cache/
 .claude/
 db.sqlite3.bak*
+
+# WSL NTFS alternate-data-stream sidecars
+*:Zone.Identifier

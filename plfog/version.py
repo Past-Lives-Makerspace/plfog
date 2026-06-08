@@ -13,6 +13,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "You can now get notified about what matters to you. A bell in the top-right corner shows your recent notifications — new classes, voting reminders, billing updates, guild announcements, and more. Head to Settings → Notifications to choose which ones reach you as browser push alerts or emails, and which ones you just see in the bell.",
             "Guild pages have been completely redesigned. Each guild now has a full hero image, a photo gallery of up to 10 images, an optional YouTube video, a meeting schedule, a FAQ section, an announcements board, a links section, and an optional member roster. Guild leads can manage all of it from the updated edit page.",
             "Admins now have a site-wide Activity dashboard at /manage/activity. It shows a chronological feed of everything happening across the site — logins, profile updates, votes, tab charges, class registrations, and more — with a second tab for auditing every transactional email that has been sent or failed.",
+            "The class catalog and Community Calendar now refresh themselves automatically every morning. New workshops from the old class site and any updated guild calendars show up on their own — nobody has to open the calendar or press a button to pull them in. The 'Sync Now' buttons in Site Settings are still there whenever you want an instant refresh.",
         ],
     },
     {

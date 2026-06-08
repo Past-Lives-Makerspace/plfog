@@ -251,101 +251,57 @@ def describe_calendar_service():
             feed.refresh_from_db()
             assert feed.last_fetched_at is not None
 
-    def describe_refresh_stale_sources():
-        def it_skips_sources_fetched_recently():
-            from hub.calendar_service import refresh_stale_sources
-
-            recent = timezone.now()
-            GuildFactory(
-                calendar_url="https://example.com/cal.ics",
-                calendar_last_fetched_at=recent,
-            )
-            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen) as mock_open:
-                refresh_stale_sources(max_age_seconds=900)
-            mock_open.assert_not_called()
-
-        def it_refreshes_stale_guild_sources():
+    def describe_sync_all_sources():
+        def it_refreshes_guild_sources():
             from datetime import timedelta
 
-            from hub.calendar_service import refresh_stale_sources
+            from hub.calendar_service import sync_all_sources
 
-            stale_time = timezone.now() - timedelta(seconds=1000)
             guild = GuildFactory(
                 calendar_url="https://example.com/cal.ics",
-                calendar_last_fetched_at=stale_time,
+                calendar_last_fetched_at=None,
             )
             with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
-                refresh_stale_sources(max_age_seconds=900)
+                errors = sync_all_sources()
             guild.refresh_from_db()
             assert guild.calendar_last_fetched_at >= timezone.now() - timedelta(seconds=5)
+            assert errors == []
 
-        def it_swallows_exceptions_from_stale_guild_sync():
-            from datetime import timedelta
+        def it_captures_exceptions_from_guild_sync():
+            from hub.calendar_service import sync_all_sources
 
-            from hub.calendar_service import refresh_stale_sources
-
-            stale_time = timezone.now() - timedelta(seconds=1000)
-            GuildFactory(
-                calendar_url="https://example.com/broken.ics",
-                calendar_last_fetched_at=stale_time,
-            )
+            GuildFactory(calendar_url="https://example.com/broken.ics")
             with patch("hub.calendar_service.sync_guild_calendar", side_effect=RuntimeError("network error")):
-                # Should not raise — exceptions are swallowed
-                refresh_stale_sources(max_age_seconds=900)
+                errors = sync_all_sources()
+            assert any("network error" in e for e in errors)
 
-        def it_refreshes_stale_calendar_feeds():
+        def it_refreshes_calendar_feeds():
             from datetime import timedelta
 
             from core.models import CalendarFeed
-            from hub.calendar_service import refresh_stale_sources
+            from hub.calendar_service import sync_all_sources
 
             feed = CalendarFeed.objects.create(
                 name="General",
                 ical_url="https://example.com/general.ics",
                 color="#EEB44B",
-                last_fetched_at=timezone.now() - timedelta(seconds=1000),
+                last_fetched_at=None,
             )
             with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
-                refresh_stale_sources(max_age_seconds=900)
+                sync_all_sources()
             feed.refresh_from_db()
             assert feed.last_fetched_at >= timezone.now() - timedelta(seconds=5)
 
-        def it_refreshes_calendar_feed_never_fetched():
+        def it_captures_exceptions_from_feed_sync():
             from core.models import CalendarFeed
-            from hub.calendar_service import refresh_stale_sources
-
-            feed = CalendarFeed.objects.create(
-                name="General", ical_url="https://example.com/general2.ics", color="#EEB44B", last_fetched_at=None
-            )
-            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
-                refresh_stale_sources(max_age_seconds=900)
-            feed.refresh_from_db()
-            assert feed.last_fetched_at is not None
-
-        def it_swallows_exceptions_from_stale_feed_sync():
-            from core.models import CalendarFeed
-            from hub.calendar_service import refresh_stale_sources
+            from hub.calendar_service import sync_all_sources
 
             CalendarFeed.objects.create(
-                name="Broken", ical_url="https://example.com/broken-general.ics", color="#EEB44B", last_fetched_at=None
+                name="Broken", ical_url="https://example.com/broken-general.ics", color="#EEB44B"
             )
             with patch("hub.calendar_service.sync_calendar_feed", side_effect=RuntimeError("network error")):
-                # Should not raise — exceptions are swallowed per-feed
-                refresh_stale_sources(max_age_seconds=900)
-
-        def it_skips_calendar_feed_fetched_recently():
-            from core.models import CalendarFeed
-            from hub.calendar_service import refresh_stale_sources
-
-            CalendarFeed.objects.create(
-                name="Recent",
-                ical_url="https://example.com/recent-general.ics",
-                color="#EEB44B",
-                last_fetched_at=timezone.now(),
-            )
-            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen) as mock_open:
-                refresh_stale_sources(max_age_seconds=900)
-            mock_open.assert_not_called()
+                errors = sync_all_sources()
+            assert any("network error" in e for e in errors)
 
 
 def describe_GuildEditForm():
@@ -433,12 +389,10 @@ def describe_community_calendar_view():
 
 
 def describe_calendar_events_partial_view():
-    def it_returns_200_and_calls_refresh(client: Client):
+    def it_returns_200(client: Client):
         _logged_in_user(client, username="caluser3")
-        with patch("hub.views.refresh_stale_sources") as mock_refresh:
-            response = client.get("/calendar/events/")
+        response = client.get("/calendar/events/")
         assert response.status_code == 200
-        mock_refresh.assert_called_once()
 
     def it_renders_upcoming_events(client: Client):
         _logged_in_user(client, username="caluser4")
@@ -453,8 +407,7 @@ def describe_calendar_events_partial_view():
             end_dt=now + timedelta(days=1, hours=2),
             fetched_at=now,
         )
-        with patch("hub.views.refresh_stale_sources"):
-            response = client.get("/calendar/events/")
+        response = client.get("/calendar/events/")
         assert b"Life Drawing Session" in response.content
 
     def it_paginates_month_events_to_max_10_per_page(client: Client):
@@ -477,8 +430,7 @@ def describe_calendar_events_partial_view():
                 end_dt=event_dt + timedelta(hours=1),
                 fetched_at=now,
             )
-        with patch("hub.views.refresh_stale_sources"):
-            response = client.get("/calendar/events/?month_offset=1")
+        response = client.get("/calendar/events/?month_offset=1")
         assert response.context["event_total_pages"] == 2
         assert len(response.context["month_events"]) == 10
 
@@ -501,8 +453,7 @@ def describe_calendar_events_partial_view():
                 end_dt=event_dt + timedelta(hours=1),
                 fetched_at=now,
             )
-        with patch("hub.views.refresh_stale_sources"):
-            response = client.get("/calendar/events/?month_offset=1&page=2")
+        response = client.get("/calendar/events/?month_offset=1&page=2")
         assert response.context["event_page"] == 2
         assert len(response.context["month_events"]) == 5
 
@@ -610,8 +561,7 @@ def describe_community_calendar_default_filters():
 def describe_calendar_events_partial_invalid_params():
     def it_defaults_to_zero_offsets_when_params_are_non_integer(client: Client):
         _logged_in_user(client, username="caluser_bad")
-        with patch("hub.views.refresh_stale_sources"):
-            response = client.get("/calendar/events/?week_offset=abc&month_offset=xyz&page=bad")
+        response = client.get("/calendar/events/?week_offset=abc&month_offset=xyz&page=bad")
         assert response.status_code == 200
         assert response.context["week_offset"] == 0
         assert response.context["month_offset"] == 0
@@ -647,14 +597,13 @@ def describe_sync_general_calendar_skips_blank_url():
         assert CalendarEvent.objects.filter(guild__isnull=True).count() == 2
 
 
-def describe_refresh_stale_sources_local_class_exception():
-    def it_swallows_exceptions_from_sync_local_class_events():
-        # Lines 316-317: the `except Exception: pass` around sync_local_class_events.
-        from hub.calendar_service import refresh_stale_sources
+def describe_sync_all_sources_local_class_exception():
+    def it_captures_exceptions_from_sync_local_class_events():
+        from hub.calendar_service import sync_all_sources
 
         with patch("hub.calendar_service.sync_local_class_events", side_effect=RuntimeError("db gone")):
-            # Should not raise — exception is swallowed.
-            refresh_stale_sources(max_age_seconds=0)
+            errors = sync_all_sources()
+        assert any("local classes" in e and "db gone" in e for e in errors)
 
 
 def describe_calendar_week_label_cross_month():
@@ -673,8 +622,7 @@ def describe_calendar_week_label_cross_month():
         fake_now = dj_tz.now().replace(year=2026, month=4, day=28, hour=12, minute=0, second=0, microsecond=0)
         with patch("hub.views.dj_timezone") as mock_tz:
             mock_tz.now.return_value = fake_now
-            with patch("hub.views.refresh_stale_sources"):
-                response = client.get("/calendar/events/?week_offset=0")
+            response = client.get("/calendar/events/?week_offset=0")
         assert response.status_code == 200
         week_label = response.context["week_label"]
         # Cross-month format: "Apr 28 – May 4, 2026"
