@@ -141,17 +141,6 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
                 django_messages.success(request, f"[DEV] Login code: {context['code']}")
         super().send_mail(template_prefix, email, context)
 
-    def add_message(
-        self,
-        request: HttpRequest,
-        level: int,
-        message_template: str | None = None,
-        message_context: dict | None = None,
-        extra_tags: str = "",
-        message: str | None = None,
-    ) -> None:
-        super().add_message(request, level, message_template, message_context, extra_tags=extra_tags, message=message)
-
     def _sync_permissions(self, user: object) -> None:
         """Sync is_staff/is_superuser from the user's Member fog_role.
 

@@ -4,7 +4,6 @@ import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.contrib import messages
 from django.contrib.auth.models import User
 from django.test import RequestFactory, override_settings
 from django.urls import reverse
@@ -728,73 +727,6 @@ def describe_AdminRedirectAccountAdapter():
             with patch.object(AdminRedirectAccountAdapter.__bases__[0], "send_mail"):
                 adapter.send_mail("account/email/login_code", "user@example.com", context)
             # Should not raise — just doesn't stash anything
-
-    def describe_add_message():
-        def it_does_not_append_dev_code_even_when_stash_attribute_is_present(rf, settings):
-            from django.contrib.messages import get_messages
-            from django.contrib.messages.storage.fallback import FallbackStorage
-
-            from plfog.adapters import AdminRedirectAccountAdapter
-
-            settings.DEBUG = True
-            adapter = AdminRedirectAccountAdapter()
-            request = rf.get("/")
-            setattr(request, "session", {})
-            setattr(request, "_messages", FallbackStorage(request))
-            request._dev_login_code = "654321"
-
-            adapter.add_message(
-                request,
-                messages.SUCCESS,
-                message_template="account/messages/login_code_sent.txt",
-                message_context={"recipient": "user@example.com", "email": "user@example.com"},
-            )
-
-            all_messages = [str(m) for m in get_messages(request)]
-            assert not any("[DEV]" in m for m in all_messages)
-
-        def it_does_not_append_code_when_none_stashed(rf, settings):
-            from django.contrib.messages import get_messages
-            from django.contrib.messages.storage.fallback import FallbackStorage
-
-            from plfog.adapters import AdminRedirectAccountAdapter
-
-            settings.DEBUG = True
-            adapter = AdminRedirectAccountAdapter()
-            request = rf.get("/")
-            setattr(request, "session", {})
-            setattr(request, "_messages", FallbackStorage(request))
-
-            adapter.add_message(
-                request,
-                messages.SUCCESS,
-                message_template="account/messages/login_code_sent.txt",
-                message_context={"recipient": "user@example.com", "email": "user@example.com"},
-            )
-
-            all_messages = [str(m) for m in get_messages(request)]
-            assert not any("[DEV]" in m for m in all_messages)
-
-        def it_does_not_remove_stash_attribute_from_request(rf, settings):
-            from django.contrib.messages.storage.fallback import FallbackStorage
-
-            from plfog.adapters import AdminRedirectAccountAdapter
-
-            settings.DEBUG = True
-            adapter = AdminRedirectAccountAdapter()
-            request = rf.get("/")
-            setattr(request, "session", {})
-            setattr(request, "_messages", FallbackStorage(request))
-            request._dev_login_code = "111222"
-
-            adapter.add_message(
-                request,
-                messages.SUCCESS,
-                message_template="account/messages/login_code_sent.txt",
-                message_context={"recipient": "user@example.com", "email": "user@example.com"},
-            )
-
-            assert request._dev_login_code == "111222"
 
 
 def describe_get_login_redirect_url_public_surface():
