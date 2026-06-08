@@ -103,3 +103,29 @@ def describe_notify_admin_charge_failed():
         assert TransactionalEmailLog.objects.filter(trigger_kind="billing.charge_failed_admin").exists()
         log = TransactionalEmailLog.objects.get(trigger_kind="billing.charge_failed_admin")
         assert log.status == TransactionalEmailLog.Status.SENT
+
+    def it_logs_tab_charge_failed_activity():
+        from core.models import SiteActivity
+
+        member = MemberFactory(_pre_signup_email="fail@example.com")
+        tab = TabFactory(member=member)
+        charge = TabChargeFactory(tab=tab, status=TabCharge.Status.FAILED, amount=Decimal("20.00"))
+
+        notify_admin_charge_failed(charge)
+
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TAB_CHARGE_FAILED).exists()
+
+
+def describe_send_receipt_activity():
+    def it_logs_tab_charged_activity_with_email_log():
+        from core.models import SiteActivity
+
+        member = MemberFactory(_pre_signup_email="receipt@example.com")
+        tab = TabFactory(member=member)
+        charge = TabChargeFactory(tab=tab, status=TabCharge.Status.SUCCEEDED, amount=Decimal("60.00"))
+
+        send_receipt(charge)
+
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TAB_CHARGED).exists()
+        activity = SiteActivity.objects.get(kind=SiteActivity.Kind.TAB_CHARGED)
+        assert activity.email_log is not None

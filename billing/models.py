@@ -411,6 +411,9 @@ class Tab(models.Model):
                 product=product,
             )
             entry.snapshot_splits(splits)
+            from core.models import SiteActivity
+
+            SiteActivity.log(SiteActivity.Kind.TAB_ENTRY_ADDED, actor=added_by, target=entry)
             return entry
 
     def lock(self, reason: str) -> None:

@@ -35,12 +35,20 @@ def send_receipt(charge: TabCharge) -> None:
 
     from core import email as core_email
 
-    core_email.send(
+    email_log = core_email.send(
         to=member.primary_email,
         subject=f"Past Lives Makerspace — Receipt for ${charge.amount}",
         trigger_kind="billing.receipt",
         text_body=text_body,
         html_body=html_body,
+    )
+    from core.models import SiteActivity
+
+    SiteActivity.log(
+        SiteActivity.Kind.TAB_CHARGED,
+        actor=member.user,
+        target=charge,
+        email_log=email_log,
     )
 
     charge.receipt_sent_at = timezone.now()
@@ -67,3 +75,6 @@ def notify_admin_charge_failed(charge: TabCharge) -> None:
         trigger_kind="billing.charge_failed_admin",
         text_body=text_body,
     )
+    from core.models import SiteActivity
+
+    SiteActivity.log(SiteActivity.Kind.TAB_CHARGE_FAILED, actor=member.user, target=charge)

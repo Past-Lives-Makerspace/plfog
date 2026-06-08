@@ -153,3 +153,28 @@ def describe_take_funding_snapshot_command():
         assert snap is not None
         expected_label = timezone.now().strftime("%B %Y")
         assert snap.cycle_label == expected_label
+
+    def it_logs_funding_snapshot_taken_activity_when_votes_exist():
+        from core.models import SiteActivity
+
+        g1 = GuildFactory(name="G1")
+        g2 = GuildFactory(name="G2")
+        g3 = GuildFactory(name="G3")
+        member = MemberFactory()
+        VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
+
+        snap = FundingSnapshot.take()
+
+        assert snap is not None
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN).exists()
+        activity = SiteActivity.objects.get(kind=SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN)
+        assert activity.target_id == snap.pk
+        assert activity.actor is None
+
+    def it_does_not_log_funding_snapshot_taken_activity_when_no_votes():
+        from core.models import SiteActivity
+
+        result = FundingSnapshot.take()
+
+        assert result is None
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN).exists()

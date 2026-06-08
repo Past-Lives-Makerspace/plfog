@@ -799,7 +799,7 @@ class FundingSnapshot(models.Model):
 
         cycle_label = title.strip() if title.strip() else timezone.now().strftime("%B %Y")
 
-        return cls.objects.create(
+        snapshot = cls.objects.create(
             cycle_label=cycle_label,
             contributor_count=paying_count,
             funding_pool=calc["total_pool"],
@@ -807,6 +807,10 @@ class FundingSnapshot(models.Model):
             raw_votes=raw_votes,
             results=calc,
         )
+        from core.models import SiteActivity
+
+        SiteActivity.log(SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN, target=snapshot)
+        return snapshot
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         super().save(*args, **kwargs)
