@@ -353,3 +353,32 @@ class UserProfile(models.Model):
     @property
     def is_onboarded(self) -> bool:
         return self.onboarding_completed_at is not None
+
+
+class TransactionalEmailLog(models.Model):
+    """One row per transactional email attempted — sent or failed.
+
+    Written by ``core.email.send()`` on every attempt so the admin Email Log
+    tab can audit whether confirmation/receipt emails are actually going out.
+    """
+
+    class Status(models.TextChoices):
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    to_email = models.CharField(max_length=254, help_text="Recipient(s); comma-joined when multiple.")
+    subject = models.CharField(max_length=500, help_text="Email subject line.")
+    trigger_kind = models.CharField(max_length=100, help_text="Which workflow sent it, e.g. 'billing.receipt'.")
+    status = models.CharField(max_length=10, choices=Status.choices, help_text="Send outcome.")
+    error_message = models.TextField(blank=True, default="", help_text="Exception text when status=failed.")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["-created_at"]),
+            models.Index(fields=["status", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_status_display()} → {self.to_email} ({self.trigger_kind})"
