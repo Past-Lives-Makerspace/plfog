@@ -502,6 +502,12 @@ UNFOLD = {
             {
                 "items": [
                     {
+                        "title": "Site Activity",
+                        "icon": "monitoring",
+                        "link": reverse_lazy("manage_activity"),
+                        "permission": lambda request: request.user.is_superuser,
+                    },
+                    {
                         "title": "Manage Classes",
                         "icon": "school",
                         "link": reverse_lazy("classes:admin_classes"),
