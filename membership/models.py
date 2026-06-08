@@ -233,6 +233,13 @@ class Member(models.Model):
         ordering = ["full_legal_name"]
         verbose_name = "Member"
         verbose_name_plural = "Members"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["instructor_slug"],
+                condition=~models.Q(instructor_slug=""),
+                name="uq_member_instructor_slug",
+            ),
+        ]
 
     DIRECTORY_TOGGLEABLE_FIELDS: tuple[str, ...] = (
         "pronouns",

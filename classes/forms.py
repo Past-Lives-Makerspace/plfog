@@ -590,30 +590,14 @@ class RegistrationForm(forms.ModelForm):
     def _find_auto_apply_discount(self) -> DiscountCode | None:
         """Pick the class-scoped auto-apply code that yields the lowest final price.
 
-        Walks every currently-valid DiscountCode where ``class_offering`` is
-        this offering and ``auto_apply=True``. Returns the one that drops the
-        post-member-discount price furthest. Returns ``None`` when no such
-        code exists.
+        Computes the post-member-discount base this registrant would pay, then
+        defers the cheapest-code selection to the DiscountCode manager. Returns
+        ``None`` when no qualifying auto-apply code exists.
         """
         base = self.offering.price_cents
-        if self.member is not None and self.offering.member_discount_pct:
-            base = int(base * (100 - self.offering.member_discount_pct) / 100)
-        best: DiscountCode | None = None
-        best_price: int | None = None
-        candidates = DiscountCode.objects.filter(
-            class_offering=self.offering,
-            is_active=True,
-            is_approved=True,
-            auto_apply=True,
-        )
-        for code in candidates:
-            if not code.is_currently_valid():
-                continue
-            final = code.apply_to(base)
-            if best_price is None or final < best_price:
-                best = code
-                best_price = final
-        return best
+        if self.member is not None and self.offering.member_price_cents is not None:
+            base = self.offering.member_price_cents
+        return DiscountCode.objects.best_auto_apply_for(self.offering, base)
 
     def _inject_custom_question_fields(self) -> None:
         """Add one dynamic form field per active RegistrationQuestion.

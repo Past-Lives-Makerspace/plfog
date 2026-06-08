@@ -50,15 +50,14 @@ def describe_waitlist():
             assert waiting.waitlist_notified_at is not None
 
         def it_does_nothing_when_no_spot_actually_opens(db):
-            offering = ClassOfferingFactory(capacity=2)
-            _make_reg(offering, Registration.Status.CONFIRMED, 1)
+            offering = ClassOfferingFactory(capacity=1)
+            _make_reg(offering, Registration.Status.CONFIRMED, 1)  # the only spot is taken
             waiting = _make_reg(offering, Registration.Status.WAITLISTED, 2)
-            # spots_remaining was already > 0; promote should noop
+            # spots_remaining == 0 → promote must noop and notify no one.
             result = offering.promote_next_from_waitlist()
             waiting.refresh_from_db()
-            # Either the waiter gets notified immediately or nothing happens —
-            # the test asserts the method is safe to call against an open spot.
-            assert result is None or result.pk == waiting.pk
+            assert result is None
+            assert waiting.waitlist_notified_at is None
 
         def it_skips_already_notified_waitlist_rows(db):
             offering = ClassOfferingFactory(capacity=1)

@@ -15,7 +15,15 @@ CACHE_TIMEOUT = 86400  # 24 hours
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """Refuse all redirects so a compromised upstream can't SSRF via 301/302."""
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
+    ) -> None:
         return None
 
 

@@ -214,9 +214,7 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         slug=slug,
     )
     settings_obj = ClassSettings.load()
-    member_price_cents = None
-    if offering.member_discount_pct:
-        member_price_cents = int(offering.price_cents * (100 - offering.member_discount_pct) / 100)
+    member_price_cents = offering.member_price_cents
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
     related_offerings = list(
         ClassOffering.objects.public()
@@ -415,9 +413,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         registration.save(update_fields=["stripe_session_id", "amount_paid_cents"])
         return redirect(checkout["url"])
 
-    member_price_cents = None
-    if offering.member_discount_pct:
-        member_price_cents = int(offering.price_cents * (100 - offering.member_discount_pct) / 100)
+    member_price_cents = offering.member_price_cents
 
     return render(
         request,
@@ -911,9 +907,7 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     if not (is_admin or is_owner):
         return HttpResponseForbidden("You can only preview your own classes.")
     settings_obj = ClassSettings.load()
-    member_price_cents = None
-    if offering.member_discount_pct:
-        member_price_cents = int(offering.price_cents * (100 - offering.member_discount_pct) / 100)
+    member_price_cents = offering.member_price_cents
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
     return render(
         request,
@@ -1118,10 +1112,11 @@ def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
     """
     offering = get_object_or_404(ClassOffering, pk=pk)
     if request.method == "POST":
-        row = offering.approvals.filter(
-            role=ClassApproval.Role.ADMIN, decision=""
-        ).first() or ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
-        row.decide(ClassApproval.Decision.APPROVED, user=request.user)
+        try:
+            row = offering.approve(request.user)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect("classes:admin_class_detail", pk=offering.pk)
         send_class_review_decision(offering, row)
         if offering.status == ClassOffering.Status.PUBLISHED:
             messages.success(request, f"{offering.title} is published.")

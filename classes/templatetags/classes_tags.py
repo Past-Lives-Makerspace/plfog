@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import re
 from datetime import timedelta
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from django import template
 from django.http import QueryDict
+
+if TYPE_CHECKING:
+    from classes.models import ClassApproval
 
 register = template.Library()
 
@@ -22,7 +25,7 @@ _YOUTUBE_PATTERNS = (
 
 
 @register.filter
-def first_with_role(approvals, role: str):
+def first_with_role(approvals: Iterable[ClassApproval], role: str) -> ClassApproval | None:
     """Return the first ClassApproval row from ``approvals`` with the given role.
 
     Used by the reviewer page to render a per-required-role progress list
