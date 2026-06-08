@@ -24,4 +24,6 @@ urlpatterns = [
     path("webpush/vapid-key/", views.vapid_key, name="webpush_vapid_key"),
     path("webpush/subscribe/", views.subscribe, name="webpush_subscribe"),
     path("webpush/unsubscribe/", views.unsubscribe, name="webpush_unsubscribe"),
+    # Staff activity dashboard
+    path("manage/activity/", views.site_activity, name="manage_activity"),
 ]

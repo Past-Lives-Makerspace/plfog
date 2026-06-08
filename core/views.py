@@ -5,7 +5,9 @@ import logging
 from pathlib import Path
 
 from django.conf import settings
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_POST
@@ -26,7 +28,7 @@ from django.views.decorators.http import require_GET, require_POST
 from allauth.account.internal.stagekit import clear_login
 
 from .forms import FindAccountForm, NewsletterSignupForm
-from .models import PushSubscription
+from .models import PushSubscription, SiteActivity, TransactionalEmailLog
 
 logger = logging.getLogger(__name__)
 
@@ -247,3 +249,38 @@ def unsubscribe(request):
     except Exception:
         logger.exception("Push unsubscription failed")
         return JsonResponse({"error": "Unsubscription failed. Please try again."}, status=500)
+
+
+@staff_member_required
+def site_activity(request: HttpRequest) -> HttpResponse:
+    """Staff dashboard: a chronological site-wide event feed and an email audit log."""
+    tab = request.GET.get("tab", "feed")
+
+    activities = SiteActivity.objects.select_related("actor", "target_ct", "email_log").all()
+    kind = request.GET.get("kind", "").strip()
+    if kind:
+        activities = activities.filter(kind=kind)
+    actor_q = request.GET.get("actor", "").strip()
+    if actor_q:
+        activities = activities.filter(actor__email__icontains=actor_q)
+    feed_page = Paginator(activities, 50).get_page(request.GET.get("page"))
+
+    emails = TransactionalEmailLog.objects.all()
+    status = request.GET.get("status", "").strip()
+    if status:
+        emails = emails.filter(status=status)
+    email_page = Paginator(emails, 50).get_page(request.GET.get("epage"))
+
+    return render(
+        request,
+        "hub/admin/activity.html",
+        {
+            "active_tab": tab,
+            "feed_page": feed_page,
+            "email_page": email_page,
+            "kinds": SiteActivity.Kind.choices,
+            "kind": kind,
+            "actor_q": actor_q,
+            "status": status,
+        },
+    )
