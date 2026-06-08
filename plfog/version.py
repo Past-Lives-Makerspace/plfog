@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "2.3.2"
+VERSION = "2.4.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.4.0",
+        "date": "2026-06-08",
+        "title": "Notifications, redesigned Guild Pages, and a site-wide Activity dashboard",
+        "changes": [
+            "You can now get notified about what matters to you. A bell in the top-right corner shows your recent notifications — new classes, voting reminders, billing updates, guild announcements, and more. Head to Settings → Notifications to choose which ones reach you as browser push alerts or emails, and which ones you just see in the bell.",
+            "Guild pages have been completely redesigned. Each guild now has a full hero image, a photo gallery of up to 10 images, an optional YouTube video, a meeting schedule, a FAQ section, an announcements board, a links section, and an optional member roster. Guild leads can manage all of it from the updated edit page.",
+            "Admins now have a site-wide Activity dashboard at /manage/activity. It shows a chronological feed of everything happening across the site — logins, profile updates, votes, tab charges, class registrations, and more — with a second tab for auditing every transactional email that has been sent or failed.",
+        ],
+    },
     {
         "version": "2.3.2",
         "date": "2026-06-07",
