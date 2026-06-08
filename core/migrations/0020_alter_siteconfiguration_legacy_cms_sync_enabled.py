@@ -4,15 +4,18 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('core', '0019_alter_siteconfiguration_legacy_cms_last_synced_at_and_more'),
+        ("core", "0019_alter_siteconfiguration_legacy_cms_last_synced_at_and_more"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='siteconfiguration',
-            name='legacy_cms_sync_enabled',
-            field=models.BooleanField(default=False, help_text='When enabled, classes.pastlives.space offerings sync into plfog automatically each morning.', verbose_name='Sync offerings from legacy CMS'),
+            model_name="siteconfiguration",
+            name="legacy_cms_sync_enabled",
+            field=models.BooleanField(
+                default=False,
+                help_text="When enabled, classes.pastlives.space offerings sync into plfog automatically each morning.",
+                verbose_name="Sync offerings from legacy CMS",
+            ),
         ),
     ]
