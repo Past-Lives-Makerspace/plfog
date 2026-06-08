@@ -6,7 +6,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.db import IntegrityError
 
-from core.models import Invite, SiteConfiguration
+from core.models import Invite, SiteConfiguration, TransactionalEmailLog
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
@@ -89,7 +89,7 @@ def describe_Invite():
     def describe_send_invite_email():
         def it_sends_plaintext_email(admin_user):
             invite = Invite.objects.create(email="new@example.com", invited_by=admin_user)
-            with patch("core.models.send_mail") as mock_send:
+            with patch("core.email.send_mail") as mock_send:
                 invite.send_invite_email()
 
                 mock_send.assert_called_once()
@@ -102,7 +102,7 @@ def describe_Invite():
         def it_includes_signup_url_with_email(admin_user, settings):
             settings.DEBUG = True
             invite = Invite.objects.create(email="test@example.com", invited_by=admin_user)
-            with patch("core.models.send_mail") as mock_send:
+            with patch("core.email.send_mail") as mock_send:
                 invite.send_invite_email()
 
                 message = mock_send.call_args[1]["message"]
@@ -111,7 +111,7 @@ def describe_Invite():
         def it_url_encodes_plus_addressing_in_email(admin_user, settings):
             settings.DEBUG = True
             invite = Invite.objects.create(email="user+tag@example.com", invited_by=admin_user)
-            with patch("core.models.send_mail") as mock_send:
+            with patch("core.email.send_mail") as mock_send:
                 invite.send_invite_email()
 
                 message = mock_send.call_args[1]["message"]
@@ -121,7 +121,7 @@ def describe_Invite():
     def describe_create_and_send():
         def it_creates_invite_and_member_placeholder(admin_user):
             MembershipPlanFactory()
-            with patch("core.models.send_mail"):
+            with patch("core.email.send_mail"):
                 invite = Invite.create_and_send(email="fresh@example.com", invited_by=admin_user)
 
             assert invite.email == "fresh@example.com"
@@ -132,10 +132,9 @@ def describe_Invite():
 
         def it_sends_invite_email(admin_user):
             MembershipPlanFactory()
-            with patch("core.models.send_mail") as mock_send:
-                Invite.create_and_send(email="send@example.com", invited_by=admin_user)
+            Invite.create_and_send(email="send@example.com", invited_by=admin_user)
 
-            mock_send.assert_called_once()
+            assert TransactionalEmailLog.objects.filter(trigger_kind="core.invite").exists()
 
         def it_raises_when_active_member_exists(admin_user):
             from tests.membership.factories import MemberFactory
@@ -146,7 +145,7 @@ def describe_Invite():
 
         def it_raises_when_pending_invite_exists(admin_user):
             MembershipPlanFactory()
-            with patch("core.models.send_mail"):
+            with patch("core.email.send_mail"):
                 Invite.create_and_send(email="dup@example.com", invited_by=admin_user)
 
             with pytest.raises(ValueError, match="pending invite"):

@@ -7,7 +7,6 @@ from typing import Any
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
-from django.core.mail import send_mail
 from django.db import models
 from django.utils import timezone
 
@@ -253,16 +252,18 @@ class Invite(models.Model):
         query = urlencode({"email": self.email})
         signup_url = f"{protocol}://{current_site.domain}/accounts/signup/?{query}"
 
-        send_mail(
+        from core import email as core_email
+
+        core_email.send(
+            to=self.email,
             subject="You're invited to Past Lives Makerspace",
-            message=(
+            trigger_kind="core.invite",
+            text_body=(
                 f"You've been invited to join Past Lives Makerspace!\n\n"
                 f"Click the link below to create your account:\n\n"
                 f"{signup_url}\n\n"
                 f"If you didn't expect this invite, you can ignore this email."
             ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[self.email],
         )
 
 

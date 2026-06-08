@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.contrib.sites.models import Site
-from django.core.mail import send_mail
-
 from django import forms
 from django.db import models
 
@@ -63,14 +61,16 @@ class FindAccountForm(forms.Form):
         protocol = "https" if not settings.DEBUG else "http"
         login_url = f"{protocol}://{current_site.domain}/accounts/login/"
 
-        send_mail(
+        from core import email as core_email
+
+        core_email.send(
+            to=member.primary_email,
             subject="Your Past Lives Account",
-            message=(
+            trigger_kind="core.find_account",
+            text_body=(
                 f"Hi {member.preferred_name or member.full_legal_name},\n\n"
                 f"Your account email is: {member.primary_email}\n\n"
                 f"You can log in here:\n{login_url}\n\n"
                 f"If you didn't request this, you can safely ignore this email."
             ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[member.primary_email],
         )
