@@ -279,6 +279,25 @@ def describe_user_settings():
         assert member.phone == "555-1234"
         assert any("updated" in str(m) for m in response.context["messages"])
 
+    def it_logs_site_activity_on_successful_profile_update(client: Client):
+        from core.models import SiteActivity
+
+        user = User.objects.create_user(username="activityeditor", password="pass")
+        member = user.member
+        client.login(username="activityeditor", password="pass")
+
+        client.post(
+            "/settings/",
+            {"form_id": "profile", "preferred_name": "Ed", "phone": "555-1234"},
+            follow=True,
+        )
+
+        assert SiteActivity.objects.filter(
+            kind=SiteActivity.Kind.PROFILE_UPDATED,
+            actor=user,
+            target_id=member.pk,
+        ).exists()
+
     def it_strips_whitespace_from_post_data(client: Client):
         user = User.objects.create_user(username="stripper", password="pass")
         member = user.member

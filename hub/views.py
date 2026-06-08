@@ -604,6 +604,9 @@ def user_settings(request: HttpRequest) -> HttpResponse:
         profile_form = ProfileSettingsForm(request.POST, request.FILES, instance=member)
         if profile_form.is_valid():
             profile_form.save()
+            from core.models import SiteActivity
+
+            SiteActivity.log(SiteActivity.Kind.PROFILE_UPDATED, actor=request.user, target=member)
             messages.success(request, "Profile updated.")
             return redirect(f"{request.path}?tab=profile")
     elif member is not None:
