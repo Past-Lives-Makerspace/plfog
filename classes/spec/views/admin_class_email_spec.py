@@ -94,14 +94,14 @@ def describe_admin_class_email():
         assert len(mail.outbox) == 0
 
 
-def describe_admin_class_detail_students():
-    def it_shows_registrations_on_class_detail(admin_user, client):
+def describe_admin_class_registrations_students():
+    def it_shows_registrations_on_registrations_tab(admin_user, client):
         offering = ClassOfferingFactory()
         RegistrationFactory(
             class_offering=offering, first_name="Alice", last_name="Smith", status=Registration.Status.CONFIRMED
         )
         client.force_login(admin_user)
-        response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
         assert b"Alice" in response.content
         assert b"Smith" in response.content
@@ -110,6 +110,6 @@ def describe_admin_class_detail_students():
     def it_shows_empty_state_when_no_registrations(admin_user, client):
         offering = ClassOfferingFactory()
         client.force_login(admin_user)
-        response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
         assert b"No registrations yet" in response.content

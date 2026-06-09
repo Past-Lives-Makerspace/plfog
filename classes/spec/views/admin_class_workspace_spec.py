@@ -72,3 +72,25 @@ def describe_class_discount_codes_tab():
         client.force_login(admin_user)
         resp = client.get(reverse("classes:admin_class_discount_codes", kwargs={"pk": offering.pk}))
         assert b"GLOBAL5" in resp.content
+
+
+def describe_class_overview_tab():
+    def it_renders_summary_and_actions(admin_user, client, db):
+        from classes.models import ClassOffering
+
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        resp = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        assert resp.status_code == 200
+        # Summary + Edit action present
+        assert reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}).encode() in resp.content
+        # Sub-tab nav present (Overview is now part of the workspace)
+        assert reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}).encode() in resp.content
+
+    def it_no_longer_shows_the_inline_student_email_form(admin_user, client, db):
+        offering = ClassOfferingFactory()
+        RegistrationFactory(class_offering=offering)
+        client.force_login(admin_user)
+        resp = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        # The bulk-email POST form moved to the Registrations tab; Overview no longer posts to admin_class_email.
+        assert reverse("classes:admin_class_email", kwargs={"pk": offering.pk}).encode() not in resp.content

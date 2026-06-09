@@ -1185,26 +1185,14 @@ def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
         .annotate(registration_count=Count("registrations")),
         pk=pk,
     )
-    registrations = (
-        offering.registrations.select_related("member")
-        .prefetch_related("custom_answers__question")
-        .order_by("-registered_at")
-    )
-    active_count = registrations.exclude(
-        status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED],
-    ).count()
-    waitlist_registrations = list(
-        offering.registrations.filter(status=Registration.Status.WAITLISTED).order_by("registered_at")
-    )
     return render(
         request,
         "classes/admin/class_detail.html",
         {
             "active_tab": "classes",
-            "waitlist_registrations": waitlist_registrations,
+            "active_subtab": "overview",
             "offering": offering,
-            "registrations": registrations,
-            "active_registration_count": active_count,
+            **_class_workspace_counts(offering),
         },
     )
 
