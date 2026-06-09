@@ -19,6 +19,21 @@ urlpatterns = [
         name="hub_guild_image_delete",
     ),
     path(
+        "guilds/<int:pk>/images/upload/",
+        views.guild_image_upload,
+        name="hub_guild_image_upload",
+    ),
+    path(
+        "guilds/<int:pk>/images/reorder/",
+        views.guild_image_reorder,
+        name="hub_guild_image_reorder",
+    ),
+    path(
+        "guilds/<int:pk>/images/<int:image_pk>/alt/",
+        views.guild_image_alt_update,
+        name="hub_guild_image_alt",
+    ),
+    path(
         "guilds/<int:pk>/announcements/<int:announcement_pk>/delete/",
         views.guild_announcement_delete,
         name="hub_guild_announcement_delete",

@@ -296,6 +296,116 @@
 }
 
 /* ========================================
+   Image Upload Zone
+   ======================================== */
+.cls-image-upload-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 1.25rem;
+    border: 2px dashed rgba(238, 180, 75, 0.3);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    background: rgba(238, 180, 75, 0.02);
+}
+
+.cls-image-upload-zone:hover,
+.cls-image-upload-zone.drag-hover {
+    border-color: rgba(238, 180, 75, 0.6);
+    background: rgba(238, 180, 75, 0.04);
+}
+
+.cls-image-upload-zone.uploading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.cls-image-upload-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-tuscan-yellow, #EEB44B);
+}
+
+.cls-image-upload-hint {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted, #96ACBB);
+}
+
+.cls-image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.75rem;
+    margin: 0.5rem 0 0.75rem;
+}
+
+.cls-image-cell {
+    position: relative;
+    background: rgba(9, 46, 76, 0.18);
+    border: 1px solid rgba(26, 69, 104, 0.4);
+    border-radius: 8px;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    cursor: grab;
+    transition: opacity 0.2s, transform 0.15s;
+}
+
+.cls-image-cell.dragging { opacity: 0.4; transform: scale(0.95); }
+.cls-image-cell.drag-over { border-color: var(--color-tuscan-yellow, #EEB44B); box-shadow: 0 0 0 2px rgba(238, 180, 75, 0.3); }
+
+.cls-image-thumb {
+    width: 100%;
+    height: 100px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.cls-image-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.cls-image-fields {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+}
+
+.cls-image-alt {
+    flex: 1;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+    border: 1px solid var(--hub-border, rgba(255, 255, 255, 0.08));
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.15);
+    color: inherit;
+}
+
+.cls-image-remove {
+    background: none;
+    border: none;
+    color: #f87171;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0 0.3rem;
+    line-height: 1;
+}
+
+.cls-image-remove:hover { color: #ef4444; }
+
+.cls-image-drag-handle {
+    position: absolute;
+    top: 0.3rem;
+    right: 0.4rem;
+    font-size: 0.9rem;
+    color: var(--hub-text-muted, #96ACBB);
+    opacity: 0.5;
+    cursor: grab;
+}
+
+/* ========================================
    Buttons
    ======================================== */
 .pl-btn {

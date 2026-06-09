@@ -579,9 +579,12 @@ def describe_guild_edit_delete_controls():
         client.login(username="admin_del", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert response.status_code == 200
-        # confirm-modal ids built via the |add filter must match the trigger ids
-        assert f"del-img-{img.pk}".encode() in response.content
+
+        # Gallery manager should be present with the image ID
+        assert f'data-id="{img.pk}"'.encode() in response.content
+        # AJAX prefixes should be present
+        assert f'/guilds/{guild.pk}/images/'.encode() in response.content
+
+        # Announcement delete control is still a standard modal trigger
         assert f"del-ann-{announcement.pk}".encode() in response.content
-        # and the delete endpoints are wired into the modals
-        assert reverse("hub_guild_image_delete", args=[guild.pk, img.pk]).encode() in response.content
         assert reverse("hub_guild_announcement_delete", args=[guild.pk, announcement.pk]).encode() in response.content

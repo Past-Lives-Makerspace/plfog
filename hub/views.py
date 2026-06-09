@@ -778,8 +778,98 @@ def guild_image_delete(request: HttpRequest, pk: int, image_pk: int) -> HttpResp
     image = get_object_or_404(GuildImage, pk=image_pk, guild=guild)
     image.image.delete(save=False)
     image.delete()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return HttpResponse(status=204)
     messages.success(request, "Image removed.")
     return redirect("hub_guild_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
+    """AJAX endpoint — upload a gallery image for this guild. Editor only."""
+    from membership.models import GuildImage
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    if guild.gallery_images.count() >= 10:
+        return JsonResponse({"error": "Maximum 10 gallery images."}, status=400)
+
+    file = request.FILES.get("image")
+    if not file:
+        return JsonResponse({"error": "No file provided."}, status=400)
+
+    # Check size (3MB limit matches ClassImage)
+    if file.size > 3 * 1024 * 1024:
+        return JsonResponse({"error": "Image must be under 3 MB."}, status=400)
+
+    next_order = (
+        (guild.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
+    )
+    img = GuildImage(guild=guild, image=file, sort_order=next_order)
+    img.save()
+
+    return JsonResponse({"id": img.pk, "url": img.image.url, "alt_text": img.alt_text})
+
+
+@login_required
+@require_POST
+def guild_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
+    """AJAX endpoint — reorder gallery images for this guild. Editor only."""
+    from membership.models import GuildImage
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    try:
+        payload = json.loads(request.body)
+        order = payload.get("order", [])
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    if not order:
+        return JsonResponse({"error": "No order provided"}, status=400)
+
+    # Reorder the images
+    images = {img.pk: img for img in guild.gallery_images.all()}
+    to_save = []
+    for idx, image_pk in enumerate(order):
+        if image_pk in images:
+            img = images[image_pk]
+            img.sort_order = idx
+            to_save.append(img)
+
+    GuildImage.objects.bulk_update(to_save, ["sort_order"])
+    return HttpResponse(status=204)
+
+
+@login_required
+@require_POST
+def guild_image_alt_update(request: HttpRequest, pk: int, image_pk: int) -> HttpResponse:
+    """AJAX endpoint — update alt text for a gallery image. Editor only."""
+    from membership.models import GuildImage
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    image = get_object_or_404(GuildImage, pk=image_pk, guild=guild)
+
+    try:
+        payload = json.loads(request.body)
+        alt_text = payload.get("alt_text", "")
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    image.alt_text = alt_text
+    image.save(update_fields=["alt_text"])
+    return HttpResponse(status=204)
 
 
 @login_required

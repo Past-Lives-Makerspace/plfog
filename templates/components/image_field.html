@@ -36,18 +36,64 @@ Parameters (pass via {% include ... with %}):
             {% endif %}
         </label>
         {% if current_image %}
-        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem;">
+        <div id="image-preview-{{ field.auto_id }}" style="margin-bottom:0.75rem;">
             <img src="{{ current_image.url }}"
                  alt="Current {{ label|default:field.label|lower }}"
                  style="width:{{ tw }};height:{{ th }};border-radius:6px;object-fit:cover;border:1px solid var(--hub-border);">
+        </div>
+        {% else %}
+        <div id="image-preview-{{ field.auto_id }}" style="margin-bottom:0.75rem; display:none;"></div>
+        {% endif %}
+
+        <label class="cls-image-upload-zone" id="image-upload-zone-{{ field.auto_id }}">
+            <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept="image/*" style="display:none;">
+            <span class="cls-image-upload-label">{% if current_image %}Replace image{% else %}+ Upload {{ label|default:field.label|lower }}{% endif %}</span>
+            <span class="cls-image-upload-hint">Click or drag a file here</span>
+        </label>
+
+        {% if current_image %}
+        <div style="margin-top:0.5rem;">
             <button type="button"
+                    class="pl-btn pl-btn--secondary pl-btn--sm"
                     @click="$dispatch('open-confirm', '{{ modal_id }}')"
-                    style="background:transparent;border:1px solid #d9534f;color:#d9534f;font-size:0.75rem;padding:0.25rem 0.6rem;border-radius:4px;cursor:pointer;line-height:1;">
+                    style="font-size:0.75rem;padding:0.25rem 0.6rem;min-height:unset;">
                 {{ delete_button_text|default:"Delete" }}
             </button>
         </div>
         {% endif %}
-        <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept="image/*">
+
+        <script>
+        (function() {
+            const zone = document.getElementById('image-upload-zone-{{ field.auto_id }}');
+            if (!zone) return;
+            const input = document.getElementById('{{ field.id_for_label }}');
+            const preview = document.getElementById('image-preview-{{ field.auto_id }}');
+            if (!input || !preview) return;
+
+            input.addEventListener('change', function() {
+                if (!this.files.length) return;
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.innerHTML = `<img src="${e.target.result}" style="width:{{ tw }};height:{{ th }};border-radius:6px;object-fit:cover;border:1px solid var(--hub-border);">`;
+                    preview.style.display = 'block';
+                    zone.querySelector('.cls-image-upload-label').textContent = 'Replace image';
+                };
+                reader.readAsDataURL(this.files[0]);
+            });
+
+            zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-hover'); });
+            zone.addEventListener('dragleave', () => zone.classList.remove('drag-hover'));
+            zone.addEventListener('drop', e => {
+                e.preventDefault();
+                zone.classList.remove('drag-hover');
+                const f = e.dataTransfer.files[0];
+                if (f && f.type.startsWith('image/')) {
+                    input.files = e.dataTransfer.files;
+                    input.dispatchEvent(new Event('change'));
+                }
+            });
+        })();
+        </script>
         {% if field.errors %}
         <ul class="pl-field-errors">
             {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
@@ -71,18 +117,64 @@ Parameters (pass via {% include ... with %}):
             {% endif %}
         </label>
         {% if current_image %}
-        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem;">
+        <div id="image-preview-{{ field.auto_id }}" style="margin-bottom:0.75rem;">
             <img src="{{ current_image.url }}"
                  alt="Current {{ label|default:field.label|lower }}"
                  style="width:{{ tw }};height:{{ th }};border-radius:50%;object-fit:cover;border:1px solid var(--hub-border);">
+        </div>
+        {% else %}
+        <div id="image-preview-{{ field.auto_id }}" style="margin-bottom:0.75rem; display:none;"></div>
+        {% endif %}
+
+        <label class="cls-image-upload-zone" id="image-upload-zone-{{ field.auto_id }}">
+            <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept="image/*" style="display:none;">
+            <span class="cls-image-upload-label">{% if current_image %}Replace image{% else %}+ Upload {{ label|default:field.label|lower }}{% endif %}</span>
+            <span class="cls-image-upload-hint">Click or drag a file here</span>
+        </label>
+
+        {% if current_image %}
+        <div style="margin-top:0.5rem;">
             <button type="button"
+                    class="pl-btn pl-btn--secondary pl-btn--sm"
                     @click="$dispatch('open-confirm', '{{ modal_id }}')"
-                    style="background:transparent;border:1px solid #d9534f;color:#d9534f;font-size:0.75rem;padding:0.25rem 0.6rem;border-radius:4px;cursor:pointer;line-height:1;">
+                    style="font-size:0.75rem;padding:0.25rem 0.6rem;min-height:unset;">
                 {{ delete_button_text|default:"Delete" }}
             </button>
         </div>
         {% endif %}
-        <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept="image/*">
+
+        <script>
+        (function() {
+            const zone = document.getElementById('image-upload-zone-{{ field.auto_id }}');
+            if (!zone) return;
+            const input = document.getElementById('{{ field.id_for_label }}');
+            const preview = document.getElementById('image-preview-{{ field.auto_id }}');
+            if (!input || !preview) return;
+
+            input.addEventListener('change', function() {
+                if (!this.files.length) return;
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.innerHTML = `<img src="${e.target.result}" style="width:{{ tw }};height:{{ th }};border-radius:50%;object-fit:cover;border:1px solid var(--hub-border);">`;
+                    preview.style.display = 'block';
+                    zone.querySelector('.cls-image-upload-label').textContent = 'Replace image';
+                };
+                reader.readAsDataURL(this.files[0]);
+            });
+
+            zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-hover'); });
+            zone.addEventListener('dragleave', () => zone.classList.remove('drag-hover'));
+            zone.addEventListener('drop', e => {
+                e.preventDefault();
+                zone.classList.remove('drag-hover');
+                const f = e.dataTransfer.files[0];
+                if (f && f.type.startsWith('image/')) {
+                    input.files = e.dataTransfer.files;
+                    input.dispatchEvent(new Event('change'));
+                }
+            });
+        })();
+        </script>
         {% if field.errors %}
         <ul class="pl-field-errors">
             {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
