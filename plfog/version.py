@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.5.0",
+        "date": "2026-06-08",
+        "title": "Booking-site fixes, a clearer teaching area, and email auditing",
+        "changes": [
+            "On the public booking site (book.pastlives.space), the 'Manage Classes & Workshops' and 'Manage My Classes' buttons now take you straight to the right place in your member dashboard — before, they led to a dead page.",
+            "Hosting classes is open to every member: there's no separate 'instructor' role anymore. Any member can create and manage a class or workshop — it still needs approval from the category's Guild Lead and an admin before it goes live. The teaching pages now live at a clearer /classes/teach address, and old links redirect there automatically.",
+            "The top bar on the booking site is tidier for signed-in members — the link back to your FOG dashboard and your 'Member' badge are now properly styled and only appear where they're useful.",
+            "Behind the scenes, every automatic email the site sends — receipts, class confirmations, invites, and more — is now recorded. Admins can review exactly what went out, and catch anything that failed to send, in the Email Log tab of the admin Activity area.",
+        ],
+    },
     {
         "version": "2.4.0",
         "date": "2026-06-08",
