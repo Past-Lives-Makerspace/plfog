@@ -968,9 +968,9 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
         "pending": pending.count(),
         "new_regs_week": Registration.objects.filter(registered_at__gte=week_ago).count(),
         "active_registrations": Registration.objects.filter(status=Registration.Status.CONFIRMED).count(),
-        "collected_30d": Registration.objects.filter(registered_at__gte=month_ago).aggregate(
-            total=Sum("amount_paid_cents")
-        )["total"]
+        "collected_30d": Registration.objects.filter(
+            registered_at__gte=month_ago, status=Registration.Status.CONFIRMED
+        ).aggregate(total=Sum("amount_paid_cents"))["total"]
         or 0,
     }
 

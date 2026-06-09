@@ -92,7 +92,30 @@ def describe_admin_overview():
             resp = client.get(reverse("classes:admin_overview"))
             assert resp.context["stats"]["collected_30d"] == 4500
 
+        def it_excludes_non_confirmed_amounts_from_collected(admin_user, client, db):
+            from classes.factories import RegistrationFactory
+            from classes.models import Registration
+
+            client.force_login(admin_user)
+            # A cancelled registration that nonetheless carries a paid amount must not
+            # count toward "collected" — only confirmed money is collected money.
+            RegistrationFactory(amount_paid_cents=9900, status=Registration.Status.CANCELLED)
+            resp = client.get(reverse("classes:admin_overview"))
+            assert resp.context["stats"]["collected_30d"] == 0
+
         def it_builds_a_14_day_registration_series(admin_user, client, db):
             client.force_login(admin_user)
             resp = client.get(reverse("classes:admin_overview"))
             assert len(resp.context["reg_by_day"]) == 14
+
+        def it_counts_todays_registration_in_the_series(admin_user, client, db):
+            import datetime
+
+            from classes.factories import RegistrationFactory
+
+            client.force_login(admin_user)
+            RegistrationFactory()
+            resp = client.get(reverse("classes:admin_overview"))
+            today = datetime.date.today()
+            today_entry = next(d for d in resp.context["reg_by_day"] if d["date"] == today)
+            assert today_entry["count"] == 1
