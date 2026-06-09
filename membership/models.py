@@ -14,6 +14,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from core.files import delete_orphan_on_replace
+from core.images import normalize_field_if_uploaded
 from core.validators import validate_image_size
 from membership.managers import MemberEmailManager
 
@@ -584,6 +585,12 @@ class Guild(models.Model):
         delete_orphan_on_replace(self, "banner_image")
         super().save(*args, **kwargs)
 
+    def add_gallery_images(self, files: list[Any]) -> None:
+        """Create GuildImage rows from uploaded files, appending after existing ones."""
+        start = self.gallery_images.count()
+        for i, img_file in enumerate(files):
+            GuildImage.objects.create(guild=self, image=img_file, sort_order=start + i)
+
     @property
     def active_leases(self) -> models.QuerySet[Lease]:
         return self.leases.filter(_active_lease_q())
@@ -602,6 +609,29 @@ class Guild(models.Model):
             ),
         )["total"]
         return total
+
+
+class GuildImage(models.Model):
+    """Gallery image for a guild page. Up to 10, enforced in the form."""
+
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="gallery_images", help_text="Parent guild.")
+    image = models.ImageField(upload_to="guilds/images/", validators=[validate_image_size], help_text="Gallery photo.")
+    alt_text = models.CharField(max_length=255, blank=True, help_text="Accessibility description.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+
+    def __str__(self) -> str:
+        return f"Image #{self.pk} for {self.guild.name}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        from django.conf import settings
+
+        delete_orphan_on_replace(self, "image")
+        normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
+        super().save(*args, **kwargs)
 
 
 class VotePreferenceQuerySet(models.QuerySet):

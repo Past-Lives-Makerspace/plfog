@@ -1,0 +1,36 @@
+"""BDD-style tests for guild content models."""
+
+import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
+
+from membership.models import GuildImage
+from tests.membership.factories import GuildFactory
+
+pytestmark = pytest.mark.django_db
+
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+    b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def describe_GuildImage():
+    def it_orders_by_sort_order_then_created():
+        guild = GuildFactory()
+        b = GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("b.png", _PNG), sort_order=2)
+        a = GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("a.png", _PNG), sort_order=1)
+        assert list(guild.gallery_images.all()) == [a, b]
+
+
+def describe_add_gallery_images():
+    def it_creates_rows_with_incrementing_sort_order():
+        guild = GuildFactory()
+        guild.add_gallery_images(
+            [
+                SimpleUploadedFile("1.png", _PNG),
+                SimpleUploadedFile("2.png", _PNG),
+            ]
+        )
+        assert guild.gallery_images.count() == 2
+        assert [g.sort_order for g in guild.gallery_images.all()] == [0, 1]
