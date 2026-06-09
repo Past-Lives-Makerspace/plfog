@@ -2,7 +2,7 @@
 <div x-data="{ open: false, src: '' }">
   <div class="pl-guild-gallery">
     {% for img in gallery_images %}
-    <button type="button" class="pl-guild-gallery__item" @click="src = '{{ img.image.url }}'; open = true">
+    <button type="button" class="pl-guild-gallery__item" data-src="{{ img.image.url }}" @click="src = $el.dataset.src; open = true">
       <img src="{{ img.image.url }}" alt="{{ img.alt_text }}" loading="lazy">
     </button>
     {% endfor %}
