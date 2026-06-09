@@ -74,3 +74,39 @@ def describe_manage_activity():
         )
         resp = client.get(reverse("manage_activity"), {"tab": "emails", "status": "sent"})
         assert resp.status_code == 200
+
+
+def describe_hub_sidebar_activity_link():
+    def _member(fog_role: str) -> User:
+        from membership.models import Member, MembershipPlan
+
+        plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
+        user = User.objects.create_user(
+            username=f"hub-{fog_role}@example.com", email=f"hub-{fog_role}@example.com", password="pw12345!"
+        )
+        Member.objects.update_or_create(
+            user=user,
+            defaults={
+                "full_legal_name": f"Hub {fog_role}",
+                "fog_role": fog_role,
+                "membership_plan": plan,
+                "status": Member.Status.ACTIVE,
+            },
+        )
+        return user
+
+    def it_appears_in_the_hub_sidebar_for_admins(client):
+        from membership.models import Member
+
+        client.force_login(_member(Member.FogRole.ADMIN))
+        resp = client.get("/members/")
+        assert resp.status_code == 200
+        assert reverse("manage_activity").encode() in resp.content
+
+    def it_is_hidden_from_non_admins(client):
+        from membership.models import Member
+
+        client.force_login(_member(Member.FogRole.MEMBER))
+        resp = client.get("/members/")
+        assert resp.status_code == 200
+        assert reverse("manage_activity").encode() not in resp.content
