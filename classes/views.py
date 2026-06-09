@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, TypedDict, cast
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.core.paginator import Paginator
-from django.db.models import Count, F, Min, Q, Sum
+from django.db.models import Count, F, Max, Min, Q, Sum
 from django.db.models.functions import TruncDate
 from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -1108,16 +1108,68 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
+class OverviewRange(TypedDict):
+    """One selectable lookback window for the overview metrics."""
+
+    key: str
+    label: str
+    days: int | None
+
+
+# Lookback windows for the overview's registration-driven metrics. Each key maps
+# to a span of days; "all" drops the lower bound so every registration counts.
+OVERVIEW_RANGES: list[OverviewRange] = [
+    {"key": "3", "label": "Last 3 days", "days": 3},
+    {"key": "7", "label": "Last 7 days", "days": 7},
+    {"key": "30", "label": "Last 30 days", "days": 30},
+    {"key": "90", "label": "Last 90 days", "days": 90},
+    {"key": "all", "label": "All time", "days": None},
+]
+OVERVIEW_DEFAULT_RANGE = "7"
+
+
 @classes_admin_access_required
 def admin_overview(request: HttpRequest) -> HttpResponse:
-    """Admin dashboard: approvals queue, waitlist pressure, recent registrations,
-    recent activity, and at-a-glance stats. Each panel links to the full
-    table/log it summarizes."""
+    """Admin dashboard: the approvals queue, classes happening this week, waitlist
+    pressure, recent registrations, recent activity, and at-a-glance stats.
+
+    The metric panels (stat tiles, recent sign-ups, trend chart) honor a
+    ``?range=`` lookback window so the numbers can be scoped; the approvals,
+    upcoming-classes, and waitlist panels always reflect current state."""
     now = timezone.now()
-    week_ago = now - timedelta(days=7)
-    month_ago = now - timedelta(days=30)
+
+    ranges_by_key = {r["key"]: r for r in OVERVIEW_RANGES}
+    requested_range = request.GET.get("range", OVERVIEW_DEFAULT_RANGE)
+    if requested_range not in ranges_by_key:
+        requested_range = OVERVIEW_DEFAULT_RANGE
+    selected_range = ranges_by_key[requested_range]
+    range_days = selected_range["days"]
+    range_start = now - timedelta(days=range_days) if range_days is not None else None
+
+    registrations = Registration.objects.all()
+    if range_start is not None:
+        registrations = registrations.filter(registered_at__gte=range_start)
 
     pending = ClassOffering.objects.pending_review().select_related("instructor", "category").order_by("created_at")
+
+    week_end = now + timedelta(days=7)
+    upcoming_classes = (
+        ClassOffering.objects.filter(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+            status=ClassOffering.Status.PUBLISHED,
+            sessions__starts_at__gte=now,
+            sessions__starts_at__lt=week_end,
+        )
+        .annotate(
+            next_session_at=Min(
+                "sessions__starts_at",
+                filter=Q(sessions__starts_at__gte=now, sessions__starts_at__lt=week_end),
+            )
+        )
+        .select_related("instructor")
+        .distinct()
+        .order_by("next_session_at")
+    )
+
     waitlist_classes = (
         ClassOffering.objects.annotate(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
             waiting=Count(
@@ -1129,31 +1181,33 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
         .select_related("instructor")
         .order_by("-waiting")
     )
-    recent_registrations = Registration.objects.select_related("class_offering").order_by("-registered_at")[:8]
+
+    recent_registrations = registrations.select_related("class_offering").order_by("-registered_at")[:8]
     recent_activity = CmsActivity.objects.select_related("class_offering", "registration", "actor").order_by(
         "-created_at"
     )[:8]
 
-    start = (now - timedelta(days=13)).date()
+    # Daily registration series across the window, bounded so long ranges stay legible.
+    chart_days = min(range_days or 30, 90)
+    chart_start = (now - timedelta(days=chart_days - 1)).date()
     counts = {
         row["day"]: row["c"]
-        for row in Registration.objects.filter(registered_at__date__gte=start)
+        for row in Registration.objects.filter(registered_at__date__gte=chart_start)
         .annotate(day=TruncDate("registered_at"))
         .values("day")
         .annotate(c=Count("pk"))
     }
     reg_by_day = [
-        {"date": start + timedelta(days=i), "count": counts.get(start + timedelta(days=i), 0)} for i in range(14)
+        {"date": chart_start + timedelta(days=i), "count": counts.get(chart_start + timedelta(days=i), 0)}
+        for i in range(chart_days)
     ]
 
+    confirmed = registrations.filter(status=Registration.Status.CONFIRMED)
     stats = {
         "pending": pending.count(),
-        "new_regs_week": Registration.objects.filter(registered_at__gte=week_ago).count(),
-        "active_registrations": Registration.objects.filter(status=Registration.Status.CONFIRMED).count(),
-        "collected_30d": Registration.objects.filter(
-            registered_at__gte=month_ago, status=Registration.Status.CONFIRMED
-        ).aggregate(total=Sum("amount_paid_cents"))["total"]
-        or 0,
+        "new_regs": registrations.count(),
+        "active_registrations": confirmed.count(),
+        "collected": confirmed.aggregate(total=Sum("amount_paid_cents"))["total"] or 0,
     }
 
     return render(
@@ -1162,12 +1216,15 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
         {
             "active_tab": "overview",
             "pending_classes": pending,
+            "upcoming_classes": upcoming_classes,
             "waitlist_classes": waitlist_classes,
             "recent_registrations": recent_registrations,
             "recent_activity": recent_activity,
             "reg_by_day": reg_by_day,
             "reg_by_day_max": max((d["count"] for d in reg_by_day), default=0),
             "stats": stats,
+            "range_options": OVERVIEW_RANGES,
+            "selected_range": selected_range,
         },
     )
 
@@ -1181,7 +1238,10 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     instructor_filter = request.GET.get("instructor", "").strip()
 
     base = ClassOffering.objects.select_related("instructor", "category").annotate(
-        registration_count=Count("registrations")
+        # distinct=True so the sessions join below doesn't inflate the registration tally.
+        registration_count=Count("registrations", distinct=True),
+        first_session=Min("sessions__starts_at"),
+        last_session=Max("sessions__starts_at"),
     )
     qs = base.filter(status=status_filter) if status_filter else base
     if instructor_filter:

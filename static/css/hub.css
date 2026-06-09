@@ -2564,6 +2564,40 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     gap: 0.25rem;
 }
 
+/* Classes-admin Overview: section titles — accent bar + stronger weight so
+   headings read as section headers, not body text. */
+.cms-overview .overview-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0 0 0.9rem;
+    padding-left: 0.6rem;
+    border-left: 3px solid var(--color-tuscan-yellow, #EEB44B);
+    font-weight: 700;
+    font-size: 1rem;
+    line-height: 1.25;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--hub-text);
+}
+
+.cms-overview .overview-title__count {
+    color: var(--hub-text-muted);
+    font-weight: 600;
+    font-size: 0.9em;
+}
+
+/* Subordinate heading for a block nested inside an Overview card (e.g. Recent
+   sign-ups within "At a glance"). Lighter than .overview-title to signal nesting. */
+.cms-overview .overview-subtitle {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--hub-text);
+}
+
 .pl-bell { position: relative; }
 .pl-bell__btn { position: relative; background: none; border: none; color: var(--hub-text); cursor: pointer; padding: 0.4rem; border-radius: 6px; }
 .pl-bell__btn:hover { background: rgba(255,255,255,0.06); }
