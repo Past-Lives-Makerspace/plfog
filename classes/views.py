@@ -1173,6 +1173,9 @@ def _class_workspace_counts(offering: ClassOffering) -> dict[str, int]:
         "active_registration_count": regs.exclude(
             status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED]
         ).count(),
+        "confirmed_registration_count": regs.filter(
+            status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
+        ).count(),
         "waitlist_count": regs.filter(status=Registration.Status.WAITLISTED).count(),
     }
 
@@ -1265,13 +1268,13 @@ def admin_class_email(request: HttpRequest, pk: int) -> HttpResponse:
     if not form.is_valid():
         first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
         messages.error(request, first_error)
-        return redirect("classes:admin_class_detail", pk=pk)
+        return redirect("classes:admin_class_registrations", pk=pk)
     message = form.send(sender_member=sender_member)
     messages.success(
         request,
         f"Sent '{message.subject}' to {message.recipient_count} recipient(s).",
     )
-    return redirect("classes:admin_class_detail", pk=pk)
+    return redirect("classes:admin_class_registrations", pk=pk)
 
 
 @classes_admin_access_required
@@ -1697,7 +1700,7 @@ def admin_discount_code_create(request: HttpRequest) -> HttpResponse:
         form.save()
         messages.success(request, "Discount code created.")
         if scoped_to is not None:
-            return redirect("classes:admin_class_detail", pk=scoped_to.pk)
+            return redirect("classes:admin_class_discount_codes", pk=scoped_to.pk)
         return redirect("classes:admin_discount_codes")
     return render(
         request,

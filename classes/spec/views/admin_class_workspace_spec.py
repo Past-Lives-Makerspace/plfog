@@ -94,3 +94,34 @@ def describe_class_overview_tab():
         resp = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
         # The bulk-email POST form moved to the Registrations tab; Overview no longer posts to admin_class_email.
         assert reverse("classes:admin_class_email", kwargs={"pk": offering.pk}).encode() not in resp.content
+
+    def it_counts_only_confirmed_in_the_capacity_row(admin_user, client, db):
+        offering = ClassOfferingFactory(capacity=1)
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        # A waitlisted person must NOT inflate the "X/capacity registered" summary.
+        RegistrationFactory(class_offering=offering, status=Registration.Status.WAITLISTED)
+        client.force_login(admin_user)
+        resp = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        assert b"1/1 registered" in resp.content
+
+
+def describe_workspace_counts():
+    def it_excludes_cancelled_from_the_registration_badge(admin_user, client, db):
+        offering = ClassOfferingFactory()
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CANCELLED)
+        client.force_login(admin_user)
+        resp = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
+        assert b"Registrations (1)" in resp.content
+
+
+def describe_class_scoped_discount_code_create():
+    def it_returns_to_the_class_discount_codes_tab(admin_user, client, db):
+        offering = ClassOfferingFactory()
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_discount_code_create") + f"?class={offering.pk}",
+            {"code": "BACK10", "discount_pct": 10, "is_active": "on"},
+        )
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("classes:admin_class_discount_codes", kwargs={"pk": offering.pk})

@@ -51,7 +51,8 @@ def describe_admin_class_email():
             },
         )
         assert response.status_code == 302
-        assert response["Location"] == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        # The email form lives on the Registrations tab, so we return there.
+        assert response["Location"] == reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk})
         assert len(mail.outbox) == 1
         sent = mail.outbox[0]
         assert sent.subject == "Hello class"
@@ -91,6 +92,8 @@ def describe_admin_class_email():
             data={"subject": "", "body": ""},
         )
         assert response.status_code == 302
+        # On error we return to the Registrations tab where the form lives, not Overview.
+        assert response["Location"] == reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk})
         assert len(mail.outbox) == 0
 
 
