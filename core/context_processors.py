@@ -58,6 +58,17 @@ def google_analytics(request: HttpRequest) -> dict[str, str]:
     return {"google_analytics_measurement_id": SiteConfiguration.load().google_analytics_measurement_id}
 
 
+def notification_badge(request: HttpRequest) -> dict[str, int]:
+    """Unread notification count for the topbar bell. 0 for anonymous users."""
+    user = request.user
+    if not user.is_authenticated:
+        return {"unread_notification_count": 0}
+    from core.models import Notification
+
+    count = Notification.objects.filter(user=user, read_at__isnull=True).count()
+    return {"unread_notification_count": count}
+
+
 def persona(request: HttpRequest) -> dict[str, str | bool]:
     """Derive the active persona for the current request.
 
