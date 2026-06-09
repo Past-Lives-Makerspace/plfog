@@ -7,17 +7,15 @@
 <div class="hub-card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:0.75rem;">
         <h1 style="margin:0;">Classes</h1>
-        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:public_list' %}"
-           title="Back to the Classes &amp; Workshops page">← Classes &amp; Workshops</a>
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ BOOK_BASE_URL }}/classes/"
+           target="_blank" rel="noopener" title="See the public booking catalog">View live catalog ↗</a>
     </div>
     <nav style="display: flex; border-bottom: 1px solid var(--hub-border); gap: 0; margin-bottom: 1.25rem; flex-wrap: wrap;" role="tablist">
+        {% with overview_tabs="overview activity registrations" settings_tabs="categories discount_codes questions settings" %}
+        <a href="{% url 'classes:admin_overview' %}" class="vote-tab{% if active_tab in overview_tabs.split %} vote-tab--active{% endif %}">Overview</a>
         <a href="{% url 'classes:admin_classes' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}">Classes</a>
-        <a href="{% url 'classes:admin_activity' %}" class="vote-tab{% if active_tab == 'activity' %} vote-tab--active{% endif %}">Activity</a>
-        <a href="{% url 'classes:admin_registrations' %}" class="vote-tab{% if active_tab == 'registrations' %} vote-tab--active{% endif %}">Registrations</a>
-        <a href="{% url 'classes:admin_categories' %}" class="vote-tab{% if active_tab == 'categories' %} vote-tab--active{% endif %}">Categories</a>
-        <a href="{% url 'classes:admin_discount_codes' %}" class="vote-tab{% if active_tab == 'discount_codes' %} vote-tab--active{% endif %}">Discount Codes</a>
-        <a href="{% url 'classes:admin_registration_questions' %}" class="vote-tab{% if active_tab == 'questions' %} vote-tab--active{% endif %}">Questions</a>
-        <a href="{% url 'classes:admin_settings' %}" class="vote-tab{% if active_tab == 'settings' %} vote-tab--active{% endif %}">Settings</a>
+        <a href="{% url 'classes:admin_settings_hub' %}" class="vote-tab{% if active_tab in settings_tabs.split %} vote-tab--active{% endif %}">Settings</a>
+        {% endwith %}
     </nav>
     {% block tab_content %}{% endblock %}
 </div>
