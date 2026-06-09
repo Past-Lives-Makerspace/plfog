@@ -549,3 +549,18 @@ class NotificationPreference(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user.email}:{self.trigger} (push={self.push_enabled}, email={self.email_enabled})"
+
+
+class ScheduledNotificationMarker(models.Model):
+    """Idempotency guard for time-based notification jobs.
+
+    A unique ``key`` records that a given scheduled notification already fired,
+    e.g. "voting_closing:2026-06" or "lease_expiring:42". Jobs get_or_create
+    the key and skip when it already exists.
+    """
+
+    key = models.CharField(max_length=120, unique=True, help_text="Stable per-notification idempotency key.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return self.key

@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 from classes.factories import (
     ClassOfferingFactory,
+    ClassSessionFactory,
     InstructorFactory,
     RegistrationFactory,
     UserFactory,
 )
-from classes.models import ClassApproval, ClassOffering, Registration
+from classes.models import ClassApproval, ClassOffering, ClassSettings, Registration
+from classes.tasks import send_due_class_reminders
 from core.models import Notification
 
 pytestmark = pytest.mark.django_db
@@ -281,3 +286,35 @@ def describe_instructor_new_registration_notification():
             trigger="instructor_new_registration",
             user=instructor_user,
         ).exists()
+
+
+# ---------------------------------------------------------------------------
+# class_reminder — dispatched by send_due_class_reminders task
+# ---------------------------------------------------------------------------
+
+
+def describe_class_reminder_notification():
+    def it_creates_a_notification_for_the_registrant(db, settings):
+        settings.DEFAULT_FROM_EMAIL = "noreply@pastlives.space"
+        cfg = ClassSettings.load()
+        cfg.reminder_hours_before = 24
+        cfg.save()
+
+        member_user = UserFactory()
+        # The ensure_user_has_member signal auto-creates an ACTIVE Member for member_user.
+        member = member_user.member  # type: ignore[attr-defined]
+
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        start = timezone.now() + timedelta(hours=24, minutes=1)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        RegistrationFactory(
+            class_offering=offering,
+            member=member,
+            email=member_user.email,
+            status=Registration.Status.CONFIRMED,
+        )
+        Notification.objects.all().delete()
+
+        send_due_class_reminders(window_minutes=30)
+
+        assert Notification.objects.filter(trigger="class_reminder", user=member_user).exists()
