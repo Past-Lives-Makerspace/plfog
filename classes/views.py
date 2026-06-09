@@ -591,6 +591,57 @@ def classes_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
 
 
 @instructor_required
+def instructor_overview(request: HttpRequest) -> HttpResponse:
+    """Teaching dashboard: the instructor's drafts, classes awaiting review,
+    recent sign-ups, and active waitlists. No money, no approvals — they submit
+    classes, they don't approve them. Empty state nudges a first class."""
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
+    my_classes = ClassOffering.objects.for_instructor(instructor)
+
+    drafts = my_classes.filter(status=ClassOffering.Status.DRAFT).select_related("category").order_by("-updated_at")
+    pending = my_classes.filter(status=ClassOffering.Status.PENDING).select_related("category").order_by("created_at")
+    waitlist_classes = (
+        my_classes.annotate(
+            waiting=Count(
+                "registrations",
+                filter=Q(registrations__status=Registration.Status.WAITLISTED),
+            )
+        )
+        .filter(waiting__gt=0)
+        .order_by("-waiting")
+    )
+    recent_registrations = (
+        Registration.objects.filter(class_offering__instructor=instructor)
+        .select_related("class_offering")
+        .order_by("-registered_at")[:8]
+    )
+
+    stats = {
+        "published": my_classes.filter(status=ClassOffering.Status.PUBLISHED).count(),
+        "pending": pending.count(),
+        "drafts": drafts.count(),
+        "total_signups": Registration.objects.filter(
+            class_offering__instructor=instructor, status=Registration.Status.CONFIRMED
+        ).count(),
+    }
+
+    return render(
+        request,
+        "classes/instructor/overview.html",
+        {
+            "active_tab": "overview",
+            "instructor": instructor,
+            "drafts": drafts,
+            "pending_classes": pending,
+            "waitlist_classes": waitlist_classes,
+            "recent_registrations": recent_registrations,
+            "has_classes": my_classes.exists(),
+            "stats": stats,
+        },
+    )
+
+
+@instructor_required
 def instructor_dashboard(request: HttpRequest) -> HttpResponse:
     """My classes — list view for the logged-in instructor."""
     instructor: Member = request.instructor  # type: ignore[attr-defined]

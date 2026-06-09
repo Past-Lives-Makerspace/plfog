@@ -13,7 +13,8 @@ urlpatterns = [
     path("my/<str:token>/", views.my_registration, name="my_registration"),
     path("my/<str:token>/cancel/", views.my_registration_cancel, name="my_registration_cancel"),
     # Instructor dashboard
-    path("instructor/", views.instructor_dashboard, name="instructor_dashboard"),
+    path("instructor/", views.instructor_overview, name="instructor_overview"),
+    path("instructor/classes/", views.instructor_dashboard, name="instructor_dashboard"),
     path("instructor/classes/new/", views.instructor_class_create, name="instructor_class_create"),
     path("instructor/classes/<int:pk>/edit/", views.instructor_class_edit, name="instructor_class_edit"),
     path("instructor/classes/<int:pk>/submit/", views.instructor_class_submit, name="instructor_class_submit"),
