@@ -591,6 +591,20 @@ class Guild(models.Model):
         for i, img_file in enumerate(files):
             GuildImage.objects.create(guild=self, image=img_file, sort_order=start + i)
 
+    def roster_members(self) -> models.QuerySet[Member]:
+        """Active joined members, filtered by directory privacy (mirrors member_directory)."""
+        must_show = (
+            models.Q(fog_role=Member.FogRole.ADMIN)
+            | models.Q(fog_role=Member.FogRole.GUILD_OFFICER)
+            | models.Q(led_guilds__isnull=False)
+            | models.Q(instructor_slug__gt="")
+        )
+        return (
+            Member.objects.filter(guild_memberships__guild=self, status=Member.Status.ACTIVE)
+            .filter(models.Q(show_in_directory=True) | must_show)
+            .distinct()
+        )
+
     @property
     def active_leases(self) -> models.QuerySet[Lease]:
         return self.leases.filter(_active_lease_q())
@@ -690,6 +704,24 @@ class GuildAnnouncement(models.Model):
 
     def __str__(self) -> str:
         return f"{self.title} ({self.guild.name})"
+
+
+class GuildMembership(models.Model):
+    """Explicit opt-in affiliation between a Member and a Guild."""
+
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="memberships", help_text="The guild.")
+    member = models.ForeignKey(
+        Member, on_delete=models.CASCADE, related_name="guild_memberships", help_text="The member."
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["guild", "member"], name="uq_guildmembership_guild_member"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member} in {self.guild.name}"
 
 
 class VotePreferenceQuerySet(models.QuerySet):
