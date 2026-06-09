@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from django.core import mail
 from django.urls import reverse
 
 from classes.factories import (
@@ -13,6 +14,14 @@ from classes.factories import (
     UserFactory,
 )
 from classes.models import ClassOffering, Registration
+
+
+@pytest.fixture(autouse=True)
+def _email_outbox(settings):
+    settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    mail.outbox = []
+    yield
+    mail.outbox = []
 
 
 @pytest.fixture
@@ -38,6 +47,61 @@ def describe_instructor_class_workspace_scope():
         offering = ClassOfferingFactory()
         resp = client.get(reverse("classes:instructor_class_detail", kwargs={"pk": offering.pk}))
         assert resp.status_code == 302  # login redirect
+
+    def it_404s_every_tab_for_a_foreign_class(instructor_fixture, other_instructor, client):
+        theirs = ClassOfferingFactory(instructor=other_instructor, slug="theirs-tabs")
+        client.force_login(instructor_fixture.user)
+        for name in [
+            "classes:instructor_class_registrations",
+            "classes:instructor_class_waitlist",
+            "classes:instructor_class_discount_codes",
+        ]:
+            resp = client.get(reverse(name, kwargs={"pk": theirs.pk}))
+            assert resp.status_code == 404, name
+
+    def it_404s_emailing_a_foreign_class(instructor_fixture, other_instructor, client):
+        theirs = ClassOfferingFactory(instructor=other_instructor, slug="theirs-mail")
+        client.force_login(instructor_fixture.user)
+        resp = client.post(reverse("classes:instructor_class_email", kwargs={"pk": theirs.pk}), data={})
+        assert resp.status_code == 404
+
+
+def describe_instructor_class_email():
+    def it_emails_my_classs_registrant_and_returns_to_the_tab(instructor_fixture, client):
+        mine = ClassOfferingFactory(instructor=instructor_fixture, slug="mail-mine")
+        reg = RegistrationFactory(class_offering=mine, email="s@example.com", status=Registration.Status.CONFIRMED)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:instructor_class_email", kwargs={"pk": mine.pk}),
+            {"subject": "Hi", "body": "Hello", "registration_ids": [reg.pk]},
+        )
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("classes:instructor_class_registrations", kwargs={"pk": mine.pk})
+        assert len(mail.outbox) == 1
+
+    def it_refuses_to_email_a_different_class_of_mine(instructor_fixture, client):
+        class_a = ClassOfferingFactory(instructor=instructor_fixture, slug="mail-a")
+        class_b = ClassOfferingFactory(instructor=instructor_fixture, slug="mail-b")
+        reg_b = RegistrationFactory(class_offering=class_b, email="b@example.com", status=Registration.Status.CONFIRMED)
+        client.force_login(instructor_fixture.user)
+        # Posting class B's registrant to class A's email endpoint must be rejected.
+        resp = client.post(
+            reverse("classes:instructor_class_email", kwargs={"pk": class_a.pk}),
+            {"subject": "Hi", "body": "Hello", "registration_ids": [reg_b.pk]},
+        )
+        assert resp.status_code == 302
+        assert len(mail.outbox) == 0
+
+    def it_redirects_to_the_tab_on_invalid_form(instructor_fixture, client):
+        mine = ClassOfferingFactory(instructor=instructor_fixture, slug="mail-invalid")
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:instructor_class_email", kwargs={"pk": mine.pk}),
+            {"subject": "", "body": ""},
+        )
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("classes:instructor_class_registrations", kwargs={"pk": mine.pk})
+        assert len(mail.outbox) == 0
 
 
 def describe_instructor_overview_tab():

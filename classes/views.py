@@ -987,6 +987,11 @@ def instructor_class_email(request: HttpRequest, pk: int) -> HttpResponse:
 
     offering = _instructor_class_or_404(request, pk)
     form = InstructorEmailForm(request.POST, instructor=request.instructor)  # type: ignore[attr-defined]
+    # Bound recipients to THIS class only — the form otherwise spans all of the
+    # instructor's classes, which would let one class's tab email another class's
+    # registrants (and mis-anchor the audit record).
+    field = form.fields["registration_ids"]
+    field.queryset = field.queryset.filter(class_offering=offering)  # type: ignore[attr-defined]
     if not form.is_valid():
         first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
         messages.error(request, str(first_error))
