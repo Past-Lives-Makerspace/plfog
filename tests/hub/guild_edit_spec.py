@@ -10,6 +10,7 @@ from django.test import Client
 from django.urls import reverse
 
 from billing.models import Product, ProductRevenueSplit
+from hub.forms import GuildEditForm
 from membership.models import Member
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
@@ -475,3 +476,20 @@ def describe_guild_banner_delete():
 
         assert response.status_code == 302
         assert response.url == f"/guilds/{guild.pk}/"
+
+
+@pytest.mark.django_db
+def describe_GuildEditForm():
+    def it_accepts_the_new_fields():
+        form = GuildEditForm(
+            data={
+                "name": "Painters",
+                "about": "We paint",
+                "calendar_color": "#4B9FEE",
+                "youtube_url": "https://youtube.com/watch?v=abc12345678",
+                "meeting_schedule": "Tuesdays 6pm",
+                "contact_email": "p@example.com",
+                "show_members": "on",
+            }
+        )
+        assert form.is_valid(), form.errors
