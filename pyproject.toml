@@ -28,6 +28,11 @@ max-complexity = 10
 python_version = "3.13"
 plugins = ["mypy_django_plugin.main"]
 ignore_missing_imports = true
+# Type-check application code only. BDD spec files, the tests/ tree, and
+# auto-generated migrations are not type-checked (they're also omitted from
+# coverage) — the `disallow_untyped_defs` overrides below otherwise flag every
+# nested describe/it function.
+exclude = '(^|/)(spec|tests|migrations)/'
 
 [[tool.mypy.overrides]]
 module = "membership.*"
