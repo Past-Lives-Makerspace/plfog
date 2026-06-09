@@ -16,15 +16,16 @@ Triggered by:
      window.dispatchEvent(new CustomEvent('show-toast', {detail: {message, type, position}})).
 {% endcomment %}
 <style>
-#plt-root { position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; }
 .plt-container {
-    position: fixed; top: 1rem; right: 1rem;
-    display: flex; flex-direction: column; gap: .5rem;
-    width: min(92vw, 380px); pointer-events: none;
+    position: fixed;
+    z-index: 2147483000;            /* above the topbar (z-index:50), sidebar (100), modals (9999) */
+    top: calc(var(--topbar-height, 56px) + 0.75rem);  /* sit just below the navbar */
+    left: 50%; transform: translateX(-50%);            /* horizontally centered */
+    display: flex; flex-direction: column; align-items: center; gap: .5rem;
+    width: max-content; max-width: 92vw; pointer-events: none;
 }
-.plt-container--center {
-    top: auto; bottom: 2rem; right: auto; left: 50%;
-    transform: translateX(-50%); align-items: center; width: auto; max-width: 92vw;
+.plt-container--center {           /* the optional 'center' position: bottom-centered */
+    top: auto; bottom: 2rem;
 }
 .plt-toast {
     pointer-events: auto;
@@ -36,11 +37,11 @@ Triggered by:
     border: 1px solid rgba(255,255,255,.08);
     border-left: 3px solid var(--plt-accent, #60a5fa);
     box-shadow: 0 10px 30px rgba(0,0,0,.4);
-    transform: translateX(120%); opacity: 0;
-    transition: transform .3s cubic-bezier(.22,1,.36,1), opacity .3s ease;
+    transform: translateY(-12px); opacity: 0;
+    transition: transform .28s cubic-bezier(.22,1,.36,1), opacity .28s ease;
 }
-.plt-toast.plt-in  { transform: translateX(0);    opacity: 1; }
-.plt-toast.plt-out { transform: translateX(120%); opacity: 0; }
+.plt-toast.plt-in  { transform: translateY(0);    opacity: 1; }
+.plt-toast.plt-out { transform: translateY(-12px); opacity: 0; }
 .plt-container--center .plt-toast      { transform: translateY(16px); }
 .plt-container--center .plt-toast.plt-in  { transform: translateY(0); }
 .plt-container--center .plt-toast.plt-out { transform: translateY(16px); opacity: 0; }
