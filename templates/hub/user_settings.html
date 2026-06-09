@@ -18,6 +18,12 @@
                 class="vote-tab">
             Emails
         </button>
+        <button type="button"
+                @click="tab = 'notifications'"
+                :class="{ 'vote-tab--active': tab === 'notifications' }"
+                class="vote-tab">
+            Notifications
+        </button>
     </div>
 
     {# -------- Profile tab -------- #}
@@ -330,6 +336,11 @@
                 </div>
             </form>
         </div>
+    </div>
+
+    {# -------- Notifications tab -------- #}
+    <div x-show="tab === 'notifications'" x-cloak>
+        {% include "hub/_notifications_settings.html" %}
     </div>
 </div>
 {% endblock %}

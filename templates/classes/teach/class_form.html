@@ -1,0 +1,46 @@
+{% extends "classes/teach/base.html" %}
+{% load classes_tags static %}
+{% block tab_content %}
+<h2 style="margin-top:0;">{% if mode == 'create' %}New Class{% else %}Edit Class — {{ offering.title }}{% endif %}</h2>
+{% if offering and offering.status == 'pending' %}
+    <p style="padding:0.75rem 1rem; background:rgba(238,180,75,0.1); border:1px solid rgba(238,180,75,0.25); border-radius:6px; color:var(--hub-text-muted); margin-bottom:1rem;">
+        This class is pending admin review. You can still edit it until it's approved.
+    </p>
+{% endif %}
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {% for field in form %}
+        {% if field.name == 'image' %}
+            {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image crop_field=form.hero_crop offering=offering %}
+        {% elif field.name == 'hero_crop' %}
+        {% elif field.name == 'description' or field.name == 'prerequisites' or field.name == 'materials_included' or field.name == 'materials_to_bring' or field.name == 'safety_requirements' or field.name == 'age_guardian_note' or field.name == 'flexible_note' %}
+            {% include "classes/_components/collapsible_field.html" with field=field %}
+        {% else %}
+            {% include "components/form_field.html" with field=field %}
+        {% endif %}
+    {% endfor %}
+
+    <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Gallery images</h3>
+    <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Optional. Add extra photos shown below the hero — finished pieces, the studio space, tool close-ups, etc. Images save instantly.</p>
+    {% include "classes/_components/image_formset.html" with offering=offering %}
+
+    <h3 style="margin-top:1.5rem;">Sessions</h3>
+    {% include "classes/_components/session_calendar.html" %}
+
+    {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
+
+    <div style="display:flex; gap:0.5rem; margin-top:1rem; flex-wrap:wrap;">
+        <button class="hub-btn hub-btn--sm hub-btn--ghost" name="action" value="save" type="submit">Save Draft</button>
+        {% if offering and offering.pk %}
+            <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview</a>
+        {% endif %}
+        {% if not offering or offering.status == 'draft' %}
+            <button class="hub-btn hub-btn--sm hub-btn--primary" name="action" value="submit" type="submit">Save &amp; Submit for Review</button>
+        {% endif %}
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_dashboard' %}">Cancel</a>
+    </div>
+</form>
+<script src="{% static 'js/hero_cropper.js' %}" defer></script>
+<script src="{% static 'js/session_calendar.js' %}" defer></script>
+<link rel="stylesheet" href="{% static 'css/session-calendar.css' %}">
+{% endblock %}

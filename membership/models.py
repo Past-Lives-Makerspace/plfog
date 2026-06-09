@@ -14,6 +14,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from core.files import delete_orphan_on_replace
+from core.images import normalize_field_if_uploaded
 from core.validators import validate_image_size
 from membership.managers import MemberEmailManager
 
@@ -565,6 +566,16 @@ class Guild(models.Model):
         blank=True,
         help_text="When this guild's iCal feed was last synced. Set by the calendar service.",
     )
+    youtube_url = models.URLField(blank=True, default="", help_text="Optional YouTube video shown on the guild page.")
+    meeting_schedule = models.TextField(
+        blank=True, default="", help_text="When/where the guild meets, e.g. 'Tuesdays 6pm, Studio B'."
+    )
+    contact_email = models.EmailField(
+        blank=True, default="", help_text="Optional guild contact email shown on the page."
+    )
+    show_members = models.BooleanField(
+        default=False, help_text="Show the opt-in members roster on the public guild page."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     leases = GenericRelation(
         "Lease",
@@ -584,6 +595,26 @@ class Guild(models.Model):
         delete_orphan_on_replace(self, "banner_image")
         super().save(*args, **kwargs)
 
+    def add_gallery_images(self, files: list[Any]) -> None:
+        """Create GuildImage rows from uploaded files, appending after existing ones."""
+        start = self.gallery_images.count()
+        for i, img_file in enumerate(files):
+            GuildImage.objects.create(guild=self, image=img_file, sort_order=start + i)
+
+    def roster_members(self) -> models.QuerySet[Member]:
+        """Active joined members, filtered by directory privacy (mirrors member_directory)."""
+        must_show = (
+            models.Q(fog_role=Member.FogRole.ADMIN)
+            | models.Q(fog_role=Member.FogRole.GUILD_OFFICER)
+            | models.Q(led_guilds__isnull=False)
+            | models.Q(instructor_slug__gt="")
+        )
+        return (
+            Member.objects.filter(guild_memberships__guild=self, status=Member.Status.ACTIVE)
+            .filter(models.Q(show_in_directory=True) | must_show)
+            .distinct()
+        )
+
     @property
     def active_leases(self) -> models.QuerySet[Lease]:
         return self.leases.filter(_active_lease_q())
@@ -602,6 +633,105 @@ class Guild(models.Model):
             ),
         )["total"]
         return total
+
+
+class GuildImage(models.Model):
+    """Gallery image for a guild page. Up to 10, enforced in the form."""
+
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="gallery_images", help_text="Parent guild.")
+    image = models.ImageField(upload_to="guilds/images/", validators=[validate_image_size], help_text="Gallery photo.")
+    alt_text = models.CharField(max_length=255, blank=True, help_text="Accessibility description.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+
+    def __str__(self) -> str:
+        return f"Image #{self.pk} for {self.guild.name}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        from django.conf import settings
+
+        delete_orphan_on_replace(self, "image")
+        normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
+        super().save(*args, **kwargs)
+
+
+class GuildFAQItem(models.Model):
+    """A question/answer pair shown in the guild page FAQ section."""
+
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="faq_items", help_text="Parent guild.")
+    question = models.CharField(max_length=500, help_text="The question.")
+    answer = models.TextField(help_text="The answer.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order"]
+
+    def __str__(self) -> str:
+        return self.question
+
+
+class GuildLink(models.Model):
+    """A named external link shown in the guild page sidebar."""
+
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="links", help_text="Parent guild.")
+    label = models.CharField(max_length=100, help_text="Display text, e.g. 'Discord'.")
+    url = models.URLField(help_text="Destination URL.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order"]
+
+    def __str__(self) -> str:
+        return f"{self.label} ({self.guild.name})"
+
+
+class GuildAnnouncement(models.Model):
+    """A news post on a guild page.
+
+    Member notification on publish is wired once Plan 2's notifications module
+    (``core.notifications.dispatch``) lands — see DEFERRED.md. Until then,
+    announcements are created/displayed/deleted without firing notifications.
+    """
+
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="announcements", help_text="Parent guild.")
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who posted it.",
+    )
+    title = models.CharField(max_length=300, help_text="Announcement headline.")
+    body = models.TextField(help_text="Announcement body.")
+    published_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-published_at"]
+
+    def __str__(self) -> str:
+        return f"{self.title} ({self.guild.name})"
+
+
+class GuildMembership(models.Model):
+    """Explicit opt-in affiliation between a Member and a Guild."""
+
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="memberships", help_text="The guild.")
+    member = models.ForeignKey(
+        Member, on_delete=models.CASCADE, related_name="guild_memberships", help_text="The member."
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["guild", "member"], name="uq_guildmembership_guild_member"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member} in {self.guild.name}"
 
 
 class VotePreferenceQuerySet(models.QuerySet):
@@ -810,6 +940,16 @@ class FundingSnapshot(models.Model):
         from core.models import SiteActivity
 
         SiteActivity.log(SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN, target=snapshot)
+
+        from core import notifications
+
+        notifications.dispatch(
+            "funding_results_published",
+            notifications.active_member_users(),
+            title="Funding results published",
+            body=f"Results for {snapshot.cycle_label} are in.",
+            url="/guilds/voting/history/",
+        )
         return snapshot
 
     def save(self, *args: Any, **kwargs: Any) -> None:

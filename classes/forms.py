@@ -231,8 +231,8 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
         return offering
 
 
-class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
-    """Class form for instructors — no `instructor`, no `is_private`, slug auto-generated."""
+class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
+    """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated."""
 
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
 
@@ -257,8 +257,8 @@ class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelFo
             "video_url",
         ]
 
-    def __init__(self, *args, instructor: "Member | None" = None, **kwargs) -> None:
-        self.instructor = instructor
+    def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
+        self.teaching_member = teaching_member
         super().__init__(*args, **kwargs)
         self.fields["member_discount_pct"].label = "Member discount (%)"
         self.add_is_free_field()
@@ -276,10 +276,10 @@ class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelFo
         offering = super().save(commit=False)
         self.apply_is_free_to_instance(offering)
         self.apply_hero_crop_to_instance(offering)
-        if self.instructor is not None and not offering.instructor_id:
-            offering.instructor = self.instructor
+        if self.teaching_member is not None and not offering.instructor_id:
+            offering.instructor = self.teaching_member
             if not offering.created_by_id:
-                offering.created_by = self.instructor
+                offering.created_by = self.teaching_member
         if not offering.slug:
             base = slugify(offering.title) or "class"
             slug = base
@@ -293,7 +293,7 @@ class InstructorClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelFo
         return offering
 
 
-class InstructorProfileForm(forms.ModelForm):
+class TeachProfileForm(forms.ModelForm):
     class Meta:
         from membership.models import Member
 
@@ -757,11 +757,11 @@ class ClassSettingsForm(forms.ModelForm):
         }
 
 
-class InstructorEmailForm(forms.Form):
-    """Form for an instructor to send a manual email to selected registrants of one of their classes.
+class TeachEmailForm(forms.Form):
+    """Form for a teaching member to send a manual email to selected registrants of one of their classes.
 
-    Recipient selection is bounded to ``Registration.objects.filter(class_offering__instructor=instructor)``
-    so the form will not accept registration IDs outside the instructor's own
+    Recipient selection is bounded to ``Registration.objects.filter(class_offering__instructor=teaching_member)``
+    so the form will not accept registration IDs outside the teaching member's own
     classes even if a hostile client submits them.
     """
 
@@ -774,11 +774,11 @@ class InstructorEmailForm(forms.Form):
     )
     bcc_self = forms.BooleanField(required=False, initial=True, label="Send me a copy", help_text="BCC your own email.")
 
-    def __init__(self, *args, instructor: "Member", **kwargs) -> None:
+    def __init__(self, *args, teaching_member: "Member", **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.instructor = instructor
+        self.teaching_member = teaching_member
         self.fields["registration_ids"].queryset = Registration.objects.filter(  # type: ignore[attr-defined]  # ModelMultipleChoiceField has queryset
-            class_offering__instructor=instructor,
+            class_offering__instructor=teaching_member,
         ).select_related("class_offering")
 
     def send(self) -> InstructorMessage:
@@ -793,21 +793,21 @@ class InstructorEmailForm(forms.Form):
         from django.db import transaction
 
         registrations = list(self.cleaned_data["registration_ids"])
-        # All selected regs share the same class_offering only if the instructor
+        # All selected regs share the same class_offering only if the teaching member
         # is sending to a single class. We anchor the message to the first
         # registration's class — typical UX is one class at a time.
         offering = registrations[0].class_offering
         bcc_emails = [r.email for r in registrations]
         bcc_self = self.cleaned_data.get("bcc_self", True)
-        instructor_email = (self.instructor.primary_email or "").strip()
-        to_addresses = [instructor_email] if instructor_email else []
+        teaching_member_email = (self.teaching_member.primary_email or "").strip()
+        to_addresses = [teaching_member_email] if teaching_member_email else []
         if (
             bcc_self
-            and instructor_email
-            and instructor_email not in bcc_emails
-            and instructor_email not in to_addresses
+            and teaching_member_email
+            and teaching_member_email not in bcc_emails
+            and teaching_member_email not in to_addresses
         ):
-            bcc_emails.append(instructor_email)
+            bcc_emails.append(teaching_member_email)
 
         email_message = EmailMessage(
             subject=self.cleaned_data["subject"],
@@ -820,8 +820,8 @@ class InstructorEmailForm(forms.Form):
 
         with transaction.atomic():
             message = InstructorMessage.objects.create(
-                instructor=self.instructor,
-                sent_by=self.instructor,
+                instructor=self.teaching_member,
+                sent_by=self.teaching_member,
                 class_offering=offering,
                 subject=self.cleaned_data["subject"],
                 body=self.cleaned_data["body"],

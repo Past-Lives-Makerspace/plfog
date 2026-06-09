@@ -1,0 +1,13 @@
+{# templates/hub/_guild_gallery.html — gallery grid + lightbox #}
+<div x-data="{ open: false, src: '' }">
+  <div class="pl-guild-gallery">
+    {% for img in gallery_images %}
+    <button type="button" class="pl-guild-gallery__item" data-src="{{ img.image.url }}" @click="src = $el.dataset.src; open = true">
+      <img src="{{ img.image.url }}" alt="{{ img.alt_text }}" loading="lazy">
+    </button>
+    {% endfor %}
+  </div>
+  <div class="pl-guild-lightbox" x-show="open" x-cloak @click="open = false" @keydown.escape.window="open = false">
+    <img :src="src" alt="">
+  </div>
+</div>

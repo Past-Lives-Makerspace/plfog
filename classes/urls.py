@@ -1,4 +1,5 @@
 from django.urls import path
+from django.views.generic.base import RedirectView
 
 from classes import views, views_legacy_image
 
@@ -12,50 +13,51 @@ urlpatterns = [
     # Self-serve registration management (token-based, no auth)
     path("my/<str:token>/", views.my_registration, name="my_registration"),
     path("my/<str:token>/cancel/", views.my_registration_cancel, name="my_registration_cancel"),
-    # Instructor dashboard
-    path("instructor/", views.instructor_overview, name="instructor_overview"),
-    path("instructor/classes/", views.instructor_dashboard, name="instructor_dashboard"),
-    path("instructor/classes/new/", views.instructor_class_create, name="instructor_class_create"),
-    path("instructor/classes/<int:pk>/edit/", views.instructor_class_edit, name="instructor_class_edit"),
-    path("instructor/classes/<int:pk>/submit/", views.instructor_class_submit, name="instructor_class_submit"),
-    path("instructor/classes/<int:pk>/", views.instructor_class_detail, name="instructor_class_detail"),
+    # Teaching portal (member self-serve for instructors)
+    path("teach/", views.teach_overview, name="teach_overview"),
+    path("teach/classes/", views.teach_dashboard, name="teach_dashboard"),
+    path("teach/classes/new/", views.teach_class_create, name="teach_class_create"),
+    path("teach/classes/<int:pk>/edit/", views.teach_class_edit, name="teach_class_edit"),
+    path("teach/classes/<int:pk>/submit/", views.teach_class_submit, name="teach_class_submit"),
+    path("teach/classes/<int:pk>/", views.teach_class_detail, name="teach_class_detail"),
     path(
-        "instructor/classes/<int:pk>/registrations/",
-        views.instructor_class_registrations,
-        name="instructor_class_registrations",
+        "teach/classes/<int:pk>/registrations/",
+        views.teach_class_registrations,
+        name="teach_class_registrations",
     ),
     path(
-        "instructor/classes/<int:pk>/registrations/email/",
-        views.instructor_class_email,
-        name="instructor_class_email",
+        "teach/classes/<int:pk>/registrations/email/",
+        views.teach_class_email,
+        name="teach_class_email",
     ),
-    path("instructor/classes/<int:pk>/waitlist/", views.instructor_class_waitlist, name="instructor_class_waitlist"),
+    path("teach/classes/<int:pk>/waitlist/", views.teach_class_waitlist, name="teach_class_waitlist"),
     path(
-        "instructor/classes/<int:pk>/discount-codes/",
-        views.instructor_class_discount_codes,
-        name="instructor_class_discount_codes",
+        "teach/classes/<int:pk>/discount-codes/",
+        views.teach_class_discount_codes,
+        name="teach_class_discount_codes",
     ),
-    path("instructor/registrations/", views.instructor_registrations, name="instructor_registrations"),
+    path("teach/registrations/", views.teach_registrations, name="teach_registrations"),
     path(
-        "instructor/registrations/email/",
-        views.instructor_registrations_email,
-        name="instructor_registrations_email",
+        "teach/registrations/email/",
+        views.teach_registrations_email,
+        name="teach_registrations_email",
     ),
-    path("instructor/discount-codes/", views.instructor_discount_codes, name="instructor_discount_codes"),
+    path("teach/discount-codes/", views.teach_discount_codes, name="teach_discount_codes"),
+    path("teach/discount-codes/new/", views.teach_discount_code_create, name="teach_discount_code_create"),
     path(
-        "instructor/discount-codes/new/", views.instructor_discount_code_create, name="instructor_discount_code_create"
-    ),
-    path(
-        "instructor/discount-codes/<int:pk>/edit/",
-        views.instructor_discount_code_edit,
-        name="instructor_discount_code_edit",
+        "teach/discount-codes/<int:pk>/edit/",
+        views.teach_discount_code_edit,
+        name="teach_discount_code_edit",
     ),
     path(
-        "instructor/discount-codes/<int:pk>/delete/",
-        views.instructor_discount_code_delete,
-        name="instructor_discount_code_delete",
+        "teach/discount-codes/<int:pk>/delete/",
+        views.teach_discount_code_delete,
+        name="teach_discount_code_delete",
     ),
-    path("instructor/profile/", views.instructor_profile, name="instructor_profile"),
+    path("teach/profile/", views.teach_profile, name="teach_profile"),
+    # Legacy 301 redirects — old /classes/instructor/... links in emails + bookmarks
+    path("instructor/", RedirectView.as_view(pattern_name="classes:teach_overview", permanent=True)),
+    path("instructor/<path:subpath>", RedirectView.as_view(url="/classes/teach/%(subpath)s", permanent=True)),
     # Admin — /classes/admin/ is the Overview dashboard; the classes list moves to /admin/classes/.
     path("admin/", views.admin_overview, name="admin_overview"),
     path("admin/classes/", views.admin_classes, name="admin_classes"),

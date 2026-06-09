@@ -7,6 +7,7 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
@@ -284,3 +285,50 @@ def site_activity(request: HttpRequest) -> HttpResponse:
             "status": status,
         },
     )
+
+
+@login_required
+def notification_feed(request: HttpRequest) -> HttpResponse:
+    """HTMX partial: the user's 15 most recent notifications."""
+    from .models import Notification
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    items = Notification.objects.filter(user=user)[:15]
+    return render(request, "hub/_notification_feed.html", {"notifications": items})
+
+
+@login_required
+def notification_unread_count(request: HttpRequest) -> HttpResponse:
+    """Plain-text unread count for the badge (HTMX polling target)."""
+    from .models import Notification
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    count = Notification.objects.filter(user=user, read_at__isnull=True).count()
+    return HttpResponse(str(count))
+
+
+@require_POST
+@login_required
+def notification_read(request: HttpRequest, pk: int) -> HttpResponse:
+    """Mark one notification read and redirect to its url (or the home page)."""
+    from .models import Notification
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    note = Notification.objects.filter(user=user, pk=pk).first()
+    if note is None:
+        return redirect("home")
+    note.mark_read()
+    return redirect(note.url or "home")
+
+
+@require_POST
+@login_required
+def notification_read_all(request: HttpRequest) -> HttpResponse:
+    """Mark all the user's notifications read."""
+    from django.utils import timezone
+
+    from .models import Notification
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    Notification.objects.filter(user=user, read_at__isnull=True).update(read_at=timezone.now())
+    return HttpResponse(status=204)

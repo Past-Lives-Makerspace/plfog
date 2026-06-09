@@ -1,0 +1,62 @@
+{% extends "classes/teach/class_detail_base.html" %}
+{% load classes_tags %}
+{% block detail_content %}
+<div class="admin-table-wrap" style="margin-bottom:1rem;">
+<table>
+    <tbody>
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted); width:120px;">Instructor</td>
+            <td>{{ offering.instructor.display_name }}</td>
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Category</td>
+            <td>{{ offering.category.name }}</td>
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Price</td>
+            <td>{{ offering.price_cents|cents_as_price }}{% if offering.member_discount_pct %} <span style="color:var(--hub-text-muted); font-size:0.85rem;">({{ offering.member_discount_pct }}% member discount)</span>{% endif %}</td>
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Capacity</td>
+            <td>{{ confirmed_registration_count }}/{{ offering.capacity }} registered</td>
+        </tr>
+    </tbody>
+</table>
+</div>
+
+<div class="admin-table-wrap" style="margin-bottom:1rem;">
+<table>
+    <thead>
+        <tr><th colspan="2">Sessions</th></tr>
+    </thead>
+    <tbody>
+    {% for session in offering.sessions.all %}
+        <tr>
+            <td>{{ session.starts_at|date:"l, M j, Y" }} at {{ session.starts_at|time:"g:i A" }}</td>
+            <td style="color:var(--hub-text-muted);">→ {{ session.ends_at|time:"g:i A" }} ({{ session|session_duration_words }})</td>
+        </tr>
+    {% empty %}
+        <tr><td colspan="2" style="color:var(--hub-text-muted);">No sessions scheduled yet.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+
+<div class="admin-toolbar">
+    <div style="display:flex; gap:0.375rem; flex-wrap:wrap; align-items:center;">
+        {% if offering.status == 'draft' or offering.status == 'pending' %}
+            <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=offering.pk %}">Edit</a>
+        {% endif %}
+        {% if offering.status == 'draft' %}
+            <form method="post" action="{% url 'classes:teach_class_submit' pk=offering.pk %}" style="display:inline;">
+                {% csrf_token %}
+                <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Submit for review</button>
+            </form>
+        {% endif %}
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview ↗</a>
+    </div>
+    {% if offering.status != 'draft' and offering.status != 'pending' %}
+        <span style="font-size:0.8rem; color:var(--hub-text-muted);">Published and archived classes are edited by an admin.</span>
+    {% endif %}
+</div>
+{% endblock %}

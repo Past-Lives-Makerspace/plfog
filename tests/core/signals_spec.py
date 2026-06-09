@@ -33,3 +33,26 @@ def describe_auth_activity():
         request = RequestFactory().get("/")
         user_signed_up.send(sender=User, request=request, user=user)
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.MEMBER_SIGNUP, actor=user).exists()
+
+
+def describe_new_login_detection():
+    def it_notifies_on_a_first_time_signature():
+        from allauth.account.signals import user_logged_in
+
+        from core.models import Notification
+
+        user = User.objects.create_user(username="nl", email="nl@example.com")
+        request = RequestFactory().get("/", HTTP_USER_AGENT="Firefox", REMOTE_ADDR="1.2.3.4")
+        user_logged_in.send(sender=User, request=request, user=user)
+        assert Notification.objects.filter(trigger="new_login", user=user).count() == 1
+
+    def it_does_not_notify_on_a_known_signature():
+        from allauth.account.signals import user_logged_in
+
+        from core.models import Notification
+
+        user = User.objects.create_user(username="nl2", email="nl2@example.com")
+        request = RequestFactory().get("/", HTTP_USER_AGENT="Firefox", REMOTE_ADDR="1.2.3.4")
+        user_logged_in.send(sender=User, request=request, user=user)
+        user_logged_in.send(sender=User, request=request, user=user)  # same signature
+        assert Notification.objects.filter(trigger="new_login", user=user).count() == 1

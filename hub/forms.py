@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
 from core.models import CalendarFeed, SiteConfiguration
-from membership.models import Guild, Member
+from membership.models import Guild, GuildAnnouncement, GuildFAQItem, GuildLink, Member
 
 
 class GuildEditForm(forms.ModelForm):
@@ -20,7 +20,17 @@ class GuildEditForm(forms.ModelForm):
 
     class Meta:
         model = Guild
-        fields = ["name", "about", "banner_image", "calendar_url", "calendar_color"]
+        fields = [
+            "name",
+            "about",
+            "banner_image",
+            "calendar_url",
+            "calendar_color",
+            "youtube_url",
+            "meeting_schedule",
+            "contact_email",
+            "show_members",
+        ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Guild name"}),
             "about": forms.Textarea(
@@ -30,12 +40,19 @@ class GuildEditForm(forms.ModelForm):
             "calendar_color": forms.TextInput(
                 attrs={"type": "color", "class": "pl-color-input"},
             ),
+            "youtube_url": forms.URLInput(attrs={"placeholder": "https://youtube.com/watch?v=..."}),
+            "meeting_schedule": forms.Textarea(attrs={"rows": 2, "placeholder": "Tuesdays 6pm, Studio B"}),
+            "contact_email": forms.EmailInput(attrs={"placeholder": "guild@example.com"}),
         }
         labels = {
             "about": "About",
             "banner_image": "Banner image",
             "calendar_url": "Google Calendar iCal URL",
             "calendar_color": "Calendar Color",
+            "youtube_url": "YouTube video",
+            "meeting_schedule": "Meeting schedule",
+            "contact_email": "Contact email",
+            "show_members": "Show members roster",
         }
         help_texts = {
             "banner_image": "Shown at the top of the guild page. Max 5 MB.",
@@ -281,3 +298,46 @@ class VotePreferenceForm(forms.Form):
                 raise forms.ValidationError("Please select three different guilds.")
 
         return cleaned
+
+
+class GuildFAQItemForm(forms.ModelForm):
+    """A single FAQ question/answer row on the guild edit page."""
+
+    class Meta:
+        model = GuildFAQItem
+        fields = ["question", "answer", "sort_order"]
+        widgets = {
+            "answer": forms.Textarea(attrs={"rows": 3}),
+            "sort_order": forms.HiddenInput(),
+        }
+
+
+GuildFAQItemFormSet = forms.inlineformset_factory(Guild, GuildFAQItem, form=GuildFAQItemForm, extra=1, can_delete=True)
+
+
+class GuildLinkForm(forms.ModelForm):
+    """A single external-link row on the guild edit page."""
+
+    class Meta:
+        model = GuildLink
+        fields = ["label", "url", "sort_order"]
+        widgets = {"sort_order": forms.HiddenInput()}
+
+
+GuildLinkFormSet = forms.inlineformset_factory(Guild, GuildLink, form=GuildLinkForm, extra=1, can_delete=True)
+
+
+class GuildAnnouncementForm(forms.ModelForm):
+    """Post a news announcement on a guild page."""
+
+    class Meta:
+        model = GuildAnnouncement
+        fields = ["title", "body"]
+        widgets = {"body": forms.Textarea(attrs={"rows": 4})}
+
+
+class SiteAnnouncementForm(forms.Form):
+    """Admin form to broadcast a site-wide announcement to all members."""
+
+    title = forms.CharField(max_length=300, label="Title")
+    body = forms.CharField(widget=forms.Textarea(attrs={"rows": 4}), label="Message")

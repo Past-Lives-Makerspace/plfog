@@ -303,8 +303,16 @@ class ClassOffering(models.Model):
         self.status = self.Status.ARCHIVED
         self.save(update_fields=["status", "updated_at"])
         from classes import activity
+        from core import notifications
 
         activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=self)
+        notifications.dispatch(
+            "class_cancelled",
+            notifications.active_member_users(),
+            title="A class was cancelled",
+            body=self.title,
+            url="/classes/",
+        )
 
     def promote_next_from_waitlist(self) -> "Registration | None":
         """Notify the next waitlisted person when a confirmed spot opens.
@@ -343,6 +351,16 @@ class ClassOffering(models.Model):
             class_offering=self,
             registration=next_up,
         )
+        from core import notifications
+
+        if next_up.member is not None and next_up.member.user is not None:
+            notifications.dispatch(
+                "waitlist_spot_available",
+                [next_up.member.user],
+                title="A waitlist spot opened up",
+                body=self.title,
+                url="/classes/account/",
+            )
         return next_up
 
     def on_review_decision_recorded(self, row: "ClassApproval") -> None:
@@ -356,6 +374,8 @@ class ClassOffering(models.Model):
         """
         from classes import activity
 
+        from core import notifications
+
         if row.decision == ClassApproval.Decision.APPROVED:
             activity.log(
                 CmsActivity.Kind.CLASS_APPROVED,
@@ -363,6 +383,14 @@ class ClassOffering(models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role},
             )
+            if self.instructor is not None and self.instructor.user is not None:
+                notifications.dispatch(
+                    "instructor_class_approved",
+                    [self.instructor.user],
+                    title="Your class was approved",
+                    body=self.title,
+                    url=f"/classes/{self.slug}/",
+                )
             required = set(self.required_review_roles)
             approved = {r.role for r in self.approvals.filter(decision=ClassApproval.Decision.APPROVED)}
             if required.issubset(approved):
@@ -375,6 +403,13 @@ class ClassOffering(models.Model):
                     class_offering=self,
                     actor=row.decided_by,
                 )
+                notifications.dispatch(
+                    "class_published",
+                    notifications.active_member_users(),
+                    title="New class published",
+                    body=self.title,
+                    url=f"/classes/{self.slug}/",
+                )
         elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
             self.status = self.Status.DRAFT
             self.save(update_fields=["status", "updated_at"])
@@ -384,6 +419,14 @@ class ClassOffering(models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role, "notes_excerpt": (row.notes or "")[:200]},
             )
+            if self.instructor is not None and self.instructor.user is not None:
+                notifications.dispatch(
+                    "instructor_changes_requested",
+                    [self.instructor.user],
+                    title="Changes requested on your class",
+                    body=self.title,
+                    url=f"/classes/{self.slug}/",
+                )
         elif row.decision == ClassApproval.Decision.DENIED:
             self.status = self.Status.DRAFT
             self.save(update_fields=["status", "updated_at"])
@@ -926,34 +969,54 @@ class Registration(models.Model):
         super().save(*args, **kwargs)
         if creating and self.member_id is None:
             self.link_member_by_email()
-        from classes import activity
+        self._dispatch_status_notification(creating, prior_status)
 
+    def _dispatch_status_notification(self, creating: bool, prior_status: str | None) -> None:
+        """Dispatch in-app notifications triggered by registration status transitions."""
+        from classes import activity
+        from core import notifications
+
+        user = self.member.user if (self.member is not None and self.member.user is not None) else None
         if creating:
             if self.status == self.Status.WAITLISTED:
-                activity.log(
-                    CmsActivity.Kind.WAITLIST_JOINED,
-                    class_offering=self.class_offering,
-                    registration=self,
-                )
+                activity.log(CmsActivity.Kind.WAITLIST_JOINED, class_offering=self.class_offering, registration=self)
+                if user is not None:
+                    notifications.dispatch(
+                        "waitlist_confirmed",
+                        [user],
+                        title="Added to the waitlist",
+                        body=self.class_offering.title,
+                        url="/classes/account/",
+                    )
             else:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_CREATED,
-                    class_offering=self.class_offering,
-                    registration=self,
+                    CmsActivity.Kind.REGISTRATION_CREATED, class_offering=self.class_offering, registration=self
                 )
         elif prior_status is not None and prior_status != self.status:
             if self.status == self.Status.CONFIRMED:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_CONFIRMED,
-                    class_offering=self.class_offering,
-                    registration=self,
+                    CmsActivity.Kind.REGISTRATION_CONFIRMED, class_offering=self.class_offering, registration=self
                 )
+                if user is not None:
+                    notifications.dispatch(
+                        "registration_confirmed",
+                        [user],
+                        title="Registration confirmed",
+                        body=self.class_offering.title,
+                        url="/classes/account/",
+                    )
             elif self.status == self.Status.REFUNDED:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_REFUNDED,
-                    class_offering=self.class_offering,
-                    registration=self,
+                    CmsActivity.Kind.REGISTRATION_REFUNDED, class_offering=self.class_offering, registration=self
                 )
+                if user is not None:
+                    notifications.dispatch(
+                        "refund_issued",
+                        [user],
+                        title="Refund issued",
+                        body=self.class_offering.title,
+                        url="/classes/account/",
+                    )
 
     @staticmethod
     def _generate_order_number() -> str:

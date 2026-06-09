@@ -43,5 +43,20 @@ def send_due_class_reminders(window_minutes: int = 15) -> int:
             if not created:
                 continue
             send_reminder_email(registration, session)
+            user = (
+                registration.member.user
+                if (registration.member is not None and registration.member.user is not None)
+                else None
+            )
+            if user is not None:
+                from core import notifications
+
+                notifications.dispatch(
+                    "class_reminder",
+                    [user],
+                    title="Class reminder",
+                    body=f"{session.class_offering.title} starts soon.",
+                    url="/classes/account/",
+                )
             sent += 1
     return sent

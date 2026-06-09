@@ -92,6 +92,7 @@ def describe_surface():
             "surface": "public",
             "is_public_surface": True,
             "MEMBER_HOST": settings.MEMBER_HOST,
+            "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "parent_template": "classes/base_public.html",
         }
@@ -105,6 +106,7 @@ def describe_surface():
             "surface": "members",
             "is_public_surface": False,
             "MEMBER_HOST": settings.MEMBER_HOST,
+            "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "parent_template": "base.html",
         }
@@ -119,6 +121,32 @@ def describe_surface():
             "surface": "members",
             "is_public_surface": False,
             "MEMBER_HOST": settings.MEMBER_HOST,
+            "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "parent_template": "base.html",
         }
+
+
+def describe_notification_badge():
+    def it_counts_unread_for_authenticated_user(client):
+        from django.contrib.auth.models import User
+        from django.test import RequestFactory
+
+        from core.context_processors import notification_badge
+        from core.models import Notification
+
+        user = User.objects.create_user(username="b", email="b@example.com")
+        Notification.objects.create(user=user, trigger="x", title="t", body="b")
+        request = RequestFactory().get("/")
+        request.user = user
+        assert notification_badge(request)["unread_notification_count"] == 1
+
+    def it_returns_zero_for_anonymous_user():
+        from django.contrib.auth.models import AnonymousUser
+        from django.test import RequestFactory
+
+        from core.context_processors import notification_badge
+
+        request = RequestFactory().get("/")
+        request.user = AnonymousUser()
+        assert notification_badge(request)["unread_notification_count"] == 0

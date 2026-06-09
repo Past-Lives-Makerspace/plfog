@@ -13,11 +13,10 @@
     <div><div class="hs-n">{{ total_instructors }}</div><div class="hs-l">Instructors</div></div>
   </div>
   <div id="hero-cta">
-    <a class="cta-primary" href="#catalog">Browse Classes</a>
     {% if request.view_as.is_admin %}
-      <a class="cta-secondary" href="{% url 'classes:admin_overview' %}">Manage Classes &amp; Workshops</a>
+      <a class="cta-secondary" href="{% if is_public_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'classes:admin_overview' %}">Manage Classes &amp; Workshops</a>
     {% elif request.view_as.is_member %}
-      <a class="cta-secondary" href="{% url 'classes:instructor_overview' %}">Manage My Classes</a>
+      <a class="cta-secondary" href="{% if is_public_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'classes:teach_overview' %}">Manage My Classes</a>
     {% endif %}
     {% if user.is_authenticated and not is_public_surface %}
       <a class="cta-secondary" href="{{ BOOK_BASE_URL }}" target="_blank" rel="noopener" title="See the public booking site at book.pastlives.space">View Publicly</a>

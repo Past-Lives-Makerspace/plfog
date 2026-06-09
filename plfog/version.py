@@ -2,31 +2,34 @@
 
 from __future__ import annotations
 
-VERSION = "2.6.0"
+VERSION = "2.5.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "2.6.0",
+        "version": "2.5.0",
         "date": "2026-06-08",
-        "title": "A cleaner home for managing classes & workshops",
+        "title": "Booking-site fixes, a clearer teaching area, and email auditing",
         "changes": [
+            "On the public booking site (book.pastlives.space), the 'Manage Classes & Workshops' and 'Manage My Classes' buttons now take you straight to the right place in your member dashboard — before, they led to a dead page.",
+            "Hosting classes is open to every member: there's no separate 'instructor' role anymore. Any member can create and manage a class or workshop — it still needs approval from the category's Guild Lead and an admin before it goes live. The teaching pages now live at a clearer /classes/teach address, and old links redirect there automatically.",
+            "The top bar on the booking site is tidier for signed-in members — the link back to your FOG dashboard and your 'Member' badge are now properly styled and only appear where they're useful.",
+            "Admins have a new site-wide Activity dashboard in the sidebar. One tab shows a chronological feed of what's happening across the site — logins, profile updates, votes, tab charges, class registrations, and more. A second tab logs every automatic email the site sends (receipts, class confirmations, invites) so you can confirm exactly what went out and catch anything that failed.",
+            "Guild pages got a big visual refresh. Each guild now has a proper hero banner, an image gallery with click-to-zoom, an optional intro video, a meeting schedule, a frequently-asked-questions section, and a links sidebar — all managed by guild leads and admins from a redesigned full-page editor (the old pop-up is gone). Members can now join or leave a guild in one click, and guilds that opt in can show a roster of their members, respecting each member's directory-privacy settings.",
+            "Past Lives now keeps you in the loop with notifications. A bell in the top bar collects everything relevant to you — a new class or workshop going live, your registration or refund clearing, a waitlist spot opening up, your tab being charged, monthly voting reminders, and more. Under Settings → Notifications you choose which of these also reach you by browser push or email; the bell always shows the full list. For your account's safety, you'll always get an email when someone signs in from a new device.",
             "The classes admin area has a brand-new Overview page that greets you when you open it. At a glance you can see which classes are waiting for your approval (with Review and Approve buttons right there), which classes have people on a waitlist, your most recent sign-ups, and a 14-day chart of how registrations are trending.",
             "The management tabs are simpler. Instead of seven tabs across the top, there are now just three — Overview, Classes, and Settings. Categories, discount codes, registration questions, and waiver text all live together under Settings now, so the day-to-day tabs stay uncluttered.",
             "There's a 'View live catalog' link in the management header so you can hop straight to the public booking site to see your classes the way visitors do.",
-            "Instructors get the same upgrade on their teaching dashboard — opening it now shows your drafts, anything awaiting review, your latest sign-ups, and your waitlists at a glance, with a one-tap 'Create your first class' if you're just getting started.",
+            "Anyone teaching a class gets the same upgrade on their teaching dashboard — opening it now shows your drafts, anything awaiting review, your latest sign-ups, and your waitlists at a glance, with a one-tap 'Create your first class' if you're just getting started.",
             "Opening a class now puts everything for that class in one place — a tabbed workspace for its registrations, waitlist, and discount codes, with Edit and Preview right at the top.",
-            "Instructors get that same per-class workspace for their own classes — open any class you teach to see its sign-ups, waitlist, and discount codes in one place. Your teaching profile now lives in the top-right account menu.",
+            "You get that same per-class workspace for your own classes — open any class you teach to see its sign-ups, waitlist, and discount codes in one place. Your teaching profile now lives in the top-right account menu.",
         ],
     },
     {
         "version": "2.4.0",
         "date": "2026-06-08",
-        "title": "Notifications, redesigned Guild Pages, and a site-wide Activity dashboard",
+        "title": "Old-CMS classes import and sync automatically every day",
         "changes": [
-            "You can now get notified about what matters to you. A bell in the top-right corner shows your recent notifications — new classes, voting reminders, billing updates, guild announcements, and more. Head to Settings → Notifications to choose which ones reach you as browser push alerts or emails, and which ones you just see in the bell.",
-            "Guild pages have been completely redesigned. Each guild now has a full hero image, a photo gallery of up to 10 images, an optional YouTube video, a meeting schedule, a FAQ section, an announcements board, a links section, and an optional member roster. Guild leads can manage all of it from the updated edit page.",
-            "Admins now have a site-wide Activity dashboard at /manage/activity. It shows a chronological feed of everything happening across the site — logins, profile updates, votes, tab charges, class registrations, and more — with a second tab for auditing every transactional email that has been sent or failed.",
-            "The class catalog and Community Calendar now refresh themselves automatically every morning. New workshops from the old class site and any updated guild calendars show up on their own — nobody has to open the calendar or press a button to pull them in. The 'Sync Now' buttons in Site Settings are still there whenever you want an instant refresh.",
+            "The class catalog and Community Calendar now refresh themselves automatically every morning. New workshops imported from the old class site (classes.pastlives.space) and any updated guild calendars show up on their own — nobody has to open the calendar or press a button to pull them in. The 'Sync Now' buttons in Site Settings are still there whenever you want an instant refresh.",
         ],
     },
     {

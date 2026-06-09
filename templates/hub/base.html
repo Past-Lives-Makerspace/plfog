@@ -57,6 +57,13 @@
 
         <nav class="hub-sidebar__nav" aria-label="Hub navigation" hx-boost="false" @click="if ($event.target.closest('a') && window.innerWidth <= 768) sidebarOpen = false">
             {% if request.view_as.is_admin %}
+            <a href="{% url 'manage_activity' %}" class="hub-sidebar__link {% active_nav 'manage_activity' %}">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                </svg>
+                Activity
+            </a>
+
             <a href="{% url 'classes:public_list' %}" class="hub-sidebar__link {% if request.path|slice:':9' == '/classes/' %}active{% endif %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
@@ -326,6 +333,7 @@
             </div>
             {% endif %}
             <div class="pl-topbar__spacer"></div>
+            {% include "hub/_notification_bell.html" %}
             {% if tab_balance is not None %}
             <a href="{% url 'hub_tab_detail' %}" class="pl-topbar__tab-pill{% if tab_is_locked %} pl-topbar__tab-pill--locked{% endif %}" title="My Tab">
                 ${{ tab_balance }}
@@ -358,7 +366,7 @@
                     </div>
                     <a href="{% url 'hub_user_settings' %}" class="pl-profile__dropdown-item" role="menuitem">Settings</a>
                     {% if request.view_as.is_member %}
-                    <a href="{% url 'classes:instructor_profile' %}" class="pl-profile__dropdown-item" role="menuitem">Edit teaching profile</a>
+                    <a href="{% url 'classes:teach_profile' %}" class="pl-profile__dropdown-item" role="menuitem">Edit teaching profile</a>
                     {% endif %}
                     <div class="pl-profile__dropdown-divider"></div>
                     <a href="{% url 'account_logout' %}" class="pl-profile__dropdown-item pl-profile__dropdown-item--danger" role="menuitem" hx-boost="false">Log Out</a>

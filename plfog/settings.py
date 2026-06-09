@@ -57,11 +57,16 @@ PUBLIC_HOSTS = [
     h.strip().lower() for h in os.environ.get("PUBLIC_HOSTS", "book.pastlives.space").split(",") if h.strip()
 ]
 MEMBER_HOST = os.environ.get("MEMBER_HOST", "members.pastlives.space").strip().lower()
+# Absolute base URL of the members surface, used to build cross-surface links
+# from the public catalog (e.g. the admin/teach "Manage" buttons). Defaults to
+# https://<MEMBER_HOST>; override in local dev (e.g. http://localhost:8000) so
+# the cross-host links are reachable from book.localhost too.
+MEMBER_BASE_URL = os.environ.get("MEMBER_BASE_URL", f"https://{MEMBER_HOST}").rstrip("/")
 MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/admin/",
     "/billing/",
     "/classes/admin/",
-    "/classes/instructor/",
+    "/classes/teach/",
     "/feedback/",
     "/find-account/",
     "/guilds/",
@@ -143,6 +148,7 @@ TEMPLATES = [
                 "core.context_processors.persona",
                 "billing.context_processors.tab_context",
                 "hub.context_processors.hub_sidebar",
+                "core.context_processors.notification_badge",
             ],
         },
     },
@@ -501,12 +507,6 @@ UNFOLD = {
         "navigation": [
             {
                 "items": [
-                    {
-                        "title": "Site Activity",
-                        "icon": "monitoring",
-                        "link": reverse_lazy("manage_activity"),
-                        "permission": lambda request: request.user.is_superuser,
-                    },
                     {
                         "title": "Manage Classes",
                         "icon": "school",

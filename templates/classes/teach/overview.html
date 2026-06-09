@@ -1,0 +1,87 @@
+{% extends "classes/teach/base.html" %}
+{% load classes_tags %}
+
+{% block tab_content %}
+{% if not has_classes %}
+  <div class="hub-card" style="text-align:center;padding:2.5rem 1rem;">
+    <div style="font-size:2rem;">🛠</div>
+    <h2 style="margin:0.5rem 0 0.25rem;">Teach your first class</h2>
+    <p style="color:var(--hub-text-muted);max-width:34rem;margin:0 auto 1rem;">
+      Set the details, add sessions, make it look great. We'll walk you through it —
+      then an admin reviews it before it goes live.
+    </p>
+    <a class="hub-btn" href="{% url 'classes:teach_class_create' %}">+ Create your first class</a>
+  </div>
+{% else %}
+  <div style="display:flex;flex-direction:column;gap:1.25rem;">
+
+    {# Needs attention: pending review + drafts #}
+    <section class="hub-card" style="margin:0;">
+      <h2 style="margin-top:0;">Needs you</h2>
+      {% for c in pending_classes %}
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+          <span>{{ c.title }}</span>
+          <span style="color:var(--hub-text-muted);">awaiting admin review</span>
+        </div>
+      {% endfor %}
+      {% for c in drafts %}
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+          <a href="{% url 'classes:teach_class_edit' pk=c.pk %}">{{ c.title }}</a>
+          <span style="color:var(--hub-text-muted);">draft — finish &amp; submit</span>
+        </div>
+      {% endfor %}
+      {% if not pending_classes and not drafts %}
+        <p style="color:var(--hub-text-muted);">Nothing needs your attention right now.</p>
+      {% endif %}
+    </section>
+
+    {# At a glance (no money) #}
+    <section class="hub-card" style="margin:0;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;">
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.published }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">published</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.pending }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">awaiting review</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.drafts }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">drafts</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.total_signups }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">total sign-ups</div></div>
+      </div>
+    </section>
+
+    {# Active waitlists #}
+    {% if waitlist_classes %}
+    <section class="hub-card" style="margin:0;">
+      <h2 style="margin-top:0;">Active waitlists</h2>
+      {% for c in waitlist_classes %}
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+          <span>{{ c.title }}</span><span style="color:var(--hub-text-muted);">{{ c.waiting }} waiting</span>
+        </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {# Recent sign-ups #}
+    <section class="hub-card" style="margin:0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2 style="margin:0;">Recent sign-ups</h2>
+        <a href="{% url 'classes:teach_registrations' %}">View all →</a>
+      </div>
+      <table style="width:100%;margin-top:8px;">
+        <tbody>
+        {% for r in recent_registrations %}
+          <tr><td>{{ r.first_name }} {{ r.last_name }}</td><td>{{ r.class_offering.title }}</td></tr>
+        {% empty %}
+          <tr><td style="color:var(--hub-text-muted);padding:0.5rem 0;">No sign-ups yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    {# Quick links to the pages no longer in the tab strip #}
+    <section class="hub-card" style="margin:0;">
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;">
+        <a href="{% url 'classes:teach_registrations' %}">Registrations</a>
+        <a href="{% url 'classes:teach_discount_codes' %}">Discount codes</a>
+      </div>
+    </section>
+
+  </div>
+{% endif %}
+{% endblock %}

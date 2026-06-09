@@ -51,6 +51,17 @@ def send_receipt(charge: TabCharge) -> None:
         email_log=email_log,
     )
 
+    if member.user is not None:
+        from core import notifications
+
+        notifications.dispatch(
+            "tab_charged",
+            [member.user],
+            title="Tab charged",
+            body=f"${charge.amount} was charged to your tab.",
+            url="/tab/",
+        )
+
     charge.receipt_sent_at = timezone.now()
     charge.save(update_fields=["receipt_sent_at"])
 
@@ -78,3 +89,14 @@ def notify_admin_charge_failed(charge: TabCharge) -> None:
     from core.models import SiteActivity
 
     SiteActivity.log(SiteActivity.Kind.TAB_CHARGE_FAILED, actor=member.user, target=charge)
+
+    if member.user is not None:
+        from core import notifications
+
+        notifications.dispatch(
+            "tab_charge_failed",
+            [member.user],
+            title="Tab charge failed",
+            body="A charge to your tab failed — please update your payment method.",
+            url="/tab/",
+        )
