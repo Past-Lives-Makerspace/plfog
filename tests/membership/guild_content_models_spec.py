@@ -3,7 +3,7 @@
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from membership.models import GuildFAQItem, GuildImage, GuildLink
+from membership.models import GuildAnnouncement, GuildFAQItem, GuildImage, GuildLink
 from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
@@ -50,3 +50,14 @@ def describe_GuildLink():
         l2 = GuildLink.objects.create(guild=guild, label="Wiki", url="https://w.example", sort_order=2)
         l1 = GuildLink.objects.create(guild=guild, label="Discord", url="https://d.example", sort_order=1)
         assert list(guild.links.all()) == [l1, l2]
+
+
+def describe_GuildAnnouncement():
+    def it_orders_newest_first():
+        guild = GuildFactory()
+        a1 = GuildAnnouncement.objects.create(guild=guild, title="Old", body="b")
+        a2 = GuildAnnouncement.objects.create(guild=guild, title="New", body="b")
+        assert list(guild.announcements.all()) == [a2, a1]
+
+    # NOTE: the publish()-notifies-members test is deferred until Plan 2's
+    # core.notifications / core.models.Notification land (see DEFERRED.md).

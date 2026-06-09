@@ -664,6 +664,34 @@ class GuildLink(models.Model):
         return f"{self.label} ({self.guild.name})"
 
 
+class GuildAnnouncement(models.Model):
+    """A news post on a guild page.
+
+    Member notification on publish is wired once Plan 2's notifications module
+    (``core.notifications.dispatch``) lands — see DEFERRED.md. Until then,
+    announcements are created/displayed/deleted without firing notifications.
+    """
+
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="announcements", help_text="Parent guild.")
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who posted it.",
+    )
+    title = models.CharField(max_length=300, help_text="Announcement headline.")
+    body = models.TextField(help_text="Announcement body.")
+    published_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-published_at"]
+
+    def __str__(self) -> str:
+        return f"{self.title} ({self.guild.name})"
+
+
 class VotePreferenceQuerySet(models.QuerySet):
     def from_signed_up_members(self) -> VotePreferenceQuerySet:
         """Votes cast by members who have a linked User account.
