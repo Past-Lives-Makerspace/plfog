@@ -14,6 +14,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "The management tabs are simpler. Instead of seven tabs across the top, there are now just three — Overview, Classes, and Settings. Categories, discount codes, registration questions, and waiver text all live together under Settings now, so the day-to-day tabs stay uncluttered.",
             "There's a 'View live catalog' link in the management header so you can hop straight to the public booking site to see your classes the way visitors do.",
             "Instructors get the same upgrade on their teaching dashboard — opening it now shows your drafts, anything awaiting review, your latest sign-ups, and your waitlists at a glance, with a one-tap 'Create your first class' if you're just getting started.",
+            "Opening a class now puts everything for that class in one place — a tabbed workspace for its registrations, waitlist, and discount codes, with Edit and Preview right at the top.",
         ],
     },
     {
