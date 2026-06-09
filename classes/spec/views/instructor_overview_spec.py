@@ -11,7 +11,7 @@ from classes.factories import (
     RegistrationFactory,
     UserFactory,
 )
-from classes.models import ClassOffering
+from classes.models import ClassOffering, Registration
 from membership.models import Member
 
 
@@ -57,8 +57,10 @@ def describe_instructor_overview():
     def describe_needs_attention():
         def it_lists_my_pending_class(instructor_fixture, client):
             ClassOfferingFactory(
-                instructor=instructor_fixture, title="Forge Night",
-                slug="forge", status=ClassOffering.Status.PENDING,
+                instructor=instructor_fixture,
+                title="Forge Night",
+                slug="forge",
+                status=ClassOffering.Status.PENDING,
             )
             client.force_login(instructor_fixture.user)
             resp = client.get(reverse("classes:instructor_overview"))
@@ -66,8 +68,10 @@ def describe_instructor_overview():
 
         def it_does_not_show_another_instructors_class(instructor_fixture, other_instructor, client):
             ClassOfferingFactory(
-                instructor=other_instructor, title="Not Mine",
-                slug="notmine", status=ClassOffering.Status.PENDING,
+                instructor=other_instructor,
+                title="Not Mine",
+                slug="notmine",
+                status=ClassOffering.Status.PENDING,
             )
             client.force_login(instructor_fixture.user)
             resp = client.get(reverse("classes:instructor_overview"))
@@ -80,6 +84,28 @@ def describe_instructor_overview():
             client.force_login(instructor_fixture.user)
             resp = client.get(reverse("classes:instructor_overview"))
             assert b"Jess" in resp.content
+
+        def it_does_not_show_another_instructors_registrant(instructor_fixture, other_instructor, client):
+            theirs = ClassOfferingFactory(instructor=other_instructor, slug="theirs-regs")
+            RegistrationFactory(class_offering=theirs, first_name="NotMine", last_name="Guest")
+            client.force_login(instructor_fixture.user)
+            resp = client.get(reverse("classes:instructor_overview"))
+            assert b"NotMine" not in resp.content
+
+    def describe_waitlist():
+        def it_shows_a_class_with_an_active_waitlist(instructor_fixture, client):
+            mine = ClassOfferingFactory(instructor=instructor_fixture, title="Wheel 101", slug="wheel")
+            RegistrationFactory(class_offering=mine, status=Registration.Status.WAITLISTED)
+            client.force_login(instructor_fixture.user)
+            resp = client.get(reverse("classes:instructor_overview"))
+            assert b"Active waitlists" in resp.content
+            assert b"Wheel 101" in resp.content
+
+        def it_hides_the_waitlist_section_when_none(instructor_fixture, client):
+            ClassOfferingFactory(instructor=instructor_fixture, slug="no-wait")
+            client.force_login(instructor_fixture.user)
+            resp = client.get(reverse("classes:instructor_overview"))
+            assert b"Active waitlists" not in resp.content
 
     def describe_quick_links():
         def it_links_to_registrations_codes_and_profile(instructor_fixture, client):
