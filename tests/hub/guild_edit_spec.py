@@ -9,10 +9,18 @@ from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
 
+from django.core.files.uploadedfile import SimpleUploadedFile
+
 from billing.models import Product, ProductRevenueSplit
 from hub.forms import GuildEditForm
-from membership.models import Member
-from tests.membership.factories import GuildFactory, MembershipPlanFactory
+from membership.models import GuildImage, Member
+from tests.membership.factories import GuildAnnouncementFactory, GuildFactory, MembershipPlanFactory
+
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+    b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 
 def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
@@ -399,7 +407,8 @@ def describe_guild_detail_edit_buttons():
         response = client.get(f"/guilds/{guild.pk}/")
         assert response.status_code == 200
         assert b'@click="openProductCreateModal()"' in response.content
-        assert b"open-modal', 'edit-guild'" in response.content
+        # The edit modal is now a full page — the hero links to it.
+        assert f"/guilds/{guild.pk}/edit/".encode() in response.content
 
     def it_shows_edit_buttons_for_guild_lead(client: Client):
         user = _user_with_role("lead_btn", fog_role=Member.FogRole.MEMBER)
@@ -407,18 +416,19 @@ def describe_guild_detail_edit_buttons():
         client.login(username="lead_btn", password="pass")
         response = client.get(f"/guilds/{guild.pk}/")
         assert b'@click="openProductCreateModal()"' in response.content
-        assert b"open-modal', 'edit-guild'" in response.content
+        assert f"/guilds/{guild.pk}/edit/".encode() in response.content
 
     def it_hides_edit_buttons_for_regular_member(client: Client):
         _user_with_role("reg_btn", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory()
         client.login(username="reg_btn", password="pass")
         response = client.get(f"/guilds/{guild.pk}/")
-        # Check the Alpine dispatch strings — the literal button labels
-        # ("Edit Guild Page" / "Add Product") also appear in the changelog
-        # modal rendered on every page, so those aren't reliable markers.
+        # Check the Alpine dispatch string for Add Product and the edit-page
+        # link — the literal button labels ("Edit Guild Page" / "Add Product")
+        # also appear in the changelog modal on every page, so those aren't
+        # reliable markers.
         assert b'@click="openProductCreateModal()"' not in response.content
-        assert b"open-modal', 'edit-guild'" not in response.content
+        assert f"/guilds/{guild.pk}/edit/".encode() not in response.content
 
 
 def _tiny_png_bytes() -> bytes:
@@ -557,3 +567,21 @@ def describe_guild_edit_page():
         guild.refresh_from_db()
         assert guild.name == "New Name"
         assert GuildFAQItem.objects.filter(guild=guild, question="Why?").exists()
+
+
+@pytest.mark.django_db
+def describe_guild_edit_delete_controls():
+    def it_renders_per_image_and_announcement_delete_controls(client: Client):
+        _user_with_role("admin_del", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        img = GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("g.png", _PNG))
+        announcement = GuildAnnouncementFactory(guild=guild)
+        client.login(username="admin_del", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        # confirm-modal ids built via the |add filter must match the trigger ids
+        assert f"del-img-{img.pk}".encode() in response.content
+        assert f"del-ann-{announcement.pk}".encode() in response.content
+        # and the delete endpoints are wired into the modals
+        assert reverse("hub_guild_image_delete", args=[guild.pk, img.pk]).encode() in response.content
+        assert reverse("hub_guild_announcement_delete", args=[guild.pk, announcement.pk]).encode() in response.content

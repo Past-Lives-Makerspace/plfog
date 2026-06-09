@@ -319,7 +319,6 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     eyop_form = TabItemForm(context=CONTEXT_MEMBER_GUILD_PAGE, user=request.user, guild=guild)
 
     can_edit_this_guild = _can_edit_guild(request, guild)
-    guild_edit_form = GuildEditForm(instance=guild) if can_edit_this_guild else None
     product_form = None
     product_splits_formset = None
     all_guilds = None
@@ -329,6 +328,13 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
         product_form = ProductForm()
         product_splits_formset = build_product_split_formset(instance=Product())
         all_guilds = Guild.objects.filter(is_active=True).order_by("name")
+
+    gallery_images = guild.gallery_images.all()
+    faq_items = guild.faq_items.all()
+    links = guild.links.all()
+    announcements = guild.announcements.all()[:5]
+    roster = guild.roster_members() if guild.show_members else None
+    is_member_of_guild = member is not None and guild.memberships.filter(member=member).exists()
 
     return render(
         request,
@@ -340,10 +346,15 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "tab": tab,
             "eyop_form": eyop_form,
             "can_edit_this_guild": can_edit_this_guild,
-            "guild_edit_form": guild_edit_form,
             "product_form": product_form,
             "product_splits_formset": product_splits_formset,
             "all_guilds": all_guilds,
+            "gallery_images": gallery_images,
+            "faq_items": faq_items,
+            "links": links,
+            "announcements": announcements,
+            "roster": roster,
+            "is_member_of_guild": is_member_of_guild,
         },
     )
 

@@ -1,111 +1,202 @@
 {% extends "hub/base.html" %}
 {% load static %}
+{% load classes_tags %}
 {% block title %}{{ guild.name }}{% endblock %}
 
 {% block content %}
 <div x-data="guildCart({{ guild.pk }})">
 
-{# Guild info card #}
-<div class="hub-card">
-    {% if guild.banner_image %}
-    <img src="{{ guild.banner_image.url }}"
-         alt="{{ guild.name }} banner"
-         class="pl-guild-banner"
-         style="width:100%;max-height:240px;object-fit:cover;border-radius:6px;margin-bottom:1rem;">
-    {% endif %}
-    <div class="pl-guild-header">
-        <h1 class="hub-page-title">{{ guild.name }}</h1>
+{# ── HERO ── #}
+<div class="pl-guild-hero{% if not guild.banner_image %} pl-guild-hero--noimg{% endif %}">
+    {% if guild.banner_image %}<img class="pl-guild-hero__img" src="{{ guild.banner_image.url }}" alt="{{ guild.name }}">{% endif %}
+    <div class="pl-guild-hero__overlay"></div>
+    <div class="pl-guild-hero__content">
+        <h1 class="pl-guild-hero__title">{{ guild.name }}</h1>
+        {% if guild.guild_lead %}<div class="pl-guild-hero__lead">Led by {{ guild.guild_lead.display_name }}</div>{% endif %}
         {% if can_edit_this_guild %}
-        <div class="pl-guild-header__actions">
-            <button type="button"
-                    class="pl-btn pl-btn--secondary"
-                    @click="$dispatch('open-modal', 'edit-guild')">
-                Edit Guild Page
-            </button>
-        </div>
+        <a href="{% url 'hub_guild_edit' guild.pk %}" class="pl-btn pl-btn--secondary" style="margin-top:0.75rem;">Edit Guild Page</a>
         {% endif %}
     </div>
-    <div class="hub-detail-section">
-        <h3 class="hub-detail-label">About</h3>
-        {% if guild.about %}
-        <p>{{ guild.about|linebreaksbr }}</p>
-        {% else %}
-        <p class="hub-text-muted">Nothing here yet.</p>
-        {% endif %}
-    </div>
-    {% if guild.guild_lead %}
-    <div class="hub-detail-section">
-        <h3 class="hub-detail-label">Guild Lead</h3>
-        <div class="hub-member-row" style="cursor:pointer;" @click="$dispatch('open-modal', 'guild-lead-profile')">
-            <div class="hub-member-avatar">
-                {{ guild.guild_lead.display_name|make_list|first|upper }}
-            </div>
-            <div class="hub-member-info">
-                <span class="hub-member-name">{{ guild.guild_lead.display_name }}</span>
-                <span class="hub-badge">Lead</span>
-            </div>
-        </div>
-    </div>
-
-    {# Guild lead profile modal #}
-    <div x-data="{ open: false }"
-         x-show="open"
-         x-transition:enter="modal-enter"
-         x-transition:leave="modal-leave"
-         @open-modal.window="if ($event.detail === 'guild-lead-profile') open = true"
-         @close-modal.window="if ($event.detail === 'guild-lead-profile') open = false"
-         @keydown.escape.window="open = false"
-         class="pl-modal-backdrop"
-         style="display: none;"
-         role="dialog"
-         aria-modal="true">
-        <div class="pl-modal pl-modal--sm" @click.outside="open = false">
-            <div class="pl-modal__header">
-                <h2 class="pl-modal__title">{{ guild.guild_lead.display_name }}</h2>
-                <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
-            </div>
-            <div class="pl-modal__body">
-                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem;">
-                    <div class="hub-member-avatar" style="width:48px;height:48px;font-size:1.25rem;">
-                        {{ guild.guild_lead.display_name|make_list|first|upper }}
-                    </div>
-                    <div>
-                        <div style="font-weight:600;color:var(--hub-text, #F4EFDD);">{{ guild.guild_lead.display_name }}</div>
-                        {% if guild.guild_lead.pronouns and guild.guild_lead.pronouns != "prefer not to share" %}
-                        <div style="font-size:0.8125rem;color:var(--hub-text-muted, #96ACBB);">{{ guild.guild_lead.pronouns }}</div>
-                        {% endif %}
-                    </div>
-                </div>
-                {% if guild.guild_lead.about_me %}
-                <p style="font-size:0.875rem;color:var(--hub-text, #F4EFDD);margin:0 0 1rem;">{{ guild.guild_lead.about_me }}</p>
-                {% endif %}
-                {% if guild.guild_lead.primary_email or guild.guild_lead.phone or guild.guild_lead.discord_handle %}
-                <div style="display:flex;flex-direction:column;gap:0.5rem;">
-                    {% if guild.guild_lead.primary_email %}
-                    <div style="display:flex;gap:0.5rem;font-size:0.875rem;">
-                        <span style="color:var(--hub-text-muted, #96ACBB);min-width:60px;">Email</span>
-                        <a href="mailto:{{ guild.guild_lead.primary_email }}" style="color:var(--color-tuscan-yellow, #EEB44B);">{{ guild.guild_lead.primary_email }}</a>
-                    </div>
-                    {% endif %}
-                    {% if guild.guild_lead.phone %}
-                    <div style="display:flex;gap:0.5rem;font-size:0.875rem;">
-                        <span style="color:var(--hub-text-muted, #96ACBB);min-width:60px;">Phone</span>
-                        <span style="color:var(--hub-text, #F4EFDD);">{{ guild.guild_lead.phone }}</span>
-                    </div>
-                    {% endif %}
-                    {% if guild.guild_lead.discord_handle %}
-                    <div style="display:flex;gap:0.5rem;font-size:0.875rem;">
-                        <span style="color:var(--hub-text-muted, #96ACBB);min-width:60px;">Discord</span>
-                        <span style="color:var(--hub-text, #F4EFDD);">{{ guild.guild_lead.discord_handle }}</span>
-                    </div>
-                    {% endif %}
-                </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-    {% endif %}
 </div>
+
+{# ── JOIN / LEAVE ── #}
+{% if member %}
+<form method="post"
+      action="{% if is_member_of_guild %}{% url 'hub_guild_leave' guild.pk %}{% else %}{% url 'hub_guild_join' guild.pk %}{% endif %}"
+      style="margin-bottom:1rem;">
+    {% csrf_token %}
+    <button type="submit" class="pl-btn {% if is_member_of_guild %}pl-btn--secondary{% else %}pl-btn--primary{% endif %}">
+        {% if is_member_of_guild %}Leave this guild{% else %}Join this guild{% endif %}
+    </button>
+</form>
+{% endif %}
+
+<div class="pl-guild-grid">
+    <main>
+        {# About — keeps the "Nothing here yet" placeholder the specs assert. #}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">About</h2>
+            {% if guild.about %}
+            <p>{{ guild.about|linebreaksbr }}</p>
+            {% else %}
+            <p class="hub-text-muted">Nothing here yet.</p>
+            {% endif %}
+        </section>
+
+        {% if guild.youtube_url %}{% with vid=guild.youtube_url|youtube_embed_id %}{% if vid %}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">Watch</h2>
+            <div class="pl-guild-video">
+                <iframe src="https://www.youtube-nocookie.com/embed/{{ vid }}" title="{{ guild.name }} video" allowfullscreen></iframe>
+            </div>
+        </section>
+        {% endif %}{% endwith %}{% endif %}
+
+        {% if gallery_images %}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">Gallery</h2>
+            {% include "hub/_guild_gallery.html" %}
+        </section>
+        {% endif %}
+
+        {% if guild.meeting_schedule %}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">Meetings</h2>
+            <p>{{ guild.meeting_schedule|linebreaksbr }}</p>
+        </section>
+        {% endif %}
+
+        {% if announcements %}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">Announcements</h2>
+            {% for a in announcements %}
+            <div class="hub-card">
+                <strong>{{ a.title }}</strong>
+                <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}</div>
+                <p>{{ a.body|linebreaksbr }}</p>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        {% if faq_items %}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">FAQ</h2>
+            {% for item in faq_items %}
+            <div x-data="{ open: false }">
+                <div class="pl-guild-faq__q" @click="open = !open">{{ item.question }}</div>
+                <div class="pl-guild-faq__a" x-show="open" x-cloak>{{ item.answer|linebreaksbr }}</div>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+    </main>
+
+    <aside>
+        {% if guild.guild_lead %}
+        <div class="hub-card">
+            <h3 class="hub-detail-label">Guild Lead</h3>
+            <div class="hub-member-row" style="cursor:pointer;" @click="$dispatch('open-modal', 'guild-lead-profile')">
+                <div class="hub-member-avatar">{{ guild.guild_lead.display_name|make_list|first|upper }}</div>
+                <div class="hub-member-info">
+                    <span class="hub-member-name">{{ guild.guild_lead.display_name }}</span>
+                    <span class="hub-badge">Lead</span>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if guild.show_members and roster %}
+        <div class="hub-card">
+            <h3 class="hub-detail-label">Members</h3>
+            <div class="pl-guild-roster">
+                {% for m in roster %}
+                <div class="hub-member-row">
+                    <div class="hub-member-avatar">{{ m.display_name|make_list|first|upper }}</div>
+                    <span class="hub-member-name">{{ m.display_name }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if links %}
+        <div class="hub-card">
+            <h3 class="hub-detail-label">Links</h3>
+            <div class="pl-guild-links">
+                {% for link in links %}<a href="{{ link.url }}" target="_blank" rel="noopener">{{ link.label }}</a>{% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if guild.contact_email %}
+        <div class="hub-card">
+            <h3 class="hub-detail-label">Contact</h3>
+            <a href="mailto:{{ guild.contact_email }}" style="color:var(--color-tuscan-yellow);">{{ guild.contact_email }}</a>
+        </div>
+        {% endif %}
+    </aside>
+</div>
+
+{# Guild lead profile modal — triggered from the aside lead card #}
+{% if guild.guild_lead %}
+<div x-data="{ open: false }"
+     x-show="open"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-modal.window="if ($event.detail === 'guild-lead-profile') open = true"
+     @close-modal.window="if ($event.detail === 'guild-lead-profile') open = false"
+     @keydown.escape.window="open = false"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true">
+    <div class="pl-modal pl-modal--sm" @click.outside="open = false">
+        <div class="pl-modal__header">
+            <h2 class="pl-modal__title">{{ guild.guild_lead.display_name }}</h2>
+            <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+        </div>
+        <div class="pl-modal__body">
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem;">
+                <div class="hub-member-avatar" style="width:48px;height:48px;font-size:1.25rem;">
+                    {{ guild.guild_lead.display_name|make_list|first|upper }}
+                </div>
+                <div>
+                    <div style="font-weight:600;color:var(--hub-text, #F4EFDD);">{{ guild.guild_lead.display_name }}</div>
+                    {% if guild.guild_lead.pronouns and guild.guild_lead.pronouns != "prefer not to share" %}
+                    <div style="font-size:0.8125rem;color:var(--hub-text-muted, #96ACBB);">{{ guild.guild_lead.pronouns }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% if guild.guild_lead.about_me %}
+            <p style="font-size:0.875rem;color:var(--hub-text, #F4EFDD);margin:0 0 1rem;">{{ guild.guild_lead.about_me }}</p>
+            {% endif %}
+            {% if guild.guild_lead.primary_email or guild.guild_lead.phone or guild.guild_lead.discord_handle %}
+            <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                {% if guild.guild_lead.primary_email %}
+                <div style="display:flex;gap:0.5rem;font-size:0.875rem;">
+                    <span style="color:var(--hub-text-muted, #96ACBB);min-width:60px;">Email</span>
+                    <a href="mailto:{{ guild.guild_lead.primary_email }}" style="color:var(--color-tuscan-yellow, #EEB44B);">{{ guild.guild_lead.primary_email }}</a>
+                </div>
+                {% endif %}
+                {% if guild.guild_lead.phone %}
+                <div style="display:flex;gap:0.5rem;font-size:0.875rem;">
+                    <span style="color:var(--hub-text-muted, #96ACBB);min-width:60px;">Phone</span>
+                    <span style="color:var(--hub-text, #F4EFDD);">{{ guild.guild_lead.phone }}</span>
+                </div>
+                {% endif %}
+                {% if guild.guild_lead.discord_handle %}
+                <div style="display:flex;gap:0.5rem;font-size:0.875rem;">
+                    <span style="color:var(--hub-text-muted, #96ACBB);min-width:60px;">Discord</span>
+                    <span style="color:var(--hub-text, #F4EFDD);">{{ guild.guild_lead.discord_handle }}</span>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
 
 {# Products card #}
 <div class="hub-card" style="margin-top:1.5rem;">
@@ -244,31 +335,8 @@
 </div>
 {% endif %}
 
-{# Edit Guild modal #}
+{# Product create/edit + delete modals (edit-guild modal replaced by the edit page) #}
 {% if can_edit_this_guild %}
-<div x-data="{ open: false }"
-     x-show="open"
-     x-transition:enter="modal-enter"
-     x-transition:leave="modal-leave"
-     @open-modal.window="if ($event.detail === 'edit-guild') open = true"
-     @close-modal.window="if ($event.detail === 'edit-guild') open = false"
-     @keydown.escape.window="open = false"
-     class="pl-modal-backdrop"
-     style="display: none;"
-     role="dialog"
-     aria-modal="true"
-     aria-labelledby="edit-guild-title">
-    <div class="pl-modal pl-modal--md" @click.outside="open = false">
-        <div class="pl-modal__header">
-            <h2 class="pl-modal__title" id="edit-guild-title">Edit Guild Page</h2>
-            <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
-        </div>
-        <div class="pl-modal__body" id="edit-guild-body">
-            {% include "hub/_modal_edit_guild.html" %}
-        </div>
-    </div>
-</div>
-
 {# Delete Product confirmation modal #}
 <div x-show="deleteModalOpen"
      x-transition:enter="modal-enter"

@@ -1,7 +1,9 @@
 {% extends "hub/base.html" %}
 {% block title %}Edit {{ guild.name }}{% endblock %}
 {% block content %}
+<div x-data="{}">
 <h1 class="hub-page-title">Edit {{ guild.name }}</h1>
+
 <form method="post" enctype="multipart/form-data" class="hub-form">
   {% csrf_token %}
   {% include "components/form_field.html" with field=form.name %}
@@ -11,7 +13,14 @@
   {% include "components/form_field.html" with field=form.contact_email %}
   {% include "components/form_field.html" with field=form.show_members %}
 
-  <h3 class="hub-detail-label" style="margin-top:1.5rem;">Gallery images</h3>
+  {% url 'hub_guild_banner_delete' guild.pk as guild_banner_delete_url %}
+  {% include "components/image_field.html" with field=form.banner_image current_image=guild.banner_image delete_url=guild_banner_delete_url modal_id="delete-guild-banner" label="Banner image" shape="rect" thumbnail_width="240px" thumbnail_height="80px" delete_button_text="Delete banner" confirm_title="Delete banner image?" confirm_message="The banner will be removed from this guild's page and from our storage. This can't be undone." hint_html="Optional. Shown across the top of the guild page." %}
+
+  <p class="pl-modal-section-label">Calendar Integration</p>
+  {% include "components/form_field.html" with field=form.calendar_url %}
+  {% include "components/form_field.html" with field=form.calendar_color %}
+
+  <h3 class="hub-detail-label" style="margin-top:1.5rem;">Add gallery images</h3>
   <input type="file" name="gallery_images" accept="image/*" multiple>
 
   <h3 class="hub-detail-label" style="margin-top:1.5rem;">FAQ</h3>
@@ -31,4 +40,51 @@
     <a href="{% url 'hub_guild_detail' guild.pk %}" class="pl-btn pl-btn--secondary">Cancel</a>
   </div>
 </form>
+
+{# Existing gallery images — per-image delete (button standard: hub-btn--sm + hub-btn--danger + confirm_modal) #}
+{% if guild.gallery_images.all %}
+<div class="hub-card" style="margin-top:1.5rem;">
+  <h3 class="hub-detail-label">Current gallery images</h3>
+  <div class="pl-guild-gallery">
+    {% for img in guild.gallery_images.all %}
+    <div style="position:relative;">
+      <img src="{{ img.image.url }}" alt="{{ img.alt_text }}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" style="position:absolute;top:4px;right:4px;"
+              @click="$dispatch('open-confirm', 'del-img-{{ img.pk }}')">Delete</button>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% for img in guild.gallery_images.all %}
+  {% url 'hub_guild_image_delete' guild.pk img.pk as img_delete_url %}
+  {% with pks=img.pk|stringformat:"s" %}
+    {% include "components/confirm_modal.html" with confirm_id="del-img-"|add:pks confirm_action_url=img_delete_url confirm_title="Delete image?" confirm_message="Remove this gallery image? This can't be undone." %}
+  {% endwith %}
+{% endfor %}
+{% endif %}
+
+{# Announcements — list + delete. Posting announcements (which notifies members) arrives with the notifications system. #}
+<div class="hub-card" style="margin-top:1.5rem;">
+  <h3 class="hub-detail-label">Announcements</h3>
+  <p class="hub-text-muted" style="font-size:0.8125rem;">Posting announcements (which notifies members) arrives with the notifications system.</p>
+  {% for a in guild.announcements.all %}
+  <div class="hub-card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem;">
+    <div>
+      <strong>{{ a.title }}</strong>
+      <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}</div>
+    </div>
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" @click="$dispatch('open-confirm', 'del-ann-{{ a.pk }}')">Delete</button>
+  </div>
+  {% empty %}
+  <p class="hub-text-muted">No announcements yet.</p>
+  {% endfor %}
+</div>
+{% for a in guild.announcements.all %}
+  {% url 'hub_guild_announcement_delete' guild.pk a.pk as ann_delete_url %}
+  {% with pks=a.pk|stringformat:"s" %}
+    {% include "components/confirm_modal.html" with confirm_id="del-ann-"|add:pks confirm_action_url=ann_delete_url confirm_title="Delete announcement?" confirm_message="Delete this announcement? This can't be undone." %}
+  {% endwith %}
+{% endfor %}
+
+</div>{# /x-data #}
 {% endblock %}
