@@ -564,3 +564,16 @@ class ScheduledNotificationMarker(models.Model):
 
     def __str__(self) -> str:
         return self.key
+
+
+class KnownLoginSignature(models.Model):
+    """Records (user, signature) pairs already seen, to detect new-device logins."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="login_signatures")
+    signature = models.CharField(max_length=64, help_text="Hash of (user-agent, IP).")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "signature"], name="uq_loginsignature_user_signature"),
+        ]
