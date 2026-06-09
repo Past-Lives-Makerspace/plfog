@@ -38,8 +38,9 @@ urlpatterns = [
         name="instructor_discount_code_delete",
     ),
     path("instructor/profile/", views.instructor_profile, name="instructor_profile"),
-    # Admin — /classes/admin/ IS the classes list; no double-"classes" path segment.
-    path("admin/", views.admin_classes, name="admin_classes"),
+    # Admin — /classes/admin/ is the Overview dashboard; the classes list moves to /admin/classes/.
+    path("admin/", views.admin_overview, name="admin_overview"),
+    path("admin/classes/", views.admin_classes, name="admin_classes"),
     path("admin/new/", views.admin_class_create, name="admin_class_create"),
     path("admin/<int:pk>/", views.admin_class_detail, name="admin_class_detail"),
     path("admin/<int:pk>/preview/", views.class_preview, name="class_preview"),

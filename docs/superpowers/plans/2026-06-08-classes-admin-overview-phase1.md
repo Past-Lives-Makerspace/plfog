@@ -83,9 +83,11 @@ def describe_admin_overview():
             from classes.models import ClassOffering
 
             client.force_login(admin_user)
-            ClassOfferingFactory(title="Already Live", status=ClassOffering.Status.PUBLISHED)
+            live = ClassOfferingFactory(title="Already Live", status=ClassOffering.Status.PUBLISHED)
             resp = client.get(reverse("classes:admin_overview"))
-            assert b"Already Live" not in resp.content
+            # Approvals queue holds only pending classes. A published class may still
+            # appear in the Activity panel as a "Class created" event — that's fine.
+            assert live not in list(resp.context["pending_classes"])
 
     def describe_waitlist_panel():
         def it_shows_a_class_with_a_waitlisted_registration(admin_user, client, db):

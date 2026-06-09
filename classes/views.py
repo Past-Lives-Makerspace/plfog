@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -10,7 +11,8 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.core.paginator import Paginator
-from django.db.models import Count, F, Min, Q
+from django.db.models import Count, F, Min, Q, Sum
+from django.db.models.functions import TruncDate
 from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -920,6 +922,70 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
             "is_preview": True,
+        },
+    )
+
+
+@classes_admin_access_required
+def admin_overview(request: HttpRequest) -> HttpResponse:
+    """Admin dashboard: approvals queue, waitlist pressure, recent registrations,
+    recent activity, and at-a-glance stats. Each panel links to the full
+    table/log it summarizes."""
+    now = timezone.now()
+    week_ago = now - timedelta(days=7)
+    month_ago = now - timedelta(days=30)
+
+    pending = ClassOffering.objects.pending_review().select_related("instructor", "category").order_by("created_at")
+    waitlist_classes = (
+        ClassOffering.objects.annotate(
+            waiting=Count(
+                "registrations",
+                filter=Q(registrations__status=Registration.Status.WAITLISTED),
+            )
+        )
+        .filter(waiting__gt=0)
+        .select_related("instructor")
+        .order_by("-waiting")
+    )
+    recent_registrations = Registration.objects.select_related("class_offering").order_by("-registered_at")[:8]
+    recent_activity = CmsActivity.objects.select_related("class_offering", "registration", "actor").order_by(
+        "-created_at"
+    )[:8]
+
+    start = (now - timedelta(days=13)).date()
+    counts = {
+        row["day"]: row["c"]
+        for row in Registration.objects.filter(registered_at__date__gte=start)
+        .annotate(day=TruncDate("registered_at"))
+        .values("day")
+        .annotate(c=Count("pk"))
+    }
+    reg_by_day = [
+        {"date": start + timedelta(days=i), "count": counts.get(start + timedelta(days=i), 0)} for i in range(14)
+    ]
+
+    stats = {
+        "pending": pending.count(),
+        "new_regs_week": Registration.objects.filter(registered_at__gte=week_ago).count(),
+        "active_registrations": Registration.objects.filter(status=Registration.Status.CONFIRMED).count(),
+        "collected_30d": Registration.objects.filter(registered_at__gte=month_ago).aggregate(
+            total=Sum("amount_paid_cents")
+        )["total"]
+        or 0,
+    }
+
+    return render(
+        request,
+        "classes/admin/overview.html",
+        {
+            "active_tab": "overview",
+            "pending_classes": pending,
+            "waitlist_classes": waitlist_classes,
+            "recent_registrations": recent_registrations,
+            "recent_activity": recent_activity,
+            "reg_by_day": reg_by_day,
+            "reg_by_day_max": max((d["count"] for d in reg_by_day), default=0),
+            "stats": stats,
         },
     )
 

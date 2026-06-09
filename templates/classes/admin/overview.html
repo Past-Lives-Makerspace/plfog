@@ -1,0 +1,97 @@
+{% extends "classes/admin/base.html" %}
+{% load classes_tags %}
+
+{% block tab_content %}
+<div class="cms-overview" style="display:flex;flex-direction:column;gap:1.25rem;">
+
+  {# ① Needs your attention #}
+  <section style="display:grid;grid-template-columns:2fr 1fr;gap:1rem;">
+    <div class="hub-card" style="margin:0;">
+      <h2 style="margin-top:0;">Awaiting approval <span style="color:var(--hub-text-muted);">({{ stats.pending }})</span></h2>
+      {% for c in pending_classes %}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+          <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
+          <span>
+            <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=c.pk %}">Review</a>
+            <form method="post" action="{% url 'classes:admin_class_approve' pk=c.pk %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="hub-btn hub-btn--sm">Approve</button>
+            </form>
+          </span>
+        </div>
+      {% empty %}
+        <p style="color:var(--hub-text-muted);">Nothing waiting — you're all caught up.</p>
+      {% endfor %}
+    </div>
+    <div class="hub-card" style="margin:0;">
+      <h2 style="margin-top:0;">Active waitlists</h2>
+      {% for c in waitlist_classes %}
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+          <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
+          <span style="color:var(--hub-text-muted);">{{ c.waiting }} waiting</span>
+        </div>
+      {% empty %}
+        <p style="color:var(--hub-text-muted);">No active waitlists.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ② At a glance #}
+  <section class="hub-card" style="margin:0;">
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:stretch;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;flex:1;min-width:240px;">
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.pending }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">awaiting approval</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.new_regs_week }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">new sign-ups (7d)</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.active_registrations }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">confirmed registrations</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.collected_30d|cents_as_dollars }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">collected (30d)</div></div>
+      </div>
+      <div style="flex:1.3;min-width:260px;">
+        <div style="color:var(--hub-text-muted);font-size:.8rem;margin-bottom:6px;">Registrations · last 14 days</div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:70px;">
+          {% for d in reg_by_day %}
+            <div title="{{ d.date }}: {{ d.count }}"
+                 style="flex:1;background:var(--hub-accent, #c46a1b);min-height:2px;height:{% widthratio d.count reg_by_day_max 100 %}%;"></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ③ Recent registrations #}
+  <section class="hub-card" style="margin:0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;">Recent sign-ups</h2>
+      <a href="{% url 'classes:admin_registrations' %}">View all registrations →</a>
+    </div>
+    <table style="width:100%;margin-top:8px;">
+      <tbody>
+      {% for r in recent_registrations %}
+        <tr>
+          <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.first_name }} {{ r.last_name }}</a></td>
+          <td>{{ r.class_offering.title }}</td>
+          <td style="text-align:right;">{% if r.amount_paid_cents %}{{ r.amount_paid_cents|cents_as_dollars }}{% else %}Free{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td style="color:var(--hub-text-muted);padding:0.5rem 0;">No registrations yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  {# ④ Activity #}
+  <section class="hub-card" style="margin:0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;">Activity</h2>
+      <a href="{% url 'classes:admin_activity' %}">View full log →</a>
+    </div>
+    <ul style="margin:8px 0 0;padding-left:1rem;color:var(--hub-text-muted);">
+      {% for ev in recent_activity %}
+        <li>{{ ev.created_at|date:"M j, g:i a" }} — {{ ev.get_kind_display }}{% if ev.class_offering %}: {{ ev.class_offering.title }}{% endif %}</li>
+      {% empty %}
+        <li>No activity yet.</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+</div>
+{% endblock %}
