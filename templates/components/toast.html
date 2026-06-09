@@ -35,6 +35,14 @@ Triggered by:
 <script>
 function plToastManager() {
     var _nextId = 0;
+    
+    // Define global helper for non-Alpine/non-dispatch contexts
+    window.showToast = function(message, type) {
+        window.dispatchEvent(new CustomEvent('show-toast', { 
+            detail: { message: message, type: type || 'success' } 
+        }));
+    };
+
     return {
         toasts: [],
         add(detail) {

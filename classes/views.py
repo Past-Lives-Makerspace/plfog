@@ -239,6 +239,12 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     is_instructor = member is not None and offering.instructor_id == member.pk
 
     can_edit_offering = is_admin or is_instructor
+    edit_url = None
+    if is_admin:
+        edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+    elif is_instructor:
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+
     can_edit_category = False
 
     # If the class has NO specific image (real or legacy), it falls back to the category image.
@@ -263,6 +269,9 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "category_ct_id": category_ct.pk,
             "can_edit_offering": can_edit_offering,
             "can_edit_category": can_edit_category,
+            "edit_url": edit_url,
+            "is_admin": is_admin,
+            "is_instructor": is_instructor,
             "view_as": view_as,
             "settings_obj": settings_obj,
             "site_config": SiteConfiguration.load(),
@@ -1114,13 +1123,25 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     )
     from membership.models import Member as MemberModel
 
+    from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
+
     view_as = getattr(request, "view_as", None)
-    is_admin = view_as is not None and view_as.has_actual("admin")
+    # Admins and Officers always get edit rights for heroes.
+    is_admin = view_as is not None and (view_as.has_actual(ROLE_ADMIN) or view_as.has_actual(ROLE_GUILD_OFFICER))
+
     assert request.user.is_authenticated  # @login_required guarantees a real User
     user_member = MemberModel.objects.filter(user=request.user).first()
-    is_owner = user_member is not None and offering.instructor_id == user_member.pk
-    if not (is_admin or is_owner):
+    is_instructor = user_member is not None and offering.instructor_id == user_member.pk
+
+    if not (is_admin or is_instructor):
         return HttpResponseForbidden("You can only preview your own classes.")
+
+    can_edit_offering = True
+    edit_url = None
+    if is_admin:
+        edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+    elif is_instructor:
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
     settings_obj = ClassSettings.load()
     member_price_cents = offering.member_price_cents
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
@@ -1129,6 +1150,10 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
         "classes/public/detail.html",
         {
             "offering": offering,
+            "can_edit_offering": can_edit_offering,
+            "edit_url": edit_url,
+            "is_admin": is_admin,
+            "is_instructor": is_instructor,
             "settings_obj": settings_obj,
             "site_config": SiteConfiguration.load(),
             "upcoming_sessions": upcoming_sessions,

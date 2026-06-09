@@ -2675,6 +2675,7 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 [data-theme="light"] .pl-guild-hero--noimg .pl-guild-hero__lead { color: var(--hub-text-muted); opacity: 1; }
 .pl-guild-hero__lead { font-size: 0.9375rem; opacity: 0.9; margin-top: 0.25rem; }
 .pl-guild-grid { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+.pl-guild-grid aside { display: flex; flex-direction: column; gap: 1.5rem; }
 @media (min-width: 1024px) { .pl-guild-grid { grid-template-columns: 1fr 340px; } }
 .pl-guild-section { padding: 1.25rem 0; border-top: 1px solid var(--hub-border); }
 .pl-guild-section:first-child { border-top: none; padding-top: 0; }

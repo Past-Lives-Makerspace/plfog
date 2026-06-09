@@ -34,6 +34,7 @@ from hub.forms import (
     SiteSettingsForm,
     VotePreferenceForm,
 )
+from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
 from membership.models import FundingSnapshot, Guild, Member, VotePreference
 
@@ -469,6 +470,7 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             faq_formset.save()
             link_formset.save()
             guild.add_gallery_images(request.FILES.getlist("gallery_images"))
+
             messages.success(request, "Guild page updated.")
             return redirect("hub_guild_detail", pk=guild.pk)
     else:
