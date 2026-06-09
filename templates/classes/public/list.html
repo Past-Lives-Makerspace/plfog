@@ -17,7 +17,7 @@
     {% if request.view_as.is_admin %}
       <a class="cta-secondary" href="{% url 'classes:admin_overview' %}">Manage Classes &amp; Workshops</a>
     {% elif request.view_as.is_member %}
-      <a class="cta-secondary" href="{% url 'classes:instructor_dashboard' %}">Manage My Classes</a>
+      <a class="cta-secondary" href="{% url 'classes:instructor_overview' %}">Manage My Classes</a>
     {% endif %}
     {% if user.is_authenticated and not is_public_surface %}
       <a class="cta-secondary" href="{{ BOOK_BASE_URL }}" target="_blank" rel="noopener" title="See the public booking site at book.pastlives.space">View Publicly</a>

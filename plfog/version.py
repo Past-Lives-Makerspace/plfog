@@ -13,6 +13,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "The classes admin area has a brand-new Overview page that greets you when you open it. At a glance you can see which classes are waiting for your approval (with Review and Approve buttons right there), which classes have people on a waitlist, your most recent sign-ups, and a 14-day chart of how registrations are trending.",
             "The management tabs are simpler. Instead of seven tabs across the top, there are now just three — Overview, Classes, and Settings. Categories, discount codes, registration questions, and waiver text all live together under Settings now, so the day-to-day tabs stay uncluttered.",
             "There's a 'View live catalog' link in the management header so you can hop straight to the public booking site to see your classes the way visitors do.",
+            "Instructors get the same upgrade on their teaching dashboard — opening it now shows your drafts, anything awaiting review, your latest sign-ups, and your waitlists at a glance, with a one-tap 'Create your first class' if you're just getting started.",
         ],
     },
     {
