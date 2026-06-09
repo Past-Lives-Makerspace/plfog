@@ -929,6 +929,114 @@ def instructor_discount_code_delete(request: HttpRequest, pk: int) -> HttpRespon
     return redirect("classes:instructor_discount_codes")
 
 
+def _instructor_class_or_404(request: HttpRequest, pk: int) -> ClassOffering:
+    """Scope a per-class Workspace lookup to the logged-in instructor's own class."""
+    instructor: Member = request.instructor  # type: ignore[attr-defined]
+    return get_object_or_404(ClassOffering.objects.filter(instructor=instructor), pk=pk)
+
+
+@instructor_required
+def instructor_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = _instructor_class_or_404(request, pk)
+    return render(
+        request,
+        "classes/instructor/class_overview.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "overview",
+            "instructor": request.instructor,  # type: ignore[attr-defined]
+            "offering": offering,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@instructor_required
+def instructor_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = _instructor_class_or_404(request, pk)
+    registrations = (
+        offering.registrations.select_related("member")
+        .prefetch_related("custom_answers__question")
+        .order_by("-registered_at")
+    )
+    return render(
+        request,
+        "classes/instructor/class_registrations.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "registrations",
+            "instructor": request.instructor,  # type: ignore[attr-defined]
+            "offering": offering,
+            "registrations": registrations,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@instructor_required
+@require_POST
+def instructor_class_email(request: HttpRequest, pk: int) -> HttpResponse:
+    """Send a manual email to selected registrants of one of the instructor's classes.
+
+    POST-only sibling of ``instructor_registrations_email``, scoped to a single
+    class via ``_instructor_class_or_404`` so it slots into the per-class
+    Workspace. Bounces back to the Registrations tab with a flash message on
+    both success and validation error.
+    """
+    from classes.forms import InstructorEmailForm
+
+    offering = _instructor_class_or_404(request, pk)
+    form = InstructorEmailForm(request.POST, instructor=request.instructor)  # type: ignore[attr-defined]
+    if not form.is_valid():
+        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
+        messages.error(request, str(first_error))
+        return redirect("classes:instructor_class_registrations", pk=offering.pk)
+    message = form.send()
+    messages.success(
+        request,
+        f"Sent ‘{message.subject}’ to {message.recipient_count} recipient(s).",
+    )
+    return redirect("classes:instructor_class_registrations", pk=offering.pk)
+
+
+@instructor_required
+def instructor_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = _instructor_class_or_404(request, pk)
+    waitlist_registrations = list(
+        offering.registrations.filter(status=Registration.Status.WAITLISTED).order_by("registered_at")
+    )
+    return render(
+        request,
+        "classes/instructor/class_waitlist.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "waitlist",
+            "instructor": request.instructor,  # type: ignore[attr-defined]
+            "offering": offering,
+            "waitlist_registrations": waitlist_registrations,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@instructor_required
+def instructor_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = _instructor_class_or_404(request, pk)
+    codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")
+    return render(
+        request,
+        "classes/instructor/class_discount_codes.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "discount_codes",
+            "instructor": request.instructor,  # type: ignore[attr-defined]
+            "offering": offering,
+            "codes": codes,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
 @instructor_required
 def instructor_profile(request: HttpRequest) -> HttpResponse:
     instructor: Member = request.instructor  # type: ignore[attr-defined]

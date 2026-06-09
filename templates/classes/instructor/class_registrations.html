@@ -1,0 +1,63 @@
+{% extends "classes/instructor/class_detail_base.html" %}
+{% load classes_tags %}
+{% block detail_content %}
+<div x-data="{ emailOpen: false, allChecked: false, toggleAll(ev) { this.$refs.studentTable.querySelectorAll('input[name=registration_ids]').forEach(cb => cb.checked = ev.target.checked); this.allChecked = ev.target.checked; } }">
+    {% if registrations %}
+    <form method="post" action="{% url 'classes:instructor_class_email' pk=offering.pk %}">
+        {% csrf_token %}
+        <div class="admin-table-wrap" x-ref="studentTable">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:2.5rem;">
+                        <input type="checkbox" :checked="allChecked" @change="toggleAll($event)" aria-label="Select all students">
+                    </th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Paid</th>
+                    <th>Registered</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for reg in registrations %}
+                <tr{% if reg.status == 'cancelled' or reg.status == 'refunded' %} style="opacity:0.5;"{% endif %}>
+                    <td>
+                        {% if reg.status != 'cancelled' and reg.status != 'refunded' %}
+                            <input type="checkbox" name="registration_ids" value="{{ reg.pk }}" @change="allChecked = false" aria-label="Select {{ reg.first_name }} {{ reg.last_name }}">
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ reg.first_name }} {{ reg.last_name }}
+                        {% if reg.pronouns %} <span style="color:var(--hub-text-muted); font-size:0.8rem;">({{ reg.pronouns }})</span>{% endif %}
+                    </td>
+                    <td style="font-size:0.9rem;">{{ reg.email }}</td>
+                    <td>{{ reg.get_status_display }}</td>
+                    <td>{{ reg.amount_paid_cents|cents_as_dollars }}</td>
+                    <td>{{ reg.registered_at|date:"M j, Y" }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+
+        <div style="margin-top:0.75rem;">
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="emailOpen = !emailOpen" x-text="emailOpen ? 'Cancel email' : 'Email selected students'"></button>
+        </div>
+        <div x-show="emailOpen" x-transition style="padding:0.75rem 0;">
+            <label style="display:block; margin-bottom:0.25rem; font-size:0.85rem; color:var(--hub-text-muted);">Subject</label>
+            <input type="text" name="subject" maxlength="255" required style="width:100%; padding:0.4rem 0.6rem; margin-bottom:0.5rem;">
+            <label style="display:block; margin-bottom:0.25rem; font-size:0.85rem; color:var(--hub-text-muted);">Message</label>
+            <textarea name="body" rows="4" required style="width:100%; padding:0.4rem 0.6rem; margin-bottom:0.5rem;"></textarea>
+            <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem; color:var(--hub-text-muted); margin-bottom:0.5rem;">
+                <input type="checkbox" name="bcc_self" checked> Send me a copy
+            </label>
+            <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send</button>
+            <span style="margin-left:0.5rem; color:var(--hub-text-muted); font-size:0.8rem;">Recipients are BCC'd so no one sees the others' emails.</span>
+        </div>
+    </form>
+    {% else %}
+    <div style="padding:1.5rem 0; text-align:center; color:var(--hub-text-muted);">No registrations yet.</div>
+    {% endif %}
+</div>
+{% endblock detail_content %}

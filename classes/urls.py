@@ -18,6 +18,23 @@ urlpatterns = [
     path("instructor/classes/new/", views.instructor_class_create, name="instructor_class_create"),
     path("instructor/classes/<int:pk>/edit/", views.instructor_class_edit, name="instructor_class_edit"),
     path("instructor/classes/<int:pk>/submit/", views.instructor_class_submit, name="instructor_class_submit"),
+    path("instructor/classes/<int:pk>/", views.instructor_class_detail, name="instructor_class_detail"),
+    path(
+        "instructor/classes/<int:pk>/registrations/",
+        views.instructor_class_registrations,
+        name="instructor_class_registrations",
+    ),
+    path(
+        "instructor/classes/<int:pk>/registrations/email/",
+        views.instructor_class_email,
+        name="instructor_class_email",
+    ),
+    path("instructor/classes/<int:pk>/waitlist/", views.instructor_class_waitlist, name="instructor_class_waitlist"),
+    path(
+        "instructor/classes/<int:pk>/discount-codes/",
+        views.instructor_class_discount_codes,
+        name="instructor_class_discount_codes",
+    ),
     path("instructor/registrations/", views.instructor_registrations, name="instructor_registrations"),
     path(
         "instructor/registrations/email/",

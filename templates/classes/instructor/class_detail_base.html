@@ -1,0 +1,18 @@
+{% extends "classes/instructor/base.html" %}
+
+{% block tab_content %}
+<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+    <div>
+        <h2 style="margin:0 0 0.25rem;">{{ offering.title }}</h2>
+        <span style="font-size:0.8rem; padding:0.15rem 0.6rem; border-radius:4px; background:rgba(238,180,75,0.1); color:var(--hub-text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">{{ offering.get_status_display }}</span>
+    </div>
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview ↗</a>
+</div>
+<nav style="display: flex; gap: 0; margin-bottom: 1.25rem; flex-wrap: wrap;" role="tablist">
+    <a href="{% url 'classes:instructor_class_detail' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'overview' %} vote-tab--active{% endif %}">Overview</a>
+    <a href="{% url 'classes:instructor_class_registrations' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'registrations' %} vote-tab--active{% endif %}">Registrations ({{ active_registration_count }})</a>
+    <a href="{% url 'classes:instructor_class_waitlist' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'waitlist' %} vote-tab--active{% endif %}">Waitlist ({{ waitlist_count }})</a>
+    <a href="{% url 'classes:instructor_class_discount_codes' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'discount_codes' %} vote-tab--active{% endif %}">Discount Codes</a>
+</nav>
+{% block detail_content %}{% endblock %}
+{% endblock %}
