@@ -14,6 +14,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Hosting classes is open to every member: there's no separate 'instructor' role anymore. Any member can create and manage a class or workshop — it still needs approval from the category's Guild Lead and an admin before it goes live. The teaching pages now live at a clearer /classes/teach address, and old links redirect there automatically.",
             "The top bar on the booking site is tidier for signed-in members — the link back to your FOG dashboard and your 'Member' badge are now properly styled and only appear where they're useful.",
             "Admins have a new site-wide Activity dashboard in the sidebar. One tab shows a chronological feed of what's happening across the site — logins, profile updates, votes, tab charges, class registrations, and more. A second tab logs every automatic email the site sends (receipts, class confirmations, invites) so you can confirm exactly what went out and catch anything that failed.",
+            "Guild pages got a big visual refresh. Each guild now has a proper hero banner, an image gallery with click-to-zoom, an optional intro video, a meeting schedule, a frequently-asked-questions section, and a links sidebar — all managed by guild leads and admins from a redesigned full-page editor (the old pop-up is gone). Members can now join or leave a guild in one click, and guilds that opt in can show a roster of their members, respecting each member's directory-privacy settings.",
         ],
     },
     {

@@ -11,6 +11,18 @@ urlpatterns = [
     path("guilds/<int:pk>/", views.guild_detail, name="hub_guild_detail"),
     path("guilds/<int:pk>/edit/", views.guild_edit, name="hub_guild_edit"),
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
+    path("guilds/<int:pk>/join/", views.guild_join, name="hub_guild_join"),
+    path("guilds/<int:pk>/leave/", views.guild_leave, name="hub_guild_leave"),
+    path(
+        "guilds/<int:pk>/images/<int:image_pk>/delete/",
+        views.guild_image_delete,
+        name="hub_guild_image_delete",
+    ),
+    path(
+        "guilds/<int:pk>/announcements/<int:announcement_pk>/delete/",
+        views.guild_announcement_delete,
+        name="hub_guild_announcement_delete",
+    ),
     path("guilds/<int:pk>/cart/confirm/", views.guild_cart_confirm, name="hub_guild_cart_confirm"),
     path("guilds/<int:pk>/eyop-form/", views.guild_eyop_form, name="hub_guild_eyop_form"),
     path(
