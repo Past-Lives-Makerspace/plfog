@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-VERSION = "2.5.1"
+VERSION = "2.5.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.5.2",
+        "date": "2026-06-09",
+        "title": "Cleaner class titles on the Community Calendar",
+        "changes": [
+            "Class events on the Community Calendar no longer show the trailing date in their title (e.g. 'Intro to Welding - 6/5/26' now reads 'Intro to Welding'), matching how class names already appear in the catalog.",
+        ],
+    },
     {
         "version": "2.5.1",
         "date": "2026-06-09",

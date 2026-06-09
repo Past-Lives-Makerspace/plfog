@@ -44,6 +44,17 @@ def describe_sync_local_class_events():
         assert event.title == "Welding 101"
         assert event.start_dt == session.starts_at
 
+    def it_strips_cms_date_suffix_from_the_title():
+        from hub.calendar_service import sync_local_class_events
+
+        offering = _published_offering(title="Intro to Welding - 6/5/26")
+        _future_session(offering)
+
+        sync_local_class_events()
+
+        event = CalendarEvent.objects.get(source="classes")
+        assert event.title == "Intro to Welding"
+
     def it_links_to_the_local_class_page_not_the_legacy_site():
         from hub.calendar_service import sync_local_class_events
 

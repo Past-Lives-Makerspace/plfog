@@ -16,7 +16,7 @@
     transition: color 0.15s ease, border-color 0.15s ease;
 }
 .vote-tab:hover { color: var(--hub-text); }
-.vote-tab--active { color: var(--color-tuscan-yellow, #EEB44B); border-bottom-color: var(--color-tuscan-yellow, #EEB44B); }
+.vote-tab--active { color: var(--hub-link); border-bottom-color: var(--hub-link); }
 
 /* ========================================
    HTMX Loading Indicator
@@ -30,24 +30,51 @@
    CSS Custom Properties - Dark (default)
    ======================================== */
 :root {
-    --hub-bg: #12121f;
-    --hub-card-bg: #092E4C;
-    --hub-card-border: transparent;
-    --hub-border: rgba(255, 255, 255, 0.12);
+    /* Surfaces — "Obsidian" elevation ladder (near-black charcoal).
+       Distinct layers replace the old single flat navy so the UI reads
+       as depth, not one monotone wash. Anchored on PL blue #092e4b. */
+    --hub-bg: #0a0b10;            /* deepest page background */
+    --hub-surface: #13151d;       /* inset panels, tiles, table stripes */
+    --hub-card-bg: #181b24;       /* cards & modals (sits above the page) */
+    --hub-elevated: #20242f;      /* dropdowns, popovers, raised pills */
+    --hub-card-border: rgba(255, 255, 255, 0.07);
+    --hub-border: rgba(255, 255, 255, 0.08);
+    --hub-border-strong: rgba(255, 255, 255, 0.14);
     --hub-text: #F4EFDD;
-    --hub-text-muted: #96ACBB;
-    --hub-topbar-bg: #1a1a2e;
+    --hub-text-muted: #8b97a8;
+    --hub-topbar-bg: #0d0f15;
     --hub-topbar-border: rgba(255,255,255,0.06);
-    --hub-dropdown-bg: #222238;
-    --hub-dropdown-border: rgba(255,255,255,0.1);
-    --hub-input-bg: #0a1929;
-    --hub-input-border: rgba(255,255,255,0.15);
+    --hub-dropdown-bg: #20242f;
+    --hub-dropdown-border: rgba(255,255,255,0.10);
+    --hub-input-bg: #14161f;
+    --hub-input-border: rgba(255,255,255,0.14);
 
-    --color-navy: #092E4C;
+    /* Sidebar — theme-aware (was hardcoded to --color-navy, which never
+       switched on light mode). These tokens are overridden under [data-theme]. */
+    --hub-sidebar-bg: #0d0f15;
+    --hub-sidebar-text: #F4EFDD;
+    --hub-sidebar-muted: rgba(244, 239, 221, 0.60);
+    --hub-sidebar-hover: rgba(255, 255, 255, 0.06);
+    --hub-sidebar-border: rgba(255, 255, 255, 0.08);
+
+    --color-navy: #092E4C;        /* brand structural blue (button text, overlays) */
+    /* Brighter PL-blue sibling for interactive/structural accents on dark */
+    --hub-blue: #3d8bd4;
+    --hub-blue-soft: rgba(61, 139, 212, 0.15);
+    /* Hero gradient: PL blue #092e4b fading to near-black ("black & blue") */
+    --hub-hero-from: #15527f;
+    --hub-hero-mid: #092e4b;
+    --hub-hero-to: #0a0d14;
+
     --color-tuscan-yellow: #EEB44B;
     --color-yellow-hover: #d4a043;
+    /* Gold as TEXT (links, active tabs, prices). Theme-aware so it stays
+       bright on dark but darkens to a readable amber on light surfaces.
+       Gold FILLS (buttons, pills, bars) keep --color-tuscan-yellow. */
+    --hub-link: #EEB44B;
+    --hub-link-hover: #d4a043;
     --color-cream: #F4EFDD;
-    --color-brand-link: #0b5be0;
+    --color-brand-link: #3d8bd4;
     --color-error: #f0a0a0;
     --color-error-bg: rgba(240, 160, 160, 0.12);
     --color-success: #7bc88f;
@@ -64,17 +91,39 @@
    Light Theme Override
    ======================================== */
 [data-theme="light"] {
-    --hub-bg: #f8f6f0;
+    /* "Slate" light — cool neutral gray (not warm cream) with white cards. */
+    --hub-bg: #eef0f3;
+    --hub-surface: #e6e9ee;
     --hub-card-bg: #ffffff;
-    --hub-card-border: #e0ddd5;
+    --hub-elevated: #ffffff;
+    --hub-card-border: #dfe3ea;
+    --hub-border: #e2e6ec;
+    --hub-border-strong: #cfd5de;
     --hub-text: #1D1E1E;
-    --hub-text-muted: #666;
+    --hub-text-muted: #5b6675;
     --hub-topbar-bg: #ffffff;
-    --hub-topbar-border: #e0ddd5;
+    --hub-topbar-border: #e2e6ec;
     --hub-dropdown-bg: #ffffff;
-    --hub-dropdown-border: #e0ddd5;
-    --hub-input-bg: #f8f6f0;
-    --hub-input-border: #d0cdc5;
+    --hub-dropdown-border: #e2e6ec;
+    --hub-input-bg: #f4f6f8;
+    --hub-input-border: #d3d9e1;
+
+    /* Sidebar follows the theme (the fix) — light rail in light mode. */
+    --hub-sidebar-bg: #ffffff;
+    --hub-sidebar-text: #1D1E1E;
+    --hub-sidebar-muted: #5b6675;
+    --hub-sidebar-hover: rgba(9, 46, 75, 0.06);
+    --hub-sidebar-border: #e2e6ec;
+
+    --hub-blue: #2f6fb0;
+    --hub-blue-soft: rgba(9, 46, 75, 0.08);
+    --hub-hero-from: #1a5e8f;
+    --hub-hero-mid: #092e4b;
+    --hub-hero-to: #08263d;
+
+    /* Darker amber for gold text on white (~5:1 contrast, passes AA). */
+    --hub-link: #9c5e0d;
+    --hub-link-hover: #7e4b09;
 }
 
 /* ========================================
@@ -111,12 +160,12 @@ h1, h2, h3, h4 {
 }
 
 a {
-    color: var(--color-tuscan-yellow);
+    color: var(--hub-link);
     text-decoration: none;
     transition: color 0.15s ease;
 }
 
-a:hover { color: var(--color-yellow-hover); }
+a:hover { color: var(--hub-link-hover); }
 
 /* ========================================
    Sidebar
@@ -128,7 +177,8 @@ a:hover { color: var(--color-yellow-hover); }
     width: var(--sidebar-width);
     height: 100vh;
     height: 100dvh; /* dynamic viewport height — survives mobile URL-bar collapse */
-    background-color: var(--color-navy);
+    background-color: var(--hub-sidebar-bg);
+    border-right: 1px solid var(--hub-sidebar-border);
     display: flex;
     flex-direction: column;
     z-index: 100;
@@ -149,12 +199,12 @@ a:hover { color: var(--color-yellow-hover); }
     align-items: center;
     gap: 0.625rem;
     padding: 1.25rem 1rem;
-    color: var(--color-cream);
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    color: var(--hub-sidebar-text);
+    border-bottom: 1px solid var(--hub-sidebar-border);
     text-decoration: none;
 }
 
-.pl-brand:hover { color: var(--color-cream); }
+.pl-brand:hover { color: var(--hub-sidebar-text); }
 
 .pl-brand__icon { width: 24px; height: 24px; }
 
@@ -198,19 +248,19 @@ a:hover { color: var(--color-yellow-hover); }
     padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
     font-weight: 400;
-    color: rgba(244, 239, 221, 0.7);
+    color: var(--hub-sidebar-muted);
     border-radius: 6px;
     transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .hub-sidebar__link:hover {
-    background-color: rgba(255,255,255,0.06);
-    color: var(--color-cream);
+    background-color: var(--hub-sidebar-hover);
+    color: var(--hub-sidebar-text);
 }
 
 .hub-sidebar__link.active {
     background-color: rgba(238, 180, 75, 0.12);
-    color: var(--color-cream);
+    color: var(--hub-sidebar-text);
     box-shadow: inset 3px 0 0 var(--color-tuscan-yellow);
     font-weight: 600;
 }
@@ -225,7 +275,7 @@ a:hover { color: var(--color-yellow-hover); }
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: rgba(244, 239, 221, 0.35);
+    color: var(--hub-sidebar-muted);
 }
 
 .hub-sidebar__section-toggle {
@@ -239,7 +289,7 @@ a:hover { color: var(--color-yellow-hover); }
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: rgba(244, 239, 221, 0.35);
+    color: var(--hub-sidebar-muted);
     background: none;
     border: none;
     cursor: pointer;
@@ -247,7 +297,7 @@ a:hover { color: var(--color-yellow-hover); }
 }
 
 .hub-sidebar__section-toggle:hover {
-    color: rgba(244, 239, 221, 0.6);
+    color: var(--hub-sidebar-text);
 }
 
 .hub-sidebar__chevron {
@@ -276,7 +326,7 @@ a:hover { color: var(--color-yellow-hover); }
 .hub-sidebar__footer {
     margin-top: auto;
     padding: 0.75rem 0.5rem 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--hub-sidebar-border);
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -287,7 +337,7 @@ a:hover { color: var(--color-yellow-hover); }
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(150, 172, 187, 0.7);
+    color: var(--hub-sidebar-muted);
     padding: 0.35rem 0.75rem 0.25rem;
 }
 
@@ -303,7 +353,7 @@ a:hover { color: var(--color-yellow-hover); }
 
 .hub-sidebar__link--feedback {
     margin-top: 0.4rem;
-    border-top: 1px dashed rgba(255, 255, 255, 0.06);
+    border-top: 1px dashed var(--hub-sidebar-border);
     padding-top: 0.75rem;
 }
 
@@ -811,12 +861,12 @@ a:hover { color: var(--color-yellow-hover); }
 .hub-btn--ghost {
     background: transparent;
     color: var(--hub-text-muted);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--hub-border-strong);
 }
 .hub-btn--ghost:hover {
     background: rgba(255, 255, 255, 0.06);
     color: var(--hub-text);
-    border-color: rgba(255, 255, 255, 0.22);
+    border-color: var(--hub-text-muted);
 }
 
 /* ========================================
@@ -1446,7 +1496,7 @@ a:hover { color: var(--color-yellow-hover); }
 .guild-product-card__price {
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--color-tuscan-yellow);
+    color: var(--hub-link);
 }
 .guild-product-card__splits {
     font-size: 0.75rem;
@@ -2618,7 +2668,7 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-guild-hero { position: relative; min-height: clamp(220px, 32vw, 380px); border-radius: 8px; overflow: hidden; margin-bottom: 1.5rem; display: flex; align-items: flex-end; }
 .pl-guild-hero__img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .pl-guild-hero__overlay { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(9,46,76,0) 0%, rgba(9,46,76,0.85) 100%); }
-.pl-guild-hero--noimg { background: linear-gradient(135deg, #092E4C 0%, #12121f 100%); }
+.pl-guild-hero--noimg { background: linear-gradient(120deg, var(--hub-hero-from) 0%, var(--hub-hero-mid) 46%, var(--hub-hero-to) 100%); }
 .pl-guild-hero__content { position: relative; z-index: 1; padding: 1.5rem; color: #F4EFDD; }
 .pl-guild-hero__title { font-family: Lato, sans-serif; font-weight: 900; font-size: clamp(1.75rem, 4vw, 2.75rem); margin: 0; }
 .pl-guild-hero__lead { font-size: 0.9375rem; opacity: 0.9; margin-top: 0.25rem; }

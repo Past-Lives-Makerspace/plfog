@@ -151,8 +151,13 @@ def sync_local_class_events() -> int:
     Any ``source="classes"`` event not backed by a live local session is purged at
     the end of each sync — this includes leftover legacy ``classes-*`` events from
     the retired Drupal calendar feed.
+
+    Titles are run through ``strip_date_suffix`` so CMS-imported date suffixes
+    (e.g. "Intro to Welding - 6/5/26") don't show on the calendar — matching how
+    the public catalog displays them.
     """
     from classes.models import ClassOffering, ClassSession
+    from classes.templatetags.classes_tags import strip_date_suffix
 
     now = timezone.now()
     horizon = now + timedelta(days=180)
@@ -174,7 +179,7 @@ def sync_local_class_events() -> int:
             uid=uid,
             defaults={
                 "source": "classes",
-                "title": offering.title,
+                "title": strip_date_suffix(offering.title),
                 "description": offering.description[:500],
                 "location": "Past Lives Makerspace",
                 "url": f"/classes/{offering.slug}/",
