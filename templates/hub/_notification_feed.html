@@ -1,0 +1,12 @@
+{% for n in notifications %}
+<form method="post" action="{% url 'notification_read' n.pk %}" class="pl-note{% if n.is_unread %} pl-note--unread{% endif %}">
+  {% csrf_token %}
+  <button type="submit" class="pl-note__btn">
+    <span class="pl-note__title">{{ n.title }}</span>
+    <span class="pl-note__body">{{ n.body }}</span>
+    <span class="pl-note__time">{{ n.created_at|timesince }} ago</span>
+  </button>
+</form>
+{% empty %}
+<p class="pl-note__empty hub-text-muted">You're all caught up.</p>
+{% endfor %}
