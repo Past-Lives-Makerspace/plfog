@@ -61,3 +61,12 @@ def describe_GuildAnnouncement():
 
     # NOTE: the publish()-notifies-members test is deferred until Plan 2's
     # core.notifications / core.models.Notification land (see DEFERRED.md).
+
+
+def describe_guild_new_fields():
+    def it_defaults_the_new_fields_blank():
+        guild = GuildFactory()
+        assert guild.youtube_url == ""
+        assert guild.meeting_schedule == ""
+        assert guild.contact_email == ""
+        assert guild.show_members is False

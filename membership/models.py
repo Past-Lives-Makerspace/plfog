@@ -566,6 +566,16 @@ class Guild(models.Model):
         blank=True,
         help_text="When this guild's iCal feed was last synced. Set by the calendar service.",
     )
+    youtube_url = models.URLField(blank=True, default="", help_text="Optional YouTube video shown on the guild page.")
+    meeting_schedule = models.TextField(
+        blank=True, default="", help_text="When/where the guild meets, e.g. 'Tuesdays 6pm, Studio B'."
+    )
+    contact_email = models.EmailField(
+        blank=True, default="", help_text="Optional guild contact email shown on the page."
+    )
+    show_members = models.BooleanField(
+        default=False, help_text="Show the opt-in members roster on the public guild page."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     leases = GenericRelation(
         "Lease",
