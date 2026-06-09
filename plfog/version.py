@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-VERSION = "2.5.2"
+VERSION = "2.5.3"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.5.3",
+        "date": "2026-06-09",
+        "title": "Save confirmations show up again",
+        "changes": [
+            "When you save something (your profile, a guild page, your settings, and so on) the little confirmation pop-up in the corner now reliably appears again, so you get clear feedback that the change went through.",
+        ],
+    },
     {
         "version": "2.5.2",
         "date": "2026-06-09",

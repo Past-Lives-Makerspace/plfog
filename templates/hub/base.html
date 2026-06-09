@@ -412,9 +412,12 @@
 
         <main class="hub-content">
             {% if messages %}
-            <ul class="hub-messages" role="alert" style="display:none;" x-data x-init="{% for message in messages %}window.showToast('{{ message|escapejs }}', '{{ message.tags|default:"success" }}');{% endfor %}">
+            {# Hidden source list; the toast manager drains these into toasts in its init(). #}
+            <ul class="hub-messages" role="alert" style="display:none;">
                 {% for message in messages %}
-                <li class="hub-message hub-message--{{ message.tags }}">{{ message }}</li>
+                <li class="hub-message hub-message--{{ message.tags }}"
+                    data-toast-message="{{ message }}"
+                    data-toast-type="{{ message.tags|default:'success' }}">{{ message }}</li>
                 {% endfor %}
             </ul>
             {% endif %}

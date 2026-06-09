@@ -2,8 +2,12 @@
 Toast notification container. Include once in base templates.
 
 Triggered by:
-  1. Server-side: HX-Trigger header with showToast event (via hub.toast.trigger_toast)
-  2. Client-side: $dispatch('show-toast', {message: '...', type: 'success'})
+  1. Server-side (HTMX): HX-Trigger header with showToast event (via hub.toast.trigger_toast).
+     HTMX fires a kebab-case alias `show-toast`, which the manager listens for below.
+  2. Server-side (full page / redirect): Django messages rendered into a hidden
+     `.hub-messages` list. The manager drains them in init() — see plToastManager.
+  3. Client-side: $dispatch('show-toast', {message: '...', type: 'success'})
+     or window.showToast('...', 'success').
 {% endcomment %}
 <div x-data="plToastManager()" @show-toast.window="add($event.detail)" aria-live="polite">
     {% comment %} Top-right toasts (default) {% endcomment %}
@@ -33,18 +37,34 @@ Triggered by:
 </div>
 
 <script>
+// Global helper for plain-JS callers (e.g. static/js/hero_placement.js). Defined at parse
+// time so it is always available; it simply dispatches the canonical 'show-toast' event.
+window.showToast = function(message, type, position) {
+    window.dispatchEvent(new CustomEvent('show-toast', {
+        detail: { message: message, type: type || 'success', position: position }
+    }));
+};
+
 function plToastManager() {
     var _nextId = 0;
-    
-    // Define global helper for non-Alpine/non-dispatch contexts
-    window.showToast = function(message, type) {
-        window.dispatchEvent(new CustomEvent('show-toast', { 
-            detail: { message: message, type: type || 'success' } 
-        }));
-    };
 
     return {
         toasts: [],
+        init() {
+            // Drain server-rendered Django messages into toasts once the manager is live.
+            // Reading them here — rather than dispatching from the messages element's x-init —
+            // removes any dependence on Alpine init order or on this manager's window listener
+            // already being attached. The manager processes messages only when it is ready.
+            var self = this;
+            document.querySelectorAll('.hub-messages [data-toast-message]').forEach(function(el) {
+                self.add({
+                    message: el.getAttribute('data-toast-message'),
+                    type: el.getAttribute('data-toast-type') || 'success'
+                });
+                // Guard against a second drain if the component is re-initialised over the same DOM.
+                el.removeAttribute('data-toast-message');
+            });
+        },
         add(detail) {
             var id = ++_nextId;
             this.toasts.push({
