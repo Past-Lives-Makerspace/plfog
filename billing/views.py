@@ -292,7 +292,7 @@ def admin_add_tab_entry(request: HttpRequest) -> HttpResponse:
                             f"Invalid splits: {splits_formset.non_form_errors() or 'see row errors'}",
                         )
                         return _render(form, splits_formset)
-                    form.save(tab=tab, splits=splits_formset.to_split_dicts())
+                    form.save(tab=tab, splits=splits_formset.to_split_dicts())  # type: ignore[attr-defined]  # formset_factory loses _BaseCustomSplitFormSet methods
             except (TabLockedError, TabLimitExceededError) as exc:
                 django_messages.error(request, str(exc))
                 return _render(form, splits_formset)
