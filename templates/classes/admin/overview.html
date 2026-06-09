@@ -7,7 +7,7 @@
   {# ① Needs your attention #}
   <section style="display:grid;grid-template-columns:2fr 1fr;gap:1rem;">
     <div class="hub-card" style="margin:0;">
-      <h2 style="margin-top:0;">Awaiting approval <span style="color:var(--hub-text-muted);">({{ stats.pending }})</span></h2>
+      <h2 style="margin-top:0;">Needs Your Attention <span style="color:var(--hub-text-muted);">({{ stats.pending }})</span></h2>
       {% for c in pending_classes %}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
           <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
@@ -20,7 +20,7 @@
           </span>
         </div>
       {% empty %}
-        <p style="color:var(--hub-text-muted);">Nothing waiting — you're all caught up.</p>
+        <p style="color:var(--hub-text-muted);">Nothing waiting — you're all caught up! 🎉</p>
       {% endfor %}
     </div>
     <div class="hub-card" style="margin:0;">
