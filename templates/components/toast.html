@@ -95,7 +95,8 @@ Triggered by:
 
     function toast(message, type, position) {
         if (!message) { return; }
-        type = (type === 'error' || type === 'info' || type === 'success') ? type : 'success';
+        // Only success (green) and error (red) are special; every other tag is info (blue).
+        if (type !== 'success' && type !== 'error') { type = 'info'; }
 
         var node = document.createElement('div');
         node.className = 'plt-toast plt-toast--' + type;
@@ -136,7 +137,7 @@ Triggered by:
 
     // Convert server-rendered Django messages into toasts. Scans the document and clears each
     // as it fires, so repeated calls (every htmx settle) never duplicate.
-    function drain() {
+    function drainDom() {
         var nodes = document.querySelectorAll('[data-toast-message]');
         for (var i = 0; i < nodes.length; i++) {
             var el = nodes[i];
@@ -144,6 +145,22 @@ Triggered by:
             el.removeAttribute('data-toast-message');
         }
     }
+
+    // Messages handed across a redirect ride in the `pl_toast` cookie (set by
+    // ToastFlashMiddleware). This survives htmx hx-boost swaps, full reloads, and the
+    // service worker alike. Read once, clear immediately so it fires exactly once.
+    function drainCookie() {
+        var m = document.cookie.match(/(?:^|;\s*)pl_toast=([^;]*)/);
+        if (!m || !m[1]) { return; }
+        document.cookie = 'pl_toast=; Max-Age=0; path=/';
+        try {
+            var list = JSON.parse(decodeURIComponent(m[1]));
+            for (var i = 0; i < list.length; i++) { toast(list[i].message, list[i].type); }
+        } catch (e) { /* malformed cookie: ignore */ }
+    }
+
+    function drain() { drainDom(); drainCookie(); }
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', drain);
     } else {

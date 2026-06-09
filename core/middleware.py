@@ -24,7 +24,9 @@ domain lands on the catalog rather than the member hub home.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from urllib.parse import quote
 
 from django.conf import settings
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
@@ -94,3 +96,49 @@ class SurfaceMiddleware:
                 query = f"?{request.META['QUERY_STRING']}" if request.META.get("QUERY_STRING") else ""
                 return HttpResponseRedirect(f"{scheme}://{book_host}{request.path}{query}")
         return None
+
+
+class ToastFlashMiddleware:
+    """Carry Django messages across a redirect as a short-lived cookie.
+
+    The member UI shows messages as toast notifications that JS drains from the
+    page. That works for same-request renders and ordinary full-page redirects,
+    but under htmx ``hx-boost`` a redirect's message-bearing render is not reliably
+    the one swapped into the DOM, so the toast silently vanishes. A cookie survives
+    every navigation kind, so for an *htmx* redirect we move pending messages into
+    the ``pl_toast`` cookie for the destination page's toast script to read and
+    clear.
+
+    Scoped to htmx requests on purpose: ordinary navigations (public/login pages
+    that render messages visibly, full-page member saves) keep Django's standard
+    message flow untouched, and only the boosted path that would otherwise lose
+    the message is rerouted through the cookie.
+    """
+
+    COOKIE = "pl_toast"
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        return self.process_response(request, self.get_response(request))
+
+    def process_response(self, request: HttpRequest, response: HttpResponse) -> HttpResponse:
+        # Only act on htmx-driven redirects: that is the path where the boosted
+        # swap can drop the message. Consuming the storage here also stops it
+        # rendering again on the destination, so the toast fires exactly once.
+        is_htmx = request.headers.get("HX-Request") == "true"
+        if is_htmx and 300 <= response.status_code < 400 and hasattr(request, "_messages"):
+            from django.contrib.messages import get_messages
+
+            pending = [{"message": str(m), "type": m.level_tag or "info"} for m in get_messages(request)]
+            if pending:
+                response.set_cookie(
+                    self.COOKIE,
+                    quote(json.dumps(pending)),
+                    max_age=30,
+                    samesite="Lax",
+                    secure=request.is_secure(),
+                    path="/",
+                )
+        return response
