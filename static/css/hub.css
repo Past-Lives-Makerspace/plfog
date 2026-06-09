@@ -2530,7 +2530,8 @@ html:not(.dark) .admin-table-wrap thead {
     display: flex;
     gap: 0.375rem;
     justify-content: flex-end;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    white-space: nowrap;
 }
 
 .admin-table-footer {
