@@ -4,25 +4,38 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('core', '0025_knownloginsignature'),
+        ("core", "0025_knownloginsignature"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='siteconfiguration',
-            name='classes_calendar_color',
-            field=models.CharField(blank=True, default='#7C5CBF', help_text='Hex color for class events on the Community Calendar (e.g. #7C5CBF).', max_length=7, verbose_name='Classes Calendar Color'),
+            model_name="siteconfiguration",
+            name="classes_calendar_color",
+            field=models.CharField(
+                blank=True,
+                default="#7C5CBF",
+                help_text="Hex color for class events on the Community Calendar (e.g. #7C5CBF).",
+                max_length=7,
+                verbose_name="Classes Calendar Color",
+            ),
         ),
         migrations.AlterField(
-            model_name='siteconfiguration',
-            name='classes_last_synced_at',
-            field=models.DateTimeField(blank=True, help_text='When class events were last refreshed onto the Community Calendar. Set by the calendar service.', null=True),
+            model_name="siteconfiguration",
+            name="classes_last_synced_at",
+            field=models.DateTimeField(
+                blank=True,
+                help_text="When class events were last refreshed onto the Community Calendar. Set by the calendar service.",
+                null=True,
+            ),
         ),
         migrations.AlterField(
-            model_name='siteconfiguration',
-            name='sync_classes_enabled',
-            field=models.BooleanField(default=False, help_text='When enabled, upcoming classes from our catalog appear on the Community Calendar, each linking to its class page.', verbose_name='Show class catalog on the Community Calendar'),
+            model_name="siteconfiguration",
+            name="sync_classes_enabled",
+            field=models.BooleanField(
+                default=False,
+                help_text="When enabled, upcoming classes from our catalog appear on the Community Calendar, each linking to its class page.",
+                verbose_name="Show class catalog on the Community Calendar",
+            ),
         ),
     ]
