@@ -810,6 +810,16 @@ class FundingSnapshot(models.Model):
         from core.models import SiteActivity
 
         SiteActivity.log(SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN, target=snapshot)
+
+        from core import notifications
+
+        notifications.dispatch(
+            "funding_results_published",
+            notifications.active_member_users(),
+            title="Funding results published",
+            body=f"Results for {snapshot.cycle_label} are in.",
+            url="/guilds/voting/history/",
+        )
         return snapshot
 
     def save(self, *args: Any, **kwargs: Any) -> None:

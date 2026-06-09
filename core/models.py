@@ -209,6 +209,16 @@ class Invite(models.Model):
             actor=member.user if member is not None else None,
             target=member,
         )
+        if self.invited_by is not None:
+            from core import notifications
+
+            notifications.dispatch(
+                "invite_accepted",
+                [self.invited_by],
+                title="Your invite was accepted",
+                body="Someone you invited has joined Past Lives.",
+                url="/members/",
+            )
 
     @classmethod
     def create_and_send(cls, email: str, invited_by: Any) -> Invite:

@@ -23,3 +23,16 @@ def _on_logout(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
 @receiver(user_signed_up)
 def _on_signup(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
     SiteActivity.log(SiteActivity.Kind.MEMBER_SIGNUP, actor=user)
+
+    from django.contrib.auth.models import User
+
+    from core import notifications
+
+    staff = User.objects.filter(is_staff=True)
+    notifications.dispatch(
+        "new_member_joined",
+        staff,
+        title="New member joined",
+        body=f"{user.get_username()} just signed up.",
+        url="/members/",
+    )
