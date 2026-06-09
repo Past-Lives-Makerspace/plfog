@@ -412,7 +412,7 @@
 
         <main class="hub-content">
             {% if messages %}
-            {# Hidden source list; the toast manager drains these into toasts in its init(). #}
+            {# Hidden source list; the toast script (components/toast.html) drains these into toasts. #}
             <ul class="hub-messages" role="alert" style="display:none;">
                 {% for message in messages %}
                 <li class="hub-message hub-message--{{ message.tags }}"

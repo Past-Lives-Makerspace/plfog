@@ -1,88 +1,99 @@
 {% comment %}
-Toast notification container. Include once in base templates.
+Toast notifications. Include once per base template (already in hub/base.html and admin/base.html).
+
+Dependency-free: plain JS, no Alpine. The script below owns the whole lifecycle, so toasts
+work regardless of Alpine init order, hx-boost re-inits, or framework state.
 
 Triggered by:
-  1. Server-side (HTMX): HX-Trigger header with showToast event (via hub.toast.trigger_toast).
-     HTMX fires a kebab-case alias `show-toast`, which the manager listens for below.
-  2. Server-side (full page / redirect): Django messages rendered into a hidden
-     `.hub-messages` list. The manager drains them in init() — see plToastManager.
-  3. Client-side: $dispatch('show-toast', {message: '...', type: 'success'})
-     or window.showToast('...', 'success').
+  1. Server-side (full page / redirect): Django `messages` rendered into a hidden
+     `.hub-messages` list with data-toast-* attributes. Drained on load and after every
+     htmx settle.
+  2. Server-side (HTMX): HX-Trigger header `showToast` (via hub.toast.trigger_toast).
+     HTMX fires the kebab alias `show-toast`, which the window listener below catches.
+  3. Client-side: window.showToast('msg', 'success') OR
+     window.dispatchEvent(new CustomEvent('show-toast', {detail: {message, type}})).
+
+Types: success (green), error (red), info (blue). Optional position: 'center'.
 {% endcomment %}
-<div x-data="plToastManager()" @show-toast.window="add($event.detail)" aria-live="polite">
-    {% comment %} Top-right toasts (default) {% endcomment %}
-    <div class="pl-toast-container">
-        <template x-for="toast in toasts.filter(t => t.position !== 'center')" :key="toast.id">
-            <div class="pl-toast" :class="'pl-toast--' + toast.type"
-                 x-show="toast.visible"
-                 x-transition:enter="toast-enter"
-                 x-transition:leave="toast-leave">
-                <span x-text="toast.message"></span>
-                <button @click="dismiss(toast.id)" class="pl-toast__close" aria-label="Dismiss">&times;</button>
-            </div>
-        </template>
-    </div>
-    {% comment %} Center toasts {% endcomment %}
-    <div class="pl-toast-container pl-toast-container--center">
-        <template x-for="toast in toasts.filter(t => t.position === 'center')" :key="toast.id">
-            <div class="pl-toast" :class="'pl-toast--' + toast.type"
-                 x-show="toast.visible"
-                 x-transition:enter="toast-enter"
-                 x-transition:leave="toast-leave">
-                <span x-text="toast.message"></span>
-                <button @click="dismiss(toast.id)" class="pl-toast__close" aria-label="Dismiss">&times;</button>
-            </div>
-        </template>
-    </div>
-</div>
-
 <script>
-// Global helper for plain-JS callers (e.g. static/js/hero_placement.js). Defined at parse
-// time so it is always available; it simply dispatches the canonical 'show-toast' event.
-window.showToast = function(message, type, position) {
-    window.dispatchEvent(new CustomEvent('show-toast', {
-        detail: { message: message, type: type || 'success', position: position }
-    }));
-};
+(function () {
+    // Guard: hx-boost re-inserts and re-runs this <script> on every boosted navigation.
+    // The listeners below live on window / document.body, which survive body innerHTML
+    // swaps, so we only ever wire them up once.
+    if (window.__plToastReady) { return; }
+    window.__plToastReady = true;
 
-function plToastManager() {
-    var _nextId = 0;
-
-    return {
-        toasts: [],
-        init() {
-            // Drain server-rendered Django messages into toasts once the manager is live.
-            // Reading them here — rather than dispatching from the messages element's x-init —
-            // removes any dependence on Alpine init order or on this manager's window listener
-            // already being attached. The manager processes messages only when it is ready.
-            var self = this;
-            document.querySelectorAll('.hub-messages [data-toast-message]').forEach(function(el) {
-                self.add({
-                    message: el.getAttribute('data-toast-message'),
-                    type: el.getAttribute('data-toast-type') || 'success'
-                });
-                // Guard against a second drain if the component is re-initialised over the same DOM.
-                el.removeAttribute('data-toast-message');
-            });
-        },
-        add(detail) {
-            var id = ++_nextId;
-            this.toasts.push({
-                id: id,
-                message: detail.message,
-                type: detail.type || 'success',
-                position: detail.position || 'top-right',
-                visible: true
-            });
-            var self = this;
-            setTimeout(function() { self.dismiss(id); }, 4000);
-        },
-        dismiss(id) {
-            var toast = this.toasts.find(function(t) { return t.id === id; });
-            if (toast) toast.visible = false;
-            var self = this;
-            setTimeout(function() { self.toasts = self.toasts.filter(function(t) { return t.id !== id; }); }, 300);
+    function ensureContainer(center) {
+        var id = center ? 'pl-toast-container--center' : 'pl-toast-container';
+        var el = document.getElementById(id);
+        if (!el) {
+            el = document.createElement('div');
+            el.id = id;
+            el.className = 'pl-toast-container' + (center ? ' pl-toast-container--center' : '');
+            el.setAttribute('aria-live', 'polite');
+            document.body.appendChild(el);
         }
-    };
-}
+        return el;
+    }
+
+    function showToast(message, type, position) {
+        if (!message) { return; }
+        var container = ensureContainer(position === 'center');
+
+        var toast = document.createElement('div');
+        toast.className = 'pl-toast pl-toast--' + (type || 'success') + ' toast-enter';
+
+        var span = document.createElement('span');
+        span.textContent = message;
+        toast.appendChild(span);
+
+        var close = document.createElement('button');
+        close.className = 'pl-toast__close';
+        close.setAttribute('aria-label', 'Dismiss');
+        close.innerHTML = '&times;';
+        toast.appendChild(close);
+
+        function dismiss() {
+            if (toast.__gone) { return; }
+            toast.__gone = true;
+            toast.classList.add('toast-leave');
+            toast.style.opacity = '0';
+            setTimeout(function () {
+                if (toast.parentNode) { toast.parentNode.removeChild(toast); }
+            }, 250);
+        }
+        close.addEventListener('click', dismiss);
+
+        container.appendChild(toast);
+        setTimeout(dismiss, 4000);
+    }
+
+    // Global helper for plain-JS callers (e.g. static/js/hero_placement.js).
+    window.showToast = showToast;
+
+    // Client dispatches and the htmx kebab alias both arrive as a `show-toast` event.
+    window.addEventListener('show-toast', function (e) {
+        var d = e.detail || {};
+        showToast(d.message, d.type, d.position);
+    });
+
+    // Turn server-rendered Django messages into toasts. Scans the whole document and
+    // clears each one as it fires, so repeated calls (e.g. after every htmx swap) are safe.
+    function drainMessages() {
+        var nodes = document.querySelectorAll('.hub-messages [data-toast-message]');
+        for (var i = 0; i < nodes.length; i++) {
+            var el = nodes[i];
+            showToast(el.getAttribute('data-toast-message'), el.getAttribute('data-toast-type') || 'success');
+            el.removeAttribute('data-toast-message');
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', drainMessages);
+    } else {
+        drainMessages();
+    }
+    // hx-boost navigations and partial swaps land new messages; drain after each settle.
+    document.body.addEventListener('htmx:afterSettle', drainMessages);
+})();
 </script>
