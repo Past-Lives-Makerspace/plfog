@@ -93,13 +93,28 @@
       <h2 style="margin:0;">Activity</h2>
       <a href="{% url 'classes:admin_activity' %}">View full log →</a>
     </div>
-    <ul style="margin:8px 0 0;padding-left:1rem;color:var(--hub-text-muted);">
+    <div class="admin-table-wrap" style="margin-top:8px;">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:150px;">When</th>
+          <th>Event</th>
+          <th>Class</th>
+        </tr>
+      </thead>
+      <tbody>
       {% for ev in recent_activity %}
-        <li>{{ ev.created_at|date:"M j, g:i a" }} — {{ ev.get_kind_display }}{% if ev.class_offering %}: {{ ev.class_offering.title }}{% endif %}</li>
+        <tr>
+          <td style="white-space:nowrap;color:var(--hub-text-muted);">{{ ev.created_at|date:"M j, g:i a" }}</td>
+          <td>{{ ev.get_kind_display }}</td>
+          <td>{% if ev.class_offering %}<a href="{% url 'classes:admin_class_detail' pk=ev.class_offering.pk %}">{{ ev.class_offering.title }}</a>{% else %}<span style="color:var(--hub-text-muted);">—</span>{% endif %}</td>
+        </tr>
       {% empty %}
-        <li>No activity yet.</li>
+        <tr><td colspan="3" style="color:var(--hub-text-muted);padding:1.5rem 0.75rem;">No activity yet.</td></tr>
       {% endfor %}
-    </ul>
+      </tbody>
+    </table>
+    </div>
   </section>
 
 </div>
