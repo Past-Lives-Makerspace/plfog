@@ -3,7 +3,7 @@
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from membership.models import GuildImage
+from membership.models import GuildFAQItem, GuildImage, GuildLink
 from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
@@ -34,3 +34,19 @@ def describe_add_gallery_images():
         )
         assert guild.gallery_images.count() == 2
         assert [g.sort_order for g in guild.gallery_images.all()] == [0, 1]
+
+
+def describe_GuildFAQItem():
+    def it_orders_by_sort_order():
+        guild = GuildFactory()
+        q2 = GuildFAQItem.objects.create(guild=guild, question="Second?", answer="A", sort_order=2)
+        q1 = GuildFAQItem.objects.create(guild=guild, question="First?", answer="A", sort_order=1)
+        assert list(guild.faq_items.all()) == [q1, q2]
+
+
+def describe_GuildLink():
+    def it_orders_by_sort_order():
+        guild = GuildFactory()
+        l2 = GuildLink.objects.create(guild=guild, label="Wiki", url="https://w.example", sort_order=2)
+        l1 = GuildLink.objects.create(guild=guild, label="Discord", url="https://d.example", sort_order=1)
+        assert list(guild.links.all()) == [l1, l2]

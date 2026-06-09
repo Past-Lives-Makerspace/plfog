@@ -634,6 +634,36 @@ class GuildImage(models.Model):
         super().save(*args, **kwargs)
 
 
+class GuildFAQItem(models.Model):
+    """A question/answer pair shown in the guild page FAQ section."""
+
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="faq_items", help_text="Parent guild.")
+    question = models.CharField(max_length=500, help_text="The question.")
+    answer = models.TextField(help_text="The answer.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order"]
+
+    def __str__(self) -> str:
+        return self.question
+
+
+class GuildLink(models.Model):
+    """A named external link shown in the guild page sidebar."""
+
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="links", help_text="Parent guild.")
+    label = models.CharField(max_length=100, help_text="Display text, e.g. 'Discord'.")
+    url = models.URLField(help_text="Destination URL.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order"]
+
+    def __str__(self) -> str:
+        return f"{self.label} ({self.guild.name})"
+
+
 class VotePreferenceQuerySet(models.QuerySet):
     def from_signed_up_members(self) -> VotePreferenceQuerySet:
         """Votes cast by members who have a linked User account.
