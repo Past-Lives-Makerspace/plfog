@@ -701,6 +701,70 @@ def guild_banner_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @login_required
+@require_POST
+def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
+    """Current member joins this guild (idempotent)."""
+    from membership.models import GuildMembership
+
+    guild = get_object_or_404(Guild, pk=pk)
+    member = _get_member(request)
+    if member is not None:
+        GuildMembership.objects.get_or_create(guild=guild, member=member)
+        messages.success(request, f"You joined {guild.name}.")
+    return redirect("hub_guild_detail", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_leave(request: HttpRequest, pk: int) -> HttpResponse:
+    """Current member leaves this guild."""
+    from membership.models import GuildMembership
+
+    guild = get_object_or_404(Guild, pk=pk)
+    member = _get_member(request)
+    if member is not None:
+        GuildMembership.objects.filter(guild=guild, member=member).delete()
+        messages.success(request, f"You left {guild.name}.")
+    return redirect("hub_guild_detail", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_image_delete(request: HttpRequest, pk: int, image_pk: int) -> HttpResponse:
+    """Delete a gallery image. Editor only."""
+    from membership.models import GuildImage
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    image = get_object_or_404(GuildImage, pk=image_pk, guild=guild)
+    image.image.delete(save=False)
+    image.delete()
+    messages.success(request, "Image removed.")
+    return redirect("hub_guild_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_announcement_delete(request: HttpRequest, pk: int, announcement_pk: int) -> HttpResponse:
+    """Delete a guild announcement. Editor only.
+
+    The companion *create*/publish endpoint (which fires the ``guild_announcement``
+    notification) is deferred until Plan 2's ``core.notifications`` lands — see DEFERRED.md.
+    """
+    from membership.models import GuildAnnouncement
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    get_object_or_404(GuildAnnouncement, pk=announcement_pk, guild=guild).delete()
+    messages.success(request, "Announcement deleted.")
+    return redirect("hub_guild_edit", pk=guild.pk)
+
+
+@login_required
 def beta_feedback(request: HttpRequest) -> HttpResponse:
     """Beta feedback page — users can report bugs, request features, or leave general feedback."""
     ctx = _get_hub_context(request)
