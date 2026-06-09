@@ -55,3 +55,10 @@ def dispatch(
                 text_body=body,
                 best_effort=True,
             )
+
+
+def active_member_users():
+    """All active members' User objects — the default broadcast audience."""
+    from django.contrib.auth.models import User
+
+    return User.objects.filter(member__status="active")

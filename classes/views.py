@@ -372,6 +372,17 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
                 _log_discount_redeemed(registration)
             send_registration_confirmation(registration)
             send_instructor_registration_notification(registration)
+            _instructor = registration.class_offering.instructor
+            if _instructor is not None and _instructor.user is not None:
+                from core import notifications
+
+                notifications.dispatch(
+                    "instructor_new_registration",
+                    [_instructor.user],
+                    title="New registration",
+                    body=registration.class_offering.title,
+                    url="/classes/teach/",
+                )
             send_admin_registration_notification(registration)
             from classes.services.mailchimp_subscribe import subscribe_registration
 

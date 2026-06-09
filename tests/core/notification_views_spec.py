@@ -24,7 +24,7 @@ def describe_notification_feed():
         assert b"Hello" in resp.content
 
     def it_only_shows_my_notifications(client):
-        user = _login(client, 2)
+        _login(client, 2)
         other = User.objects.create_user(username="other", email="o@example.com")
         Notification.objects.create(user=other, trigger="x", title="Secret", body="b")
         resp = client.get(reverse("notification_feed"))
