@@ -117,9 +117,9 @@
 
     --hub-blue: #2f6fb0;
     --hub-blue-soft: rgba(9, 46, 75, 0.08);
-    --hub-hero-from: #1a5e8f;
-    --hub-hero-mid: #092e4b;
-    --hub-hero-to: #08263d;
+    --hub-hero-from: #f8fafc;
+    --hub-hero-mid: #f1f5f9;
+    --hub-hero-to: #e2e8f0;
 
     /* Darker amber for gold text on white (~5:1 contrast, passes AA). */
     --hub-link: #9c5e0d;
@@ -2670,7 +2670,9 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-guild-hero__overlay { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(9,46,76,0) 0%, rgba(9,46,76,0.85) 100%); }
 .pl-guild-hero--noimg { background: linear-gradient(120deg, var(--hub-hero-from) 0%, var(--hub-hero-mid) 46%, var(--hub-hero-to) 100%); }
 .pl-guild-hero__content { position: relative; z-index: 1; padding: 1.5rem; color: #F4EFDD; }
-.pl-guild-hero__title { font-family: Lato, sans-serif; font-weight: 900; font-size: clamp(1.75rem, 4vw, 2.75rem); margin: 0; }
+.pl-guild-hero__title { font-family: Lato, sans-serif; font-weight: 900; font-size: clamp(1.75rem, 4vw, 2.75rem); margin: 0; color: #F4EFDD; }
+[data-theme="light"] .pl-guild-hero--noimg .pl-guild-hero__title { color: var(--hub-text); }
+[data-theme="light"] .pl-guild-hero--noimg .pl-guild-hero__lead { color: var(--hub-text-muted); opacity: 1; }
 .pl-guild-hero__lead { font-size: 0.9375rem; opacity: 0.9; margin-top: 0.25rem; }
 .pl-guild-grid { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
 @media (min-width: 1024px) { .pl-guild-grid { grid-template-columns: 1fr 340px; } }

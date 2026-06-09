@@ -103,6 +103,7 @@ def _sync_sessions(offering: Any, date_items: list[dict[str, Any]]) -> None:
 def _upsert_offering(item: dict[str, Any]) -> str | None:
     """Upsert a single API node item. Returns the node UUID, or None if skipped."""
     from classes.models import ClassOffering
+    from classes.templatetags.classes_tags import strip_date_suffix
 
     node_id: str = item.get("id") or ""
     if not node_id:
@@ -110,7 +111,7 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
 
     attrs = item.get("attributes") or {}
 
-    title = attrs.get("title") or "(Untitled)"
+    title = strip_date_suffix(attrs.get("title") or "(Untitled)")
     body = attrs.get("body") or {}
     description = _html_to_text(body.get("processed") or body.get("value") or "")
     price_cents = int(float(attrs.get("field_price") or "0") * 100)

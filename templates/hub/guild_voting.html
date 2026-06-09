@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static %}
+{% load static hub_tags %}
 {% block title %}Guild Voting{% endblock %}
 
 {% block content %}
@@ -208,7 +208,16 @@
             <tbody>
                 {% for row in results %}
                 <tr>
-                    <td style="padding: 0.5rem 0.75rem;">{{ row.guild_name }}</td>
+                    <td style="padding: 0.5rem 0.75rem;">
+                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                            {% with prefix=row.guild_name|guild_logo_prefix %}
+                            {% if prefix %}
+                            <img src="{% static 'img/guild_logos/'|add:prefix|add:'_color.svg' %}" width="16" height="16" alt="">
+                            {% endif %}
+                            {% endwith %}
+                            {{ row.guild_name }}
+                        </div>
+                    </td>
                     <td style="padding: 0.5rem 0.75rem; text-align: right;">{{ row.total_points }}</td>
                     <td style="padding: 0.5rem 0.75rem; text-align: right;">{{ row.share_pct }}%</td>
                     <td style="padding: 0.5rem 0.75rem; text-align: right;">${{ row.funding }}</td>

@@ -1,4 +1,4 @@
-{% load hub_tags static %}
+{% load hub_tags static classes_tags %}
 {% with src=event.source_key %}
 <div class="pl-calendar-list__item{% if event.is_in_progress %} pl-calendar-list__item--live{% endif %}"
      data-event-pk="{{ event.pk }}"
@@ -16,11 +16,11 @@
     </div>
     <div class="pl-calendar-list__body">
         {% if event.source == "classes" %}
-        <div class="pl-calendar-list__title">{{ event.title }}</div>
+        <div class="pl-calendar-list__title">{{ event.title|strip_date_suffix }}</div>
         {% elif event.url %}
-        <a href="{{ event.url }}" class="pl-calendar-list__title pl-calendar-list__title--link" target="_blank" rel="noopener noreferrer">{{ event.title }}</a>
+        <a href="{{ event.url }}" class="pl-calendar-list__title pl-calendar-list__title--link" target="_blank" rel="noopener noreferrer">{{ event.title|strip_date_suffix }}</a>
         {% else %}
-        <div class="pl-calendar-list__title">{{ event.title }}</div>
+        <div class="pl-calendar-list__title">{{ event.title|strip_date_suffix }}</div>
         {% endif %}
         {% if event.description %}
         <div class="pl-calendar-list__desc">{{ event.description|truncatechars:120 }}</div>
@@ -32,9 +32,12 @@
         </div>
         {% endif %}
         {% if event.source == "classes" %}
-        <div class="pl-calendar-list__guild pl-calendar-list__guild--with-action" style="color: {{ source_colors|get_item:'classes'|default:'#888888' }};">
+        <div class="pl-calendar-list__guild pl-calendar-list__guild--with-action" style="color: {{ source_colors|get_item:'classes'|default:'#888888' }}; display:flex; align-items:center; gap:0.35rem;">
+            {% if event.guild and event.guild.logo_prefix %}
+            <img src="{% static 'img/guild_logos/'|add:event.guild.logo_prefix|add:'_color.svg' %}" width="14" height="14" alt="">
+            {% endif %}
             <span>Classes</span>
-            {% if event.url %}<a href="{{ event.url }}" class="pl-calendar-list__register" target="_blank" rel="noopener noreferrer">Register →</a>{% endif %}
+            {% if event.url %}<a href="{{ event.url }}" class="pl-calendar-list__register" target="_blank" rel="noopener noreferrer" style="margin-left:auto;">Register →</a>{% endif %}
         </div>
         {% elif event.guild %}
         <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }}; display:flex; align-items:center; gap:0.35rem;">

@@ -1,4 +1,5 @@
 {% load hub_tags %}
+{% load classes_tags %}
 
 {# State island — read by focusEvent() so chip clicks can hop pages #}
 <script type="application/json" id="pl-cal-state">{"week_offset": {{ week_offset }}, "month_offset": {{ month_offset }}, "event_page": {{ event_page }}, "event_total_pages": {{ event_total_pages }}, "month_event_pages": {{ month_event_pages_json|safe }}, "events_url": "{% url 'hub_community_calendar_events' %}"}</script>
@@ -39,9 +40,9 @@
                     x-show="isActive('{{ src }}')"
                     @click="focusEvent({{ event.pk }})"
                     style="--chip-color: {{ source_colors|get_item:src|default:'#888888' }};"
-                    title="{{ event.title }}{% if event.is_in_progress %} (in progress){% endif %}">
+                    title="{{ event.title|strip_date_suffix }}{% if event.is_in_progress %} (in progress){% endif %}">
                 {% if not event.all_day %}<span class="pl-calendar-grid__chip-time">{{ event.start_dt|date:"g:ia" }}</span>{% endif %}
-                <span class="pl-calendar-grid__chip-title">{{ event.title }}</span>
+                <span class="pl-calendar-grid__chip-title">{{ event.title|strip_date_suffix }}</span>
             </button>
             {% endwith %}
             {% endfor %}
@@ -90,8 +91,8 @@
                     x-show="isActive('{{ src }}')"
                     @click="focusEvent({{ event.pk }})"
                     style="--chip-color: {{ source_colors|get_item:src|default:'#888888' }};"
-                    title="{{ event.title }}{% if event.is_in_progress %} (in progress){% endif %}">
-                <span class="pl-calendar-grid__chip-title">{{ event.title }}</span>
+                    title="{{ event.title|strip_date_suffix }}{% if event.is_in_progress %} (in progress){% endif %}">
+                <span class="pl-calendar-grid__chip-title">{{ event.title|strip_date_suffix }}</span>
             </button>
             {% endwith %}
             {% endfor %}

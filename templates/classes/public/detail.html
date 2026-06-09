@@ -1,5 +1,5 @@
 {% extends "classes/base_public.html" %}
-{% load classes_tags %}
+{% load classes_tags static %}
 
 {% block title %}{{ offering.title }} — Past Lives Makerspace{% endblock %}
 
@@ -40,7 +40,12 @@
           <span class="cp-detail__next-pill cp-detail__next-pill--flex">Flexible scheduling</span>
         {% endif %}
       </div>
-      <h1 class="cp-detail__title">{{ offering.title|strip_date_suffix }}</h1>
+      <h1 class="cp-detail__title">
+        {% if offering.category.guild and offering.category.guild.logo_prefix %}
+          <img src="{% static 'img/guild_logos/'|add:offering.category.guild.logo_prefix|add:'_color.svg' %}" width="32" height="32" alt="{{ offering.category.guild.name }}" style="vertical-align: middle; margin-right: 0.5rem;">
+        {% endif %}
+        {{ offering.title|strip_date_suffix }}
+      </h1>
       {% if offering.instructor %}
       <div class="cp-detail__byline">
         with {% if offering.instructor.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}{% if offering.instructor.instructor_social_handle %} · {{ offering.instructor.instructor_social_handle }}{% endif %}

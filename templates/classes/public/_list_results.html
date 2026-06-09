@@ -1,4 +1,4 @@
-{% load classes_tags %}
+{% load classes_tags static %}
 {% comment %}Results grid — rendered standalone for HTMX swaps and embedded into
 list.html for the initial full-page response.{% endcomment %}
 <div class="cp-results__summary">
@@ -30,6 +30,9 @@ list.html for the initial full-page response.{% endcomment %}
       </a>
       <div class="cls-body">
         <a class="cls-title" href="{% url 'classes:public_class_detail' slug=offering.slug %}">
+          {% if offering.category.guild and offering.category.guild.logo_prefix %}
+            <img src="{% static 'img/guild_logos/'|add:offering.category.guild.logo_prefix|add:'_color.svg' %}" width="16" height="16" alt="{{ offering.category.guild.name }}" style="vertical-align: middle; margin-right: 0.25rem;">
+          {% endif %}
           {{ offering.title|strip_date_suffix }}
           {% if offering.scheduling_model == 'flexible' %}<span class="badge fx">Flex</span>{% endif %}
         </a>

@@ -175,7 +175,7 @@ def sync_local_class_events() -> int:
         uid = f"local-class-{session.pk}"
         kept_uids.append(uid)
         CalendarEvent.objects.update_or_create(
-            guild=None,
+            guild=offering.category.guild,
             uid=uid,
             defaults={
                 "source": "classes",
