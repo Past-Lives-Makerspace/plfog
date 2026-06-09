@@ -623,6 +623,24 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     else:
         prefs_form = EmailPreferencesForm(initial={"voting_results": True})
 
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    if request.method == "POST" and request.POST.get("form_id") == "notifications":
+        from core import triggers
+        from core.models import NotificationPreference
+
+        is_instructor = bool(member and member.is_instructor)
+        for t in triggers.for_member(is_instructor=is_instructor, is_staff=user.is_staff):
+            NotificationPreference.objects.update_or_create(
+                user=user,
+                trigger=t.key,
+                defaults={
+                    "push_enabled": request.POST.get(f"push_{t.key}") == "on",
+                    "email_enabled": request.POST.get(f"email_{t.key}") == "on",
+                },
+            )
+        messages.success(request, "Notification preferences updated.")
+        return redirect(f"{request.path}?tab=notifications")
+
     add_email_form = AddEmailForm(user=request.user)
     email_addresses = list(EmailAddress.objects.filter(user=request.user).order_by("-primary", "email"))
     primary_email = next((ea for ea in email_addresses if ea.primary), None)
@@ -631,10 +649,16 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     # Whitelist the tab param — it flows into an Alpine x-data JS expression, so
     # HTML escaping alone isn't enough to stop a payload like ?tab='+alert(1)+'.
     tab_param = request.GET.get("tab", "profile")
-    active_tab = tab_param if tab_param in {"profile", "emails"} else "profile"
+    active_tab = tab_param if tab_param in {"profile", "emails", "notifications"} else "profile"
 
     if member is None and request.method == "GET" and not request.GET.get("tab"):
         messages.info(request, "Your account is not linked to a membership.")
+
+    from core import triggers as _triggers
+    from core.models import NotificationPreference as _NP
+
+    notif_groups = _triggers.by_category(is_instructor=bool(member and member.is_instructor), is_staff=user.is_staff)
+    notif_prefs = {p.trigger: p for p in _NP.objects.filter(user=user)}
 
     return render(
         request,
@@ -648,6 +672,8 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "email_addresses": email_addresses,
             "primary_verified_json": primary_verified_json,
             "active_tab": active_tab,
+            "notif_groups": notif_groups,
+            "notif_prefs": notif_prefs,
         },
     )
 

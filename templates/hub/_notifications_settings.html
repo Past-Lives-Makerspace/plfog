@@ -1,0 +1,44 @@
+{% load hub_tags %}
+<div class="hub-card">
+  <h2 style="font-size:1rem;font-weight:600;margin:0 0 0.25rem;">Notifications</h2>
+  <p class="hub-text-muted" style="margin-bottom:1rem;font-size:0.85rem;">
+    The bell always shows everything. Choose which events also reach you by browser push or email.
+  </p>
+  <form method="post" class="hub-form">
+    {% csrf_token %}
+    <input type="hidden" name="form_id" value="notifications">
+    {% for category, rows in notif_groups.items %}
+      <h3 class="hub-detail-label" style="margin:1.25rem 0 0.5rem;">{{ category }}</h3>
+      <table class="pl-notif-table" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left;font-weight:500;color:var(--hub-text-muted);font-size:0.75rem;">Event</th>
+            <th style="width:64px;color:var(--hub-text-muted);font-size:0.75rem;">Push</th>
+            <th style="width:64px;color:var(--hub-text-muted);font-size:0.75rem;">Email</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in rows %}
+          {% with pref=notif_prefs|get_item:t.key %}
+          <tr style="border-top:1px solid var(--hub-border);">
+            <td style="padding:0.6rem 0;">
+              <div style="font-weight:500;font-size:0.875rem;">{{ t.label }}</div>
+              <div class="hub-text-muted" style="font-size:0.75rem;">{{ t.description }}</div>
+            </td>
+            <td style="text-align:center;">
+              <input type="checkbox" name="push_{{ t.key }}" {% if pref and pref.push_enabled %}checked{% endif %}>
+            </td>
+            <td style="text-align:center;">
+              <input type="checkbox" name="email_{{ t.key }}" {% if pref and pref.email_enabled %}checked{% endif %}>
+            </td>
+          </tr>
+          {% endwith %}
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endfor %}
+    <div style="margin-top:1.25rem;">
+      <button type="submit" class="hub-btn hub-btn--primary">Save Preferences</button>
+    </div>
+  </form>
+</div>
