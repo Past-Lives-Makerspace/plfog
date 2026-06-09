@@ -108,7 +108,7 @@ def describe_instructor_overview():
             assert b"Active waitlists" not in resp.content
 
     def describe_quick_links():
-        def it_links_to_registrations_codes_and_profile(instructor_fixture, client):
+        def it_links_to_registrations_and_codes(instructor_fixture, client):
             # Quick links live on the populated Overview (they used to be nav tabs,
             # which Phase 2 dropped), so give the instructor a class to render them.
             ClassOfferingFactory(instructor=instructor_fixture, slug="quicklinks")
@@ -117,9 +117,16 @@ def describe_instructor_overview():
             for name in [
                 "classes:instructor_registrations",
                 "classes:instructor_discount_codes",
-                "classes:instructor_profile",
             ]:
                 assert reverse(name).encode() in resp.content
+
+    def describe_avatar_menu():
+        def it_links_to_the_teaching_profile_for_active_members(member_user, client):
+            # The Edit teaching profile link now lives in the shared topbar avatar
+            # menu (hub/base.html), shown to any active member.
+            client.force_login(member_user)
+            resp = client.get(reverse("classes:instructor_overview"))
+            assert reverse("classes:instructor_profile").encode() in resp.content
 
     def describe_stats():
         def it_counts_my_published_classes(instructor_fixture, client):
