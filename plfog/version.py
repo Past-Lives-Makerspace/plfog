@@ -15,6 +15,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "There's a 'View live catalog' link in the management header so you can hop straight to the public booking site to see your classes the way visitors do.",
             "Instructors get the same upgrade on their teaching dashboard — opening it now shows your drafts, anything awaiting review, your latest sign-ups, and your waitlists at a glance, with a one-tap 'Create your first class' if you're just getting started.",
             "Opening a class now puts everything for that class in one place — a tabbed workspace for its registrations, waitlist, and discount codes, with Edit and Preview right at the top.",
+            "Instructors get that same per-class workspace for their own classes — open any class you teach to see its sign-ups, waitlist, and discount codes in one place. Your teaching profile now lives in the top-right account menu.",
         ],
     },
     {
