@@ -1,0 +1,23 @@
+<div class="pl-bell" x-data="{ open: false }" @keydown.escape.window="open = false">
+  <button type="button" class="pl-bell__btn" @click="open = !open"
+          hx-get="{% url 'notification_feed' %}" hx-target="#pl-bell-feed" hx-trigger="click"
+          aria-label="Notifications">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+    </svg>
+    {% if unread_notification_count %}<span class="pl-bell__badge">{{ unread_notification_count }}</span>{% endif %}
+  </button>
+  <div class="pl-bell__panel" x-show="open" x-transition @click.away="open = false" style="display:none;">
+    <div class="pl-bell__header">
+      <span>Notifications</span>
+      <button type="button" class="pl-bell__mark"
+              hx-post="{% url 'notification_read_all' %}" hx-swap="none"
+              @click="$el.closest('.pl-bell').querySelectorAll('.pl-note--unread').forEach(e => e.classList.remove('pl-note--unread'))">
+        Mark all read
+      </button>
+    </div>
+    <div id="pl-bell-feed" class="pl-bell__feed">
+      <p class="hub-text-muted" style="padding:1rem;">Loading…</p>
+    </div>
+  </div>
+</div>

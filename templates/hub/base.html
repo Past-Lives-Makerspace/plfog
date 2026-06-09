@@ -333,6 +333,7 @@
             </div>
             {% endif %}
             <div class="pl-topbar__spacer"></div>
+            {% include "hub/_notification_bell.html" %}
             {% if tab_balance is not None %}
             <a href="{% url 'hub_tab_detail' %}" class="pl-topbar__tab-pill{% if tab_is_locked %} pl-topbar__tab-pill--locked{% endif %}" title="My Tab">
                 ${{ tab_balance }}
