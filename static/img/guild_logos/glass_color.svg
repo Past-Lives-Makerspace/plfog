@@ -1,33 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 47.45 47.45">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50">
   <defs>
     <style>
       .cls-1 {
-        fill: #faba1d;
-      }
-
-      .cls-1, .cls-2, .cls-3, .cls-4, .cls-5 {
-        stroke-width: 0px;
-      }
-
-      .cls-2 {
-        fill: #93c9da;
-      }
-
-      .cls-3 {
-        fill: #225970;
-      }
-
-      .cls-4 {
-        fill: #d15827;
-      }
-
-      .cls-5 {
-        fill: #9dad3a;
-      }
-
-      .cls-6 {
-        fill: none;
+        fill: #add8e6;
         stroke: #231f20;
         stroke-linecap: round;
         stroke-linejoin: round;
@@ -35,26 +11,5 @@
       }
     </style>
   </defs>
-  <g id="Layer_1-2" data-name="Layer 1">
-    <g>
-      <polygon class="cls-2" points="2.47 4.76 10.87 12.63 2.91 20.58 2.47 4.76"/>
-      <polygon class="cls-2" points="4.54 45.19 12.19 35.26 20.4 44.97 4.54 45.19"/>
-      <polygon class="cls-2" points="34.95 10.82 25.45 2.64 43.63 2.7 34.95 10.82"/>
-      <polygon class="cls-2" points="35.62 34.84 45.25 26.6 44.81 43.57 35.62 34.84"/>
-      <rect class="cls-1" x="26.99" y="15.95" width="15.4" height="15.4" transform="translate(-6.56 31.46) rotate(-45)"/>
-      <rect class="cls-3" x="15.98" y="26.7" width="16.27" height="16.27" transform="translate(-17.57 27.26) rotate(-45)"/>
-      <rect class="cls-5" x="4.48" y="15.99" width="15.71" height="14.92" transform="translate(-12.97 15.59) rotate(-45)"/>
-      <rect class="cls-4" x="15.58" y="4.87" width="15.72" height="14.92" transform="translate(-1.86 20.19) rotate(-45)"/>
-      <polyline class="cls-5" points="44.95 20.42 35.2 12.98 44.64 4.69"/>
-      <polyline class="cls-4" points="42.69 44.74 34.83 34.84 26.99 44.97"/>
-      <polyline class="cls-1" points="2.61 27.12 11.39 34.93 2.99 42.33"/>
-      <polyline class="cls-3" points="4.33 2.37 12.31 12.16 20.15 2.89"/>
-      <g>
-        <path class="cls-6" d="m45.95,5.46v36.53c0,2.19-1.77,3.96-3.96,3.96H5.46c-2.19,0-3.96-1.77-3.96-3.96v-18.26s0-18.26,0-18.26c0-2.19,1.77-3.96,3.96-3.96h19.88s16.65,0,16.65,0c2.19,0,3.96,1.77,3.96,3.96Z"/>
-        <line class="cls-6" x1="2.66" y1="44.79" x2="44.79" y2="2.66"/>
-        <line class="cls-6" x1="44.79" y1="44.79" x2="2.66" y2="2.66"/>
-        <rect class="cls-6" x="8.01" y="8.01" width="31.43" height="31.43" transform="translate(-9.83 23.72) rotate(-45)"/>
-      </g>
-    </g>
-  </g>
+  <path class="cls-1" d="M25,6 L42,25 L25,44 L8,25 Z M8,25 L42,25 M25,6 L25,44"/>
 </svg>

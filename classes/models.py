@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
+from core.models import HeroCropMixin
 from core.validators import validate_image_size
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ I waive any right to inspect or approve the finished images or the use to which 
 I understand that I may revoke this consent at any time by notifying PLM in writing at info@pastlives.space."""
 
 
-class Category(models.Model):
+class Category(HeroCropMixin, models.Model):
     name = models.CharField(max_length=100, unique=True, help_text="Display name (e.g. Woodworking).")
     slug = models.SlugField(max_length=100, unique=True, help_text="URL slug.")
     sort_order = models.PositiveIntegerField(default=0, help_text="Ascending sort; lower shows first.")
@@ -52,6 +53,10 @@ class Category(models.Model):
         validators=[validate_image_size],
         help_text="Optional header image.",
     )
+
+    def get_hero_image_field_name(self) -> str:
+        return "hero_image"
+
     icon_svg = models.TextField(
         blank=True,
         help_text=(
@@ -96,7 +101,7 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         return self.filter(instructor=instructor)
 
 
-class ClassOffering(models.Model):
+class ClassOffering(HeroCropMixin, models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         PENDING = "pending", "Pending Review"
@@ -146,22 +151,14 @@ class ClassOffering(models.Model):
         validators=[validate_image_size],
         help_text="Hero image.",
     )
+
+    def get_hero_image_field_name(self) -> str:
+        return "image"
+
     video_url = models.URLField(
         blank=True,
         max_length=500,
         help_text="Optional YouTube link (watch, youtu.be, embed, or shorts URL). Embeds on the public class page.",
-    )
-    hero_crop_x = models.PositiveIntegerField(
-        null=True, blank=True, help_text="Crop box left edge in source-image pixels — set by the hero cropper."
-    )
-    hero_crop_y = models.PositiveIntegerField(
-        null=True, blank=True, help_text="Crop box top edge in source-image pixels — set by the hero cropper."
-    )
-    hero_crop_w = models.PositiveIntegerField(
-        null=True, blank=True, help_text="Crop box width in source-image pixels — set by the hero cropper."
-    )
-    hero_crop_h = models.PositiveIntegerField(
-        null=True, blank=True, help_text="Crop box height in source-image pixels — set by the hero cropper."
     )
     requires_model_release = models.BooleanField(
         default=False, help_text="When on, registrants also sign model release."
@@ -479,29 +476,6 @@ class ClassOffering(models.Model):
         if not items and self.category and self.category.hero_image:
             items.append({"url": self.category.hero_image.url, "alt": self.category.name})
         return items
-
-    @property
-    def hero_object_position(self) -> str:
-        """CSS ``object-position`` value to keep the cropped focal point centered.
-
-        When the hero crop box is set, returns ``"X% Y%"`` where the coords are
-        the crop-box center expressed as a percentage of the source image.
-        Templates pair this with ``object-fit: cover`` on the hero <img>/banner.
-        Returns ``"50% 50%"`` (CSS default) when the crop box or source size is
-        unknown.
-        """
-        if not (self.hero_crop_w and self.hero_crop_h):
-            return "50% 50%"
-        try:
-            src_w = self.image.width
-            src_h = self.image.height
-        except (FileNotFoundError, ValueError, AttributeError, OSError):
-            return "50% 50%"
-        if not (src_w and src_h):
-            return "50% 50%"
-        cx = (self.hero_crop_x or 0) + self.hero_crop_w / 2
-        cy = (self.hero_crop_y or 0) + self.hero_crop_h / 2
-        return f"{(cx / src_w) * 100:.1f}% {(cy / src_h) * 100:.1f}%"
 
     @property
     def first_upcoming_session_at(self) -> datetime | None:

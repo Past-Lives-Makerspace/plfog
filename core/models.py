@@ -11,6 +11,71 @@ from django.db import models
 from django.utils import timezone
 
 
+class HeroCropMixin(models.Model):
+    """Adds hero_crop_* fields and a hero_object_position property to a model.
+
+    Subclasses must implement get_hero_image_field_name() to return the string
+    name of the ImageField (e.g. "image", "banner_image", "hero_image").
+    """
+
+    hero_crop_x = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Crop box left edge in source-image pixels — set by the hero cropper."
+    )
+    hero_crop_y = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Crop box top edge in source-image pixels — set by the hero cropper."
+    )
+    hero_crop_w = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Crop box width in source-image pixels — set by the hero cropper."
+    )
+    hero_crop_h = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Crop box height in source-image pixels — set by the hero cropper."
+    )
+
+    class Meta:
+        abstract = True
+
+    def get_hero_image_field_name(self) -> str:
+        raise NotImplementedError("Subclasses must implement get_hero_image_field_name()")
+
+    @property
+    def hero_object_position(self) -> str:
+        """CSS ``object-position`` value to keep the cropped focal point centered.
+
+        If width/height are missing but x/y are present, they are treated as
+        direct 0-100 percentages (Focal Point mode).
+
+        Otherwise, returns ``"X% Y%"`` where the coords are the crop-box center
+        expressed as a percentage of the source image. pair this with
+        ``object-fit: cover`` on the hero <img>/banner.
+        Returns ``"50% 50%"`` (CSS default) when unknown.
+        """
+        if self.hero_crop_x is not None and self.hero_crop_y is not None:
+            if not self.hero_crop_w or not self.hero_crop_h:
+                # Focal Point mode
+                return f"{self.hero_crop_x}% {self.hero_crop_y}%"
+
+        if not (self.hero_crop_w and self.hero_crop_h):
+            return "50% 50%"
+
+        field_name = self.get_hero_image_field_name()
+        image_field = getattr(self, field_name, None)
+        if not image_field or not getattr(image_field, "name", None):
+            return "50% 50%"
+
+        try:
+            src_w = image_field.width
+            src_h = image_field.height
+        except (FileNotFoundError, ValueError, AttributeError, OSError):
+            return "50% 50%"
+
+        if not (src_w and src_h):
+            return "50% 50%"
+
+        cx = (self.hero_crop_x or 0) + self.hero_crop_w / 2
+        cy = (self.hero_crop_y or 0) + self.hero_crop_h / 2
+        return f"{(cx / src_w) * 100:.1f}% {(cy / src_h) * 100:.1f}%"
+
+
 class PushSubscription(models.Model):
     """Stores Web Push subscription data for a user."""
 

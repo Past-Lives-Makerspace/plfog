@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, TypedDict, cast
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
 from django.db.models import Count, F, Max, Min, Q, Sum
 from django.db.models.functions import TruncDate
@@ -228,11 +229,41 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         .select_related("instructor")
         .order_by("-created_at")[:3]
     )
+    from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
+
+    view_as = getattr(request, "view_as", None)
+    # Admins and Officers always get edit rights for heroes.
+    is_admin = view_as is not None and (view_as.has_actual(ROLE_ADMIN) or view_as.has_actual(ROLE_GUILD_OFFICER))
+
+    member = getattr(request.user, "member", None)
+    is_instructor = member is not None and offering.instructor_id == member.pk
+
+    can_edit_offering = is_admin or is_instructor
+    can_edit_category = False
+
+    # If the class has NO specific image (real or legacy), it falls back to the category image.
+    has_no_class_image = not offering.image and not offering.legacy_image_url
+
+    if has_no_class_image and offering.category.hero_image:
+        if is_admin:
+            can_edit_category = True
+        elif member is not None and offering.category.guild_id:
+            # Guild Leads can adjust their category images.
+            can_edit_category = offering.category.guild.guild_lead_id == member.pk
+
+    offering_ct = ContentType.objects.get_for_model(ClassOffering)
+    category_ct = ContentType.objects.get_for_model(Category)
+
     return render(
         request,
         "classes/public/detail.html",
         {
             "offering": offering,
+            "offering_ct_id": offering_ct.pk,
+            "category_ct_id": category_ct.pk,
+            "can_edit_offering": can_edit_offering,
+            "can_edit_category": can_edit_category,
+            "view_as": view_as,
             "settings_obj": settings_obj,
             "site_config": SiteConfiguration.load(),
             "upcoming_sessions": upcoming_sessions,

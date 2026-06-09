@@ -1,37 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42.65 45.55">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50">
   <defs>
     <style>
       .cls-1 {
-        fill: #88ccd1;
-      }
-
-      .cls-1, .cls-2 {
+        fill: #ff69b4;
         stroke: #231f20;
         stroke-linecap: round;
         stroke-linejoin: round;
         stroke-width: 3px;
       }
-
       .cls-2 {
         fill: none;
+        stroke: #231f20;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 3px;
       }
     </style>
   </defs>
-  <g id="Layer_1-2" data-name="Layer 1">
-    <g>
-      <rect class="cls-1" x="28.31" y="1.5" width="12.84" height="18.95"/>
-      <rect class="cls-1" x="28.31" y="24.78" width="12.84" height="19.27"/>
-      <path class="cls-1" d="m1.5,22.12v21.71h22.24V1.5h-11.42,0c1.42,2.18,2.26,4.89,2.26,7.83,0,7.17-5,12.97-11.17,12.97-.65,0-1.29-.06-1.91-.19h0Z"/>
-      <line class="cls-2" x1="19.71" y1="5.88" x2="19.71" y2="8.98"/>
-      <line class="cls-2" x1="19.71" y1="13.51" x2="19.71" y2="16.61"/>
-      <line class="cls-2" x1="19.71" y1="21.14" x2="19.71" y2="24.24"/>
-      <line class="cls-2" x1="19.71" y1="28.77" x2="19.71" y2="31.87"/>
-      <line class="cls-2" x1="19.71" y1="36.4" x2="19.71" y2="39.5"/>
-      <line class="cls-2" x1="32.54" y1="5.88" x2="32.54" y2="8.98"/>
-      <line class="cls-2" x1="32.54" y1="13.51" x2="32.54" y2="16.61"/>
-      <line class="cls-2" x1="32.54" y1="28.77" x2="32.54" y2="31.87"/>
-      <line class="cls-2" x1="32.54" y1="36.4" x2="32.54" y2="39.5"/>
-    </g>
-  </g>
+  <path class="cls-1" d="M15,10 L35,10 C38,10 40,12 40,15 L40,35 C40,38 38,40 35,40 L15,40 C12,40 10,38 10,35 L10,15 C10,12 12,10 15,10 Z"/>
+  <line class="cls-2" x1="10" y1="18" x2="40" y2="18"/>
+  <line class="cls-2" x1="10" y1="25" x2="40" y2="25"/>
+  <line class="cls-2" x1="10" y1="32" x2="40" y2="32"/>
+  <path class="cls-2" d="M25,10 L25,6 M25,40 L25,44"/>
 </svg>

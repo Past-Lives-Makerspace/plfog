@@ -7,9 +7,35 @@
 <div x-data="guildCart({{ guild.pk }})">
 
 {# ── HERO ── #}
-<div class="pl-guild-hero{% if not guild.banner_image %} pl-guild-hero--noimg{% endif %}">
-    {% if guild.banner_image %}<img class="pl-guild-hero__img" src="{{ guild.banner_image.url }}" alt="{{ guild.name }}">{% endif %}
+<div class="pl-guild-hero{% if not guild.banner_image %} pl-guild-hero--noimg{% endif %}"
+     {% if guild.banner_image and can_edit_this_guild %}
+     x-data="heroPlacement({
+         updateUrl: '{% url 'hub_hero_adjust' %}',
+         contentTypeId: {{ guild_ct_id }},
+         objectId: {{ guild.pk }},
+         csrfToken: '{{ csrf_token }}',
+         initialObjectPosition: '{{ guild.hero_object_position }}',
+         initialCrop: {
+             x: {{ guild.hero_crop_x|default:0 }},
+             y: {{ guild.hero_crop_y|default:0 }},
+             w: {{ guild.hero_crop_w|default:0 }},
+             h: {{ guild.hero_crop_h|default:0 }}
+         }
+     })"
+     {% endif %}>
+    {% if guild.banner_image %}
+        <img class="pl-guild-hero__img"
+             src="{{ guild.banner_image.url }}"
+             alt="{{ guild.name }}"
+             {% if guild.banner_image and can_edit_this_guild %}
+             x-ref="heroImg"
+             :style="'object-position: ' + objectPosition"
+             {% else %}
+             style="object-position: {{ guild.hero_object_position }};"
+             {% endif %}>
+    {% endif %}
     <div class="pl-guild-hero__overlay"></div>
+
     <div class="pl-guild-hero__content">
         <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.25rem;">
             {% if guild.logo_prefix %}
@@ -18,9 +44,44 @@
             <h1 class="pl-guild-hero__title" style="margin:0;">{{ guild.name }}</h1>
         </div>
         {% if guild.guild_lead %}<div class="pl-guild-hero__lead" style="margin-top:0;">Led by {{ guild.guild_lead.display_name }}</div>{% endif %}
-        {% if can_edit_this_guild %}
-        <a href="{% url 'hub_guild_edit' guild.pk %}" class="pl-btn pl-btn--secondary" style="margin-top:0.75rem;">Edit Guild Page</a>
-        {% endif %}
+        <div style="display:flex; gap:0.5rem; margin-top:0.75rem; flex-wrap:wrap; align-items:center;">
+            {% if can_edit_this_guild %}
+            <a href="{% url 'hub_guild_edit' guild.pk %}" class="pl-btn pl-btn--secondary" title="Edit Guild Page" x-show="!isAdjusting">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                Edit
+            </a>
+            {% if guild.banner_image %}
+                <button type="button" class="pl-btn pl-btn--secondary"
+                        @click="startAdjusting()" x-show="!isAdjusting" :disabled="isLoading" title="Adjust Placement">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                    </svg>
+                    <span x-text="isLoading ? '...' : 'Adjust'"></span>
+                </button>
+
+                {# Sliders #}
+                <div x-show="isAdjusting" x-cloak style="display:flex; align-items:center; gap:1rem; background:rgba(0,0,0,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
+                    <div style="display:flex; flex-direction:column; gap:2px;">
+                        <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Vertical</label>
+                        <input type="range" min="0" max="100" x-model="posY" style="width:120px; cursor:pointer;">
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:2px;">
+                        <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Horizontal</label>
+                        <input type="range" min="0" max="100" x-model="posX" style="width:120px; cursor:pointer;">
+                    </div>
+                </div>
+
+                <button type="button" class="pl-btn pl-btn--primary"
+                        @click="save()" x-show="isAdjusting" :disabled="isLoading">
+                    <span x-text="isLoading ? '...' : 'Save'"></span>
+                </button>
+                <button type="button" class="pl-btn pl-btn--secondary"
+                        @click="cancel()" x-show="isAdjusting" :disabled="isLoading">
+                    Cancel
+                </button>
+            {% endif %}
+            {% endif %}
+        </div>
     </div>
 </div>
 

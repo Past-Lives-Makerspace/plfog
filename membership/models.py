@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
+from core.models import HeroCropMixin, SiteActivity
 from core.validators import validate_image_size
 from membership.managers import MemberEmailManager
 
@@ -525,7 +526,7 @@ class MemberEmail(models.Model):
 # ---------------------------------------------------------------------------
 
 
-class Guild(models.Model):
+class Guild(HeroCropMixin, models.Model):
     # Queryset annotation (set by GuildAdmin.get_queryset)
     sublet_count: int
 
@@ -550,6 +551,10 @@ class Guild(models.Model):
         validators=[validate_image_size],
         help_text="Banner image shown at the top of the guild page.",
     )
+
+    def get_hero_image_field_name(self) -> str:
+        return "banner_image"
+
     calendar_url = models.URLField(
         blank=True,
         default="",
@@ -964,7 +969,6 @@ class FundingSnapshot(models.Model):
             raw_votes=raw_votes,
             results=calc,
         )
-        from core.models import SiteActivity
 
         SiteActivity.log(SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN, target=snapshot)
 

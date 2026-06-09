@@ -132,6 +132,14 @@ class ViewAs:
         return self.has(ROLE_ADMIN)
 
     @property
+    def actual_is_admin(self) -> bool:
+        return self.has_actual(ROLE_ADMIN)
+
+    @property
+    def actual_is_guild_officer(self) -> bool:
+        return self.has_actual(ROLE_GUILD_OFFICER)
+
+    @property
     def is_guild_officer(self) -> bool:
         return self.has(ROLE_GUILD_OFFICER)
 

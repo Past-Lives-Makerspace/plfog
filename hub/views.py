@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from django.utils import timezone as dj_timezone
 
@@ -12,6 +12,7 @@ from allauth.account.models import EmailAddress
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -20,6 +21,8 @@ from django.views.decorators.http import require_POST, require_http_methods
 
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
+from classes.models import Category, ClassOffering
+from core.models import HeroCropMixin
 from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
@@ -299,6 +302,84 @@ def _can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
     return guild.guild_lead_id == member.pk
 
 
+def _can_edit_offering(request: HttpRequest, offering: ClassOffering) -> bool:
+    """Return True when the request's user may edit this class offering."""
+    if not request.user.is_authenticated:
+        return False
+    view_as = getattr(request, "view_as", None)
+    if view_as is None:
+        return False
+    # Admin and Officer can edit anything.
+    if view_as.is_admin or view_as.is_guild_officer:
+        return True
+    if not view_as.is_member:
+        return False
+
+    member: Member | None = getattr(request.user, "member", None)
+    if member is None:
+        return False
+
+    # Guild lead of the category's guild can edit.
+    if offering.category.guild_id and offering.category.guild and offering.category.guild.guild_lead_id == member.pk:
+        return True
+
+    # The instructor can edit their own classes.
+    return offering.instructor_id == member.pk
+
+
+@login_required
+@require_POST
+def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
+    """AJAX endpoint to update hero crop fields for Guild, Category, or ClassOffering."""
+    try:
+        data = json.loads(request.body)
+        ct_id = int(data["content_type_id"])
+        object_id = int(data["object_id"])
+        crop = data["crop"]  # {"x": int, "y": int, "w": int, "h": int}
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid request data"}, status=400)
+
+    ct = get_object_or_404(ContentType, pk=ct_id)
+    model_class = ct.model_class()
+    if model_class not in [Guild, Category, ClassOffering]:
+        return JsonResponse({"error": "Unsupported model"}, status=400)
+
+    obj = get_object_or_404(model_class, pk=object_id)
+
+    # Permission checks
+    allowed = False
+    if isinstance(obj, Guild):
+        allowed = _can_edit_guild(request, obj)
+    elif isinstance(obj, ClassOffering):
+        allowed = _can_edit_offering(request, obj)
+    elif isinstance(obj, Category):
+        # Category follows the Guild lead permission.
+        if obj.guild_id and obj.guild:
+            allowed = _can_edit_guild(request, obj.guild)
+        else:
+            # If no guild, only Admin/Officer can edit.
+            view_as = getattr(request, "view_as", None)
+            allowed = view_as is not None and (view_as.is_admin or view_as.is_guild_officer)
+
+    if not allowed:
+        return JsonResponse({"error": "Forbidden"}, status=403)
+
+    # Update crop fields
+    hero_obj = cast(HeroCropMixin, obj)
+    hero_obj.hero_crop_x = int(crop["x"])
+    hero_obj.hero_crop_y = int(crop["y"])
+    hero_obj.hero_crop_w = int(crop.get("w") or 0)
+    hero_obj.hero_crop_h = int(crop.get("h") or 0)
+    hero_obj.save(update_fields=["hero_crop_x", "hero_crop_y", "hero_crop_w", "hero_crop_h"])
+
+    return JsonResponse(
+        {
+            "status": "ok",
+            "object_position": hero_obj.hero_object_position,
+        }
+    )
+
+
 def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """Guild detail page — shows about text, active products, and cart interface."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm, build_product_split_formset
@@ -336,12 +417,15 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     roster = guild.roster_members() if guild.show_members else None
     is_member_of_guild = member is not None and guild.memberships.filter(member=member).exists()
 
+    guild_ct = ContentType.objects.get_for_model(Guild)
+
     return render(
         request,
         "hub/guild_detail.html",
         {
             **ctx,
             "guild": guild,
+            "guild_ct_id": guild_ct.pk,
             "products": products,
             "tab": tab,
             "eyop_form": eyop_form,
