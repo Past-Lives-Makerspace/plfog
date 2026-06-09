@@ -83,6 +83,9 @@ def describe_instructor_overview():
 
     def describe_quick_links():
         def it_links_to_registrations_codes_and_profile(instructor_fixture, client):
+            # Quick links live on the populated Overview (they used to be nav tabs,
+            # which Phase 2 dropped), so give the instructor a class to render them.
+            ClassOfferingFactory(instructor=instructor_fixture, slug="quicklinks")
             client.force_login(instructor_fixture.user)
             resp = client.get(reverse("classes:instructor_overview"))
             for name in [
