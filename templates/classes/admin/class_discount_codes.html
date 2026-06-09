@@ -2,7 +2,7 @@
 {% load classes_tags %}
 {% block detail_content %}
 <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem;">
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_class_discount_code_create' pk=offering.pk %}">+ New Code</a>
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_discount_code_create' %}?class={{ offering.pk }}">+ New Code</a>
 </div>
 <div class="admin-table-wrap">
 <table>

@@ -1166,6 +1166,17 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
+def _class_workspace_counts(offering: ClassOffering) -> dict[str, int]:
+    """Sub-tab badge counts shared by every per-class Workspace tab."""
+    regs = offering.registrations
+    return {
+        "active_registration_count": regs.exclude(
+            status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED]
+        ).count(),
+        "waitlist_count": regs.filter(status=Registration.Status.WAITLISTED).count(),
+    }
+
+
 @classes_admin_access_required
 def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(
@@ -1194,6 +1205,63 @@ def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "offering": offering,
             "registrations": registrations,
             "active_registration_count": active_count,
+        },
+    )
+
+
+@classes_admin_access_required
+def admin_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    registrations = (
+        offering.registrations.select_related("member")
+        .prefetch_related("custom_answers__question")
+        .order_by("-registered_at")
+    )
+    return render(
+        request,
+        "classes/admin/class_registrations.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "registrations",
+            "offering": offering,
+            "registrations": registrations,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@classes_admin_access_required
+def admin_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    waitlist_registrations = list(
+        offering.registrations.filter(status=Registration.Status.WAITLISTED).order_by("registered_at")
+    )
+    return render(
+        request,
+        "classes/admin/class_waitlist.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "waitlist",
+            "offering": offering,
+            "waitlist_registrations": waitlist_registrations,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@classes_admin_access_required
+def admin_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")
+    return render(
+        request,
+        "classes/admin/class_discount_codes.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "discount_codes",
+            "offering": offering,
+            "codes": codes,
+            **_class_workspace_counts(offering),
         },
     )
 
