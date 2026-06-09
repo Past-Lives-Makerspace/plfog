@@ -491,3 +491,51 @@ class SiteActivity(models.Model):
             activity.target = target
         activity.save()
         return activity
+
+
+class Notification(models.Model):
+    """One in-app bell entry for one user. Always created on dispatch (non-optional)."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
+    trigger = models.CharField(max_length=40, help_text="Trigger key from core.triggers.")
+    title = models.CharField(max_length=200, help_text="Bold headline shown in the bell.")
+    body = models.CharField(max_length=500, help_text="One-line detail.")
+    url = models.CharField(max_length=500, blank=True, default="", help_text="Where clicking navigates.")
+    read_at = models.DateTimeField(null=True, blank=True, help_text="Set when the user reads it.")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "read_at"]),
+            models.Index(fields=["user", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.title} → {self.user.email}"
+
+    @property
+    def is_unread(self) -> bool:
+        return self.read_at is None
+
+    def mark_read(self) -> None:
+        if self.read_at is None:
+            self.read_at = timezone.now()
+            self.save(update_fields=["read_at"])
+
+
+class NotificationPreference(models.Model):
+    """Per-user, per-trigger push/email opt-in. Absent row → trigger defaults apply."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notification_prefs")
+    trigger = models.CharField(max_length=40, help_text="Trigger key from core.triggers.")
+    push_enabled = models.BooleanField(default=False, help_text="Send browser push for this trigger.")
+    email_enabled = models.BooleanField(default=False, help_text="Send email for this trigger.")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "trigger"], name="uq_notificationpreference_user_trigger"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user.email}:{self.trigger} (push={self.push_enabled}, email={self.email_enabled})"
