@@ -356,23 +356,43 @@ def _require_can_edit_guild(request: HttpRequest, guild: Guild) -> HttpResponse 
 
 
 @login_required
-@require_POST
 def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """POST-only — update the guild's name and about text. Admin, officer, or that guild's lead only."""
+    """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead only."""
+    from hub.forms import GuildFAQItemFormSet, GuildLinkFormSet
+
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
 
-    form = GuildEditForm(request.POST, request.FILES, instance=guild)
-    if form.is_valid():
-        form.save()
-        messages.success(request, "Guild updated.")
+    if request.method == "POST":
+        form = GuildEditForm(request.POST, request.FILES, instance=guild)
+        faq_formset = GuildFAQItemFormSet(request.POST, instance=guild, prefix="faq")
+        link_formset = GuildLinkFormSet(request.POST, instance=guild, prefix="links")
+        if form.is_valid() and faq_formset.is_valid() and link_formset.is_valid():
+            form.save()
+            faq_formset.save()
+            link_formset.save()
+            guild.add_gallery_images(request.FILES.getlist("gallery_images"))
+            messages.success(request, "Guild page updated.")
+            return redirect("hub_guild_detail", pk=guild.pk)
     else:
-        for field, errors in form.errors.items():
-            for error in errors:
-                messages.error(request, f"{field}: {error}")
-    return redirect("hub_guild_detail", pk=guild.pk)
+        form = GuildEditForm(instance=guild)
+        faq_formset = GuildFAQItemFormSet(instance=guild, prefix="faq")
+        link_formset = GuildLinkFormSet(instance=guild, prefix="links")
+
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/guild_edit.html",
+        {
+            **ctx,
+            "guild": guild,
+            "form": form,
+            "faq_formset": faq_formset,
+            "link_formset": link_formset,
+        },
+    )
 
 
 def _surface_product_errors(request: HttpRequest, form: Any, formset: Any) -> None:

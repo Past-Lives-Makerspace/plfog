@@ -44,6 +44,20 @@ def _product_post_payload(guild) -> dict:
     }
 
 
+def _empty_guild_formsets() -> dict:
+    """Minimal management-form data so the guild_edit FAQ/Link formsets validate."""
+    return {
+        "faq-TOTAL_FORMS": "0",
+        "faq-INITIAL_FORMS": "0",
+        "faq-MIN_NUM_FORMS": "0",
+        "faq-MAX_NUM_FORMS": "1000",
+        "links-TOTAL_FORMS": "0",
+        "links-INITIAL_FORMS": "0",
+        "links-MIN_NUM_FORMS": "0",
+        "links-MAX_NUM_FORMS": "1000",
+    }
+
+
 @pytest.mark.django_db
 def describe_guild_product_create():
     def it_admin_can_create_a_product(client: Client):
@@ -271,7 +285,7 @@ def describe_guild_edit():
         guild = GuildFactory(name="Old", about="Old about")
         client.login(username="admin_e", password="pass")
         url = reverse("hub_guild_edit", args=[guild.pk])
-        response = client.post(url, data={"name": "New Name", "about": "New about"})
+        response = client.post(url, data={"name": "New Name", "about": "New about", **_empty_guild_formsets()})
         assert response.status_code == 302
         guild.refresh_from_db()
         assert guild.name == "New Name"
@@ -282,7 +296,7 @@ def describe_guild_edit():
         guild = GuildFactory(guild_lead=user.member, name="Old")
         client.login(username="lead_e", password="pass")
         url = reverse("hub_guild_edit", args=[guild.pk])
-        response = client.post(url, data={"name": "Lead Edit", "about": ""})
+        response = client.post(url, data={"name": "Lead Edit", "about": "", **_empty_guild_formsets()})
         assert response.status_code == 302
         guild.refresh_from_db()
         assert guild.name == "Lead Edit"
@@ -307,19 +321,18 @@ def describe_guild_edit():
         assert guild.name == "Keep"
 
     def it_surfaces_form_errors_when_invalid(client: Client):
-        # name is required → posting an empty name surfaces a form error message.
+        # name is required → posting an empty name re-renders the page with an inline field error.
         _user_with_role("admin_einv", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory(name="Keep")
         client.login(username="admin_einv", password="pass")
         url = reverse("hub_guild_edit", args=[guild.pk])
-        response = client.post(url, data={"name": "", "about": "new about"}, follow=True)
+        response = client.post(url, data={"name": "", "about": "new about", **_empty_guild_formsets()})
         assert response.status_code == 200
         # Guild was not changed
         guild.refresh_from_db()
         assert guild.name == "Keep"
-        # An error message was flashed
-        msgs = [str(m) for m in response.context["messages"]]
-        assert any("name" in m.lower() for m in msgs)
+        # The form re-renders with an inline error on the name field
+        assert "name" in response.context["form"].errors
 
 
 @pytest.mark.django_db
@@ -493,3 +506,54 @@ def describe_GuildEditForm():
             }
         )
         assert form.is_valid(), form.errors
+
+
+@pytest.mark.django_db
+def describe_guild_edit_page():
+    def it_renders_the_edit_form_for_an_editor(client: Client):
+        _user_with_role("admin_pg", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="admin_pg", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        assert b"Meeting schedule" in response.content
+
+    def it_forbids_non_editors(client: Client):
+        _user_with_role("plain_pg", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory()
+        client.login(username="plain_pg", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 403
+
+    def it_saves_basic_fields_and_faq_on_post(client: Client):
+        from membership.models import GuildFAQItem
+
+        _user_with_role("admin_save", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Old")
+        client.login(username="admin_save", password="pass")
+        response = client.post(
+            reverse("hub_guild_edit", args=[guild.pk]),
+            {
+                "name": "New Name",
+                "about": "About",
+                "calendar_color": "#4B9FEE",
+                "youtube_url": "",
+                "meeting_schedule": "Tuesdays",
+                "contact_email": "",
+                "faq-TOTAL_FORMS": "1",
+                "faq-INITIAL_FORMS": "0",
+                "faq-MIN_NUM_FORMS": "0",
+                "faq-MAX_NUM_FORMS": "1000",
+                "faq-0-question": "Why?",
+                "faq-0-answer": "Because",
+                "faq-0-sort_order": "0",
+                "links-TOTAL_FORMS": "0",
+                "links-INITIAL_FORMS": "0",
+                "links-MIN_NUM_FORMS": "0",
+                "links-MAX_NUM_FORMS": "1000",
+            },
+        )
+        assert response.status_code == 302
+        guild.refresh_from_db()
+        assert guild.name == "New Name"
+        assert GuildFAQItem.objects.filter(guild=guild, question="Why?").exists()
