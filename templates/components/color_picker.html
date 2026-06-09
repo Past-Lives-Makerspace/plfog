@@ -1,0 +1,23 @@
+{% comment %}
+Modern color picker component with a swatch and hex code input.
+Syncs the hidden color input with a visible text field.
+
+Parameters:
+  field — required, the Django color form field
+{% endcomment %}
+<div class="pl-color-picker" x-data="{ color: '{{ field.value|default:"#EEB44B" }}' }">
+    <div class="pl-color-picker__swatch-wrapper" :style="`background-color: ${color}`">
+        <input type="color" 
+               class="pl-color-picker__input" 
+               x-model="color"
+               @input="$refs.hexInput.value = color">
+    </div>
+    <input type="text" 
+           x-ref="hexInput"
+           class="pl-color-picker__hex" 
+           :value="color"
+           @input="if (/^#[0-9A-F]{6}$/i.test($event.target.value)) color = $event.target.value"
+           placeholder="#000000">
+    {# The actual form field, kept in sync with Alpine #}
+    <input type="hidden" name="{{ field.html_name }}" :value="color">
+</div>

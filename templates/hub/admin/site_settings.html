@@ -31,15 +31,6 @@
     background: #092E4C;
     color: #F4EFDD;
   }
-  .site-settings-form input[type="color"] {
-    width: 64px;
-    height: 40px;
-    padding: 2px;
-    border: 1px solid var(--hub-border);
-    border-radius: 6px;
-    background: rgba(255,255,255,0.04);
-    cursor: pointer;
-  }
   .site-settings-form input[type="checkbox"] {
     width: 18px;
     height: 18px;
@@ -164,7 +155,7 @@
             </div>
             <div>
               <label for="{{ feed_form.color.id_for_label }}">Color</label>
-              {{ feed_form.color }}
+              {% include "components/color_picker.html" with field=feed_form.color %}
             </div>
             <div style="display:flex;flex-direction:column;gap:0.25rem;">
               <label>&nbsp;</label>
@@ -207,7 +198,7 @@
             </div>
             <div>
               <label>Color</label>
-              {{ ef.color }}
+              {% include "components/color_picker.html" with field=ef.color %}
             </div>
             <div style="display:flex;flex-direction:column;gap:0.25rem;">
               <label>&nbsp;</label>
@@ -250,7 +241,7 @@
         {% if sync_classes_field.help_text %}<small style="color:var(--hub-text-muted);">{{ sync_classes_field.help_text }}</small>{% endif %}
         <div class="field-row" style="margin-top:0.75rem;">
           <label for="{{ classes_color_field.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ classes_color_field.label }}</label>
-          {{ classes_color_field }}
+          {% include "components/color_picker.html" with field=classes_color_field %}
           {% if classes_color_field.help_text %}<small style="color:var(--hub-text-muted);">{{ classes_color_field.help_text }}</small>{% endif %}
         </div>
       </div>

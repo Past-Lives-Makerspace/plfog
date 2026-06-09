@@ -8,6 +8,21 @@ Parameters (pass via {% include ... with %}):
 {% endcomment %}
 {% if field.field.widget.input_type == "checkbox" %}
     {% include "components/toggle.html" with field=field toggle_label=field_label|default:field.label toggle_description=field_hint|default:field.help_text %}
+{% elif field.field.widget.input_type == "color" or field.field.widget.attrs.type == "color" or "pl-color-input" in field.field.widget.attrs.class %}
+    <div class="pl-form-group">
+        <label for="{{ field.id_for_label }}" class="pl-form-label">
+            {{ field_label|default:field.label }}
+        </label>
+        {% include "components/color_picker.html" with field=field %}
+        {% if field.errors %}
+        <ul class="pl-field-errors">
+            {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        {% if field_hint or field.help_text %}
+        <p class="pl-field-hint">{{ field_hint|default:field.help_text }}</p>
+        {% endif %}
+    </div>
 {% else %}
 <div class="pl-form-group">
     <label for="{{ field.id_for_label }}" class="pl-form-label">
