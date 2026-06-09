@@ -1692,6 +1692,12 @@ def admin_registration_question_delete(request: HttpRequest, pk: int) -> HttpRes
     return redirect("classes:admin_registration_questions")
 
 
+@classes_admin_access_required
+def admin_settings_hub(request: HttpRequest) -> HttpResponse:
+    """Landing page that groups the rarely-touched config areas."""
+    return render(request, "classes/admin/settings_hub.html", {"active_tab": "settings"})
+
+
 @admin_required
 def admin_settings(request: HttpRequest) -> HttpResponse:
     settings_obj = ClassSettings.load()

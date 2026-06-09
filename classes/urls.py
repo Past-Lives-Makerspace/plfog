@@ -87,7 +87,8 @@ urlpatterns = [
         views.admin_registration_question_delete,
         name="admin_registration_question_delete",
     ),
-    path("admin/settings/", views.admin_settings, name="admin_settings"),
+    path("admin/settings/", views.admin_settings_hub, name="admin_settings_hub"),
+    path("admin/settings/waivers/", views.admin_settings, name="admin_settings"),
     # Legacy CMS image proxy — must come before the bare slug catch-all below.
     path("_legacy-image/", views_legacy_image.legacy_image, name="legacy_image"),
     # Public registration — must come before the bare slug catch-all below.
