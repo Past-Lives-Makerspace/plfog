@@ -803,7 +803,7 @@ def guild_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
         return JsonResponse({"error": "No file provided."}, status=400)
 
     # Check size (3MB limit matches ClassImage)
-    if file.size > 3 * 1024 * 1024:
+    if file.size is None or file.size > 3 * 1024 * 1024:
         return JsonResponse({"error": "Image must be under 3 MB."}, status=400)
 
     next_order = (guild.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
