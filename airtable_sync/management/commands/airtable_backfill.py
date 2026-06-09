@@ -9,7 +9,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
@@ -66,7 +66,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.MIGRATE_HEADING("Members"))
         table = get_table(MEMBERS_TABLE_ID)
-        at_records = table.all()
+        at_records = cast("list[dict]", table.all())
         self.stdout.write(f"  Found {len(at_records)} Airtable records")
 
         at_by_email = _build_email_lookup(at_records)
@@ -84,7 +84,7 @@ class Command(BaseCommand):
     def _match_members(
         self, model: type, at_by_email: dict[str, dict], dry_run: object, results: dict[str, int]
     ) -> None:
-        for member in model.objects.select_related("membership_plan").all():
+        for member in model.objects.select_related("membership_plan").all():  # type: ignore[attr-defined]  # dynamic model arg
             if member.airtable_record_id:
                 results["skipped"] += 1
                 continue
@@ -92,14 +92,14 @@ class Command(BaseCommand):
             if email and email in at_by_email:
                 rec = at_by_email[email]
                 if not dry_run:
-                    model.objects.filter(pk=member.pk).update(airtable_record_id=rec["id"])
+                    model.objects.filter(pk=member.pk).update(airtable_record_id=rec["id"])  # type: ignore[attr-defined]  # dynamic model arg
                 results["matched"] += 1
                 self.stdout.write(f"  Matched: {member.display_name} -> {rec['id']}")
             else:
                 results["skipped"] += 1
 
     def _push_members(self, model: type, table: Any, dry_run: object, results: dict[str, int]) -> None:
-        for member in model.objects.select_related("membership_plan").all():
+        for member in model.objects.select_related("membership_plan").all():  # type: ignore[attr-defined]  # dynamic model arg
             fields = member_to_airtable(member)
             if member.airtable_record_id:
                 if not dry_run:
@@ -108,7 +108,7 @@ class Command(BaseCommand):
             else:
                 if not dry_run:
                     rec = table.create(fields)
-                    model.objects.filter(pk=member.pk).update(airtable_record_id=rec["id"])
+                    model.objects.filter(pk=member.pk).update(airtable_record_id=rec["id"])  # type: ignore[attr-defined]  # dynamic model arg
                 results["created"] += 1
 
     def _pull_members(self, at_records: list[dict], table: Any, dry_run: object, results: dict[str, int]) -> None:
@@ -153,7 +153,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.MIGRATE_HEADING("Spaces"))
         table = get_table(SPACES_TABLE_ID)
-        at_records = table.all()
+        at_records = cast("list[dict]", table.all())
         self.stdout.write(f"  Found {len(at_records)} Airtable records")
 
         results = {"matched": 0, "created": 0, "updated": 0, "skipped": 0}
@@ -174,21 +174,21 @@ class Command(BaseCommand):
             if code:
                 at_by_code[code] = rec
 
-        for space in model.objects.all():
+        for space in model.objects.all():  # type: ignore[attr-defined]  # dynamic model arg
             if space.airtable_record_id:
                 results["skipped"] += 1
                 continue
             if space.space_id in at_by_code:
                 rec = at_by_code[space.space_id]
                 if not dry_run:
-                    model.objects.filter(pk=space.pk).update(airtable_record_id=rec["id"])
+                    model.objects.filter(pk=space.pk).update(airtable_record_id=rec["id"])  # type: ignore[attr-defined]  # dynamic model arg
                 results["matched"] += 1
                 self.stdout.write(f"  Matched: {space.space_id} -> {rec['id']}")
             else:
                 results["skipped"] += 1
 
     def _push_spaces(self, model: type, table: Any, dry_run: object, results: dict[str, int]) -> None:
-        for space in model.objects.all():
+        for space in model.objects.all():  # type: ignore[attr-defined]  # dynamic model arg
             fields = space_to_airtable(space)
             if space.airtable_record_id:
                 if not dry_run:
@@ -197,7 +197,7 @@ class Command(BaseCommand):
             else:
                 if not dry_run:
                     rec = table.create(fields)
-                    model.objects.filter(pk=space.pk).update(airtable_record_id=rec["id"])
+                    model.objects.filter(pk=space.pk).update(airtable_record_id=rec["id"])  # type: ignore[attr-defined]  # dynamic model arg
                 results["created"] += 1
 
     def _pull_spaces(self, model: type, at_records: list[dict], dry_run: object, results: dict[str, int]) -> None:
@@ -205,14 +205,14 @@ class Command(BaseCommand):
             record_id = rec["id"]
             django_kwargs = space_from_airtable(rec["fields"])
 
-            existing = model.objects.filter(airtable_record_id=record_id).first()
+            existing = model.objects.filter(airtable_record_id=record_id).first()  # type: ignore[attr-defined]  # dynamic model arg
             if existing:
                 _update_instance(existing, django_kwargs, dry_run)
                 results["updated"] += 1
                 continue
 
             space_id = django_kwargs.get("space_id", "")
-            existing_by_code = model.objects.filter(space_id=space_id).first() if space_id else None
+            existing_by_code = model.objects.filter(space_id=space_id).first() if space_id else None  # type: ignore[attr-defined]  # dynamic model arg
             if existing_by_code:
                 if not dry_run:
                     _update_instance(existing_by_code, django_kwargs, dry_run=False)
@@ -233,7 +233,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.MIGRATE_HEADING("Leases"))
         table = get_table(LEASES_TABLE_ID)
-        at_records = table.all()
+        at_records = cast("list[dict]", table.all())
         self.stdout.write(f"  Found {len(at_records)} Airtable records")
 
         results = {"matched": 0, "skipped": 0}

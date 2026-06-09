@@ -83,14 +83,14 @@ class Command(BaseCommand):
         dry_run: object,
         results: dict[str, int],
     ) -> None:
-        existing = model.objects.filter(airtable_record_id=record_id).first()
+        existing = model.objects.filter(airtable_record_id=record_id).first()  # type: ignore[attr-defined]  # dynamic model arg
         if existing:
             self._update_instance(existing, django_kwargs, dry_run, label=f"Member {existing.display_name}")
             results["updated"] += 1
             return
 
         email = django_kwargs.get("_pre_signup_email", "").strip().lower()
-        existing_by_email = model.objects.filter(_pre_signup_email__iexact=email).first() if email else None
+        existing_by_email = model.objects.filter(_pre_signup_email__iexact=email).first() if email else None  # type: ignore[attr-defined]  # dynamic model arg
         if existing_by_email:
             if not dry_run:
                 self._update_instance(
@@ -117,7 +117,7 @@ class Command(BaseCommand):
         results["created"] += 1
 
     def _report_orphaned_members(self, model: type, at_record_ids: set[str]) -> None:
-        orphaned = model.objects.filter(
+        orphaned = model.objects.filter(  # type: ignore[attr-defined]  # dynamic model arg
             airtable_record_id__isnull=False,
         ).exclude(airtable_record_id__in=at_record_ids)
         orphan_count = orphaned.count()
@@ -157,14 +157,14 @@ class Command(BaseCommand):
         dry_run: object,
         results: dict[str, int],
     ) -> None:
-        existing = model.objects.filter(airtable_record_id=record_id).first()
+        existing = model.objects.filter(airtable_record_id=record_id).first()  # type: ignore[attr-defined]  # dynamic model arg
         if existing:
             self._update_instance(existing, django_kwargs, dry_run, label=f"Space {existing.space_id}")
             results["updated"] += 1
             return
 
         space_id = django_kwargs.get("space_id", "")
-        existing_by_code = model.objects.filter(space_id=space_id).first() if space_id else None
+        existing_by_code = model.objects.filter(space_id=space_id).first() if space_id else None  # type: ignore[attr-defined]  # dynamic model arg
         if existing_by_code:
             if not dry_run:
                 self._update_instance(
