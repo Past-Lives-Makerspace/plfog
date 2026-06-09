@@ -456,8 +456,8 @@
             }
         });
     </script>
-    {# HTMX auto-fires HX-Trigger JSON keys as events (and a kebab-case alias — see htmx Dt()) #}
-    {# — so the `showToast` key in trigger_toast dispatches `show-toast` directly. No manual parse. #}
+    {# HTMX fires HX-Trigger JSON keys as events plus a kebab alias, so trigger_toast's #}
+    {# `showToast` key reaches the toast script (components/toast.html) as `show-toast`. #}
     <script>
         function viewAsDropdown() {
             return {

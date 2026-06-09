@@ -1,99 +1,153 @@
 {% comment %}
-Toast notifications. Include once per base template (already in hub/base.html and admin/base.html).
+Toast notifications — fully self-contained (inline CSS + JS, no framework, no external assets).
 
-Dependency-free: plain JS, no Alpine. The script below owns the whole lifecycle, so toasts
-work regardless of Alpine init order, hx-boost re-inits, or framework state.
+Deliberately self-contained so it cannot be broken by a stale service-worker asset cache or
+a missing collectstatic: the markup, styles, and logic all ship inside the HTML document,
+which is never cached. Class names are prefixed `plt-` so nothing else can collide with them.
+
+Include once per base template (hub/base.html, admin/base.html).
 
 Triggered by:
-  1. Server-side (full page / redirect): Django `messages` rendered into a hidden
-     `.hub-messages` list with data-toast-* attributes. Drained on load and after every
-     htmx settle.
-  2. Server-side (HTMX): HX-Trigger header `showToast` (via hub.toast.trigger_toast).
-     HTMX fires the kebab alias `show-toast`, which the window listener below catches.
-  3. Client-side: window.showToast('msg', 'success') OR
-     window.dispatchEvent(new CustomEvent('show-toast', {detail: {message, type}})).
-
-Types: success (green), error (red), info (blue). Optional position: 'center'.
+  1. Django messages: rendered into hidden elements carrying data-toast-message / data-toast-type.
+     Drained on load and after every htmx settle. This is the path for save -> redirect flows.
+  2. HTMX HX-Trigger `showToast` (via hub.toast.trigger_toast): htmx fires the kebab alias
+     `show-toast`, caught by the window listener below.
+  3. Client JS: window.showToast('msg', 'success'[, 'center'])  OR
+     window.dispatchEvent(new CustomEvent('show-toast', {detail: {message, type, position}})).
 {% endcomment %}
+<style>
+#plt-root { position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; }
+.plt-container {
+    position: fixed; top: 1rem; right: 1rem;
+    display: flex; flex-direction: column; gap: .5rem;
+    width: min(92vw, 380px); pointer-events: none;
+}
+.plt-container--center {
+    top: auto; bottom: 2rem; right: auto; left: 50%;
+    transform: translateX(-50%); align-items: center; width: auto; max-width: 92vw;
+}
+.plt-toast {
+    pointer-events: auto;
+    display: flex; align-items: flex-start; gap: .625rem;
+    padding: .75rem .9rem; border-radius: 10px;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: .875rem; font-weight: 500; line-height: 1.35;
+    color: #f4efdd; background: #1b1f2a;
+    border: 1px solid rgba(255,255,255,.08);
+    border-left: 3px solid var(--plt-accent, #60a5fa);
+    box-shadow: 0 10px 30px rgba(0,0,0,.4);
+    transform: translateX(120%); opacity: 0;
+    transition: transform .3s cubic-bezier(.22,1,.36,1), opacity .3s ease;
+}
+.plt-toast.plt-in  { transform: translateX(0);    opacity: 1; }
+.plt-toast.plt-out { transform: translateX(120%); opacity: 0; }
+.plt-container--center .plt-toast      { transform: translateY(16px); }
+.plt-container--center .plt-toast.plt-in  { transform: translateY(0); }
+.plt-container--center .plt-toast.plt-out { transform: translateY(16px); opacity: 0; }
+.plt-toast--success { --plt-accent: #34d399; }
+.plt-toast--error   { --plt-accent: #f87171; }
+.plt-toast--info    { --plt-accent: #60a5fa; }
+.plt-icon { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 1px; color: var(--plt-accent); }
+.plt-msg  { flex: 1 1 auto; padding-top: 1px; }
+.plt-close {
+    flex: 0 0 auto; margin: -2px -2px 0 .25rem; padding: 0 .15rem;
+    background: none; border: 0; color: rgba(244,239,221,.55);
+    font-size: 1.15rem; line-height: 1; cursor: pointer;
+}
+.plt-close:hover { color: #f4efdd; }
+[data-theme="light"] .plt-toast {
+    color: #1d1e1e; background: #ffffff;
+    border-color: rgba(0,0,0,.08); box-shadow: 0 10px 30px rgba(0,0,0,.15);
+}
+[data-theme="light"] .plt-close { color: rgba(29,30,30,.45); }
+[data-theme="light"] .plt-close:hover { color: #1d1e1e; }
+@media (prefers-reduced-motion: reduce) {
+    .plt-toast, .plt-container--center .plt-toast { transition: opacity .2s ease; transform: none; }
+    .plt-toast.plt-out, .plt-container--center .plt-toast.plt-out { transform: none; }
+}
+</style>
 <script>
 (function () {
-    // Guard: hx-boost re-inserts and re-runs this <script> on every boosted navigation.
-    // The listeners below live on window / document.body, which survive body innerHTML
-    // swaps, so we only ever wire them up once.
-    if (window.__plToastReady) { return; }
-    window.__plToastReady = true;
+    // hx-boost re-inserts and re-runs this script on every boosted navigation. The listeners
+    // live on window / document.body (which survive body innerHTML swaps), so wire up once.
+    if (window.__pltReady) { return; }
+    window.__pltReady = true;
 
-    function ensureContainer(center) {
-        var id = center ? 'pl-toast-container--center' : 'pl-toast-container';
+    var ICONS = {
+        success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+        error:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+        info:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>'
+    };
+
+    function container(center) {
+        var id = center ? 'plt-container--center' : 'plt-container';
         var el = document.getElementById(id);
         if (!el) {
             el = document.createElement('div');
             el.id = id;
-            el.className = 'pl-toast-container' + (center ? ' pl-toast-container--center' : '');
+            el.className = 'plt-container' + (center ? ' plt-container--center' : '');
             el.setAttribute('aria-live', 'polite');
             document.body.appendChild(el);
         }
         return el;
     }
 
-    function showToast(message, type, position) {
+    function toast(message, type, position) {
         if (!message) { return; }
-        var container = ensureContainer(position === 'center');
+        type = (type === 'error' || type === 'info' || type === 'success') ? type : 'success';
 
-        var toast = document.createElement('div');
-        toast.className = 'pl-toast pl-toast--' + (type || 'success') + ' toast-enter';
+        var node = document.createElement('div');
+        node.className = 'plt-toast plt-toast--' + type;
+        node.setAttribute('role', 'status');
+        node.innerHTML =
+            '<span class="plt-icon">' + (ICONS[type] || '') + '</span>' +
+            '<span class="plt-msg"></span>' +
+            '<button class="plt-close" type="button" aria-label="Dismiss">&times;</button>';
+        node.querySelector('.plt-msg').textContent = message;
 
-        var span = document.createElement('span');
-        span.textContent = message;
-        toast.appendChild(span);
-
-        var close = document.createElement('button');
-        close.className = 'pl-toast__close';
-        close.setAttribute('aria-label', 'Dismiss');
-        close.innerHTML = '&times;';
-        toast.appendChild(close);
-
+        var gone = false;
         function dismiss() {
-            if (toast.__gone) { return; }
-            toast.__gone = true;
-            toast.classList.add('toast-leave');
-            toast.style.opacity = '0';
-            setTimeout(function () {
-                if (toast.parentNode) { toast.parentNode.removeChild(toast); }
-            }, 250);
+            if (gone) { return; }
+            gone = true;
+            node.classList.remove('plt-in');
+            node.classList.add('plt-out');
+            setTimeout(function () { if (node.parentNode) { node.parentNode.removeChild(node); } }, 320);
         }
-        close.addEventListener('click', dismiss);
+        node.querySelector('.plt-close').addEventListener('click', dismiss);
 
-        container.appendChild(toast);
-        setTimeout(dismiss, 4000);
+        container(position === 'center').appendChild(node);
+        // Double rAF so the browser paints the off-screen start state before transitioning in.
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () { node.classList.add('plt-in'); });
+        });
+        setTimeout(dismiss, 4500);
     }
 
-    // Global helper for plain-JS callers (e.g. static/js/hero_placement.js).
-    window.showToast = showToast;
+    // Public API. `showToast` kept for existing callers (e.g. static/js/hero_placement.js).
+    window.showToast = toast;
+    window.plToast = toast;
 
-    // Client dispatches and the htmx kebab alias both arrive as a `show-toast` event.
+    // Client dispatches and the htmx HX-Trigger kebab alias both arrive as `show-toast`.
     window.addEventListener('show-toast', function (e) {
         var d = e.detail || {};
-        showToast(d.message, d.type, d.position);
+        toast(d.message, d.type, d.position);
     });
 
-    // Turn server-rendered Django messages into toasts. Scans the whole document and
-    // clears each one as it fires, so repeated calls (e.g. after every htmx swap) are safe.
-    function drainMessages() {
-        var nodes = document.querySelectorAll('.hub-messages [data-toast-message]');
+    // Convert server-rendered Django messages into toasts. Scans the document and clears each
+    // as it fires, so repeated calls (every htmx settle) never duplicate.
+    function drain() {
+        var nodes = document.querySelectorAll('[data-toast-message]');
         for (var i = 0; i < nodes.length; i++) {
             var el = nodes[i];
-            showToast(el.getAttribute('data-toast-message'), el.getAttribute('data-toast-type') || 'success');
+            toast(el.getAttribute('data-toast-message'), el.getAttribute('data-toast-type') || 'success');
             el.removeAttribute('data-toast-message');
         }
     }
-
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', drainMessages);
+        document.addEventListener('DOMContentLoaded', drain);
     } else {
-        drainMessages();
+        drain();
     }
-    // hx-boost navigations and partial swaps land new messages; drain after each settle.
-    document.body.addEventListener('htmx:afterSettle', drainMessages);
+    document.body.addEventListener('htmx:afterSettle', drain);
 })();
 </script>

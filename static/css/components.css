@@ -82,85 +82,7 @@
     transition: opacity 0.15s ease;
 }
 
-/* ========================================
-   Toast
-   ======================================== */
-.pl-toast-container {
-    position: fixed;
-    top: 1rem;
-    right: 1rem;
-    z-index: 600;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    pointer-events: none;
-}
-
-.pl-toast {
-    pointer-events: auto;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: #F4EFDD;
-    background: var(--hub-card-bg, #0f2d44);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    min-width: 250px;
-    max-width: 400px;
-}
-
-.pl-toast--success {
-    border-left: 3px solid #4ade80;
-}
-
-.pl-toast--error {
-    border-left: 3px solid #f87171;
-}
-
-.pl-toast--info {
-    border-left: 3px solid #60a5fa;
-}
-
-.pl-toast__close {
-    background: none;
-    border: none;
-    color: var(--hub-text-muted, #96ACBB);
-    font-size: 1.125rem;
-    cursor: pointer;
-    padding: 0;
-    margin-left: auto;
-    line-height: 1;
-}
-
-.pl-toast__close:hover {
-    color: var(--hub-text, #F4EFDD);
-}
-
-.pl-toast-container--center {
-    top: 4rem;
-    right: auto;
-    left: 50%;
-    transform: translateX(-50%);
-    align-items: center;
-}
-
-.pl-toast-container--center .pl-toast {
-    text-align: center;
-    justify-content: center;
-}
-
-/* Toast transitions */
-.toast-enter {
-    transition: all 0.3s ease;
-}
-
-.toast-leave {
-    transition: all 0.2s ease;
-}
+/* Toast styles live inline in templates/components/toast.html (self-contained, `plt-` prefix). */
 
 /* ========================================
    Toggle
@@ -671,17 +593,6 @@
 
 [data-theme="light"] .pl-modal__close:hover {
     color: #1f2937;
-}
-
-[data-theme="light"] .pl-toast {
-    background: #fff;
-    border-color: #e5e7eb;
-    color: #1f2937;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-}
-
-[data-theme="light"] .pl-toast__close {
-    color: #6b7280;
 }
 
 [data-theme="light"] .pl-toggle__slider {
