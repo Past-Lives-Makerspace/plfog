@@ -213,9 +213,13 @@
                     <div class="hub-sidebar__collapsible-inner">
                         {% for guild in guilds %}
                         <a href="{% url 'hub_guild_detail' guild.pk %}" class="hub-sidebar__link {% active_nav 'hub_guild_detail' guild.pk %}">
+                            {% if guild.logo_prefix %}
+                            <img src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_color.svg' %}" width="16" height="16" alt="" style="flex-shrink:0;">
+                            {% else %}
                             <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
                                 <circle cx="7" cy="7" r="5"/>
                             </svg>
+                            {% endif %}
                             {{ guild.name }}
                         </a>
                         {% endfor %}

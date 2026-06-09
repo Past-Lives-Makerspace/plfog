@@ -186,10 +186,15 @@
       {# Guild card — renders only when the category is linked to a guild #}
       {% if offering.category.guild %}
         <section class="cp-detail__section">
-          <h2 class="cp-detail__h2">Supported by the {{ offering.category.guild.name }} Guild</h2>
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
+            {% if offering.category.guild.logo_prefix %}
+            <img src="{% static 'img/guild_logos/'|add:offering.category.guild.logo_prefix|add:'_color.svg' %}" width="32" height="32" alt="">
+            {% endif %}
+            <h2 class="cp-detail__h2" style="margin-bottom:0;">Supported by the {{ offering.category.guild.name }}</h2>
+          </div>
           <div class="cp-detail__guild">
-            <p class="cp-detail__prose">{% if offering.category.guild.description %}{{ offering.category.guild.description }}{% else %}This class is offered in partnership with the {{ offering.category.guild.name }} Guild at Past Lives Makerspace.{% endif %}</p>
-            <a class="cp-detail__guild-link" href="https://pastlives.space/guilds" hx-boost="false">About our guilds &rarr;</a>
+            <p class="cp-detail__prose">{% if offering.category.guild.about %}{{ offering.category.guild.about }}{% else %}This class is offered in partnership with the {{ offering.category.guild.name }} at Past Lives Makerspace.{% endif %}</p>
+            <a class="cp-detail__guild-link" href="{% url 'hub_guild_detail' offering.category.guild.pk %}" hx-boost="false">About our guilds &rarr;</a>
           </div>
         </section>
       {% endif %}

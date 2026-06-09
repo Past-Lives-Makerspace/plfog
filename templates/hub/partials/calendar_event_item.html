@@ -1,4 +1,4 @@
-{% load hub_tags %}
+{% load hub_tags static %}
 {% with src=event.source_key %}
 <div class="pl-calendar-list__item{% if event.is_in_progress %} pl-calendar-list__item--live{% endif %}"
      data-event-pk="{{ event.pk }}"
@@ -37,7 +37,12 @@
             {% if event.url %}<a href="{{ event.url }}" class="pl-calendar-list__register" target="_blank" rel="noopener noreferrer">Register →</a>{% endif %}
         </div>
         {% elif event.guild %}
-        <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }};">{{ event.guild.name }}</div>
+        <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }}; display:flex; align-items:center; gap:0.35rem;">
+            {% if event.guild.logo_prefix %}
+            <img src="{% static 'img/guild_logos/'|add:event.guild.logo_prefix|add:'_color.svg' %}" width="14" height="14" alt="">
+            {% endif %}
+            {{ event.guild.name }}
+        </div>
         {% elif event.feed %}
         <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }};">{{ event.feed.name }}</div>
         {% else %}

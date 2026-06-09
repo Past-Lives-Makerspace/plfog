@@ -11,8 +11,13 @@
     {% if guild.banner_image %}<img class="pl-guild-hero__img" src="{{ guild.banner_image.url }}" alt="{{ guild.name }}">{% endif %}
     <div class="pl-guild-hero__overlay"></div>
     <div class="pl-guild-hero__content">
-        <h1 class="pl-guild-hero__title">{{ guild.name }}</h1>
-        {% if guild.guild_lead %}<div class="pl-guild-hero__lead">Led by {{ guild.guild_lead.display_name }}</div>{% endif %}
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.25rem;">
+            {% if guild.logo_prefix %}
+            <img src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_bw.svg' %}" width="40" height="40" alt="" style="flex-shrink:0;">
+            {% endif %}
+            <h1 class="pl-guild-hero__title" style="margin:0;">{{ guild.name }}</h1>
+        </div>
+        {% if guild.guild_lead %}<div class="pl-guild-hero__lead" style="margin-top:0;">Led by {{ guild.guild_lead.display_name }}</div>{% endif %}
         {% if can_edit_this_guild %}
         <a href="{% url 'hub_guild_edit' guild.pk %}" class="pl-btn pl-btn--secondary" style="margin-top:0.75rem;">Edit Guild Page</a>
         {% endif %}
