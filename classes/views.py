@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -20,6 +20,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractUser
+
     from membership.models import Member
 
 from classes.emails import (
@@ -204,8 +206,9 @@ def public_list(request: HttpRequest) -> HttpResponse:
 def public_category(request: HttpRequest, slug: str) -> HttpResponse:
     """Public category landing — same layout as list, pre-filtered."""
     category = get_object_or_404(Category, slug=slug)
-    request.GET = request.GET.copy()
-    request.GET["category"] = category.slug
+    mutable_get = request.GET.copy()
+    mutable_get["category"] = category.slug
+    request.GET = mutable_get  # type: ignore[assignment]  # .copy() returns a mutable QueryDict; stub types the attr immutable
     return public_list(request)
 
 
@@ -247,7 +250,7 @@ def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
     instructor = get_object_or_404(MemberModel, instructor_slug=slug, status=MemberModel.Status.ACTIVE)
     now = timezone.now()
     current_classes = (
-        ClassOffering.objects.public()
+        ClassOffering.objects.public()  # type: ignore[misc]  # django-stubs can't see annotate() aliases
         .filter(instructor=instructor)
         .prefetch_related("sessions")
         .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
@@ -298,6 +301,7 @@ def _registration_initial_for_user(user: "AbstractBaseUser | AnonymousUser | Non
     """Pre-fill values pulled from the logged-in user's Member record."""
     if not user or not user.is_authenticated:
         return {}
+    user = cast("AbstractUser", user)
     member = getattr(user, "member", None)
     if member is None:
         return {"email": user.email or ""}
@@ -528,7 +532,7 @@ def _log_discount_redeemed(registration: Registration) -> None:
         CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
         class_offering=registration.class_offering,
         registration=registration,
-        payload={"code": registration.discount_code.code},
+        payload={"code": registration.discount_code.code},  # type: ignore[union-attr]  # discount_code_id guard ensures non-None
     )
 
 
@@ -561,6 +565,7 @@ def instructor_required(view_func: _ViewFunc) -> _ViewFunc:
     def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         from membership.models import Member as MemberModel
 
+        assert request.user.is_authenticated  # @login_required guarantees a real User
         member = MemberModel.objects.filter(user=request.user, status=MemberModel.Status.ACTIVE).first()
         if member is None:
             return HttpResponseForbidden("An active member account is required to access the teaching portal.")
@@ -601,7 +606,7 @@ def instructor_overview(request: HttpRequest) -> HttpResponse:
     drafts = my_classes.filter(status=ClassOffering.Status.DRAFT).select_related("category").order_by("-updated_at")
     pending = my_classes.filter(status=ClassOffering.Status.PENDING).select_related("category").order_by("created_at")
     waitlist_classes = (
-        my_classes.annotate(
+        my_classes.annotate(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
             waiting=Count(
                 "registrations",
                 filter=Q(registrations__status=Registration.Status.WAITLISTED),
@@ -747,7 +752,7 @@ def instructor_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     )
     formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
     if request.method == "POST" and form.is_valid() and formset.is_valid():
-        offering = form.save()
+        offering = form.save()  # type: ignore[assignment]  # django-stubs infers an annotated row type for offering
         formset.save()
         submit_now = request.POST.get("action") == "submit"
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
@@ -824,7 +829,7 @@ def instructor_registrations_email(request: HttpRequest) -> HttpResponse:
     form = InstructorEmailForm(request.POST, instructor=instructor)
     if not form.is_valid():
         first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
-        messages.error(request, first_error)
+        messages.error(request, str(first_error))
         return redirect("classes:instructor_registrations")
     message = form.send()
     messages.success(
@@ -858,6 +863,7 @@ def instructor_discount_codes(request: HttpRequest) -> HttpResponse:
 @instructor_required
 def instructor_discount_code_create(request: HttpRequest) -> HttpResponse:
     instructor: Member = request.instructor  # type: ignore[attr-defined]
+    assert request.user.is_authenticated  # @instructor_required guarantees a real User
     scoped_to: ClassOffering | None = None
     raw_class = request.GET.get("class") or request.POST.get("class")
     if raw_class:
@@ -955,6 +961,7 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
 
     view_as = getattr(request, "view_as", None)
     is_admin = view_as is not None and view_as.has_actual("admin")
+    assert request.user.is_authenticated  # @login_required guarantees a real User
     user_member = MemberModel.objects.filter(user=request.user).first()
     is_owner = user_member is not None and offering.instructor_id == user_member.pk
     if not (is_admin or is_owner):
@@ -988,7 +995,7 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
 
     pending = ClassOffering.objects.pending_review().select_related("instructor", "category").order_by("created_at")
     waitlist_classes = (
-        ClassOffering.objects.annotate(
+        ClassOffering.objects.annotate(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
             waiting=Count(
                 "registrations",
                 filter=Q(registrations__status=Registration.Status.WAITLISTED),
@@ -1054,7 +1061,7 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     )
     qs = base.filter(status=status_filter) if status_filter else base
     if instructor_filter:
-        qs = qs.filter(instructor_id=instructor_filter)
+        qs = qs.filter(instructor_id=instructor_filter)  # type: ignore[misc]  # Django coerces the str PK at query time
 
     status_counts = {row["status"]: row["count"] for row in base.values("status").annotate(count=Count("pk"))}
     filters = [("", "All", base.count())] + [
@@ -1267,7 +1274,7 @@ def admin_class_email(request: HttpRequest, pk: int) -> HttpResponse:
     form = AdminClassEmailForm(request.POST, offering=offering)
     if not form.is_valid():
         first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
-        messages.error(request, first_error)
+        messages.error(request, str(first_error))
         return redirect("classes:admin_class_registrations", pk=pk)
     message = form.send(sender_member=sender_member)
     messages.success(
@@ -1531,6 +1538,7 @@ def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
+    assert file.size is not None  # an uploaded file always reports its size
     if file.size > 3 * 1024 * 1024:
         return JsonResponse({"error": "Image must be under 3 MB."}, status=400)
     next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1

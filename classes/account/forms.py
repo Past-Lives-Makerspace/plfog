@@ -9,6 +9,8 @@ from django import forms
 from django.contrib.auth import get_user_model
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import User as UserType
+
     from classes.models import Registration
 
 User = get_user_model()
@@ -38,7 +40,7 @@ class AccountProfileForm(forms.ModelForm):
                 self.fields["pronouns"].initial = profile.pronouns
                 self.fields["phone"].initial = profile.phone
 
-    def save(self, commit: bool = True) -> User:
+    def save(self, commit: bool = True) -> UserType:
         user = super().save(commit=commit)
         from core.models import UserProfile
 

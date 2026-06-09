@@ -84,7 +84,7 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
                 CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
                 class_offering=registration.class_offering,
                 registration=registration,
-                payload={"code": registration.discount_code.code},
+                payload={"code": registration.discount_code.code},  # type: ignore[union-attr]  # discount_code_id guard ensures non-None
             )
 
     send_registration_confirmation(registration)
