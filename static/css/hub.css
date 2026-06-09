@@ -33,6 +33,7 @@
     --hub-bg: #12121f;
     --hub-card-bg: #092E4C;
     --hub-card-border: transparent;
+    --hub-border: rgba(255, 255, 255, 0.12);
     --hub-text: #F4EFDD;
     --hub-text-muted: #96ACBB;
     --hub-topbar-bg: #1a1a2e;
@@ -602,13 +603,13 @@ a:hover { color: var(--color-yellow-hover); }
     padding: 2rem;
 }
 
-/* Classes admin Overview: the dark theme's card border is transparent, so the
-   nested sections blend into the page. Give them a visible outline in dark
-   mode; light keeps its existing card border (which already reads well). */
-.cms-overview .hub-card {
-    border-color: var(--hub-border, rgba(255, 255, 255, 0.12));
+/* Classes admin area (Overview sections + Settings hub cards): the dark theme's
+   card border is transparent, so nested cards blend into the page. Give them a
+   visible outline in dark mode; light keeps its existing card border. */
+.cms-admin .hub-card {
+    border-color: var(--hub-border);
 }
-[data-theme="light"] .cms-overview .hub-card {
+[data-theme="light"] .cms-admin .hub-card {
     border-color: var(--hub-card-border);
 }
 
