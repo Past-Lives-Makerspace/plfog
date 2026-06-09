@@ -583,7 +583,7 @@ def describe_guild_edit_delete_controls():
         # Gallery manager should be present with the image ID
         assert f'data-id="{img.pk}"'.encode() in response.content
         # AJAX prefixes should be present
-        assert f'/guilds/{guild.pk}/images/'.encode() in response.content
+        assert f"/guilds/{guild.pk}/images/".encode() in response.content
 
         # Announcement delete control is still a standard modal trigger
         assert f"del-ann-{announcement.pk}".encode() in response.content

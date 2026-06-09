@@ -806,9 +806,7 @@ def guild_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
     if file.size > 3 * 1024 * 1024:
         return JsonResponse({"error": "Image must be under 3 MB."}, status=400)
 
-    next_order = (
-        (guild.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
-    )
+    next_order = (guild.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
     img = GuildImage(guild=guild, image=file, sort_order=next_order)
     img.save()
 
