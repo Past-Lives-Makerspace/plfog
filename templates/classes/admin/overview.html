@@ -34,6 +34,9 @@
     {% empty %}
       <p style="color:var(--hub-text-muted);">No classes scheduled in the next 7 days.</p>
     {% endfor %}
+    <div style="text-align:right;margin-top:0.75rem;">
+      <a href="{% url 'hub_community_calendar' %}">View more →</a>
+    </div>
   </section>
 
   {# ③ Waitlist pressure — compact strip #}

@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-VERSION = "2.5.0"
+VERSION = "2.5.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.5.1",
+        "date": "2026-06-09",
+        "title": "Community Calendar shows each class once",
+        "changes": [
+            "The Community Calendar no longer lists classes twice. Each upcoming class now appears a single time and links straight to its page here on Past Lives, instead of the old classes.pastlives.space listing.",
+            "The classes management Overview now has a 'View more' link under 'Upcoming classes this week' that jumps to the full Community Calendar.",
+        ],
+    },
     {
         "version": "2.5.0",
         "date": "2026-06-08",

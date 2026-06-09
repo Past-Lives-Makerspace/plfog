@@ -1,421 +1,137 @@
-"""BDD specs for hub.calendar_service — _fetch_json, sync_classes_calendar, sync_all_sources."""
+"""BDD specs for hub.calendar_service — sync_local_class_events and sync_all_sources."""
 
 from __future__ import annotations
 
-import json
 from datetime import timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from django.utils import timezone
 
+from classes.factories import ClassOfferingFactory, ClassSessionFactory
+from classes.models import ClassOffering
 from core.models import SiteConfiguration
 from membership.models import CalendarEvent
-from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# sync_local_class_events — the sole source of class events on the calendar
 # ---------------------------------------------------------------------------
 
 
-def _make_urlopen_json(payload: dict) -> object:
-    """Return a side_effect for urllib.request.urlopen that returns JSON bytes."""
-
-    def _fake(req, **kwargs):
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(payload).encode()
-        mock_response.__enter__ = lambda s: s
-        mock_response.__exit__ = MagicMock(return_value=False)
-        return mock_response
-
-    return _fake
+def _published_offering(**kwargs: object) -> ClassOffering:
+    return ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, **kwargs)
 
 
-def _make_fake_urlopen(ical_bytes: bytes) -> object:
-    def _fake(url, **kwargs):
-        mock_response = MagicMock()
-        mock_response.read.return_value = ical_bytes
-        mock_response.__enter__ = lambda s: s
-        mock_response.__exit__ = MagicMock(return_value=False)
-        return mock_response
-
-    return _fake
+def _future_session(offering: ClassOffering, days: int = 5) -> object:
+    start = timezone.now() + timedelta(days=days)
+    return ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
 
 
-# ---------------------------------------------------------------------------
-# _fetch_json
-# ---------------------------------------------------------------------------
+def describe_sync_local_class_events():
+    def it_creates_a_calendar_event_per_upcoming_published_session():
+        from hub.calendar_service import sync_local_class_events
 
+        offering = _published_offering(title="Welding 101")
+        session = _future_session(offering)
 
-def describe__fetch_json():
-    def it_returns_parsed_json_from_url():
-        from hub.calendar_service import _fetch_json
+        count = sync_local_class_events()
 
-        payload = {"data": [{"id": "abc", "attributes": {"title": "My Class"}}]}
-        with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_make_urlopen_json(payload)):
-            result = _fetch_json("https://example.com/api/classes")
-        assert result == payload
+        assert count == 1
+        event = CalendarEvent.objects.get(source="classes", uid=f"local-class-{session.pk}")
+        assert event.title == "Welding 101"
+        assert event.start_dt == session.starts_at
 
-    def it_sends_accept_header():
-        from hub.calendar_service import _fetch_json
+    def it_links_to_the_local_class_page_not_the_legacy_site():
+        from hub.calendar_service import sync_local_class_events
 
-        captured_requests = []
+        offering = _published_offering(slug="welding-101")
+        _future_session(offering)
 
-        def _fake(req, **kwargs):
-            captured_requests.append(req)
-            mock_response = MagicMock()
-            mock_response.read.return_value = b'{"data": []}'
-            mock_response.__enter__ = lambda s: s
-            mock_response.__exit__ = MagicMock(return_value=False)
-            return mock_response
+        sync_local_class_events()
 
-        with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake):
-            _fetch_json("https://example.com/api")
-        assert len(captured_requests) == 1
-        assert captured_requests[0].get_header("Accept") == "application/vnd.api+json"
+        event = CalendarEvent.objects.get(source="classes")
+        assert event.url == "/classes/welding-101/"
+        assert "pastlives.space" not in event.url
 
+    def it_skips_draft_private_and_past_sessions():
+        from hub.calendar_service import sync_local_class_events
 
-# ---------------------------------------------------------------------------
-# sync_classes_calendar
-# ---------------------------------------------------------------------------
+        _future_session(ClassOfferingFactory(status=ClassOffering.Status.DRAFT))
+        _future_session(_published_offering(is_private=True))
+        past_offering = _published_offering()
+        past = timezone.now() - timedelta(days=2)
+        ClassSessionFactory(class_offering=past_offering, starts_at=past, ends_at=past + timedelta(hours=1))
 
-# Minimal JSON:API response for one class with two sessions
-_CLASSES_API_RESPONSE = {
-    "data": [
-        {
-            "id": "node-123",
-            "attributes": {
-                "title": "Intro to Welding",
-                "field_dates": [
-                    {
-                        "value": "2026-06-01T10:00:00",
-                        "end_value": "2026-06-01T12:00:00",
-                    },
-                    {
-                        "value": "2026-06-08T10:00:00",
-                        "end_value": "2026-06-08T12:00:00",
-                    },
-                ],
-                "path": {"alias": "/classes/welding-101"},
-                "body": {"value": "<p>Learn to weld.</p>", "summary": ""},
-            },
-        }
-    ],
-    "links": {},
-}
+        count = sync_local_class_events()
 
-# Response with two pages (first page links to second)
-_CLASSES_PAGE1 = {
-    "data": [
-        {
-            "id": "node-page1",
-            "attributes": {
-                "title": "Page 1 Class",
-                "field_dates": [{"value": "2026-07-01T10:00:00", "end_value": "2026-07-01T11:00:00"}],
-                "path": {"alias": "/classes/page1"},
-                "body": {},
-            },
-        }
-    ],
-    "links": {"next": {"href": "https://classes.pastlives.space/jsonapi/node/class?page=2"}},
-}
-
-_CLASSES_PAGE2 = {
-    "data": [
-        {
-            "id": "node-page2",
-            "attributes": {
-                "title": "Page 2 Class",
-                "field_dates": [{"value": "2026-07-02T10:00:00", "end_value": "2026-07-02T11:00:00"}],
-                "path": {},
-                "body": {"summary": "Short description"},
-            },
-        }
-    ],
-    "links": {},
-}
-
-# Response with a class that has no field_dates (should be skipped)
-_CLASSES_NO_DATES = {
-    "data": [
-        {
-            "id": "node-nodates",
-            "attributes": {
-                "title": "No Dates Class",
-                "field_dates": [],
-                "path": {},
-                "body": {},
-            },
-        }
-    ],
-    "links": {},
-}
-
-# Response with a session that has no start_str (should be skipped)
-_CLASSES_NO_START = {
-    "data": [
-        {
-            "id": "node-nostart",
-            "attributes": {
-                "title": "No Start Class",
-                "field_dates": [{"value": None, "end_value": None}],
-                "path": {},
-                "body": {},
-            },
-        }
-    ],
-    "links": {},
-}
-
-
-def describe_sync_classes_calendar():
-    def it_returns_zero_when_sync_classes_disabled():
-        from hub.calendar_service import sync_classes_calendar
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = False
-        config.save()
-        count = sync_classes_calendar()
-        assert count == 0
-
-    def it_creates_calendar_events_for_each_session():
-        from hub.calendar_service import sync_classes_calendar
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.save()
-
-        with patch("hub.calendar_service._fetch_json", return_value=_CLASSES_API_RESPONSE):
-            count = sync_classes_calendar()
-
-        assert count == 2
-        events = CalendarEvent.objects.filter(source="classes")
-        assert events.count() == 2
-        titles = set(events.values_list("title", flat=True))
-        assert titles == {"Intro to Welding"}
-
-    def it_sets_event_url_from_path_alias():
-        from hub.calendar_service import sync_classes_calendar
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.save()
-
-        with patch("hub.calendar_service._fetch_json", return_value=_CLASSES_API_RESPONSE):
-            sync_classes_calendar()
-
-        event = CalendarEvent.objects.filter(source="classes", uid="classes-node-123-0").first()
-        assert event is not None
-        assert event.url == "https://classes.pastlives.space/classes/welding-101"
-
-    def it_strips_html_from_body_description():
-        from hub.calendar_service import sync_classes_calendar
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.save()
-
-        with patch("hub.calendar_service._fetch_json", return_value=_CLASSES_API_RESPONSE):
-            sync_classes_calendar()
-
-        event = CalendarEvent.objects.filter(source="classes", uid="classes-node-123-0").first()
-        assert event is not None
-        assert "<p>" not in event.description
-        assert "Learn to weld." in event.description
-
-    def it_skips_items_with_no_field_dates():
-        from hub.calendar_service import sync_classes_calendar
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.save()
-
-        with patch("hub.calendar_service._fetch_json", return_value=_CLASSES_NO_DATES):
-            count = sync_classes_calendar()
         assert count == 0
         assert CalendarEvent.objects.filter(source="classes").count() == 0
 
-    def it_skips_sessions_with_no_start_str():
-        from hub.calendar_service import sync_classes_calendar
+    def it_purges_leftover_legacy_drupal_calendar_events():
+        from hub.calendar_service import sync_local_class_events
 
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.save()
-
-        with patch("hub.calendar_service._fetch_json", return_value=_CLASSES_NO_START):
-            count = sync_classes_calendar()
-        assert count == 0
-
-    def it_paginates_through_multiple_pages():
-        from hub.calendar_service import sync_classes_calendar
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.save()
-
-        pages = [_CLASSES_PAGE1, _CLASSES_PAGE2]
-        call_count = 0
-
-        def _fake_fetch(url: str) -> dict:
-            nonlocal call_count
-            result = pages[call_count]
-            call_count += 1
-            return result
-
-        with patch("hub.calendar_service._fetch_json", side_effect=_fake_fetch):
-            count = sync_classes_calendar()
-
-        assert count == 2
-        assert CalendarEvent.objects.filter(source="classes").count() == 2
-
-    def it_removes_old_records_with_a_guild_before_upsert():
-        from hub.calendar_service import sync_classes_calendar
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.save()
-
-        # Create an old record with the same UID but a guild (pre-migration data)
-        guild = GuildFactory()
         CalendarEvent.objects.create(
-            guild=guild,
+            guild=None,
             uid="classes-node-123-0",
             source="classes",
-            title="Old Version",
-            start_dt=timezone.now(),
-            end_dt=timezone.now() + timedelta(hours=1),
+            title="Legacy Welding",
+            url="https://classes.pastlives.space/classes/welding-101",
+            start_dt=timezone.now() + timedelta(days=3),
+            end_dt=timezone.now() + timedelta(days=3, hours=2),
             fetched_at=timezone.now(),
         )
 
-        with patch("hub.calendar_service._fetch_json", return_value=_CLASSES_API_RESPONSE):
-            sync_classes_calendar()
+        sync_local_class_events()
 
-        # The old record with a guild should be gone
-        assert not CalendarEvent.objects.filter(uid="classes-node-123-0", guild__isnull=False).exists()
-        # The new record with guild=None should exist
-        assert CalendarEvent.objects.filter(uid="classes-node-123-0", guild__isnull=True).exists()
+        assert not CalendarEvent.objects.filter(uid="classes-node-123-0").exists()
 
-    def it_updates_classes_last_synced_at():
-        from hub.calendar_service import sync_classes_calendar
+    def it_purges_stale_local_events_when_a_session_is_removed():
+        from hub.calendar_service import sync_local_class_events
+
+        offering = _published_offering()
+        session = _future_session(offering)
+        sync_local_class_events()
+        assert CalendarEvent.objects.filter(uid=f"local-class-{session.pk}").exists()
+
+        session.delete()
+        sync_local_class_events()
+
+        assert not CalendarEvent.objects.filter(uid=f"local-class-{session.pk}").exists()
+
+    def it_updates_an_existing_event_on_resync():
+        from hub.calendar_service import sync_local_class_events
+
+        offering = _published_offering(title="Original")
+        session = _future_session(offering)
+        sync_local_class_events()
+
+        offering.title = "Updated"
+        offering.save()
+        sync_local_class_events()
+
+        event = CalendarEvent.objects.get(uid=f"local-class-{session.pk}")
+        assert event.title == "Updated"
+        assert CalendarEvent.objects.filter(source="classes").count() == 1
+
+    def it_sets_classes_last_synced_at():
+        from hub.calendar_service import sync_local_class_events
 
         config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
         config.classes_last_synced_at = None
         config.save()
 
-        with patch("hub.calendar_service._fetch_json", return_value=_CLASSES_API_RESPONSE):
-            sync_classes_calendar()
+        sync_local_class_events()
 
         config.refresh_from_db()
         assert config.classes_last_synced_at is not None
 
-    def it_uses_empty_url_when_path_alias_is_missing():
-        from hub.calendar_service import sync_classes_calendar
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.save()
-
-        with patch("hub.calendar_service._fetch_json", return_value=_CLASSES_PAGE2):
-            sync_classes_calendar()
-
-        event = CalendarEvent.objects.filter(source="classes", uid="classes-node-page2-0").first()
-        assert event is not None
-        assert event.url == ""
-
-    def it_uses_summary_as_fallback_description():
-        from hub.calendar_service import sync_classes_calendar
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.save()
-
-        # _CLASSES_PAGE2 has body: {"summary": "Short description"} and no "value"
-        with patch("hub.calendar_service._fetch_json", return_value=_CLASSES_PAGE2):
-            sync_classes_calendar()
-
-        event = CalendarEvent.objects.filter(source="classes", uid="classes-node-page2-0").first()
-        assert event is not None
-        assert event.description == "Short description"
-
-    def it_defaults_end_value_to_start_when_missing():
-        from hub.calendar_service import sync_classes_calendar
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.save()
-
-        response = {
-            "data": [
-                {
-                    "id": "node-noend",
-                    "attributes": {
-                        "title": "No End Class",
-                        "field_dates": [{"value": "2026-08-01T10:00:00"}],
-                        "path": {},
-                        "body": {},
-                    },
-                }
-            ],
-            "links": {},
-        }
-
-        with patch("hub.calendar_service._fetch_json", return_value=response):
-            count = sync_classes_calendar()
-
-        assert count == 1
-        event = CalendarEvent.objects.get(source="classes", uid="classes-node-noend-0")
-        assert event.start_dt == event.end_dt
-
 
 # ---------------------------------------------------------------------------
-# sync_all_sources — classes and legacy-CMS branches
+# sync_all_sources — legacy-CMS catalog importer branch
 # ---------------------------------------------------------------------------
-
-
-def describe_sync_all_sources_classes():
-    def it_syncs_classes_when_enabled():
-        from hub.calendar_service import sync_all_sources
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.legacy_cms_sync_enabled = False
-        config.save()
-
-        with patch("hub.calendar_service.sync_classes_calendar", return_value=3) as mock_sync:
-            errors = sync_all_sources()
-
-        mock_sync.assert_called_once()
-        assert errors == []
-
-    def it_skips_classes_when_disabled():
-        from hub.calendar_service import sync_all_sources
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = False
-        config.legacy_cms_sync_enabled = False
-        config.save()
-
-        with patch("hub.calendar_service.sync_classes_calendar") as mock_sync:
-            sync_all_sources()
-
-        mock_sync.assert_not_called()
-
-    def it_captures_exceptions_from_classes_sync():
-        from hub.calendar_service import sync_all_sources
-
-        config = SiteConfiguration.load()
-        config.sync_classes_enabled = True
-        config.legacy_cms_sync_enabled = False
-        config.save()
-
-        with patch("hub.calendar_service.sync_classes_calendar", side_effect=RuntimeError("timeout")):
-            errors = sync_all_sources()
-
-        assert any("classes calendar" in e and "timeout" in e for e in errors)
 
 
 def describe_sync_all_sources_legacy_cms():
@@ -424,7 +140,6 @@ def describe_sync_all_sources_legacy_cms():
 
         config = SiteConfiguration.load()
         config.legacy_cms_sync_enabled = True
-        config.sync_classes_enabled = False
         config.save()
 
         with patch("classes.import_service.sync_legacy_cms") as mock_sync:
@@ -438,7 +153,6 @@ def describe_sync_all_sources_legacy_cms():
 
         config = SiteConfiguration.load()
         config.legacy_cms_sync_enabled = False
-        config.sync_classes_enabled = False
         config.save()
 
         with patch("classes.import_service.sync_legacy_cms") as mock_sync:
@@ -451,7 +165,6 @@ def describe_sync_all_sources_legacy_cms():
 
         config = SiteConfiguration.load()
         config.legacy_cms_sync_enabled = True
-        config.sync_classes_enabled = False
         config.save()
 
         with patch("classes.import_service.sync_legacy_cms", side_effect=RuntimeError("drupal down")):
