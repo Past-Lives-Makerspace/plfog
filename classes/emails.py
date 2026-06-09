@@ -161,7 +161,7 @@ def send_class_review_requests(offering: "ClassOffering", approvals: list["Class
 
     # Tell the instructor what's happening so they don't wonder.
     if offering.instructor and offering.instructor.primary_email:
-        instructor_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        instructor_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         ctx = {
             "offering": offering,
             "approvals": approvals,
@@ -201,15 +201,15 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
         edit_url = public_url
     elif row.decision == ClassApproval.Decision.APPROVED:
         subject = f"{row.get_role_display()} approved '{offering.title}'"
-        edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         public_url = ""
     elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
         subject = f"Changes requested on '{offering.title}'"
-        edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         public_url = ""
     else:  # DENIED
         subject = f"Your class submission was declined: '{offering.title}'"
-        edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         public_url = ""
 
     pending_rows = list(offering.approvals.filter(decision=""))

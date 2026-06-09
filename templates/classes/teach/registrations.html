@@ -1,4 +1,4 @@
-{% extends "classes/instructor/base.html" %}
+{% extends "classes/teach/base.html" %}
 {% block tab_content %}
 {% if messages %}
 <ul class="messages" style="list-style:none;padding:0;margin:0 0 1rem;">
@@ -22,7 +22,7 @@
 
     <div x-show="open" x-transition x-ref="section">
     {% if group.registrations %}
-        <form method="post" action="{% url 'classes:instructor_registrations_email' %}">
+        <form method="post" action="{% url 'classes:teach_registrations_email' %}">
             {% csrf_token %}
             <table style="width:100%;border-collapse:collapse;">
                 <thead>
@@ -85,7 +85,7 @@
 {% endfor %}
 {% else %}
     <div style="padding:2rem 1rem;text-align:center;color:var(--hub-text-muted);">
-        No classes yet. Create your first class from the <a href="{% url 'classes:instructor_dashboard' %}" style="color:var(--hub-accent);">My Classes</a> tab.
+        No classes yet. Create your first class from the <a href="{% url 'classes:teach_dashboard' %}" style="color:var(--hub-accent);">My Classes</a> tab.
     </div>
 {% endif %}
 {% endblock %}

@@ -27,8 +27,8 @@ toggle still wins.
     <div class="cp-topbar__right">
       {% if user.is_authenticated %}
         <a href="{% url 'account:overview' %}" class="cp-topbar__ghost">My account</a>
-        {% if persona == "member" %}
-          <a href="https://{{ MEMBER_HOST }}/" class="cp-topbar__ext" title="Member dashboard" hx-boost="false">FOG
+        {% if persona == "member" and is_public_surface %}
+          <a href="https://{{ MEMBER_HOST }}/" class="cp-topbar__ext" title="Go to your FOG member dashboard" hx-boost="false">FOG
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 L17 7"/><path d="M8 7h9v9"/></svg>
           </a>
           <span class="cp-topbar__pill" title="Active member">Member</span>
@@ -69,7 +69,7 @@ toggle still wins.
     <div class="cp-topbar__drawer-divider"></div>
     {% if user.is_authenticated %}
       <a href="{% url 'account:overview' %}" class="cp-topbar__drawer-link">My account</a>
-      {% if persona == "member" %}
+      {% if persona == "member" and is_public_surface %}
         <a href="https://{{ MEMBER_HOST }}/" class="cp-topbar__drawer-link" hx-boost="false">FOG dashboard</a>
       {% endif %}
       <a href="{% url 'account_logout' %}" class="cp-topbar__drawer-link" hx-boost="false">Log out</a>

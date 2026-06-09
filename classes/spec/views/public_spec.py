@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -383,3 +384,52 @@ def describe_google_analytics_gate():
         response = client.get(reverse("classes:public_list"))
         assert b"googletagmanager.com" in response.content
         assert b"G-TEST123" in response.content
+
+
+def describe_hero_management_buttons():
+    def it_crosses_to_the_members_host_on_the_public_surface(admin_user, published_class, client):
+        client.force_login(admin_user)
+        with override_settings(PUBLIC_HOSTS=["testserver"], MEMBER_BASE_URL="https://members.example"):
+            response = client.get(reverse("classes:public_list"))
+        assert b'href="https://members.example/classes/admin/"' in response.content
+
+    def it_stays_relative_on_the_members_surface(admin_user, published_class, client):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:public_list"))
+        assert b'href="/classes/admin/"' in response.content
+        assert b"members.example" not in response.content
+
+
+def describe_public_topbar_member_chrome():
+    @pytest.fixture
+    def member_persona_user(db):
+        from django.contrib.auth import get_user_model
+        from membership.models import Member, MembershipPlan
+
+        plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
+        user, _ = get_user_model().objects.get_or_create(
+            username="fog@example.com", defaults={"email": "fog@example.com"}
+        )
+        Member.objects.update_or_create(
+            user=user,
+            defaults={
+                "full_legal_name": "Fog Member",
+                "fog_role": Member.FogRole.MEMBER,
+                "membership_plan": plan,
+                "status": Member.Status.ACTIVE,
+                "airtable_record_id": "recFOG123",
+            },
+        )
+        return user
+
+    def it_shows_the_fog_cluster_on_the_public_surface(member_persona_user, published_class, client):
+        client.force_login(member_persona_user)
+        with override_settings(PUBLIC_HOSTS=["testserver"]):
+            response = client.get(reverse("classes:public_list"))
+        assert b"cp-topbar__ext" in response.content
+        assert b"cp-topbar__pill" in response.content
+
+    def it_hides_the_fog_cluster_on_the_members_surface(member_persona_user, published_class, client):
+        client.force_login(member_persona_user)
+        response = client.get(reverse("classes:public_list"))
+        assert b"cp-topbar__ext" not in response.content

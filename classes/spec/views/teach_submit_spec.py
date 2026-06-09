@@ -22,7 +22,7 @@ def describe_instructor_class_submit():
             status=ClassOffering.Status.DRAFT,
         )
         client.force_login(instructor_fixture.user)
-        response = client.post(reverse("classes:instructor_class_submit", kwargs={"pk": draft.pk}))
+        response = client.post(reverse("classes:teach_class_submit", kwargs={"pk": draft.pk}))
         assert response.status_code == 302
         draft.refresh_from_db()
         assert draft.status == ClassOffering.Status.PENDING
@@ -33,7 +33,7 @@ def describe_instructor_class_submit():
             status=ClassOffering.Status.DRAFT,
         )
         client.force_login(instructor_fixture.user)
-        response = client.get(reverse("classes:instructor_class_submit", kwargs={"pk": draft.pk}))
+        response = client.get(reverse("classes:teach_class_submit", kwargs={"pk": draft.pk}))
         assert response.status_code == 302
         draft.refresh_from_db()
         assert draft.status == ClassOffering.Status.DRAFT  # unchanged on GET
@@ -48,7 +48,7 @@ def describe_instructor_class_create_form():
 
         cat = CategoryFactory()
         response = client.post(
-            reverse("classes:instructor_class_create"),
+            reverse("classes:teach_class_create"),
             {
                 "title": "",  # missing required title → form invalid
                 "category": cat.pk,
@@ -87,7 +87,7 @@ def describe_instructor_class_edit_form():
             ends_at=timezone.now() + timedelta(days=5, hours=2),
         )
         client.force_login(instructor_fixture.user)
-        response = client.get(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
         # The session data should be embedded as JSON
         assert b"sessions_json" in response.content or b"T" in response.content
@@ -102,7 +102,7 @@ def describe_instructor_discount_code_create():
             status=ClassOffering.Status.DRAFT,
         )
         client.force_login(instructor_fixture.user)
-        url = reverse("classes:instructor_discount_code_create") + f"?class={offering.pk}"
+        url = reverse("classes:teach_discount_code_create") + f"?class={offering.pk}"
         response = client.post(
             url,
             {
@@ -116,11 +116,11 @@ def describe_instructor_discount_code_create():
         code = DiscountCode.objects.get(code="CLASSONLY10")
         assert code.class_offering == offering
         assert code.is_approved is True
-        assert response.url == reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk})
+        assert response.url == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
 
     def it_falls_back_gracefully_when_class_param_is_invalid(instructor_fixture, client):
         """An invalid ?class= value should be silently ignored — scoped_to=None."""
         client.force_login(instructor_fixture.user)
-        url = reverse("classes:instructor_discount_code_create") + "?class=99999"
+        url = reverse("classes:teach_discount_code_create") + "?class=99999"
         response = client.get(url)
         assert response.status_code == 200

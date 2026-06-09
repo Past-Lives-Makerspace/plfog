@@ -74,7 +74,7 @@ def describe_account_overview():
             book_client.force_login(inst.user)
             resp = book_client.get("/account/")
             assert b"bk-banner is-instructor" in resp.content
-            assert b"/classes/instructor/" in resp.content
+            assert b"/classes/teach/" in resp.content
 
         def it_hides_instructor_banner_when_no_upcoming_classes(book_client, db):
             inst = InstructorFactory(user=UserFactory())

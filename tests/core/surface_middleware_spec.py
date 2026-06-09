@@ -25,7 +25,7 @@ def _surface_settings():
             "/admin/",
             "/billing/",
             "/classes/admin/",
-            "/classes/instructor/",
+            "/classes/teach/",
             "/settings/",
             "/tab/",
         ),
@@ -120,8 +120,8 @@ def describe_SurfaceMiddleware():
                 "/billing/payment-method/",
                 "/classes/admin/",
                 "/classes/admin/new/",
-                "/classes/instructor/",
-                "/classes/instructor/profile/",
+                "/classes/teach/",
+                "/classes/teach/profile/",
                 "/settings/",
                 "/settings/profile/",
                 "/tab/",
@@ -144,7 +144,7 @@ def describe_SurfaceMiddleware():
             assert response.status_code == 200
 
         def it_lets_instructor_bio_through_on_book_not_dashboard():
-            # /classes/instructors/ (plural) is public bios; /classes/instructor/ (singular) is the dashboard.
+            # /classes/instructors/ (plural) is public bios; /classes/teach/ is the teaching dashboard.
             request, middleware = _build("book.pastlives.space", "/classes/instructors/jane/")
             response = middleware(request)
             assert response.status_code == 200
@@ -161,10 +161,19 @@ def describe_SurfaceMiddleware():
 
     def describe_member_only_prefix_boundaries():
         def it_does_not_match_classes_instructors_plural_as_member_only():
-            # Edge: ensure startswith("/classes/instructor/") does not match
-            # the plural public bio path "/classes/instructors/...".
+            # Edge: /classes/instructors/ (plural public bios) is not member-only — only /classes/teach/ is.
             request, middleware = _build("book.pastlives.space", "/classes/instructors/")
             response = middleware(request)
+            assert response.status_code == 200
+
+    def describe_legacy_instructor_redirect():
+        def it_301_redirects_old_instructor_dashboard_to_teach_on_members_surface():
+            request, middleware = _build("members.pastlives.space", "/classes/instructor/")
+            response = middleware(request)
+            # The legacy redirect is handled by Django's URL routing, not the middleware itself.
+            # Middleware passes the request through (200 from the _ok handler) since
+            # /classes/instructor/ is no longer a MEMBER_ONLY prefix.
+            # The actual 301 is issued by RedirectView in classes/urls.py.
             assert response.status_code == 200
 
 

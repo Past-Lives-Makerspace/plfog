@@ -1,8 +1,8 @@
-{% extends "classes/instructor/base.html" %}
+{% extends "classes/teach/base.html" %}
 {% load classes_tags %}
 {% block tab_content %}
 <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:instructor_class_create' %}">+ New Class</a>
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_class_create' %}">+ New Class</a>
 </div>
 {% if classes %}
 <table style="width:100%; border-collapse:collapse;">
@@ -24,10 +24,10 @@
             <td style="padding:0.5rem 0.75rem;">{{ offering.registration_count }}/{{ offering.capacity }}</td>
             <td style="padding:0.5rem 0.75rem; display:flex; gap:0.375rem; justify-content:flex-end;">
                 {% if offering.status == 'draft' or offering.status == 'pending' %}
-                    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:instructor_class_edit' pk=offering.pk %}">Edit</a>
+                    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=offering.pk %}">Edit</a>
                 {% endif %}
                 {% if offering.status == 'draft' %}
-                    <form method="post" action="{% url 'classes:instructor_class_submit' pk=offering.pk %}" style="display:inline;">
+                    <form method="post" action="{% url 'classes:teach_class_submit' pk=offering.pk %}" style="display:inline;">
                         {% csrf_token %}
                         <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Submit for review</button>
                     </form>
@@ -39,7 +39,7 @@
 </table>
 {% else %}
     <div style="padding:2rem 1rem; text-align:center; color:var(--hub-text-muted);">
-        You haven't created any classes yet. <a href="{% url 'classes:instructor_class_create' %}">Create your first class</a>.
+        You haven't created any classes yet. <a href="{% url 'classes:teach_class_create' %}">Create your first class</a>.
     </div>
 {% endif %}
 {% endblock %}

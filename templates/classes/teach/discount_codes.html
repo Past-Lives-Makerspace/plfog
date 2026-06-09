@@ -1,9 +1,9 @@
-{% extends "classes/instructor/base.html" %}
+{% extends "classes/teach/base.html" %}
 {% load classes_tags %}
 {% block tab_content %}
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
     <p style="margin:0; color:var(--hub-text-muted); font-size:0.85rem;">New codes require admin approval before they can be used.</p>
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:instructor_discount_code_create' %}">+ New Code</a>
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_create' %}">+ New Code</a>
 </div>
 {% if codes %}
 <table style="width:100%; border-collapse:collapse;">
@@ -20,7 +20,7 @@
     </thead>
     <tbody>
     {% for c in codes %}
-        {% url 'classes:instructor_discount_code_delete' pk=c.pk as code_delete_url %}
+        {% url 'classes:teach_discount_code_delete' pk=c.pk as code_delete_url %}
         {% concat "inst-del-code-" c.pk as code_modal_id %}
         <tr style="border-bottom:1px solid var(--hub-border);{% if not c.is_approved %} background:rgba(248,180,75,0.06);{% endif %}">
             <td style="padding:0.5rem 0.75rem;">{{ c.code }}</td>
@@ -38,7 +38,7 @@
                 {% endif %}
             </td>
             <td style="padding:0.5rem 0.75rem; display:flex; gap:0.375rem; justify-content:flex-end;">
-                <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:instructor_discount_code_edit' pk=c.pk %}">Edit</a>
+                <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_discount_code_edit' pk=c.pk %}">Edit</a>
                 <button type="button"
                         class="hub-btn hub-btn--sm hub-btn--danger"
                         @click="$dispatch('open-confirm', '{{ code_modal_id }}')">Delete</button>
@@ -50,7 +50,7 @@
 </table>
 {% else %}
     <div style="padding:2rem 1rem; text-align:center; color:var(--hub-text-muted);">
-        No discount codes yet. <a href="{% url 'classes:instructor_discount_code_create' %}">Create one</a>.
+        No discount codes yet. <a href="{% url 'classes:teach_discount_code_create' %}">Create one</a>.
     </div>
 {% endif %}
 {% endblock %}

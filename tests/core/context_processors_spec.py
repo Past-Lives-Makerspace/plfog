@@ -92,6 +92,7 @@ def describe_surface():
             "surface": "public",
             "is_public_surface": True,
             "MEMBER_HOST": settings.MEMBER_HOST,
+            "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "parent_template": "classes/base_public.html",
         }
@@ -105,6 +106,7 @@ def describe_surface():
             "surface": "members",
             "is_public_surface": False,
             "MEMBER_HOST": settings.MEMBER_HOST,
+            "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "parent_template": "base.html",
         }
@@ -119,6 +121,7 @@ def describe_surface():
             "surface": "members",
             "is_public_surface": False,
             "MEMBER_HOST": settings.MEMBER_HOST,
+            "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "parent_template": "base.html",
         }

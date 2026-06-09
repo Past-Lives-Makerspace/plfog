@@ -43,13 +43,13 @@ def describe_instructor_discount_codes():
         user = UserFactory(username="dc-inst@example.com")
         InstructorFactory(user=user, instructor_slug="dc-inst")
         client.force_login(user)
-        response = client.get(reverse("classes:instructor_discount_codes"))
+        response = client.get(reverse("classes:teach_discount_codes"))
         assert response.status_code == 200
         code = DiscountCodeFactory(code="INSTR10")
-        response = client.get(reverse("classes:instructor_discount_codes"))
+        response = client.get(reverse("classes:teach_discount_codes"))
         assert code.code.encode() in response.content
 
     def it_lets_plain_members_access_teaching_portal(member_user, client):
         client.force_login(member_user)
-        response = client.get(reverse("classes:instructor_discount_codes"))
+        response = client.get(reverse("classes:teach_discount_codes"))
         assert response.status_code == 200

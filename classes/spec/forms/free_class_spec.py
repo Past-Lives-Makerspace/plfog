@@ -9,7 +9,7 @@ import pytest
 from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory
-from classes.forms import ClassOfferingForm, ClassSessionForm, InstructorClassOfferingForm
+from classes.forms import ClassOfferingForm, ClassSessionForm, TeachClassOfferingForm
 from classes.models import ClassOffering
 
 pytestmark = pytest.mark.django_db
@@ -119,13 +119,13 @@ def _instructor_post_data(**overrides) -> dict:
     return data
 
 
-def describe_InstructorClassOfferingForm():
+def describe_TeachClassOfferingForm():
     def describe_is_free_checkbox():
         def it_zeroes_pricing_when_checked():
             instructor = InstructorFactory()
-            form = InstructorClassOfferingForm(
+            form = TeachClassOfferingForm(
                 data=_instructor_post_data(is_free="on"),
-                instructor=instructor,
+                teaching_member=instructor,
             )
             assert form.is_valid(), form.errors
             offering = form.save()
@@ -134,18 +134,18 @@ def describe_InstructorClassOfferingForm():
 
         def it_requires_price_for_paid_class():
             instructor = InstructorFactory()
-            form = InstructorClassOfferingForm(
+            form = TeachClassOfferingForm(
                 data=_instructor_post_data(),
-                instructor=instructor,
+                teaching_member=instructor,
             )
             assert not form.is_valid()
             assert "price_cents" in form.errors
 
         def it_rejects_paid_price_below_one_dollar():
             instructor = InstructorFactory()
-            form = InstructorClassOfferingForm(
+            form = TeachClassOfferingForm(
                 data=_instructor_post_data(price_cents="0.50"),
-                instructor=instructor,
+                teaching_member=instructor,
             )
             assert not form.is_valid()
             assert "price_cents" in form.errors
@@ -259,15 +259,15 @@ def describe_ClassSessionForm():
         assert form.is_valid(), form.errors
 
 
-def describe_InstructorClassOfferingForm_slug_collision():
+def describe_TeachClassOfferingForm_slug_collision():
     def it_generates_a_unique_slug_when_title_collides():
         instructor = InstructorFactory()
         # _instructor_post_data uses title="Free Demo" → base slug "free-demo".
         # Pre-occupy that slug so the form must increment to "free-demo-2".
         ClassOfferingFactory(title="Free Demo", slug="free-demo")
-        form = InstructorClassOfferingForm(
+        form = TeachClassOfferingForm(
             data=_instructor_post_data(is_free="on"),
-            instructor=instructor,
+            teaching_member=instructor,
         )
         assert form.is_valid(), form.errors
         offering = form.save()

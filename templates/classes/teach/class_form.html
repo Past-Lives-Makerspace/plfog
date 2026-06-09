@@ -1,4 +1,4 @@
-{% extends "classes/instructor/base.html" %}
+{% extends "classes/teach/base.html" %}
 {% load classes_tags static %}
 {% block tab_content %}
 <h2 style="margin-top:0;">{% if mode == 'create' %}New Class{% else %}Edit Class — {{ offering.title }}{% endif %}</h2>
@@ -27,7 +27,7 @@
     <h3 style="margin-top:1.5rem;">Sessions</h3>
     {% include "classes/_components/session_calendar.html" %}
 
-    {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:instructor_discount_code_create' edit_url='classes:instructor_discount_code_edit' %}
+    {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
 
     <div style="display:flex; gap:0.5rem; margin-top:1rem; flex-wrap:wrap;">
         <button class="hub-btn hub-btn--sm hub-btn--ghost" name="action" value="save" type="submit">Save Draft</button>
@@ -37,7 +37,7 @@
         {% if not offering or offering.status == 'draft' %}
             <button class="hub-btn hub-btn--sm hub-btn--primary" name="action" value="submit" type="submit">Save &amp; Submit for Review</button>
         {% endif %}
-        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:instructor_dashboard' %}">Cancel</a>
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_dashboard' %}">Cancel</a>
     </div>
 </form>
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>

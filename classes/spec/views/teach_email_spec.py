@@ -44,7 +44,7 @@ def describe_instructor_email_composer():
         user = UserFactory(username="former@example.com", email="former@example.com")
         InstructorFactory(user=user, status=Member.Status.FORMER)
         client.force_login(user)
-        response = client.post(reverse("classes:instructor_registrations_email"), data={})
+        response = client.post(reverse("classes:teach_registrations_email"), data={})
         assert response.status_code == 403
 
     def it_redirects_back_with_error_when_form_invalid(instructor, client):
@@ -52,11 +52,11 @@ def describe_instructor_email_composer():
         offering = ClassOfferingFactory(instructor=instructor)
         reg = RegistrationFactory(class_offering=offering)
         response = client.post(
-            reverse("classes:instructor_registrations_email"),
+            reverse("classes:teach_registrations_email"),
             data={"subject": "", "body": "", "registration_ids": [reg.pk]},
         )
         assert response.status_code == 302
-        assert response["Location"] == reverse("classes:instructor_registrations")
+        assert response["Location"] == reverse("classes:teach_registrations")
         assert len(mail.outbox) == 0
 
     def it_rejects_recipients_outside_my_classes(instructor, other_instructor, client):
@@ -66,7 +66,7 @@ def describe_instructor_email_composer():
         mine = RegistrationFactory(class_offering=my_offering)
         theirs = RegistrationFactory(class_offering=their_offering)
         client.post(
-            reverse("classes:instructor_registrations_email"),
+            reverse("classes:teach_registrations_email"),
             data={
                 "subject": "Hi",
                 "body": "Reminder.",
@@ -84,7 +84,7 @@ def describe_instructor_email_composer():
         r1 = RegistrationFactory(class_offering=offering, email="alice@example.com")
         r2 = RegistrationFactory(class_offering=offering, email="bob@example.com")
         response = client.post(
-            reverse("classes:instructor_registrations_email"),
+            reverse("classes:teach_registrations_email"),
             data={
                 "subject": "Class reminder",
                 "body": "See you tomorrow at 10am.",
@@ -111,7 +111,7 @@ def describe_instructor_email_composer():
         offering = ClassOfferingFactory(instructor=instructor)
         r1 = RegistrationFactory(class_offering=offering, email="alice@example.com")
         client.post(
-            reverse("classes:instructor_registrations_email"),
+            reverse("classes:teach_registrations_email"),
             data={
                 "subject": "Hi",
                 "body": "Yo",

@@ -42,18 +42,18 @@ def other_instructor(db):
 def describe_instructor_access_gate():
     def it_allows_active_members(member_user, client):
         client.force_login(member_user)
-        response = client.get(reverse("classes:instructor_dashboard"))
+        response = client.get(reverse("classes:teach_dashboard"))
         assert response.status_code == 200
 
     def it_blocks_anonymous(db, client):
-        response = client.get(reverse("classes:instructor_dashboard"))
+        response = client.get(reverse("classes:teach_dashboard"))
         assert response.status_code == 302  # login redirect
 
     def it_blocks_inactive_instructor(db, client):
         user = UserFactory(username="inactive@example.com")
         InstructorFactory(user=user, status=Member.Status.FORMER)
         client.force_login(user)
-        response = client.get(reverse("classes:instructor_dashboard"))
+        response = client.get(reverse("classes:teach_dashboard"))
         assert response.status_code == 403
 
 
@@ -72,7 +72,7 @@ def describe_instructor_dashboard():
             status=ClassOffering.Status.PUBLISHED,
         )
         client.force_login(instructor_fixture.user)
-        response = client.get(reverse("classes:instructor_dashboard"))
+        response = client.get(reverse("classes:teach_dashboard"))
         assert response.status_code == 200
         assert mine.title.encode() in response.content
         assert b"Theirs Class" not in response.content
@@ -85,7 +85,7 @@ def describe_instructor_create_class():
         start = (timezone.now() + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M")
         end = (timezone.now() + timedelta(days=7, hours=2)).strftime("%Y-%m-%dT%H:%M")
         response = client.post(
-            reverse("classes:instructor_class_create"),
+            reverse("classes:teach_class_create"),
             {
                 "title": "My New Class",
                 "category": cat.pk,
@@ -124,7 +124,7 @@ def describe_instructor_create_class():
         cat = CategoryFactory()
         client.force_login(instructor_fixture.user)
         response = client.post(
-            reverse("classes:instructor_class_create"),
+            reverse("classes:teach_class_create"),
             {
                 "title": "Submit-Me",
                 "category": cat.pk,
@@ -159,7 +159,7 @@ def describe_instructor_create_class():
         cat = CategoryFactory()
         client.force_login(instructor_fixture.user)
         response = client.post(
-            reverse("classes:instructor_class_create"),
+            reverse("classes:teach_class_create"),
             {
                 "title": "Gallery Class",
                 "category": cat.pk,
@@ -196,7 +196,7 @@ def describe_instructor_edit_class():
     def it_refuses_editing_other_instructors_classes(instructor_fixture, other_instructor, client):
         theirs = ClassOfferingFactory(instructor=other_instructor, slug="theirs-edit")
         client.force_login(instructor_fixture.user)
-        response = client.get(reverse("classes:instructor_class_edit", kwargs={"pk": theirs.pk}))
+        response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": theirs.pk}))
         assert response.status_code == 404
 
     def it_redirects_for_published_classes(instructor_fixture, client):
@@ -206,7 +206,7 @@ def describe_instructor_edit_class():
             status=ClassOffering.Status.PUBLISHED,
         )
         client.force_login(instructor_fixture.user)
-        response = client.get(reverse("classes:instructor_class_edit", kwargs={"pk": mine.pk}))
+        response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": mine.pk}))
         assert response.status_code == 302
 
     def it_renders_the_edit_form_for_drafts(instructor_fixture, client):
@@ -216,7 +216,7 @@ def describe_instructor_edit_class():
             status=ClassOffering.Status.DRAFT,
         )
         client.force_login(instructor_fixture.user)
-        response = client.get(reverse("classes:instructor_class_edit", kwargs={"pk": mine.pk}))
+        response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": mine.pk}))
         assert response.status_code == 200
 
 
@@ -228,7 +228,7 @@ def describe_instructor_submit():
             status=ClassOffering.Status.DRAFT,
         )
         client.force_login(instructor_fixture.user)
-        response = client.post(reverse("classes:instructor_class_submit", kwargs={"pk": mine.pk}))
+        response = client.post(reverse("classes:teach_class_submit", kwargs={"pk": mine.pk}))
         assert response.status_code == 302
         mine.refresh_from_db()
         assert mine.status == ClassOffering.Status.PENDING
@@ -241,7 +241,7 @@ def describe_instructor_registrations():
         r1 = RegistrationFactory(class_offering=mine, first_name="Mine", last_name="Guest")
         RegistrationFactory(class_offering=theirs, first_name="Other", last_name="Guest")
         client.force_login(instructor_fixture.user)
-        response = client.get(reverse("classes:instructor_registrations"))
+        response = client.get(reverse("classes:teach_registrations"))
         assert response.status_code == 200
         assert r1.first_name.encode() in response.content
         assert b"Other" not in response.content
@@ -251,7 +251,7 @@ def describe_instructor_profile():
     def it_saves_profile_fields(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         response = client.post(
-            reverse("classes:instructor_profile"),
+            reverse("classes:teach_profile"),
             {
                 "preferred_name": "New Name",
                 "about_me": "Updated bio",
@@ -266,7 +266,7 @@ def describe_instructor_profile():
 
     def it_renders_profile_form_on_get(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
-        response = client.get(reverse("classes:instructor_profile"))
+        response = client.get(reverse("classes:teach_profile"))
         assert response.status_code == 200
         assert instructor_fixture.about_me.encode() in response.content
 
@@ -276,7 +276,7 @@ def describe_instructor_class_create_invalid():
         """Missing required fields → form re-renders (line 519 fallback path)."""
         client.force_login(instructor_fixture.user)
         response = client.post(
-            reverse("classes:instructor_class_create"),
+            reverse("classes:teach_class_create"),
             {
                 # Missing title, category, price — form will be invalid
                 "sessions-TOTAL_FORMS": "0",
@@ -308,7 +308,7 @@ def describe_instructor_class_edit_post():
         start = (timezone.now() + timedelta(days=10)).strftime("%Y-%m-%dT%H:%M")
         end = (timezone.now() + timedelta(days=10, hours=2)).strftime("%Y-%m-%dT%H:%M")
         response = client.post(
-            reverse("classes:instructor_class_edit", kwargs={"pk": mine.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": mine.pk}),
             {
                 "title": "Updated Title",
                 "category": cat.pk,
@@ -355,7 +355,7 @@ def describe_instructor_class_edit_post():
         start = (timezone.now() + timedelta(days=10)).strftime("%Y-%m-%dT%H:%M")
         end = (timezone.now() + timedelta(days=10, hours=2)).strftime("%Y-%m-%dT%H:%M")
         response = client.post(
-            reverse("classes:instructor_class_edit", kwargs={"pk": mine.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": mine.pk}),
             {
                 "title": mine.title,
                 "category": cat.pk,
@@ -394,7 +394,7 @@ def describe_instructor_discount_code_instructor_crud():
         """Instructor creates a discount code via the Teaching portal (lines 647-649)."""
         client.force_login(instructor_fixture.user)
         response = client.post(
-            reverse("classes:instructor_discount_code_create"),
+            reverse("classes:teach_discount_code_create"),
             {"code": "TEACH10", "discount_pct": 10, "is_active": "on"},
         )
         assert response.status_code == 302
@@ -405,7 +405,7 @@ def describe_instructor_discount_code_instructor_crud():
     def it_renders_create_form_on_get(instructor_fixture, client):
         """GET on create renders the empty form (line 650)."""
         client.force_login(instructor_fixture.user)
-        response = client.get(reverse("classes:instructor_discount_code_create"))
+        response = client.get(reverse("classes:teach_discount_code_create"))
         assert response.status_code == 200
 
     def it_edits_a_discount_code(instructor_fixture, client):
@@ -415,7 +415,7 @@ def describe_instructor_discount_code_instructor_crud():
         code = DiscountCodeFactory(discount_pct=10)
         client.force_login(instructor_fixture.user)
         response = client.post(
-            reverse("classes:instructor_discount_code_edit", kwargs={"pk": code.pk}),
+            reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}),
             {"code": code.code, "discount_pct": 30, "is_active": "on"},
         )
         assert response.status_code == 302
@@ -428,7 +428,7 @@ def describe_instructor_discount_code_instructor_crud():
 
         code = DiscountCodeFactory(discount_pct=15)
         client.force_login(instructor_fixture.user)
-        response = client.get(reverse("classes:instructor_discount_code_edit", kwargs={"pk": code.pk}))
+        response = client.get(reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}))
         assert response.status_code == 200
 
     def it_deletes_a_discount_code(instructor_fixture, client):
@@ -439,7 +439,7 @@ def describe_instructor_discount_code_instructor_crud():
         code = DiscountCodeFactory()
         client.force_login(instructor_fixture.user)
         response = client.post(
-            reverse("classes:instructor_discount_code_delete", kwargs={"pk": code.pk}),
+            reverse("classes:teach_discount_code_delete", kwargs={"pk": code.pk}),
         )
         assert response.status_code == 302
         assert not DiscountCode.objects.filter(pk=code.pk).exists()
@@ -452,7 +452,7 @@ def describe_instructor_discount_code_instructor_crud():
         code = DiscountCodeFactory()
         client.force_login(instructor_fixture.user)
         response = client.get(
-            reverse("classes:instructor_discount_code_delete", kwargs={"pk": code.pk}),
+            reverse("classes:teach_discount_code_delete", kwargs={"pk": code.pk}),
         )
         assert response.status_code == 302
         assert DiscountCode.objects.filter(pk=code.pk).exists()
@@ -462,5 +462,5 @@ def describe_instructor_required_admin_without_instructor():
     def it_redirects_admin_with_no_instructor_profile(admin_user, client):
         """Admin is an active member so can access the teaching portal even without instructor_slug."""
         client.force_login(admin_user)
-        response = client.get(reverse("classes:instructor_dashboard"))
+        response = client.get(reverse("classes:teach_dashboard"))
         assert response.status_code == 200
