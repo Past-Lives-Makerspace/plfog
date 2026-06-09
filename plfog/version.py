@@ -13,18 +13,15 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "On the public booking site (book.pastlives.space), the 'Manage Classes & Workshops' and 'Manage My Classes' buttons now take you straight to the right place in your member dashboard — before, they led to a dead page.",
             "Hosting classes is open to every member: there's no separate 'instructor' role anymore. Any member can create and manage a class or workshop — it still needs approval from the category's Guild Lead and an admin before it goes live. The teaching pages now live at a clearer /classes/teach address, and old links redirect there automatically.",
             "The top bar on the booking site is tidier for signed-in members — the link back to your FOG dashboard and your 'Member' badge are now properly styled and only appear where they're useful.",
-            "Behind the scenes, every automatic email the site sends — receipts, class confirmations, invites, and more — is now recorded. Admins can review exactly what went out, and catch anything that failed to send, in the Email Log tab of the admin Activity area.",
+            "Admins have a new site-wide Activity dashboard in the sidebar. One tab shows a chronological feed of what's happening across the site — logins, profile updates, votes, tab charges, class registrations, and more. A second tab logs every automatic email the site sends (receipts, class confirmations, invites) so you can confirm exactly what went out and catch anything that failed.",
         ],
     },
     {
         "version": "2.4.0",
         "date": "2026-06-08",
-        "title": "Notifications, redesigned Guild Pages, and a site-wide Activity dashboard",
+        "title": "Old-CMS classes import and sync automatically every day",
         "changes": [
-            "You can now get notified about what matters to you. A bell in the top-right corner shows your recent notifications — new classes, voting reminders, billing updates, guild announcements, and more. Head to Settings → Notifications to choose which ones reach you as browser push alerts or emails, and which ones you just see in the bell.",
-            "Guild pages have been completely redesigned. Each guild now has a full hero image, a photo gallery of up to 10 images, an optional YouTube video, a meeting schedule, a FAQ section, an announcements board, a links section, and an optional member roster. Guild leads can manage all of it from the updated edit page.",
-            "Admins now have a site-wide Activity dashboard at /manage/activity. It shows a chronological feed of everything happening across the site — logins, profile updates, votes, tab charges, class registrations, and more — with a second tab for auditing every transactional email that has been sent or failed.",
-            "The class catalog and Community Calendar now refresh themselves automatically every morning. New workshops from the old class site and any updated guild calendars show up on their own — nobody has to open the calendar or press a button to pull them in. The 'Sync Now' buttons in Site Settings are still there whenever you want an instant refresh.",
+            "The class catalog and Community Calendar now refresh themselves automatically every morning. New workshops imported from the old class site (classes.pastlives.space) and any updated guild calendars show up on their own — nobody has to open the calendar or press a button to pull them in. The 'Sync Now' buttons in Site Settings are still there whenever you want an instant refresh.",
         ],
     },
     {
