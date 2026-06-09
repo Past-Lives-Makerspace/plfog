@@ -602,6 +602,16 @@ a:hover { color: var(--color-yellow-hover); }
     padding: 2rem;
 }
 
+/* Classes admin Overview: the dark theme's card border is transparent, so the
+   nested sections blend into the page. Give them a visible outline in dark
+   mode; light keeps its existing card border (which already reads well). */
+.cms-overview .hub-card {
+    border-color: var(--hub-border, rgba(255, 255, 255, 0.12));
+}
+[data-theme="light"] .cms-overview .hub-card {
+    border-color: var(--hub-card-border);
+}
+
 .hub-page-title {
     font-size: 1.75rem;
     margin-bottom: 0.5rem;
