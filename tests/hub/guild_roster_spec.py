@@ -52,3 +52,30 @@ def describe_image_delete():
         img = GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("x.png", _PNG))
         client.post(reverse("hub_guild_image_delete", args=[guild.pk, img.pk]))
         assert not GuildImage.objects.filter(pk=img.pk).exists()
+
+
+@pytest.mark.django_db
+def describe_join_leave_without_member():
+    def it_is_a_noop_when_the_user_has_no_member(client: Client):
+        user = User.objects.create_user(username="nomem", password="pw")
+        Member.objects.filter(user=user).delete()
+        client.login(username="nomem", password="pw")
+        guild = GuildFactory()
+        resp_join = client.post(reverse("hub_guild_join", args=[guild.pk]))
+        assert resp_join.status_code == 302
+        assert not GuildMembership.objects.filter(guild=guild).exists()
+        # leave is likewise a no-op (and must not error)
+        resp_leave = client.post(reverse("hub_guild_leave", args=[guild.pk]))
+        assert resp_leave.status_code == 302
+
+
+@pytest.mark.django_db
+def describe_delete_permissions():
+    def it_forbids_non_editors_from_deleting_an_image(client: Client):
+        _member_user("plain_img")
+        client.login(username="plain_img", password="pw")
+        guild = GuildFactory()
+        img = GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("p.png", _PNG))
+        resp = client.post(reverse("hub_guild_image_delete", args=[guild.pk, img.pk]))
+        assert resp.status_code == 403
+        assert GuildImage.objects.filter(pk=img.pk).exists()

@@ -70,3 +70,16 @@ def describe_guild_new_fields():
         assert guild.meeting_schedule == ""
         assert guild.contact_email == ""
         assert guild.show_members is False
+
+
+def describe_str_methods():
+    def it_renders_readable_strings():
+        guild = GuildFactory(name="Painters")
+        img = GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("x.png", _PNG))
+        assert str(img) == f"Image #{img.pk} for Painters"
+        faq = GuildFAQItem.objects.create(guild=guild, question="Why?", answer="Because")
+        assert str(faq) == "Why?"
+        link = GuildLink.objects.create(guild=guild, label="Discord", url="https://d.example")
+        assert str(link) == "Discord (Painters)"
+        ann = GuildAnnouncement.objects.create(guild=guild, title="Hi", body="b")
+        assert str(ann) == "Hi (Painters)"

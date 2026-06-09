@@ -36,3 +36,20 @@ def describe_announcement_delete():
         announcement = GuildAnnouncementFactory(guild=guild)
         client.post(reverse("hub_guild_announcement_delete", args=[guild.pk, announcement.pk]))
         assert not GuildAnnouncement.objects.filter(pk=announcement.pk).exists()
+
+
+@pytest.mark.django_db
+def describe_announcement_delete_permissions():
+    def it_forbids_non_editors(client: Client):
+        MembershipPlanFactory()
+        user = User.objects.create_user(username="plain_ann", password="pw")
+        member = user.member
+        member.fog_role = Member.FogRole.MEMBER
+        member.save(update_fields=["fog_role"])
+        member.sync_user_permissions()
+        client.login(username="plain_ann", password="pw")
+        guild = GuildFactory()
+        announcement = GuildAnnouncementFactory(guild=guild)
+        resp = client.post(reverse("hub_guild_announcement_delete", args=[guild.pk, announcement.pk]))
+        assert resp.status_code == 403
+        assert GuildAnnouncement.objects.filter(pk=announcement.pk).exists()

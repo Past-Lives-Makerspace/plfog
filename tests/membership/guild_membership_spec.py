@@ -36,3 +36,11 @@ def describe_roster_members():
         guild.save()
         GuildMembership.objects.create(guild=guild, member=lead_member)
         assert lead_member in list(guild.roster_members())
+
+
+def describe_str():
+    def it_describes_the_membership():
+        guild = GuildFactory(name="Painters")
+        member = MemberFactory(full_legal_name="Dana")
+        gm = GuildMembership.objects.create(guild=guild, member=member)
+        assert str(gm) == f"{member} in Painters"
