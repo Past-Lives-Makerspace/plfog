@@ -17,6 +17,7 @@ from classes.factories import (
 )
 from classes.models import ClassApproval, ClassOffering, ClassSettings, Registration
 from classes.tasks import send_due_class_reminders
+from classes.webhook_handlers import handle_checkout_session_completed
 from core.models import Notification
 
 pytestmark = pytest.mark.django_db
@@ -257,30 +258,33 @@ def describe_class_cancelled_notification():
 
 def describe_instructor_new_registration_notification():
     def it_notifies_instructor_when_registration_confirmed_via_webhook(db):
-        """webhook_handlers wires dispatch after send_instructor_registration_notification."""
+        """handle_checkout_session_completed dispatches instructor_new_registration."""
         instructor_user = UserFactory()
         instructor = InstructorFactory(user=instructor_user)
         offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.PUBLISHED)
         reg = RegistrationFactory(
             class_offering=offering,
             status=Registration.Status.PENDING,
+            stripe_session_id="cs_test_notif",
+            amount_paid_cents=5000,
         )
         Notification.objects.all().delete()
 
-        # Invoke the wired code path directly (mirrors what webhook_handlers does after Stripe)
-        from classes.emails import send_instructor_registration_notification
-        from core import notifications
-
-        send_instructor_registration_notification(reg)
-        _instructor = reg.class_offering.instructor
-        if _instructor is not None and _instructor.user is not None:
-            notifications.dispatch(
-                "instructor_new_registration",
-                [_instructor.user],
-                title="New registration",
-                body=reg.class_offering.title,
-                url="/classes/teach/",
-            )
+        event = {
+            "data": {
+                "object": {
+                    "id": "cs_test_notif",
+                    "payment_status": "paid",
+                    "payment_intent": "pi_test_notif",
+                    "amount_total": 5000,
+                    "metadata": {
+                        "kind": "class_registration",
+                        "registration_id": str(reg.pk),
+                    },
+                }
+            }
+        }
+        handle_checkout_session_completed(event)
 
         assert Notification.objects.filter(
             trigger="instructor_new_registration",

@@ -4,7 +4,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.db import IntegrityError
 
-from core.models import Notification, NotificationPreference
+from core.models import Notification, NotificationPreference, ScheduledNotificationMarker
 
 pytestmark = pytest.mark.django_db
 
@@ -30,6 +30,11 @@ def describe_Notification():
         assert n.read_at is not None
         assert n.is_unread is False
 
+    def it_str_includes_title_and_email():
+        user = User.objects.create_user(username="u_str", email="strtest@example.com")
+        n = Notification.objects.create(user=user, trigger="class_published", title="New class", body="b")
+        assert str(n) == "New class → strtest@example.com"
+
 
 def describe_NotificationPreference():
     def it_is_unique_per_user_and_trigger():
@@ -37,3 +42,16 @@ def describe_NotificationPreference():
         NotificationPreference.objects.create(user=user, trigger="class_published", push_enabled=True)
         with pytest.raises(IntegrityError):
             NotificationPreference.objects.create(user=user, trigger="class_published")
+
+    def it_str_includes_email_trigger_and_flags():
+        user = User.objects.create_user(username="u_pref", email="pref@example.com")
+        pref = NotificationPreference.objects.create(
+            user=user, trigger="lease_expiring", push_enabled=True, email_enabled=False
+        )
+        assert str(pref) == "pref@example.com:lease_expiring (push=True, email=False)"
+
+
+def describe_ScheduledNotificationMarker():
+    def it_str_returns_the_key():
+        marker = ScheduledNotificationMarker.objects.create(key="lease_expiring:99")
+        assert str(marker) == "lease_expiring:99"

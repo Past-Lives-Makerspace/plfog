@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from classes.factories import UserFactory
 from core.models import Notification
-from tests.membership.factories import LeaseFactory
+from tests.membership.factories import LeaseFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -29,3 +29,10 @@ def describe_send_lease_expiry_reminders():
         call_command("send_lease_expiry_reminders")
         call_command("send_lease_expiry_reminders")
         assert Notification.objects.filter(trigger="lease_expiring").count() == 1
+
+    def it_skips_tenant_with_no_user():
+        # MemberFactory() creates a Member without a linked User (user=None).
+        member = MemberFactory()
+        LeaseFactory(tenant_obj=member, end_date=timezone.now().date() + timedelta(days=30))
+        call_command("send_lease_expiry_reminders")
+        assert Notification.objects.filter(trigger="lease_expiring").count() == 0
