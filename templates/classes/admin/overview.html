@@ -63,19 +63,28 @@
       <h2 style="margin:0;">Recent sign-ups</h2>
       <a href="{% url 'classes:admin_registrations' %}">View all registrations →</a>
     </div>
-    <table style="width:100%;margin-top:8px;">
+    <div class="admin-table-wrap" style="margin-top:8px;">
+    <table>
+      <thead>
+        <tr>
+          <th>Member</th>
+          <th>Class</th>
+          <th style="text-align:right;">Amount</th>
+        </tr>
+      </thead>
       <tbody>
       {% for r in recent_registrations %}
         <tr>
           <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.first_name }} {{ r.last_name }}</a></td>
           <td>{{ r.class_offering.title }}</td>
-          <td style="text-align:right;">{% if r.amount_paid_cents %}{{ r.amount_paid_cents|cents_as_dollars }}{% else %}Free{% endif %}</td>
+          <td style="text-align:right;white-space:nowrap;">{% if r.amount_paid_cents %}{{ r.amount_paid_cents|cents_as_dollars }}{% else %}<span style="color:var(--hub-text-muted);">Free</span>{% endif %}</td>
         </tr>
       {% empty %}
-        <tr><td style="color:var(--hub-text-muted);padding:0.5rem 0;">No registrations yet.</td></tr>
+        <tr><td colspan="3" style="color:var(--hub-text-muted);padding:1.5rem 0.75rem;">No registrations yet.</td></tr>
       {% endfor %}
       </tbody>
     </table>
+    </div>
   </section>
 
   {# ④ Activity #}
