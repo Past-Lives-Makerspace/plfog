@@ -600,7 +600,6 @@ def guild_product_delete(request: HttpRequest, pk: int, product_pk: int) -> Http
 @require_POST
 def guild_cart_confirm(request: HttpRequest, pk: int) -> HttpResponse:
     """Batch-add cart items to the member's tab. Expects JSON body with items array."""
-    from hub.toast import trigger_toast
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
@@ -656,7 +655,6 @@ def guild_cart_confirm(request: HttpRequest, pk: int) -> HttpResponse:
 def guild_eyop_form(request: HttpRequest, pk: int) -> HttpResponse:
     """Return the EYOP form partial (GET) or process submission (POST)."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm
-    from hub.toast import trigger_toast
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
@@ -1025,7 +1023,6 @@ def tab_detail(request: HttpRequest) -> HttpResponse:
 def void_tab_entry(request: HttpRequest, entry_pk: int) -> HttpResponse:
     """Remove a pending tab entry. Only the owning member can remove their own entries."""
     from billing.models import TabEntry as TabEntryModel
-    from hub.toast import trigger_toast
 
     member = _get_member(request)
     if member is None:  # pragma: no cover — defensive; signal auto-creates Member on User creation

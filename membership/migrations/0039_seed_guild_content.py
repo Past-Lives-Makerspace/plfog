@@ -1,9 +1,16 @@
 import os
+import sys
 from django.db import migrations
 from django.core.files import File
 
 
 def seed_guild_content(apps, schema_editor):
+    # Skip seeding under pytest. Data migrations commit outside the per-test
+    # transaction, so seeded guilds would persist into every test and break
+    # count/ordering assertions and collide on the unique name constraint.
+    if "pytest" in sys.argv[0] or "PYTEST_CURRENT_TEST" in os.environ:
+        return
+
     Guild = apps.get_model("membership", "Guild")
     GuildLink = apps.get_model("membership", "GuildLink")
 
