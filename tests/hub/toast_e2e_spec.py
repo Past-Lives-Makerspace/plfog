@@ -65,4 +65,4 @@ def describe_toast_pipeline():
         _login(client, django_user_model, "viewer@example.com")
         html = client.get("/settings/").content.decode()
         assert "window.showToast" in html  # inline JS, never depends on a cached asset
-        assert ".plt-toast" in html        # inline CSS, never depends on a cached asset
+        assert ".plt-toast" in html  # inline CSS, never depends on a cached asset
