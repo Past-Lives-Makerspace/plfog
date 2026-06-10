@@ -1,9 +1,7 @@
-import json
 import pytest
-from io import BytesIO
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.models import User
-from tests.membership.factories import GuildFactory, MemberFactory
+from tests.membership.factories import GuildFactory
 from membership.models import GuildImage
 
 def login_member(client, username="u1", view_as="member"):

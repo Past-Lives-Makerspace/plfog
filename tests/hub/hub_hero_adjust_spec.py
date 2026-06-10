@@ -1,8 +1,7 @@
-import json
 import pytest
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth.models import User
-from tests.membership.factories import GuildFactory, MemberFactory
+from tests.membership.factories import GuildFactory
 from classes.factories import ClassOfferingFactory, CategoryFactory
 
 def login_member(client, username="u1", view_as="member"):
