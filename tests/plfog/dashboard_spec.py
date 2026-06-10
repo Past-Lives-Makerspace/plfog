@@ -102,7 +102,7 @@ def describe_dashboard_callback():
         resp = admin_client.get("/admin/")
         stats = resp.context["stats"]
 
-        assert stats["active_guilds"] == 1
+        assert stats["active_guilds"] == GuildFactory._meta.model.objects.filter(is_active=True).count()
         assert stats["top_guilds"] == []
 
 

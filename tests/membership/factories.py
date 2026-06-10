@@ -66,6 +66,7 @@ class SpaceFactory(factory.django.DjangoModelFactory):
 class GuildFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = Guild
+        django_get_or_create = ("name",)
 
     name = factory.Sequence(lambda n: f"Guild {n}")
     is_active = True

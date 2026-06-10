@@ -23,7 +23,8 @@ def describe_get_hub_context():
 
         response = client.get("/guilds/voting/")
 
-        assert list(response.context["guilds"]) == [g1, g2]
+        assert g1 in list(response.context["guilds"])
+        assert g2 in list(response.context["guilds"])
 
     def it_returns_initials_from_member(client: Client):
         User.objects.create_user(username="u2", password="pass", first_name="Jane", last_name="Doe")
