@@ -4,6 +4,7 @@ from django.contrib.auth.models import User
 from tests.membership.factories import GuildFactory
 from membership.models import GuildImage
 
+
 def login_member(client, username="u1", view_as="member"):
     user = User.objects.create_user(username=username, password="password", is_superuser=view_as == "admin")
     member = user.member
@@ -13,11 +14,11 @@ def login_member(client, username="u1", view_as="member"):
     session.save()
     return member
 
+
 @pytest.fixture
 def image_file():
-    return SimpleUploadedFile(
-        "test.jpg", b"file_content", content_type="image/jpeg"
-    )
+    return SimpleUploadedFile("test.jpg", b"file_content", content_type="image/jpeg")
+
 
 @pytest.mark.django_db
 def describe_guild_image_views():
@@ -78,11 +79,11 @@ def describe_guild_image_views():
         guild = GuildFactory(guild_lead=member)
         img1 = GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("1.jpg", b"x"), sort_order=1)
         img2 = GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("2.jpg", b"x"), sort_order=2)
-        
+
         data = {"order": [img2.pk, img1.pk]}
         response = client.post(f"/guilds/{guild.pk}/images/reorder/", data, content_type="application/json")
         assert response.status_code == 204
-        
+
         img1.refresh_from_db()
         img2.refresh_from_db()
         assert img2.sort_order == 0
@@ -104,7 +105,7 @@ def describe_guild_image_views():
         member = login_member(client, "u11")
         guild = GuildFactory(guild_lead=member)
         img = GuildImage.objects.create(guild=guild, image=image_file, sort_order=1)
-        
+
         data = {"alt_text": "New alt text"}
         response = client.post(f"/guilds/{guild.pk}/images/{img.pk}/alt/", data, content_type="application/json")
         assert response.status_code == 204
@@ -115,6 +116,6 @@ def describe_guild_image_views():
         member = login_member(client, "u12")
         guild = GuildFactory(guild_lead=member)
         img = GuildImage.objects.create(guild=guild, image=image_file, sort_order=1)
-        
+
         response = client.post(f"/guilds/{guild.pk}/images/{img.pk}/alt/", "invalid", content_type="application/json")
         assert response.status_code == 400

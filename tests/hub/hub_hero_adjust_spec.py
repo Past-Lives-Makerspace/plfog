@@ -4,6 +4,7 @@ from django.contrib.auth.models import User
 from tests.membership.factories import GuildFactory
 from classes.factories import ClassOfferingFactory, CategoryFactory
 
+
 def login_member(client, username="u1", view_as="member"):
     user = User.objects.create_user(username=username, password="password", is_superuser=view_as == "admin")
     member = user.member
@@ -12,6 +13,7 @@ def login_member(client, username="u1", view_as="member"):
     session["view_as"] = view_as
     session.save()
     return member
+
 
 @pytest.mark.django_db
 def describe_hub_hero_adjust():
