@@ -100,6 +100,22 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         return self.filter(instructor=instructor)
 
+    def spots_remaining_map(self) -> dict[int, int]:
+        """Map of ``{offering_pk: spots_remaining}`` for this queryset in one query.
+
+        Mirrors the ``ClassOffering.spots_remaining`` property but batched, so the
+        catalog can show per-date seat counts without an N+1 of count queries.
+        """
+        from django.db.models import Count, Q
+
+        rows = self.annotate(
+            used=Count(
+                "registrations",
+                filter=Q(registrations__status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]),
+            )
+        ).values("pk", "capacity", "used")
+        return {row["pk"]: max(0, row["capacity"] - row["used"]) for row in rows}
+
 
 class ClassOffering(HeroCropMixin, models.Model):
     class Status(models.TextChoices):
@@ -194,6 +210,15 @@ class ClassOffering(HeroCropMixin, models.Model):
         blank=True,
         help_text="Hero image URL from the legacy CMS. Cleared after download_legacy_images runs.",
     )
+    grouping_key = models.CharField(
+        max_length=255,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Links the same class offered on multiple dates into one public catalog card. "
+            "Derived from the normalized title + category on save; empty offerings stand alone."
+        ),
+    )
 
     objects = ClassOfferingQuerySet.as_manager()
 
@@ -229,6 +254,16 @@ class ClassOffering(HeroCropMixin, models.Model):
                 self.hero_crop_w = None
                 self.hero_crop_h = None
         normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)
+
+        # Keep the catalog grouping key in sync with the title/category so the
+        # same class on many dates always collapses into one public card.
+        from classes.grouping import grouping_key_for
+
+        self.grouping_key = grouping_key_for(self.title, self.category_id)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and {"title", "category", "category_id"} & set(update_fields):
+            kwargs["update_fields"] = [*update_fields, "grouping_key"]
+
         super().save(*args, **kwargs)
         if creating:
             from classes import activity

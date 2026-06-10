@@ -205,6 +205,27 @@
         </section>
       {% endif %}
 
+      {# Other dates this same class is offered on — each keeps its own seats. #}
+      {% if sibling_offerings %}
+        <section class="cp-detail__section">
+          <h2 class="cp-detail__h2">Other dates for this class</h2>
+          <ul class="cp-detail__other-dates">
+            {% for sibling in sibling_offerings %}
+              {% with session=sibling.sessions.all|upcoming_sessions|first %}
+                <li class="cp-detail__other-date">
+                  <a href="{% url 'classes:public_class_detail' slug=sibling.slug %}">
+                    <span class="cp-detail__other-date-when">{{ session.starts_at|date:"l, F j, Y" }} · {{ session|session_time_range }}</span>
+                    <span class="cls-spots {{ sibling.spots_left|spots_class }}">
+                      {% if sibling.spots_left == 0 %}Full{% elif sibling.spots_left <= 3 %}{{ sibling.spots_left }} left{% else %}{{ sibling.spots_left }} spots{% endif %}
+                    </span>
+                  </a>
+                </li>
+              {% endwith %}
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
+
       {# Two-up info: prerequisites + safety #}
       {% if offering.prerequisites or offering.safety_requirements %}
         <section class="cp-detail__section cp-detail__section--split">

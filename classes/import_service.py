@@ -189,6 +189,11 @@ def sync_legacy_cms() -> int:
         status=ClassOffering.Status.ARCHIVED
     )
 
+    # Sanitize: collapse the same class posted on many dates into one catalog group.
+    from classes.grouping import regroup_offerings
+
+    regroup_offerings()
+
     config = SiteConfiguration.load()
     config.legacy_cms_last_synced_at = now
     config.save(update_fields=["legacy_cms_last_synced_at"])

@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
-VERSION = "2.5.3"
+VERSION = "2.5.5"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.5.5",
+        "date": "2026-06-10",
+        "title": "Classes offered on many dates show once",
+        "changes": [
+            "When a class runs on several different dates, the catalog now shows it a single time with a 'Pick a date' list, instead of repeating the same class once per date. Each date keeps its own seats, so you can see at a glance which dates still have spots.",
+            "A class page now lists the other available dates for that same class, so you can switch dates without going back to the catalog.",
+        ],
+    },
+    {
+        "version": "2.5.4",
+        "date": "2026-06-10",
+        "title": "Class session calendar saves reliably",
+        "changes": [
+            "When editing a class, the session scheduling calendar now loads correctly every time, so adding or changing session dates and times saves as expected. Previously it could fail to appear when navigating straight to the edit page.",
+        ],
+    },
     {
         "version": "2.5.3",
         "date": "2026-06-09",

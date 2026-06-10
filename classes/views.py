@@ -81,6 +81,44 @@ def _browsable_classes() -> Any:
     )
 
 
+class _CatalogGroup:
+    """One public catalog card: a class plus every date it is offered on.
+
+    ``representative`` supplies the shared display chrome (title, image, price,
+    instructor); ``members`` are the individual dated offerings, each still its
+    own bookable unit with its own capacity. Built from offerings already sorted
+    by soonest upcoming session, so the first member seen is the representative
+    and members stay date-ordered.
+    """
+
+    def __init__(self, representative: Any) -> None:
+        self.representative = representative
+        self.members = [representative]
+
+    @property
+    def date_count(self) -> int:
+        return len(self.members)
+
+    @property
+    def is_multi(self) -> bool:
+        return len(self.members) > 1
+
+
+def _grouped_catalog(offerings: Any) -> list[_CatalogGroup]:
+    """Collapse offerings sharing a grouping key into one card, preserving order."""
+    groups: dict[str, _CatalogGroup] = {}
+    order: list[str] = []
+    for offering in offerings:
+        key = offering.grouping_key or f"solo:{offering.pk}"
+        group = groups.get(key)
+        if group is None:
+            groups[key] = _CatalogGroup(offering)
+            order.append(key)
+        else:
+            group.members.append(offering)
+    return [groups[key] for key in order]
+
+
 def _coerce_dollars_to_cents(raw: str | None) -> int:
     """Parse a form-submitted dollar amount into cents. Empty/invalid → 0."""
     if not raw:
@@ -136,12 +174,17 @@ def public_list(request: HttpRequest) -> HttpResponse:
     upcoming_only = request.GET.get("upcoming") == "1"
 
     classes_qs = _apply_browse_filters(_browsable_classes(), request)
+    catalog_groups = _grouped_catalog(classes_qs)
 
     # Category chips and per-category counts always reflect the unfiltered
     # universe of browsable classes so users can see what else is out there.
-    category_counts: dict[int, int] = {}
+    # Counts are per-group (distinct grouping keys) so they match the collapsed
+    # cards rather than the raw, deduplicated offering rows.
+    keys_by_category: dict[int, set[str]] = {}
     for offering in _browsable_classes():
-        category_counts[offering.category_id] = category_counts.get(offering.category_id, 0) + 1
+        key = offering.grouping_key or f"solo:{offering.pk}"
+        keys_by_category.setdefault(offering.category_id, set()).add(key)
+    category_counts: dict[int, int] = {cat_id: len(keys) for cat_id, keys in keys_by_category.items()}
     categories = [cat for cat in Category.objects.all() if category_counts.get(cat.id)]
     for cat in categories:
         cat.class_count = category_counts[cat.id]  # type: ignore[attr-defined]
@@ -155,8 +198,16 @@ def public_list(request: HttpRequest) -> HttpResponse:
         .order_by("full_legal_name")
     )
 
-    paginator = Paginator(classes_qs, 25)
+    paginator = Paginator(catalog_groups, 25)
     page_obj = paginator.get_page(request.GET.get("page", 1))
+
+    # Attach per-date seat counts to the members shown on this page in one query,
+    # so each date row can display its own "N left" without an N+1.
+    page_member_pks = [member.pk for group in page_obj for member in group.members]
+    spots_map = ClassOffering.objects.filter(pk__in=page_member_pks).spots_remaining_map()
+    for group in page_obj:
+        for member in group.members:
+            member.spots_left = spots_map.get(member.pk, member.capacity)
 
     # Strip 'page' from the querystring so pagination links can append it cleanly.
     filter_qs = request.GET.copy()
@@ -221,7 +272,27 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     )
     settings_obj = ClassSettings.load()
     member_price_cents = offering.member_price_cents
-    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    now = timezone.now()
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
+
+    # Other dates this same class is offered on, so the visitor can switch dates
+    # without hunting through the catalog. Each sibling keeps its own seats.
+    sibling_offerings: list[Any] = []
+    if offering.grouping_key:
+        sibling_offerings = list(
+            ClassOffering.objects.public()
+            .filter(grouping_key=offering.grouping_key, sessions__starts_at__gte=now)
+            .exclude(pk=offering.pk)
+            .select_related("instructor")
+            .prefetch_related("sessions")
+            .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
+            .order_by("first_session_at")
+            .distinct()
+        )
+        sib_spots = ClassOffering.objects.filter(pk__in=[s.pk for s in sibling_offerings]).spots_remaining_map()
+        for sibling in sibling_offerings:
+            sibling.spots_left = sib_spots.get(sibling.pk, sibling.capacity)
+
     related_offerings = list(
         ClassOffering.objects.public()
         .filter(category=offering.category)
@@ -279,6 +350,7 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
             "related_offerings": related_offerings,
+            "sibling_offerings": sibling_offerings,
         },
     )
 
