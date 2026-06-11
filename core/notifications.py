@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import User
+    from django.db.models import QuerySet
 
 from core import triggers
 from core.email import send as send_email
@@ -57,7 +61,7 @@ def dispatch(
             )
 
 
-def active_member_users():
+def active_member_users() -> "QuerySet[User]":
     """All active members' User objects — the default broadcast audience."""
     from django.contrib.auth.models import User
 

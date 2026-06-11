@@ -49,7 +49,7 @@ class EncryptedCharField(models.CharField):
             return value
         try:
             return _fernet().decrypt(value.encode()).decode()
-        except (InvalidToken, Exception):
+        except InvalidToken:
             # If we can't decrypt (usually due to a changed STRIPE_FIELD_ENCRYPTION_KEY),
             # return an empty string instead of crashing the entire site. The
             # admin will see the field as empty and can re-enter it.
