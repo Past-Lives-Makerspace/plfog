@@ -31,9 +31,7 @@ def describe_run_scheduled_tasks_command():
             if cmd == "send_voting_reminders":
                 raise CommandError("boom")
 
-        with patch(
-            "core.management.commands.run_scheduled_tasks.call_command", side_effect=_fake_call
-        ) as mock_cc:
+        with patch("core.management.commands.run_scheduled_tasks.call_command", side_effect=_fake_call) as mock_cc:
             stderr = StringIO()
             call_command("run_scheduled_tasks", stderr=stderr)
 
