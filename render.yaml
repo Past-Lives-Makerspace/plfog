@@ -57,41 +57,17 @@ services:
       - key: PYTHON_VERSION
         value: "3.13.0"
 
-  # Daily morning sync of every calendar feed + the legacy CMS into the database.
-  # The Community Calendar and book/CMS pages read these rows straight from the DB,
-  # so this is the single scheduled refresh for the whole site (replaces the old
-  # page-load trigger). Toggles in Site Settings still gate the classes/legacy sources.
-  # Requires the same env vars as the web service (DATABASE_URL, DJANGO_SECRET_KEY,
-  # EMAIL_*, WEBPUSH_*, SENTRY_DSN) — set them on this cron in the Render dashboard.
+  # Single dispatcher for all scheduled background tasks.
+  # Runs every 15 minutes. Each task is responsible for its own idempotency.
+  # sync_all_sources is time-gated inside the command (runs at 13:xx UTC ≈ 6 AM Portland).
+  # Add new scheduled tasks in core/management/commands/run_scheduled_tasks.py only —
+  # no Render config changes needed.
   - type: cron
-    name: daily-sync
+    name: run-scheduled-tasks
     runtime: python
-    schedule: "0 13 * * *"  # 13:00 UTC ≈ 6 AM Portland
+    schedule: "*/15 * * * *"
     buildCommand: pip install -r requirements.txt
-    command: python manage.py sync_all_sources
-    envVars:
-      - key: PYTHON_VERSION
-        value: "3.13.0"
-
-  # Notify members 3 days before the monthly funding vote closes.
-  # Idempotent — safe to run daily. No action taken outside the window.
-  - type: cron
-    name: send-voting-reminders
-    runtime: python
-    schedule: "0 16 * * *"
-    buildCommand: pip install -r requirements.txt
-    command: python manage.py send_voting_reminders
-    envVars:
-      - key: PYTHON_VERSION
-        value: "3.13.0"
-
-  # Notify tenants whose lease ends in 30 days. Idempotent per lease.
-  - type: cron
-    name: send-lease-expiry-reminders
-    runtime: python
-    schedule: "0 16 * * *"
-    buildCommand: pip install -r requirements.txt
-    command: python manage.py send_lease_expiry_reminders
+    command: python manage.py run_scheduled_tasks
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"
