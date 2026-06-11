@@ -370,9 +370,6 @@
                         <div class="pl-profile__dropdown-email">{{ user.email }}</div>
                     </div>
                     <a href="{% url 'hub_user_settings' %}" class="pl-profile__dropdown-item" role="menuitem">Settings</a>
-                    {% if request.view_as.is_member %}
-                    <a href="{% url 'classes:teach_profile' %}" class="pl-profile__dropdown-item" role="menuitem">Edit teaching profile</a>
-                    {% endif %}
                     <div class="pl-profile__dropdown-divider"></div>
                     <a href="{% url 'account_logout' %}" class="pl-profile__dropdown-item pl-profile__dropdown-item--danger" role="menuitem" hx-boost="false">Log Out</a>
                 </div>

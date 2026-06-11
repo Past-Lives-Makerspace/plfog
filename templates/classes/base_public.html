@@ -26,14 +26,32 @@ toggle still wins.
     </nav>
     <div class="cp-topbar__right">
       {% if user.is_authenticated %}
-        <a href="{% url 'account:overview' %}" class="cp-topbar__ghost">My account</a>
-        {% if persona == "member" and is_public_surface %}
-          <a href="https://{{ MEMBER_HOST }}/" class="cp-topbar__ext" title="Go to your FOG member dashboard" hx-boost="false">FOG
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 L17 7"/><path d="M8 7h9v9"/></svg>
-          </a>
-          <span class="cp-topbar__pill" title="Active member">Member</span>
-        {% endif %}
-        <a href="{% url 'account_logout' %}" class="cp-topbar__logout" hx-boost="false">Log out</a>
+        <div class="cp-topbar__account-menu" x-data="{ accountOpen: false }" @click.outside="accountOpen = false">
+          <button type="button" class="cp-topbar__account-btn"
+                  @click="accountOpen = !accountOpen"
+                  :aria-expanded="accountOpen"
+                  aria-label="Account menu">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 6h18M3 12h18M3 18h18"/>
+            </svg>
+          </button>
+          <div class="cp-topbar__account-dropdown" x-show="accountOpen" x-transition style="display:none">
+            {% if persona == "member" and is_public_surface %}
+              <div class="cp-topbar__account-status">
+                <span class="cp-topbar__account-pill">Member</span>
+              </div>
+            {% endif %}
+            <a href="{% url 'account:overview' %}" class="cp-topbar__account-item" @click="accountOpen = false">My account</a>
+            {% if persona == "member" and is_public_surface %}
+              <a href="https://{{ MEMBER_HOST }}/" class="cp-topbar__account-item cp-topbar__account-item--ext" hx-boost="false" @click="accountOpen = false">
+                FOG
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 L17 7"/><path d="M8 7h9v9"/></svg>
+              </a>
+            {% endif %}
+            <div class="cp-topbar__account-divider"></div>
+            <a href="{% url 'account_logout' %}" class="cp-topbar__account-item cp-topbar__account-item--logout" hx-boost="false">Log out</a>
+          </div>
+        </div>
       {% else %}
         <a href="{% url 'account_login' %}" class="cp-topbar__ghost">Log in</a>
       {% endif %}

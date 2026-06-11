@@ -248,27 +248,11 @@ def describe_instructor_registrations():
 
 
 def describe_instructor_profile():
-    def it_saves_profile_fields(instructor_fixture, client):
-        client.force_login(instructor_fixture.user)
-        response = client.post(
-            reverse("classes:teach_profile"),
-            {
-                "preferred_name": "New Name",
-                "about_me": "Updated bio",
-                "instructor_website": "",
-                "instructor_social_handle": "@whatever",
-            },
-        )
-        assert response.status_code == 302
-        instructor_fixture.refresh_from_db()
-        assert instructor_fixture.preferred_name == "New Name"
-        assert instructor_fixture.about_me == "Updated bio"
-
-    def it_renders_profile_form_on_get(instructor_fixture, client):
+    def it_redirects_to_hub_settings(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:teach_profile"))
-        assert response.status_code == 200
-        assert instructor_fixture.about_me.encode() in response.content
+        assert response.status_code == 302
+        assert response["Location"].endswith("/settings/?tab=profile")
 
 
 def describe_instructor_class_create_invalid():

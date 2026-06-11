@@ -121,12 +121,10 @@ def describe_teach_overview():
                 assert reverse(name).encode() in resp.content
 
     def describe_avatar_menu():
-        def it_links_to_the_teaching_profile_for_active_members(member_user, client):
-            # The Edit teaching profile link now lives in the shared topbar avatar
-            # menu (hub/base.html), shown to any active member.
+        def it_links_to_hub_settings_for_active_members(member_user, client):
             client.force_login(member_user)
             resp = client.get(reverse("classes:teach_overview"))
-            assert reverse("classes:teach_profile").encode() in resp.content
+            assert b"/settings/" in resp.content
 
     def describe_stats():
         def it_counts_my_published_classes(instructor_fixture, client):

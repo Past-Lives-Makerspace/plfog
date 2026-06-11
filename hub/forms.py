@@ -110,6 +110,8 @@ class ProfileSettingsForm(forms.ModelForm):
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "instructor_website",
+            "instructor_social_handle",
         ]
         widgets = {
             "preferred_name": forms.TextInput(attrs={"placeholder": "How should we call you?"}),
@@ -117,6 +119,7 @@ class ProfileSettingsForm(forms.ModelForm):
             "discord_handle": forms.TextInput(attrs={"placeholder": "@username"}),
             "other_contact_info": forms.TextInput(attrs={"placeholder": "Instagram, Signal, etc."}),
             "about_me": forms.Textarea(attrs={"rows": 3, "placeholder": "Tell other members a bit about yourself..."}),
+            "instructor_social_handle": forms.TextInput(attrs={"placeholder": "@handle"}),
         }
         labels = {
             "show_in_directory": "Show me in the member directory",
@@ -124,9 +127,13 @@ class ProfileSettingsForm(forms.ModelForm):
             "other_contact_info": "Other contact info",
             "about_me": "About me",
             "profile_photo": "Profile photo",
+            "instructor_website": "Website",
+            "instructor_social_handle": "Social handle",
         }
         help_texts = {
             "profile_photo": "Optional. Shown next to your name in the member directory. Max 5 MB.",
+            "instructor_website": "Shown on your public instructor profile.",
+            "instructor_social_handle": "Shown on your public instructor profile.",
         }
 
 

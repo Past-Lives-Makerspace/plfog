@@ -234,6 +234,84 @@ body.classes-portal {
   background: rgba(255,255,255,0.10);
   margin: 6px 0;
 }
+/* Account hamburger + dropdown (desktop right-side) */
+.cp-topbar__account-menu {
+  position: relative;
+  display: inline-flex;
+}
+.cp-topbar__account-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: none;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 4px;
+  color: var(--color-cream);
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+  flex-shrink: 0;
+}
+.cp-topbar__account-btn:hover,
+.cp-topbar__account-btn[aria-expanded="true"] {
+  border-color: var(--color-tuscan-yellow);
+  color: var(--color-tuscan-yellow);
+}
+.cp-topbar__account-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 180px;
+  background: var(--color-navy);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  z-index: 200;
+  overflow: hidden;
+}
+.cp-topbar__account-status {
+  padding: 10px 14px 8px;
+}
+.cp-topbar__account-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-tuscan-yellow);
+  background: rgba(238,180,75,0.12);
+  border: 1px solid rgba(238,180,75,0.30);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.cp-topbar__account-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  color: var(--color-cream);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  transition: background .12s, color .12s;
+  white-space: nowrap;
+}
+.cp-topbar__account-item:hover {
+  background: rgba(255,255,255,0.06);
+  color: var(--color-tuscan-yellow);
+  text-decoration: none;
+}
+.cp-topbar__account-item--ext { color: var(--color-tuscan-yellow); }
+.cp-topbar__account-item--logout { opacity: 0.7; }
+.cp-topbar__account-item--logout:hover { opacity: 1; color: var(--color-cream); background: rgba(255,255,255,0.06); }
+.cp-topbar__account-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 2px 0;
+}
 @media (max-width: 880px) {
   .cp-topbar__nav,
   .cp-topbar__right { display: none; }
