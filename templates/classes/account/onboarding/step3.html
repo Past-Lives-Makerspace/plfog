@@ -34,6 +34,16 @@
         <div class="spacer"></div>
         <button type="submit" class="bk-btn-primary">Take me to classes</button>
       </div>
+      <script>
+        document.querySelectorAll('.bk-chip').forEach(function(label) {
+          var input = label.querySelector('input[type="checkbox"]');
+          if (!input) return;
+          if (input.checked) label.classList.add('is-on');
+          input.addEventListener('change', function() {
+            label.classList.toggle('is-on', input.checked);
+          });
+        });
+      </script>
     </form>
   </div>
 </div></div></div>
