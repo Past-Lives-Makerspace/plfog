@@ -1,0 +1,50 @@
+"""Single dispatcher for all scheduled background tasks.
+
+Runs every 15 minutes via a Render cron service. Each registered task is
+called in its own try/except so one failure cannot block the rest. Each
+task is responsible for its own idempotency.
+
+Time-gated tasks:
+- sync_all_sources: runs only when UTC hour == 13 (≈ 6 AM Portland).
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from django.core.management import call_command
+from django.core.management.base import BaseCommand
+from django.utils import timezone
+
+
+class Command(BaseCommand):
+    help = "Dispatch all scheduled background tasks. Safe to run every 15 minutes."
+
+    def handle(self, *args: Any, **options: Any) -> None:
+        now = timezone.now()
+        failed: list[str] = []
+
+        # --- Always-run tasks (idempotent, no-op outside their window) ---
+        for task in ("send_voting_reminders", "send_lease_expiry_reminders"):
+            try:
+                call_command(task, stdout=self.stdout, stderr=self.stderr)
+                self.stdout.write(f"  ✓ {task}")
+            except Exception as exc:
+                self.stderr.write(self.style.ERROR(f"  ✗ {task}: {exc}"))
+                failed.append(task)
+
+        # --- Daily task: sync calendar + CMS sources (~6 AM Portland = 13:xx UTC) ---
+        if now.hour == 13:
+            try:
+                call_command("sync_all_sources", stdout=self.stdout, stderr=self.stderr)
+                self.stdout.write("  ✓ sync_all_sources")
+            except Exception as exc:
+                self.stderr.write(self.style.ERROR(f"  ✗ sync_all_sources: {exc}"))
+                failed.append("sync_all_sources")
+        else:
+            self.stdout.write("  – sync_all_sources skipped (not 13:xx UTC)")
+
+        if failed:
+            self.stderr.write(self.style.ERROR(f"Failed: {', '.join(failed)}"))
+        else:
+            self.stdout.write(self.style.SUCCESS("All scheduled tasks completed."))
