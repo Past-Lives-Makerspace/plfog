@@ -22,6 +22,7 @@ class CoreConfig(AppConfig):
 
     def ready(self) -> None:
         import core.checks  # noqa: F401
+        from core import signals  # noqa: F401  — registers receivers
 
         from plfog.auto_admin import register_all_models, unregister_hidden_models
 

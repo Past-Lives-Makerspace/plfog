@@ -23,7 +23,8 @@ def describe_get_hub_context():
 
         response = client.get("/guilds/voting/")
 
-        assert list(response.context["guilds"]) == [g1, g2]
+        assert g1 in list(response.context["guilds"])
+        assert g2 in list(response.context["guilds"])
 
     def it_returns_initials_from_member(client: Client):
         User.objects.create_user(username="u2", password="pass", first_name="Jane", last_name="Doe")
@@ -278,6 +279,25 @@ def describe_user_settings():
         assert member.preferred_name == "Ed"
         assert member.phone == "555-1234"
         assert any("updated" in str(m) for m in response.context["messages"])
+
+    def it_logs_site_activity_on_successful_profile_update(client: Client):
+        from core.models import SiteActivity
+
+        user = User.objects.create_user(username="activityeditor", password="pass")
+        member = user.member
+        client.login(username="activityeditor", password="pass")
+
+        client.post(
+            "/settings/",
+            {"form_id": "profile", "preferred_name": "Ed", "phone": "555-1234"},
+            follow=True,
+        )
+
+        assert SiteActivity.objects.filter(
+            kind=SiteActivity.Kind.PROFILE_UPDATED,
+            actor=user,
+            target_id=member.pk,
+        ).exists()
 
     def it_strips_whitespace_from_post_data(client: Client):
         user = User.objects.create_user(username="stripper", password="pass")

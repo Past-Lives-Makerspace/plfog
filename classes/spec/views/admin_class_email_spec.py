@@ -51,7 +51,8 @@ def describe_admin_class_email():
             },
         )
         assert response.status_code == 302
-        assert response["Location"] == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        # The email form lives on the Registrations tab, so we return there.
+        assert response["Location"] == reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk})
         assert len(mail.outbox) == 1
         sent = mail.outbox[0]
         assert sent.subject == "Hello class"
@@ -91,17 +92,19 @@ def describe_admin_class_email():
             data={"subject": "", "body": ""},
         )
         assert response.status_code == 302
+        # On error we return to the Registrations tab where the form lives, not Overview.
+        assert response["Location"] == reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk})
         assert len(mail.outbox) == 0
 
 
-def describe_admin_class_detail_students():
-    def it_shows_registrations_on_class_detail(admin_user, client):
+def describe_admin_class_registrations_students():
+    def it_shows_registrations_on_registrations_tab(admin_user, client):
         offering = ClassOfferingFactory()
         RegistrationFactory(
             class_offering=offering, first_name="Alice", last_name="Smith", status=Registration.Status.CONFIRMED
         )
         client.force_login(admin_user)
-        response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
         assert b"Alice" in response.content
         assert b"Smith" in response.content
@@ -110,6 +113,6 @@ def describe_admin_class_detail_students():
     def it_shows_empty_state_when_no_registrations(admin_user, client):
         offering = ClassOfferingFactory()
         client.force_login(admin_user)
-        response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
         assert b"No registrations yet" in response.content

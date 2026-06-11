@@ -261,3 +261,29 @@ def describe_Tab_add_entry_with_splits():
         tab = TabFactory(tab_limit=Decimal("5.00"))
         with pytest.raises(TabLimitExceededError, match="exceed tab limit"):
             tab.add_entry(description="x", amount=Decimal("10.00"), product=product)
+
+    def it_logs_tab_entry_added_activity(db):
+        from core.models import SiteActivity
+        from tests.billing.factories import ProductFactory, UserFactory
+
+        product = ProductFactory()
+        tab = TabFactory()
+        actor = UserFactory()
+        entry = tab.add_entry(description="studio time", amount=Decimal("15.00"), product=product, added_by=actor)
+
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TAB_ENTRY_ADDED).exists()
+        activity = SiteActivity.objects.get(kind=SiteActivity.Kind.TAB_ENTRY_ADDED)
+        assert activity.target_id == entry.pk
+        assert activity.actor == actor
+
+    def it_logs_tab_entry_added_without_actor(db):
+        from core.models import SiteActivity
+        from tests.billing.factories import ProductFactory
+
+        product = ProductFactory()
+        tab = TabFactory()
+        tab.add_entry(description="self-service", amount=Decimal("5.00"), product=product)
+
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TAB_ENTRY_ADDED).exists()
+        activity = SiteActivity.objects.get(kind=SiteActivity.Kind.TAB_ENTRY_ADDED)
+        assert activity.actor is None

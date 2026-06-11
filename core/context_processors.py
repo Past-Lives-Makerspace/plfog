@@ -38,6 +38,7 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
         "surface": value,
         "is_public_surface": is_public,
         "MEMBER_HOST": settings.MEMBER_HOST,
+        "MEMBER_BASE_URL": getattr(settings, "MEMBER_BASE_URL", f"https://{settings.MEMBER_HOST}"),
         "BOOK_BASE_URL": getattr(settings, "BOOK_BASE_URL", "https://book.pastlives.space"),
         "parent_template": "classes/base_public.html" if is_public else "base.html",
     }
@@ -55,6 +56,17 @@ def google_analytics(request: HttpRequest) -> dict[str, str]:
     from core.models import SiteConfiguration
 
     return {"google_analytics_measurement_id": SiteConfiguration.load().google_analytics_measurement_id}
+
+
+def notification_badge(request: HttpRequest) -> dict[str, int]:
+    """Unread notification count for the topbar bell. 0 for anonymous users."""
+    user = request.user
+    if not user.is_authenticated:
+        return {"unread_notification_count": 0}
+    from core.models import Notification
+
+    count = Notification.objects.filter(user=user, read_at__isnull=True).count()
+    return {"unread_notification_count": count}
 
 
 def persona(request: HttpRequest) -> dict[str, str | bool]:

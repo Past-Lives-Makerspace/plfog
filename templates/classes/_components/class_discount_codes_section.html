@@ -1,14 +1,16 @@
 {% load classes_tags %}
-{# Per-class discount codes section, used in admin/class_form.html and
-   instructor/class_form.html. Only renders when editing a saved class
-   (no offering, no class to scope codes to). Caller passes:
-     * offering — the ClassOffering being edited
-     * create_url — URL name for the "new code" link (admin or instructor)
-     * edit_url — URL name for editing a code
-   Example: {% include "classes/_components/class_discount_codes_section.html"
-              with offering=offering
-                   create_url='classes:instructor_discount_code_create'
-                   edit_url='classes:instructor_discount_code_edit' %} #}
+{% comment %}
+Per-class discount codes section, used in admin/class_form.html and
+teach/class_form.html. Only renders when editing a saved class
+(no offering, no class to scope codes to). Caller passes:
+  * offering — the ClassOffering being edited
+  * create_url — URL name for the "new code" link (admin or teaching member)
+  * edit_url — URL name for editing a code
+Example: {% include "classes/_components/class_discount_codes_section.html"
+           with offering=offering
+                create_url='classes:teach_discount_code_create'
+                edit_url='classes:teach_discount_code_edit' %}
+{% endcomment %}
 {% if offering and offering.pk %}
 <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Discount codes for this class</h3>
 <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">

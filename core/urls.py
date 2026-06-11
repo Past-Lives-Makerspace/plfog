@@ -24,4 +24,11 @@ urlpatterns = [
     path("webpush/vapid-key/", views.vapid_key, name="webpush_vapid_key"),
     path("webpush/subscribe/", views.subscribe, name="webpush_subscribe"),
     path("webpush/unsubscribe/", views.unsubscribe, name="webpush_unsubscribe"),
+    # Staff activity dashboard
+    path("manage/activity/", views.site_activity, name="manage_activity"),
+    # Notification bell feed
+    path("notifications/", views.notification_feed, name="notification_feed"),
+    path("notifications/unread-count/", views.notification_unread_count, name="notification_unread_count"),
+    path("notifications/<int:pk>/read/", views.notification_read, name="notification_read"),
+    path("notifications/read-all/", views.notification_read_all, name="notification_read_all"),
 ]

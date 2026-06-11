@@ -7,7 +7,6 @@ from typing import Any
 from django import forms as dj_forms
 from django.contrib import admin, messages
 from django.http import HttpRequest, HttpResponse
-from django.urls import path
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 
@@ -81,7 +80,6 @@ class SiteConfigurationAdmin(ModelAdmin):
     readonly_fields = [
         "general_calendar_last_fetched_at",
         "classes_last_synced_at",
-        "sync_classes_button",
     ]
     fieldsets = [
         (
@@ -102,14 +100,13 @@ class SiteConfigurationAdmin(ModelAdmin):
             },
         ),
         (
-            "Classes (classes.pastlives.space)",
+            "Classes on the Community Calendar",
             {
                 "fields": [
                     "sync_classes_enabled",
                     ("classes_calendar_color", "classes_last_synced_at"),
-                    "sync_classes_button",
                 ],
-                "description": "When enabled, upcoming classes are imported as Calendar Events with links to register. Use the sync button to fetch classes manually — this is not done automatically on save because it fetches hundreds of records.",
+                "description": "When enabled, upcoming classes from our catalog appear on the Community Calendar, each linking to its class page. Events refresh automatically every morning — there's nothing to sync by hand.",
             },
         ),
         (
@@ -128,45 +125,6 @@ class SiteConfigurationAdmin(ModelAdmin):
             },
         ),
     ]
-
-    def sync_classes_button(self, obj: SiteConfiguration | None) -> str:
-        from django.urls import reverse
-
-        url = reverse("admin:core_siteconfiguration_sync_classes")
-        return format_html(
-            '<a href="{}" style="display:inline-flex;align-items:center;gap:6px;'
-            "padding:5px 14px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);"
-            'background:rgba(255,255,255,0.06);color:inherit;text-decoration:none;font-size:0.85rem;">'
-            "Sync Classes Now</a>",
-            url,
-        )
-
-    sync_classes_button.short_description = "Manual Sync"  # type: ignore[attr-defined]
-
-    def get_urls(self) -> list:
-        urls = super().get_urls()
-        custom_urls = [
-            path(
-                "sync-classes/",
-                self.admin_site.admin_view(self._sync_classes_view),
-                name="core_siteconfiguration_sync_classes",
-            ),
-        ]
-        return custom_urls + urls
-
-    def _sync_classes_view(self, request: HttpRequest) -> HttpResponse:
-        from django.shortcuts import redirect
-
-        from hub.calendar_service import sync_classes_calendar
-
-        config = SiteConfiguration.load()
-        try:
-            count = sync_classes_calendar()
-        except Exception as exc:  # noqa: BLE001
-            self.message_user(request, f"Classes sync failed: {type(exc).__name__}: {exc}", messages.WARNING)
-        else:
-            self.message_user(request, f"Classes synced: {count} session(s) imported.", messages.SUCCESS)
-        return redirect(f"/admin/core/siteconfiguration/{config.pk}/change/")
 
     def has_module_permission(self, request: HttpRequest) -> bool:
         """Only FOG admins (superusers) can see site settings."""

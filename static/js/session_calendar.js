@@ -2,9 +2,16 @@
  * Session Calendar — Alpine.js component for visual class session scheduling.
  * Renders a month-view grid; click days to add sessions, click dots to edit.
  * Generates hidden inputs matching Django's inline formset naming convention.
+ *
+ * Registered with Alpine via Alpine.data() so the component is available in
+ * Alpine's registry before HTMX-swapped fragments are initialized. Defining a
+ * bare global and loading it inside the fragment races htmx:afterSettle's
+ * Alpine.initTree, which evaluates x-data before the deferred script executes.
  */
-function sessionCalendar(initialSessions, initialForms) {
-    return {
+(function () {
+    "use strict";
+
+    const sessionCalendar = (initialSessions, initialForms) => ({
         viewYear: new Date().getFullYear(),
         viewMonth: new Date().getMonth(),
 
@@ -167,5 +174,16 @@ function sessionCalendar(initialSessions, initialForms) {
         _dateTimeStr(d) {
             return this._dateStr(d) + 'T' + this._pad(d.getHours()) + ':' + this._pad(d.getMinutes());
         },
+    });
+
+    const registerComponent = () => {
+        if (window.Alpine && window.Alpine.components && window.Alpine.components['sessionCalendar']) return;
+        Alpine.data('sessionCalendar', sessionCalendar);
     };
-}
+
+    if (window.Alpine) {
+        registerComponent();
+    } else {
+        document.addEventListener('alpine:init', registerComponent);
+    }
+})();

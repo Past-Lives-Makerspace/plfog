@@ -11,6 +11,7 @@
 <nav style="display: flex; gap: 0; margin-bottom: 1.25rem; flex-wrap: wrap;" role="tablist">
     <a href="{% url 'classes:admin_class_detail' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'overview' %} vote-tab--active{% endif %}">Overview</a>
     <a href="{% url 'classes:admin_class_registrations' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'registrations' %} vote-tab--active{% endif %}">Registrations ({{ active_registration_count }})</a>
+    <a href="{% url 'classes:admin_class_waitlist' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'waitlist' %} vote-tab--active{% endif %}">Waitlist ({{ waitlist_count }})</a>
     <a href="{% url 'classes:admin_class_discount_codes' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'discount_codes' %} vote-tab--active{% endif %}">Discount Codes</a>
 </nav>
 {% block detail_content %}{% endblock %}

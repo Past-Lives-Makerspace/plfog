@@ -160,7 +160,11 @@
                 :class="{ 'pl-calendar-filter--active': isActive('{{ guild.pk }}') }"
                 @click="toggleFilter('{{ guild.pk }}')"
                 style="--filter-color: {{ guild.calendar_color }};">
+            {% if guild.logo_prefix %}
+            <img src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_color.svg' %}" width="14" height="14" alt="" style="margin-right:0.25rem;">
+            {% else %}
             <span class="pl-calendar-filter__dot" style="background: {{ guild.calendar_color }};"></span>
+            {% endif %}
             {{ guild.name }}
         </button>
         {% endfor %}

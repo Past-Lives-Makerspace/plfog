@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.core.mail import send_mail
 from django.template.loader import render_to_string
+
+from core import email as core_email
 from django.urls import reverse
 from django.utils import timezone
 
@@ -57,13 +58,12 @@ def send_registration_confirmation(registration: "Registration") -> None:
     text_body = render_to_string("classes/emails/confirmation.txt", context)
     html_body = render_to_string("classes/emails/confirmation.html", context)
     subject = f"You're confirmed for {offering.title}"
-    send_mail(
+    core_email.send(
+        to=registration.email,
         subject=subject,
-        message=text_body,
-        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-        recipient_list=[registration.email],
-        html_message=html_body,
-        fail_silently=False,
+        trigger_kind="classes.registration_confirmation",
+        text_body=text_body,
+        html_body=html_body,
     )
 
 
@@ -81,12 +81,12 @@ def send_instructor_registration_notification(registration: "Registration") -> N
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n\n"
         f"You now have {offering.registrations.count()}/{offering.capacity} spots filled."
     )
-    send_mail(
+    core_email.send(
+        to=instructor.primary_email,
         subject=subject,
-        message=body,
-        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-        recipient_list=[instructor.primary_email],
-        fail_silently=True,
+        trigger_kind="classes.instructor_registration",
+        text_body=body,
+        best_effort=True,
     )
 
 
@@ -104,12 +104,12 @@ def send_admin_registration_notification(registration: "Registration") -> None:
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
         f"Capacity: {offering.registrations.count()}/{offering.capacity}"
     )
-    send_mail(
+    core_email.send(
+        to=admin_emails,
         subject=subject,
-        message=body,
-        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-        recipient_list=admin_emails,
-        fail_silently=True,
+        trigger_kind="classes.admin_registration",
+        text_body=body,
+        best_effort=True,
     )
 
 
@@ -150,18 +150,18 @@ def send_class_review_requests(offering: "ClassOffering", approvals: list["Class
         }
         text_body = render_to_string("classes/emails/review_request.txt", context)
         html_body = render_to_string("classes/emails/review_request.html", context)
-        send_mail(
+        core_email.send(
+            to=recipients,
             subject=f"Review request: {offering.title}",
-            message=text_body,
-            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-            recipient_list=recipients,
-            html_message=html_body,
-            fail_silently=True,
+            trigger_kind="classes.review_request",
+            text_body=text_body,
+            html_body=html_body,
+            best_effort=True,
         )
 
     # Tell the instructor what's happening so they don't wonder.
     if offering.instructor and offering.instructor.primary_email:
-        instructor_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        instructor_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         ctx = {
             "offering": offering,
             "approvals": approvals,
@@ -169,13 +169,13 @@ def send_class_review_requests(offering: "ClassOffering", approvals: list["Class
         }
         text_body = render_to_string("classes/emails/review_submitted_instructor.txt", ctx)
         html_body = render_to_string("classes/emails/review_submitted_instructor.html", ctx)
-        send_mail(
+        core_email.send(
+            to=offering.instructor.primary_email,
             subject=f"Your class '{offering.title}' is in review",
-            message=text_body,
-            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-            recipient_list=[offering.instructor.primary_email],
-            html_message=html_body,
-            fail_silently=True,
+            trigger_kind="classes.review_request_instructor",
+            text_body=text_body,
+            html_body=html_body,
+            best_effort=True,
         )
 
 
@@ -201,15 +201,15 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
         edit_url = public_url
     elif row.decision == ClassApproval.Decision.APPROVED:
         subject = f"{row.get_role_display()} approved '{offering.title}'"
-        edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         public_url = ""
     elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
         subject = f"Changes requested on '{offering.title}'"
-        edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         public_url = ""
     else:  # DENIED
         subject = f"Your class submission was declined: '{offering.title}'"
-        edit_url = _absolute_url(reverse("classes:instructor_class_edit", kwargs={"pk": offering.pk}))
+        edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         public_url = ""
 
     pending_rows = list(offering.approvals.filter(decision=""))
@@ -223,13 +223,13 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
     }
     text_body = render_to_string("classes/emails/review_decision.txt", context)
     html_body = render_to_string("classes/emails/review_decision.html", context)
-    send_mail(
+    core_email.send(
+        to=instructor.primary_email,
         subject=subject,
-        message=text_body,
-        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-        recipient_list=[instructor.primary_email],
-        html_message=html_body,
-        fail_silently=True,
+        trigger_kind="classes.review_decision",
+        text_body=text_body,
+        html_body=html_body,
+        best_effort=True,
     )
 
 
@@ -250,13 +250,12 @@ def send_waitlist_joined_confirmation(registration: "Registration") -> None:
     }
     text_body = render_to_string("classes/emails/waitlist_joined.txt", ctx)
     html_body = render_to_string("classes/emails/waitlist_joined.html", ctx)
-    send_mail(
+    core_email.send(
+        to=registration.email,
         subject=f"You're on the waitlist for {offering.title}",
-        message=text_body,
-        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-        recipient_list=[registration.email],
-        html_message=html_body,
-        fail_silently=False,
+        trigger_kind="classes.waitlist_joined",
+        text_body=text_body,
+        html_body=html_body,
     )
 
 
@@ -283,13 +282,12 @@ def send_waitlist_spot_opened(registration: "Registration") -> None:
     }
     text_body = render_to_string("classes/emails/waitlist_spot_opened.txt", ctx)
     html_body = render_to_string("classes/emails/waitlist_spot_opened.html", ctx)
-    send_mail(
+    core_email.send(
+        to=registration.email,
         subject=f"A spot opened in {offering.title}!",
-        message=text_body,
-        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-        recipient_list=[registration.email],
-        html_message=html_body,
-        fail_silently=False,
+        trigger_kind="classes.waitlist_spot_opened",
+        text_body=text_body,
+        html_body=html_body,
     )
 
 
@@ -307,11 +305,10 @@ def send_reminder_email(registration: "Registration", session: "ClassSession") -
     text_body = render_to_string("classes/emails/reminder.txt", context)
     html_body = render_to_string("classes/emails/reminder.html", context)
     subject = f"Reminder: {offering.title} — {session.starts_at:%a %b %-d at %-I:%M %p}"
-    send_mail(
+    core_email.send(
+        to=registration.email,
         subject=subject,
-        message=text_body,
-        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-        recipient_list=[registration.email],
-        html_message=html_body,
-        fail_silently=False,
+        trigger_kind="classes.reminder",
+        text_body=text_body,
+        html_body=html_body,
     )

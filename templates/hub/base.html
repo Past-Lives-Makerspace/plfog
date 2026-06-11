@@ -43,6 +43,7 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
+{% include "components/toast.html" %}
 {% block extra_body %}{% endblock %}
     {% if user.is_authenticated and not request.GET.public and not is_public_surface %}
     <div class="hub-sidebar-backdrop" :class="{ 'hub-sidebar-backdrop--visible': sidebarOpen }" @click="sidebarOpen = false"></div>
@@ -57,12 +58,19 @@
 
         <nav class="hub-sidebar__nav" aria-label="Hub navigation" hx-boost="false" @click="if ($event.target.closest('a') && window.innerWidth <= 768) sidebarOpen = false">
             {% if request.view_as.is_admin %}
+            <a href="{% url 'manage_activity' %}" class="hub-sidebar__link {% active_nav 'manage_activity' %}">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                </svg>
+                Activity
+            </a>
+
             <a href="{% url 'classes:public_list' %}" class="hub-sidebar__link {% if request.path|slice:':9' == '/classes/' %}active{% endif %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
                     <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
                 </svg>
-                Classes & Workshops
+                Class Catalog
             </a>
 
             <a href="{% url 'hub_community_calendar' %}" class="hub-sidebar__link {% active_nav 'hub_community_calendar' %}">
@@ -147,7 +155,7 @@
                     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
                     <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
                 </svg>
-                Classes & Workshops
+                Class Catalog
             </a>
 
             <a href="{% url 'hub_community_calendar' %}" class="hub-sidebar__link {% active_nav 'hub_community_calendar' %}">
@@ -206,9 +214,13 @@
                     <div class="hub-sidebar__collapsible-inner">
                         {% for guild in guilds %}
                         <a href="{% url 'hub_guild_detail' guild.pk %}" class="hub-sidebar__link {% active_nav 'hub_guild_detail' guild.pk %}">
+                            {% if guild.logo_prefix %}
+                            <img src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_color.svg' %}" width="16" height="16" alt="" style="flex-shrink:0;">
+                            {% else %}
                             <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
                                 <circle cx="7" cy="7" r="5"/>
                             </svg>
+                            {% endif %}
                             {{ guild.name }}
                         </a>
                         {% endfor %}
@@ -326,6 +338,7 @@
             </div>
             {% endif %}
             <div class="pl-topbar__spacer"></div>
+            {% include "hub/_notification_bell.html" %}
             {% if tab_balance is not None %}
             <a href="{% url 'hub_tab_detail' %}" class="pl-topbar__tab-pill{% if tab_is_locked %} pl-topbar__tab-pill--locked{% endif %}" title="My Tab">
                 ${{ tab_balance }}
@@ -357,6 +370,9 @@
                         <div class="pl-profile__dropdown-email">{{ user.email }}</div>
                     </div>
                     <a href="{% url 'hub_user_settings' %}" class="pl-profile__dropdown-item" role="menuitem">Settings</a>
+                    {% if request.view_as.is_member %}
+                    <a href="{% url 'classes:teach_profile' %}" class="pl-profile__dropdown-item" role="menuitem">Edit teaching profile</a>
+                    {% endif %}
                     <div class="pl-profile__dropdown-divider"></div>
                     <a href="{% url 'account_logout' %}" class="pl-profile__dropdown-item pl-profile__dropdown-item--danger" role="menuitem" hx-boost="false">Log Out</a>
                 </div>
@@ -396,9 +412,12 @@
 
         <main class="hub-content">
             {% if messages %}
-            <ul class="hub-messages" role="alert">
+            {# Hidden source list; the toast script (components/toast.html) drains these into toasts. #}
+            <ul class="hub-messages" role="alert" style="display:none;">
                 {% for message in messages %}
-                <li class="hub-message hub-message--{{ message.tags }}">{{ message }}</li>
+                <li class="hub-message hub-message--{{ message.tags }}"
+                    data-toast-message="{{ message }}"
+                    data-toast-type="{{ message.tags|default:'success' }}">{{ message }}</li>
                 {% endfor %}
             </ul>
             {% endif %}
@@ -406,7 +425,6 @@
         </main>
     </div>
 
-    {% include "components/toast.html" %}
     {% include "includes/changelog_modal.html" %}
     <script src="{% static 'js/htmx.min.js' %}"></script>
     {% comment %}
@@ -438,8 +456,8 @@
             }
         });
     </script>
-    {# HTMX auto-fires HX-Trigger JSON keys as events (and a kebab-case alias — see htmx Dt()) #}
-    {# — so the `showToast` key in trigger_toast dispatches `show-toast` directly. No manual parse. #}
+    {# HTMX fires HX-Trigger JSON keys as events plus a kebab alias, so trigger_toast's #}
+    {# `showToast` key reaches the toast script (components/toast.html) as `show-toast`. #}
     <script>
         function viewAsDropdown() {
             return {
@@ -463,5 +481,7 @@
         }
     </script>
     {% block extra_js %}{% endblock %}
+    <script src="{% static 'js/hero_placement.js' %}?v=1.1"></script>
+    <script src="{% static 'js/session_calendar.js' %}"></script>
 </body>
 </html>

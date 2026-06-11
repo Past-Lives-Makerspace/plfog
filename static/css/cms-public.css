@@ -126,6 +126,54 @@ body.classes-portal {
   text-decoration: none;
   transform: translateY(-1px);
 }
+/* "FOG ↗" jump-to-member-dashboard link (shown on the public surface only). */
+.cp-topbar__ext {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-tuscan-yellow);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+.cp-topbar__ext:hover {
+  color: #f5ca6e;
+  text-decoration: none;
+}
+.cp-topbar__ext svg {
+  opacity: 0.85;
+}
+/* "Member" status pill. */
+.cp-topbar__pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-cream);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+/* "Log out" subtle text link (no border, lighter than the ghost button). */
+.cp-topbar__logout {
+  color: var(--color-cream);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  opacity: 0.75;
+}
+.cp-topbar__logout:hover {
+  color: var(--color-tuscan-yellow);
+  opacity: 1;
+  text-decoration: none;
+}
 .cp-topbar__theme-toggle {
   background: none;
   border: none;
@@ -314,6 +362,11 @@ body.classes-portal {
 .cp-page .cls-schedule__more{font-size:11px;color:var(--gold);font-weight:600;margin-top:1px}
 .cp-page .cls-schedule__tba{font-size:11px;color:var(--text3);font-style:italic}
 .cp-page .cls-schedule__flex{font-size:11px;color:var(--text3)}
+.cp-page .cls-schedule__pick{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.cp-page .cls-schedule__row--pick{text-decoration:none;border-radius:5px;margin:0 -6px;padding:3px 6px;transition:background .12s ease}
+.cp-page .cls-schedule__row--pick:hover{background:var(--bg3)}
+.cp-page .cls-schedule__row--pick .cls-spots{white-space:nowrap}
+.cp-page .cls-spots--dates{color:var(--gold);text-transform:none;letter-spacing:0}
 .cp-page .cls-footer{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
 .cp-page .cls-price{font-size:18px;font-weight:900;color:var(--gold);font-family:var(--heading)}
 .cp-page .cls-price-member{font-size:10px;color:var(--text3);margin-left:4px;font-family:var(--font);font-weight:400}
@@ -621,6 +674,20 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
 .cp-detail__session-date { font-weight: 700; font-size: 16px; color: var(--text); }
 .cp-detail__session-time { font-size: 15px; color: var(--text2); margin-top: 2px; }
 .cp-detail__session-dur { color: var(--text3); }
+
+/* ── Other dates for this class ──────────────── */
+.cp-detail__other-dates { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cp-detail__other-date a {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 12px 16px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  text-decoration: none;
+  transition: border-color .15s ease, background .15s ease;
+}
+.cp-detail__other-date a:hover { border-color: var(--gold); background: var(--bg4); }
+.cp-detail__other-date-when { font-weight: 600; font-size: 15px; color: var(--text); }
 
 .cp-detail__flex-note {
   padding: 16px 18px;

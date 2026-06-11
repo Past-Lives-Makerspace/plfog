@@ -6,7 +6,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -34,13 +33,34 @@ def send_receipt(charge: TabCharge) -> None:
     text_body = render_to_string("billing/email/receipt.txt", context)
     html_body = render_to_string("billing/email/receipt.html", context)
 
-    send_mail(
+    from core import email as core_email
+
+    email_log = core_email.send(
+        to=member.primary_email,
         subject=f"Past Lives Makerspace — Receipt for ${charge.amount}",
-        message=text_body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[member.primary_email],
-        html_message=html_body,
+        trigger_kind="billing.receipt",
+        text_body=text_body,
+        html_body=html_body,
     )
+    from core.models import SiteActivity
+
+    SiteActivity.log(
+        SiteActivity.Kind.TAB_CHARGED,
+        actor=member.user,
+        target=charge,
+        email_log=email_log,
+    )
+
+    if member.user is not None:
+        from core import notifications
+
+        notifications.dispatch(
+            "tab_charged",
+            [member.user],
+            title="Tab charged",
+            body=f"${charge.amount} was charged to your tab.",
+            url="/tab/",
+        )
 
     charge.receipt_sent_at = timezone.now()
     charge.save(update_fields=["receipt_sent_at"])
@@ -58,9 +78,25 @@ def notify_admin_charge_failed(charge: TabCharge) -> None:
 
     admin_emails = getattr(settings, "BILLING_ADMIN_EMAILS", [settings.DEFAULT_FROM_EMAIL])
 
-    send_mail(
+    from core import email as core_email
+
+    core_email.send(
+        to=admin_emails,
         subject=f"[Billing] Failed charge for {member.display_name} — ${charge.amount}",
-        message=text_body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=admin_emails,
+        trigger_kind="billing.charge_failed_admin",
+        text_body=text_body,
     )
+    from core.models import SiteActivity
+
+    SiteActivity.log(SiteActivity.Kind.TAB_CHARGE_FAILED, actor=member.user, target=charge)
+
+    if member.user is not None:
+        from core import notifications
+
+        notifications.dispatch(
+            "tab_charge_failed",
+            [member.user],
+            title="Tab charge failed",
+            body="A charge to your tab failed — please update your payment method.",
+            url="/tab/",
+        )

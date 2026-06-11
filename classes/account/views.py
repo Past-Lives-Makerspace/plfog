@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponseRedirect
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import FormView, TemplateView
@@ -31,7 +31,9 @@ class _RelayAwareLoginMixin(LoginRequiredMixin):
 
     login_url = "/accounts/login/"
 
-    def handle_no_permission(self) -> HttpResponse:
+    request: HttpRequest
+
+    def handle_no_permission(self) -> HttpResponseRedirect:
         if not self.request.user.is_authenticated:
             relay_url = self._relay_url()
             if relay_url:

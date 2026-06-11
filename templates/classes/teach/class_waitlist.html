@@ -1,0 +1,31 @@
+{% extends "classes/teach/class_detail_base.html" %}
+{% block detail_content %}
+{% if waitlist_registrations %}
+<div class="admin-table-wrap">
+<table>
+    <thead>
+        <tr><th style="width:3rem;">#</th><th>Name</th><th>Email</th><th>Joined</th><th>Notified</th></tr>
+    </thead>
+    <tbody>
+    {% for reg in waitlist_registrations %}
+        <tr>
+            <td>{{ forloop.counter }}</td>
+            <td>{{ reg.first_name }} {{ reg.last_name }}</td>
+            <td>{{ reg.email }}</td>
+            <td>{{ reg.registered_at|date:"M j, Y g:i A" }}</td>
+            <td>
+                {% if reg.waitlist_notified_at %}
+                    <span style="color:var(--color-tuscan-yellow);">{{ reg.waitlist_notified_at|date:"M j, g:i A" }}</span>
+                {% else %}
+                    <span style="color:var(--hub-text-muted);">Not yet</span>
+                {% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div style="padding:1.5rem 0; text-align:center; color:var(--hub-text-muted);">No one is on the waitlist.</div>
+{% endif %}
+{% endblock %}

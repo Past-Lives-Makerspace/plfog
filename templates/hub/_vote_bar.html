@@ -1,7 +1,13 @@
+{% load static hub_tags %}
 <div style="margin-bottom: 0.75rem;">
     <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.3rem;">
-        <span style="font-weight: 500; font-size: 0.9rem;">
+        <span style="font-weight: 500; font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem;">
             {% if forloop_first %}&#x1f947;{% elif forloop_counter == 2 %}&#x1f948;{% elif forloop_counter == 3 %}&#x1f949;{% endif %}
+            {% with prefix=row.guild_name|guild_logo_prefix %}
+            {% if prefix %}
+            <img src="{% static 'img/guild_logos/'|add:prefix|add:'_color.svg' %}" width="14" height="14" alt="">
+            {% endif %}
+            {% endwith %}
             {{ row.guild_name }}
         </span>
         <span class="hub-text-muted" style="font-size: 0.8rem;">{{ row.total_points }} pts</span>

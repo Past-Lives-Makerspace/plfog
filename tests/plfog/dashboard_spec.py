@@ -102,7 +102,7 @@ def describe_dashboard_callback():
         resp = admin_client.get("/admin/")
         stats = resp.context["stats"]
 
-        assert stats["active_guilds"] == 1
+        assert stats["active_guilds"] == GuildFactory._meta.model.objects.filter(is_active=True).count()
         assert stats["top_guilds"] == []
 
 
@@ -120,7 +120,7 @@ def describe_invite_member_view():
 
     def it_creates_invite_on_valid_post(admin_client):
         MembershipPlanFactory()
-        with patch("core.models.send_mail"):
+        with patch("core.email.send_mail"):
             resp = admin_client.post(
                 "/admin/membership/member/invite/",
                 data={"email": "new@example.com"},

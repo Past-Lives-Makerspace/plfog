@@ -365,14 +365,14 @@ def describe_community_calendar_view():
 
     def it_shows_only_guilds_with_calendars_in_context(client: Client):
         _logged_in_user(client, username="caluser2")
-        GuildFactory(name="Ceramics Guild", calendar_url="https://calendar.google.com/calendar/ical/a.ics")
-        GuildFactory(name="Woodshop")  # no calendar_url
+        GuildFactory(name="Calendar Testing Guild", calendar_url="https://calendar.google.com/calendar/ical/a.ics")
+        GuildFactory(name="Woodshop Testing")  # no calendar_url
         response = client.get("/calendar/")
         assert response.status_code == 200
         guilds = response.context["guilds_with_calendars"]
         names = [g.name for g in guilds]
-        assert "Ceramics Guild" in names
-        assert "Woodshop" not in names
+        assert "Calendar Testing Guild" in names
+        assert "Woodshop Testing" not in names
 
     def it_includes_classes_color_in_context(client: Client):
         from core.models import SiteConfiguration

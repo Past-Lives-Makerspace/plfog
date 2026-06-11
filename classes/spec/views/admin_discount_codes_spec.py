@@ -43,7 +43,8 @@ def describe_admin_discount_codes():
         assert response.status_code == 302
         code = DiscountCode.objects.get(code="CLASSONLY")
         assert code.class_offering == offering
-        assert response.url == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        # A class-scoped code returns to that class's Discount Codes tab (the Workspace).
+        assert response.url == reverse("classes:admin_class_discount_codes", kwargs={"pk": offering.pk})
 
     def it_scopes_a_code_to_an_instructorless_class_without_error(admin_user, client, db):
         """Legacy-imported classes have no instructor; scoping a code to one must not 500."""

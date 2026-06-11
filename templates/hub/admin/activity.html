@@ -1,0 +1,22 @@
+{% extends "hub/base.html" %}
+{% block title %}Site Activity — Past Lives{% endblock %}
+
+{% block content %}
+<div x-data="{ tab: '{{ active_tab|default:"feed" }}' }">
+  <h1 class="hub-page-title">Site Activity</h1>
+
+  <div style="display:flex;border-bottom:1px solid var(--hub-border);gap:0;margin-bottom:1.25rem;flex-wrap:wrap;">
+    <button type="button" @click="tab = 'feed'"
+            :class="{ 'vote-tab--active': tab === 'feed' }" class="vote-tab">Activity Feed</button>
+    <button type="button" @click="tab = 'emails'"
+            :class="{ 'vote-tab--active': tab === 'emails' }" class="vote-tab">Email Log</button>
+  </div>
+
+  <div x-show="tab === 'feed'" x-cloak>
+    {% include "hub/admin/_activity_feed.html" %}
+  </div>
+  <div x-show="tab === 'emails'" x-cloak>
+    {% include "hub/admin/_activity_emails.html" %}
+  </div>
+</div>
+{% endblock %}

@@ -121,12 +121,20 @@ def build_report(
 
     for split in qs.iterator(chunk_size=500):
         entry = split.entry
-        charge_status = entry.tab_charge.status if entry.tab_charge_id else "pending"
+        charge_status = (
+            entry.tab_charge.status  # type: ignore[union-attr]  # tab_charge_id guard ensures non-None
+            if entry.tab_charge_id
+            else "pending"
+        )
         charge_type = "product" if entry.product_id else "custom"
         recipient_label = (
             "Admin"
             if split.recipient_type == TabEntrySplit.RecipientType.ADMIN
-            else (split.guild.name if split.guild_id else "?")
+            else (
+                split.guild.name  # type: ignore[union-attr]  # guild_id guard ensures non-None
+                if split.guild_id
+                else "?"
+            )
         )
 
         rows.append(

@@ -1,0 +1,150 @@
+{% extends "classes/admin/base.html" %}
+{% load classes_tags %}
+
+{% block tab_content %}
+<div class="cms-overview" style="display:flex;flex-direction:column;gap:1.25rem;">
+
+  {# ① Classes awaiting approval — full width #}
+  <section class="hub-card" style="margin:0;">
+    <h2 class="overview-title">Needs your attention <span class="overview-title__count">({{ stats.pending }})</span></h2>
+    {% for c in pending_classes %}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+        <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
+        <span>
+          <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=c.pk %}">Review</a>
+          <form method="post" action="{% url 'classes:admin_class_approve' pk=c.pk %}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="hub-btn hub-btn--sm">Approve</button>
+          </form>
+        </span>
+      </div>
+    {% empty %}
+      <p style="color:var(--hub-text-muted);">Nothing waiting — you're all caught up! 🎉</p>
+    {% endfor %}
+  </section>
+
+  {# ② Upcoming classes this week — full width #}
+  <section class="hub-card" style="margin:0;">
+    <h2 class="overview-title">Upcoming classes this week</h2>
+    {% for c in upcoming_classes %}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+        <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
+        <span style="color:var(--hub-text-muted);white-space:nowrap;">{{ c.next_session_at|date:"D M j, g:i a" }}</span>
+      </div>
+    {% empty %}
+      <p style="color:var(--hub-text-muted);">No classes scheduled in the next 7 days.</p>
+    {% endfor %}
+    <div style="text-align:right;margin-top:0.75rem;">
+      <a href="{% url 'hub_community_calendar' %}">View more →</a>
+    </div>
+  </section>
+
+  {# ③ Waitlist pressure — compact strip #}
+  <section class="hub-card" style="margin:0;padding:0.75rem 1rem;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <h2 class="overview-title" style="margin:0;">Waitlists</h2>
+      {% for c in waitlist_classes %}
+        <a href="{% url 'classes:admin_class_detail' pk=c.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ c.title }} · {{ c.waiting }} waiting</a>
+      {% empty %}
+        <span style="color:var(--hub-text-muted);font-size:0.875rem;">No active waitlists.</span>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ④ At a glance — scoped by the range filter #}
+  <section id="at-a-glance" class="hub-card" style="margin:0;scroll-margin-top:1rem;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.9rem;">
+      <h2 class="overview-title" style="margin:0;">At a glance</h2>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        {% for r in range_options %}
+          <a href="?range={{ r.key }}#at-a-glance"
+             class="hub-btn hub-btn--sm {% if r.key == selected_range.key %}hub-btn--primary{% else %}hub-btn--ghost{% endif %}">{{ r.label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:stretch;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;flex:1;min-width:240px;">
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.pending }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">awaiting approval</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.new_regs }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">new sign-ups</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.active_registrations }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">confirmed registrations</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.collected|cents_as_dollars }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">collected</div></div>
+      </div>
+      <div style="flex:1.3;min-width:260px;">
+        <div style="color:var(--hub-text-muted);font-size:.8rem;margin-bottom:6px;">Registrations · {{ selected_range.label|lower }}</div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:70px;">
+          {% for d in reg_by_day %}
+            <div title="{{ d.date }}: {{ d.count }}"
+                 style="flex:1;background:var(--hub-accent, #c46a1b);min-height:2px;height:{% widthratio d.count reg_by_day_max 100 %}%;"></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    {# Recent sign-ups — nested here so it shares the range filter above #}
+    <div style="margin-top:1.25rem;padding-top:1.1rem;border-top:1px solid var(--hub-border);">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
+          <h3 class="overview-subtitle">Recent sign-ups</h3>
+          <span style="color:var(--hub-text-muted);font-size:0.78rem;">· {{ selected_range.label|lower }}</span>
+        </div>
+        <a href="{% url 'classes:admin_registrations' %}">View all registrations →</a>
+      </div>
+      <div class="admin-table-wrap" style="margin-top:8px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Member</th>
+            <th>Class</th>
+            <th style="text-align:right;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in recent_registrations %}
+          <tr>
+            <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.first_name }} {{ r.last_name }}</a></td>
+            <td>{{ r.class_offering.title }}</td>
+            <td style="text-align:right;white-space:nowrap;">{% if r.amount_paid_cents %}{{ r.amount_paid_cents|cents_as_dollars }}{% else %}<span style="color:var(--hub-text-muted);">Free</span>{% endif %}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" style="color:var(--hub-text-muted);padding:1.5rem 0.75rem;">No sign-ups in this window.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </section>
+
+  {# ⑥ Activity #}
+  <section class="hub-card" style="margin:0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 class="overview-title" style="margin:0;">Activity</h2>
+      <a href="{% url 'classes:admin_activity' %}">View full log →</a>
+    </div>
+    <div class="admin-table-wrap" style="margin-top:8px;">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:150px;">When</th>
+          <th>Event</th>
+          <th>Class</th>
+          <th>Who</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for ev in recent_activity %}
+        <tr>
+          <td style="white-space:nowrap;color:var(--hub-text-muted);">{{ ev.created_at|date:"M j, g:i a" }}</td>
+          <td>{{ ev.get_kind_display }}</td>
+          <td>{% if ev.class_offering %}<a href="{% url 'classes:admin_class_detail' pk=ev.class_offering.pk %}">{{ ev.class_offering.title }}</a>{% else %}<span style="color:var(--hub-text-muted);">—</span>{% endif %}</td>
+          <td>{% if ev.registration %}{{ ev.registration.first_name }} {{ ev.registration.last_name }}{% elif ev.actor %}{{ ev.actor.get_full_name|default:ev.actor.email }}{% else %}<span style="color:var(--hub-text-muted);">System</span>{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4" style="color:var(--hub-text-muted);padding:1.5rem 0.75rem;">No activity yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+</div>
+{% endblock %}

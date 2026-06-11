@@ -6,7 +6,7 @@ ifneq (,$(wildcard .env))
     export
 endif
 
-.PHONY: help setup install db-up db-down db-pull-prod migrate server test lint format
+.PHONY: help setup install db-up db-down db-pull-prod migrate server test lint format typecheck
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' Makefile | sort | \
@@ -52,3 +52,6 @@ lint: ## Run ruff linter and formatter check
 
 format: ## Auto-format code with ruff
 	.venv/bin/ruff format . && .venv/bin/ruff check --fix .
+
+typecheck: ## Run mypy (django-stubs needs Django to boot, so supply a DATABASE_URL)
+	DATABASE_URL="$${DATABASE_URL:-sqlite://:memory:}" .venv/bin/python -m mypy .

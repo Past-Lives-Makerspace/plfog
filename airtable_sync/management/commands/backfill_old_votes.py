@@ -12,7 +12,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from django.core.management.base import BaseCommand
 
@@ -89,7 +89,7 @@ class Command(BaseCommand):
 
         from membership.models import Guild, Member, VotePreference
 
-        dry_run = options["dry_run"]
+        dry_run = bool(options["dry_run"])
         if dry_run:
             self.stdout.write(self.style.WARNING("DRY RUN — no changes will be made\n"))
 
@@ -105,7 +105,7 @@ class Command(BaseCommand):
 
         # Fetch and deduplicate old vote records
         self.stdout.write(self.style.MIGRATE_HEADING("Fetching votes from old base"))
-        old_vote_records = api.table(OLD_BASE_ID, OLD_GUILD_VOTES_TABLE_ID).all()
+        old_vote_records = cast("list[dict]", api.table(OLD_BASE_ID, OLD_GUILD_VOTES_TABLE_ID).all())
         self.stdout.write(f"  Loaded {len(old_vote_records)} vote records")
 
         latest_by_name = _deduplicate_votes(old_vote_records)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import urllib.request
 from collections.abc import Callable
 from datetime import date as date_type
@@ -12,13 +11,9 @@ from functools import partial
 from typing import Any
 
 from django.utils import timezone
-from django.utils.html import strip_tags
 
 from core.models import CalendarFeed, SiteConfiguration
 from membership.models import CalendarEvent, Guild
-
-CLASSES_API_BASE = "https://classes.pastlives.space"
-CLASSES_API_URL = f"{CLASSES_API_BASE}/jsonapi/node/class"
 
 
 def _to_datetime(val: Any) -> datetime:
@@ -144,98 +139,25 @@ def sync_general_calendar() -> int:
     return total
 
 
-def _fetch_json(url: str) -> dict[str, Any]:
-    """Fetch a JSON:API URL and return the parsed response."""
-    req = urllib.request.Request(url, headers={"Accept": "application/vnd.api+json"})
-    with urllib.request.urlopen(req, timeout=15) as response:
-        return json.loads(response.read())
-
-
-def sync_classes_calendar() -> int:
-    """Sync upcoming classes from classes.pastlives.space. Returns number of events upserted.
-
-    Each class session becomes a CalendarEvent with guild=None and source="classes".
-    The event URL points to the registration page on classes.pastlives.space.
-    """
-    config = SiteConfiguration.load()
-    if not config.sync_classes_enabled:
-        return 0
-
-    now = timezone.now()
-    total = 0
-
-    next_url: str | None = CLASSES_API_URL
-    while next_url:
-        data = _fetch_json(next_url)
-
-        for item in data.get("data", []):
-            attrs = item.get("attributes") or {}
-
-            dates = attrs.get("field_dates") or []
-            if not dates:
-                continue
-
-            # Registration URL
-            path_alias = (attrs.get("path") or {}).get("alias", "")
-            event_url = f"{CLASSES_API_BASE}{path_alias}" if path_alias else ""
-
-            # Description: strip HTML from body
-            body = attrs.get("body") or {}
-            description = strip_tags(body.get("value") or body.get("summary") or "")[:500]
-
-            title = attrs.get("title") or "(No title)"
-
-            # One CalendarEvent per session date
-            for i, session in enumerate(dates):
-                start_str = session.get("value")
-                end_str = session.get("end_value") or start_str
-                if not start_str:
-                    continue
-
-                start_dt = datetime.fromisoformat(start_str)
-                end_dt = datetime.fromisoformat(end_str)
-
-                uid = f"classes-{item['id']}-{i}"
-
-                # Remove any old record that was stored with a guild (pre-migration data)
-                CalendarEvent.objects.filter(uid=uid).exclude(guild=None).delete()
-
-                CalendarEvent.objects.update_or_create(
-                    guild=None,
-                    uid=uid,
-                    defaults={
-                        "source": "classes",
-                        "title": title,
-                        "description": description,
-                        "location": "",
-                        "url": event_url,
-                        "start_dt": start_dt,
-                        "end_dt": end_dt,
-                        "all_day": False,
-                        "fetched_at": now,
-                    },
-                )
-                total += 1
-
-        next_url = ((data.get("links") or {}).get("next") or {}).get("href")
-
-    config.classes_last_synced_at = now
-    config.save(update_fields=["classes_last_synced_at"])
-    return total
-
-
 def sync_local_class_events() -> int:
     """Materialize upcoming local plfog class sessions into CalendarEvent rows.
 
-    Complements the Drupal-fed ``sync_classes_calendar`` during the transition
-    period (when ``SiteConfiguration.sync_classes_enabled`` is still on). Both
-    sources live under ``source="classes"`` but use distinct UID prefixes so
-    they don't collide.
+    This is the sole source of ``source="classes"`` events on the Community
+    Calendar — each event links to the class on our own site (``/classes/<slug>/``),
+    never to the legacy classes.pastlives.space pages. Drupal still feeds the class
+    *catalog* via ``classes.import_service.sync_legacy_cms``; those offerings flow
+    onto the calendar through here.
 
-    Stale local events (class archived/unpublished, or session deleted) are
-    cleaned up at the end of each sync.
+    Any ``source="classes"`` event not backed by a live local session is purged at
+    the end of each sync — this includes leftover legacy ``classes-*`` events from
+    the retired Drupal calendar feed.
+
+    Titles are run through ``strip_date_suffix`` so CMS-imported date suffixes
+    (e.g. "Intro to Welding - 6/5/26") don't show on the calendar — matching how
+    the public catalog displays them.
     """
     from classes.models import ClassOffering, ClassSession
+    from classes.templatetags.classes_tags import strip_date_suffix
 
     now = timezone.now()
     horizon = now + timedelta(days=180)
@@ -253,11 +175,11 @@ def sync_local_class_events() -> int:
         uid = f"local-class-{session.pk}"
         kept_uids.append(uid)
         CalendarEvent.objects.update_or_create(
-            guild=None,
+            guild=offering.category.guild,
             uid=uid,
             defaults={
                 "source": "classes",
-                "title": offering.title,
+                "title": strip_date_suffix(offering.title),
                 "description": offering.description[:500],
                 "location": "Past Lives Makerspace",
                 "url": f"/classes/{offering.slug}/",
@@ -268,8 +190,14 @@ def sync_local_class_events() -> int:
             },
         )
 
-    # Purge stale local-class events that no longer map to a live session.
-    CalendarEvent.objects.filter(source="classes", uid__startswith="local-class-").exclude(uid__in=kept_uids).delete()
+    # Purge every "classes" event not backed by a live local session — stale
+    # local-class rows and any leftover legacy classes-* rows from the retired
+    # Drupal calendar feed.
+    CalendarEvent.objects.filter(source="classes").exclude(uid__in=kept_uids).delete()
+
+    config = SiteConfiguration.load()
+    config.classes_last_synced_at = now
+    config.save(update_fields=["classes_last_synced_at"])
     return len(kept_uids)
 
 
@@ -304,15 +232,13 @@ def sync_all_sources() -> list[str]:
         _run_source(f"feed '{feed}'", partial(sync_calendar_feed, feed), errors)
 
     config = SiteConfiguration.load()
-    if config.sync_classes_enabled:
-        _run_source("classes calendar", sync_classes_calendar, errors)
-
     if config.legacy_cms_sync_enabled:
         from classes.import_service import sync_legacy_cms
 
         _run_source("legacy CMS", sync_legacy_cms, errors)
 
-    # Always materialize local plfog classes — independent of the external feed toggles.
+    # Always materialize local plfog classes onto the calendar — independent of the
+    # external feed toggles. This is the sole source of class events on the calendar.
     _run_source("local classes", sync_local_class_events, errors)
 
     return errors

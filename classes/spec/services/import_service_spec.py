@@ -327,6 +327,21 @@ def describe_sync_legacy_cms():
         offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
         assert ClassSession.objects.filter(class_offering=offering).count() == 0
 
+    def it_groups_same_class_posted_on_different_dates(db):
+        from classes.import_service import sync_legacy_cms
+
+        items = [
+            _class_item("uuid-1", title="Blacksmithing 101 with Glen 6/5/26", path_alias="/class/bs-1"),
+            _class_item("uuid-2", title="Blacksmithing 101 with Glen 6/12/26", path_alias="/class/bs-2"),
+        ]
+        resp = _make_mock_resp(_page(items))
+        with patch("urllib.request.urlopen", return_value=resp):
+            sync_legacy_cms()
+
+        keys = set(ClassOffering.objects.values_list("grouping_key", flat=True))
+        assert len(keys) == 1
+        assert "" not in keys
+
     def it_skips_items_with_no_node_id(db):
         from classes.import_service import sync_legacy_cms
 

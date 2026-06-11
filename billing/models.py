@@ -411,7 +411,50 @@ class Tab(models.Model):
                 product=product,
             )
             entry.snapshot_splits(splits)
+            from core.models import SiteActivity
+
+            SiteActivity.log(SiteActivity.Kind.TAB_ENTRY_ADDED, actor=added_by, target=entry)
+
+            self._dispatch_entry_notifications(
+                added_by=added_by,
+                is_self_service=is_self_service,
+                description=description,
+                amount=amount,
+                current=current,
+                locked_self=locked_self,
+            )
             return entry
+
+    def _dispatch_entry_notifications(
+        self,
+        *,
+        added_by: User | None,
+        is_self_service: bool,
+        description: str,
+        amount: Decimal,
+        current: Decimal,
+        locked_self: Tab,
+    ) -> None:
+        """Dispatch in-app notifications for a newly added tab entry."""
+        from core import notifications
+
+        if added_by is not None and not is_self_service and self.member.user is not None:
+            notifications.dispatch(
+                "tab_entry_added",
+                [self.member.user],
+                title="Tab entry added",
+                body=f"{description} — ${amount}",
+                url="/tab/",
+            )
+        limit = locked_self.effective_tab_limit
+        if self.member.user is not None and limit and (current + amount) / limit >= Decimal("0.80"):
+            notifications.dispatch(
+                "tab_approaching_limit",
+                [self.member.user],
+                title="Tab approaching its limit",
+                body=f"Your tab balance is ${current + amount} of ${limit}.",
+                url="/tab/",
+            )
 
     def lock(self, reason: str) -> None:
         """Lock the tab, preventing new entries."""

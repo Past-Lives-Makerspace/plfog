@@ -23,9 +23,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-    from django.http import HttpRequest, HttpResponse
+    from django.http import HttpRequest, HttpResponseBase
 
-_ViewFunc = Callable[..., "HttpResponse"]
+_ViewFunc = Callable[..., "HttpResponseBase"]
 
 ROLE_MEMBER = "member"
 ROLE_GUILD_OFFICER = "guild_officer"
@@ -132,6 +132,14 @@ class ViewAs:
         return self.has(ROLE_ADMIN)
 
     @property
+    def actual_is_admin(self) -> bool:
+        return self.has_actual(ROLE_ADMIN)
+
+    @property
+    def actual_is_guild_officer(self) -> bool:
+        return self.has_actual(ROLE_GUILD_OFFICER)
+
+    @property
     def is_guild_officer(self) -> bool:
         return self.has(ROLE_GUILD_OFFICER)
 
@@ -208,7 +216,7 @@ def fog_admin_required(view_func: _ViewFunc) -> _ViewFunc:
     from django.http import HttpResponseForbidden
 
     @wraps(view_func)
-    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
         view_as = getattr(request, "view_as", None)
         if view_as is None or not view_as.has_actual(ROLE_ADMIN):
             return HttpResponseForbidden("Admin access required.")

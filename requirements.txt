@@ -16,3 +16,4 @@ pyairtable>=3.0
 stripe>=11.0
 cryptography>=42.0
 icalendar>=6.0
+pywebpush>=2.0

@@ -3,7 +3,7 @@
  * Vanilla JS implementation for offline shell caching
  */
 
-const CACHE_NAME = 'plfog-shell-v4';
+const CACHE_NAME = 'plfog-shell-v5';
 
 // Assets to precache on install
 const PRECACHE_ASSETS = [

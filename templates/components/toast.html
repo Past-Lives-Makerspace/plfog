@@ -1,60 +1,171 @@
 {% comment %}
-Toast notification container. Include once in base templates.
+Toast notifications — fully self-contained (inline CSS + JS, no framework, no external assets).
+
+Deliberately self-contained so it cannot be broken by a stale service-worker asset cache or
+a missing collectstatic: the markup, styles, and logic all ship inside the HTML document,
+which is never cached. Class names are prefixed `plt-` so nothing else can collide with them.
+
+Include once per base template (hub/base.html, admin/base.html).
 
 Triggered by:
-  1. Server-side: HX-Trigger header with showToast event (via hub.toast.trigger_toast)
-  2. Client-side: $dispatch('show-toast', {message: '...', type: 'success'})
+  1. Django messages: rendered into hidden elements carrying data-toast-message / data-toast-type.
+     Drained on load and after every htmx settle. This is the path for save -> redirect flows.
+  2. HTMX HX-Trigger `showToast` (via hub.toast.trigger_toast): htmx fires the kebab alias
+     `show-toast`, caught by the window listener below.
+  3. Client JS: window.showToast('msg', 'success'[, 'center'])  OR
+     window.dispatchEvent(new CustomEvent('show-toast', {detail: {message, type, position}})).
 {% endcomment %}
-<div x-data="plToastManager()" @show-toast.window="add($event.detail)" aria-live="polite">
-    {% comment %} Top-right toasts (default) {% endcomment %}
-    <div class="pl-toast-container">
-        <template x-for="toast in toasts.filter(t => t.position !== 'center')" :key="toast.id">
-            <div class="pl-toast" :class="'pl-toast--' + toast.type"
-                 x-show="toast.visible"
-                 x-transition:enter="toast-enter"
-                 x-transition:leave="toast-leave">
-                <span x-text="toast.message"></span>
-                <button @click="dismiss(toast.id)" class="pl-toast__close" aria-label="Dismiss">&times;</button>
-            </div>
-        </template>
-    </div>
-    {% comment %} Center toasts {% endcomment %}
-    <div class="pl-toast-container pl-toast-container--center">
-        <template x-for="toast in toasts.filter(t => t.position === 'center')" :key="toast.id">
-            <div class="pl-toast" :class="'pl-toast--' + toast.type"
-                 x-show="toast.visible"
-                 x-transition:enter="toast-enter"
-                 x-transition:leave="toast-leave">
-                <span x-text="toast.message"></span>
-                <button @click="dismiss(toast.id)" class="pl-toast__close" aria-label="Dismiss">&times;</button>
-            </div>
-        </template>
-    </div>
-</div>
-
-<script>
-function plToastManager() {
-    var _nextId = 0;
-    return {
-        toasts: [],
-        add(detail) {
-            var id = ++_nextId;
-            this.toasts.push({
-                id: id,
-                message: detail.message,
-                type: detail.type || 'success',
-                position: detail.position || 'top-right',
-                visible: true
-            });
-            var self = this;
-            setTimeout(function() { self.dismiss(id); }, 4000);
-        },
-        dismiss(id) {
-            var toast = this.toasts.find(function(t) { return t.id === id; });
-            if (toast) toast.visible = false;
-            var self = this;
-            setTimeout(function() { self.toasts = self.toasts.filter(function(t) { return t.id !== id; }); }, 300);
-        }
-    };
+<style>
+.plt-container {
+    position: fixed;
+    z-index: 2147483000;            /* above the topbar (z-index:50), sidebar (100), modals (9999) */
+    top: calc(var(--topbar-height, 56px) + 0.75rem);  /* sit just below the navbar */
+    left: 50%; transform: translateX(-50%);            /* horizontally centered */
+    display: flex; flex-direction: column; align-items: center; gap: .5rem;
+    width: max-content; max-width: 92vw; pointer-events: none;
 }
+.plt-container--center {           /* the optional 'center' position: bottom-centered */
+    top: auto; bottom: 2rem;
+}
+.plt-toast {
+    pointer-events: auto;
+    display: flex; align-items: flex-start; gap: .625rem;
+    padding: .75rem .9rem; border-radius: 10px;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: .875rem; font-weight: 500; line-height: 1.35;
+    color: #f4efdd; background: #1b1f2a;
+    border: 1px solid rgba(255,255,255,.08);
+    border-left: 3px solid var(--plt-accent, #60a5fa);
+    box-shadow: 0 10px 30px rgba(0,0,0,.4);
+    transform: translateY(-12px); opacity: 0;
+    transition: transform .28s cubic-bezier(.22,1,.36,1), opacity .28s ease;
+}
+.plt-toast.plt-in  { transform: translateY(0);    opacity: 1; }
+.plt-toast.plt-out { transform: translateY(-12px); opacity: 0; }
+.plt-container--center .plt-toast      { transform: translateY(16px); }
+.plt-container--center .plt-toast.plt-in  { transform: translateY(0); }
+.plt-container--center .plt-toast.plt-out { transform: translateY(16px); opacity: 0; }
+.plt-toast--success { --plt-accent: #34d399; }
+.plt-toast--error   { --plt-accent: #f87171; }
+.plt-toast--info    { --plt-accent: #60a5fa; }
+.plt-icon { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 1px; color: var(--plt-accent); }
+.plt-msg  { flex: 1 1 auto; padding-top: 1px; }
+.plt-close {
+    flex: 0 0 auto; margin: -2px -2px 0 .25rem; padding: 0 .15rem;
+    background: none; border: 0; color: rgba(244,239,221,.55);
+    font-size: 1.15rem; line-height: 1; cursor: pointer;
+}
+.plt-close:hover { color: #f4efdd; }
+[data-theme="light"] .plt-toast {
+    color: #1d1e1e; background: #ffffff;
+    border-color: rgba(0,0,0,.08); box-shadow: 0 10px 30px rgba(0,0,0,.15);
+}
+[data-theme="light"] .plt-close { color: rgba(29,30,30,.45); }
+[data-theme="light"] .plt-close:hover { color: #1d1e1e; }
+@media (prefers-reduced-motion: reduce) {
+    .plt-toast, .plt-container--center .plt-toast { transition: opacity .2s ease; transform: none; }
+    .plt-toast.plt-out, .plt-container--center .plt-toast.plt-out { transform: none; }
+}
+</style>
+<script>
+(function () {
+    // hx-boost re-inserts and re-runs this script on every boosted navigation. The listeners
+    // live on window / document.body (which survive body innerHTML swaps), so wire up once.
+    if (window.__pltReady) { return; }
+    window.__pltReady = true;
+
+    var ICONS = {
+        success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+        error:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+        info:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>'
+    };
+
+    function container(center) {
+        var id = center ? 'plt-container--center' : 'plt-container';
+        var el = document.getElementById(id);
+        if (!el) {
+            el = document.createElement('div');
+            el.id = id;
+            el.className = 'plt-container' + (center ? ' plt-container--center' : '');
+            el.setAttribute('aria-live', 'polite');
+            document.body.appendChild(el);
+        }
+        return el;
+    }
+
+    function toast(message, type, position) {
+        if (!message) { return; }
+        // Only success (green) and error (red) are special; every other tag is info (blue).
+        if (type !== 'success' && type !== 'error') { type = 'info'; }
+
+        var node = document.createElement('div');
+        node.className = 'plt-toast plt-toast--' + type;
+        node.setAttribute('role', 'status');
+        node.innerHTML =
+            '<span class="plt-icon">' + (ICONS[type] || '') + '</span>' +
+            '<span class="plt-msg"></span>' +
+            '<button class="plt-close" type="button" aria-label="Dismiss">&times;</button>';
+        node.querySelector('.plt-msg').textContent = message;
+
+        var gone = false;
+        function dismiss() {
+            if (gone) { return; }
+            gone = true;
+            node.classList.remove('plt-in');
+            node.classList.add('plt-out');
+            setTimeout(function () { if (node.parentNode) { node.parentNode.removeChild(node); } }, 320);
+        }
+        node.querySelector('.plt-close').addEventListener('click', dismiss);
+
+        container(position === 'center').appendChild(node);
+        // Double rAF so the browser paints the off-screen start state before transitioning in.
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () { node.classList.add('plt-in'); });
+        });
+        setTimeout(dismiss, 4500);
+    }
+
+    // Public API. `showToast` kept for existing callers (e.g. static/js/hero_placement.js).
+    window.showToast = toast;
+    window.plToast = toast;
+
+    // Client dispatches and the htmx HX-Trigger kebab alias both arrive as `show-toast`.
+    window.addEventListener('show-toast', function (e) {
+        var d = e.detail || {};
+        toast(d.message, d.type, d.position);
+    });
+
+    // Convert server-rendered Django messages into toasts. Scans the document and clears each
+    // as it fires, so repeated calls (every htmx settle) never duplicate.
+    function drainDom() {
+        var nodes = document.querySelectorAll('[data-toast-message]');
+        for (var i = 0; i < nodes.length; i++) {
+            var el = nodes[i];
+            toast(el.getAttribute('data-toast-message'), el.getAttribute('data-toast-type') || 'success');
+            el.removeAttribute('data-toast-message');
+        }
+    }
+
+    // Messages handed across a redirect ride in the `pl_toast` cookie (set by
+    // ToastFlashMiddleware). This survives htmx hx-boost swaps, full reloads, and the
+    // service worker alike. Read once, clear immediately so it fires exactly once.
+    function drainCookie() {
+        var m = document.cookie.match(/(?:^|;\s*)pl_toast=([^;]*)/);
+        if (!m || !m[1]) { return; }
+        document.cookie = 'pl_toast=; Max-Age=0; path=/';
+        try {
+            var list = JSON.parse(decodeURIComponent(m[1]));
+            for (var i = 0; i < list.length; i++) { toast(list[i].message, list[i].type); }
+        } catch (e) { /* malformed cookie: ignore */ }
+    }
+
+    function drain() { drainDom(); drainCookie(); }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', drain);
+    } else {
+        drain();
+    }
+    document.body.addEventListener('htmx:afterSettle', drain);
+})();
 </script>

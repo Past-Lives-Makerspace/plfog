@@ -13,6 +13,10 @@ from factory.django import mute_signals
 from membership.models import (
     FundingSnapshot,
     Guild,
+    GuildAnnouncement,
+    GuildFAQItem,
+    GuildLink,
+    GuildMembership,
     Lease,
     Member,
     MemberEmail,
@@ -62,9 +66,45 @@ class SpaceFactory(factory.django.DjangoModelFactory):
 class GuildFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = Guild
+        django_get_or_create = ("name",)
 
     name = factory.Sequence(lambda n: f"Guild {n}")
     is_active = True
+
+
+class GuildFAQItemFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildFAQItem
+
+    guild = factory.SubFactory(GuildFactory)
+    question = factory.Sequence(lambda n: f"Question {n}?")
+    answer = "An answer."
+
+
+class GuildLinkFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildLink
+
+    guild = factory.SubFactory(GuildFactory)
+    label = factory.Sequence(lambda n: f"Link {n}")
+    url = "https://example.com"
+
+
+class GuildAnnouncementFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildAnnouncement
+
+    guild = factory.SubFactory(GuildFactory)
+    title = factory.Sequence(lambda n: f"Announcement {n}")
+    body = "Body text."
+
+
+class GuildMembershipFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildMembership
+
+    guild = factory.SubFactory(GuildFactory)
+    member = factory.SubFactory(MemberFactory)
 
 
 class VotePreferenceFactory(factory.django.DjangoModelFactory):

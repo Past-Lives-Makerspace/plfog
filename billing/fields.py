@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
@@ -47,7 +47,13 @@ class EncryptedCharField(models.CharField):
     def from_db_value(self, value: Any, expression: Any, connection: Any) -> str | None:
         if value is None or value == "":
             return value
-        return _fernet().decrypt(value.encode()).decode()
+        try:
+            return _fernet().decrypt(value.encode()).decode()
+        except InvalidToken:
+            # If we can't decrypt (usually due to a changed STRIPE_FIELD_ENCRYPTION_KEY),
+            # return an empty string instead of crashing the entire site. The
+            # admin will see the field as empty and can re-enter it.
+            return ""
 
     def get_prep_value(self, value: Any) -> str | None:
         if value is None or value == "":

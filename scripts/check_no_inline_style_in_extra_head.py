@@ -86,7 +86,7 @@ def main() -> int:
         print("New inline <style> blocks inside extra_head blocks (NOT allowed):")
         print()
         for path, block_name, line in new_violations:
-            rel = path.relative_to(repo_root)
+            rel = str(path.relative_to(repo_root))
             print(f"  {rel}:{line}  inside `{{% block {block_name} %}}`")
         print()
         print(

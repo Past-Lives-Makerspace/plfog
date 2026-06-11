@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, TypedDict, cast
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
-from django.db.models import Count, F, Min, Q
+from django.db.models import Count, F, Max, Min, Q, Sum
+from django.db.models.functions import TruncDate
 from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -18,6 +21,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractUser
+
     from membership.models import Member
 
 from classes.emails import (
@@ -36,8 +41,8 @@ from classes.forms import (
     ClassSessionFormSet,
     ClassSettingsForm,
     DiscountCodeForm,
-    InstructorClassOfferingForm,
-    InstructorProfileForm,
+    TeachClassOfferingForm,
+    TeachProfileForm,
     RegistrationForm,
     RegistrationQuestionForm,
 )
@@ -74,6 +79,44 @@ def _browsable_classes() -> Any:
         .order_by(F("first_session_at").asc(nulls_last=True), "title")
         .distinct()
     )
+
+
+class _CatalogGroup:
+    """One public catalog card: a class plus every date it is offered on.
+
+    ``representative`` supplies the shared display chrome (title, image, price,
+    instructor); ``members`` are the individual dated offerings, each still its
+    own bookable unit with its own capacity. Built from offerings already sorted
+    by soonest upcoming session, so the first member seen is the representative
+    and members stay date-ordered.
+    """
+
+    def __init__(self, representative: Any) -> None:
+        self.representative = representative
+        self.members = [representative]
+
+    @property
+    def date_count(self) -> int:
+        return len(self.members)
+
+    @property
+    def is_multi(self) -> bool:
+        return len(self.members) > 1
+
+
+def _grouped_catalog(offerings: Any) -> list[_CatalogGroup]:
+    """Collapse offerings sharing a grouping key into one card, preserving order."""
+    groups: dict[str, _CatalogGroup] = {}
+    order: list[str] = []
+    for offering in offerings:
+        key = offering.grouping_key or f"solo:{offering.pk}"
+        group = groups.get(key)
+        if group is None:
+            groups[key] = _CatalogGroup(offering)
+            order.append(key)
+        else:
+            group.members.append(offering)
+    return [groups[key] for key in order]
 
 
 def _coerce_dollars_to_cents(raw: str | None) -> int:
@@ -131,12 +174,17 @@ def public_list(request: HttpRequest) -> HttpResponse:
     upcoming_only = request.GET.get("upcoming") == "1"
 
     classes_qs = _apply_browse_filters(_browsable_classes(), request)
+    catalog_groups = _grouped_catalog(classes_qs)
 
     # Category chips and per-category counts always reflect the unfiltered
     # universe of browsable classes so users can see what else is out there.
-    category_counts: dict[int, int] = {}
+    # Counts are per-group (distinct grouping keys) so they match the collapsed
+    # cards rather than the raw, deduplicated offering rows.
+    keys_by_category: dict[int, set[str]] = {}
     for offering in _browsable_classes():
-        category_counts[offering.category_id] = category_counts.get(offering.category_id, 0) + 1
+        key = offering.grouping_key or f"solo:{offering.pk}"
+        keys_by_category.setdefault(offering.category_id, set()).add(key)
+    category_counts: dict[int, int] = {cat_id: len(keys) for cat_id, keys in keys_by_category.items()}
     categories = [cat for cat in Category.objects.all() if category_counts.get(cat.id)]
     for cat in categories:
         cat.class_count = category_counts[cat.id]  # type: ignore[attr-defined]
@@ -150,8 +198,16 @@ def public_list(request: HttpRequest) -> HttpResponse:
         .order_by("full_legal_name")
     )
 
-    paginator = Paginator(classes_qs, 25)
+    paginator = Paginator(catalog_groups, 25)
     page_obj = paginator.get_page(request.GET.get("page", 1))
+
+    # Attach per-date seat counts to the members shown on this page in one query,
+    # so each date row can display its own "N left" without an N+1.
+    page_member_pks = [member.pk for group in page_obj for member in group.members]
+    spots_map = ClassOffering.objects.filter(pk__in=page_member_pks).spots_remaining_map()
+    for group in page_obj:
+        for member in group.members:
+            member.spots_left = spots_map.get(member.pk, member.capacity)
 
     # Strip 'page' from the querystring so pagination links can append it cleanly.
     filter_qs = request.GET.copy()
@@ -202,8 +258,9 @@ def public_list(request: HttpRequest) -> HttpResponse:
 def public_category(request: HttpRequest, slug: str) -> HttpResponse:
     """Public category landing — same layout as list, pre-filtered."""
     category = get_object_or_404(Category, slug=slug)
-    request.GET = request.GET.copy()
-    request.GET["category"] = category.slug
+    mutable_get = request.GET.copy()
+    mutable_get["category"] = category.slug
+    request.GET = mutable_get  # type: ignore[assignment]  # .copy() returns a mutable QueryDict; stub types the attr immutable
     return public_list(request)
 
 
@@ -215,7 +272,27 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     )
     settings_obj = ClassSettings.load()
     member_price_cents = offering.member_price_cents
-    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    now = timezone.now()
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
+
+    # Other dates this same class is offered on, so the visitor can switch dates
+    # without hunting through the catalog. Each sibling keeps its own seats.
+    sibling_offerings: list[Any] = []
+    if offering.grouping_key:
+        sibling_offerings = list(
+            ClassOffering.objects.public()
+            .filter(grouping_key=offering.grouping_key, sessions__starts_at__gte=now)
+            .exclude(pk=offering.pk)
+            .select_related("instructor")
+            .prefetch_related("sessions")
+            .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
+            .order_by("first_session_at")
+            .distinct()
+        )
+        sib_spots = ClassOffering.objects.filter(pk__in=[s.pk for s in sibling_offerings]).spots_remaining_map()
+        for sibling in sibling_offerings:
+            sibling.spots_left = sib_spots.get(sibling.pk, sibling.capacity)
+
     related_offerings = list(
         ClassOffering.objects.public()
         .filter(category=offering.category)
@@ -223,17 +300,57 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         .select_related("instructor")
         .order_by("-created_at")[:3]
     )
+    from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
+
+    view_as = getattr(request, "view_as", None)
+    # Admins and Officers always get edit rights for heroes.
+    is_admin = view_as is not None and (view_as.has_actual(ROLE_ADMIN) or view_as.has_actual(ROLE_GUILD_OFFICER))
+
+    member = getattr(request.user, "member", None)
+    is_instructor = member is not None and offering.instructor_id == member.pk
+
+    can_edit_offering = is_admin or is_instructor
+    edit_url = None
+    if is_admin:
+        edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+    elif is_instructor:
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+
+    can_edit_category = False
+
+    # If the class has NO specific image (real or legacy), it falls back to the category image.
+    has_no_class_image = not offering.image and not offering.legacy_image_url
+
+    if has_no_class_image and offering.category.hero_image:
+        if is_admin:
+            can_edit_category = True
+        elif member is not None and offering.category.guild_id:
+            # Guild Leads can adjust their category images.
+            can_edit_category = offering.category.guild.guild_lead_id == member.pk
+
+    offering_ct = ContentType.objects.get_for_model(ClassOffering)
+    category_ct = ContentType.objects.get_for_model(Category)
+
     return render(
         request,
         "classes/public/detail.html",
         {
             "offering": offering,
+            "offering_ct_id": offering_ct.pk,
+            "category_ct_id": category_ct.pk,
+            "can_edit_offering": can_edit_offering,
+            "can_edit_category": can_edit_category,
+            "edit_url": edit_url,
+            "is_admin": is_admin,
+            "is_instructor": is_instructor,
+            "view_as": view_as,
             "settings_obj": settings_obj,
             "site_config": SiteConfiguration.load(),
             "upcoming_sessions": upcoming_sessions,
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
             "related_offerings": related_offerings,
+            "sibling_offerings": sibling_offerings,
         },
     )
 
@@ -245,7 +362,7 @@ def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
     instructor = get_object_or_404(MemberModel, instructor_slug=slug, status=MemberModel.Status.ACTIVE)
     now = timezone.now()
     current_classes = (
-        ClassOffering.objects.public()
+        ClassOffering.objects.public()  # type: ignore[misc]  # django-stubs can't see annotate() aliases
         .filter(instructor=instructor)
         .prefetch_related("sessions")
         .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
@@ -296,6 +413,7 @@ def _registration_initial_for_user(user: "AbstractBaseUser | AnonymousUser | Non
     """Pre-fill values pulled from the logged-in user's Member record."""
     if not user or not user.is_authenticated:
         return {}
+    user = cast("AbstractUser", user)
     member = getattr(user, "member", None)
     if member is None:
         return {"email": user.email or ""}
@@ -372,6 +490,17 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
                 _log_discount_redeemed(registration)
             send_registration_confirmation(registration)
             send_instructor_registration_notification(registration)
+            _instructor = registration.class_offering.instructor
+            if _instructor is not None and _instructor.user is not None:
+                from core import notifications
+
+                notifications.dispatch(
+                    "instructor_new_registration",
+                    [_instructor.user],
+                    title="New registration",
+                    body=registration.class_offering.title,
+                    url="/classes/teach/",
+                )
             send_admin_registration_notification(registration)
             from classes.services.mailchimp_subscribe import subscribe_registration
 
@@ -526,7 +655,7 @@ def _log_discount_redeemed(registration: Registration) -> None:
         CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
         class_offering=registration.class_offering,
         registration=registration,
-        payload={"code": registration.discount_code.code},
+        payload={"code": registration.discount_code.code},  # type: ignore[union-attr]  # discount_code_id guard ensures non-None
     )
 
 
@@ -551,7 +680,7 @@ def admin_required(view_func: _ViewFunc) -> _ViewFunc:
     return wrapper  # type: ignore[return-value]
 
 
-def instructor_required(view_func: _ViewFunc) -> _ViewFunc:
+def teaching_member_required(view_func: _ViewFunc) -> _ViewFunc:
     """Decorator: Teaching portal access — any active logged-in member may teach."""
 
     @wraps(view_func)
@@ -559,10 +688,11 @@ def instructor_required(view_func: _ViewFunc) -> _ViewFunc:
     def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         from membership.models import Member as MemberModel
 
+        assert request.user.is_authenticated  # @login_required guarantees a real User
         member = MemberModel.objects.filter(user=request.user, status=MemberModel.Status.ACTIVE).first()
         if member is None:
             return HttpResponseForbidden("An active member account is required to access the teaching portal.")
-        request.instructor = member  # type: ignore[attr-defined]
+        request.teaching_member = member  # type: ignore[attr-defined]
         return view_func(request, *args, **kwargs)
 
     return wrapper  # type: ignore[return-value]
@@ -588,33 +718,84 @@ def classes_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
     return wrapper  # type: ignore[return-value]
 
 
-@instructor_required
-def instructor_dashboard(request: HttpRequest) -> HttpResponse:
-    """My classes — list view for the logged-in instructor."""
-    instructor: Member = request.instructor  # type: ignore[attr-defined]
+@teaching_member_required
+def teach_overview(request: HttpRequest) -> HttpResponse:
+    """Teaching dashboard: the teaching member's drafts, classes awaiting review,
+    recent sign-ups, and active waitlists. No money, no approvals — they submit
+    classes, they don't approve them. Empty state nudges a first class."""
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    my_classes = ClassOffering.objects.for_instructor(teaching_member)
+
+    drafts = my_classes.filter(status=ClassOffering.Status.DRAFT).select_related("category").order_by("-updated_at")
+    pending = my_classes.filter(status=ClassOffering.Status.PENDING).select_related("category").order_by("created_at")
+    waitlist_classes = (
+        my_classes.annotate(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+            waiting=Count(
+                "registrations",
+                filter=Q(registrations__status=Registration.Status.WAITLISTED),
+            )
+        )
+        .filter(waiting__gt=0)
+        .order_by("-waiting")
+    )
+    recent_registrations = (
+        Registration.objects.filter(class_offering__instructor=teaching_member)
+        .select_related("class_offering")
+        .order_by("-registered_at")[:8]
+    )
+
+    stats = {
+        "published": my_classes.filter(status=ClassOffering.Status.PUBLISHED).count(),
+        "pending": pending.count(),
+        "drafts": drafts.count(),
+        "total_signups": Registration.objects.filter(
+            class_offering__instructor=teaching_member, status=Registration.Status.CONFIRMED
+        ).count(),
+    }
+
+    return render(
+        request,
+        "classes/teach/overview.html",
+        {
+            "active_tab": "overview",
+            "instructor": teaching_member,
+            "drafts": drafts,
+            "pending_classes": pending,
+            "waitlist_classes": waitlist_classes,
+            "recent_registrations": recent_registrations,
+            "has_classes": my_classes.exists(),
+            "stats": stats,
+        },
+    )
+
+
+@teaching_member_required
+def teach_dashboard(request: HttpRequest) -> HttpResponse:
+    """My classes — list view for the logged-in teaching member."""
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     classes = (
-        ClassOffering.objects.for_instructor(instructor)
+        ClassOffering.objects.for_instructor(teaching_member)
         .select_related("category")
         .annotate(registration_count=Count("registrations"))
         .order_by("-created_at")
     )
     return render(
         request,
-        "classes/instructor/classes_list.html",
+        "classes/teach/classes_list.html",
         {
             "active_tab": "classes",
-            "instructor": instructor,
+            "instructor": teaching_member,
             "classes": classes,
         },
     )
 
 
-def _render_instructor_class_form(
+def _render_teach_class_form(
     request: HttpRequest,
     *,
-    form: InstructorClassOfferingForm,
+    form: TeachClassOfferingForm,
     formset: Any,
-    instructor: Member,
+    teaching_member: Member,
     mode: str,
     offering: ClassOffering | None = None,
 ) -> HttpResponse:
@@ -639,10 +820,10 @@ def _render_instructor_class_form(
 
     return render(
         request,
-        "classes/instructor/class_form.html",
+        "classes/teach/class_form.html",
         {
             "active_tab": "classes",
-            "instructor": instructor,
+            "instructor": teaching_member,
             "form": form,
             "formset": formset,
             "sessions_json": json.dumps(sessions_data),
@@ -653,10 +834,10 @@ def _render_instructor_class_form(
     )
 
 
-@instructor_required
-def instructor_class_create(request: HttpRequest) -> HttpResponse:
-    instructor: Member = request.instructor  # type: ignore[attr-defined]
-    form = InstructorClassOfferingForm(request.POST or None, request.FILES or None, instructor=instructor)
+@teaching_member_required
+def teach_class_create(request: HttpRequest) -> HttpResponse:
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    form = TeachClassOfferingForm(request.POST or None, request.FILES or None, teaching_member=teaching_member)
     formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
     if request.method == "POST" and form.is_valid() and formset.is_valid():
         offering = form.save()
@@ -669,32 +850,32 @@ def instructor_class_create(request: HttpRequest) -> HttpResponse:
             messages.success(request, f"Submitted “{offering.title}” for admin review.")
         else:
             messages.success(request, f"Saved draft ‘{offering.title}’.")
-        return redirect("classes:instructor_class_edit", pk=offering.pk)
-    return _render_instructor_class_form(
+        return redirect("classes:teach_class_edit", pk=offering.pk)
+    return _render_teach_class_form(
         request,
         form=form,
         formset=formset,
-        instructor=instructor,
+        teaching_member=teaching_member,
         mode="create",
     )
 
 
-@instructor_required
-def instructor_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    instructor: Member = request.instructor  # type: ignore[attr-defined]
+@teaching_member_required
+def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     offering = get_object_or_404(
-        ClassOffering.objects.filter(instructor=instructor).prefetch_related("gallery_images"),
+        ClassOffering.objects.filter(instructor=teaching_member).prefetch_related("gallery_images"),
         pk=pk,
     )
     if offering.status in {ClassOffering.Status.PUBLISHED, ClassOffering.Status.ARCHIVED}:
         messages.info(request, "Published and archived classes can only be edited by an admin.")
-        return redirect("classes:instructor_dashboard")
-    form = InstructorClassOfferingForm(
-        request.POST or None, request.FILES or None, instance=offering, instructor=instructor
+        return redirect("classes:teach_dashboard")
+    form = TeachClassOfferingForm(
+        request.POST or None, request.FILES or None, instance=offering, teaching_member=teaching_member
     )
     formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
     if request.method == "POST" and form.is_valid() and formset.is_valid():
-        offering = form.save()
+        offering = form.save()  # type: ignore[assignment]  # django-stubs infers an annotated row type for offering
         formset.save()
         submit_now = request.POST.get("action") == "submit"
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
@@ -702,22 +883,22 @@ def instructor_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
             messages.success(request, f"Submitted “{offering.title}” for admin review.")
         else:
             messages.success(request, "Class updated.")
-        return redirect("classes:instructor_class_edit", pk=offering.pk)
-    return _render_instructor_class_form(
+        return redirect("classes:teach_class_edit", pk=offering.pk)
+    return _render_teach_class_form(
         request,
         form=form,
         formset=formset,
-        instructor=instructor,
+        teaching_member=teaching_member,
         mode="edit",
         offering=offering,
     )
 
 
-@instructor_required
-def instructor_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
+@teaching_member_required
+def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     """Transition a draft to 'pending review'."""
-    instructor: Member = request.instructor  # type: ignore[attr-defined]
-    offering = get_object_or_404(ClassOffering.objects.filter(instructor=instructor), pk=pk)
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
     if request.method == "POST" and offering.status == ClassOffering.Status.DRAFT:
         approvals = offering.submit_for_review()
         send_class_review_requests(offering, approvals)
@@ -726,14 +907,14 @@ def instructor_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
             request,
             f"Submitted “{offering.title}” for review by {roles_label}.",
         )
-    return redirect("classes:instructor_dashboard")
+    return redirect("classes:teach_dashboard")
 
 
-@instructor_required
-def instructor_registrations(request: HttpRequest) -> HttpResponse:
-    instructor: Member = request.instructor  # type: ignore[attr-defined]
+@teaching_member_required
+def teach_registrations(request: HttpRequest) -> HttpResponse:
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     offerings = (
-        ClassOffering.objects.for_instructor(instructor)
+        ClassOffering.objects.for_instructor(teaching_member)
         .annotate(registration_count=Count("registrations"))
         .order_by("-created_at")
     )
@@ -748,75 +929,76 @@ def instructor_registrations(request: HttpRequest) -> HttpResponse:
         class_groups.append({"offering": offering, "registrations": list(regs)})
     return render(
         request,
-        "classes/instructor/registrations.html",
+        "classes/teach/registrations.html",
         {
             "active_tab": "registrations",
-            "instructor": instructor,
+            "instructor": teaching_member,
             "class_groups": class_groups,
         },
     )
 
 
-@instructor_required
+@teaching_member_required
 @require_POST
-def instructor_registrations_email(request: HttpRequest) -> HttpResponse:
-    """Send a manual email to selected registrants of one of the instructor's classes.
+def teach_registrations_email(request: HttpRequest) -> HttpResponse:
+    """Send a manual email to selected registrants of one of the teaching member’s classes.
 
     Submitted as a POST from the registrations table; on success bounces back
-    with a flash message so the instructor sees the confirmation inline.
+    with a flash message so the teaching member sees the confirmation inline.
     """
-    from classes.forms import InstructorEmailForm
+    from classes.forms import TeachEmailForm
 
-    instructor: Member = request.instructor  # type: ignore[attr-defined]
-    form = InstructorEmailForm(request.POST, instructor=instructor)
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    form = TeachEmailForm(request.POST, teaching_member=teaching_member)
     if not form.is_valid():
-        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
-        messages.error(request, first_error)
-        return redirect("classes:instructor_registrations")
+        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn’t send the message."
+        messages.error(request, str(first_error))
+        return redirect("classes:teach_registrations")
     message = form.send()
     messages.success(
         request,
         f"Sent ‘{message.subject}’ to {message.recipient_count} recipient(s).",
     )
-    return redirect("classes:instructor_registrations")
+    return redirect("classes:teach_registrations")
 
 
-@instructor_required
-def instructor_discount_codes(request: HttpRequest) -> HttpResponse:
-    """Discount codes — managed by instructors from the Teaching portal.
+@teaching_member_required
+def teach_discount_codes(request: HttpRequest) -> HttpResponse:
+    """Discount codes — managed by teaching members from the Teaching portal.
 
     Codes are currently shared across all classes (no per-instructor
-    ownership on the DiscountCode model), so any instructor sees every code.
+    ownership on the DiscountCode model), so any teaching member sees every code.
     If that becomes a problem, add an ``owner`` FK and filter here.
     """
-    instructor: Member = request.instructor  # type: ignore[attr-defined]
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     codes = DiscountCode.objects.all()
     return render(
         request,
-        "classes/instructor/discount_codes.html",
+        "classes/teach/discount_codes.html",
         {
             "active_tab": "discount_codes",
-            "instructor": instructor,
+            "instructor": teaching_member,
             "codes": codes,
         },
     )
 
 
-@instructor_required
-def instructor_discount_code_create(request: HttpRequest) -> HttpResponse:
-    instructor: Member = request.instructor  # type: ignore[attr-defined]
+@teaching_member_required
+def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    assert request.user.is_authenticated  # @teaching_member_required guarantees a real User
     scoped_to: ClassOffering | None = None
     raw_class = request.GET.get("class") or request.POST.get("class")
     if raw_class:
         try:
-            scoped_to = ClassOffering.objects.filter(instructor=instructor).get(pk=int(raw_class))
+            scoped_to = ClassOffering.objects.filter(instructor=teaching_member).get(pk=int(raw_class))
         except (ClassOffering.DoesNotExist, ValueError, TypeError):
             scoped_to = None
     form = DiscountCodeForm(request.POST or None, scoped_to=scoped_to, created_by=request.user)
     if request.method == "POST" and form.is_valid():
         code = form.save(commit=False)
-        # Class-scoped codes created by the offering's own instructor are
-        # auto-approved by DiscountCodeForm.save. Other instructor codes
+        # Class-scoped codes created by the offering's own teaching member are
+        # auto-approved by DiscountCodeForm.save. Other teaching member codes
         # (global, or scoped to another instructor's class) need admin review.
         if scoped_to is None:
             code.is_approved = False
@@ -830,14 +1012,14 @@ def instructor_discount_code_create(request: HttpRequest) -> HttpResponse:
         else:
             messages.success(request, "Discount code created — an admin will review and approve it.")
         if scoped_to is not None:
-            return redirect("classes:instructor_class_edit", pk=scoped_to.pk)
-        return redirect("classes:instructor_discount_codes")
+            return redirect("classes:teach_class_edit", pk=scoped_to.pk)
+        return redirect("classes:teach_discount_codes")
     return render(
         request,
-        "classes/instructor/discount_code_form.html",
+        "classes/teach/discount_code_form.html",
         {
             "active_tab": "discount_codes",
-            "instructor": instructor,
+            "instructor": teaching_member,
             "form": form,
             "mode": "create",
             "scoped_to": scoped_to,
@@ -845,43 +1027,156 @@ def instructor_discount_code_create(request: HttpRequest) -> HttpResponse:
     )
 
 
-@instructor_required
-def instructor_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    instructor: Member = request.instructor  # type: ignore[attr-defined]
+@teaching_member_required
+def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     code = get_object_or_404(DiscountCode, pk=pk)
     form = DiscountCodeForm(request.POST or None, instance=code)
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Discount code updated.")
-        return redirect("classes:instructor_discount_codes")
+        return redirect("classes:teach_discount_codes")
     return render(
         request,
-        "classes/instructor/discount_code_form.html",
-        {"active_tab": "discount_codes", "instructor": instructor, "form": form, "code": code, "mode": "edit"},
+        "classes/teach/discount_code_form.html",
+        {"active_tab": "discount_codes", "instructor": teaching_member, "form": form, "code": code, "mode": "edit"},
     )
 
 
-@instructor_required
-def instructor_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
+@teaching_member_required
+def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
     code = get_object_or_404(DiscountCode, pk=pk)
     if request.method == "POST":
         code.delete()
         messages.success(request, "Discount code deleted.")
-    return redirect("classes:instructor_discount_codes")
+    return redirect("classes:teach_discount_codes")
 
 
-@instructor_required
-def instructor_profile(request: HttpRequest) -> HttpResponse:
-    instructor: Member = request.instructor  # type: ignore[attr-defined]
-    form = InstructorProfileForm(request.POST or None, request.FILES or None, instance=instructor)
+def _teach_class_or_404(request: HttpRequest, pk: int) -> ClassOffering:
+    """Scope a per-class Workspace lookup to the logged-in teaching member's own class."""
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    return get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
+
+
+@teaching_member_required
+def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = _teach_class_or_404(request, pk)
+    return render(
+        request,
+        "classes/teach/class_overview.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "overview",
+            "instructor": request.teaching_member,  # type: ignore[attr-defined]
+            "offering": offering,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@teaching_member_required
+def teach_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = _teach_class_or_404(request, pk)
+    registrations = (
+        offering.registrations.select_related("member")
+        .prefetch_related("custom_answers__question")
+        .order_by("-registered_at")
+    )
+    return render(
+        request,
+        "classes/teach/class_registrations.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "registrations",
+            "instructor": request.teaching_member,  # type: ignore[attr-defined]
+            "offering": offering,
+            "registrations": registrations,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@teaching_member_required
+@require_POST
+def teach_class_email(request: HttpRequest, pk: int) -> HttpResponse:
+    """Send a manual email to selected registrants of one of the teaching member's classes.
+
+    POST-only sibling of ``teach_registrations_email``, scoped to a single
+    class via ``_teach_class_or_404`` so it slots into the per-class
+    Workspace. Bounces back to the Registrations tab with a flash message on
+    both success and validation error.
+    """
+    from classes.forms import TeachEmailForm
+
+    offering = _teach_class_or_404(request, pk)
+    form = TeachEmailForm(request.POST, teaching_member=request.teaching_member)  # type: ignore[attr-defined]
+    # Bound recipients to THIS class only — the form otherwise spans all of the
+    # teaching member's classes, which would let one class's tab email another class's
+    # registrants (and mis-anchor the audit record).
+    field = form.fields["registration_ids"]
+    field.queryset = field.queryset.filter(class_offering=offering)  # type: ignore[attr-defined]
+    if not form.is_valid():
+        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn’t send the message."
+        messages.error(request, str(first_error))
+        return redirect("classes:teach_class_registrations", pk=offering.pk)
+    message = form.send()
+    messages.success(
+        request,
+        f"Sent ‘{message.subject}’ to {message.recipient_count} recipient(s).",
+    )
+    return redirect("classes:teach_class_registrations", pk=offering.pk)
+
+
+@teaching_member_required
+def teach_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = _teach_class_or_404(request, pk)
+    waitlist_registrations = list(
+        offering.registrations.filter(status=Registration.Status.WAITLISTED).order_by("registered_at")
+    )
+    return render(
+        request,
+        "classes/teach/class_waitlist.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "waitlist",
+            "instructor": request.teaching_member,  # type: ignore[attr-defined]
+            "offering": offering,
+            "waitlist_registrations": waitlist_registrations,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@teaching_member_required
+def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = _teach_class_or_404(request, pk)
+    codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")
+    return render(
+        request,
+        "classes/teach/class_discount_codes.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "discount_codes",
+            "instructor": request.teaching_member,  # type: ignore[attr-defined]
+            "offering": offering,
+            "codes": codes,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@teaching_member_required
+def teach_profile(request: HttpRequest) -> HttpResponse:
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    form = TeachProfileForm(request.POST or None, request.FILES or None, instance=teaching_member)
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Profile updated.")
-        return redirect("classes:instructor_profile")
+        return redirect("classes:teach_profile")
     return render(
         request,
-        "classes/instructor/profile.html",
-        {"active_tab": "profile", "instructor": instructor, "form": form},
+        "classes/teach/profile.html",
+        {"active_tab": "profile", "instructor": teaching_member, "form": form},
     )
 
 
@@ -900,12 +1195,25 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     )
     from membership.models import Member as MemberModel
 
+    from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
+
     view_as = getattr(request, "view_as", None)
-    is_admin = view_as is not None and view_as.has_actual("admin")
+    # Admins and Officers always get edit rights for heroes.
+    is_admin = view_as is not None and (view_as.has_actual(ROLE_ADMIN) or view_as.has_actual(ROLE_GUILD_OFFICER))
+
+    assert request.user.is_authenticated  # @login_required guarantees a real User
     user_member = MemberModel.objects.filter(user=request.user).first()
-    is_owner = user_member is not None and offering.instructor_id == user_member.pk
-    if not (is_admin or is_owner):
+    is_instructor = user_member is not None and offering.instructor_id == user_member.pk
+
+    if not (is_admin or is_instructor):
         return HttpResponseForbidden("You can only preview your own classes.")
+
+    can_edit_offering = True
+    edit_url = None
+    if is_admin:
+        edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+    elif is_instructor:
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
     settings_obj = ClassSettings.load()
     member_price_cents = offering.member_price_cents
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
@@ -914,12 +1222,137 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
         "classes/public/detail.html",
         {
             "offering": offering,
+            "can_edit_offering": can_edit_offering,
+            "edit_url": edit_url,
+            "is_admin": is_admin,
+            "is_instructor": is_instructor,
             "settings_obj": settings_obj,
             "site_config": SiteConfiguration.load(),
             "upcoming_sessions": upcoming_sessions,
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
             "is_preview": True,
+        },
+    )
+
+
+class OverviewRange(TypedDict):
+    """One selectable lookback window for the overview metrics."""
+
+    key: str
+    label: str
+    days: int | None
+
+
+# Lookback windows for the overview's registration-driven metrics. Each key maps
+# to a span of days; "all" drops the lower bound so every registration counts.
+OVERVIEW_RANGES: list[OverviewRange] = [
+    {"key": "3", "label": "Last 3 days", "days": 3},
+    {"key": "7", "label": "Last 7 days", "days": 7},
+    {"key": "30", "label": "Last 30 days", "days": 30},
+    {"key": "90", "label": "Last 90 days", "days": 90},
+    {"key": "all", "label": "All time", "days": None},
+]
+OVERVIEW_DEFAULT_RANGE = "7"
+
+
+@classes_admin_access_required
+def admin_overview(request: HttpRequest) -> HttpResponse:
+    """Admin dashboard: the approvals queue, classes happening this week, waitlist
+    pressure, recent registrations, recent activity, and at-a-glance stats.
+
+    The metric panels (stat tiles, recent sign-ups, trend chart) honor a
+    ``?range=`` lookback window so the numbers can be scoped; the approvals,
+    upcoming-classes, and waitlist panels always reflect current state."""
+    now = timezone.now()
+
+    ranges_by_key = {r["key"]: r for r in OVERVIEW_RANGES}
+    requested_range = request.GET.get("range", OVERVIEW_DEFAULT_RANGE)
+    if requested_range not in ranges_by_key:
+        requested_range = OVERVIEW_DEFAULT_RANGE
+    selected_range = ranges_by_key[requested_range]
+    range_days = selected_range["days"]
+    range_start = now - timedelta(days=range_days) if range_days is not None else None
+
+    registrations = Registration.objects.all()
+    if range_start is not None:
+        registrations = registrations.filter(registered_at__gte=range_start)
+
+    pending = ClassOffering.objects.pending_review().select_related("instructor", "category").order_by("created_at")
+
+    week_end = now + timedelta(days=7)
+    upcoming_classes = (
+        ClassOffering.objects.filter(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+            status=ClassOffering.Status.PUBLISHED,
+            sessions__starts_at__gte=now,
+            sessions__starts_at__lt=week_end,
+        )
+        .annotate(
+            next_session_at=Min(
+                "sessions__starts_at",
+                filter=Q(sessions__starts_at__gte=now, sessions__starts_at__lt=week_end),
+            )
+        )
+        .select_related("instructor")
+        .distinct()
+        .order_by("next_session_at")
+    )
+
+    waitlist_classes = (
+        ClassOffering.objects.annotate(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+            waiting=Count(
+                "registrations",
+                filter=Q(registrations__status=Registration.Status.WAITLISTED),
+            )
+        )
+        .filter(waiting__gt=0)
+        .select_related("instructor")
+        .order_by("-waiting")
+    )
+
+    recent_registrations = registrations.select_related("class_offering").order_by("-registered_at")[:8]
+    recent_activity = CmsActivity.objects.select_related("class_offering", "registration", "actor").order_by(
+        "-created_at"
+    )[:8]
+
+    # Daily registration series across the window, bounded so long ranges stay legible.
+    chart_days = min(range_days or 30, 90)
+    chart_start = (now - timedelta(days=chart_days - 1)).date()
+    counts = {
+        row["day"]: row["c"]
+        for row in Registration.objects.filter(registered_at__date__gte=chart_start)
+        .annotate(day=TruncDate("registered_at"))
+        .values("day")
+        .annotate(c=Count("pk"))
+    }
+    reg_by_day = [
+        {"date": chart_start + timedelta(days=i), "count": counts.get(chart_start + timedelta(days=i), 0)}
+        for i in range(chart_days)
+    ]
+
+    confirmed = registrations.filter(status=Registration.Status.CONFIRMED)
+    stats = {
+        "pending": pending.count(),
+        "new_regs": registrations.count(),
+        "active_registrations": confirmed.count(),
+        "collected": confirmed.aggregate(total=Sum("amount_paid_cents"))["total"] or 0,
+    }
+
+    return render(
+        request,
+        "classes/admin/overview.html",
+        {
+            "active_tab": "overview",
+            "pending_classes": pending,
+            "upcoming_classes": upcoming_classes,
+            "waitlist_classes": waitlist_classes,
+            "recent_registrations": recent_registrations,
+            "recent_activity": recent_activity,
+            "reg_by_day": reg_by_day,
+            "reg_by_day_max": max((d["count"] for d in reg_by_day), default=0),
+            "stats": stats,
+            "range_options": OVERVIEW_RANGES,
+            "selected_range": selected_range,
         },
     )
 
@@ -933,11 +1366,14 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     instructor_filter = request.GET.get("instructor", "").strip()
 
     base = ClassOffering.objects.select_related("instructor", "category").annotate(
-        registration_count=Count("registrations")
+        # distinct=True so the sessions join below doesn't inflate the registration tally.
+        registration_count=Count("registrations", distinct=True),
+        first_session=Min("sessions__starts_at"),
+        last_session=Max("sessions__starts_at"),
     )
     qs = base.filter(status=status_filter) if status_filter else base
     if instructor_filter:
-        qs = qs.filter(instructor_id=instructor_filter)
+        qs = qs.filter(instructor_id=instructor_filter)  # type: ignore[misc]  # Django coerces the str PK at query time
 
     status_counts = {row["status"]: row["count"] for row in base.values("status").annotate(count=Count("pk"))}
     filters = [("", "All", base.count())] + [
@@ -1049,6 +1485,20 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
+def _class_workspace_counts(offering: ClassOffering) -> dict[str, int]:
+    """Sub-tab badge counts shared by every per-class Workspace tab."""
+    regs = offering.registrations
+    return {
+        "active_registration_count": regs.exclude(
+            status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED]
+        ).count(),
+        "confirmed_registration_count": regs.filter(
+            status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
+        ).count(),
+        "waitlist_count": regs.filter(status=Registration.Status.WAITLISTED).count(),
+    }
+
+
 @classes_admin_access_required
 def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(
@@ -1057,26 +1507,71 @@ def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
         .annotate(registration_count=Count("registrations")),
         pk=pk,
     )
-    registrations = (
-        offering.registrations.select_related("member")
-        .prefetch_related("custom_answers__question")
-        .order_by("-registered_at")
-    )
-    active_count = registrations.exclude(
-        status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED],
-    ).count()
-    waitlist_registrations = list(
-        offering.registrations.filter(status=Registration.Status.WAITLISTED).order_by("registered_at")
-    )
     return render(
         request,
         "classes/admin/class_detail.html",
         {
             "active_tab": "classes",
-            "waitlist_registrations": waitlist_registrations,
+            "active_subtab": "overview",
+            "offering": offering,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@classes_admin_access_required
+def admin_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    registrations = (
+        offering.registrations.select_related("member")
+        .prefetch_related("custom_answers__question")
+        .order_by("-registered_at")
+    )
+    return render(
+        request,
+        "classes/admin/class_registrations.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "registrations",
             "offering": offering,
             "registrations": registrations,
-            "active_registration_count": active_count,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@classes_admin_access_required
+def admin_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    waitlist_registrations = list(
+        offering.registrations.filter(status=Registration.Status.WAITLISTED).order_by("registered_at")
+    )
+    return render(
+        request,
+        "classes/admin/class_waitlist.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "waitlist",
+            "offering": offering,
+            "waitlist_registrations": waitlist_registrations,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@classes_admin_access_required
+def admin_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")
+    return render(
+        request,
+        "classes/admin/class_discount_codes.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "discount_codes",
+            "offering": offering,
+            "codes": codes,
+            **_class_workspace_counts(offering),
         },
     )
 
@@ -1091,14 +1586,14 @@ def admin_class_email(request: HttpRequest, pk: int) -> HttpResponse:
     form = AdminClassEmailForm(request.POST, offering=offering)
     if not form.is_valid():
         first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
-        messages.error(request, first_error)
-        return redirect("classes:admin_class_detail", pk=pk)
+        messages.error(request, str(first_error))
+        return redirect("classes:admin_class_registrations", pk=pk)
     message = form.send(sender_member=sender_member)
     messages.success(
         request,
         f"Sent '{message.subject}' to {message.recipient_count} recipient(s).",
     )
-    return redirect("classes:admin_class_detail", pk=pk)
+    return redirect("classes:admin_class_registrations", pk=pk)
 
 
 @classes_admin_access_required
@@ -1355,6 +1850,7 @@ def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
+    assert file.size is not None  # an uploaded file always reports its size
     if file.size > 3 * 1024 * 1024:
         return JsonResponse({"error": "Image must be under 3 MB."}, status=400)
     next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
@@ -1524,7 +2020,7 @@ def admin_discount_code_create(request: HttpRequest) -> HttpResponse:
         form.save()
         messages.success(request, "Discount code created.")
         if scoped_to is not None:
-            return redirect("classes:admin_class_detail", pk=scoped_to.pk)
+            return redirect("classes:admin_class_discount_codes", pk=scoped_to.pk)
         return redirect("classes:admin_discount_codes")
     return render(
         request,
@@ -1624,6 +2120,12 @@ def admin_registration_question_delete(request: HttpRequest, pk: int) -> HttpRes
         question.delete()
         messages.success(request, "Registration question deleted.")
     return redirect("classes:admin_registration_questions")
+
+
+@classes_admin_access_required
+def admin_settings_hub(request: HttpRequest) -> HttpResponse:
+    """Landing page that groups the rarely-touched config areas."""
+    return render(request, "classes/admin/settings_hub.html", {"active_tab": "settings"})
 
 
 @admin_required

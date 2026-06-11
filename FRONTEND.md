@@ -18,14 +18,23 @@ No build step. No npm. No bundler. All JS is loaded via `<script>` tags.
 
 ### Colors (CSS Variables)
 
-| Token | Dark | Light | Usage |
+Dark mode is **"Obsidian"** (near-black charcoal); light mode is **"Slate"** (cool neutral gray). Surfaces form an **elevation ladder** — `bg` (deepest) → `surface` → `card-bg` → `elevated` — so layers read as depth instead of one flat tone. Both are anchored on the official PL blue **`#092e4b`**, which is used for *structure* (hero gradient, brand) while a brighter sibling (`--hub-blue`) handles *interactive* accents. Tokens are defined in `:root` (dark) and overridden under `[data-theme="light"]`.
+
+| Token | Dark (Obsidian) | Light (Slate) | Usage |
 |-------|------|-------|-------|
-| `--hub-bg` | `#12121f` | `#f5f5f5` | Page background |
-| `--hub-card-bg` | `#0f2d44` | `#fff` | Card/modal background |
-| `--hub-text` | `#F4EFDD` | `#1f2937` | Primary text |
-| `--hub-text-muted` | `#96ACBB` | `#6b7280` | Secondary text, labels, hints |
-| `--color-tuscan-yellow` | `#EEB44B` | `#EEB44B` | Primary accent, buttons, active toggles |
-| `--color-matte-navy` | `#092E4C` | `#092E4C` | Sidebar, brand areas |
+| `--hub-bg` | `#0a0b10` | `#eef0f3` | Page background (deepest layer) |
+| `--hub-surface` | `#13151d` | `#e6e9ee` | Inset panels, tiles, table stripes |
+| `--hub-card-bg` | `#181b24` | `#ffffff` | Card / modal background |
+| `--hub-elevated` | `#20242f` | `#ffffff` | Dropdowns, popovers, raised pills |
+| `--hub-text` | `#F4EFDD` | `#1D1E1E` | Primary text |
+| `--hub-text-muted` | `#8b97a8` | `#5b6675` | Secondary text, labels, hints |
+| `--hub-sidebar-bg` | `#0d0f15` | `#ffffff` | Sidebar background (**theme-aware** — follows light/dark) |
+| `--hub-sidebar-text` | `#F4EFDD` | `#1D1E1E` | Sidebar text / brand |
+| `--color-tuscan-yellow` | `#EEB44B` | `#EEB44B` | Primary accent — buttons, active nav, links |
+| `--hub-blue` | `#3d8bd4` | `#2f6fb0` | Secondary/structural accent — info, focus rings |
+| `--color-navy` | `#092E4C` | `#092E4C` | Brand structural blue — hero gradient, button text |
+
+> The sidebar uses dedicated `--hub-sidebar-*` tokens (not `--color-navy`) so it switches with the theme. Never paint the sidebar with `--color-navy` directly — it won't respond to light mode.
 
 ### Typography
 

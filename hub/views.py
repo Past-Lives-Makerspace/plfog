@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from django.utils import timezone as dj_timezone
 
@@ -12,6 +12,7 @@ from allauth.account.models import EmailAddress
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -20,6 +21,8 @@ from django.views.decorators.http import require_POST, require_http_methods
 
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
+from classes.models import Category, ClassOffering
+from core.models import HeroCropMixin
 from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
@@ -31,6 +34,7 @@ from hub.forms import (
     SiteSettingsForm,
     VotePreferenceForm,
 )
+from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
 from membership.models import FundingSnapshot, Guild, Member, VotePreference
 
@@ -299,6 +303,84 @@ def _can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
     return guild.guild_lead_id == member.pk
 
 
+def _can_edit_offering(request: HttpRequest, offering: ClassOffering) -> bool:
+    """Return True when the request's user may edit this class offering."""
+    if not request.user.is_authenticated:
+        return False
+    view_as = getattr(request, "view_as", None)
+    if view_as is None:
+        return False
+    # Admin and Officer can edit anything.
+    if view_as.is_admin or view_as.is_guild_officer:
+        return True
+    if not view_as.is_member:
+        return False
+
+    member: Member | None = getattr(request.user, "member", None)
+    if member is None:
+        return False
+
+    # Guild lead of the category's guild can edit.
+    if offering.category.guild_id and offering.category.guild and offering.category.guild.guild_lead_id == member.pk:
+        return True
+
+    # The instructor can edit their own classes.
+    return offering.instructor_id == member.pk
+
+
+@login_required
+@require_POST
+def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
+    """AJAX endpoint to update hero crop fields for Guild, Category, or ClassOffering."""
+    try:
+        data = json.loads(request.body)
+        ct_id = int(data["content_type_id"])
+        object_id = int(data["object_id"])
+        crop = data["crop"]  # {"x": int, "y": int, "w": int, "h": int}
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid request data"}, status=400)
+
+    ct = get_object_or_404(ContentType, pk=ct_id)
+    model_class = ct.model_class()
+    if model_class not in [Guild, Category, ClassOffering]:
+        return JsonResponse({"error": "Unsupported model"}, status=400)
+
+    obj = get_object_or_404(model_class, pk=object_id)
+
+    # Permission checks
+    allowed = False
+    if isinstance(obj, Guild):
+        allowed = _can_edit_guild(request, obj)
+    elif isinstance(obj, ClassOffering):
+        allowed = _can_edit_offering(request, obj)
+    elif isinstance(obj, Category):
+        # Category follows the Guild lead permission.
+        if obj.guild_id and obj.guild:
+            allowed = _can_edit_guild(request, obj.guild)
+        else:
+            # If no guild, only Admin/Officer can edit.
+            view_as = getattr(request, "view_as", None)
+            allowed = view_as is not None and (view_as.is_admin or view_as.is_guild_officer)
+
+    if not allowed:
+        return JsonResponse({"error": "Forbidden"}, status=403)
+
+    # Update crop fields
+    hero_obj = cast(HeroCropMixin, obj)
+    hero_obj.hero_crop_x = int(crop["x"])
+    hero_obj.hero_crop_y = int(crop["y"])
+    hero_obj.hero_crop_w = int(crop.get("w") or 0)
+    hero_obj.hero_crop_h = int(crop.get("h") or 0)
+    hero_obj.save(update_fields=["hero_crop_x", "hero_crop_y", "hero_crop_w", "hero_crop_h"])
+
+    return JsonResponse(
+        {
+            "status": "ok",
+            "object_position": hero_obj.hero_object_position,
+        }
+    )
+
+
 def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """Guild detail page — shows about text, active products, and cart interface."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm, build_product_split_formset
@@ -319,7 +401,6 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     eyop_form = TabItemForm(context=CONTEXT_MEMBER_GUILD_PAGE, user=request.user, guild=guild)
 
     can_edit_this_guild = _can_edit_guild(request, guild)
-    guild_edit_form = GuildEditForm(instance=guild) if can_edit_this_guild else None
     product_form = None
     product_splits_formset = None
     all_guilds = None
@@ -330,20 +411,35 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
         product_splits_formset = build_product_split_formset(instance=Product())
         all_guilds = Guild.objects.filter(is_active=True).order_by("name")
 
+    gallery_images = guild.gallery_images.all()
+    faq_items = guild.faq_items.all()
+    links = guild.links.all()
+    announcements = guild.announcements.all()[:5]
+    roster = guild.roster_members() if guild.show_members else None
+    is_member_of_guild = member is not None and guild.memberships.filter(member=member).exists()
+
+    guild_ct = ContentType.objects.get_for_model(Guild)
+
     return render(
         request,
         "hub/guild_detail.html",
         {
             **ctx,
             "guild": guild,
+            "guild_ct_id": guild_ct.pk,
             "products": products,
             "tab": tab,
             "eyop_form": eyop_form,
             "can_edit_this_guild": can_edit_this_guild,
-            "guild_edit_form": guild_edit_form,
             "product_form": product_form,
             "product_splits_formset": product_splits_formset,
             "all_guilds": all_guilds,
+            "gallery_images": gallery_images,
+            "faq_items": faq_items,
+            "links": links,
+            "announcements": announcements,
+            "roster": roster,
+            "is_member_of_guild": is_member_of_guild,
         },
     )
 
@@ -356,23 +452,44 @@ def _require_can_edit_guild(request: HttpRequest, guild: Guild) -> HttpResponse 
 
 
 @login_required
-@require_POST
 def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """POST-only — update the guild's name and about text. Admin, officer, or that guild's lead only."""
+    """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead only."""
+    from hub.forms import GuildFAQItemFormSet, GuildLinkFormSet
+
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
 
-    form = GuildEditForm(request.POST, request.FILES, instance=guild)
-    if form.is_valid():
-        form.save()
-        messages.success(request, "Guild updated.")
+    if request.method == "POST":
+        form = GuildEditForm(request.POST, request.FILES, instance=guild)
+        faq_formset = GuildFAQItemFormSet(request.POST, instance=guild, prefix="faq")
+        link_formset = GuildLinkFormSet(request.POST, instance=guild, prefix="links")
+        if form.is_valid() and faq_formset.is_valid() and link_formset.is_valid():
+            form.save()
+            faq_formset.save()
+            link_formset.save()
+            guild.add_gallery_images(request.FILES.getlist("gallery_images"))
+
+            messages.success(request, "Guild page updated.")
+            return redirect("hub_guild_detail", pk=guild.pk)
     else:
-        for field, errors in form.errors.items():
-            for error in errors:
-                messages.error(request, f"{field}: {error}")
-    return redirect("hub_guild_detail", pk=guild.pk)
+        form = GuildEditForm(instance=guild)
+        faq_formset = GuildFAQItemFormSet(instance=guild, prefix="faq")
+        link_formset = GuildLinkFormSet(instance=guild, prefix="links")
+
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/guild_edit.html",
+        {
+            **ctx,
+            "guild": guild,
+            "form": form,
+            "faq_formset": faq_formset,
+            "link_formset": link_formset,
+        },
+    )
 
 
 def _surface_product_errors(request: HttpRequest, form: Any, formset: Any) -> None:
@@ -483,7 +600,6 @@ def guild_product_delete(request: HttpRequest, pk: int, product_pk: int) -> Http
 @require_POST
 def guild_cart_confirm(request: HttpRequest, pk: int) -> HttpResponse:
     """Batch-add cart items to the member's tab. Expects JSON body with items array."""
-    from hub.toast import trigger_toast
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
@@ -539,7 +655,6 @@ def guild_cart_confirm(request: HttpRequest, pk: int) -> HttpResponse:
 def guild_eyop_form(request: HttpRequest, pk: int) -> HttpResponse:
     """Return the EYOP form partial (GET) or process submission (POST)."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm
-    from hub.toast import trigger_toast
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
@@ -604,6 +719,9 @@ def user_settings(request: HttpRequest) -> HttpResponse:
         profile_form = ProfileSettingsForm(request.POST, request.FILES, instance=member)
         if profile_form.is_valid():
             profile_form.save()
+            from core.models import SiteActivity
+
+            SiteActivity.log(SiteActivity.Kind.PROFILE_UPDATED, actor=request.user, target=member)
             messages.success(request, "Profile updated.")
             return redirect(f"{request.path}?tab=profile")
     elif member is not None:
@@ -620,6 +738,24 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     else:
         prefs_form = EmailPreferencesForm(initial={"voting_results": True})
 
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    if request.method == "POST" and request.POST.get("form_id") == "notifications":
+        from core import triggers
+        from core.models import NotificationPreference
+
+        is_instructor = bool(member and member.is_instructor)
+        for t in triggers.for_member(is_instructor=is_instructor, is_staff=user.is_staff):
+            NotificationPreference.objects.update_or_create(
+                user=user,
+                trigger=t.key,
+                defaults={
+                    "push_enabled": request.POST.get(f"push_{t.key}") == "on",
+                    "email_enabled": request.POST.get(f"email_{t.key}") == "on",
+                },
+            )
+        messages.success(request, "Notification preferences updated.")
+        return redirect(f"{request.path}?tab=notifications")
+
     add_email_form = AddEmailForm(user=request.user)
     email_addresses = list(EmailAddress.objects.filter(user=request.user).order_by("-primary", "email"))
     primary_email = next((ea for ea in email_addresses if ea.primary), None)
@@ -628,10 +764,16 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     # Whitelist the tab param — it flows into an Alpine x-data JS expression, so
     # HTML escaping alone isn't enough to stop a payload like ?tab='+alert(1)+'.
     tab_param = request.GET.get("tab", "profile")
-    active_tab = tab_param if tab_param in {"profile", "emails"} else "profile"
+    active_tab = tab_param if tab_param in {"profile", "emails", "notifications"} else "profile"
 
     if member is None and request.method == "GET" and not request.GET.get("tab"):
         messages.info(request, "Your account is not linked to a membership.")
+
+    from core import triggers as _triggers
+    from core.models import NotificationPreference as _NP
+
+    notif_groups = _triggers.by_category(is_instructor=bool(member and member.is_instructor), is_staff=user.is_staff)
+    notif_prefs = {p.trigger: p for p in _NP.objects.filter(user=user)}
 
     return render(
         request,
@@ -645,6 +787,8 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "email_addresses": email_addresses,
             "primary_verified_json": primary_verified_json,
             "active_tab": active_tab,
+            "notif_groups": notif_groups,
+            "notif_prefs": notif_prefs,
         },
     )
 
@@ -675,6 +819,158 @@ def guild_banner_delete(request: HttpRequest, pk: int) -> HttpResponse:
         guild.banner_image.delete(save=True)
         messages.success(request, "Banner removed.")
     return redirect("hub_guild_detail", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
+    """Current member joins this guild (idempotent)."""
+    from membership.models import GuildMembership
+
+    guild = get_object_or_404(Guild, pk=pk)
+    member = _get_member(request)
+    if member is not None:
+        GuildMembership.objects.get_or_create(guild=guild, member=member)
+        messages.success(request, f"You joined {guild.name}.")
+    return redirect("hub_guild_detail", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_leave(request: HttpRequest, pk: int) -> HttpResponse:
+    """Current member leaves this guild."""
+    from membership.models import GuildMembership
+
+    guild = get_object_or_404(Guild, pk=pk)
+    member = _get_member(request)
+    if member is not None:
+        GuildMembership.objects.filter(guild=guild, member=member).delete()
+        messages.success(request, f"You left {guild.name}.")
+    return redirect("hub_guild_detail", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_image_delete(request: HttpRequest, pk: int, image_pk: int) -> HttpResponse:
+    """Delete a gallery image. Editor only."""
+    from membership.models import GuildImage
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    image = get_object_or_404(GuildImage, pk=image_pk, guild=guild)
+    image.image.delete(save=False)
+    image.delete()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return HttpResponse(status=204)
+    messages.success(request, "Image removed.")
+    return redirect("hub_guild_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
+    """AJAX endpoint — upload a gallery image for this guild. Editor only."""
+    from membership.models import GuildImage
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    if guild.gallery_images.count() >= 10:
+        return JsonResponse({"error": "Maximum 10 gallery images."}, status=400)
+
+    file = request.FILES.get("image")
+    if not file:
+        return JsonResponse({"error": "No file provided."}, status=400)
+
+    # Check size (3MB limit matches ClassImage)
+    if file.size is None or file.size > 3 * 1024 * 1024:
+        return JsonResponse({"error": "Image must be under 3 MB."}, status=400)
+
+    next_order = (guild.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
+    img = GuildImage(guild=guild, image=file, sort_order=next_order)
+    img.save()
+
+    return JsonResponse({"id": img.pk, "url": img.image.url, "alt_text": img.alt_text})
+
+
+@login_required
+@require_POST
+def guild_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
+    """AJAX endpoint — reorder gallery images for this guild. Editor only."""
+    from membership.models import GuildImage
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    try:
+        payload = json.loads(request.body)
+        order = payload.get("order", [])
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    if not order:
+        return JsonResponse({"error": "No order provided"}, status=400)
+
+    # Reorder the images
+    images = {img.pk: img for img in guild.gallery_images.all()}
+    to_save = []
+    for idx, image_pk in enumerate(order):
+        if image_pk in images:
+            img = images[image_pk]
+            img.sort_order = idx
+            to_save.append(img)
+
+    GuildImage.objects.bulk_update(to_save, ["sort_order"])
+    return HttpResponse(status=204)
+
+
+@login_required
+@require_POST
+def guild_image_alt_update(request: HttpRequest, pk: int, image_pk: int) -> HttpResponse:
+    """AJAX endpoint — update alt text for a gallery image. Editor only."""
+    from membership.models import GuildImage
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    image = get_object_or_404(GuildImage, pk=image_pk, guild=guild)
+
+    try:
+        payload = json.loads(request.body)
+        alt_text = payload.get("alt_text", "")
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    image.alt_text = alt_text
+    image.save(update_fields=["alt_text"])
+    return HttpResponse(status=204)
+
+
+@login_required
+@require_POST
+def guild_announcement_delete(request: HttpRequest, pk: int, announcement_pk: int) -> HttpResponse:
+    """Delete a guild announcement. Editor only.
+
+    The companion *create*/publish endpoint (which fires the ``guild_announcement``
+    notification) is deferred until Plan 2's ``core.notifications`` lands — see DEFERRED.md.
+    """
+    from membership.models import GuildAnnouncement
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    get_object_or_404(GuildAnnouncement, pk=announcement_pk, guild=guild).delete()
+    messages.success(request, "Announcement deleted.")
+    return redirect("hub_guild_edit", pk=guild.pk)
 
 
 @login_required
@@ -727,7 +1023,6 @@ def tab_detail(request: HttpRequest) -> HttpResponse:
 def void_tab_entry(request: HttpRequest, entry_pk: int) -> HttpResponse:
     """Remove a pending tab entry. Only the owning member can remove their own entries."""
     from billing.models import TabEntry as TabEntryModel
-    from hub.toast import trigger_toast
 
     member = _get_member(request)
     if member is None:  # pragma: no cover — defensive; signal auto-creates Member on User creation

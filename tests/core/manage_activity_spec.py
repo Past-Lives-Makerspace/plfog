@@ -1,0 +1,112 @@
+"""Access + rendering for the /manage/activity/ staff page."""
+
+import pytest
+from django.contrib.auth.models import User
+from django.urls import reverse
+
+from core.models import SiteActivity, TransactionalEmailLog
+
+pytestmark = pytest.mark.django_db
+
+
+def describe_manage_activity():
+    def it_redirects_anonymous_users(client):
+        resp = client.get(reverse("manage_activity"))
+        assert resp.status_code in (302, 301)
+
+    def it_forbids_non_staff(client):
+        User.objects.create_user(username="m", email="m@example.com", password="pw12345!")
+        client.login(username="m", password="pw12345!")
+        resp = client.get(reverse("manage_activity"))
+        assert resp.status_code in (302, 403)
+
+    def it_renders_for_staff(client):
+        staff = User.objects.create_user(
+            username="a",
+            email="a@example.com",
+            password="pw12345!",
+            is_staff=True,
+        )
+        client.login(username="a", password="pw12345!")
+        SiteActivity.log(SiteActivity.Kind.LOGIN, actor=staff)
+        resp = client.get(reverse("manage_activity"))
+        assert resp.status_code == 200
+        assert b"Site Activity" in resp.content
+
+    def it_filters_the_feed_by_kind(client):
+        staff = User.objects.create_user(
+            username="a2",
+            email="a2@example.com",
+            password="pw12345!",
+            is_staff=True,
+        )
+        client.login(username="a2", password="pw12345!")
+        SiteActivity.log(SiteActivity.Kind.LOGIN, actor=staff)
+        SiteActivity.log(SiteActivity.Kind.LOGOUT, actor=staff)
+        resp = client.get(reverse("manage_activity"), {"kind": "login"})
+        assert resp.status_code == 200
+
+    def it_filters_the_feed_by_actor(client):
+        staff = User.objects.create_user(
+            username="a3",
+            email="a3@example.com",
+            password="pw12345!",
+            is_staff=True,
+        )
+        client.login(username="a3", password="pw12345!")
+        SiteActivity.log(SiteActivity.Kind.LOGIN, actor=staff)
+        resp = client.get(reverse("manage_activity"), {"actor": "a3@example.com"})
+        assert resp.status_code == 200
+
+    def it_filters_the_emails_by_status(client):
+        User.objects.create_user(
+            username="a4",
+            email="a4@example.com",
+            password="pw12345!",
+            is_staff=True,
+        )
+        client.login(username="a4", password="pw12345!")
+        TransactionalEmailLog.objects.create(
+            to_email="x@example.com",
+            subject="s",
+            trigger_kind="billing.receipt",
+            status=TransactionalEmailLog.Status.SENT,
+        )
+        resp = client.get(reverse("manage_activity"), {"tab": "emails", "status": "sent"})
+        assert resp.status_code == 200
+
+
+def describe_hub_sidebar_activity_link():
+    def _member(fog_role: str) -> User:
+        from membership.models import Member, MembershipPlan
+
+        plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
+        user = User.objects.create_user(
+            username=f"hub-{fog_role}@example.com", email=f"hub-{fog_role}@example.com", password="pw12345!"
+        )
+        Member.objects.update_or_create(
+            user=user,
+            defaults={
+                "full_legal_name": f"Hub {fog_role}",
+                "fog_role": fog_role,
+                "membership_plan": plan,
+                "status": Member.Status.ACTIVE,
+            },
+        )
+        return user
+
+    def it_appears_in_the_hub_sidebar_for_admins(client):
+        from membership.models import Member
+
+        client.force_login(_member(Member.FogRole.ADMIN))
+        resp = client.get("/members/")
+        assert resp.status_code == 200
+        assert reverse("manage_activity").encode() in resp.content
+
+    def it_is_hidden_from_non_admins(client):
+        from membership.models import Member
+
+        client.force_login(_member(Member.FogRole.MEMBER))
+        resp = client.get("/members/")
+        assert resp.status_code == 200
+        assert reverse("manage_activity").encode() not in resp.content

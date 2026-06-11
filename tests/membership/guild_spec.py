@@ -52,9 +52,9 @@ def describe_Guild():
         assert guild.created_at is not None
 
     def it_enforces_unique_name():
-        GuildFactory(name="Unique Guild")
+        Guild.objects.create(name="Duplicate Guild")
         with pytest.raises(IntegrityError):
-            GuildFactory(name="Unique Guild")
+            Guild.objects.create(name="Duplicate Guild")
 
 
 def describe_Guild_active_leases():
@@ -102,7 +102,10 @@ def describe_Guild_ordering():
         g2 = GuildFactory(name="Zebra Guild")
         g1 = GuildFactory(name="Alpha Guild")
         guilds = list(Guild.objects.all())
-        assert guilds == [g1, g2]
+        names = [g.name for g in guilds]
+        assert names == sorted(names)
+        assert g1 in guilds
+        assert g2 in guilds
 
 
 # ---------------------------------------------------------------------------

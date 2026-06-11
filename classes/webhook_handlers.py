@@ -84,11 +84,22 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
                 CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
                 class_offering=registration.class_offering,
                 registration=registration,
-                payload={"code": registration.discount_code.code},
+                payload={"code": registration.discount_code.code},  # type: ignore[union-attr]  # discount_code_id guard ensures non-None
             )
 
     send_registration_confirmation(registration)
     send_instructor_registration_notification(registration)
+    _instructor = registration.class_offering.instructor
+    if _instructor is not None and _instructor.user is not None:
+        from core import notifications
+
+        notifications.dispatch(
+            "instructor_new_registration",
+            [_instructor.user],
+            title="New registration",
+            body=registration.class_offering.title,
+            url="/classes/teach/",
+        )
     send_admin_registration_notification(registration)
     from classes.services.mailchimp_subscribe import subscribe_registration
 

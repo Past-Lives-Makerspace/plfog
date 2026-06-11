@@ -39,6 +39,57 @@ def describe_status_filter():
         assert b"Old-News" in response.content
 
 
+def describe_classes_date_column():
+    def it_annotates_the_first_and_last_session_dates(admin_user, client, db):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassOfferingFactory, ClassSessionFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        offering = ClassOfferingFactory(title="Ranged", status=ClassOffering.Status.PUBLISHED)
+        start = timezone.now()
+        ClassSessionFactory(class_offering=offering, starts_at=start)
+        ClassSessionFactory(class_offering=offering, starts_at=start + timedelta(days=5))
+        response = client.get(reverse("classes:admin_classes"))
+        row = next(c for c in response.context["page"] if c.pk == offering.pk)
+        assert row.first_session.date() == start.date()
+        assert row.last_session.date() == (start + timedelta(days=5)).date()
+
+    def it_leaves_session_dates_empty_for_a_class_with_no_sessions(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        offering = ClassOfferingFactory(title="No Sessions", status=ClassOffering.Status.DRAFT)
+        response = client.get(reverse("classes:admin_classes"))
+        row = next(c for c in response.context["page"] if c.pk == offering.pk)
+        assert row.first_session is None
+        assert row.last_session is None
+
+    def it_counts_registrations_independently_of_session_count(admin_user, client, db):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassOfferingFactory, ClassSessionFactory, RegistrationFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        # Two sessions joined alongside the registrations would double a naive (non-distinct)
+        # registration tally — this pins the count to the real number of registrations.
+        ClassSessionFactory(class_offering=offering, starts_at=timezone.now())
+        ClassSessionFactory(class_offering=offering, starts_at=timezone.now() + timedelta(days=1))
+        RegistrationFactory(class_offering=offering)
+        RegistrationFactory(class_offering=offering)
+        response = client.get(reverse("classes:admin_classes"))
+        row = next(c for c in response.context["page"] if c.pk == offering.pk)
+        assert row.registration_count == 2
+
+
 def describe_delete_class():
     def it_deletes_a_draft_with_no_registrations(admin_user, client, db):
         from classes.factories import ClassOfferingFactory

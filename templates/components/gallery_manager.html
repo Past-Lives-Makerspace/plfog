@@ -1,0 +1,232 @@
+{% comment %}
+Generic gallery image manager.
+On edit (instance has pk): AJAX uploads with instant save, drag-to-reorder, inline alt-text.
+On create (no pk): multi-file input that submits with the form, with local previews.
+
+Parameters (pass via {% include ... with %}):
+  instance        — required, the model instance being edited (e.g. guild)
+  images          — required, the queryset of existing gallery images
+  upload_url      — required, POST endpoint for AJAX image upload
+  reorder_url     — required, POST endpoint for AJAX reorder
+  delete_url_prefix — required, prefix for image delete (e.g. /guilds/1/images/)
+  alt_url_prefix — required, prefix for alt-text update (e.g. /guilds/1/images/)
+  csrf_token      — required, for AJAX requests
+{% endcomment %}
+
+{% if instance and instance.pk %}
+<div id="gallery-manager"
+     data-upload-url="{{ upload_url }}"
+     data-reorder-url="{{ reorder_url }}"
+     data-delete-url-prefix="{{ delete_url_prefix }}"
+     data-alt-url-prefix="{{ alt_url_prefix }}"
+     data-csrf="{{ csrf_token }}">
+
+    <div id="gallery-grid" class="cls-image-grid">
+        {% for img in images %}
+        <div class="cls-image-cell has-image" draggable="true" data-id="{{ img.pk }}">
+            <div class="cls-image-thumb">
+                <img src="{{ img.image.url }}" alt="{{ img.alt_text|default:'' }}">
+            </div>
+            <div class="cls-image-fields">
+                <input type="text" class="cls-image-alt" value="{{ img.alt_text|default:'' }}" placeholder="Alt text (optional)" data-id="{{ img.pk }}">
+                <button type="button" class="cls-image-remove" data-id="{{ img.pk }}" title="Remove image">&times;</button>
+            </div>
+            <div class="cls-image-drag-handle" title="Drag to reorder">&#x2807;</div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <label class="cls-image-upload-zone" id="gallery-upload-zone">
+        <input type="file" accept="image/*" id="gallery-file-input" style="display:none;">
+        <span class="cls-image-upload-label">+ Add image</span>
+        <span class="cls-image-upload-hint">Click or drag a file here</span>
+    </label>
+</div>
+
+<script>
+(function() {
+    const manager = document.getElementById('gallery-manager');
+    if (!manager) return;
+    const grid = document.getElementById('gallery-grid');
+    const zone = document.getElementById('gallery-upload-zone');
+    const fileInput = document.getElementById('gallery-file-input');
+    const uploadUrl = manager.dataset.uploadUrl;
+    const reorderUrl = manager.dataset.reorderUrl;
+    const deleteUrlPrefix = manager.dataset.deleteUrlPrefix;
+    const altUrlPrefix = manager.dataset.altUrlPrefix;
+    const csrf = manager.dataset.csrf;
+
+    // --- Upload ---
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) uploadFile(fileInput.files[0]);
+        fileInput.value = '';
+    });
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-hover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-hover'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag-hover');
+        const f = e.dataTransfer.files[0];
+        if (f && f.type.startsWith('image/')) uploadFile(f);
+    });
+
+    function uploadFile(file) {
+        zone.classList.add('uploading');
+        zone.querySelector('.cls-image-upload-label').textContent = 'Uploading…';
+        const fd = new FormData();
+        fd.append('image', file);
+        fetch(uploadUrl, { method: 'POST', headers: {'X-CSRFToken': csrf}, body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { alert(data.error); return; }
+                addImageCard(data);
+            })
+            .catch(() => alert('Upload failed.'))
+            .finally(() => {
+                zone.classList.remove('uploading');
+                zone.querySelector('.cls-image-upload-label').textContent = '+ Add image';
+            });
+    }
+
+    function addImageCard(data) {
+        const card = document.createElement('div');
+        card.className = 'cls-image-cell has-image';
+        card.draggable = true;
+        card.dataset.id = data.id;
+        card.innerHTML = `
+            <div class="cls-image-thumb"><img src="${data.url}" alt=""></div>
+            <div class="cls-image-fields">
+                <input type="text" class="cls-image-alt" value="" placeholder="Alt text (optional)" data-id="${data.id}">
+                <button type="button" class="cls-image-remove" data-id="${data.id}" title="Remove image">&times;</button>
+            </div>
+            <div class="cls-image-drag-handle" title="Drag to reorder">&#x2807;</div>`;
+        grid.appendChild(card);
+        bindCard(card);
+    }
+
+    // --- Delete & Alt ---
+    function bindCard(card) {
+        card.querySelector('.cls-image-remove').addEventListener('click', function() {
+            const id = this.dataset.id;
+            fetch(`${deleteUrlPrefix}${id}/delete/`, { method: 'POST', headers: {'X-CSRFToken': csrf} })
+                .then(r => { if (r.ok) card.remove(); });
+        });
+        card.querySelector('.cls-image-alt').addEventListener('change', function() {
+            const id = this.dataset.id;
+            fetch(`${altUrlPrefix}${id}/alt/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrf, 'Content-Type': 'application/json'},
+                body: JSON.stringify({alt_text: this.value})
+            });
+        });
+        bindDrag(card);
+    }
+
+    // --- Drag & drop reorder ---
+    let dragSrc = null;
+    function bindDrag(card) {
+        card.addEventListener('dragstart', e => { dragSrc = card; card.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+        card.addEventListener('dragend', () => { card.classList.remove('dragging'); dragSrc = null; });
+        card.addEventListener('dragover', e => { e.preventDefault(); if (dragSrc && dragSrc !== card) card.classList.add('drag-over'); });
+        card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+        card.addEventListener('drop', e => {
+            e.preventDefault();
+            card.classList.remove('drag-over');
+            if (!dragSrc || dragSrc === card) return;
+            const cards = [...grid.children];
+            const fromIdx = cards.indexOf(dragSrc);
+            const toIdx = cards.indexOf(card);
+            if (fromIdx < toIdx) card.after(dragSrc);
+            else card.before(dragSrc);
+            saveOrder();
+        });
+    }
+
+    function saveOrder() {
+        const order = [...grid.querySelectorAll('[data-id]')].map(c => parseInt(c.dataset.id));
+        fetch(reorderUrl, {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrf, 'Content-Type': 'application/json'},
+            body: JSON.stringify({order})
+        });
+    }
+
+    // Bind existing cards
+    grid.querySelectorAll('.cls-image-cell').forEach(bindCard);
+})();
+</script>
+{% else %}
+{# Create mode — multi-file input, previews shown locally, uploaded with form #}
+<div id="gallery-create">
+    <div id="gallery-preview-grid" class="cls-image-grid"></div>
+    <label class="cls-image-upload-zone" id="gallery-upload-zone">
+        <input type="file" name="gallery_images" accept="image/*" multiple id="gallery-file-input" style="display:none;">
+        <span class="cls-image-upload-label">+ Add images</span>
+        <span class="cls-image-upload-hint">Click or drag files here &mdash; uploaded when you save</span>
+    </label>
+</div>
+<script>
+(function() {
+    const zone = document.getElementById('gallery-upload-zone');
+    const fileInput = document.getElementById('gallery-file-input');
+    const grid = document.getElementById('gallery-preview-grid');
+    if (!zone || !fileInput || !grid) return;
+
+    const dt = new DataTransfer();
+
+    function addFiles(files) {
+        for (const file of files) {
+            if (!file.type.startsWith('image/')) continue;
+            dt.items.add(file);
+            const idx = dt.files.length - 1;
+            const card = document.createElement('div');
+            card.className = 'cls-image-cell has-image';
+            card.dataset.idx = idx;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                card.innerHTML = `
+                    <div class="cls-image-thumb"><img src="${e.target.result}" alt=""></div>
+                    <div class="cls-image-fields">
+                        <span class="cls-image-alt" style="flex:1;font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+                        <button type="button" class="cls-image-remove" title="Remove image">&times;</button>
+                    </div>`;
+                card.querySelector('.cls-image-alt').textContent = file.name;
+                card.querySelector('.cls-image-remove').addEventListener('click', function() {
+                    card.remove();
+                    rebuildFileList();
+                });
+            };
+            reader.readAsDataURL(file);
+            grid.appendChild(card);
+        }
+        fileInput.files = dt.files;
+    }
+
+    function rebuildFileList() {
+        const newDt = new DataTransfer();
+        grid.querySelectorAll('.cls-image-cell').forEach((card, i) => {
+            const idx = parseInt(card.dataset.idx);
+            if (idx < dt.files.length) {
+                newDt.items.add(dt.files[idx]);
+                card.dataset.idx = i;
+            }
+        });
+        dt.items.clear();
+        for (const f of newDt.files) dt.items.add(f);
+        fileInput.files = dt.files;
+    }
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) addFiles([...fileInput.files]);
+    });
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-hover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-hover'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag-hover');
+        const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+        if (files.length) addFiles(files);
+    });
+})();
+</script>
+{% endif %}

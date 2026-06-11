@@ -72,3 +72,26 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"
+
+  # Notify members 3 days before the monthly funding vote closes.
+  # Idempotent — safe to run daily. No action taken outside the window.
+  - type: cron
+    name: send-voting-reminders
+    runtime: python
+    schedule: "0 16 * * *"
+    buildCommand: pip install -r requirements.txt
+    command: python manage.py send_voting_reminders
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.0"
+
+  # Notify tenants whose lease ends in 30 days. Idempotent per lease.
+  - type: cron
+    name: send-lease-expiry-reminders
+    runtime: python
+    schedule: "0 16 * * *"
+    buildCommand: pip install -r requirements.txt
+    command: python manage.py send_lease_expiry_reminders
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.0"

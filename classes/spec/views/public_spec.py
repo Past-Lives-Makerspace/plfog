@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -354,6 +355,115 @@ def describe_public_class_detail():
         assert b"Sold out" in response.content
 
 
+def describe_catalog_grouping():
+    def _publish(title, slug, category, instructor, days_out, capacity=6):
+        offering = ClassOfferingFactory(
+            title=title,
+            slug=slug,
+            category=category,
+            instructor=instructor,
+            status=ClassOffering.Status.PUBLISHED,
+            capacity=capacity,
+        )
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=days_out),
+            ends_at=timezone.now() + timedelta(days=days_out, hours=2),
+        )
+        return offering
+
+    def it_shows_a_repeated_class_once_with_a_pick_a_date_list(db, client):
+        cat = CategoryFactory(name="Smithing", slug="smithing")
+        inst = InstructorFactory(full_legal_name="Glen", instructor_slug="glen")
+        for i in range(3):
+            _publish("Blacksmithing 101 with Glen", f"bs-{i}", cat, inst, days_out=i + 1)
+
+        response = client.get(reverse("classes:public_list"))
+
+        # The class title renders once even though it is offered on three dates.
+        assert response.content.count(b"Blacksmithing 101 with Glen") == 1
+        assert b"Pick a date" in response.content
+        assert b"3 dates" in response.content
+
+    def it_truncates_to_four_dates_with_a_more_indicator(db, client):
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        for i in range(6):
+            _publish("Big Series with Glen", f"big-{i}", cat, inst, days_out=i + 1)
+
+        response = client.get(reverse("classes:public_list"))
+
+        assert b"+2 more dates" in response.content
+
+    def it_shows_per_date_seat_counts(db, client):
+        from classes.factories import RegistrationFactory
+        from classes.models import Registration
+
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        full_date = _publish("Repeat Class", "rep-a", cat, inst, days_out=1)
+        _publish("Repeat Class", "rep-b", cat, inst, days_out=2)
+        for _ in range(full_date.capacity):
+            RegistrationFactory(class_offering=full_date, status=Registration.Status.CONFIRMED)
+
+        response = client.get(reverse("classes:public_list"))
+
+        # One date is full while the other still has seats — both shown per-date.
+        assert b"Full" in response.content
+        assert b"6 spots" in response.content
+
+    def it_renders_one_card_per_group_not_per_dated_offering(db, client):
+        cat = CategoryFactory(name="Forge", slug="forge")
+        inst = InstructorFactory()
+        for i in range(4):
+            _publish("Anvil Time with Glen", f"anvil-{i}", cat, inst, days_out=i + 1)
+
+        response = client.get(reverse("classes:public_list"))
+
+        # Four dated offerings collapse to a single browsable card (one cls-title each).
+        assert response.content.count(b"cls-title") == 1
+
+    def it_lists_other_dates_on_the_detail_page(db, client):
+        cat = CategoryFactory(name="Smithing", slug="smithing")
+        inst = InstructorFactory(full_legal_name="Glen", instructor_slug="glen")
+        first = _publish("Forge Night with Glen", "forge-a", cat, inst, days_out=2)
+        _publish("Forge Night with Glen", "forge-b", cat, inst, days_out=9)
+
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": first.slug}))
+
+        assert b"Other dates for this class" in response.content
+        assert b"forge-b" in response.content
+
+    def it_omits_other_dates_when_a_class_stands_alone(published_class, client):
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+
+        assert b"Other dates for this class" not in response.content
+
+    def it_skips_sibling_lookup_when_the_grouping_key_is_blank(db, client):
+        # A title-less offering yields an empty grouping key and must stand alone
+        # rather than collapsing with every other keyless row.
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        offering = ClassOfferingFactory(
+            title="",
+            slug="blank-title",
+            category=cat,
+            instructor=inst,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        assert offering.grouping_key == ""
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=2),
+        )
+
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+
+        assert response.status_code == 200
+        assert b"Other dates for this class" not in response.content
+
+
 def describe_public_instructor():
     def it_404s_inactive_instructor(db, client):
         instructor = InstructorFactory(instructor_slug="retired", status=Member.Status.FORMER)
@@ -383,3 +493,52 @@ def describe_google_analytics_gate():
         response = client.get(reverse("classes:public_list"))
         assert b"googletagmanager.com" in response.content
         assert b"G-TEST123" in response.content
+
+
+def describe_hero_management_buttons():
+    def it_crosses_to_the_members_host_on_the_public_surface(admin_user, published_class, client):
+        client.force_login(admin_user)
+        with override_settings(PUBLIC_HOSTS=["testserver"], MEMBER_BASE_URL="https://members.example"):
+            response = client.get(reverse("classes:public_list"))
+        assert b'href="https://members.example/classes/admin/"' in response.content
+
+    def it_stays_relative_on_the_members_surface(admin_user, published_class, client):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:public_list"))
+        assert b'href="/classes/admin/"' in response.content
+        assert b"members.example" not in response.content
+
+
+def describe_public_topbar_member_chrome():
+    @pytest.fixture
+    def member_persona_user(db):
+        from django.contrib.auth import get_user_model
+        from membership.models import Member, MembershipPlan
+
+        plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
+        user, _ = get_user_model().objects.get_or_create(
+            username="fog@example.com", defaults={"email": "fog@example.com"}
+        )
+        Member.objects.update_or_create(
+            user=user,
+            defaults={
+                "full_legal_name": "Fog Member",
+                "fog_role": Member.FogRole.MEMBER,
+                "membership_plan": plan,
+                "status": Member.Status.ACTIVE,
+                "airtable_record_id": "recFOG123",
+            },
+        )
+        return user
+
+    def it_shows_the_fog_cluster_on_the_public_surface(member_persona_user, published_class, client):
+        client.force_login(member_persona_user)
+        with override_settings(PUBLIC_HOSTS=["testserver"]):
+            response = client.get(reverse("classes:public_list"))
+        assert b"cp-topbar__ext" in response.content
+        assert b"cp-topbar__pill" in response.content
+
+    def it_hides_the_fog_cluster_on_the_members_surface(member_persona_user, published_class, client):
+        client.force_login(member_persona_user)
+        response = client.get(reverse("classes:public_list"))
+        assert b"cp-topbar__ext" not in response.content

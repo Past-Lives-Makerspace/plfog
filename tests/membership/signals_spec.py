@@ -7,8 +7,8 @@ import logging
 import pytest
 from django.contrib.auth import get_user_model
 
-from membership.models import Member, MembershipPlan
-from tests.membership.factories import MemberFactory, MembershipPlanFactory
+from membership.models import Member, MembershipPlan, VotePreference
+from tests.membership.factories import GuildFactory, MemberFactory, MembershipPlanFactory
 
 User = get_user_model()
 
@@ -144,3 +144,24 @@ def describe_ensure_user_has_member():
         assert member.user == user
         assert member.status == Member.Status.ACTIVE
         assert Member.objects.filter(user=user).count() == 1
+
+
+@pytest.mark.django_db
+def describe_vote_activity():
+    def it_logs_vote_submitted_on_create():
+        from core.models import SiteActivity
+
+        member = MemberFactory()
+        g1, g2, g3 = GuildFactory(), GuildFactory(), GuildFactory()
+        VotePreference.objects.create(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.VOTE_SUBMITTED).exists()
+
+    def it_logs_vote_changed_on_update():
+        from core.models import SiteActivity
+
+        member = MemberFactory()
+        g1, g2, g3 = GuildFactory(), GuildFactory(), GuildFactory()
+        vp = VotePreference.objects.create(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
+        vp.guild_1st = g3
+        vp.save()
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.VOTE_CHANGED).exists()

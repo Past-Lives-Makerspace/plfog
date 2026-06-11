@@ -1,0 +1,22 @@
+{% extends "classes/admin/base.html" %}
+
+{% block tab_content %}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;">
+  <a class="hub-card" style="margin:0;text-decoration:none;" href="{% url 'classes:admin_categories' %}">
+    <h3 style="margin:0 0 4px;">Categories</h3>
+    <p style="margin:0;color:var(--hub-text-muted);">Guild-linked groupings for classes.</p>
+  </a>
+  <a class="hub-card" style="margin:0;text-decoration:none;" href="{% url 'classes:admin_discount_codes' %}">
+    <h3 style="margin:0 0 4px;">Discount Codes</h3>
+    <p style="margin:0;color:var(--hub-text-muted);">Global codes and approvals.</p>
+  </a>
+  <a class="hub-card" style="margin:0;text-decoration:none;" href="{% url 'classes:admin_registration_questions' %}">
+    <h3 style="margin:0 0 4px;">Questions</h3>
+    <p style="margin:0;color:var(--hub-text-muted);">Onboarding questions on every registration.</p>
+  </a>
+  <a class="hub-card" style="margin:0;text-decoration:none;" href="{% url 'classes:admin_settings' %}">
+    <h3 style="margin:0 0 4px;">Waivers &amp; reminders</h3>
+    <p style="margin:0;color:var(--hub-text-muted);">Liability text, model-release text, reminder timing.</p>
+  </a>
+</div>
+{% endblock %}

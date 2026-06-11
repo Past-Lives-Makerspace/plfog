@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
+from core.models import HeroCropMixin
 from core.validators import validate_image_size
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ I waive any right to inspect or approve the finished images or the use to which 
 I understand that I may revoke this consent at any time by notifying PLM in writing at info@pastlives.space."""
 
 
-class Category(models.Model):
+class Category(HeroCropMixin, models.Model):
     name = models.CharField(max_length=100, unique=True, help_text="Display name (e.g. Woodworking).")
     slug = models.SlugField(max_length=100, unique=True, help_text="URL slug.")
     sort_order = models.PositiveIntegerField(default=0, help_text="Ascending sort; lower shows first.")
@@ -52,6 +53,10 @@ class Category(models.Model):
         validators=[validate_image_size],
         help_text="Optional header image.",
     )
+
+    def get_hero_image_field_name(self) -> str:
+        return "hero_image"
+
     icon_svg = models.TextField(
         blank=True,
         help_text=(
@@ -95,8 +100,24 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         return self.filter(instructor=instructor)
 
+    def spots_remaining_map(self) -> dict[int, int]:
+        """Map of ``{offering_pk: spots_remaining}`` for this queryset in one query.
 
-class ClassOffering(models.Model):
+        Mirrors the ``ClassOffering.spots_remaining`` property but batched, so the
+        catalog can show per-date seat counts without an N+1 of count queries.
+        """
+        from django.db.models import Count, Q
+
+        rows = self.annotate(
+            used=Count(
+                "registrations",
+                filter=Q(registrations__status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]),
+            )
+        ).values("pk", "capacity", "used")
+        return {row["pk"]: max(0, row["capacity"] - row["used"]) for row in rows}
+
+
+class ClassOffering(HeroCropMixin, models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         PENDING = "pending", "Pending Review"
@@ -146,22 +167,14 @@ class ClassOffering(models.Model):
         validators=[validate_image_size],
         help_text="Hero image.",
     )
+
+    def get_hero_image_field_name(self) -> str:
+        return "image"
+
     video_url = models.URLField(
         blank=True,
         max_length=500,
         help_text="Optional YouTube link (watch, youtu.be, embed, or shorts URL). Embeds on the public class page.",
-    )
-    hero_crop_x = models.PositiveIntegerField(
-        null=True, blank=True, help_text="Crop box left edge in source-image pixels — set by the hero cropper."
-    )
-    hero_crop_y = models.PositiveIntegerField(
-        null=True, blank=True, help_text="Crop box top edge in source-image pixels — set by the hero cropper."
-    )
-    hero_crop_w = models.PositiveIntegerField(
-        null=True, blank=True, help_text="Crop box width in source-image pixels — set by the hero cropper."
-    )
-    hero_crop_h = models.PositiveIntegerField(
-        null=True, blank=True, help_text="Crop box height in source-image pixels — set by the hero cropper."
     )
     requires_model_release = models.BooleanField(
         default=False, help_text="When on, registrants also sign model release."
@@ -196,6 +209,15 @@ class ClassOffering(models.Model):
     legacy_image_url = models.URLField(
         blank=True,
         help_text="Hero image URL from the legacy CMS. Cleared after download_legacy_images runs.",
+    )
+    grouping_key = models.CharField(
+        max_length=255,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Links the same class offered on multiple dates into one public catalog card. "
+            "Derived from the normalized title + category on save; empty offerings stand alone."
+        ),
     )
 
     objects = ClassOfferingQuerySet.as_manager()
@@ -232,6 +254,16 @@ class ClassOffering(models.Model):
                 self.hero_crop_w = None
                 self.hero_crop_h = None
         normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)
+
+        # Keep the catalog grouping key in sync with the title/category so the
+        # same class on many dates always collapses into one public card.
+        from classes.grouping import grouping_key_for
+
+        self.grouping_key = grouping_key_for(self.title, self.category_id)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and {"title", "category", "category_id"} & set(update_fields):
+            kwargs["update_fields"] = [*update_fields, "grouping_key"]
+
         super().save(*args, **kwargs)
         if creating:
             from classes import activity
@@ -303,8 +335,16 @@ class ClassOffering(models.Model):
         self.status = self.Status.ARCHIVED
         self.save(update_fields=["status", "updated_at"])
         from classes import activity
+        from core import notifications
 
         activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=self)
+        notifications.dispatch(
+            "class_cancelled",
+            notifications.active_member_users(),
+            title="A class was cancelled",
+            body=self.title,
+            url="/classes/",
+        )
 
     def promote_next_from_waitlist(self) -> "Registration | None":
         """Notify the next waitlisted person when a confirmed spot opens.
@@ -343,6 +383,16 @@ class ClassOffering(models.Model):
             class_offering=self,
             registration=next_up,
         )
+        from core import notifications
+
+        if next_up.member is not None and next_up.member.user is not None:
+            notifications.dispatch(
+                "waitlist_spot_available",
+                [next_up.member.user],
+                title="A waitlist spot opened up",
+                body=self.title,
+                url="/classes/account/",
+            )
         return next_up
 
     def on_review_decision_recorded(self, row: "ClassApproval") -> None:
@@ -356,6 +406,8 @@ class ClassOffering(models.Model):
         """
         from classes import activity
 
+        from core import notifications
+
         if row.decision == ClassApproval.Decision.APPROVED:
             activity.log(
                 CmsActivity.Kind.CLASS_APPROVED,
@@ -363,6 +415,14 @@ class ClassOffering(models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role},
             )
+            if self.instructor is not None and self.instructor.user is not None:
+                notifications.dispatch(
+                    "instructor_class_approved",
+                    [self.instructor.user],
+                    title="Your class was approved",
+                    body=self.title,
+                    url=f"/classes/{self.slug}/",
+                )
             required = set(self.required_review_roles)
             approved = {r.role for r in self.approvals.filter(decision=ClassApproval.Decision.APPROVED)}
             if required.issubset(approved):
@@ -375,6 +435,13 @@ class ClassOffering(models.Model):
                     class_offering=self,
                     actor=row.decided_by,
                 )
+                notifications.dispatch(
+                    "class_published",
+                    notifications.active_member_users(),
+                    title="New class published",
+                    body=self.title,
+                    url=f"/classes/{self.slug}/",
+                )
         elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
             self.status = self.Status.DRAFT
             self.save(update_fields=["status", "updated_at"])
@@ -384,6 +451,14 @@ class ClassOffering(models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role, "notes_excerpt": (row.notes or "")[:200]},
             )
+            if self.instructor is not None and self.instructor.user is not None:
+                notifications.dispatch(
+                    "instructor_changes_requested",
+                    [self.instructor.user],
+                    title="Changes requested on your class",
+                    body=self.title,
+                    url=f"/classes/{self.slug}/",
+                )
         elif row.decision == ClassApproval.Decision.DENIED:
             self.status = self.Status.DRAFT
             self.save(update_fields=["status", "updated_at"])
@@ -436,29 +511,6 @@ class ClassOffering(models.Model):
         if not items and self.category and self.category.hero_image:
             items.append({"url": self.category.hero_image.url, "alt": self.category.name})
         return items
-
-    @property
-    def hero_object_position(self) -> str:
-        """CSS ``object-position`` value to keep the cropped focal point centered.
-
-        When the hero crop box is set, returns ``"X% Y%"`` where the coords are
-        the crop-box center expressed as a percentage of the source image.
-        Templates pair this with ``object-fit: cover`` on the hero <img>/banner.
-        Returns ``"50% 50%"`` (CSS default) when the crop box or source size is
-        unknown.
-        """
-        if not (self.hero_crop_w and self.hero_crop_h):
-            return "50% 50%"
-        try:
-            src_w = self.image.width
-            src_h = self.image.height
-        except (FileNotFoundError, ValueError, AttributeError, OSError):
-            return "50% 50%"
-        if not (src_w and src_h):
-            return "50% 50%"
-        cx = (self.hero_crop_x or 0) + self.hero_crop_w / 2
-        cy = (self.hero_crop_y or 0) + self.hero_crop_h / 2
-        return f"{(cx / src_w) * 100:.1f}% {(cy / src_h) * 100:.1f}%"
 
     @property
     def first_upcoming_session_at(self) -> datetime | None:
@@ -926,34 +978,54 @@ class Registration(models.Model):
         super().save(*args, **kwargs)
         if creating and self.member_id is None:
             self.link_member_by_email()
-        from classes import activity
+        self._dispatch_status_notification(creating, prior_status)
 
+    def _dispatch_status_notification(self, creating: bool, prior_status: str | None) -> None:
+        """Dispatch in-app notifications triggered by registration status transitions."""
+        from classes import activity
+        from core import notifications
+
+        user = self.member.user if (self.member is not None and self.member.user is not None) else None
         if creating:
             if self.status == self.Status.WAITLISTED:
-                activity.log(
-                    CmsActivity.Kind.WAITLIST_JOINED,
-                    class_offering=self.class_offering,
-                    registration=self,
-                )
+                activity.log(CmsActivity.Kind.WAITLIST_JOINED, class_offering=self.class_offering, registration=self)
+                if user is not None:
+                    notifications.dispatch(
+                        "waitlist_confirmed",
+                        [user],
+                        title="Added to the waitlist",
+                        body=self.class_offering.title,
+                        url="/classes/account/",
+                    )
             else:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_CREATED,
-                    class_offering=self.class_offering,
-                    registration=self,
+                    CmsActivity.Kind.REGISTRATION_CREATED, class_offering=self.class_offering, registration=self
                 )
         elif prior_status is not None and prior_status != self.status:
             if self.status == self.Status.CONFIRMED:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_CONFIRMED,
-                    class_offering=self.class_offering,
-                    registration=self,
+                    CmsActivity.Kind.REGISTRATION_CONFIRMED, class_offering=self.class_offering, registration=self
                 )
+                if user is not None:
+                    notifications.dispatch(
+                        "registration_confirmed",
+                        [user],
+                        title="Registration confirmed",
+                        body=self.class_offering.title,
+                        url="/classes/account/",
+                    )
             elif self.status == self.Status.REFUNDED:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_REFUNDED,
-                    class_offering=self.class_offering,
-                    registration=self,
+                    CmsActivity.Kind.REGISTRATION_REFUNDED, class_offering=self.class_offering, registration=self
                 )
+                if user is not None:
+                    notifications.dispatch(
+                        "refund_issued",
+                        [user],
+                        title="Refund issued",
+                        body=self.class_offering.title,
+                        url="/classes/account/",
+                    )
 
     @staticmethod
     def _generate_order_number() -> str:

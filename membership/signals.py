@@ -10,6 +10,8 @@ from django.contrib.auth import get_user_model
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from membership.models import VotePreference
+
 logger = logging.getLogger(__name__)
 
 User = get_user_model()
@@ -89,3 +91,12 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
     )
     MemberEmail.objects.migrate_to_user(instance)
     logger.info("Auto-created Member for user %s with plan '%s'.", instance.username, plan.name)
+
+
+@receiver(post_save, sender=VotePreference)
+def _log_vote_activity(sender: type, instance: VotePreference, created: bool, **kwargs: Any) -> None:
+    from core.models import SiteActivity
+
+    kind = SiteActivity.Kind.VOTE_SUBMITTED if created else SiteActivity.Kind.VOTE_CHANGED
+    actor = instance.member.user if instance.member_id else None
+    SiteActivity.log(kind, actor=actor, target=instance.member)
