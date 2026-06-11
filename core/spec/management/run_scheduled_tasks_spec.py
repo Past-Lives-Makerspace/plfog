@@ -31,12 +31,15 @@ def describe_run_scheduled_tasks_command():
             if cmd == "send_voting_reminders":
                 raise CommandError("boom")
 
-        with patch("core.management.commands.run_scheduled_tasks.call_command", side_effect=_fake_call):
+        with patch(
+            "core.management.commands.run_scheduled_tasks.call_command", side_effect=_fake_call
+        ) as mock_cc:
             stderr = StringIO()
-            # Must not raise — dispatcher absorbs the error
             call_command("run_scheduled_tasks", stderr=stderr)
 
         assert "send_voting_reminders" in stderr.getvalue()
+        called_cmds = [c.args[0] for c in mock_cc.call_args_list]
+        assert "send_lease_expiry_reminders" in called_cmds
 
     def it_logs_each_task_outcome(db):
         with patch("core.management.commands.run_scheduled_tasks.call_command"):
@@ -44,7 +47,8 @@ def describe_run_scheduled_tasks_command():
             call_command("run_scheduled_tasks", stdout=stdout)
 
         output = stdout.getvalue()
-        assert output  # something was written
+        assert "send_voting_reminders" in output
+        assert "send_lease_expiry_reminders" in output
 
     def it_runs_sync_all_sources_at_13_utc(db):
         with (
