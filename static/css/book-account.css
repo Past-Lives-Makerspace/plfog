@@ -126,6 +126,12 @@
   --bk-rec-title:   var(--hub-text);
   --bk-readonly-bg: var(--hub-card-bg);
   --bk-readonly-border: var(--hub-card-border);
+  --bk-emails-bg:      var(--hub-surface);
+  --bk-emails-row-sep: var(--hub-card-border);
+  --bk-email-addr:     var(--hub-text);
+  --bk-email-add-bg:   var(--hub-card-bg);
+  --bk-email-input-bg: var(--hub-input-bg);
+  --bk-email-input-clr: var(--hub-text);
 }
 
 [data-theme="dark"] .bk-page {
@@ -147,6 +153,12 @@
   --bk-rec-title:   var(--color-cream);
   --bk-readonly-bg: rgba(9,46,76,.5);
   --bk-readonly-border: rgba(238,180,75,.18);
+  --bk-emails-bg:      rgba(13,38,60,.4);
+  --bk-emails-row-sep: rgba(26,69,104,.3);
+  --bk-email-addr:     var(--color-cream);
+  --bk-email-add-bg:   rgba(7,20,34,.4);
+  --bk-email-input-bg: rgba(13,38,60,.55);
+  --bk-email-input-clr: var(--color-cream);
 }
 
 /* ── Page wrapper ──────────────────────────────────────────── */
@@ -496,7 +508,7 @@
 
 /* Email list inside profile */
 .bk-emails {
-  background: rgba(13,38,60,.4);
+  background: var(--bk-emails-bg);
   border: 1px solid var(--border);
   border-radius: var(--r);
   overflow: hidden;
@@ -504,11 +516,11 @@
 .bk-email-row {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 16px;
-  border-top: 1px solid rgba(26,69,104,.3);
+  border-top: 1px solid var(--bk-emails-row-sep);
   font-size: 13px;
 }
 .bk-email-row:first-child { border-top: none; }
-.bk-email-addr { flex:1; color: var(--cream); min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.bk-email-addr { flex:1; color: var(--bk-email-addr); min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .bk-email-tag {
   font-size: 9px; font-weight: 800;
   text-transform: uppercase; letter-spacing: .12em;
@@ -525,15 +537,15 @@
 .bk-email-row a.danger:hover { color: var(--red); }
 .bk-email-add {
   display:flex; gap: 8px; padding: 14px 16px;
-  border-top: 1px solid rgba(26,69,104,.3);
-  background: rgba(7,20,34,.4);
+  border-top: 1px solid var(--bk-emails-row-sep);
+  background: var(--bk-email-add-bg);
 }
 .bk-email-add input {
   flex:1;
   padding: 9px 12px; border-radius: 4px;
-  background: rgba(13,38,60,.55);
+  background: var(--bk-email-input-bg);
   border: 1px solid var(--border);
-  color: var(--cream); font-size: 13px;
+  color: var(--bk-email-input-clr); font-size: 13px;
 }
 .bk-email-add button {
   padding: 9px 14px; border-radius:4px;
@@ -581,7 +593,7 @@
   font-size: 13px;
 }
 .bk-readonly-banner svg { color: var(--gold); flex-shrink: 0; }
-.bk-readonly-banner b { color: var(--cream); font-weight: 700; }
+.bk-readonly-banner b { color: var(--bk-h1); font-weight: 700; }
 .bk-readonly-banner a {
   color: var(--gold); text-decoration: none; font-weight: 600;
   margin-left: auto; white-space: nowrap;
