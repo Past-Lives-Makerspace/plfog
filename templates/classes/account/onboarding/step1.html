@@ -33,6 +33,19 @@
         <div class="spacer"></div>
         <button type="submit" class="bk-btn-primary">Continue →</button>
       </div>
+      <script>
+        document.querySelectorAll('.bk-radio').forEach(function(label) {
+          var input = label.querySelector('input[type="radio"]');
+          if (!input) return;
+          if (input.checked) label.classList.add('is-on');
+          input.addEventListener('change', function() {
+            document.querySelectorAll('.bk-radio').forEach(function(l) {
+              l.classList.remove('is-on');
+            });
+            label.classList.add('is-on');
+          });
+        });
+      </script>
     </form>
   </div>
 </div></div></div>

@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "2.5.5"
+VERSION = "2.5.6"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.5.6",
+        "date": "2026-06-11",
+        "title": "Scheduled reminders, account page polish, onboarding fixes",
+        "changes": [
+            "Lease expiry and voting reminders now run automatically — no manual setup needed.",
+            "Your account page on the booking site now looks great in light mode.",
+            "Fixed the onboarding questions not showing which answer you selected.",
+        ],
+    },
     {
         "version": "2.5.5",
         "date": "2026-06-10",

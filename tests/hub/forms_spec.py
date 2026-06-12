@@ -49,6 +49,8 @@ def describe_profile_settings_form():
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "instructor_website",
+            "instructor_social_handle",
             "show_pronouns",
             "show_phone",
             "show_email",

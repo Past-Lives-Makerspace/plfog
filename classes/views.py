@@ -42,7 +42,6 @@ from classes.forms import (
     ClassSettingsForm,
     DiscountCodeForm,
     TeachClassOfferingForm,
-    TeachProfileForm,
     RegistrationForm,
     RegistrationQuestionForm,
 )
@@ -1167,17 +1166,7 @@ def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
 
 @teaching_member_required
 def teach_profile(request: HttpRequest) -> HttpResponse:
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    form = TeachProfileForm(request.POST or None, request.FILES or None, instance=teaching_member)
-    if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "Profile updated.")
-        return redirect("classes:teach_profile")
-    return render(
-        request,
-        "classes/teach/profile.html",
-        {"active_tab": "profile", "instructor": teaching_member, "form": form},
-    )
+    return redirect(reverse("hub_user_settings") + "?tab=profile")
 
 
 @login_required

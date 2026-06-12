@@ -535,10 +535,10 @@ def describe_public_topbar_member_chrome():
         client.force_login(member_persona_user)
         with override_settings(PUBLIC_HOSTS=["testserver"]):
             response = client.get(reverse("classes:public_list"))
-        assert b"cp-topbar__ext" in response.content
-        assert b"cp-topbar__pill" in response.content
+        assert b"cp-topbar__account-item--ext" in response.content
+        assert b"cp-topbar__account-pill" in response.content
 
     def it_hides_the_fog_cluster_on_the_members_surface(member_persona_user, published_class, client):
         client.force_login(member_persona_user)
         response = client.get(reverse("classes:public_list"))
-        assert b"cp-topbar__ext" not in response.content
+        assert b"cp-topbar__account-item--ext" not in response.content
