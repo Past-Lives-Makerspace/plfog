@@ -82,7 +82,7 @@ class Category(HeroCropMixin, models.Model):
         """
         from membership.logos import logo_prefix_for
 
-        if self.guild_id is not None:
+        if self.guild is not None:
             guild_prefix = self.guild.logo_prefix
             if guild_prefix:
                 return guild_prefix
