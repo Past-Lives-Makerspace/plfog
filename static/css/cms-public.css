@@ -567,6 +567,19 @@ body.classes-portal {
   object-fit: cover;
   display: block;
 }
+.cp-detail__hero-logo {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cp-detail__hero-logo img {
+  width: clamp(120px, 22vw, 200px);
+  height: clamp(120px, 22vw, 200px);
+  object-fit: contain;
+  opacity: .9;
+}
 .cp-detail__hero-overlay {
   position: absolute;
   inset: 0;
@@ -1014,7 +1027,14 @@ a.cp-detail__cta--waitlist:hover {
   opacity: .8;
   stroke-width: 1.5;
 }
-.cp-detail__cat-chip svg {
+.cp-page .cls-img-ph--logo { display: flex; align-items: center; justify-content: center; }
+.cp-page .cls-img-ph--logo img {
+  width: 56%; height: 56%;
+  object-fit: contain;
+  opacity: .9;
+}
+.cp-detail__cat-chip svg,
+.cp-detail__cat-chip img {
   width: 13px; height: 13px;
   vertical-align: -2px;
   margin-right: 5px;
