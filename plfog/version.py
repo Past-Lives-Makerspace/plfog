@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "2.5.6"
+VERSION = "2.5.7"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.5.7",
+        "date": "2026-06-15",
+        "title": "Guild logos on class pages and FOG hub topbar",
+        "changes": [
+            "Class pages that don't have a hero image now show the guild logo for that category instead of a blank header.",
+            "The category chip on a class page now shows the guild logo alongside the category name.",
+            "The member hub topbar now reads 'Past Lives FOG' and shows the version number in brackets instead of 'BETA'.",
+        ],
+    },
     {
         "version": "2.5.6",
         "date": "2026-06-11",
