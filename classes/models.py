@@ -72,6 +72,7 @@ class Category(HeroCropMixin, models.Model):
         related_name="categories",
         help_text="Optional link to the makerspace Guild that owns this category. Used for Mailchimp tagging.",
     )
+
     @property
     def logo_prefix(self) -> str | None:
         """SVG logo prefix for this category's color logo in static/img/guild_logos/.

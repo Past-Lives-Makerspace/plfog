@@ -543,6 +543,7 @@ def describe_public_topbar_member_chrome():
         response = client.get(reverse("classes:public_list"))
         assert b"cp-topbar__account-item--ext" not in response.content
 
+
 def describe_card_image_fallback():
     def it_shows_the_category_color_logo_when_class_has_no_image(client, db):
         from classes.factories import ClassOfferingFactory
@@ -572,6 +573,7 @@ def describe_card_image_fallback():
         assert resp.status_code == 200
         assert "cls-img-ph--logo" in resp.content.decode()
         assert "img/favicon.png" in resp.content.decode()
+
 
 def describe_detail_hero_fallback():
     def it_shows_the_category_color_logo_when_no_images(client, db):
