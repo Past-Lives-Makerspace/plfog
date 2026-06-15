@@ -23,16 +23,20 @@ list.html for the initial full-page response.{% endcomment %}
           <img class="cls-img" src="{% url 'classes:legacy_image' %}?url={{ offering.legacy_image_url|urlencode }}" alt="" loading="lazy">
         {% elif offering.category.hero_image %}
           <img class="cls-img" src="{{ offering.category.hero_image.url }}" alt="" loading="lazy">
-        {% elif offering.category.icon_svg %}
-          <div class="cls-img-ph cls-img-ph--icon">{{ offering.category.icon_svg|safe }}</div>
+        {% elif offering.category.logo_prefix %}
+          <div class="cls-img-ph cls-img-ph--logo">
+            <img src="{% static 'img/guild_logos/'|add:offering.category.logo_prefix|add:'_color.svg' %}" alt="{{ offering.category.name }}" loading="lazy">
+          </div>
         {% else %}
-          <div class="cls-img-ph">{{ offering.category.name|initials }}</div>
+          <div class="cls-img-ph cls-img-ph--logo">
+            <img src="{% static 'img/favicon.png' %}" alt="Past Lives Makerspace" loading="lazy">
+          </div>
         {% endif %}
       </a>
       <div class="cls-body">
         <a class="cls-title" href="{% url 'classes:public_class_detail' slug=offering.slug %}">
-          {% if offering.category.guild and offering.category.guild.logo_prefix %}
-            <img src="{% static 'img/guild_logos/'|add:offering.category.guild.logo_prefix|add:'_color.svg' %}" width="16" height="16" alt="{{ offering.category.guild.name }}" style="vertical-align: middle; margin-right: 0.25rem;">
+          {% if offering.category.logo_prefix %}
+            <img src="{% static 'img/guild_logos/'|add:offering.category.logo_prefix|add:'_color.svg' %}" width="16" height="16" alt="{{ offering.category.name }}" style="vertical-align: middle; margin-right: 0.25rem;">
           {% endif %}
           {{ offering.title|strip_date_suffix }}
           {% if offering.scheduling_model == 'flexible' %}<span class="badge fx">Flex</span>{% endif %}
