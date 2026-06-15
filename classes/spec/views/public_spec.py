@@ -548,7 +548,7 @@ def describe_card_image_fallback():
         from classes.factories import ClassOfferingFactory
         from classes.models import ClassOffering
 
-        offering = ClassOfferingFactory(
+        ClassOfferingFactory(
             status=ClassOffering.Status.PUBLISHED,
             scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
             image="",
