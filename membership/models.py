@@ -599,29 +599,9 @@ class Guild(HeroCropMixin, models.Model):
     @property
     def logo_prefix(self) -> str | None:
         """Map the guild name to its SVG logo prefix in static/img/guild_logos/."""
-        name = self.name.lower()
-        mapping = {
-            "art framing": "art_framing",
-            "ceramics": "ceramics",
-            "events": "events",
-            "food independence": "food_independence",
-            "garden": "garden",
-            "glass": "glass",
-            "jewelry": "jewelers",
-            "jeweler": "jewelers",
-            "leather": "leatherwork",
-            "metal": "metalworking",
-            "prison": "prison_outreach",
-            "tech": "tech",
-            "textile": "textiles",
-            "visual": "visual_arts",
-            "wood": "woodworking",
-            "writer": "writers",
-        }
-        for key, prefix in mapping.items():
-            if key in name:
-                return prefix
-        return None
+        from membership.logos import logo_prefix_for
+
+        return logo_prefix_for(self.name)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         delete_orphan_on_replace(self, "banner_image")

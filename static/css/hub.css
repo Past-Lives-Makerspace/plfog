@@ -438,23 +438,19 @@ a:hover { color: var(--hub-link-hover); }
     background-color: var(--hub-topbar-border);
 }
 
-.pl-badge--beta {
-    font-size: 0.625rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 0.125rem 0.5rem;
-    border-radius: 10px;
-    background-color: rgba(238, 180, 75, 0.15);
-    color: var(--color-tuscan-yellow);
+.pl-badge--version {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    color: var(--hub-text-muted);
     border: none;
     cursor: pointer;
     font-family: var(--font-body);
-    transition: background-color 0.15s ease;
+    transition: color 0.15s ease;
 }
 
-.pl-badge--beta:hover {
-    background-color: rgba(238, 180, 75, 0.3);
+.pl-badge--version:hover {
+    color: var(--hub-text);
 }
 
 /* View switcher — distinct button to switch between admin/hub */

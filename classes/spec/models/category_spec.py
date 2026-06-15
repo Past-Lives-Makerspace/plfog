@@ -24,3 +24,26 @@ def describe_Category():
         CategoryFactory(name="Pottery")
         with pytest.raises(Exception):
             CategoryFactory(name="Pottery")
+
+    def describe_logo_prefix():
+        def it_resolves_from_the_category_name(db):
+            category = CategoryFactory(name="Woodworking")
+            assert category.logo_prefix == "woodworking"
+
+        def it_prefers_the_linked_guild_name_over_its_own(db):
+            from tests.membership.factories import GuildFactory
+
+            guild = GuildFactory(name="Ceramics")
+            category = CategoryFactory(name="Pottery & Clay", guild=guild)
+            assert category.logo_prefix == "ceramics"
+
+        def it_falls_back_to_its_own_name_when_guild_has_no_logo(db):
+            from tests.membership.factories import GuildFactory
+
+            guild = GuildFactory(name="Some Unmapped Guild")
+            category = CategoryFactory(name="Glass", guild=guild)
+            assert category.logo_prefix == "glass"
+
+        def it_returns_none_when_nothing_matches(db):
+            category = CategoryFactory(name="Creative Business")
+            assert category.logo_prefix is None

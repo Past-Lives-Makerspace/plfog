@@ -61,6 +61,14 @@
            {% else %}
            style="object-position: {{ offering.category.hero_object_position }};"
            {% endif %}>
+    {% elif offering.category.logo_prefix %}
+      <div class="cp-detail__hero-logo">
+        <img src="{% static 'img/guild_logos/'|add:offering.category.logo_prefix|add:'_color.svg' %}" alt="{{ offering.category.name }}">
+      </div>
+    {% else %}
+      <div class="cp-detail__hero-logo">
+        <img src="{% static 'img/favicon.png' %}" alt="Past Lives Makerspace">
+      </div>
     {% endif %}
     <div class="cp-detail__hero-overlay"></div>
 
@@ -120,7 +128,7 @@
   {% endwith %}
       <div class="cp-detail__cat-row">
         <a class="cp-detail__cat-chip" href="{% url 'classes:public_category' slug=offering.category.slug %}">
-          {% if offering.category.icon_svg %}{{ offering.category.icon_svg|safe }}{% endif %}{{ offering.category.name }}
+          {% if offering.category.logo_prefix %}<img src="{% static 'img/guild_logos/'|add:offering.category.logo_prefix|add:'_color.svg' %}" alt="">{% endif %}{{ offering.category.name }}
         </a>
         {% if offering.first_upcoming_session_at %}
           <span class="cp-detail__next-pill">Next session {{ offering.first_upcoming_session_at|date:"D, M j" }}</span>
@@ -129,8 +137,8 @@
         {% endif %}
       </div>
       <h1 class="cp-detail__title">
-        {% if offering.category.guild and offering.category.guild.logo_prefix %}
-          <img src="{% static 'img/guild_logos/'|add:offering.category.guild.logo_prefix|add:'_color.svg' %}" width="32" height="32" alt="{{ offering.category.guild.name }}" style="vertical-align: middle; margin-right: 0.5rem;">
+        {% if offering.category.logo_prefix %}
+          <img src="{% static 'img/guild_logos/'|add:offering.category.logo_prefix|add:'_color.svg' %}" width="32" height="32" alt="{{ offering.category.name }}" style="vertical-align: middle; margin-right: 0.5rem;">
         {% endif %}
         {{ offering.title|strip_date_suffix }}
       </h1>

@@ -72,6 +72,22 @@ class Category(HeroCropMixin, models.Model):
         related_name="categories",
         help_text="Optional link to the makerspace Guild that owns this category. Used for Mailchimp tagging.",
     )
+
+    @property
+    def logo_prefix(self) -> str | None:
+        """SVG logo prefix for this category's color logo in static/img/guild_logos/.
+
+        Resolves from the linked guild's name when that maps to a logo, otherwise
+        from the category's own name. Returns None when neither matches a logo file.
+        """
+        from membership.logos import logo_prefix_for
+
+        if self.guild is not None:
+            guild_prefix = self.guild.logo_prefix
+            if guild_prefix:
+                return guild_prefix
+        return logo_prefix_for(self.name)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

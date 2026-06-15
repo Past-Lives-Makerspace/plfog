@@ -542,3 +542,63 @@ def describe_public_topbar_member_chrome():
         client.force_login(member_persona_user)
         response = client.get(reverse("classes:public_list"))
         assert b"cp-topbar__account-item--ext" not in response.content
+
+
+def describe_card_image_fallback():
+    def it_shows_the_category_color_logo_when_class_has_no_image(client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            image="",
+            category__name="Woodworking",
+        )
+        resp = client.get(reverse("classes:public_list"))
+        assert resp.status_code == 200
+        assert "img/guild_logos/woodworking_color.svg" in resp.content.decode()
+
+    def it_shows_the_past_lives_mark_when_category_has_no_logo(client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            image="",
+            category__name="Creative Business",
+        )
+        resp = client.get(reverse("classes:public_list"))
+        assert resp.status_code == 200
+        assert "cls-img-ph--logo" in resp.content.decode()
+        assert "img/favicon.png" in resp.content.decode()
+
+
+def describe_detail_hero_fallback():
+    def it_shows_the_category_color_logo_when_no_images(client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            image="",
+            category__name="Glass",
+        )
+        resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert resp.status_code == 200
+        assert "img/guild_logos/glass_color.svg" in resp.content.decode()
+
+    def it_shows_the_past_lives_mark_when_category_has_no_logo(client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            image="",
+            category__name="Education",
+        )
+        resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert resp.status_code == 200
+        assert "cp-detail__hero-logo" in resp.content.decode()
+        assert "img/favicon.png" in resp.content.decode()
