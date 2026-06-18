@@ -256,10 +256,11 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         delete_orphan_on_replace(self, "image")
         creating = self._state.adding
+        old = None
         # If the hero image is changing, also clear the stale crop box.
         if self.pk:
             try:
-                old = type(self)._default_manager.only("image").get(pk=self.pk)
+                old = type(self)._default_manager.only("image", "grouping_key", "category_id").get(pk=self.pk)
             except type(self).DoesNotExist:
                 old = None
             new_name = getattr(self.image, "name", "") or ""
@@ -281,6 +282,17 @@ class ClassOffering(HeroCropMixin, models.Model):
             kwargs["update_fields"] = [*update_fields, "grouping_key"]
 
         super().save(*args, **kwargs)
+
+        # When a grouped class moves to a new category, sync siblings so the
+        # group stays coherent (same grouping_key across all dates).
+        if old is not None and old.category_id != self.category_id and old.grouping_key:
+            type(self)._default_manager.filter(
+                grouping_key=old.grouping_key,
+            ).exclude(pk=self.pk).update(
+                category_id=self.category_id,
+                grouping_key=self.grouping_key,
+            )
+
         if creating:
             from classes import activity
 
@@ -1004,7 +1016,9 @@ class Registration(models.Model):
         user = self.member.user if (self.member is not None and self.member.user is not None) else None
         if creating:
             if self.status == self.Status.WAITLISTED:
-                activity.log(CmsActivity.Kind.WAITLIST_JOINED, class_offering=self.class_offering, registration=self)
+                activity.log(
+                    CmsActivity.Kind.WAITLIST_JOINED, class_offering=self.class_offering, registration=self, actor=user
+                )
                 if user is not None:
                     notifications.dispatch(
                         "waitlist_confirmed",
@@ -1015,7 +1029,10 @@ class Registration(models.Model):
                     )
             else:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_CREATED, class_offering=self.class_offering, registration=self
+                    CmsActivity.Kind.REGISTRATION_CREATED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                    actor=user,
                 )
         elif prior_status is not None and prior_status != self.status:
             if self.status == self.Status.CONFIRMED:

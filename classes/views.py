@@ -12,7 +12,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
-from django.db.models import Count, F, Max, Min, Q, Sum
+from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import TruncDate
 from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -1354,11 +1354,37 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         status_filter = ""
     instructor_filter = request.GET.get("instructor", "").strip()
 
-    base = ClassOffering.objects.select_related("instructor", "category").annotate(
-        # distinct=True so the sessions join below doesn't inflate the registration tally.
-        registration_count=Count("registrations", distinct=True),
-        first_session=Min("sessions__starts_at"),
-        last_session=Max("sessions__starts_at"),
+    # For grouped classes (same title+category on multiple dates), show only the
+    # lowest-pk representative. Solo classes (blank grouping_key) always show.
+    _group_rep_pk = (
+        ClassOffering.objects.filter(
+            grouping_key=OuterRef("grouping_key"),
+            grouping_key__gt="",
+        )
+        .order_by("pk")
+        .values("pk")[:1]
+    )
+    _group_size = (
+        ClassOffering.objects.filter(
+            grouping_key=OuterRef("grouping_key"),
+            grouping_key__gt="",
+        )
+        .values("grouping_key")
+        .annotate(_c=Count("pk"))
+        .values("_c")
+    )
+
+    base = (
+        ClassOffering.objects.select_related("instructor", "category")
+        .annotate(
+            # distinct=True so the sessions join below doesn't inflate the registration tally.
+            registration_count=Count("registrations", distinct=True),
+            first_session=Min("sessions__starts_at"),
+            last_session=Max("sessions__starts_at"),
+            _group_rep_pk=Subquery(_group_rep_pk),
+            group_size=Subquery(_group_size, output_field=IntegerField()),
+        )
+        .filter(Q(grouping_key="") | Q(pk=F("_group_rep_pk")))
     )
     qs = base.filter(status=status_filter) if status_filter else base
     if instructor_filter:

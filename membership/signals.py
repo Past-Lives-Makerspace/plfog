@@ -32,15 +32,19 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
     to primary and silently revert any other primary the member or admin had
     set via allauth, because allauth's ``set_as_primary`` calls ``user.save()``
     internally. Skipping non-creation saves keeps allauth's primary stable.
+
+    During allauth web signup, ``migrate_to_user`` is deliberately skipped here
+    because allauth's ``setup_user_email`` (called after ``save_user``) asserts
+    no EmailAddress rows exist yet. The adapter sets an ``is_in_allauth_signup``
+    flag; the ``user_signed_up`` handler in ``core.signals`` calls
+    ``migrate_to_user`` after allauth has finished its own email setup.
     """
     if not created:
         return
 
-    from .models import Member, MemberEmail, MembershipPlan
+    from core.allauth_state import is_in_allauth_signup
 
-    # On created=True the user was just saved; no Member can yet reference it
-    # via the OneToOne (admin save_model and test fixtures both link the Member
-    # AFTER this signal has returned). Skip the "already has member" branch.
+    from .models import Member, MemberEmail, MembershipPlan
 
     email = getattr(instance, "email", "") or ""
     if email:
@@ -52,7 +56,8 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
             member.status = Member.Status.ACTIVE
             member.save(update_fields=["user", "full_legal_name", "status"])
             logger.info("Linked existing Member (primary email) to user %s.", instance.username)
-            MemberEmail.objects.migrate_to_user(instance)
+            if not is_in_allauth_signup():
+                MemberEmail.objects.migrate_to_user(instance)
             return
         except Member.DoesNotExist:
             pass
@@ -66,7 +71,8 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
             member.status = Member.Status.ACTIVE
             member.save(update_fields=["user", "full_legal_name", "status"])
             logger.info("Linked existing Member (alias email %s) to user %s.", email, instance.username)
-            MemberEmail.objects.migrate_to_user(instance)
+            if not is_in_allauth_signup():
+                MemberEmail.objects.migrate_to_user(instance)
             return
         except MemberEmail.DoesNotExist:
             pass
@@ -89,7 +95,8 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
         membership_plan=plan,
         status=Member.Status.ACTIVE,
     )
-    MemberEmail.objects.migrate_to_user(instance)
+    if not is_in_allauth_signup():
+        MemberEmail.objects.migrate_to_user(instance)
     logger.info("Auto-created Member for user %s with plan '%s'.", instance.username, plan.name)
 
 

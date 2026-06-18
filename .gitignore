@@ -48,3 +48,6 @@ db.sqlite3.bak*
 
 # WSL NTFS alternate-data-stream sidecars
 *:Zone.Identifier
+
+# SEO audit reports and other PDF exports - not source
+*.pdf

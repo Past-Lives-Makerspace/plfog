@@ -61,6 +61,15 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
 
         return Invite.objects.filter(email__iexact=email, accepted_at__isnull=True).exists()
 
+    def save_user(self, request: HttpRequest, user: object, form: Any, commit: bool = True) -> object:
+        from core.allauth_state import enter_allauth_signup, exit_allauth_signup
+
+        enter_allauth_signup()
+        try:
+            return super().save_user(request, user, form, commit=commit)
+        finally:
+            exit_allauth_signup()
+
     def login(self, request: HttpRequest, user: object) -> None:
         """Sync permissions from Member role (and admin-domain override), then log in."""
         self._sync_permissions(user)

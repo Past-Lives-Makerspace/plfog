@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "2.5.7"
+VERSION = "2.5.8"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.5.8",
+        "date": "2026-06-15",
+        "title": "Signup fix, email polish, and admin class grouping",
+        "changes": [
+            "Fixed a 500 error that prevented new account signups on the booking site.",
+            "The 'new sign-in from a new device' security email now uses the same polished template as other Past Lives emails.",
+            "The site activity feed now correctly shows who registered for a class instead of 'System'.",
+            "The '+N more dates/sessions' text on class listings is now clickable and expands to show all dates inline.",
+            "The admin Classes list now groups classes that share the same title and category into one row, showing a date count badge. Changing the category on one grouped class automatically updates the rest.",
+        ],
+    },
     {
         "version": "2.5.7",
         "date": "2026-06-15",
