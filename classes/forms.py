@@ -40,6 +40,8 @@ def _validate_youtube_url(url: str) -> str:
 
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+
     from membership.models import Member
 
 
@@ -558,6 +560,7 @@ class RegistrationForm(forms.ModelForm):
         member: "Member | None" = None,
         client_ip: str = "",
         is_waitlist: bool = False,
+        user: "AbstractBaseUser | AnonymousUser | None" = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -572,6 +575,9 @@ class RegistrationForm(forms.ModelForm):
             # Hide model release fields entirely when the class doesn't need them.
             self.fields.pop("model_release_signature")
             self.fields.pop("accepts_model_release")
+        if self._user_already_opted_in(user):
+            # Don't re-ask a user who already opted in during a prior session.
+            self.fields.pop("wants_newsletter", None)
         if is_waitlist:
             # Waitlist signups don't transact money so the discount field is
             # noise on the form. Drop it so the registrant isn't confused.
@@ -586,6 +592,14 @@ class RegistrationForm(forms.ModelForm):
             if applied is not None:
                 self.fields["discount_code"].initial = applied.code
                 self.auto_applied_discount = applied
+
+    @staticmethod
+    def _user_already_opted_in(user: "AbstractBaseUser | AnonymousUser | None") -> bool:
+        """True when a logged-in user has already opted into Mailchimp."""
+        if user is None or not user.is_authenticated:
+            return False
+        profile = getattr(user, "profile", None)
+        return profile is not None and profile.subscribed_to_mailchimp_at is not None
 
     def _find_auto_apply_discount(self) -> DiscountCode | None:
         """Pick the class-scoped auto-apply code that yields the lowest final price.

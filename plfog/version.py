@@ -20,6 +20,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "When you register for a class while signed in, your pronouns and phone number now carry over to your profile and welcome steps, so you don't have to type them again.",
             "Class image galleries are now capped at 10 photos, with a clear '10/10' indicator when you reach the limit.",
             "Admins and instructors can now export a class's participant list to a spreadsheet (name, email, registration date, payment status) right from the registrations page.",
+            "If you've already opted in to class email updates, the newsletter checkbox no longer reappears at checkout. Behind the scenes, 'first-time student' email tagging now correctly skips people we already know as members.",
         ],
     },
     {

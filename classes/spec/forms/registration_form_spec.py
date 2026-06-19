@@ -38,6 +38,15 @@ def settings_obj(db):
     return ClassSettings.load()
 
 
+def _build_form(user=None):
+    """Build an unbound RegistrationForm for checkbox-visibility checks."""
+    return RegistrationForm(
+        offering=ClassOfferingFactory(),
+        settings_obj=ClassSettings.load(),
+        user=user,
+    )
+
+
 def _post_data(**overrides):
     data = {
         "first_name": "Sam",
@@ -166,3 +175,36 @@ def describe_RegistrationForm():
             registration = form.save()
             kinds = set(registration.waivers.values_list("kind", flat=True))
             assert kinds == {Waiver.Kind.LIABILITY, Waiver.Kind.MODEL_RELEASE}
+
+    def describe_newsletter_checkbox_visibility():
+        def it_shows_checkbox_for_an_anonymous_user(db):
+            form = _build_form(user=None)
+            assert "wants_newsletter" in form.fields
+
+        def it_shows_checkbox_for_a_user_who_has_not_opted_in(db):
+            from django.contrib.auth import get_user_model
+
+            from core.models import UserProfile
+
+            user = get_user_model().objects.create_user(username="fresh", email="fresh@example.com", password="x")
+            UserProfile.objects.create(user=user, subscribed_to_mailchimp_at=None)
+            form = _build_form(user=user)
+            assert "wants_newsletter" in form.fields
+
+        def it_hides_checkbox_for_a_user_who_already_opted_in(db):
+            from django.contrib.auth import get_user_model
+            from django.utils import timezone
+
+            from core.models import UserProfile
+
+            user = get_user_model().objects.create_user(username="opted", email="opted@example.com", password="x")
+            UserProfile.objects.create(user=user, subscribed_to_mailchimp_at=timezone.now())
+            form = _build_form(user=user)
+            assert "wants_newsletter" not in form.fields
+
+        def it_shows_checkbox_for_a_user_with_no_profile(db):
+            from django.contrib.auth import get_user_model
+
+            user = get_user_model().objects.create_user(username="noprofile", email="np@example.com", password="x")
+            form = _build_form(user=user)
+            assert "wants_newsletter" in form.fields

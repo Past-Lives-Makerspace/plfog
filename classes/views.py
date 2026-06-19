@@ -473,6 +473,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         client_ip=_client_ip(request),
         initial=initial,
         is_waitlist=is_waitlist,
+        user=request.user,
     )
 
     if request.method == "POST" and form.is_valid() and is_waitlist:

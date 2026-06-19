@@ -91,10 +91,12 @@
           </fieldset>
           {% endif %}
 
+          {% if form.wants_newsletter %}
           <label class="reg-check" style="margin-top:4px">
             {{ form.wants_newsletter }}
             <span>{{ form.wants_newsletter.label }}</span>
           </label>
+          {% endif %}
 
           <div class="reg-waiver">
             <h3>Liability Waiver</h3>
