@@ -24,7 +24,7 @@
         <div class="reg-summary">
           <div>{{ offering.title }}</div>
           <div class="total">{{ offering.price_cents|cents_as_price }}</div>
-          {% if member_price_cents %}<div style="font-size:11px;color:var(--steel-dim);margin-top:2px">Members: {{ member_price_cents|cents_as_price }} (auto-applied if your email matches a verified member)</div>{% endif %}
+          {% if member_price_cents %}<div style="font-size:11px;color:var(--steel-dim);margin-top:2px">Past Lives Members: {{ member_price_cents|cents_as_price }} (auto-applied if your email matches a verified member)</div>{% endif %}
           {% if spots_remaining <= 3 %}<div style="font-size:11px;color:var(--red);margin-top:6px">Only {{ spots_remaining }} spot{{ spots_remaining|pluralize }} left</div>{% endif %}
         </div>
 

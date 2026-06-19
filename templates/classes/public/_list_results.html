@@ -109,7 +109,7 @@ list.html for the initial full-page response.{% endcomment %}
           <div>
             <span class="cls-price">{{ offering.price_cents|cents_as_price }}</span>
             {% member_price_cents offering.price_cents offering.member_discount_pct as mp %}
-            {% if mp %}<span class="cls-price-member">({{ mp|cents_as_price }} for PL members)</span>{% endif %}
+            {% if mp %}<span class="cls-price-member">({{ mp|cents_as_price }} for Past Lives Members)</span>{% endif %}
           </div>
           {% if group.is_multi %}
             <span class="cls-spots cls-spots--dates">{{ group.date_count }} dates</span>

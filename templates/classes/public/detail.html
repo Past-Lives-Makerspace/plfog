@@ -355,7 +355,7 @@
         <div class="cp-detail__price-row">
           <div class="cp-detail__price">{{ offering.price_cents|cents_as_price }}</div>
           {% if member_price_cents %}
-            <div class="cp-detail__price-member">{{ member_price_cents|cents_as_price }} <span>for PL members</span></div>
+            <div class="cp-detail__price-member">{{ member_price_cents|cents_as_price }} <span>for Past Lives Members</span></div>
           {% endif %}
         </div>
         <div class="cp-detail__spots cp-detail__spots--{{ spots_remaining|spots_class }}">
