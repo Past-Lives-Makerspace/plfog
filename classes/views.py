@@ -571,6 +571,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         return redirect(checkout["url"])
 
     member_price_cents = offering.member_price_cents
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
 
     return render(
         request,
@@ -583,6 +584,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
             "is_waitlist": is_waitlist,
+            "upcoming_sessions": upcoming_sessions,
         },
     )
 
@@ -815,11 +817,15 @@ def _guild_lead_review_queue(member: Member) -> list[dict]:
     offerings = (
         ClassOffering.objects.awaiting_guild_lead(member)
         .select_related("category", "instructor")
+        .prefetch_related("approvals")
         .order_by("created_at")
     )
     queue: list[dict] = []
     for offering in offerings:
-        gl_row = offering.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").first()
+        gl_row = next(
+            (a for a in offering.approvals.all() if a.role == ClassApproval.Role.GUILD_LEAD and not a.decision),
+            None,
+        )
         if gl_row is not None:
             queue.append({"offering": offering, "token": gl_row.token})
     return queue
@@ -953,6 +959,18 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         mode="edit",
         offering=offering,
     )
+
+
+@teaching_member_required
+def teach_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
+    """Offer one of my classes on another set of dates — clones it as a grouped draft run."""
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
+    if request.method == "POST":
+        run = offering.duplicate_as_new_run()
+        messages.success(request, "New date-set added as a draft. Add its dates, then submit for review.")
+        return redirect("classes:teach_class_edit", pk=run.pk)
+    return redirect("classes:teach_class_edit", pk=offering.pk)
 
 
 @teaching_member_required
@@ -1901,6 +1919,17 @@ def admin_class_duplicate(request: HttpRequest, pk: int) -> HttpResponse:
         copy = offering.duplicate()
         messages.success(request, "Class duplicated.")
         return redirect("classes:admin_class_edit", pk=copy.pk)
+    return redirect("classes:admin_class_detail", pk=offering.pk)
+
+
+@classes_admin_access_required
+def admin_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
+    """Offer this class on another set of dates — clones it as a grouped draft run."""
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    if request.method == "POST":
+        run = offering.duplicate_as_new_run()
+        messages.success(request, "New date-set added as a draft. Add its dates, then publish when ready.")
+        return redirect("classes:admin_class_edit", pk=run.pk)
     return redirect("classes:admin_class_detail", pk=offering.pk)
 
 

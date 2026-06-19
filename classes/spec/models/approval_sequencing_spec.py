@@ -116,3 +116,43 @@ def describe_escalation_notifications():
         note = Notification.objects.get(user=admin_user, trigger="class_validation_requested")
         assert "Iris Smith" in note.body
         assert guild_lead_user.get_username() in note.body
+
+
+def describe_instructor_approved_notification():
+    @pytest.fixture
+    def offering_with_instructor_user(db, guild_lead_user, settings):
+        """A guilded DRAFT offering whose instructor has a real, notifiable User."""
+        from membership.models import Member
+
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
+        user_model = get_user_model()
+        instr_user = user_model.objects.create_user(username="iris@example.com", email="iris@example.com")
+        instructor = InstructorFactory(user=instr_user, full_legal_name="Iris Smith", instructor_slug="iris")
+        lead = Member.objects.get(user=guild_lead_user)
+        guild = GuildFactory(name="Forge Guild", guild_lead=lead)
+        cat = CategoryFactory(guild=guild)
+        offering = ClassOfferingFactory(category=cat, instructor=instructor, status=ClassOffering.Status.DRAFT)
+        return offering, instr_user
+
+    def it_does_not_notify_the_instructor_at_stage_one(offering_with_instructor_user, guild_lead_user):
+        offering, instr_user = offering_with_instructor_user
+        (gl_row,) = offering.submit_for_review()
+        gl_row.decide(ClassApproval.Decision.APPROVED, user=guild_lead_user)
+        offering.refresh_from_db()
+        # Guild lead approved, but the class is still PENDING the admin gate —
+        # the instructor must not yet be told it was "approved".
+        assert offering.status == ClassOffering.Status.PENDING
+        assert not Notification.objects.filter(user=instr_user, trigger="instructor_class_approved").exists()
+
+    def it_notifies_the_instructor_exactly_once_on_publication(
+        offering_with_instructor_user, guild_lead_user, admin_user
+    ):
+        offering, instr_user = offering_with_instructor_user
+        (gl_row,) = offering.submit_for_review()
+        gl_row.decide(ClassApproval.Decision.APPROVED, user=guild_lead_user)
+        admin_row = offering.approvals.get(role=ClassApproval.Role.ADMIN, decision="")
+        admin_row.class_offering = offering
+        admin_row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PUBLISHED
+        assert Notification.objects.filter(user=instr_user, trigger="instructor_class_approved").count() == 1

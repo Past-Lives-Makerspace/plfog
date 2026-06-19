@@ -307,14 +307,17 @@ class ClassOffering(HeroCropMixin, models.Model):
                 self.hero_crop_h = None
         normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)
 
-        # Keep the catalog grouping key in sync with the title/category so the
-        # same class on many dates always collapses into one public card. A
-        # series offering opts out of grouping (blank key) — it is a single
-        # self-contained card and must never merge with same-title siblings,
-        # which would imply "pick a date" and contradict "buy once for all dates".
+        # Keep the catalog grouping key in sync with the title/category so every
+        # run of the same class — single one-offs AND multi-session series alike —
+        # collapses into one public card. The card lists each run as its own
+        # bookable option (a single date, or a full multi-session date-set), each
+        # keeping its own seats. Series no longer opt out of grouping: two runs of
+        # the same series (e.g. Blacksmithing 101 offered Jun 5–19 and again
+        # Jul 11–25) should read as "one class, two date-set options" — one card,
+        # not two.
         from classes.grouping import grouping_key_for
 
-        self.grouping_key = "" if self.is_series else grouping_key_for(self.title, self.category_id)
+        self.grouping_key = grouping_key_for(self.title, self.category_id)
         update_fields = kwargs.get("update_fields")
         if update_fields is not None and {"title", "category", "category_id"} & set(update_fields):
             kwargs["update_fields"] = [*update_fields, "grouping_key"]
@@ -523,14 +526,6 @@ class ClassOffering(HeroCropMixin, models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role},
             )
-            if self.instructor is not None and self.instructor.user is not None:
-                notifications.dispatch(
-                    "instructor_class_approved",
-                    [self.instructor.user],
-                    title="Your class was approved",
-                    body=self.title,
-                    url=f"/classes/{self.slug}/",
-                )
             # Stage-1 → Stage-2 escalation: a Guild Lead's approval opens the
             # Admin gate (if admin review is still required and not yet open)
             # and notifies staff for executive validation. We do not publish on
@@ -554,6 +549,19 @@ class ClassOffering(HeroCropMixin, models.Model):
                     class_offering=self,
                     actor=row.decided_by,
                 )
+                # Notify the instructor only once their class is fully approved
+                # and live — not at each intermediate gate. The email path
+                # (send_class_review_decision) already reports stage-by-stage
+                # progress, so an in-app "approved" before publication would be
+                # premature and would fire twice in the two-stage flow.
+                if self.instructor is not None and self.instructor.user is not None:
+                    notifications.dispatch(
+                        "instructor_class_approved",
+                        [self.instructor.user],
+                        title="Your class was approved",
+                        body=self.title,
+                        url=f"/classes/{self.slug}/",
+                    )
                 notifications.dispatch(
                     "class_published",
                     notifications.active_member_users(),
@@ -795,6 +803,33 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.status = self.Status.DRAFT
         self.published_at = None
         self.approved_by = None
+        self.save()
+        return self
+
+    def duplicate_as_new_run(self) -> "ClassOffering":
+        """Clone as a fresh draft "run" of the SAME class on a new set of dates.
+
+        Unlike :meth:`duplicate`, the title is kept verbatim so the new run shares
+        this class's ``grouping_key`` and collapses into the same public catalog
+        card — it becomes another date-set option rather than a separate class.
+        The clone starts with no sessions (a new pk has no related rows yet) so
+        the instructor/admin fills in fresh dates, and as a DRAFT so it isn't
+        public until reviewed/published. ``legacy_cms_id`` is cleared: a
+        hand-added run is locally authored, not a synced legacy node, and the
+        partial unique constraint would otherwise reject the duplicate.
+        """
+        base_slug = f"{self.slug}-run"
+        slug = base_slug
+        n = 1
+        while ClassOffering.objects.filter(slug=slug).exists():
+            n += 1
+            slug = f"{base_slug}-{n}"
+        self.pk = None
+        self.slug = slug
+        self.status = self.Status.DRAFT
+        self.published_at = None
+        self.approved_by = None
+        self.legacy_cms_id = ""
         self.save()
         return self
 
