@@ -49,8 +49,10 @@ list.html for the initial full-page response.{% endcomment %}
         {% endif %}
         <div class="cls-schedule">
           {% if group.is_multi %}
-            {# Same class offered on several date-sets — each option keeps its own seats.
-               A series option covers all its sessions; a single option is one date. #}
+            {% comment %}
+               Same class offered on several date-sets — each option keeps its own seats.
+               A series option covers all its sessions; a single option is one date.
+            {% endcomment %}
             <div class="cls-schedule__pick">{% if offering.scheduling_type == 'series_package' %}Pick a session set:{% else %}Pick a date:{% endif %}</div>
             {% for member in group.members|slice:":4" %}
               {% include "classes/public/_schedule_option_row.html" with member=member %}
