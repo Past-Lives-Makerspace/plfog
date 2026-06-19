@@ -12,3 +12,4 @@ factory-boy>=3.3
 faker>=30.0
 playwright>=1.49
 pytest-playwright>=0.5
+axe-playwright-python>=0.1
