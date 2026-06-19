@@ -2,6 +2,21 @@
 {% load classes_tags %}
 
 {% block tab_content %}
+{% if is_guild_lead %}
+  {# Guild-lead review queue: classes in a guild this member leads, waiting on them. #}
+  <section class="hub-card" style="margin:0 0 1.25rem;">
+    <h2 style="margin-top:0;">Needs your attention</h2>
+    <p style="color:var(--hub-text-muted);margin:0 0 0.5rem;font-size:.9rem;">Classes in your guild waiting on your review.</p>
+    {% for item in guild_lead_pending %}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+        <span>{{ item.offering.title }}<span style="color:var(--hub-text-muted);"> · {{ item.offering.category.name }}</span></span>
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_review' token=item.token %}">Review</a>
+      </div>
+    {% empty %}
+      <p style="color:var(--hub-text-muted);">Nothing waiting on your review right now.</p>
+    {% endfor %}
+  </section>
+{% endif %}
 {% if not has_classes %}
   <div class="hub-card" style="text-align:center;padding:2.5rem 1rem;">
     <div style="font-size:2rem;">🛠</div>

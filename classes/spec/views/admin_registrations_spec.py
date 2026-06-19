@@ -38,6 +38,19 @@ def describe_admin_registrations():
         reg.refresh_from_db()
         assert reg.status == Registration.Status.CANCELLED
 
+    def it_records_the_admin_as_actor_on_cancel(admin_user, client, db):
+        from classes.factories import RegistrationFactory
+        from classes.models import CmsActivity, Registration
+
+        client.force_login(admin_user)
+        reg = RegistrationFactory(status=Registration.Status.CONFIRMED)
+        client.post(
+            reverse("classes:admin_registration_cancel", kwargs={"pk": reg.pk}),
+            {"reason": "test"},
+        )
+        row = CmsActivity.objects.get(kind=CmsActivity.Kind.REGISTRATION_CANCELLED, registration=reg)
+        assert row.actor == admin_user
+
     def it_ignores_get_on_cancel_and_redirects(admin_user, client, db):
         from classes.factories import RegistrationFactory
         from classes.models import Registration

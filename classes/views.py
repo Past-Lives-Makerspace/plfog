@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 from classes.emails import (
     send_admin_registration_notification,
     send_class_review_decision,
-    send_class_review_requests,
     send_instructor_registration_notification,
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
@@ -495,6 +494,13 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
 
         if final_price == 0:
             # Free class — confirm + email immediately, no Stripe round-trip.
+            # Attribute the confirmation to the acting user (registrant) so the
+            # audit feed records who confirmed, not "System".
+            registration._acting_user = (
+                request.user
+                if request.user.is_authenticated
+                else (registration.member.user if registration.member and registration.member.user else None)
+            )
             registration.status = Registration.Status.CONFIRMED
             registration.confirmed_at = timezone.now()
             registration.amount_paid_cents = 0
@@ -653,7 +659,10 @@ def my_registration_cancel(request: HttpRequest, token: str) -> HttpResponse:
     }:
         messages.info(request, "This registration is already cancelled.")
         return redirect("classes:my_registration", token=token)
-    registration.cancel(reason="self-serve")
+    registration.cancel(
+        reason="self-serve",
+        actor=request.user if request.user.is_authenticated else None,
+    )
     messages.success(request, "Your registration is cancelled.")
     return redirect("classes:my_registration", token=token)
 
@@ -767,6 +776,9 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
         ).count(),
     }
 
+    is_guild_lead = teaching_member.is_guild_lead
+    guild_lead_pending = _guild_lead_review_queue(teaching_member) if is_guild_lead else []
+
     return render(
         request,
         "classes/teach/overview.html",
@@ -779,8 +791,30 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
             "recent_registrations": recent_registrations,
             "has_classes": my_classes.exists(),
             "stats": stats,
+            "is_guild_lead": is_guild_lead,
+            "guild_lead_pending": guild_lead_pending,
         },
     )
+
+
+def _guild_lead_review_queue(member: Member) -> list[dict]:
+    """Build the guild-lead review queue for ``member``'s teaching dashboard.
+
+    Each entry pairs a pending class with the token of its undecided
+    ``GUILD_LEAD`` approval so the panel can link straight to the tokenized
+    review page — guild leads have no admin access, so the token is their door.
+    """
+    offerings = (
+        ClassOffering.objects.awaiting_guild_lead(member)
+        .select_related("category", "instructor")
+        .order_by("created_at")
+    )
+    queue: list[dict] = []
+    for offering in offerings:
+        gl_row = offering.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").first()
+        if gl_row is not None:
+            queue.append({"offering": offering, "token": gl_row.token})
+    return queue
 
 
 @teaching_member_required
@@ -919,12 +953,10 @@ def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
     if request.method == "POST" and offering.status == ClassOffering.Status.DRAFT:
-        approvals = offering.submit_for_review()
-        send_class_review_requests(offering, approvals)
-        roles_label = " + ".join(a.get_role_display() for a in approvals)
+        (first_gate,) = offering.submit_for_review()
         messages.success(
             request,
-            f"Submitted “{offering.title}” for review by {roles_label}.",
+            f"Submitted “{offering.title}” for review by {first_gate.get_role_display()}.",
         )
     return redirect("classes:teach_dashboard")
 
@@ -2044,7 +2076,8 @@ def admin_registration_detail(request: HttpRequest, pk: int) -> HttpResponse:
 def admin_registration_cancel(request: HttpRequest, pk: int) -> HttpResponse:
     registration = get_object_or_404(Registration, pk=pk)
     if request.method == "POST":
-        registration.cancel(reason=request.POST.get("reason", ""))
+        actor = request.user if request.user.is_authenticated else None
+        registration.cancel(reason=request.POST.get("reason", ""), actor=actor)
         messages.success(request, "Registration cancelled.")
     return redirect("classes:admin_registration_detail", pk=pk)
 

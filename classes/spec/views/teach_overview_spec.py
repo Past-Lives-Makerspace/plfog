@@ -27,6 +27,19 @@ def other_instructor(db):
     return InstructorFactory(user=user, full_legal_name="Other", instructor_slug="other")
 
 
+def _pending_class_in_guild_led_by(lead_member, title, slug):
+    """Create a PENDING class in a guild led by ``lead_member``, with a guild-lead gate."""
+    from classes.factories import CategoryFactory
+    from classes.models import ClassApproval
+    from tests.membership.factories import GuildFactory
+
+    guild = GuildFactory(name=f"Guild for {slug}", guild_lead=lead_member)
+    cat = CategoryFactory(guild=guild)
+    offering = ClassOfferingFactory(title=title, slug=slug, category=cat, status=ClassOffering.Status.PENDING)
+    ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+    return offering
+
+
 def describe_teach_overview():
     def it_is_served_at_the_instructor_root(db):
         assert reverse("classes:teach_overview") == "/classes/teach/"
@@ -132,3 +145,37 @@ def describe_teach_overview():
             client.force_login(instructor_fixture.user)
             resp = client.get(reverse("classes:teach_overview"))
             assert resp.context["stats"]["published"] == 1
+
+    def describe_guild_lead_queue():
+        def context_when_member_is_a_guild_lead():
+            def it_shows_the_pending_class_with_a_review_link(instructor_fixture, client):
+                from classes.models import ClassApproval
+
+                offering = _pending_class_in_guild_led_by(instructor_fixture, "Guild Pending Class", "guild-pending")
+                client.force_login(instructor_fixture.user)
+                resp = client.get(reverse("classes:teach_overview"))
+                assert resp.context["is_guild_lead"] is True
+                assert b"Guild Pending Class" in resp.content
+                token = offering.approvals.get(role=ClassApproval.Role.GUILD_LEAD).token
+                assert reverse("classes:class_review", kwargs={"token": token}).encode() in resp.content
+
+        def context_when_member_is_not_a_guild_lead():
+            def it_hides_the_panel(instructor_fixture, client):
+                ClassOfferingFactory(instructor=instructor_fixture, slug="ord")
+                client.force_login(instructor_fixture.user)
+                resp = client.get(reverse("classes:teach_overview"))
+                assert resp.context["is_guild_lead"] is False
+                assert b"Classes in your guild waiting on your review" not in resp.content
+
+        def it_excludes_pending_classes_in_guilds_the_member_does_not_lead(
+            instructor_fixture, other_instructor, client
+        ):
+            # The member leads their own guild...
+            _pending_class_in_guild_led_by(instructor_fixture, "Mine Pending", "mine-pending")
+            # ...but a class in a different (unled) guild must not appear.
+            _pending_class_in_guild_led_by(other_instructor, "Foreign Pending", "foreign-pending")
+
+            client.force_login(instructor_fixture.user)
+            resp = client.get(reverse("classes:teach_overview"))
+            assert b"Mine Pending" in resp.content
+            assert b"Foreign Pending" not in resp.content

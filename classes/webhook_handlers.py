@@ -59,6 +59,8 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
         if registration.status == Registration.Status.CONFIRMED:
             return  # already handled
 
+        # Intentionally leave ``_acting_user`` unset: this is an automated Stripe
+        # event with no human actor, so the audit feed correctly records "System".
         registration.status = Registration.Status.CONFIRMED
         registration.confirmed_at = timezone.now()
         registration.stripe_session_id = session.get("id", registration.stripe_session_id)

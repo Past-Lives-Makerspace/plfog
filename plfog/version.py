@@ -22,6 +22,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Admins and instructors can now export a class's participant list to a spreadsheet (name, email, registration date, payment status) right from the registrations page.",
             "If you've already opted in to class email updates, the newsletter checkbox no longer reappears at checkout. Behind the scenes, 'first-time student' email tagging now correctly skips people we already know as members.",
             "Each class page now generates its own unique title and description for search engines, so the same class offered on different dates no longer looks like duplicate pages to Google.",
+            "New classes are now approved in order — first the guild lead, then a Past Lives admin — and guild leads get a 'Needs your attention' panel for classes awaiting their sign-off.",
+            "The site activity log now records exactly who confirmed, cancelled, or refunded a class registration, instead of attributing some of those actions to 'System'.",
         ],
     },
     {

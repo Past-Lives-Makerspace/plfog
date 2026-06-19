@@ -20,7 +20,9 @@ from core.models import HeroCropMixin
 from core.validators import validate_image_size
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
+    from django.db.models import QuerySet
 
     from membership.models import Member
 
@@ -118,6 +120,19 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
 
     def pending_review(self) -> "ClassOfferingQuerySet":
         return self.filter(status="pending")
+
+    def awaiting_guild_lead(self, member: "Member") -> "ClassOfferingQuerySet":
+        """Pending classes whose undecided guild-lead gate this member can act on.
+
+        A class qualifies when it is PENDING, its category's guild is one this
+        member leads, and it has an undecided ``GUILD_LEAD`` approval row.
+        """
+        return self.filter(
+            status="pending",
+            category__guild__in=member.led_guilds.all(),
+            approvals__role="guild_lead",
+            approvals__decision="",
+        ).distinct()
 
     def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         return self.filter(instructor=instructor)
@@ -323,27 +338,69 @@ class ClassOffering(HeroCropMixin, models.Model):
         return roles
 
     def submit_for_review(self) -> list["ClassApproval"]:
-        """Move from DRAFT to PENDING and create one approval row per required role.
+        """Move from DRAFT to PENDING and open only the first-stage review gate.
 
-        Returns the freshly created approval rows so the caller (typically a
-        view) can pass them to the review-request email senders.
+        Approval is sequential: the first stage is the Guild Lead when the
+        class's category links a guild with a lead, otherwise the Admin. The
+        Admin gate is only created later, once the Guild Lead approves (see
+        ``on_review_decision_recorded``). This keeps an admin from publishing
+        before the Guild Lead has weighed in.
+
+        Notifies the first-stage reviewer (in-app + email) directly from the
+        model so every submit path — quick-submit, create, and edit — fans out
+        the same way. Returns the freshly created approval row(s) so callers
+        can introspect the result.
         """
         if self.status != self.Status.DRAFT:
             raise ValueError(f"Only draft classes can be submitted; got {self.status}.")
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
         # Clear out any stale approval rows from a prior submission cycle, then
-        # create one pending row per required role for this fresh round.
+        # open only the first-stage gate for this fresh round.
         self.approvals.all().delete()
-        rows = [ClassApproval.objects.create(class_offering=self, role=role) for role in self.required_review_roles]
+        row = self._create_first_stage_approval()
         from classes import activity
 
         activity.log(
             CmsActivity.Kind.CLASS_SUBMITTED,
             class_offering=self,
-            payload={"required_roles": [r.role for r in rows]},
+            payload={"required_roles": list(self.required_review_roles), "first_stage": row.role},
         )
-        return rows
+        self._notify_first_stage_reviewer(row)
+        return [row]
+
+    def _create_first_stage_approval(self) -> "ClassApproval":
+        """Create the single approval row that opens stage one of review.
+
+        Guild Lead when the category's guild has a lead; Admin otherwise.
+        """
+        roles = self.required_review_roles
+        first_role = (
+            ClassApproval.Role.GUILD_LEAD if ClassApproval.Role.GUILD_LEAD in roles else ClassApproval.Role.ADMIN
+        )
+        return ClassApproval.objects.create(class_offering=self, role=first_role)
+
+    def _notify_first_stage_reviewer(self, row: "ClassApproval") -> None:
+        """Fan out the stage-one notification + email for a freshly opened gate."""
+        from classes import emails
+        from core import notifications
+
+        if row.role == ClassApproval.Role.GUILD_LEAD:
+            guild = self.category.guild if self.category_id else None
+            lead = guild.guild_lead if guild else None
+            instructor_name = self.instructor.display_name if self.instructor is not None else "An instructor"
+            guild_name = guild.name if guild is not None else ""
+            if lead is not None and lead.user is not None:
+                notifications.dispatch(
+                    "class_review_requested",
+                    [lead.user],
+                    title="A class needs your review",
+                    body=f"{instructor_name} in the {guild_name} Guild requests approval for their upcoming class dates.",
+                    url="/classes/teach/",
+                )
+            emails.send_guild_lead_review_request(self, row)
+        else:
+            emails.send_admin_review_request(self, row)
 
     def approve(self, admin_user) -> "ClassApproval":
         """Record an admin approval via the ClassApproval pathway.
@@ -457,6 +514,17 @@ class ClassOffering(HeroCropMixin, models.Model):
                     body=self.title,
                     url=f"/classes/{self.slug}/",
                 )
+            # Stage-1 → Stage-2 escalation: a Guild Lead's approval opens the
+            # Admin gate (if admin review is still required and not yet open)
+            # and notifies staff for executive validation. We do not publish on
+            # this branch — publication waits for the admin to sign off.
+            if (
+                row.role == ClassApproval.Role.GUILD_LEAD
+                and ClassApproval.Role.ADMIN in self.required_review_roles
+                and not self.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
+            ):
+                admin_row = ClassApproval.objects.create(class_offering=self, role=ClassApproval.Role.ADMIN)
+                self._escalate_to_admin(admin_row, guild_lead=row.decided_by)
             required = set(self.required_review_roles)
             approved = {r.role for r in self.approvals.filter(decision=ClassApproval.Decision.APPROVED)}
             if required.issubset(approved):
@@ -502,6 +570,34 @@ class ClassOffering(HeroCropMixin, models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role, "notes_excerpt": (row.notes or "")[:200]},
             )
+
+    def _escalate_to_admin(self, admin_row: "ClassApproval", *, guild_lead: "User | None") -> None:
+        """Fire the stage-two admin escalation after a Guild Lead approves.
+
+        Notifies staff in-app and emails the configured admin reviewers with a
+        request for executive validation. The Guild Lead is named in the copy
+        so admins know who already vouched for the class.
+        """
+        from classes import emails
+        from core import notifications
+
+        instructor_name = self.instructor.display_name if self.instructor is not None else "An instructor"
+        lead_name = guild_lead.get_username() if guild_lead is not None else "A Guild Lead"
+        notifications.dispatch(
+            "class_validation_requested",
+            self._staff_users(),
+            title="A class needs executive validation",
+            body=f"{lead_name} and {instructor_name} request executive validation to publish this class.",
+            url="/classes/admin/",
+        )
+        emails.send_admin_validation_request(self, admin_row)
+
+    @staticmethod
+    def _staff_users() -> "QuerySet[User]":
+        """Staff Users who receive class-validation escalations."""
+        from django.contrib.auth.models import User
+
+        return User.objects.filter(is_staff=True)
 
     def add_gallery_images(self, files: list[UploadedFile]) -> None:
         """Create ClassImage rows from uploaded files, appended after existing ones.
@@ -1015,6 +1111,11 @@ class RegistrationReminder(models.Model):
 
 
 class Registration(models.Model):
+    # Transient (non-persisted) attribute a view sets before a status-changing
+    # save() to attribute a confirm/refund action in the audit feed. Unset on a
+    # fresh instance — read via getattr(..., None).
+    _acting_user: "User | None"
+
     class Status(models.TextChoices):
         PENDING = "pending", "Pending payment"
         CONFIRMED = "confirmed", "Confirmed"
@@ -1126,6 +1227,10 @@ class Registration(models.Model):
         from core import notifications
 
         user = self.member.user if (self.member is not None and self.member.user is not None) else None
+        # ``_acting_user`` is a transient (non-persisted) attribute a view sets
+        # before a status-changing save() to attribute confirm/refund actions in
+        # the audit feed. Unset (e.g. the Stripe webhook) → None → "System".
+        acting = getattr(self, "_acting_user", None)
         if creating:
             if self.status == self.Status.WAITLISTED:
                 activity.log(
@@ -1149,7 +1254,10 @@ class Registration(models.Model):
         elif prior_status is not None and prior_status != self.status:
             if self.status == self.Status.CONFIRMED:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_CONFIRMED, class_offering=self.class_offering, registration=self
+                    CmsActivity.Kind.REGISTRATION_CONFIRMED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                    actor=acting,
                 )
                 if user is not None:
                     notifications.dispatch(
@@ -1161,7 +1269,10 @@ class Registration(models.Model):
                     )
             elif self.status == self.Status.REFUNDED:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_REFUNDED, class_offering=self.class_offering, registration=self
+                    CmsActivity.Kind.REGISTRATION_REFUNDED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                    actor=acting,
                 )
                 if user is not None:
                     notifications.dispatch(
@@ -1203,7 +1314,15 @@ class Registration(models.Model):
             self.member = match
             super().save(update_fields=["member"])
 
-    def cancel(self, reason: str = "") -> None:
+    def cancel(self, reason: str = "", actor: "User | None" = None) -> None:
+        """Cancel this registration and record who did it.
+
+        ``actor`` is the authenticated user who triggered the cancellation —
+        an admin from the admin tab, or the registrant from the self-serve
+        page. It is threaded into the activity log so the audit feed shows a
+        name rather than "System". ``None`` when no human acted (e.g. an
+        automated path).
+        """
         previously_held_a_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
         was_waitlisted = self.status == self.Status.WAITLISTED
         self.status = self.Status.CANCELLED
@@ -1216,6 +1335,7 @@ class Registration(models.Model):
             CmsActivity.Kind.WAITLIST_LEFT if was_waitlisted else CmsActivity.Kind.REGISTRATION_CANCELLED,
             class_offering=self.class_offering,
             registration=self,
+            actor=actor,
             payload={"reason": reason} if reason else {},
         )
         if previously_held_a_spot:

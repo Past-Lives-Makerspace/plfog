@@ -72,6 +72,19 @@ TRIGGERS: list[Trigger] = [
         "Teaching",
         Audience.INSTRUCTORS_ONLY,
     ),
+    Trigger(
+        "class_review_requested",
+        "Class needs your review",
+        "An instructor submitted a class in a guild you lead — review it.",
+        "Teaching",
+    ),
+    Trigger(
+        "class_validation_requested",
+        "Class needs executive validation",
+        "A guild lead approved a class; it needs admin sign-off to publish.",
+        "Teaching",
+        Audience.STAFF_ONLY,
+    ),
     # Guild voting
     Trigger("voting_cycle_open", "Voting cycle open", "A new monthly voting cycle started.", "Voting"),
     Trigger("voting_closing_soon", "Voting closing soon", "3 days before the monthly vote closes.", "Voting"),

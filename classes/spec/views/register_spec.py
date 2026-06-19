@@ -118,6 +118,18 @@ def describe_register_view():
         assert len(mail.outbox) == 2  # confirmation + instructor notification
         assert "confirmed" in mail.outbox[0].subject.lower()
 
+    def it_attributes_free_class_confirmation_to_the_registrant(free_offering, client, member_user):
+        from classes.models import CmsActivity
+
+        client.force_login(member_user)
+        client.post(
+            reverse("classes:register", kwargs={"slug": free_offering.slug}),
+            data=_post_data(email="member@example.com"),
+        )
+        registration = Registration.objects.get(class_offering=free_offering)
+        row = CmsActivity.objects.get(kind=CmsActivity.Kind.REGISTRATION_CONFIRMED, registration=registration)
+        assert row.actor == member_user
+
     @patch("billing.stripe_utils.create_class_checkout_session")
     def it_kicks_off_stripe_checkout_for_paid_classes(mock_checkout, paid_offering, client):
         mock_checkout.return_value = {"id": "cs_test_123", "url": "https://checkout.stripe.com/c/pay/cs_test_123"}
