@@ -763,8 +763,14 @@ class ClassOffering(HeroCropMixin, models.Model):
             if len(candidate) <= 60:
                 result = candidate
         if self.instructor:
-            candidate = f"{result} with {self.instructor.display_name}"
-            if len(candidate) <= 60:
+            name = (self.instructor.display_name or "").strip()
+            first_name = name.split(" ")[0]
+            # Skip the instructor segment when the title already names them, so
+            # "Blacksmithing 101 with Glen" + instructor "Glen Morris" doesn't
+            # read "... with Glen — <date> with Glen Morris".
+            mentions_instructor = name.lower() in result.lower() or f"with {first_name}".lower() in result.lower()
+            candidate = f"{result} with {name}"
+            if name and not mentions_instructor and len(candidate) <= 60:
                 result = candidate
         return self._truncate(result, 60)
 

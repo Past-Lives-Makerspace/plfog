@@ -50,6 +50,17 @@ def describe_ClassOffering():
                 assert "Welding Basics" in o.seo_title
                 assert any(ch.isdigit() for ch in o.seo_title)
 
+        def context_when_the_title_already_names_the_instructor():
+            def it_does_not_repeat_the_instructor(db):
+                o = ClassOfferingFactory(
+                    title="Blacksmithing 101 with Glen",
+                    slug="blacksmithing-101-with-glen",
+                    instructor=InstructorFactory(full_legal_name="Glen Morris"),
+                )
+                title = o.seo_title
+                assert title.lower().count("with glen") == 1
+                assert "with Glen Morris" not in title
+
         def context_when_only_the_date_fits():
             def it_prefers_the_date_over_the_instructor(db):
                 o = ClassOfferingFactory(

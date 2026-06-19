@@ -16,7 +16,7 @@
     <div class="bk-auth-card">
       <div class="bk-auth-eyebrow">Sign in</div>
       <h1 class="bk-auth-title">Welcome back.</h1>
-      <p class="bk-auth-sub">We'll email you a 6-digit code — no password to remember.</p>
+      <p class="bk-auth-sub">We'll email you a sign-in code — no password to remember.</p>
       <form method="POST" action="{% url 'account_request_login_code' %}">{% csrf_token %}
         <div class="bk-field">
           <label>Email address</label>
