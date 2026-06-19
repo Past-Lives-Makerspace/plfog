@@ -272,11 +272,23 @@
 
       {# Sync Now button — separate form so it doesn't require the full settings form to be valid #}
       <div>
-        <form method="post" style="display:inline;">
+        <form method="post" id="sync-now-form"
+              data-estimate="{{ config.legacy_cms_last_sync_duration|default_if_none:'' }}"
+              style="display:flex;flex-direction:column;gap:0.6rem;align-items:flex-start;max-width:320px;">
           {% csrf_token %}
           <input type="hidden" name="action" value="sync_now">
-          <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Sync Now</button>
+          <button type="submit" id="sync-now-btn" class="hub-btn hub-btn--sm hub-btn--primary">
+            <span class="sync-spinner" aria-hidden="true"></span>
+            <span class="sync-now-label">Sync Now</span>
+          </button>
+          <div class="sync-progress" hidden>
+            <div class="sync-progress__fill"></div>
+          </div>
+          <small class="sync-status" style="color:var(--hub-text-muted);" hidden></small>
         </form>
+        {% if config.legacy_cms_last_sync_duration %}
+          <small style="color:var(--hub-text-muted);">Typically takes about {{ config.legacy_cms_last_sync_duration|floatformat:0 }}s.</small>
+        {% endif %}
       </div>
 
       {# Instructor match table #}
@@ -321,4 +333,69 @@
     </div>
   </form>
 </div>
+
+{# Sync Now loading state: spinner + estimated progress bar (estimate = last run's duration). #}
+<style>
+  #sync-now-btn .sync-spinner {
+    display: none; width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px;
+    border: 2px solid rgba(255, 255, 255, 0.45); border-top-color: #fff; border-radius: 50%;
+    animation: sync-spin 0.7s linear infinite;
+  }
+  #sync-now-btn.is-syncing .sync-spinner { display: inline-block; }
+  #sync-now-btn[disabled] { opacity: 0.85; cursor: progress; }
+  @keyframes sync-spin { to { transform: rotate(360deg); } }
+  #sync-now-form .sync-progress {
+    width: 100%; height: 6px; border-radius: 3px; overflow: hidden;
+    background: var(--hub-border, #e5e7eb);
+  }
+  #sync-now-form .sync-progress__fill {
+    height: 100%; width: 0; border-radius: 3px;
+    background: linear-gradient(90deg, #60a5fa, #34d399); transition: width 0.25s linear;
+  }
+  #sync-now-form .sync-progress__fill.is-indeterminate {
+    width: 35% !important; animation: sync-indet 1.1s ease-in-out infinite;
+  }
+  @keyframes sync-indet { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+</style>
+<script>
+  (function () {
+    var form = document.getElementById('sync-now-form');
+    if (!form) return;
+    form.addEventListener('submit', function () {
+      var btn = document.getElementById('sync-now-btn');
+      if (btn.disabled) return;
+      var label = form.querySelector('.sync-now-label');
+      var prog = form.querySelector('.sync-progress');
+      var fill = form.querySelector('.sync-progress__fill');
+      var status = form.querySelector('.sync-status');
+
+      btn.classList.add('is-syncing');
+      btn.disabled = true;
+      if (label) label.textContent = 'Syncing…';
+      prog.hidden = false;
+      status.hidden = false;
+
+      var estimate = parseFloat(form.getAttribute('data-estimate'));
+      var t0 = Date.now();
+      function tick() {
+        var s = Math.round((Date.now() - t0) / 1000);
+        var mm = Math.floor(s / 60), ss = s % 60;
+        status.textContent = 'Working… ' + (mm ? mm + 'm ' : '') + ss + 's';
+      }
+      tick();
+      var counter = setInterval(tick, 1000);
+
+      if (estimate && estimate > 0) {
+        // Ease toward 92% over the last run's duration, then hold until the page swaps.
+        fill.style.transitionDuration = estimate + 's';
+        requestAnimationFrame(function () { fill.style.width = '92%'; });
+      } else {
+        fill.classList.add('is-indeterminate');
+      }
+
+      // The boosted response swaps the body; stop the counter so it doesn't dangle.
+      document.addEventListener('htmx:beforeSwap', function () { clearInterval(counter); }, { once: true });
+    });
+  })();
+</script>
 {% endblock %}

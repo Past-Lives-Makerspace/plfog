@@ -44,6 +44,7 @@
 </head>
 <body class="{% block body_class %}{% endblock %}" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
 {% include "components/toast.html" %}
+{% include "components/loading_bar.html" %}
 {% block extra_body %}{% endblock %}
     {% if user.is_authenticated and not request.GET.public and not is_public_surface %}
     <div class="hub-sidebar-backdrop" :class="{ 'hub-sidebar-backdrop--visible': sidebarOpen }" @click="sidebarOpen = false"></div>

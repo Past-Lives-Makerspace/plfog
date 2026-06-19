@@ -156,6 +156,13 @@ class SiteConfiguration(models.Model):
         verbose_name="Legacy CMS last synced at",
         help_text="Timestamp of the last successful legacy CMS sync.",
     )
+    legacy_cms_last_sync_duration = models.FloatField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name="Legacy CMS last sync duration (seconds)",
+        help_text="Wall-clock seconds the last successful legacy CMS sync took. Used to estimate progress.",
+    )
     mailchimp_api_key = models.CharField(
         max_length=255,
         blank=True,

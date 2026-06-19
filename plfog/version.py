@@ -12,6 +12,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "changes": [
             "We added an automated test that clicks through the site the way a real member does — requesting a sign-in code, entering it, and registering for a free class — so we catch a broken sign-in or booking flow before it ever reaches you. It runs on every change we make.",
             "The 'email me a sign-in code' page now matches the site's light theme instead of falling back to a plain, unstyled page.",
+            "Pages now show a slim progress bar at the top while loading or saving, so opening a class or saving a form no longer feels frozen on slower connections.",
+            "The admin 'Sync Now' button for the legacy CMS now shows a spinner and a progress bar while it runs — and estimates how long it'll take based on the previous sync.",
         ],
     },
     {

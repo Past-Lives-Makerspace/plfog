@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import time
 import urllib.request
 from typing import TYPE_CHECKING, Any
 
@@ -171,6 +172,7 @@ def sync_legacy_cms() -> int:
     from core.models import SiteConfiguration
 
     now = timezone.now()
+    started = time.monotonic()
     seen_ids: list[str] = []
 
     next_url: str | None = LEGACY_CMS_API_URL
@@ -196,6 +198,7 @@ def sync_legacy_cms() -> int:
 
     config = SiteConfiguration.load()
     config.legacy_cms_last_synced_at = now
-    config.save(update_fields=["legacy_cms_last_synced_at"])
+    config.legacy_cms_last_sync_duration = time.monotonic() - started
+    config.save(update_fields=["legacy_cms_last_synced_at", "legacy_cms_last_sync_duration"])
 
     return len(seen_ids)
