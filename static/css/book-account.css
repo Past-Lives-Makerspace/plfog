@@ -105,9 +105,11 @@
 
 /* ── .bk-page theme tokens ─────────────────────────────────────
    Light defaults match the FOG slate palette; dark restores the
-   original navy values. Only the account-dashboard layout (.bk-page)
-   uses these — auth/onboarding (.bk-auth) keeps its dark-glass look. */
-.bk-page {
+   original navy values. The account-dashboard layout (.bk-page) and
+   the auth/onboarding surface (.bk-auth-surface) both consume these,
+   so auth/onboarding themes in step with the dashboard. */
+.bk-page,
+.bk-auth-surface {
   --bk-h1:          var(--hub-text);
   --bk-sub:         var(--hub-text-muted);
   --bk-section-sep: rgba(9,46,76,.12);
@@ -134,7 +136,8 @@
   --bk-email-input-clr: var(--hub-text);
 }
 
-[data-theme="dark"] .bk-page {
+[data-theme="dark"] .bk-page,
+[data-theme="dark"] .bk-auth-surface {
   --bk-h1:          var(--color-cream);
   --bk-sub:         #96acbb;
   --bk-section-sep: rgba(238,180,75,.10);
@@ -657,14 +660,20 @@
 .bk-auth-card {
   width: 100%;
   max-width: 440px;
-  background: rgba(7,30,50,.78);
-  border: 1px solid rgba(238,180,75,.14);
+  background: var(--bk-card-bg);
+  border: 1px solid var(--bk-card-border);
   border-radius: var(--r2);
   padding: 36px 36px 28px;
-  box-shadow: 0 0 80px rgba(238,180,75,.05), 0 32px 80px rgba(0,0,0,.45);
+  box-shadow: 0 12px 40px rgba(9,46,76,.08);
   position: relative;
 }
-.bk-auth-card::before {
+[data-theme="dark"] .bk-auth-card {
+  background: rgba(7,30,50,.78);
+  border-color: rgba(238,180,75,.14);
+  box-shadow: 0 0 80px rgba(238,180,75,.05), 0 32px 80px rgba(0,0,0,.45);
+}
+.bk-auth-card::before { content: none; }
+[data-theme="dark"] .bk-auth-card::before {
   content:''; position:absolute; top:-1px; left:20%; right:20%; height:1px;
   background: linear-gradient(90deg, transparent, rgba(238,180,75,.4), transparent);
 }
@@ -675,11 +684,11 @@
 }
 .bk-auth-title {
   font-family: var(--heading); font-weight: 800; font-size: 32px;
-  color: var(--cream); margin: 6px 0 6px; line-height: 1.1;
+  color: var(--bk-h1); margin: 6px 0 6px; line-height: 1.1;
   text-align: center; letter-spacing: -.01em;
 }
 .bk-auth-sub {
-  font-size: 13px; color: rgba(244,239,221,.65);
+  font-size: 13px; color: var(--bk-sub);
   text-align: center; line-height: 1.5;
   margin: 0 0 24px;
 }
@@ -690,14 +699,17 @@
   display:flex; align-items:center; gap:10px;
   margin: 22px 0 14px;
   font-size: 9px; font-weight:700; letter-spacing: .16em;
-  text-transform: uppercase; color: rgba(238,180,75,.5);
+  text-transform: uppercase; color: var(--text3);
 }
 .bk-auth-divider::before, .bk-auth-divider::after {
-  content:''; flex:1; height:1px; background: rgba(238,180,75,.18);
+  content:''; flex:1; height:1px; background: var(--bk-section-sep);
 }
+[data-theme="dark"] .bk-auth-divider { color: rgba(238,180,75,.5); }
+[data-theme="dark"] .bk-auth-divider::before,
+[data-theme="dark"] .bk-auth-divider::after { background: rgba(238,180,75,.18); }
 .bk-auth-links {
   text-align:center;
-  font-size: 12px; color: rgba(244,239,221,.6);
+  font-size: 12px; color: var(--bk-sub);
 }
 .bk-auth-links a { color: var(--gold); text-decoration: none; font-weight: 600; }
 .bk-auth-links p { margin: 6px 0; }
@@ -709,24 +721,24 @@
 .bk-code input {
   width: 44px; height: 54px;
   border-radius: 8px;
-  background: rgba(13,38,60,.55);
+  background: var(--bk-input-bg);
   border: 1px solid var(--border);
-  color: var(--cream);
+  color: var(--bk-input-color);
   font-family: var(--heading); font-weight: 800; font-size: 24px;
   text-align: center;
 }
-.bk-code input:first-child { border-color: var(--gold); background: rgba(13,38,60,.85); }
+.bk-code input:first-child { border-color: var(--gold); }
 
 /* Faux footer hint inside auth */
 .bk-auth-foot {
   margin-top: 18px; padding: 14px 16px;
-  background: rgba(238,180,75,.06);
-  border: 1px solid rgba(238,180,75,.18);
+  background: var(--bk-empty-bg);
+  border: 1px solid var(--bk-empty-border);
   border-radius: 6px;
-  font-size: 12px; color: rgba(244,239,221,.65); line-height: 1.6;
+  font-size: 12px; color: var(--bk-sub); line-height: 1.6;
   text-align: left;
 }
-.bk-auth-foot b { color: var(--cream); }
+.bk-auth-foot b { color: var(--bk-h1); }
 /* ── Dev toast (DEBUG=True login code) ────────────────────── */
 .bk-dev-toast {
   position: fixed;
@@ -778,14 +790,20 @@
 /* ── Onboarding wizard ────────────────────────────────────── */
 .bk-onb {
   width: 100%; max-width: 560px;
-  background: rgba(7,30,50,.78);
-  border: 1px solid rgba(238,180,75,.14);
+  background: var(--bk-card-bg);
+  border: 1px solid var(--bk-card-border);
   border-radius: var(--r2);
   padding: 32px 40px 28px;
-  box-shadow: 0 0 80px rgba(238,180,75,.05), 0 32px 80px rgba(0,0,0,.45);
+  box-shadow: 0 12px 40px rgba(9,46,76,.08);
   position: relative;
 }
-.bk-onb::before {
+[data-theme="dark"] .bk-onb {
+  background: rgba(7,30,50,.78);
+  border-color: rgba(238,180,75,.14);
+  box-shadow: 0 0 80px rgba(238,180,75,.05), 0 32px 80px rgba(0,0,0,.45);
+}
+.bk-onb::before { content: none; }
+[data-theme="dark"] .bk-onb::before {
   content:''; position:absolute; top:-1px; left:20%; right:20%; height:1px;
   background: linear-gradient(90deg, transparent, rgba(238,180,75,.4), transparent);
 }
@@ -810,12 +828,12 @@
 .bk-onb-eyebrow .skip:hover { color: var(--steel); }
 .bk-onb h1 {
   font-family: var(--heading); font-weight: 800; font-size: 26px;
-  color: var(--cream); margin: 4px 0 6px;
+  color: var(--bk-h1); margin: 4px 0 6px;
   line-height: 1.15; letter-spacing: -.01em;
 }
 .bk-onb h1 em { color: var(--gold); font-style: normal; }
 .bk-onb-sub {
-  font-size: 13px; color: var(--steel);
+  font-size: 13px; color: var(--bk-sub);
   margin: 0 0 22px; line-height: 1.55;
 }
 
@@ -823,13 +841,15 @@
 .bk-radio {
   display:flex; align-items: center; gap: 14px;
   padding: 14px 16px;
-  background: rgba(13,38,60,.5);
+  background: var(--bk-input-bg);
   border: 1px solid var(--border);
   border-radius: var(--r);
   cursor: pointer;
   transition: all .15s;
 }
-.bk-radio:hover { border-color: rgba(238,180,75,.3); background: rgba(14,50,80,.55); }
+.bk-radio:hover { border-color: rgba(238,180,75,.3); background: var(--bk-card-hover); }
+[data-theme="dark"] .bk-radio { background: rgba(13,38,60,.5); }
+[data-theme="dark"] .bk-radio:hover { background: rgba(14,50,80,.55); }
 .bk-radio.is-on {
   border-color: var(--gold);
   background: rgba(238,180,75,.06);
@@ -848,20 +868,21 @@
   border-radius: 50%; background: var(--gold);
 }
 .bk-radio-body { flex:1; }
-.bk-radio-title { font-size: 14px; color: var(--cream); font-weight: 700; }
-.bk-radio-sub { font-size: 12px; color: var(--steel); margin-top: 2px; line-height: 1.45; }
+.bk-radio-title { font-size: 14px; color: var(--bk-h1); font-weight: 700; }
+.bk-radio-sub { font-size: 12px; color: var(--bk-sub); margin-top: 2px; line-height: 1.45; }
 
 .bk-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .bk-chip {
   padding: 9px 14px; border-radius: 999px;
-  background: rgba(13,38,60,.5);
+  background: var(--bk-input-bg);
   border: 1px solid var(--border);
-  color: var(--steel);
+  color: var(--bk-sub);
   font-size: 12px; font-weight: 600;
   cursor: pointer;
   transition: all .15s;
 }
-.bk-chip:hover { color: var(--cream); border-color: rgba(238,180,75,.3); }
+.bk-chip:hover { color: var(--bk-h1); border-color: rgba(238,180,75,.3); }
+[data-theme="dark"] .bk-chip { background: rgba(13,38,60,.5); }
 .bk-chip.is-on {
   background: rgba(238,180,75,.1);
   border-color: var(--gold);
@@ -875,9 +896,9 @@
 .bk-onb-actions .spacer { flex: 1; }
 .bk-onb-back {
   background: none; border: none; cursor: pointer;
-  color: var(--steel); font-size: 12px; font-weight: 600;
+  color: var(--bk-sub); font-size: 12px; font-weight: 600;
 }
-.bk-onb-back:hover { color: var(--cream); }
+.bk-onb-back:hover { color: var(--bk-h1); }
 
 /* Lookup screen result card */
 .bk-lookup-result {
