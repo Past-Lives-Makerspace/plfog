@@ -7,12 +7,17 @@ can look up their booking without an account.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, HttpResponseRedirect
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import FormView, TemplateView
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import User
 
 
 class _RelayAwareLoginMixin(LoginRequiredMixin):
@@ -224,9 +229,20 @@ class OnboardingStepView(_RelayAwareLoginMixin, FormView):
 
     step: int = 1
     total_steps: int = 3
+    profile_fields: tuple[str, ...] = ()
 
     def get_template_names(self) -> list[str]:
         return [f"classes/account/onboarding/step{self.step}.html"]
+
+    def get_initial(self) -> dict[str, object]:
+        initial = super().get_initial()
+        from core.models import UserProfile
+
+        profile = UserProfile.objects.filter(user=cast("User", self.request.user)).first()
+        if profile is not None:
+            for name in self.profile_fields:
+                initial[name] = getattr(profile, name)
+        return initial
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -262,6 +278,7 @@ class OnboardingStepView(_RelayAwareLoginMixin, FormView):
 
 class OnboardingStep1View(OnboardingStepView):
     step = 1
+    profile_fields = ("first_attendance_status",)
 
     @property
     def form_class(self):
@@ -272,6 +289,7 @@ class OnboardingStep1View(OnboardingStepView):
 
 class OnboardingStep2View(OnboardingStepView):
     step = 2
+    profile_fields = ("preferred_name", "pronouns", "phone", "referral_source")
 
     @property
     def form_class(self):
@@ -282,6 +300,7 @@ class OnboardingStep2View(OnboardingStepView):
 
 class OnboardingStep3View(OnboardingStepView):
     step = 3
+    profile_fields = ("interest_category_slugs", "accessibility_note")
 
     @property
     def form_class(self):

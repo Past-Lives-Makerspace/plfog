@@ -17,6 +17,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "The admin Classes list now groups classes that share the same title and category into one row, showing a date count badge. Changing the category on one grouped class automatically updates the rest.",
             "Class pages now spell out 'Past Lives Members' next to the member price instead of the 'PL' shorthand.",
             "The booking-site sign-in, sign-up, and welcome/onboarding pages now match the light theme used everywhere else, so the text is easy to read in light mode instead of washed out.",
+            "When you register for a class while signed in, your pronouns and phone number now carry over to your profile and welcome steps, so you don't have to type them again.",
         ],
     },
     {

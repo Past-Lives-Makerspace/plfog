@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils import timezone
+
+if TYPE_CHECKING:
+    from classes.models import Registration
 
 
 class HeroCropMixin(models.Model):
@@ -438,6 +441,23 @@ class UserProfile(models.Model):
     @property
     def is_onboarded(self) -> bool:
         return self.onboarding_completed_at is not None
+
+    def cache_from_registration(self, registration: Registration) -> None:
+        """Seed empty profile fields from a class registration's overlapping answers.
+
+        Only fills fields that are currently blank — a registration never
+        overwrites a value the user has already set. Maps exactly the fields
+        with a clean 1:1 semantic match (pronouns, phone); see the onboarding
+        pre-fill plan for the full mapping rationale.
+        """
+        mapping = {"pronouns": registration.pronouns, "phone": registration.phone}
+        changed: list[str] = []
+        for field_name, incoming in mapping.items():
+            if not getattr(self, field_name) and incoming:
+                setattr(self, field_name, incoming)
+                changed.append(field_name)
+        if changed:
+            self.save(update_fields=changed)
 
 
 class TransactionalEmailLog(models.Model):

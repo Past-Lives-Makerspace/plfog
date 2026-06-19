@@ -427,6 +427,16 @@ def _registration_initial_for_user(user: "AbstractBaseUser | AnonymousUser | Non
     }
 
 
+def _cache_registration_to_profile(request: HttpRequest, registration: Registration) -> None:
+    """Seed the logged-in user's profile from their registration answers (no-op for guests)."""
+    if not request.user.is_authenticated:
+        return
+    from core.models import UserProfile
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    profile.cache_from_registration(registration)
+
+
 def register(request: HttpRequest, slug: str) -> HttpResponse:
     """Public registration form — collects info, signs waivers, kicks off Stripe Checkout.
 
@@ -467,6 +477,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         # The form sets status=WAITLISTED on save (see RegistrationForm.save), so the
         # WAITLIST_JOINED activity is logged at creation time.
         registration = form.save()
+        _cache_registration_to_profile(request, registration)
         send_waitlist_joined_confirmation(registration)
         messages.success(
             request,
@@ -476,6 +487,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
 
     if request.method == "POST" and form.is_valid():
         registration = form.save()
+        _cache_registration_to_profile(request, registration)
         final_price = form.compute_final_price_cents()
 
         if final_price == 0:
