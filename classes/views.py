@@ -539,10 +539,18 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             + f"?reg={registration.self_serve_token}"
         )
 
+        # A series is still ONE line item at the series price — only the Stripe
+        # line-item name gains a "(N-session series)" suffix so the buyer's
+        # receipt reads clearly. No loop, no fan-out: one Registration, one
+        # Checkout Session, one charge, one seat (Option A).
+        product_name = offering.title
+        if offering.is_series and offering.series_session_count > 1:
+            product_name = f"{offering.title} ({offering.series_session_count}-session series)"
+
         try:
             checkout = stripe_utils.create_class_checkout_session(
                 amount_cents=final_price,
-                product_name=offering.title,
+                product_name=product_name,
                 customer_email=registration.email,
                 success_url=success_url,
                 cancel_url=cancel_url,

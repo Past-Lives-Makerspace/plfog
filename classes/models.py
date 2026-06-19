@@ -165,6 +165,10 @@ class ClassOffering(HeroCropMixin, models.Model):
         FIXED = "fixed", "Fixed sessions"
         FLEXIBLE = "flexible", "Flexible (arrange with instructor)"
 
+    class SchedulingType(models.TextChoices):
+        SINGLE_SESSION = "single_session", "Single Session"
+        SERIES_PACKAGE = "series_package", "Series Package"
+
     title = models.CharField(max_length=255, help_text="Public class title.")
     slug = models.SlugField(max_length=255, unique=True, help_text="URL slug.")
     category = models.ForeignKey(
@@ -195,6 +199,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         help_text="Fixed scheduled sessions or flexible per-student scheduling.",
     )
     flexible_note = models.TextField(blank=True, help_text="Notes when scheduling_model=flexible.")
+    scheduling_type = models.CharField(
+        max_length=20,
+        choices=SchedulingType.choices,
+        default=SchedulingType.SINGLE_SESSION,
+        help_text=(
+            "Single Session: one date, one seat, one payment. "
+            "Series Package: one purchase enrolls the registrant in every "
+            "scheduled date of this class under a single payment."
+        ),
+    )
     is_private = models.BooleanField(default=False, help_text="Hidden from public portal; private registration only.")
     private_for_name = models.CharField(max_length=255, blank=True, help_text="Name shown when private.")
     recurring_pattern = models.CharField(max_length=255, blank=True, help_text="Free-text recurrence description.")
@@ -294,10 +308,13 @@ class ClassOffering(HeroCropMixin, models.Model):
         normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)
 
         # Keep the catalog grouping key in sync with the title/category so the
-        # same class on many dates always collapses into one public card.
+        # same class on many dates always collapses into one public card. A
+        # series offering opts out of grouping (blank key) — it is a single
+        # self-contained card and must never merge with same-title siblings,
+        # which would imply "pick a date" and contradict "buy once for all dates".
         from classes.grouping import grouping_key_for
 
-        self.grouping_key = grouping_key_for(self.title, self.category_id)
+        self.grouping_key = "" if self.is_series else grouping_key_for(self.title, self.category_id)
         update_fields = kwargs.get("update_fields")
         if update_fields is not None and {"title", "category", "category_id"} & set(update_fields):
             kwargs["update_fields"] = [*update_fields, "grouping_key"]
@@ -622,6 +639,21 @@ class ClassOffering(HeroCropMixin, models.Model):
             status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
         ).count()
         return max(0, self.capacity - used)
+
+    @property
+    def is_series(self) -> bool:
+        """True when one purchase covers every scheduled session of this offering."""
+        return self.scheduling_type == self.SchedulingType.SERIES_PACKAGE
+
+    @property
+    def is_single(self) -> bool:
+        """True when each ticket is for a single date (the default behaviour)."""
+        return self.scheduling_type == self.SchedulingType.SINGLE_SESSION
+
+    @property
+    def series_session_count(self) -> int:
+        """Number of sessions a series ticket covers (0 for none scheduled yet)."""
+        return self.sessions.count()
 
     @property
     def member_price_cents(self) -> int | None:

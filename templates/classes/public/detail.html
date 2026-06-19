@@ -136,6 +136,7 @@
         {% elif offering.scheduling_model == 'flexible' %}
           <span class="cp-detail__next-pill cp-detail__next-pill--flex">Flexible scheduling</span>
         {% endif %}
+        {% if offering.scheduling_type == 'series_package' %}<span class="badge series">Series Package</span>{% else %}<span class="badge single">Single Session</span>{% endif %}
       </div>
       <h1 class="cp-detail__title">
         {% if offering.category.logo_prefix %}
@@ -190,7 +191,7 @@
       {% if upcoming_sessions %}
         <section class="cp-detail__section">
           {% with total_min=upcoming_sessions|total_session_minutes %}
-            <h2 class="cp-detail__h2">Schedule{% if total_min %} <span class="cp-detail__h2-sub">· {{ total_min|duration_words }} total</span>{% endif %}</h2>
+            <h2 class="cp-detail__h2">{% if offering.scheduling_type == 'series_package' %}Series schedule{% else %}Schedule{% endif %}<span class="cp-detail__h2-sub">{% if offering.scheduling_type == 'series_package' %} · {{ upcoming_sessions|length }} session{{ upcoming_sessions|length|pluralize }}{% endif %}{% if total_min %} · {{ total_min|duration_words }} total{% endif %}</span></h2>
           {% endwith %}
           <ol class="cp-detail__sessions">
             {% for session in upcoming_sessions %}

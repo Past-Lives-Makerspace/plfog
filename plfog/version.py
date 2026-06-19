@@ -7,8 +7,8 @@ VERSION = "2.5.8"
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "2.5.8",
-        "date": "2026-06-15",
-        "title": "Signup fix, email polish, and admin class grouping",
+        "date": "2026-06-18",
+        "title": "Big booking-site update: classes, sign-in, approvals, and search",
         "changes": [
             "Fixed a 500 error that prevented new account signups on the booking site.",
             "The 'new sign-in from a new device' security email now uses the same polished template as other Past Lives emails.",
@@ -24,6 +24,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Each class page now generates its own unique title and description for search engines, so the same class offered on different dates no longer looks like duplicate pages to Google.",
             "New classes are now approved in order — first the guild lead, then a Past Lives admin — and guild leads get a 'Needs your attention' panel for classes awaiting their sign-off.",
             "The site activity log now records exactly who confirmed, cancelled, or refunded a class registration, instead of attributing some of those actions to 'System'.",
+            "Classes can now be set up as a multi-session 'Series Package' — one sign-up and one payment enrolls you in all the dates — or a 'Single Session', with a badge on listings so you can tell them apart at a glance.",
         ],
     },
     {

@@ -1,6 +1,9 @@
 Hi {{ registration.first_name }},
 
 You're confirmed for "{{ offering.title }}" with {{ offering.instructor.display_name }}.
+{% if offering.is_series and offering.series_session_count > 1 %}
+This is a series package — your one sign-up enrolls you in all {{ offering.series_session_count }} sessions listed below.
+{% endif %}
 
 {% if upcoming_sessions %}Schedule:
 {% for session in upcoming_sessions %}- {{ session.starts_at|date:"l, F j, Y" }} at {{ session.starts_at|time:"g:i A" }}
