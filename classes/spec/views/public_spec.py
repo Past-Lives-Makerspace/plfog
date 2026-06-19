@@ -390,8 +390,10 @@ def describe_catalog_grouping():
 
         response = client.get(reverse("classes:public_list"))
 
-        # The class title renders once even though it is offered on three dates.
-        assert response.content.count(b"Blacksmithing 101 with Glen") == 1
+        # One card renders even though the class is offered on three dates. We
+        # count the card element rather than the title text, since the title now
+        # also appears in the media link's aria-label.
+        assert response.content.count(b'class="cls-card"') == 1
         assert b"Pick a date" in response.content
         assert b"3 dates" in response.content
 

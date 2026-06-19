@@ -22,11 +22,28 @@
       </div>
       <div class="detail-body">
         <div class="reg-summary">
-          <div>{{ offering.title }}</div>
+          <div>{{ offering.title|strip_date_suffix }}</div>
           <div class="total">{{ offering.price_cents|cents_as_price }}</div>
           {% if member_price_cents %}<div style="font-size:11px;color:var(--steel-dim);margin-top:2px">Past Lives Members: {{ member_price_cents|cents_as_price }} (auto-applied if your email matches a verified member)</div>{% endif %}
           {% if spots_remaining <= 3 %}<div style="font-size:11px;color:var(--red);margin-top:6px">Only {{ spots_remaining }} spot{{ spots_remaining|pluralize }} left</div>{% endif %}
         </div>
+
+        {% if upcoming_sessions %}
+        <div class="reg-schedule" style="margin-top:12px;padding:12px 14px;border:1px solid var(--steel-dim,#1a4568);border-radius:8px;">
+          {% if offering.scheduling_type == 'series_package' and upcoming_sessions|length > 1 %}
+            <div style="font-size:12px;font-weight:600;margin-bottom:6px">This is a multi-session series — one registration enrolls you in all {{ upcoming_sessions|length }} sessions:</div>
+          {% else %}
+            <div style="font-size:12px;font-weight:600;margin-bottom:6px">Class date:</div>
+          {% endif %}
+          <ul style="list-style:none;margin:0;padding:0;font-size:13px;">
+            {% for session in upcoming_sessions %}
+              <li style="padding:3px 0;">
+                {% if offering.scheduling_type == 'series_package' and upcoming_sessions|length > 1 %}<span style="opacity:0.6">{{ forloop.counter }}.</span> {% endif %}{{ session.starts_at|date:"l, F j, Y" }} · {{ session|session_time_range }}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
 
         {% if form.non_field_errors %}
           <div class="reg-error-block" style="margin-top:12px">

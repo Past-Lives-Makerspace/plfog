@@ -181,7 +181,26 @@ class _FreeClassMixin:
             offering.member_discount_pct = 0
 
 
-class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
+class _SchedulingTypeMixin:
+    """Renders ``scheduling_type`` as a guided two-option radio choice.
+
+    The model stores ``single_session`` / ``series_package``; here we swap the
+    widget to radio buttons and relabel them in plain language so the create/edit
+    form reads as a direct "one-off class vs multi-session series" decision rather
+    than a bare dropdown. Templates iterate the radio to render the option cards.
+    """
+
+    def setup_scheduling_type_field(self) -> None:
+        field = self.fields["scheduling_type"]  # type: ignore[attr-defined]
+        field.widget = forms.RadioSelect()
+        field.choices = [  # type: ignore[attr-defined]  # ChoiceField setter propagates to the new widget
+            (ClassOffering.SchedulingType.SINGLE_SESSION, "Single class (one date)"),
+            (ClassOffering.SchedulingType.SERIES_PACKAGE, "Multi-session series"),
+        ]
+        field.label = "How does this class run?"
+
+
+class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, forms.ModelForm):
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
 
     class Meta:
@@ -215,6 +234,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
         self.fields["member_discount_pct"].label = "Member discount (%)"
         self.add_is_free_field()
         self.add_hero_crop_field()
+        self.setup_scheduling_type_field()
 
     def clean_video_url(self) -> str:
         return _validate_youtube_url(self.cleaned_data.get("video_url", ""))
@@ -234,7 +254,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
         return offering
 
 
-class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
+class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, forms.ModelForm):
     """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated."""
 
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
@@ -267,6 +287,7 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
         self.fields["member_discount_pct"].label = "Member discount (%)"
         self.add_is_free_field()
         self.add_hero_crop_field()
+        self.setup_scheduling_type_field()
 
     def clean_video_url(self) -> str:
         return _validate_youtube_url(self.cleaned_data.get("video_url", ""))

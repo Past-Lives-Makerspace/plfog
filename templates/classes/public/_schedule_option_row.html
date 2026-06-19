@@ -1,0 +1,23 @@
+{% load classes_tags %}
+{% comment %}
+One selectable option inside a grouped catalog card. A single one-off shows its
+single date + time; a multi-session series shows its date-set range + how many
+sessions it covers (one enrollment buys all of them). Expects `member` (a
+ClassOffering with `.spots_left` annotated).
+{% endcomment %}
+<a class="cls-schedule__row cls-schedule__row--pick" href="{% url 'classes:public_class_detail' slug=member.slug %}">
+  {% if member.scheduling_type == 'series_package' %}
+    {% with ses=member.sessions.all|upcoming_sessions %}
+      <span class="cls-schedule__date">{{ ses|session_date_range }}</span>
+      <span class="cls-schedule__time">{{ ses|length }} session{{ ses|length|pluralize }}</span>
+    {% endwith %}
+  {% else %}
+    {% with session=member.sessions.all|upcoming_sessions|first %}
+      <span class="cls-schedule__date">{{ session.starts_at|date:"D, M j" }}</span>
+      <span class="cls-schedule__time">{{ session|session_time_range }}</span>
+    {% endwith %}
+  {% endif %}
+  <span class="cls-spots {{ member.spots_left|spots_class }}">
+    {% if member.spots_left == 0 %}Full{% elif member.spots_left <= 3 %}{{ member.spots_left }} left{% else %}{{ member.spots_left }} spots{% endif %}
+  </span>
+</a>

@@ -125,6 +125,18 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
     path_alias: str = (attrs.get("path") or {}).get("alias") or ""
     raw_slug = path_alias.replace("/class/", "").strip("/") or node_id[:20]
 
+    # A legacy node carries every date of the class in one ``field_dates`` array.
+    # More than one date means it's a multi-session series (one enrollment covers
+    # all the dates), not a pick-one single. A single date is a one-off. We persist
+    # this so a re-sync corrects rows imported before the rule existed — the daily
+    # sync (and the admin Sync Now button) flips mislabeled multi-date offerings.
+    date_items = attrs.get("field_dates") or []
+    scheduling_type = (
+        ClassOffering.SchedulingType.SERIES_PACKAGE
+        if len(date_items) > 1
+        else ClassOffering.SchedulingType.SINGLE_SESSION
+    )
+
     offering, created = ClassOffering.objects.update_or_create(
         legacy_cms_id=node_id,
         defaults={
@@ -134,6 +146,7 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
             "capacity": capacity,
             "status": status,
             "category": category,
+            "scheduling_type": scheduling_type,
         },
     )
 
@@ -154,7 +167,7 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
                 offering.instructor = instructor
 
     offering.save()
-    _sync_sessions(offering, attrs.get("field_dates") or [])
+    _sync_sessions(offering, date_items)
     return node_id
 
 

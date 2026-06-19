@@ -39,25 +39,36 @@ def describe_ClassOffering_scheduling_type():
 
 
 def describe_series_grouping():
-    def it_does_not_group_series_offerings(db):
+    def it_groups_series_offerings_so_runs_collapse_into_one_card(db):
         offering = SeriesClassOfferingFactory(title="Blacksmithing 101", session_count=3)
         offering.refresh_from_db()
-        assert offering.grouping_key == ""
+        assert offering.grouping_key == f"blacksmithing-101:{offering.category_id}"
 
     def it_keeps_grouping_key_for_single_offerings(db):
         offering = ClassOfferingFactory(title="Blacksmithing 101")
         offering.refresh_from_db()
         assert offering.grouping_key != ""
 
-    def it_does_not_sweep_siblings_when_a_series_changes_category(db):
+    def it_shares_a_grouping_key_across_runs_of_the_same_series(db):
         from classes.factories import CategoryFactory
 
-        single = ClassOfferingFactory(title="Forge Night", slug="forge-night-single")
-        single.refresh_from_db()
-        original_key = single.grouping_key
-        series = SeriesClassOfferingFactory(title="Forge Night", slug="forge-night-series", session_count=2)
+        cat = CategoryFactory()
+        june = SeriesClassOfferingFactory(title="Blacksmithing 101", slug="bs-june", category=cat, session_count=3)
+        july = SeriesClassOfferingFactory(title="Blacksmithing 101", slug="bs-july", category=cat, session_count=3)
+        june.refresh_from_db()
+        july.refresh_from_db()
+        assert june.grouping_key == july.grouping_key != ""
+
+    def it_sweeps_sibling_runs_when_a_grouped_series_changes_category(db):
+        from classes.factories import CategoryFactory
+
+        cat = CategoryFactory()
+        run_a = SeriesClassOfferingFactory(title="Forge Night", slug="forge-a", category=cat, session_count=2)
+        SeriesClassOfferingFactory(title="Forge Night", slug="forge-b", category=cat, session_count=2)
         new_category = CategoryFactory()
-        series.category = new_category
-        series.save()
-        single.refresh_from_db()
-        assert single.grouping_key == original_key
+        run_a.category = new_category
+        run_a.save()
+        run_b = ClassOffering.objects.get(slug="forge-b")
+        # The group stays coherent: re-homing one run re-homes its siblings too.
+        assert run_b.category_id == new_category.pk
+        assert run_b.grouping_key == run_a.grouping_key

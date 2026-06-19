@@ -19,6 +19,11 @@ urlpatterns = [
     path("teach/classes/new/", views.teach_class_create, name="teach_class_create"),
     path("teach/classes/<int:pk>/edit/", views.teach_class_edit, name="teach_class_edit"),
     path("teach/classes/<int:pk>/submit/", views.teach_class_submit, name="teach_class_submit"),
+    path(
+        "teach/classes/<int:pk>/another-date-set/",
+        views.teach_class_duplicate_run,
+        name="teach_class_duplicate_run",
+    ),
     path("teach/classes/<int:pk>/", views.teach_class_detail, name="teach_class_detail"),
     path(
         "teach/classes/<int:pk>/registrations/",
@@ -81,6 +86,7 @@ urlpatterns = [
     path("review/<str:token>/", views.class_review, name="class_review"),
     path("admin/<int:pk>/archive/", views.admin_class_archive, name="admin_class_archive"),
     path("admin/<int:pk>/duplicate/", views.admin_class_duplicate, name="admin_class_duplicate"),
+    path("admin/<int:pk>/another-date-set/", views.admin_class_duplicate_run, name="admin_class_duplicate_run"),
     path("admin/<int:pk>/delete/", views.admin_class_delete, name="admin_class_delete"),
     path("admin/<int:pk>/hero/upload/", views.admin_class_hero_upload, name="admin_class_hero_upload"),
     path("admin/<int:pk>/images/upload/", views.admin_class_image_upload, name="admin_class_image_upload"),

@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "2.5.9"
+VERSION = "2.6.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "2.5.9",
+        "version": "2.6.0",
         "date": "2026-06-19",
-        "title": "Automated sign-in and booking checks behind the scenes",
+        "title": "Clearer class types: one-off classes vs multi-session series",
         "changes": [
+            "Classes that run over several dates — like a 3-week Blacksmithing course — are now clearly marked as a 'multi-session series.' One sign-up enrolls you in every date in the set, and the class and registration pages spell out all the dates so you know exactly what you're booking.",
+            "When the same class is offered on more than one set of dates (say, a June run and a July run), the catalog now shows it as a single class with a 'Pick a session set' chooser, instead of looking like a pile of separate single days.",
+            "Classes brought over from the old class site are now correctly recognized as a series when they span multiple dates, so multi-week courses no longer show up as a bunch of one-off sessions.",
+            "Setting up or editing a class now starts with a clear, plain-language choice between a 'Single class (one date)' and a 'Multi-session series' — and you can add or remove dates anytime, even after publishing.",
+            "Instructors and admins can offer the same class on another set of dates with one click ('Offer on another set of dates'); the new run starts as a draft and automatically stays grouped under the same class on the public page.",
             "We added an automated test that clicks through the site the way a real member does — requesting a sign-in code, entering it, and registering for a free class — so we catch a broken sign-in or booking flow before it ever reaches you. It runs on every change we make.",
             "The 'email me a sign-in code' page now matches the site's light theme instead of falling back to a plain, unstyled page.",
             "Pages now show a slim progress bar at the top while loading or saving, so opening a class or saving a form no longer feels frozen on slower connections.",

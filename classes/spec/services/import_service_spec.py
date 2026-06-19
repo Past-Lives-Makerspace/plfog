@@ -163,6 +163,49 @@ def describe_sync_legacy_cms():
         offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
         assert ClassSession.objects.filter(class_offering=offering).count() == 1
 
+    def it_marks_multi_date_nodes_as_a_series(db):
+        from classes.import_service import sync_legacy_cms
+
+        dates = [
+            {"value": "2026-08-01T10:00:00+00:00", "end_value": "2026-08-01T12:00:00+00:00"},
+            {"value": "2026-08-08T10:00:00+00:00", "end_value": "2026-08-08T12:00:00+00:00"},
+        ]
+        resp = _make_mock_resp(_page([_class_item(dates=dates)]))
+        with patch("urllib.request.urlopen", return_value=resp):
+            sync_legacy_cms()
+
+        offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
+        assert offering.scheduling_type == ClassOffering.SchedulingType.SERIES_PACKAGE
+
+    def it_marks_single_date_nodes_as_a_single_session(db):
+        from classes.import_service import sync_legacy_cms
+
+        resp = _make_mock_resp(_page([_class_item()]))  # default fixture carries one date
+        with patch("urllib.request.urlopen", return_value=resp):
+            sync_legacy_cms()
+
+        offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
+        assert offering.scheduling_type == ClassOffering.SchedulingType.SINGLE_SESSION
+
+    def it_corrects_scheduling_type_on_re_sync(db):
+        from classes.import_service import sync_legacy_cms
+
+        two_dates = [
+            {"value": "2026-08-01T10:00:00+00:00", "end_value": "2026-08-01T12:00:00+00:00"},
+            {"value": "2026-08-08T10:00:00+00:00", "end_value": "2026-08-08T12:00:00+00:00"},
+        ]
+        single_date = [{"value": "2026-08-01T10:00:00+00:00", "end_value": "2026-08-01T12:00:00+00:00"}]
+
+        with patch("urllib.request.urlopen", return_value=_make_mock_resp(_page([_class_item(dates=two_dates)]))):
+            sync_legacy_cms()
+        offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
+        assert offering.scheduling_type == ClassOffering.SchedulingType.SERIES_PACKAGE
+
+        with patch("urllib.request.urlopen", return_value=_make_mock_resp(_page([_class_item(dates=single_date)]))):
+            sync_legacy_cms()
+        offering.refresh_from_db()
+        assert offering.scheduling_type == ClassOffering.SchedulingType.SINGLE_SESSION
+
     def it_handles_pagination(db):
         from classes.import_service import sync_legacy_cms
 

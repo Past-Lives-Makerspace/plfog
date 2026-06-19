@@ -56,11 +56,13 @@ def describe_ClassOfferingForm_scheduling_type():
         offering = form.save()
         assert offering.scheduling_type == ClassOffering.SchedulingType.SERIES_PACKAGE
 
-    def it_leaves_the_series_grouping_key_blank(db):
+    def it_assigns_the_series_a_grouping_key(db):
+        # Series now group like singles, so multiple runs of the same class
+        # collapse into one catalog card instead of standing alone.
         form = ClassOfferingForm(data=_admin_post_data(scheduling_type=ClassOffering.SchedulingType.SERIES_PACKAGE))
         assert form.is_valid(), form.errors
         offering = form.save()
-        assert offering.grouping_key == ""
+        assert offering.grouping_key != ""
 
 
 def describe_TeachClassOfferingForm_scheduling_type():
