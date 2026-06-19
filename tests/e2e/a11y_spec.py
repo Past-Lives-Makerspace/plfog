@@ -26,11 +26,6 @@ from classes.models import ClassOffering
 # violation with impact "critical" — fails the gate. Pay these down over time.
 ACCEPTED_DEBT = {
     "color-contrast",
-    "link-name",
-    "landmark-complementary-is-top-level",
-    "landmark-main-is-top-level",
-    "landmark-no-duplicate-main",
-    "landmark-unique",
 }
 
 

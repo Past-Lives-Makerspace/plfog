@@ -15,7 +15,7 @@ list.html for the initial full-page response.{% endcomment %}
   {% for group in page_obj %}
     {% with offering=group.representative %}
     <div class="cls-card">
-      <a class="cls-media" href="{% url 'classes:public_class_detail' slug=offering.slug %}">
+      <a class="cls-media" href="{% url 'classes:public_class_detail' slug=offering.slug %}" aria-label="View {{ offering.title|strip_date_suffix }}">
         {% if offering.image %}
           <img class="cls-img" src="{{ offering.image.url }}" alt="" loading="lazy"
                {% if offering.hero_crop_w %}style="object-position: {{ offering.hero_object_position }};"{% endif %}>
@@ -40,7 +40,7 @@ list.html for the initial full-page response.{% endcomment %}
           {% endif %}
           {{ offering.title|strip_date_suffix }}
           {% if offering.scheduling_model == 'flexible' %}<span class="badge fx">Flex</span>{% endif %}
-          {% if offering.scheduling_type == 'series_package' %}<span class="badge series">Series Package</span>{% else %}<span class="badge single">Single Session</span>{% endif %}
+          {% if offering.scheduling_type == 'series_package' %}<span class="badge series">Multi-session series</span>{% endif %}
         </a>
         {% if offering.instructor %}
         <div class="cls-inst">
@@ -49,34 +49,19 @@ list.html for the initial full-page response.{% endcomment %}
         {% endif %}
         <div class="cls-schedule">
           {% if group.is_multi %}
-            {# Same class offered on several dates — pick one (each date has its own seats). #}
-            <div class="cls-schedule__pick">Pick a date:</div>
+            {# Same class offered on several date-sets — each option keeps its own seats.
+               A series option covers all its sessions; a single option is one date. #}
+            <div class="cls-schedule__pick">{% if offering.scheduling_type == 'series_package' %}Pick a session set:{% else %}Pick a date:{% endif %}</div>
             {% for member in group.members|slice:":4" %}
-              {% with session=member.sessions.all|upcoming_sessions|first %}
-                <a class="cls-schedule__row cls-schedule__row--pick" href="{% url 'classes:public_class_detail' slug=member.slug %}">
-                  <span class="cls-schedule__date">{{ session.starts_at|date:"D, M j" }}</span>
-                  <span class="cls-schedule__time">{{ session|session_time_range }}</span>
-                  <span class="cls-spots {{ member.spots_left|spots_class }}">
-                    {% if member.spots_left == 0 %}Full{% elif member.spots_left <= 3 %}{{ member.spots_left }} left{% else %}{{ member.spots_left }} spots{% endif %}
-                  </span>
-                </a>
-              {% endwith %}
+              {% include "classes/public/_schedule_option_row.html" with member=member %}
             {% endfor %}
             {% if group.date_count > 4 %}
               <div class="cls-schedule__extra" style="display:none;">
                 {% for member in group.members|slice:"4:" %}
-                  {% with session=member.sessions.all|upcoming_sessions|first %}
-                    <a class="cls-schedule__row cls-schedule__row--pick" href="{% url 'classes:public_class_detail' slug=member.slug %}">
-                      <span class="cls-schedule__date">{{ session.starts_at|date:"D, M j" }}</span>
-                      <span class="cls-schedule__time">{{ session|session_time_range }}</span>
-                      <span class="cls-spots {{ member.spots_left|spots_class }}">
-                        {% if member.spots_left == 0 %}Full{% elif member.spots_left <= 3 %}{{ member.spots_left }} left{% else %}{{ member.spots_left }} spots{% endif %}
-                      </span>
-                    </a>
-                  {% endwith %}
+                  {% include "classes/public/_schedule_option_row.html" with member=member %}
                 {% endfor %}
               </div>
-              <button class="cls-schedule__more" style="background:none;border:none;padding:0;cursor:pointer;text-align:left;" onclick="this.previousElementSibling.style.display='';this.remove();">+{{ group.date_count|add:"-4" }} more date{{ group.date_count|add:"-4"|pluralize }}</button>
+              <button class="cls-schedule__more" style="background:none;border:none;padding:0;cursor:pointer;text-align:left;" onclick="this.previousElementSibling.style.display='';this.remove();">+{{ group.date_count|add:"-4" }} more {% if offering.scheduling_type == 'series_package' %}option{{ group.date_count|add:"-4"|pluralize }}{% else %}date{{ group.date_count|add:"-4"|pluralize }}{% endif %}</button>
             {% endif %}
           {% elif offering.scheduling_model == 'flexible' %}
             <div class="cls-schedule__flex">Flexible — schedule with instructor</div>
@@ -113,7 +98,7 @@ list.html for the initial full-page response.{% endcomment %}
             {% if mp %}<span class="cls-price-member">({{ mp|cents_as_price }} for Past Lives Members)</span>{% endif %}
           </div>
           {% if group.is_multi %}
-            <span class="cls-spots cls-spots--dates">{{ group.date_count }} dates</span>
+            <span class="cls-spots cls-spots--dates">{% if offering.scheduling_type == 'series_package' %}{{ group.date_count }} option{{ group.date_count|pluralize }}{% else %}{{ group.date_count }} dates{% endif %}</span>
           {% else %}
             {% with spots=offering.spots_remaining %}
               <span class="cls-spots {{ spots|spots_class }}">
