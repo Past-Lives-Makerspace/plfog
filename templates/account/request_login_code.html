@@ -1,0 +1,71 @@
+{% extends parent_template %}
+{% load static %}
+
+{% block title %}Log In - Past Lives{% endblock %}
+
+{% block classes_extra_head %}
+<link rel="stylesheet" href="{% static 'css/book-account.css' %}">
+{% endblock %}
+
+{% block content %}
+{% if is_public_surface %}
+<div class="cp-page">
+{% block portal_content %}
+<div class="bk-themed-login bk-auth-surface">
+  <div class="bk-auth">
+    <div class="bk-auth-card">
+      <div class="bk-auth-eyebrow">Sign in</div>
+      <h1 class="bk-auth-title">Welcome back.</h1>
+      <p class="bk-auth-sub">We'll email you a 6-digit code — no password to remember.</p>
+      <form method="POST" action="{% url 'account_request_login_code' %}">{% csrf_token %}
+        <div class="bk-field">
+          <label>Email address</label>
+          <input type="email" name="email" required autofocus placeholder="you@pastlives.space"
+                 value="{{ form.email.value|default:'' }}">
+          {% if form.email.errors %}<div class="bk-field-hint" style="color:#f87171">{{ form.email.errors.0 }}</div>{% endif %}
+        </div>
+        {{ redirect_field }}
+        <div class="bk-auth-actions">
+          <button type="submit" class="bk-btn-primary">Email me a login code</button>
+        </div>
+      </form>
+      <div class="bk-auth-divider">or</div>
+      <div class="bk-auth-links">
+        <p>New to Past Lives? <a href="{% url 'account_signup' %}">Create an account</a></p>
+        <p>Booked as a guest? <a href="{% url 'account:lookup' %}">Look up your class.</a></p>
+      </div>
+      <div class="bk-auth-foot">
+        <b>Heads up:</b> if you registered for a class as a guest, use the same email you signed up with — that's how we find your bookings.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+</div>
+{% else %}
+<div class="auth-page">
+    <h1 class="auth-page__title">Welcome Back</h1>
+    <p class="auth-page__subtitle">Enter your email to receive a login code</p>
+    <div class="auth-page__version">
+        <button class="site-beta-badge" onclick="document.getElementById('changelog-modal').style.display='flex'">BETA v{{ app_version }}</button>
+    </div>
+    <div class="auth-card">
+        <form method="POST" action="{% url 'account_request_login_code' %}">
+            {% csrf_token %}
+            <label for="id_email">Email address</label>
+            <input type="email" name="email" id="id_email" required autofocus placeholder="you@pastlives.space"
+                   value="{{ form.email.value|default:'' }}">
+            {% if form.email.errors %}<p class="error">{{ form.email.errors.0 }}</p>{% endif %}
+            {{ redirect_field }}
+            <button type="submit" class="btn btn--primary btn--full">Send Login Code</button>
+        </form>
+        <div class="auth-links">
+            <p><a href="{% url 'find_account' %}">Don't know which email is on file?</a></p>
+            {% if registration_is_open %}
+            <p>Don't have an account? <a href="{% url 'account_signup' %}">Sign up</a></p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

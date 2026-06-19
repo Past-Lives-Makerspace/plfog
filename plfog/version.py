@@ -11,6 +11,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "Automated sign-in and booking checks behind the scenes",
         "changes": [
             "We added an automated test that clicks through the site the way a real member does — requesting a sign-in code, entering it, and registering for a free class — so we catch a broken sign-in or booking flow before it ever reaches you. It runs on every change we make.",
+            "The 'email me a sign-in code' page now matches the site's light theme instead of falling back to a plain, unstyled page.",
         ],
     },
     {

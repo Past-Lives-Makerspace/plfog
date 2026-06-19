@@ -336,9 +336,11 @@ ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS = False
 # Tighten allauth's built-in per-IP/per-key rate limits for login-code requests.
 # Defaults are 20/m/ip,3/m/key which is too generous given the 3,000/day Resend
 # free-tier ceiling. These keys merge into allauth.account.app_settings defaults.
-ACCOUNT_RATE_LIMITS = {
-    "request_login_code": "5/m/ip,3/h/key",
-}
+# Rate limiting only gets in the way during local development — repeated
+# login/test cycles trip allauth's "Too many failed login attempts" guard.
+# allauth treats RATE_LIMITS=False as "disable everything", so turn it off
+# entirely when DEBUG is on, and keep the real limits in production.
+ACCOUNT_RATE_LIMITS: dict[str, str] | bool = False if DEBUG else {"request_login_code": "5/m/ip,3/h/key"}
 
 # Global circuit breaker on outgoing login-code emails. Hard backstop in case
 # the per-IP/per-key limits are bypassed (e.g. distributed attack). Hourly cap
