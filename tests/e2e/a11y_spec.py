@@ -1,17 +1,18 @@
 """Accessibility (axe-core) gate for the public/book surface pages.
 
-The app carries known a11y debt (colour contrast, a few link-name and
-landmark issues), so this is a *ratchet*, not an all-or-nothing gate: it fails
-on any ``critical`` violation or any rule type outside the documented
-``ACCEPTED_DEBT`` baseline, but tolerates the known issues for now. As debt is
-paid down, delete entries from ``ACCEPTED_DEBT`` to raise the bar — a fixed
-rule that reappears will then fail the build.
+The catalog, class-detail and login pages are held to full WCAG-AA on the axe
+ruleset, in both light and dark: ``ACCEPTED_DEBT`` is now empty, so ANY
+violation (contrast, link-name, landmark, critical, …) fails the build.
+``ACCEPTED_DEBT`` remains as a ratchet escape hatch — if a future change
+introduces genuinely unavoidable debt, add the rule id here with a note rather
+than silencing the whole gate.
 
 Run with ``pytest -m e2e``.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 from urllib.parse import urlparse
 
@@ -22,11 +23,9 @@ from django.utils import timezone
 from classes.factories import ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering
 
-# Known, tolerated a11y debt (axe rule IDs). Anything outside this set — or any
-# violation with impact "critical" — fails the gate. Pay these down over time.
-ACCEPTED_DEBT = {
-    "color-contrast",
-}
+# Tolerated a11y debt (axe rule IDs). Currently empty — these pages are fully
+# AA-clean. Add a rule id here only as a documented, temporary escape hatch.
+ACCEPTED_DEBT: set[str] = set()
 
 
 def _violations(page, url):
@@ -36,7 +35,11 @@ def _violations(page, url):
         page.evaluate("(t) => document.documentElement.setAttribute('data-theme', t)", theme)
         page.wait_for_timeout(200)
         for v in Axe().run(page).response["violations"]:
-            found.append((theme, v["impact"], v["id"], len(v["nodes"])))
+            node = v["nodes"][0] if v["nodes"] else {}
+            target = (node.get("target") or ["?"])[0]
+            fg = re.search(r"foreground color: (#[0-9a-f]{6})", node.get("failureSummary", "") or "")
+            detail = f"{target} {fg.group(1) if fg else ''}".strip()
+            found.append((theme, v["impact"], v["id"], len(v["nodes"]), detail))
     return found
 
 
@@ -66,8 +69,8 @@ def describe_accessibility():
 
         offenders = []
         for name, path in pages.items():
-            for theme, impact, rule, nodes in _violations(page, f"{live_server.url}{path}"):
+            for theme, impact, rule, nodes, detail in _violations(page, f"{live_server.url}{path}"):
                 if impact == "critical" or rule not in ACCEPTED_DEBT:
-                    offenders.append(f"{name}/{theme}: [{impact}] {rule} ({nodes} node(s))")
+                    offenders.append(f"{name}/{theme}: [{impact}] {rule} ({nodes} node(s)) — {detail}")
 
         assert not offenders, "Critical or new (unbaselined) a11y violations:\n  " + "\n  ".join(offenders)
