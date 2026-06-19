@@ -10,6 +10,9 @@ from django.conf import settings
 from django.db import models
 from django.db.models import CheckConstraint, F, Q
 from django.utils import timezone
+from django.utils.formats import date_format
+from django.utils.html import strip_tags
+from django.utils.timezone import localtime
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
@@ -564,6 +567,91 @@ class ClassOffering(HeroCropMixin, models.Model):
         """First session ever — past or future. Used as fallback when no upcoming session exists."""
         session = self.sessions.order_by("starts_at").first()
         return session.starts_at if session else None
+
+    @staticmethod
+    def _truncate(text: str, limit: int) -> str:
+        """Trim ``text`` to at most ``limit`` chars on a word boundary with an ellipsis.
+
+        Never cuts a word in half: when truncation is needed we keep whole words
+        and append a single ``…`` (U+2026). Only when the first word alone is
+        longer than the window do we hard-cut mid-word.
+
+        Args:
+            text: The source string (already plain text, whitespace-collapsed).
+            limit: The maximum allowed length of the returned string.
+
+        Returns:
+            ``text`` unchanged when it already fits, otherwise a word-bounded
+            prefix ending in ``…`` whose length is ``<= limit``.
+        """
+        if len(text) <= limit:
+            return text
+        window = text[: limit - 1]
+        cut = window.rsplit(" ", 1)[0] if " " in window else window
+        return f"{cut.rstrip(' -–—,;:.')}…"
+
+    def _seo_date_label(self) -> str:
+        """Localized 'Mon D, YYYY' label for the offering's defining session.
+
+        Prefers the next upcoming session so live pages read as a future event;
+        falls back to the earliest session so expired/archived offerings still
+        carry a distinguishing, indexable date. Returns ``""`` when the offering
+        has no sessions at all.
+        """
+        dt = self.first_upcoming_session_at or self.earliest_session_at
+        if dt is None:
+            return ""
+        return date_format(localtime(dt), "M j, Y")
+
+    @property
+    def seo_title(self) -> str:
+        """Unique, ≤60-char class-identifying title for the page ``<title>``.
+
+        Starts from the date-stripped base title and greedily appends the
+        session date then the instructor, dropping segments from the right when
+        over the 60-char budget. The date is added before the instructor because
+        it is the stronger uniqueness signal for sibling offerings of the same
+        class on different dates. The brand suffix is intentionally omitted to
+        stay within Google's title width.
+
+        Returns:
+            A plain-text title of length 1–60 (HTML auto-escaped at render time).
+        """
+        from classes.templatetags.classes_tags import strip_date_suffix
+
+        base = strip_date_suffix(self.title).strip()
+        result = base
+        date_label = self._seo_date_label()
+        if date_label:
+            candidate = f"{result} — {date_label}"
+            if len(candidate) <= 60:
+                result = candidate
+        if self.instructor:
+            candidate = f"{result} with {self.instructor.display_name}"
+            if len(candidate) <= 60:
+                result = candidate
+        return self._truncate(result, 60)
+
+    @property
+    def seo_description(self) -> str:
+        """≤160-char plain-text meta description for the page ``<head>``.
+
+        Uses the offering's own description with HTML stripped and whitespace
+        collapsed; when blank, falls back to a category-aware sentence so every
+        page still emits a meaningful, distinct description. Trimmed on a word
+        boundary so it never ends mid-word.
+
+        Returns:
+            A plain-text description of length 1–160 (HTML auto-escaped at
+            render time).
+        """
+        from classes.templatetags.classes_tags import strip_date_suffix
+
+        raw = " ".join(strip_tags(self.description or "").split())
+        if not raw:
+            base = strip_date_suffix(self.title).strip()
+            raw = f"{base} at Past Lives Makerspace in Portland, OR. {self.category.name} class — register online."
+        return self._truncate(raw, 160)
 
     def duplicate(self) -> "ClassOffering":
         """Clone this offering as a fresh draft with a unique slug and title."""

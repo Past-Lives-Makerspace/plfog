@@ -1,7 +1,8 @@
 {% extends "classes/base_public.html" %}
 {% load classes_tags static %}
 
-{% block title %}{{ offering.title }} — Past Lives Makerspace{% endblock %}
+{% block title %}{{ offering.seo_title }}{% endblock %}
+{% block meta_description %}{{ offering.seo_description }}{% endblock %}
 
 {% block portal_content %}
 <article class="cp-detail">

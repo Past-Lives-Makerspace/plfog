@@ -354,6 +354,16 @@ def describe_public_class_detail():
         assert response.status_code == 200
         assert b"Sold out" in response.content
 
+    def it_renders_a_unique_seo_title_and_meta_description(published_class, client):
+        from django.utils.html import escape
+
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+        html = response.content.decode()
+        assert response.status_code == 200
+        assert escape(published_class.seo_title) in html
+        assert 'name="description"' in html
+        assert escape(published_class.seo_description[:30]) in html
+
 
 def describe_catalog_grouping():
     def _publish(title, slug, category, instructor, days_out, capacity=6):
