@@ -2,6 +2,9 @@
 {% load classes_tags %}
 {% block detail_content %}
 <div x-data="{ emailOpen: false, allChecked: false, toggleAll(ev) { this.$refs.studentTable.querySelectorAll('input[name=registration_ids]').forEach(cb => cb.checked = ev.target.checked); this.allChecked = ev.target.checked; } }">
+    <div style="margin-bottom:0.75rem; text-align:right;">
+        <a href="{% url 'classes:teach_class_export' pk=offering.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">Export Data</a>
+    </div>
     {% if registrations %}
     <form method="post" action="{% url 'classes:teach_class_email' pk=offering.pk %}">
         {% csrf_token %}

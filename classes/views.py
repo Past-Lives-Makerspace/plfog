@@ -15,7 +15,7 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import TruncDate
-from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -1114,6 +1114,15 @@ def teach_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
+@teaching_member_required  # type: ignore[arg-type]  # StreamingHttpResponse is an HttpResponseBase, not HttpResponse
+def teach_class_export(request: HttpRequest, pk: int) -> StreamingHttpResponse:
+    """Download a CSV of every registration for one of the teaching member's own classes."""
+    from classes.exports import stream_registrations_csv
+
+    offering = _teach_class_or_404(request, pk)  # scopes to instructor=request.teaching_member → 404 otherwise
+    return stream_registrations_csv(offering)
+
+
 @teaching_member_required
 @require_POST
 def teach_class_email(request: HttpRequest, pk: int) -> HttpResponse:
@@ -1577,6 +1586,15 @@ def admin_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
             **_class_workspace_counts(offering),
         },
     )
+
+
+@classes_admin_access_required  # type: ignore[arg-type]  # StreamingHttpResponse is HttpResponseBase, not HttpResponse
+def admin_class_export(request: HttpRequest, pk: int) -> StreamingHttpResponse:
+    """Download a CSV of every registration for one class (admin — any class)."""
+    from classes.exports import stream_registrations_csv
+
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    return stream_registrations_csv(offering)
 
 
 @classes_admin_access_required

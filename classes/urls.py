@@ -26,6 +26,11 @@ urlpatterns = [
         name="teach_class_registrations",
     ),
     path(
+        "teach/classes/<int:pk>/registrations/export/",
+        views.teach_class_export,
+        name="teach_class_export",
+    ),
+    path(
         "teach/classes/<int:pk>/registrations/email/",
         views.teach_class_email,
         name="teach_class_email",
@@ -64,6 +69,7 @@ urlpatterns = [
     path("admin/new/", views.admin_class_create, name="admin_class_create"),
     path("admin/<int:pk>/", views.admin_class_detail, name="admin_class_detail"),
     path("admin/<int:pk>/registrations/", views.admin_class_registrations, name="admin_class_registrations"),
+    path("admin/<int:pk>/registrations/export/", views.admin_class_export, name="admin_class_export"),
     path("admin/<int:pk>/waitlist/", views.admin_class_waitlist, name="admin_class_waitlist"),
     path("admin/<int:pk>/discount-codes/", views.admin_class_discount_codes, name="admin_class_discount_codes"),
     path("admin/<int:pk>/preview/", views.class_preview, name="class_preview"),
