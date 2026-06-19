@@ -11,6 +11,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import TruncDate
@@ -46,6 +47,7 @@ from classes.forms import (
     RegistrationQuestionForm,
 )
 from classes.models import (
+    MAX_GALLERY_IMAGES,
     Category,
     ClassApproval,
     ClassImage,
@@ -854,14 +856,19 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         offering = form.save()
         formset.instance = offering
         formset.save()
-        offering.add_gallery_images(request.FILES.getlist("gallery_images"))
-        submit_now = request.POST.get("action") == "submit"
-        if submit_now:
-            offering.submit_for_review()
-            messages.success(request, f"Submitted “{offering.title}” for admin review.")
+        try:
+            offering.add_gallery_images(request.FILES.getlist("gallery_images"))
+        except ValidationError as exc:
+            offering.delete()  # roll back the half-created offering
+            form.add_error(None, exc.messages[0])
         else:
-            messages.success(request, f"Saved draft ‘{offering.title}’.")
-        return redirect("classes:teach_class_edit", pk=offering.pk)
+            submit_now = request.POST.get("action") == "submit"
+            if submit_now:
+                offering.submit_for_review()
+                messages.success(request, f"Submitted “{offering.title}” for admin review.")
+            else:
+                messages.success(request, f"Saved draft ‘{offering.title}’.")
+            return redirect("classes:teach_class_edit", pk=offering.pk)
     return _render_teach_class_form(
         request,
         form=form,
@@ -1441,9 +1448,14 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
         offering.save()
         session_formset.instance = offering
         session_formset.save()
-        offering.add_gallery_images(request.FILES.getlist("gallery_images"))
-        messages.success(request, f"{offering.title} is published.")
-        return redirect("classes:admin_class_edit", pk=offering.pk)
+        try:
+            offering.add_gallery_images(request.FILES.getlist("gallery_images"))
+        except ValidationError as exc:
+            offering.delete()  # roll back the half-created offering
+            form.add_error(None, exc.messages[0])
+        else:
+            messages.success(request, f"{offering.title} is published.")
+            return redirect("classes:admin_class_edit", pk=offering.pk)
 
     sessions_data: list[dict] = []
     if session_formset.is_bound:
@@ -1872,8 +1884,8 @@ def admin_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering, pk=pk)
-    if offering.gallery_images.count() >= 10:
-        return JsonResponse({"error": "Maximum 10 gallery images."}, status=400)
+    if offering.gallery_images.count() >= MAX_GALLERY_IMAGES:
+        return JsonResponse({"error": f"A class can have at most {MAX_GALLERY_IMAGES} images."}, status=400)
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)

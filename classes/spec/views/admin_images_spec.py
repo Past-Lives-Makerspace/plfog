@@ -87,7 +87,19 @@ def describe_admin_class_image_upload():
         response = client.post(url, {"image": _tiny_gif()})
 
         assert response.status_code == 400
-        assert "Maximum 10" in response.json()["error"]
+        assert "at most 10 images" in response.json()["error"]
+
+    def it_allows_adding_again_after_a_delete(admin_user, client, db):
+        client.force_login(admin_user)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        imgs = [ClassImageFactory(class_offering=offering, sort_order=i) for i in range(10)]
+        ClassImage.objects.filter(pk=imgs[0].pk).delete()
+        url = reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})
+
+        response = client.post(url, {"image": _tiny_gif()})
+
+        assert response.status_code == 200
+        assert offering.gallery_images.count() == 10
 
     def it_returns_400_without_a_file(admin_user, client, db):
         client.force_login(admin_user)

@@ -43,6 +43,9 @@ I waive any right to inspect or approve the finished images or the use to which 
 I understand that I may revoke this consent at any time by notifying PLM in writing at info@pastlives.space."""
 
 
+MAX_GALLERY_IMAGES = 10
+
+
 class Category(HeroCropMixin, models.Model):
     name = models.CharField(max_length=100, unique=True, help_text="Display name (e.g. Woodworking).")
     slug = models.SlugField(max_length=100, unique=True, help_text="URL slug.")
@@ -498,9 +501,20 @@ class ClassOffering(HeroCropMixin, models.Model):
             )
 
     def add_gallery_images(self, files: list[UploadedFile]) -> None:
-        """Create ClassImage rows from uploaded files."""
-        for i, img_file in enumerate(files):
-            ClassImage.objects.create(class_offering=self, image=img_file, sort_order=i)
+        """Create ClassImage rows from uploaded files, appended after existing ones.
+
+        Raises:
+            ValidationError: If adding ``files`` would push the offering over
+                ``MAX_GALLERY_IMAGES``. The batch is rejected whole — no rows are
+                created — so the caller can surface one clear message.
+        """
+        from django.core.exceptions import ValidationError
+
+        current = self.gallery_images.count()
+        if current + len(files) > MAX_GALLERY_IMAGES:
+            raise ValidationError(f"A class can have at most {MAX_GALLERY_IMAGES} images.")
+        for offset, img_file in enumerate(files):
+            ClassImage.objects.create(class_offering=self, image=img_file, sort_order=current + offset)
 
     @property
     def spots_remaining(self) -> int:
@@ -706,6 +720,16 @@ class ClassImage(models.Model):
 
     def __str__(self) -> str:
         return f"Image #{self.pk} for {self.class_offering.title}"
+
+    def clean(self) -> None:
+        from django.core.exceptions import ValidationError
+
+        super().clean()
+        existing = ClassImage.objects.filter(class_offering=self.class_offering)
+        if self.pk:
+            existing = existing.exclude(pk=self.pk)
+        if existing.count() >= MAX_GALLERY_IMAGES:
+            raise ValidationError(f"A class can have at most {MAX_GALLERY_IMAGES} images.")
 
     def save(self, *args, **kwargs) -> None:
         from django.conf import settings
