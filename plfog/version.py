@@ -12,6 +12,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "changes": [
             "Classes that run over several dates — like a 3-week Blacksmithing course — are now clearly marked as a 'multi-session series.' One sign-up enrolls you in every date in the set, and the class and registration pages spell out all the dates so you know exactly what you're booking.",
             "When the same class is offered on more than one set of dates (say, a June run and a July run), the catalog now shows it as a single class with a 'Pick a session set' chooser, instead of looking like a pile of separate single days.",
+            "The registration page now has a 'Choose your dates' dropdown listing every available run of that class, so you can switch to a different set of dates without going back to the catalog.",
             "Classes brought over from the old class site are now correctly recognized as a series when they span multiple dates, so multi-week courses no longer show up as a bunch of one-off sessions.",
             "A class that has already begun no longer shows up as open for sign-up — you can't join a multi-week series part-way through — so the catalog only lists classes you can actually still book. A series page now lists every date in the set, with ones that already happened clearly marked.",
             "Setting up or editing a class now starts with a clear, plain-language choice between a 'Single class (one date)' and a 'Multi-session series' — and you can add or remove dates anytime, even after publishing.",

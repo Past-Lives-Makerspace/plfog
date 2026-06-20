@@ -72,6 +72,24 @@ def _browsable_classes() -> Any:
     return ClassOffering.objects.bookable().select_related("category", "instructor").prefetch_related("sessions")
 
 
+def _bookable_run_options(offering: Any) -> list[Any]:
+    """Still-bookable date-sets of this class, including the current run.
+
+    Powers the register-page dropdown for switching runs. Returns an empty list
+    unless there's an actual choice (more than one bookable run in the group).
+    Each returned offering carries a ``spots_left`` attribute for its label.
+    """
+    runs = list(
+        ClassOffering.objects.bookable().filter(grouping_key=offering.grouping_key).prefetch_related("sessions")
+    )
+    if len(runs) <= 1:
+        return []
+    run_spots = ClassOffering.objects.filter(pk__in=[r.pk for r in runs]).spots_remaining_map()
+    for run in runs:
+        run.spots_left = run_spots.get(run.pk, run.capacity)
+    return runs
+
+
 class _CatalogGroup:
     """One public catalog card: a class plus every date it is offered on.
 
@@ -575,6 +593,8 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     member_price_cents = offering.member_price_cents
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
 
+    run_options = _bookable_run_options(offering)
+
     return render(
         request,
         "classes/public/register.html",
@@ -587,6 +607,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             "spots_remaining": offering.spots_remaining,
             "is_waitlist": is_waitlist,
             "upcoming_sessions": upcoming_sessions,
+            "run_options": run_options,
         },
     )
 
