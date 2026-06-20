@@ -774,6 +774,10 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
 .cp-detail__session-date { font-weight: 700; font-size: 16px; color: var(--text); }
 .cp-detail__session-time { font-size: 15px; color: var(--text2); margin-top: 2px; }
 .cp-detail__session-dur { color: var(--text3); }
+/* Sessions that have already taken place (shown for context on a started series). */
+.cp-detail__session--past { opacity: 0.5; }
+.cp-detail__session--past .cp-detail__session-num { background: var(--text3); color: var(--bg, #fff); }
+.cp-detail__session-done { font-weight: 600; font-size: 13px; color: var(--text3); }
 
 /* ── Other dates for this class ──────────────── */
 .cp-detail__other-dates { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }

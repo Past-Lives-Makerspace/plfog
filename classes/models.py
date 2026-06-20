@@ -118,6 +118,27 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         """Published classes visible in the public portal (excludes private)."""
         return self.filter(status="published", is_private=False)
 
+    def bookable(self) -> "ClassOfferingQuerySet":
+        """Public classes still open for sign-up, soonest first.
+
+        Published and non-private, and either flexibly scheduled or with a
+        *first* session still in the future. A dated class — single or series —
+        drops out the instant its first session begins: you can't join a series
+        part-way through, so a started series is never bookable. Flexible /
+        undated classes sort last. (Seat availability is separate — see
+        ``spots_remaining``.)
+        """
+        from django.db.models import Min
+
+        now = timezone.now()
+        return (
+            self.public()
+            .annotate(first_session_at=Min("sessions__starts_at"))
+            .filter(Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) | Q(first_session_at__gte=now))
+            .order_by(F("first_session_at").asc(nulls_last=True), "title")
+            .distinct()
+        )
+
     def pending_review(self) -> "ClassOfferingQuerySet":
         return self.filter(status="pending")
 
@@ -662,6 +683,27 @@ class ClassOffering(HeroCropMixin, models.Model):
     def series_session_count(self) -> int:
         """Number of sessions a series ticket covers (0 for none scheduled yet)."""
         return self.sessions.count()
+
+    @property
+    def has_started(self) -> bool:
+        """True once the first scheduled session has begun (dated classes only)."""
+        earliest = self.earliest_session_at
+        return earliest is not None and earliest < timezone.now()
+
+    @property
+    def is_bookable(self) -> bool:
+        """Whether sign-ups are still open on timing grounds.
+
+        Flexible classes are always bookable. A dated class — single or series —
+        is bookable only until its first session starts; you can't join after it
+        has begun. Seat availability is handled separately via
+        ``spots_remaining`` (a sold-out future class is still "bookable" here and
+        routes to the waitlist).
+        """
+        if self.scheduling_model == self.SchedulingModel.FLEXIBLE:
+            return True
+        earliest = self.earliest_session_at
+        return earliest is not None and earliest >= timezone.now()
 
     @property
     def member_price_cents(self) -> int | None:

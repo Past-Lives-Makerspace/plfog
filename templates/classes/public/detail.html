@@ -187,21 +187,21 @@
       {# Gallery (hover-zoom + lightbox come from the component) #}
       {% include "classes/_components/gallery.html" with offering=offering %}
 
-      {# Schedule #}
-      {% if upcoming_sessions %}
+      {# Schedule — every date for a series (past ones marked), the single date for a one-off. #}
+      {% if schedule_sessions %}
         <section class="cp-detail__section">
-          {% with total_min=upcoming_sessions|total_session_minutes %}
-            <h2 class="cp-detail__h2">{% if offering.scheduling_type == 'series_package' %}Series schedule{% else %}Schedule{% endif %}<span class="cp-detail__h2-sub">{% if offering.scheduling_type == 'series_package' %} · {{ upcoming_sessions|length }} session{{ upcoming_sessions|length|pluralize }}{% endif %}{% if total_min %} · {{ total_min|duration_words }} total{% endif %}</span></h2>
+          {% with total_min=schedule_sessions|total_session_minutes %}
+            <h2 class="cp-detail__h2">{% if offering.is_series %}Series schedule{% else %}Schedule{% endif %}<span class="cp-detail__h2-sub">{% if offering.is_series %} · {{ schedule_sessions|length }} session{{ schedule_sessions|length|pluralize }}{% endif %}{% if total_min %} · {{ total_min|duration_words }} total{% endif %}</span></h2>
           {% endwith %}
-          {% if offering.scheduling_type == 'series_package' and upcoming_sessions|length > 1 %}
-            <p class="cp-detail__prose">This is a multi-session series — <strong>one registration enrolls you in all {{ upcoming_sessions|length }} sessions</strong> listed below.</p>
+          {% if offering.is_series and schedule_sessions|length > 1 %}
+            <p class="cp-detail__prose">This is a multi-session series — <strong>one registration enrolls you in all {{ schedule_sessions|length }} sessions</strong> listed below. You sign up once for the whole series.</p>
           {% endif %}
           <ol class="cp-detail__sessions">
-            {% for session in upcoming_sessions %}
-              <li class="cp-detail__session">
-                {% if upcoming_sessions|length > 1 %}<span class="cp-detail__session-num">{{ forloop.counter }}</span>{% endif %}
+            {% for session in schedule_sessions %}
+              <li class="cp-detail__session{% if session.starts_at < now %} cp-detail__session--past{% endif %}">
+                {% if schedule_sessions|length > 1 %}<span class="cp-detail__session-num">{{ forloop.counter }}</span>{% endif %}
                 <div class="cp-detail__session-body">
-                  <div class="cp-detail__session-date">{{ session.starts_at|date:"l, F j, Y" }}</div>
+                  <div class="cp-detail__session-date">{{ session.starts_at|date:"l, F j, Y" }}{% if session.starts_at < now %} <span class="cp-detail__session-done">· already happened</span>{% endif %}</div>
                   <div class="cp-detail__session-time">{{ session.starts_at|time:"g:i A" }} – {{ session.ends_at|time:"g:i A" }}<span class="cp-detail__session-dur"> · {{ session|session_duration_words }}</span></div>
                 </div>
               </li>
@@ -369,28 +369,33 @@
             <div class="cp-detail__price-member">{{ member_price_cents|cents_as_price }} <span>for Past Lives Members</span></div>
           {% endif %}
         </div>
-        <div class="cp-detail__spots cp-detail__spots--{{ spots_remaining|spots_class }}">
-          {% if spots_remaining == 0 %}
-            Sold out
-          {% elif spots_remaining <= 2 %}
-            Only {{ spots_remaining }} spot{{ spots_remaining|pluralize }} left
-          {% else %}
-            {{ spots_remaining }} spots available
-          {% endif %}
-        </div>
-        {% if spots_remaining > 0 %}
-          <a class="cp-detail__cta" href="{% url 'classes:register' slug=offering.slug %}">
-            {% if offering.price_cents == 0 %}Register — Free{% else %}Register now{% endif %}
-          </a>
+        {% if not is_bookable %}
+          <div class="cp-detail__spots cp-detail__spots--full">Registration closed</div>
+          <div class="cp-detail__waitlist-hint">This {% if offering.is_series %}series{% else %}class{% endif %} has already started — sign-ups are closed.</div>
         {% else %}
-          <a class="cp-detail__cta cp-detail__cta--waitlist" href="{% url 'classes:register' slug=offering.slug %}?waitlist=1">
-            Join the waitlist
-          </a>
-          <div class="cp-detail__waitlist-hint">We'll email you the moment a spot opens. No charge to hold your place.</div>
+          <div class="cp-detail__spots cp-detail__spots--{{ spots_remaining|spots_class }}">
+            {% if spots_remaining == 0 %}
+              Sold out
+            {% elif spots_remaining <= 2 %}
+              Only {{ spots_remaining }} spot{{ spots_remaining|pluralize }} left
+            {% else %}
+              {{ spots_remaining }} spots available
+            {% endif %}
+          </div>
+          {% if spots_remaining > 0 %}
+            <a class="cp-detail__cta" href="{% url 'classes:register' slug=offering.slug %}">
+              {% if offering.price_cents == 0 %}Register — Free{% else %}Register now{% endif %}
+            </a>
+          {% else %}
+            <a class="cp-detail__cta cp-detail__cta--waitlist" href="{% url 'classes:register' slug=offering.slug %}?waitlist=1">
+              Join the waitlist
+            </a>
+            <div class="cp-detail__waitlist-hint">We'll email you the moment a spot opens. No charge to hold your place.</div>
+          {% endif %}
         {% endif %}
         <ul class="cp-detail__rail-meta">
-          {% if upcoming_sessions %}
-            <li><strong>{{ upcoming_sessions|length }}</strong> session{{ upcoming_sessions|length|pluralize }}</li>
+          {% if schedule_sessions %}
+            <li><strong>{{ schedule_sessions|length }}</strong> session{{ schedule_sessions|length|pluralize }}</li>
           {% endif %}
           <li><strong>{{ offering.capacity }}</strong> max class size</li>
           {% if offering.category %}

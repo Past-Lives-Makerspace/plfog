@@ -63,22 +63,13 @@ _ViewFunc = Callable[..., HttpResponse]
 
 
 def _browsable_classes() -> Any:
-    """Published, non-private classes with at least one upcoming session.
+    """Published, non-private classes still open for booking, soonest first.
 
-    Flexible-scheduling classes are always included (no fixed session dates).
-    Classes whose last session has already passed are excluded.
-    Ordered by soonest upcoming session; flexible/TBA classes sort to the end.
+    Delegates the date gate to ``ClassOffering.objects.bookable()``: flexible
+    classes always qualify; a dated class (single or series) drops off the
+    instant its first session starts, so a part-finished series is never listed.
     """
-    now = timezone.now()
-    return (
-        ClassOffering.objects.public()
-        .filter(Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) | Q(sessions__starts_at__gte=now))
-        .select_related("category", "instructor")
-        .prefetch_related("sessions")
-        .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
-        .order_by(F("first_session_at").asc(nulls_last=True), "title")
-        .distinct()
-    )
+    return ClassOffering.objects.bookable().select_related("category", "instructor").prefetch_related("sessions")
 
 
 class _CatalogGroup:
@@ -274,20 +265,22 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     member_price_cents = offering.member_price_cents
     now = timezone.now()
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
+    # A series is its full set of dates; a single class is its one date. Show every
+    # session for a series (so a started one still reads as the N-session series it
+    # is, with past dates marked) and just the dated session for a single.
+    schedule_sessions = list(offering.sessions.order_by("starts_at")) if offering.is_series else upcoming_sessions
 
     # Other dates this same class is offered on, so the visitor can switch dates
-    # without hunting through the catalog. Each sibling keeps its own seats.
+    # without hunting through the catalog. Only runs you can still book are shown
+    # (a started run is dropped), and each keeps its own seats.
     sibling_offerings: list[Any] = []
     if offering.grouping_key:
         sibling_offerings = list(
-            ClassOffering.objects.public()
-            .filter(grouping_key=offering.grouping_key, sessions__starts_at__gte=now)
+            ClassOffering.objects.bookable()
+            .filter(grouping_key=offering.grouping_key)
             .exclude(pk=offering.pk)
             .select_related("instructor")
             .prefetch_related("sessions")
-            .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
-            .order_by("first_session_at")
-            .distinct()
         )
         sib_spots = ClassOffering.objects.filter(pk__in=[s.pk for s in sibling_offerings]).spots_remaining_map()
         for sibling in sibling_offerings:
@@ -347,6 +340,9 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "settings_obj": settings_obj,
             "site_config": SiteConfiguration.load(),
             "upcoming_sessions": upcoming_sessions,
+            "schedule_sessions": schedule_sessions,
+            "is_bookable": offering.is_bookable,
+            "now": now,
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
             "related_offerings": related_offerings,
@@ -450,6 +446,12 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         slug=slug,
     )
     settings_obj = ClassSettings.load()
+
+    # You can't join a class once it has started — a series can't be entered
+    # part-way through. Send late arrivals back to the detail page with a note.
+    if not offering.is_bookable:
+        messages.info(request, "Registration has closed for this class — it has already started.")
+        return redirect("classes:public_class_detail", slug=offering.slug)
 
     # Waitlist intent: ?waitlist=1 (offered when the class is sold out) routes
     # to the no-charge waitlist branch below. Forced on automatically when the
