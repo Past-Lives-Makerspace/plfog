@@ -15,7 +15,7 @@ def describe_UserProfile():
             assert profile.pronouns == "they/them"
             assert profile.phone == "503-555-0100"
 
-        def context_when_the_profile_already_has_values():
+        def describe_when_the_profile_already_has_values():
             def it_does_not_clobber_them(db):
                 from classes.factories import RegistrationFactory
 
@@ -26,7 +26,7 @@ def describe_UserProfile():
                 assert profile.pronouns == "she/her"
                 assert profile.phone == "111"
 
-        def context_when_the_registration_value_is_blank():
+        def describe_when_the_registration_value_is_blank():
             def it_leaves_the_empty_profile_field_empty(db):
                 from classes.factories import RegistrationFactory
 

@@ -40,7 +40,7 @@ def describe_class_offering_save():
         offering.refresh_from_db()
         assert offering.grouping_key == f"new-title:{offering.category_id}"
 
-    def context_when_an_unrelated_field_is_saved():
+    def describe_when_an_unrelated_field_is_saved():
         def it_leaves_the_stored_grouping_key_untouched(db):
             offering = ClassOfferingFactory(title="Stable Title")
             original_key = offering.grouping_key

@@ -565,7 +565,7 @@ def describe_AdminRedirectAccountAdapter():
             request = rf.get("/accounts/signup/?email=getparam@example.com")
             assert adapter.is_open_for_signup(request) is True
 
-        def context_on_public_surface():
+        def describe_on_public_surface():
             def it_returns_true_even_when_members_surface_is_invite_only(rf):
                 from plfog.adapters import AdminRedirectAccountAdapter
 

@@ -39,7 +39,7 @@ def guilded_offering(db, guild_lead_user, settings):
 
 
 def describe_submit_for_review():
-    def context_with_a_guild_lead():
+    def describe_with_a_guild_lead():
         def it_opens_only_the_guild_lead_gate(guilded_offering):
             rows = guilded_offering.submit_for_review()
             guilded_offering.refresh_from_db()
@@ -49,7 +49,7 @@ def describe_submit_for_review():
             assert rows[0].role == ClassApproval.Role.GUILD_LEAD
             assert not guilded_offering.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
 
-    def context_without_a_guild_lead():
+    def describe_without_a_guild_lead():
         def it_opens_only_the_admin_gate(db, settings):
             settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
             offering = ClassOfferingFactory(category=CategoryFactory(guild=None), status=ClassOffering.Status.DRAFT)
@@ -60,7 +60,7 @@ def describe_submit_for_review():
 
 
 def describe_on_review_decision_recorded():
-    def context_guild_lead_approves():
+    def describe_guild_lead_approves():
         def it_opens_the_admin_gate_without_publishing(guilded_offering, guild_lead_user):
             (gl_row,) = guilded_offering.submit_for_review()
             gl_row.decide(ClassApproval.Decision.APPROVED, user=guild_lead_user)
@@ -72,7 +72,7 @@ def describe_on_review_decision_recorded():
             gl_row.refresh_from_db()
             assert gl_row.decision == ClassApproval.Decision.APPROVED
 
-    def context_admin_approves_after_lead():
+    def describe_admin_approves_after_lead():
         def it_publishes(guilded_offering, guild_lead_user, admin_user):
             (gl_row,) = guilded_offering.submit_for_review()
             gl_row.decide(ClassApproval.Decision.APPROVED, user=guild_lead_user)
@@ -84,7 +84,7 @@ def describe_on_review_decision_recorded():
             assert guilded_offering.approved_by == admin_user
             assert guilded_offering.published_at is not None
 
-    def context_no_guild_lead_admin_approves():
+    def describe_no_guild_lead_admin_approves():
         def it_publishes_directly(db, admin_user, settings):
             settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
             offering = ClassOfferingFactory(category=CategoryFactory(guild=None), status=ClassOffering.Status.DRAFT)
@@ -94,7 +94,7 @@ def describe_on_review_decision_recorded():
             offering.refresh_from_db()
             assert offering.status == ClassOffering.Status.PUBLISHED
 
-    def context_guild_lead_requests_changes():
+    def describe_guild_lead_requests_changes():
         def it_returns_to_draft_without_opening_admin_gate(guilded_offering, guild_lead_user):
             (gl_row,) = guilded_offering.submit_for_review()
             gl_row.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=guild_lead_user, notes="Add prerequisites.")

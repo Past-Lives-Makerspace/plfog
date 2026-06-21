@@ -11,7 +11,7 @@ def rf() -> RequestFactory:
 
 
 def describe_get_login_redirect_url():
-    def context_on_public_surface():
+    def describe_on_public_surface():
         def it_redirects_unonboarded_user_to_step_1(rf, db):
             from plfog.adapters import AdminRedirectAccountAdapter
 
@@ -36,7 +36,7 @@ def describe_get_login_redirect_url():
             adapter = AdminRedirectAccountAdapter()
             assert adapter.get_login_redirect_url(req) == "/account/"
 
-    def context_on_members_surface():
+    def describe_on_members_surface():
         def it_uses_existing_redirect(rf, db):
             from plfog.adapters import AdminRedirectAccountAdapter
 

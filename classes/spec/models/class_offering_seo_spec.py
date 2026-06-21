@@ -38,19 +38,19 @@ def describe_ClassOffering():
             base_words = o.title.split()
             assert all(word in base_words for word in trimmed.split())
 
-        def context_with_no_instructor_and_no_sessions():
+        def describe_with_no_instructor_and_no_sessions():
             def it_falls_back_to_just_the_clean_title(db):
                 o = ClassOfferingFactory(title="Open Studio - 6/5/26", instructor=None)
                 assert o.seo_title == "Open Studio"
 
-        def context_with_only_a_past_session():
+        def describe_with_only_a_past_session():
             def it_still_includes_the_historical_date(db):
                 o = ClassOfferingFactory(title="Welding Basics", instructor=None)
                 ClassSessionFactory(class_offering=o, starts_at=timezone.now() - timedelta(days=400))
                 assert "Welding Basics" in o.seo_title
                 assert any(ch.isdigit() for ch in o.seo_title)
 
-        def context_when_the_title_already_names_the_instructor():
+        def describe_when_the_title_already_names_the_instructor():
             def it_does_not_repeat_the_instructor(db):
                 o = ClassOfferingFactory(
                     title="Blacksmithing 101 with Glen",
@@ -61,7 +61,7 @@ def describe_ClassOffering():
                 assert title.lower().count("with glen") == 1
                 assert "with Glen Morris" not in title
 
-        def context_when_only_the_date_fits():
+        def describe_when_only_the_date_fits():
             def it_prefers_the_date_over_the_instructor(db):
                 o = ClassOfferingFactory(
                     title="An Extremely Long Introductory Workshop About Hand Forging Knives",
@@ -86,7 +86,7 @@ def describe_ClassOffering():
             assert "\n" not in d
             assert "<b>" not in d
 
-        def context_with_a_blank_description():
+        def describe_with_a_blank_description():
             def it_falls_back_to_a_category_aware_default(db):
                 o = ClassOfferingFactory(description="")
                 assert len(o.seo_description) >= 40

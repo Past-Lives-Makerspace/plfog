@@ -147,7 +147,7 @@ def describe_teach_overview():
             assert resp.context["stats"]["published"] == 1
 
     def describe_guild_lead_queue():
-        def context_when_member_is_a_guild_lead():
+        def describe_when_member_is_a_guild_lead():
             def it_shows_the_pending_class_with_a_review_link(instructor_fixture, client):
                 from classes.models import ClassApproval
 
@@ -159,7 +159,7 @@ def describe_teach_overview():
                 token = offering.approvals.get(role=ClassApproval.Role.GUILD_LEAD).token
                 assert reverse("classes:class_review", kwargs={"token": token}).encode() in resp.content
 
-        def context_when_member_is_not_a_guild_lead():
+        def describe_when_member_is_not_a_guild_lead():
             def it_hides_the_panel(instructor_fixture, client):
                 ClassOfferingFactory(instructor=instructor_fixture, slug="ord")
                 client.force_login(instructor_fixture.user)

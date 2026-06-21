@@ -57,7 +57,7 @@ def describe_persona():
         assert persona(req)["persona"] == "instructor"
         assert persona(req)["is_instructor_persona"] is True
 
-    def context_when_user_is_both_member_and_instructor():
+    def describe_when_user_is_both_member_and_instructor():
         def it_prefers_member_persona(rf, db):
             user = UserFactory()
             _airtable_member(user)
