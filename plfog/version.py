@@ -27,6 +27,9 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "The registration page now offers a clear choice up front: log in, create a free account to manage your bookings, or simply continue as a guest.",
             "If you create an account, we ask these questions just once during sign-up, so you're not re-typing the same things every time you book a class.",
             "Guild Leads can now reliably manage their guild's classes and pages. If you lead a guild, you can edit and adjust any class in your guild's categories — and the Edit/Adjust controls only ever appear for that guild's lead or an admin. Previously some guild leads were treated as regular members and couldn't save their changes.",
+            "Admins now have a single Registrations page listing everyone signed up across all classes, with search, quick filters by class and status, and a one-click export to a spreadsheet.",
+            "Instructors and guild leads get that same Registrations view for just their own classes, so they can see who's coming to what they teach without needing admin access.",
+            "From a registration, an admin can now cancel a spot, move someone to a different class, or mark a refund — marking a refund frees the seat and offers it to the next person on the waitlist, with a direct link to finish the actual refund in Stripe.",
         ],
     },
     {

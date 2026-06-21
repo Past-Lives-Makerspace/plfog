@@ -1467,6 +1467,48 @@ class Registration(models.Model):
         if previously_held_a_spot:
             self.class_offering.promote_next_from_waitlist()
 
+    def mark_refunded(self, reason: str = "", actor: "User | None" = None) -> None:
+        """Record this registration as refunded — record-only, issues no Stripe refund.
+
+        The actual money refund is issued by hand in the Stripe dashboard; this
+        records the decision, frees the spot, and promotes the waitlist. The
+        REFUNDED status transition in ``save()`` logs the audit entry and notifies
+        the registrant; ``actor`` is threaded through ``_acting_user`` so the feed
+        attributes the admin rather than "System".
+        """
+        previously_held_a_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
+        self._acting_user = actor
+        self.status = self.Status.REFUNDED
+        self.cancellation_reason = reason
+        self.save(update_fields=["status", "cancellation_reason"])
+        if previously_held_a_spot:
+            self.class_offering.promote_next_from_waitlist()
+
+    def move_to(self, target: "ClassOffering", actor: "User | None" = None) -> None:
+        """Reassign this registration to a different class, keeping payment as-is.
+
+        No price reconciliation: ``amount_paid_cents`` is unchanged. The source
+        class's waitlist is promoted if this registration was holding a spot
+        there. Raises ``ValueError`` if ``target`` is the current class.
+        """
+        if target.pk == self.class_offering_id:
+            raise ValueError("Cannot move a registration to its current class.")
+        source = self.class_offering
+        held_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
+        self.class_offering = target
+        self.save(update_fields=["class_offering"])
+        from classes import activity
+
+        activity.log(
+            CmsActivity.Kind.REGISTRATION_MOVED,
+            class_offering=target,
+            registration=self,
+            actor=actor,
+            payload={"from": source.title, "to": target.title},
+        )
+        if held_spot:
+            source.promote_next_from_waitlist()
+
     @property
     def waitlist_position(self) -> int | None:
         """Rank among WAITLISTED rows for the same class, lowest = first in line.
@@ -1647,6 +1689,7 @@ class CmsActivity(models.Model):
         REGISTRATION_CONFIRMED = "registration_confirmed", "Payment confirmed"
         REGISTRATION_CANCELLED = "registration_cancelled", "Cancelled"
         REGISTRATION_REFUNDED = "registration_refunded", "Refunded"
+        REGISTRATION_MOVED = "registration_moved", "Moved"
         WAITLIST_JOINED = "waitlist_joined", "Joined waitlist"
         WAITLIST_NOTIFIED = "waitlist_notified", "Notified of open spot"
         WAITLIST_LEFT = "waitlist_left", "Left waitlist"

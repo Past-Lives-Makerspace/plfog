@@ -13,7 +13,7 @@ from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum
+from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import TruncDate
 from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -797,6 +797,56 @@ def classes_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
         return view_func(request, *args, **kwargs)
 
     return wrapper  # type: ignore[return-value]
+
+
+def classes_registrations_access_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator: the consolidated registrations list/export is open to admins and
+    to instructors/guild-leads, who see only their own classes' registrations.
+
+    Admins reach it via their actual admin role (preview-independent). Everyone
+    else needs at least one class they can edit (``editable_by``) — a plain member
+    with no classes is forbidden. Mutating a registration (cancel / move / refund)
+    stays admin-only via ``classes_admin_access_required``.
+    """
+
+    @wraps(view_func)
+    @login_required
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        view_as = getattr(request, "view_as", None)
+        if view_as is not None and view_as.has_actual("admin"):
+            return view_func(request, *args, **kwargs)
+        member = getattr(request.user, "member", None)
+        if member is not None and ClassOffering.objects.editable_by(member).exists():
+            return view_func(request, *args, **kwargs)
+        return HttpResponseForbidden("You don't have access to registrations.")
+
+    return wrapper  # type: ignore[return-value]
+
+
+def _scoped_registrations(request: HttpRequest) -> QuerySet[Registration]:
+    """Registrations this request may see.
+
+    Admins and guild officers see every registration; everyone else sees only
+    those for classes they can edit (a class they instruct, or one in a guild
+    they lead). Callers are gated by ``classes_registrations_access_required``,
+    so a non-admin here always has a linked member.
+    """
+    qs = Registration.objects.select_related("class_offering", "member")
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual("admin"):
+        return qs
+    return qs.filter(class_offering__in=ClassOffering.objects.editable_by(request.user.member))
+
+
+def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> QuerySet[Registration]:
+    """Apply the optional ``status`` and ``class`` GET filters to a registration queryset."""
+    status = request.GET.get("status", "")
+    if status in Registration.Status.values:
+        qs = qs.filter(status=status)
+    raw_class = request.GET.get("class", "")
+    if raw_class.isdigit():
+        qs = qs.filter(class_offering_id=int(raw_class))
+    return qs
 
 
 @teaching_member_required
@@ -2128,34 +2178,58 @@ def admin_category_delete(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:admin_categories")
 
 
-@classes_admin_access_required
+@classes_registrations_access_required
 def admin_registrations(request: HttpRequest) -> HttpResponse:
+    scoped = _scoped_registrations(request)
     table = prepare_table(
         request,
-        Registration.objects.select_related("class_offering", "member"),
+        _filter_registrations(request, scoped),
         search_fields=["first_name", "last_name", "email", "class_offering__title"],
         default_sort="registered_at",
         default_dir="desc",
     )
+    class_options = ClassOffering.objects.filter(registrations__in=scoped).distinct().order_by("title")
     return render(
         request,
         "classes/admin/registrations.html",
-        {"active_tab": "registrations", **table},
+        {
+            "active_tab": "registrations",
+            "status_choices": Registration.Status.choices,
+            "status_filter": request.GET.get("status", ""),
+            "class_options": class_options,
+            "class_filter": request.GET.get("class", ""),
+            **table,
+        },
     )
 
 
-@classes_admin_access_required
+@classes_registrations_access_required
+def admin_registrations_export(request: HttpRequest) -> StreamingHttpResponse:
+    """Download the filtered, role-scoped registrations list as a CSV."""
+    from classes.exports import stream_registrations_query_csv
+
+    registrations = _filter_registrations(request, _scoped_registrations(request))
+    return stream_registrations_query_csv(registrations, filename_stem="registrations")
+
+
+@classes_registrations_access_required
 def admin_registration_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    from classes.forms import RegistrationMoveForm
+
     registration = get_object_or_404(
-        Registration.objects.select_related("class_offering", "member", "discount_code").prefetch_related(
-            "waivers", "custom_answers__question"
-        ),
+        _scoped_registrations(request)
+        .select_related("discount_code")
+        .prefetch_related("waivers", "custom_answers__question"),
         pk=pk,
     )
     return render(
         request,
         "classes/admin/registration_detail.html",
-        {"active_tab": "registrations", "registration": registration},
+        {
+            "active_tab": "registrations",
+            "registration": registration,
+            "move_form": RegistrationMoveForm(current=registration.class_offering),
+        },
     )
 
 
@@ -2166,6 +2240,32 @@ def admin_registration_cancel(request: HttpRequest, pk: int) -> HttpResponse:
         actor = request.user if request.user.is_authenticated else None
         registration.cancel(reason=request.POST.get("reason", ""), actor=actor)
         messages.success(request, "Registration cancelled.")
+    return redirect("classes:admin_registration_detail", pk=pk)
+
+
+@classes_admin_access_required
+@require_POST
+def admin_registration_move(request: HttpRequest, pk: int) -> HttpResponse:
+    from classes.forms import RegistrationMoveForm
+
+    registration = get_object_or_404(Registration, pk=pk)
+    form = RegistrationMoveForm(request.POST, current=registration.class_offering)
+    if form.is_valid():
+        actor = request.user if request.user.is_authenticated else None
+        registration.move_to(form.cleaned_data["target"], actor=actor)
+        messages.success(request, "Registration moved.")
+    else:
+        messages.error(request, "Could not move registration — pick a valid class.")
+    return redirect("classes:admin_registration_detail", pk=pk)
+
+
+@classes_admin_access_required
+@require_POST
+def admin_registration_refund(request: HttpRequest, pk: int) -> HttpResponse:
+    registration = get_object_or_404(Registration, pk=pk)
+    actor = request.user if request.user.is_authenticated else None
+    registration.mark_refunded(reason=request.POST.get("reason", ""), actor=actor)
+    messages.success(request, "Registration marked as refunded.")
     return redirect("classes:admin_registration_detail", pk=pk)
 
 

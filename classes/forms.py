@@ -924,3 +924,28 @@ class AdminClassEmailForm(forms.Form):
                 [InstructorMessageRecipient(message=message, registration=r, email=r.email) for r in registrations]
             )
         return message
+
+
+class RegistrationMoveForm(forms.Form):
+    """Pick a different class to reassign a registration to.
+
+    The target queryset excludes the registration's current class, so a
+    same-class move can't be selected (or POSTed) at all — no extra clean needed.
+    """
+
+    target = forms.ModelChoiceField(
+        queryset=ClassOffering.objects.none(),
+        label="Move to class",
+        empty_label="Choose a class…",
+    )
+
+    def __init__(self, *args: object, current: "ClassOffering | None" = None, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        offerings = ClassOffering.objects.all()
+        if current is not None:
+            offerings = offerings.exclude(pk=current.pk)
+        self.fields["target"].queryset = offerings.order_by("title")
+        self.fields["target"].widget.attrs["style"] = (
+            "padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; "
+            "background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;"
+        )

@@ -1,14 +1,32 @@
 {% extends "classes/admin/base.html" %}
 {% load classes_tags %}
 {% block tab_content %}
-<div class="admin-toolbar">
-    {% include "components/table_search.html" with q=q placeholder="Search registrations…" %}
-</div>
+<form method="get" class="admin-toolbar" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search registrations…"
+           style="padding:0.45rem 0.75rem; min-width:200px; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
+    <select name="status" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
+        <option value="">All statuses</option>
+        {% for value, label in status_choices %}
+        <option value="{{ value }}"{% if value == status_filter %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+    </select>
+    <select name="class" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
+        <option value="">All classes</option>
+        {% for offering in class_options %}
+        <option value="{{ offering.pk }}"{% if offering.pk|stringformat:'s' == class_filter %} selected{% endif %}>{{ offering.title }}</option>
+        {% endfor %}
+    </select>
+    {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+    {% if sort_dir %}<input type="hidden" name="dir" value="{{ sort_dir }}">{% endif %}
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
+    <a href="{% url 'classes:admin_registrations_export' %}{% if base_params %}?{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">Export CSV</a>
+</form>
 <div class="admin-table-wrap">
 <table>
     <thead>
         <tr>
             {% sort_header "Date" "registered_at" sort sort_dir base_params %}
+            {% sort_header "Order #" "order_number" sort sort_dir base_params %}
             {% sort_header "Class" "class_offering__title" sort sort_dir base_params %}
             {% sort_header "Registrant" "last_name" sort sort_dir base_params %}
             <th>Member</th>
@@ -20,7 +38,8 @@
     {% for r in page %}
         <tr>
             <td>{{ r.registered_at|date:"Y-m-d H:i" }}</td>
-            <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.class_offering.title }}</a></td>
+            <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.order_number }}</a></td>
+            <td>{{ r.class_offering.title }}</td>
             <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.first_name }} {{ r.last_name }}</a> <small style="color:var(--hub-text-muted);">({{ r.email }})</small></td>
             <td>{% if r.member %}Yes{% else %}—{% endif %}</td>
             <td>{{ r.get_status_display }}</td>
@@ -28,7 +47,7 @@
         </tr>
     {% empty %}
         <tr>
-            <td colspan="6" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
+            <td colspan="7" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
                 {% if q %}No registrations matching "{{ q }}".{% else %}No registrations yet.{% endif %}
             </td>
         </tr>

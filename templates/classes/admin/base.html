@@ -11,10 +11,15 @@
            target="_blank" rel="noopener" title="See the public booking catalog">View live catalog ↗</a>
     </div>
     <nav style="display: flex; border-bottom: 1px solid var(--hub-border); gap: 0; margin-bottom: 1.25rem; flex-wrap: wrap;" role="tablist">
-        {% with overview_tabs="overview activity registrations" settings_tabs="categories discount_codes questions settings" %}
+        {% with overview_tabs="overview activity" settings_tabs="categories discount_codes questions settings" %}
+        {% if request.view_as.actual_is_admin %}
         <a href="{% url 'classes:admin_overview' %}" class="vote-tab{% if active_tab in overview_tabs.split %} vote-tab--active{% endif %}">Overview</a>
         <a href="{% url 'classes:admin_classes' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}">Classes</a>
+        {% endif %}
+        <a href="{% url 'classes:admin_registrations' %}" class="vote-tab{% if active_tab == 'registrations' %} vote-tab--active{% endif %}">Registrations</a>
+        {% if request.view_as.actual_is_admin %}
         <a href="{% url 'classes:admin_settings_hub' %}" class="vote-tab{% if active_tab in settings_tabs.split %} vote-tab--active{% endif %}">Settings</a>
+        {% endif %}
         {% endwith %}
     </nav>
     {% block tab_content %}{% endblock %}
