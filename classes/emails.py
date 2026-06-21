@@ -67,6 +67,61 @@ def send_registration_confirmation(registration: "Registration") -> None:
     )
 
 
+def _welcome_email_bodies(offering: "ClassOffering", *, greeting_name: str, self_serve_url: str) -> tuple[str, str]:
+    """Render the (text, html) bodies for an instructor's welcome email."""
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    context = {
+        "offering": offering,
+        "greeting_name": greeting_name,
+        "upcoming_sessions": upcoming_sessions,
+        "self_serve_url": self_serve_url,
+        "body": offering.welcome_email_body,
+    }
+    text_body = render_to_string("classes/emails/welcome.txt", context)
+    html_body = render_to_string("classes/emails/welcome.html", context)
+    return text_body, html_body
+
+
+def send_class_welcome_email(registration: "Registration") -> None:
+    """Send the instructor-authored welcome email to a newly-confirmed registrant.
+
+    Best-effort and a no-op unless the class's welcome email is enabled and has a
+    subject + body (``welcome_email_ready``). Called right after the order
+    confirmation on the free-class and paid-webhook confirmation paths, so it
+    reaches only people who are actually in the class (never waitlist joins).
+    """
+    offering = registration.class_offering
+    if not offering.welcome_email_ready:
+        return
+    self_serve_url = _absolute_url(reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}))
+    text_body, html_body = _welcome_email_bodies(
+        offering, greeting_name=registration.first_name, self_serve_url=self_serve_url
+    )
+    core_email.send(
+        to=registration.email,
+        subject=offering.welcome_email_subject,
+        trigger_kind="classes.welcome_email",
+        text_body=text_body,
+        html_body=html_body,
+        best_effort=True,
+    )
+
+
+def send_class_welcome_email_test(offering: "ClassOffering", recipient_email: str) -> None:
+    """Send a test render of a class's welcome email to one address (the editor)."""
+    text_body, html_body = _welcome_email_bodies(
+        offering, greeting_name="there", self_serve_url=_absolute_url(reverse("classes:public_list"))
+    )
+    core_email.send(
+        to=recipient_email,
+        subject=f"[Test] {offering.welcome_email_subject}",
+        trigger_kind="classes.welcome_email_test",
+        text_body=text_body,
+        html_body=html_body,
+        best_effort=True,
+    )
+
+
 def send_instructor_registration_notification(registration: "Registration") -> None:
     """Notify the instructor that someone registered for their class."""
     offering = registration.class_offering

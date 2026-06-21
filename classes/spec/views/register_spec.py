@@ -118,6 +118,15 @@ def describe_register_view():
         assert len(mail.outbox) == 2  # confirmation + instructor notification
         assert "confirmed" in mail.outbox[0].subject.lower()
 
+    def it_also_sends_the_instructor_welcome_email_when_enabled(free_offering, client):
+        free_offering.welcome_email_enabled = True
+        free_offering.welcome_email_subject = "Welcome to the demo"
+        free_offering.welcome_email_body = "Bring your curiosity."
+        free_offering.save(update_fields=["welcome_email_enabled", "welcome_email_subject", "welcome_email_body"])
+        client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=_post_data())
+        subjects = [m.subject for m in mail.outbox]
+        assert "Welcome to the demo" in subjects  # fires alongside the order confirmation
+
     def it_attributes_free_class_confirmation_to_the_registrant(free_offering, client, member_user):
         from classes.models import CmsActivity
 

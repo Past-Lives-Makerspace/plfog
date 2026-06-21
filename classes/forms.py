@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from django import forms
 from django.core.exceptions import ValidationError
 from django.forms import inlineformset_factory
+from django.utils import timezone
 from django.utils.text import slugify
 
 from classes.models import (
@@ -949,3 +950,50 @@ class RegistrationMoveForm(forms.Form):
             "padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; "
             "background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;"
         )
+
+
+class TeachWelcomeEmailForm(forms.ModelForm):
+    """Edit a class's instructor-authored welcome email.
+
+    Enabling the email requires a subject and a body, so an empty welcome email
+    can never be switched on. Saving stamps ``welcome_email_updated_at``.
+    """
+
+    class Meta:
+        model = ClassOffering
+        fields = ["welcome_email_enabled", "welcome_email_subject", "welcome_email_body"]
+        widgets = {
+            "welcome_email_subject": forms.TextInput(
+                attrs={
+                    "placeholder": "Welcome to the class!",
+                    "style": "width:100%; padding:0.45rem 0.75rem; border:1px solid var(--hub-border); "
+                    "border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.9rem;",
+                }
+            ),
+            "welcome_email_body": forms.Textarea(
+                attrs={
+                    "rows": 12,
+                    "style": "width:100%; padding:0.6rem 0.75rem; border:1px solid var(--hub-border); "
+                    "border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.9rem; "
+                    "line-height:1.6;",
+                }
+            ),
+        }
+        labels = {
+            "welcome_email_enabled": "Send this welcome email to new registrants",
+            "welcome_email_subject": "Subject",
+            "welcome_email_body": "Message",
+        }
+
+    def clean(self) -> dict[str, object]:
+        cleaned = super().clean()
+        if cleaned.get("welcome_email_enabled"):
+            if not (cleaned.get("welcome_email_subject") or "").strip():
+                self.add_error("welcome_email_subject", "Add a subject before turning the welcome email on.")
+            if not (cleaned.get("welcome_email_body") or "").strip():
+                self.add_error("welcome_email_body", "Add a message before turning the welcome email on.")
+        return cleaned
+
+    def save(self, commit: bool = True) -> ClassOffering:
+        self.instance.welcome_email_updated_at = timezone.now()
+        return super().save(commit=commit)

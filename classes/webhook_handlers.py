@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from classes.emails import (
     send_admin_registration_notification,
+    send_class_welcome_email,
     send_instructor_registration_notification,
     send_registration_confirmation,
 )
@@ -90,6 +91,7 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
             )
 
     send_registration_confirmation(registration)
+    send_class_welcome_email(registration)
     send_instructor_registration_notification(registration)
     _instructor = registration.class_offering.instructor
     if _instructor is not None and _instructor.user is not None:

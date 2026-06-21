@@ -302,6 +302,20 @@ class ClassOffering(HeroCropMixin, models.Model):
             "Derived from the normalized title + category on save; empty offerings stand alone."
         ),
     )
+    welcome_email_enabled = models.BooleanField(
+        default=False,
+        help_text="When on, every new registrant also receives the instructor's welcome email.",
+    )
+    welcome_email_subject = models.CharField(
+        max_length=200, blank=True, help_text="Subject line for the instructor's welcome email."
+    )
+    welcome_email_body = models.TextField(
+        blank=True,
+        help_text="The welcome message sent to each new registrant. Plain text; line breaks are preserved.",
+    )
+    welcome_email_updated_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the welcome email content was last edited."
+    )
 
     objects = ClassOfferingQuerySet.as_manager()
 
@@ -317,6 +331,16 @@ class ClassOffering(HeroCropMixin, models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+    @property
+    def welcome_email_ready(self) -> bool:
+        """True when the instructor welcome email is enabled and has subject + body.
+
+        The send path checks this so an enabled-but-empty welcome email never goes out.
+        """
+        return bool(
+            self.welcome_email_enabled and self.welcome_email_subject.strip() and self.welcome_email_body.strip()
+        )
 
     def save(self, *args, **kwargs) -> None:
         from django.conf import settings

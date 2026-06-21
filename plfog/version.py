@@ -30,6 +30,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Admins now have a single Registrations page listing everyone signed up across all classes, with search, quick filters by class and status, and a one-click export to a spreadsheet.",
             "Instructors and guild leads get that same Registrations view for just their own classes, so they can see who's coming to what they teach without needing admin access.",
             "From a registration, an admin can now cancel a spot, move someone to a different class, or mark a refund — marking a refund frees the seat and offers it to the next person on the waitlist, with a direct link to finish the actual refund in Stripe.",
+            "Instructors can now write a custom 'welcome to my class' email that's sent automatically to everyone who signs up — perfect for what to bring, where to park, or how to prepare. It's separate from the order confirmation, off until you turn it on, and there's a 'send a test to me' button so you can see exactly how it'll look first.",
         ],
     },
     {

@@ -46,6 +46,7 @@ urlpatterns = [
         views.teach_class_discount_codes,
         name="teach_class_discount_codes",
     ),
+    path("teach/classes/<int:pk>/emails/", views.teach_class_emails, name="teach_class_emails"),
     path("teach/registrations/", views.teach_registrations, name="teach_registrations"),
     path(
         "teach/registrations/email/",

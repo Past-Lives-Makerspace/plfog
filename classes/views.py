@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 from classes.emails import (
     send_admin_registration_notification,
     send_class_review_decision,
+    send_class_welcome_email,
+    send_class_welcome_email_test,
     send_instructor_registration_notification,
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
@@ -43,6 +45,7 @@ from classes.forms import (
     ClassSettingsForm,
     DiscountCodeForm,
     TeachClassOfferingForm,
+    TeachWelcomeEmailForm,
     RegistrationForm,
     RegistrationQuestionForm,
 )
@@ -553,6 +556,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
                 _bump_discount_use_count(registration.discount_code_id)
                 _log_discount_redeemed(registration)
             send_registration_confirmation(registration)
+            send_class_welcome_email(registration)
             send_instructor_registration_notification(registration)
             _instructor = registration.class_offering.instructor
             if _instructor is not None and _instructor.user is not None:
@@ -1344,6 +1348,34 @@ def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
             "instructor": request.teaching_member,  # type: ignore[attr-defined]
             "offering": offering,
             "codes": codes,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@teaching_member_required
+def teach_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
+    """Author the per-class welcome email. Editable by the instructor, the guild's lead, or an admin."""
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    offering = get_object_or_404(ClassOffering.objects.editable_by(teaching_member), pk=pk)
+    form = TeachWelcomeEmailForm(request.POST or None, instance=offering)
+    if request.method == "POST" and form.is_valid():
+        offering = form.save()
+        if "send_test" in request.POST:
+            send_class_welcome_email_test(offering, request.user.email)
+            messages.success(request, f"Saved — and sent a test to {request.user.email}.")
+        else:
+            messages.success(request, "Welcome email saved.")
+        return redirect("classes:teach_class_emails", pk=offering.pk)
+    return render(
+        request,
+        "classes/teach/class_emails.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "emails",
+            "instructor": teaching_member,
+            "offering": offering,
+            "form": form,
             **_class_workspace_counts(offering),
         },
     )

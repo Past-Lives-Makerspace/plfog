@@ -1,0 +1,48 @@
+{% extends "classes/teach/class_detail_base.html" %}
+
+{% block detail_content %}
+<div style="max-width:640px;">
+    <p style="margin:0 0 0.25rem; font-size:1.05rem; font-weight:600;">Welcome email</p>
+    <p style="margin:0 0 1.25rem; color:var(--hub-text-muted); font-size:0.9rem;">
+        A personal note sent automatically to each new registrant — separate from the order
+        confirmation Past Lives already sends. Great for what to bring, where to park, or how to prep.
+        It's off until you turn it on below.
+    </p>
+
+    <form method="post">
+        {% csrf_token %}
+
+        <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; font-size:0.95rem;">
+            {{ form.welcome_email_enabled }} {{ form.welcome_email_enabled.label }}
+        </label>
+        {% for error in form.welcome_email_enabled.errors %}<p style="color:var(--hub-danger,#e57373); font-size:0.85rem; margin:0 0 0.5rem;">{{ error }}</p>{% endfor %}
+
+        <div style="margin-bottom:1rem;">
+            <label style="display:block; font-weight:600; font-size:0.85rem; color:var(--hub-text-muted); margin-bottom:0.35rem;">{{ form.welcome_email_subject.label }}</label>
+            {{ form.welcome_email_subject }}
+            {% for error in form.welcome_email_subject.errors %}<p style="color:var(--hub-danger,#e57373); font-size:0.85rem; margin:0.35rem 0 0;">{{ error }}</p>{% endfor %}
+        </div>
+
+        <div style="margin-bottom:1rem;">
+            <label style="display:block; font-weight:600; font-size:0.85rem; color:var(--hub-text-muted); margin-bottom:0.35rem;">{{ form.welcome_email_body.label }}</label>
+            {{ form.welcome_email_body }}
+            <p style="margin:0.35rem 0 0; color:var(--hub-text-muted); font-size:0.8rem;">Plain text — line breaks are kept.</p>
+            {% for error in form.welcome_email_body.errors %}<p style="color:var(--hub-danger,#e57373); font-size:0.85rem; margin:0.35rem 0 0;">{{ error }}</p>{% endfor %}
+        </div>
+
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+            <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Save</button>
+            <button type="submit" name="send_test" value="1" class="hub-btn hub-btn--sm hub-btn--ghost">Save &amp; send a test to me</button>
+            {% if offering.welcome_email_updated_at %}<span style="color:var(--hub-text-muted); font-size:0.8rem;">Last edited {{ offering.welcome_email_updated_at|date:"M j, Y g:i A" }}</span>{% endif %}
+        </div>
+    </form>
+
+    {% if offering.welcome_email_body %}
+    <div style="margin-top:1.5rem; padding:1rem; border:1px solid var(--hub-border); border-radius:8px;">
+        <p style="margin:0 0 0.5rem; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--hub-text-muted);">Preview</p>
+        <p style="margin:0 0 0.5rem; font-weight:600;">{{ offering.welcome_email_subject|default:"(no subject yet)" }}</p>
+        <div style="font-size:0.9rem; line-height:1.6;">{{ offering.welcome_email_body|linebreaks }}</div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
