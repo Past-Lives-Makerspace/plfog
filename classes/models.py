@@ -158,6 +158,17 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         return self.filter(instructor=instructor)
 
+    def editable_by(self, member: "Member") -> "ClassOfferingQuerySet":
+        """Offerings this member may edit.
+
+        Admins and guild officers may edit any class. Everyone else may edit the
+        classes they instruct plus any class whose category belongs to a guild
+        they lead (purely from the ``Guild.guild_lead`` FK — no role required).
+        """
+        if member.is_fog_admin or member.is_guild_officer:
+            return self
+        return self.filter(Q(instructor=member) | Q(category__guild__guild_lead=member)).distinct()
+
     def spots_remaining_map(self) -> dict[int, int]:
         """Map of ``{offering_pk: spots_remaining}`` for this queryset in one query.
 

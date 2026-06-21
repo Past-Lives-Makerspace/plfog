@@ -10,7 +10,10 @@
     {% for item in guild_lead_pending %}
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
         <span>{{ item.offering.title }}<span style="color:var(--hub-text-muted);"> · {{ item.offering.category.name }}</span></span>
-        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_review' token=item.token %}">Review</a>
+        <span style="display:flex;gap:6px;">
+          <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">Edit</a>
+          <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_review' token=item.token %}">Review</a>
+        </span>
       </div>
     {% empty %}
       <p style="color:var(--hub-text-muted);">Nothing waiting on your review right now.</p>

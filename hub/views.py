@@ -37,6 +37,9 @@ from hub.forms import (
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
 from membership.models import FundingSnapshot, Guild, Member, VotePreference
+from membership.permissions import can_edit_category as _can_edit_category
+from membership.permissions import can_edit_class as _can_edit_offering
+from membership.permissions import can_edit_guild as _can_edit_guild
 
 
 class VoteStanding(TypedDict, total=False):
@@ -280,52 +283,10 @@ def snapshot_detail(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "hub/snapshot_detail.html", {**ctx, "snapshot": snapshot})
 
 
-def _can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
-    """Return True when the request's user may edit this guild.
-
-    Only admins, guild officers, or this guild's own lead get edit controls.
-    Honors the ``view_as`` preview mode — an admin previewing as Guest or
-    Instructor sees the page without the edit buttons, matching what that
-    lower-role viewer would see.
-    """
-    if not request.user.is_authenticated:
-        return False
-    view_as = getattr(request, "view_as", None)
-    if view_as is None:
-        return False
-    if view_as.is_admin or view_as.is_guild_officer:
-        return True
-    if not view_as.is_member:
-        return False
-    member: Member | None = getattr(request.user, "member", None)
-    if member is None:
-        return False
-    return guild.guild_lead_id == member.pk
-
-
-def _can_edit_offering(request: HttpRequest, offering: ClassOffering) -> bool:
-    """Return True when the request's user may edit this class offering."""
-    if not request.user.is_authenticated:
-        return False
-    view_as = getattr(request, "view_as", None)
-    if view_as is None:
-        return False
-    # Admin and Officer can edit anything.
-    if view_as.is_admin or view_as.is_guild_officer:
-        return True
-    if not view_as.is_member:
-        return False
-
-    member: Member | None = getattr(request.user, "member", None)
-    if member is None:
-        return False
-
-    # Guild lead of the category's guild can edit.
-    if offering.category.guild_id and offering.category.guild and offering.category.guild.guild_lead_id == member.pk:
-        return True
-
-    # The instructor can edit their own classes.
-    return offering.instructor_id == member.pk
+# Edit-permission helpers now live in membership/permissions.py (the single
+# source of truth) and are imported above as _can_edit_guild / _can_edit_offering
+# / _can_edit_category. Guild-lead authority comes solely from the
+# Guild.guild_lead FK — no role or staff flag required.
 
 
 @login_required
@@ -354,13 +315,7 @@ def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
     elif isinstance(obj, ClassOffering):
         allowed = _can_edit_offering(request, obj)
     elif isinstance(obj, Category):
-        # Category follows the Guild lead permission.
-        if obj.guild_id and obj.guild:
-            allowed = _can_edit_guild(request, obj.guild)
-        else:
-            # If no guild, only Admin/Officer can edit.
-            view_as = getattr(request, "view_as", None)
-            allowed = view_as is not None and (view_as.is_admin or view_as.is_guild_officer)
+        allowed = _can_edit_category(request, obj)
 
     if not allowed:
         return JsonResponse({"error": "Forbidden"}, status=403)

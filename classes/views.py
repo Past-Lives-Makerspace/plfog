@@ -313,32 +313,32 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         .order_by("-created_at")[:3]
     )
     from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
+    from membership.permissions import can_edit_category as can_edit_category_perm
+    from membership.permissions import can_edit_class, is_effective_staff
 
     view_as = getattr(request, "view_as", None)
-    # Admins and Officers always get edit rights for heroes.
+    # is_admin reflects the *actual* role — used for banners/admin links on the page.
     is_admin = view_as is not None and (view_as.has_actual(ROLE_ADMIN) or view_as.has_actual(ROLE_GUILD_OFFICER))
 
     member = getattr(request.user, "member", None)
     is_instructor = member is not None and offering.instructor_id == member.pk
 
-    can_edit_offering = is_admin or is_instructor
+    # One shared rule decides edit rights: admin/officer, the lead of the
+    # category's guild (FK only), or the instructor. view_as preview is honored.
+    can_edit_offering = can_edit_class(request, offering)
     edit_url = None
-    if is_admin:
-        edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
-    elif is_instructor:
-        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
-
-    can_edit_category = False
+    if can_edit_offering:
+        if is_effective_staff(request):
+            edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        else:
+            # Instructors and guild leads manage the class from the teaching portal.
+            edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
 
     # If the class has NO specific image (real or legacy), it falls back to the category image.
     has_no_class_image = not offering.image and not offering.legacy_image_url
-
-    if has_no_class_image and offering.category.hero_image:
-        if is_admin:
-            can_edit_category = True
-        elif member is not None and offering.category.guild_id:
-            # Guild Leads can adjust their category images.
-            can_edit_category = offering.category.guild.guild_lead_id == member.pk
+    can_edit_category = bool(
+        has_no_class_image and offering.category.hero_image and can_edit_category_perm(request, offering.category)
+    )
 
     offering_ct = ContentType.objects.get_for_model(ClassOffering)
     category_ct = ContentType.objects.get_for_model(Category)
@@ -979,7 +979,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
 def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     offering = get_object_or_404(
-        ClassOffering.objects.filter(instructor=teaching_member).prefetch_related("gallery_images"),
+        ClassOffering.objects.editable_by(teaching_member).prefetch_related("gallery_images"),
         pk=pk,
     )
     if offering.status in {ClassOffering.Status.PUBLISHED, ClassOffering.Status.ARCHIVED}:
@@ -1329,14 +1329,16 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     user_member = MemberModel.objects.filter(user=request.user).first()
     is_instructor = user_member is not None and offering.instructor_id == user_member.pk
 
-    if not (is_admin or is_instructor):
+    # The owning instructor, the lead of the category's guild, or any admin may preview.
+    if not (is_admin or (user_member is not None and user_member.can_edit_class(offering))):
         return HttpResponseForbidden("You can only preview your own classes.")
 
     can_edit_offering = True
     edit_url = None
     if is_admin:
         edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
-    elif is_instructor:
+    elif user_member is not None:
+        # Instructors and guild leads manage the class from the teaching portal.
         edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
     settings_obj = ClassSettings.load()
     member_price_cents = offering.member_price_cents

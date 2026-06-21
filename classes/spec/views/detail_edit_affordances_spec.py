@@ -21,6 +21,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.models import ClassOffering
+from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -80,4 +81,51 @@ def describe_detail_edit_affordances():
         assert response.status_code == 200
         assert response.context["can_edit_offering"] is False
         assert response.context["can_edit_category"] is False
+        assert response.context["edit_url"] is None
+
+    def it_offers_the_guild_lead_of_the_categorys_guild_class_editing(db, client):
+        # A plain member (no FOG role) who leads the category's guild — the
+        # production case that used to be blocked. They don't instruct the class.
+        lead_user = UserFactory(username="cat-guild-lead@example.com")
+        guild = GuildFactory(guild_lead=lead_user.member)
+        category = CategoryFactory(guild=guild)
+        offering = _published_with_session(
+            slug="guild-lead-detail",
+            category=category,
+            instructor=InstructorFactory(instructor_slug="not-the-lead"),
+        )
+
+        client.force_login(lead_user)
+        response = _detail(client, offering)
+
+        assert response.status_code == 200
+        assert response.context["is_admin"] is False
+        assert response.context["is_instructor"] is False
+        assert response.context["can_edit_offering"] is True
+        assert response.context["edit_url"] == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+
+    def it_hides_class_editing_from_a_lead_of_a_different_guild(db, client):
+        lead_user = UserFactory(username="other-guild-lead@example.com")
+        GuildFactory(guild_lead=lead_user.member)  # leads some other guild
+        offering = _published_with_session(
+            slug="foreign-guild-detail",
+            category=CategoryFactory(guild=GuildFactory()),
+        )
+
+        client.force_login(lead_user)
+        response = _detail(client, offering)
+
+        assert response.status_code == 200
+        assert response.context["can_edit_offering"] is False
+        assert response.context["edit_url"] is None
+
+    def it_hides_class_editing_from_a_plain_member(db, client):
+        plain_user = UserFactory(username="plain-member@example.com")
+        offering = _published_with_session(slug="plain-member-detail")
+
+        client.force_login(plain_user)
+        response = _detail(client, offering)
+
+        assert response.status_code == 200
+        assert response.context["can_edit_offering"] is False
         assert response.context["edit_url"] is None

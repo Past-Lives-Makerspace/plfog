@@ -26,6 +26,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Booked before as a guest, without an account? Enter the same email and your earlier answers come back automatically, with a clear note so it's never a surprise.",
             "The registration page now offers a clear choice up front: log in, create a free account to manage your bookings, or simply continue as a guest.",
             "If you create an account, we ask these questions just once during sign-up, so you're not re-typing the same things every time you book a class.",
+            "Guild Leads can now reliably manage their guild's classes and pages. If you lead a guild, you can edit and adjust any class in your guild's categories — and the Edit/Adjust controls only ever appear for that guild's lead or an admin. Previously some guild leads were treated as regular members and couldn't save their changes.",
         ],
     },
     {

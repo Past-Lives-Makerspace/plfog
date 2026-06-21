@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date as date_type
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -18,6 +18,9 @@ from core.images import normalize_field_if_uploaded
 from core.models import HeroCropMixin, SiteActivity
 from core.validators import validate_image_size
 from membership.managers import MemberEmailManager
+
+if TYPE_CHECKING:
+    from classes.models import ClassOffering
 
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
 
@@ -364,6 +367,21 @@ class Member(models.Model):
     def can_edit_guild(self, guild: Guild) -> bool:
         """True when this member may edit the given guild (admin, officer, or that guild's lead)."""
         return self.is_fog_admin or self.is_guild_officer or guild.guild_lead_id == self.pk
+
+    def can_edit_class(self, offering: ClassOffering) -> bool:
+        """True when this member may edit the class offering.
+
+        Editors are admins/officers, the lead of the class's category's guild
+        (purely from the ``Guild.guild_lead`` FK), or the class's own instructor.
+        Role-based — use ``membership.permissions.can_edit_class`` in views to
+        honor ``view_as`` preview mode.
+        """
+        if self.is_fog_admin or self.is_guild_officer:
+            return True
+        guild = offering.category.guild
+        if guild is not None and guild.guild_lead_id == self.pk:
+            return True
+        return offering.instructor_id == self.pk
 
     @property
     def is_guild_lead(self) -> bool:
