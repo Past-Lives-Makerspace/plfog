@@ -415,6 +415,11 @@ class UserProfile(models.Model):
         blank=True,
         help_text="List of Category slugs the user opted into for new-class email notifications.",
     )
+    custom_question_answers = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Remembered answers to the CMS registration questions, keyed by question id (as a string).",
+    )
     accessibility_note = models.TextField(
         blank=True,
         help_text="Free-text accessibility note from onboarding step 3.",
@@ -465,6 +470,31 @@ class UserProfile(models.Model):
                 changed.append(field_name)
         if changed:
             self.save(update_fields=changed)
+
+    def set_custom_answers(self, answers: dict[int, str]) -> None:
+        """Remember the user's answers to CMS registration questions for pre-fill next time.
+
+        Merges the incoming answers over whatever is already stored — a later
+        registration updates a changed answer but never wipes an unrelated one.
+        Empty/blank answers are ignored so a skipped optional question doesn't
+        clobber a previously remembered value. Keys are stored as strings because
+        JSON object keys are always strings.
+
+        Args:
+            answers: Map of RegistrationQuestion id to the answer text.
+        """
+        merged = dict(self.custom_question_answers)
+        changed = False
+        for question_id, text in answers.items():
+            if text in (None, ""):
+                continue
+            key = str(question_id)
+            if merged.get(key) != text:
+                merged[key] = text
+                changed = True
+        if changed:
+            self.custom_question_answers = merged
+            self.save(update_fields=["custom_question_answers", "updated_at"])
 
 
 class TransactionalEmailLog(models.Model):

@@ -145,3 +145,28 @@ class OnboardingStep3Form(forms.Form):
         self.fields["interest_category_slugs"].choices = [
             (c.slug, c.name) for c in Category.objects.order_by("sort_order", "name")
         ]
+
+
+class OnboardingQuestionsForm(forms.Form):
+    """The active CMS registration questions, asked once during signup onboarding.
+
+    Fields are injected dynamically (``custom_q_<pk>``) from the shared question
+    helper so the wording/required flags exactly match the public register form.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from classes.questions import active_questions, inject_fields
+
+        self.questions = list(active_questions())
+        inject_fields(self, self.questions)
+
+    @property
+    def question_fields(self):
+        """Bound fields for the dynamic questions, for templates to iterate."""
+        return [self[f"custom_q_{q.pk}"] for q in self.questions]
+
+    def answers(self) -> dict[int, str]:
+        from classes.questions import collect_answers
+
+        return collect_answers(self, self.questions)

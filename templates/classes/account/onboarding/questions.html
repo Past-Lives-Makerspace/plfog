@@ -1,0 +1,38 @@
+{% extends "classes/base_public.html" %}
+{% load static %}
+
+{% block classes_extra_head %}
+<link rel="stylesheet" href="{% static 'css/book-account.css' %}">
+{% endblock %}
+
+{% block portal_content %}
+<div class="bk bk-auth-surface"><div class="bk-scroll"><div class="bk-auth">
+  <div class="bk-onb">
+    <div class="bk-onb-progress">
+      {% for i in "123" %}<div class="bk-onb-step is-done"></div>{% endfor %}
+    </div>
+    <div class="bk-onb-eyebrow">
+      <span>Almost done</span>
+      <a class="skip" href="{% url 'account:overview' %}">Skip for now</a>
+    </div>
+    <h1>A few more <em>questions</em></h1>
+    <p class="bk-onb-sub">Answer these once and we'll fill them in for you whenever you register for a class. You can change them any time.</p>
+    <form method="post">{% csrf_token %}
+      <div style="text-align:left">
+        {% for cf in form.question_fields %}
+        <div style="margin-top:14px">
+          <label for="{{ cf.id_for_label }}" style="display:block;font-size:13px;margin-bottom:6px">{{ cf.label }}{% if cf.field.required %} <span aria-hidden="true">*</span>{% endif %}</label>
+          {{ cf }}
+          {% if cf.errors %}<ul class="bk-errors" style="margin:6px 0 0;color:var(--bk-danger,#d33)">{% for e in cf.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <div class="bk-onb-actions">
+        <a class="bk-onb-back" href="{% url 'account:onboarding_step3' %}">← Back</a>
+        <div class="spacer"></div>
+        <button type="submit" class="bk-btn-primary">Save &amp; finish</button>
+      </div>
+    </form>
+  </div>
+</div></div></div>
+{% endblock %}

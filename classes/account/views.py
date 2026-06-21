@@ -302,8 +302,52 @@ class OnboardingStep3View(OnboardingStepView):
     step = 3
     profile_fields = ("interest_category_slugs", "accessibility_note")
 
+    def get_success_url(self) -> str:
+        # When custom questions are configured, finish onboarding by asking them
+        # once. Completion (onboarding_completed_at) is stamped here regardless,
+        # so the questions step is purely additive and never blocks finishing.
+        from classes.questions import active_questions
+
+        if active_questions().exists():
+            return reverse_lazy("account:onboarding_questions").__str__()
+        return super().get_success_url()
+
     @property
     def form_class(self):
         from classes.account.forms import OnboardingStep3Form
 
         return OnboardingStep3Form
+
+
+class OnboardingQuestionsView(_RelayAwareLoginMixin, FormView):
+    """Optional final onboarding step: the CMS registration questions, asked once.
+
+    Reached after step 3 only when active questions exist. The answers are saved
+    to the user's profile so future class registrations pre-fill them.
+    """
+
+    template_name = "classes/account/onboarding/questions.html"
+    success_url = reverse_lazy("account:overview")
+
+    @property
+    def form_class(self):
+        from classes.account.forms import OnboardingQuestionsForm
+
+        return OnboardingQuestionsForm
+
+    def get_initial(self) -> dict[str, object]:
+        initial = super().get_initial()
+        from core.models import UserProfile
+
+        profile = UserProfile.objects.filter(user=cast("User", self.request.user)).first()
+        if profile is not None:
+            for key, value in profile.custom_question_answers.items():
+                initial[f"custom_q_{key}"] = value
+        return initial
+
+    def form_valid(self, form):
+        from core.models import UserProfile
+
+        profile, _ = UserProfile.objects.get_or_create(user=self.request.user)
+        profile.set_custom_answers(form.answers())
+        return super().form_valid(form)

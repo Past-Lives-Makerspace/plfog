@@ -21,6 +21,11 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "The 'email me a sign-in code' page now matches the site's light theme instead of falling back to a plain, unstyled page.",
             "Pages now show a slim progress bar at the top while loading or saving, so opening a class or saving a form no longer feels frozen on slower connections.",
             "The admin 'Sync Now' button for the legacy CMS now shows a spinner and a progress bar while it runs — and estimates how long it'll take based on the previous sync.",
+            "The extra questions on the registration form (like experience level or allergies) are now only the ones set up in the class admin — a few leftover sample questions that were showing by mistake have been cleared out.",
+            "We now remember your answers to those questions. The next time you register for a class while signed in, your previous answers are filled in for you — ready to tweak if anything's changed.",
+            "Booked before as a guest, without an account? Enter the same email and your earlier answers come back automatically, with a clear note so it's never a surprise.",
+            "The registration page now offers a clear choice up front: log in, create a free account to manage your bookings, or simply continue as a guest.",
+            "If you create an account, we ask these questions just once during sign-up, so you're not re-typing the same things every time you book a class.",
         ],
     },
     {

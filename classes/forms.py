@@ -25,6 +25,7 @@ from classes.models import (
     RegistrationQuestion,
     Waiver,
 )
+from classes.questions import active_questions, collect_answers, inject_fields
 from classes.templatetags.classes_tags import youtube_embed_id as _youtube_embed_id
 
 
@@ -584,6 +585,7 @@ class RegistrationForm(forms.ModelForm):
         client_ip: str = "",
         is_waitlist: bool = False,
         user: "AbstractBaseUser | AnonymousUser | None" = None,
+        custom_answers_initial: dict[int, str] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -605,8 +607,25 @@ class RegistrationForm(forms.ModelForm):
             # Waitlist signups don't transact money so the discount field is
             # noise on the form. Drop it so the registrant isn't confused.
             self.fields.pop("discount_code", None)
-        self._custom_questions = list(RegistrationQuestion.objects.filter(is_active=True))
-        self._inject_custom_question_fields()
+        self._custom_questions = list(active_questions())
+        inject_fields(self, self._custom_questions, custom_answers_initial)
+        if self._custom_questions:
+            # A returning guest has no email on first GET, so their saved answers
+            # can't pre-fill server-side yet. When the email changes, HTMX re-fetches
+            # just the questions block (hx-select) so previous answers appear without
+            # disturbing the rest of the form.
+            from django.urls import reverse
+
+            self.fields["email"].widget.attrs.update(
+                {
+                    "hx-get": reverse("classes:register", kwargs={"slug": offering.slug}),
+                    "hx-trigger": "change",
+                    "hx-target": "#custom-questions-block",
+                    "hx-select": "#custom-questions-block",
+                    "hx-swap": "outerHTML",
+                    "hx-include": "this",
+                }
+            )
         # On the first GET render, pre-fill the discount field with the best
         # class-scoped auto-apply code (if one exists). The registrant can
         # still clear it before submitting.
@@ -635,43 +654,6 @@ class RegistrationForm(forms.ModelForm):
         if self.member is not None and self.offering.member_price_cents is not None:
             base = self.offering.member_price_cents
         return DiscountCode.objects.best_auto_apply_for(self.offering, base)
-
-    def _inject_custom_question_fields(self) -> None:
-        """Add one dynamic form field per active RegistrationQuestion.
-
-        Field name pattern: ``custom_q_<pk>``. Type is mapped from the
-        question's ``question_type``. Required flag follows the question's
-        ``is_required``. choices_json drives the options for SINGLE_CHOICE.
-        """
-        for q in self._custom_questions:
-            field_name = f"custom_q_{q.pk}"
-            field: forms.Field
-            if q.question_type == RegistrationQuestion.QuestionType.LONG_TEXT:
-                field = forms.CharField(
-                    required=q.is_required,
-                    label=q.prompt,
-                    widget=forms.Textarea(attrs={"rows": 3}),
-                )
-            elif q.question_type == RegistrationQuestion.QuestionType.YES_NO:
-                field = forms.TypedChoiceField(
-                    required=q.is_required,
-                    label=q.prompt,
-                    choices=[("", "Choose…"), ("yes", "Yes"), ("no", "No")],
-                )
-            elif q.question_type == RegistrationQuestion.QuestionType.SINGLE_CHOICE:
-                options = [(c, c) for c in (q.choices_json or [])]
-                field = forms.ChoiceField(
-                    required=q.is_required,
-                    label=q.prompt,
-                    choices=[("", "Choose…")] + options,
-                )
-            else:  # SHORT_TEXT and any future fallthrough
-                field = forms.CharField(
-                    required=q.is_required,
-                    label=q.prompt,
-                    max_length=500,
-                )
-            self.fields[field_name] = field
 
     def clean_discount_code(self) -> DiscountCode | None:
         from django.db.models import Q
@@ -739,15 +721,21 @@ class RegistrationForm(forms.ModelForm):
             self._create_custom_answers(registration)
         return registration
 
+    def custom_answers(self) -> dict[int, str]:
+        """Non-empty answers to the custom questions, keyed by question id.
+
+        Exposed so the view can remember them on the registrant's profile after
+        a successful save without reaching into form internals.
+        """
+        return collect_answers(self, self._custom_questions)
+
     def _create_custom_answers(self, registration: Registration) -> None:
-        answers = []
-        for q in self._custom_questions:
-            raw = self.cleaned_data.get(f"custom_q_{q.pk}")
-            if raw in (None, ""):
-                continue
-            answers.append(RegistrationAnswer(registration=registration, question=q, answer_text=str(raw)))
-        if answers:
-            RegistrationAnswer.objects.bulk_create(answers)
+        rows = [
+            RegistrationAnswer(registration=registration, question_id=qid, answer_text=text)
+            for qid, text in self.custom_answers().items()
+        ]
+        if rows:
+            RegistrationAnswer.objects.bulk_create(rows)
 
     @property
     def custom_question_fields(self):

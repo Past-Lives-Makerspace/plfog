@@ -5,8 +5,9 @@ from __future__ import annotations
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.test import override_settings
 
-from classes.models import ClassOffering, Registration
+from classes.models import ClassOffering, Registration, RegistrationQuestion
 from core.management.commands.demo_data import (
     DEMO_EMAIL_DOMAIN,
     DEMO_SLUG_PREFIX,
@@ -55,6 +56,21 @@ def describe_demo_data_seed():
         call_command("demo_data")
         assert get_user_model().objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == first_user_count
         assert Registration.objects.filter(class_offering__slug__startswith=DEMO_SLUG_PREFIX).count() == first_reg_count
+
+
+def describe_demo_data_registration_questions():
+    @override_settings(DEBUG=True)
+    def it_seeds_questions_only_in_debug():
+        call_command("demo_data")
+
+        # The three demo questions are global; they only belong on a dev DB.
+        assert RegistrationQuestion.objects.filter(is_active=True).count() >= 3
+
+    @override_settings(DEBUG=False)
+    def it_does_not_seed_questions_on_a_real_environment():
+        call_command("demo_data")
+
+        assert not RegistrationQuestion.objects.exists()
 
 
 def describe_demo_data_remove():

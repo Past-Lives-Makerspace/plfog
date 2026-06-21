@@ -21,6 +21,15 @@
         <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">&larr; Class details</a>
       </div>
       <div class="detail-body">
+        {% if not user.is_authenticated %}
+        <div class="reg-account-band" style="display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;margin-bottom:12px;padding:10px 12px;border:1px solid var(--steel-dim,#1a4568);border-radius:8px;font-size:13px;">
+          <span>Booked with us before, or want to manage this booking later?</span>
+          <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" hx-boost="false" style="font-weight:600">Log in</a>
+          <span aria-hidden="true">·</span>
+          <a href="{% url 'account_signup' %}?next={{ request.path|urlencode }}" hx-boost="false" style="font-weight:600">Create an account</a>
+          <span style="color:var(--steel-dim)">— or just continue as a guest below.</span>
+        </div>
+        {% endif %}
         <div class="reg-summary">
           <div>{{ offering.title|strip_date_suffix }}</div>
           <div class="total">{{ offering.price_cents|cents_as_price }}</div>
@@ -108,18 +117,25 @@
             {% if form.discount_code.errors %}<ul class="reg-errors">{% for e in form.discount_code.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
           </div>
 
-          {% if form.custom_question_fields %}
-          <fieldset class="reg-custom-questions" style="margin:14px 0 4px;padding:12px 14px;border:1px solid var(--steel-dim,#1a4568);border-radius:8px;">
-            <legend style="padding:0 6px;font-size:12px;color:var(--steel-dim);">A few more questions</legend>
-            {% for cf in form.custom_question_fields %}
-            <div class="reg-field" style="margin-top:8px;">
-              <label for="{{ cf.id_for_label }}">{{ cf.label }}{% if cf.field.required %} <span aria-hidden="true">*</span>{% endif %}</label>
-              {{ cf }}
-              {% if cf.errors %}<ul class="reg-errors">{% for e in cf.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+          <div id="custom-questions-block">
+            {% if answers_prefilled %}
+            <div class="reg-prefill-note" style="margin:12px 0 0;padding:8px 12px;border-radius:8px;background:var(--surface-2,#eef4f9);font-size:12px;color:var(--steel-dim);">
+              We filled in answers from a previous booking with this email — please review and update anything that's changed.
             </div>
-            {% endfor %}
-          </fieldset>
-          {% endif %}
+            {% endif %}
+            {% if form.custom_question_fields %}
+            <fieldset class="reg-custom-questions" style="margin:14px 0 4px;padding:12px 14px;border:1px solid var(--steel-dim,#1a4568);border-radius:8px;">
+              <legend style="padding:0 6px;font-size:12px;color:var(--steel-dim);">A few more questions</legend>
+              {% for cf in form.custom_question_fields %}
+              <div class="reg-field" style="margin-top:8px;">
+                <label for="{{ cf.id_for_label }}">{{ cf.label }}{% if cf.field.required %} <span aria-hidden="true">*</span>{% endif %}</label>
+                {{ cf }}
+                {% if cf.errors %}<ul class="reg-errors">{% for e in cf.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+              </div>
+              {% endfor %}
+            </fieldset>
+            {% endif %}
+          </div>
 
           {% if form.wants_newsletter %}
           <label class="reg-check" style="margin-top:4px">

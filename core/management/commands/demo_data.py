@@ -19,6 +19,11 @@ Safety design (so this is safe to run on prod):
 - ``get_or_create`` everywhere — re-running ``seed`` is idempotent.
 - Direct ORM creation bypasses Mailchimp/Stripe/email side-effects entirely,
   so a prod seed does not pollute external services.
+- **Registration questions are seeded only when ``DEBUG`` is on.** They are
+  *global* (no ``demo-`` scoping is possible), so on a real environment they
+  would surface on every registrant's form. Questions are CMS-managed via the
+  admin in real environments; demo seeding stays in local dev. ``--remove``
+  still tears them down anywhere so a stale dev seed can always be cleaned up.
 
 Usage:
 
@@ -36,6 +41,7 @@ from datetime import timedelta
 from typing import Any
 
 from allauth.account.models import EmailAddress
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -102,7 +108,15 @@ class Command(BaseCommand):
         self._ensure_instructor_class_rosters(past_class, current_free_class, future_paid_class)
         self._ensure_guest_registration(current_free_class)
         self._ensure_discount_codes()
-        self._ensure_registration_questions()
+        # Registration questions are global (no demo- scoping), so seeding them on
+        # a real environment leaks them onto every registrant's form. Keep this in
+        # local dev only; real environments manage questions via the CMS admin.
+        if settings.DEBUG:
+            self._ensure_registration_questions()
+        else:
+            self.stdout.write(
+                self.style.WARNING("  Registration questions: skipped (DEBUG off — manage these in the CMS admin)")
+            )
 
         self.stdout.write(self.style.SUCCESS("\nDemo data ready. Log in details:"))
         self.stdout.write(f"  Student (non-member): {PERSONA_STUDENT_EMAIL}  /  password: {password}")

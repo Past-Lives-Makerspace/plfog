@@ -33,6 +33,7 @@ from classes.emails import (
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
 )
+from classes.questions import prefill_answers
 from classes.table import prepare_table
 from classes.forms import (
     CategoryForm,
@@ -450,6 +451,30 @@ def _cache_registration_to_profile(request: HttpRequest, registration: Registrat
 
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
     profile.cache_from_registration(registration)
+    # Remember the custom-question answers so the next registration pre-fills them.
+    answers = {a.question_id: a.answer_text for a in registration.custom_answers.all()}
+    if answers:
+        profile.set_custom_answers(answers)
+
+
+def _register_prefill(request: HttpRequest) -> tuple[str, dict[int, str], bool, dict[str, str]]:
+    """Resolve the email + pre-fill inputs for the registration form.
+
+    On POST the email comes from the submitted data; on GET an ``?email=`` query
+    (sent by the email field's HTMX recall) lets a returning guest's saved answers
+    pre-fill. Returns ``(bound_email, custom_answers_initial, answers_prefilled,
+    field_initial)`` — the field initial pre-fills standard fields from the
+    logged-in user's Member record (GET only).
+    """
+    if request.method == "POST":
+        bound_email = (request.POST.get("email") or "").strip()
+    else:
+        bound_email = (request.GET.get("email") or "").strip()
+    custom_answers_initial, answers_prefilled = prefill_answers(request.user, bound_email)
+    field_initial = {} if request.method == "POST" else _registration_initial_for_user(request.user)
+    if bound_email and request.method != "POST":
+        field_initial.setdefault("email", bound_email)
+    return bound_email, custom_answers_initial, answers_prefilled, field_initial
 
 
 def register(request: HttpRequest, slug: str) -> HttpResponse:
@@ -479,10 +504,8 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
 
     # Two-pass form: first POST validates email so we can detect a member
     # before computing price, then re-binds to surface the discounted total.
-    # GET requests pre-fill from the logged-in user's Member record when present.
-    bound_email = (request.POST.get("email") or "").strip() if request.method == "POST" else ""
+    bound_email, custom_answers_initial, answers_prefilled, initial = _register_prefill(request)
     member = _member_for_email(bound_email) if bound_email else None
-    initial = {} if request.method == "POST" else _registration_initial_for_user(request.user)
 
     form = RegistrationForm(
         request.POST or None,
@@ -493,6 +516,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         initial=initial,
         is_waitlist=is_waitlist,
         user=request.user,
+        custom_answers_initial=custom_answers_initial,
     )
 
     if request.method == "POST" and form.is_valid() and is_waitlist:
@@ -608,6 +632,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             "is_waitlist": is_waitlist,
             "upcoming_sessions": upcoming_sessions,
             "run_options": run_options,
+            "answers_prefilled": answers_prefilled,
         },
     )
 

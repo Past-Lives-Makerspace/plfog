@@ -15,4 +15,5 @@ urlpatterns = [
     path("onboarding/", views.OnboardingStep1View.as_view(), name="onboarding_step1"),
     path("onboarding/2/", views.OnboardingStep2View.as_view(), name="onboarding_step2"),
     path("onboarding/3/", views.OnboardingStep3View.as_view(), name="onboarding_step3"),
+    path("onboarding/questions/", views.OnboardingQuestionsView.as_view(), name="onboarding_questions"),
 ]
