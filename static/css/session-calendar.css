@@ -190,6 +190,21 @@
     color: inherit;
     font-size: 0.875rem;
 }
+/* The Duration <select>'s native option popup doesn't inherit the field's
+   colors — without this it renders light text on a near-white popup. */
+.session-cal__popover-input option {
+    background: var(--hub-elevated);
+    color: var(--hub-text);
+}
+/* The native date/time picker icon is black by default — invert it so it
+   reads on the dark theme, and restore the default in light mode. */
+.session-cal__popover-input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    filter: invert(1);
+}
+[data-theme="light"] .session-cal__popover-input::-webkit-calendar-picker-indicator {
+    filter: none;
+}
 .session-cal__popover-actions {
     display: flex;
     gap: 0.5rem;

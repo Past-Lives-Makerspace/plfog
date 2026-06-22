@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-VERSION = "0.18.4"
+VERSION = "0.18.5"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.18.5",
+        "date": "2026-06-22",
+        "title": "Easier session scheduling in dark mode",
+        "changes": [
+            "When scheduling class sessions, the date and time boxes now open their picker as soon as you click anywhere on them, and the little calendar and clock icons are now visible in dark mode. The 'Duration' menu options are readable in dark mode too.",
+        ],
+    },
     {
         "version": "0.18.4",
         "date": "2026-06-22",

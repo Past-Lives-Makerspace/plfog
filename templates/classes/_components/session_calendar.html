@@ -79,10 +79,12 @@ Generates hidden inputs matching Django's inline formset naming convention.
         </div>
         <div>
             <label class="session-cal__popover-label">Date</label>
-            <input type="date" x-model="popoverDate" class="session-cal__popover-input">
+            <input type="date" x-model="popoverDate" class="session-cal__popover-input"
+                   @click="try { $event.currentTarget.showPicker() } catch (e) {}">
 
             <label class="session-cal__popover-label">Start time</label>
-            <input type="time" x-model="popoverTime" class="session-cal__popover-input">
+            <input type="time" x-model="popoverTime" class="session-cal__popover-input"
+                   @click="try { $event.currentTarget.showPicker() } catch (e) {}">
 
             <label class="session-cal__popover-label">Duration</label>
             <select x-model.number="popoverDuration" class="session-cal__popover-input">
