@@ -95,7 +95,7 @@ def describe_guild_detail():
             guild = GuildFactory()
             _linked_user(client)
             response = client.get(f"/guilds/{guild.pk}/")
-            assert b"Join this guild" in response.content
+            assert b"Join This Guild" in response.content
 
         def it_hides_the_join_button_from_unlinked_accounts(client: Client):
             guild = GuildFactory()
@@ -105,7 +105,7 @@ def describe_guild_detail():
             Member.objects.filter(user=user).delete()
             client.login(username="unlinked_join", password="pass")
             response = client.get(f"/guilds/{guild.pk}/")
-            assert b"Join this guild" not in response.content
+            assert b"Join This Guild" not in response.content
 
     def describe_stat_chips():
         def it_hides_member_and_class_chips_when_zero(client: Client):
