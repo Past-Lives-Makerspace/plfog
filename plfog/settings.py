@@ -369,7 +369,13 @@ if _admin_domains_raw.strip():
 else:
     ADMIN_DOMAINS = []
 
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend" if DEBUG else "anymail.backends.resend.EmailBackend"
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend" if DEBUG else "anymail.backends.resend.EmailBackend",
+)
+# SMTP target for the local Mailpit catcher (only used when EMAIL_BACKEND is the SMTP backend).
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "1025"))
 
 ANYMAIL = {
     "RESEND_API_KEY": os.environ.get("RESEND_API_KEY"),
