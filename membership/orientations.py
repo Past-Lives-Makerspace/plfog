@@ -8,6 +8,7 @@ transition logs ``SiteActivity`` and fires an in-app notification.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import icalendar
@@ -282,3 +283,75 @@ def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:
     slot.save(update_fields=["is_cancelled", "cancelled_reason"])
     for booking in active:
         cancel_orientation(booking, actor_label="the guild")
+
+
+def complete_orientation(booking: OrientationBooking) -> None:
+    """Mark a booking complete, send the lead's thank-you email (if set), and log activity."""
+    from membership.models import GuildOrientationSettings
+
+    booking.mark_completed()
+    settings_obj = GuildOrientationSettings.objects.filter(guild=booking.guild).first()
+    if settings_obj is not None and settings_obj.thankyou_email_ready:
+        ctx = _context(booking, body=settings_obj.thankyou_email_body)
+        core_email.send(
+            to=booking.member.primary_email,
+            subject=settings_obj.thankyou_email_subject,
+            trigger_kind="orientations.thankyou",
+            text_body=render_to_string("membership/emails/orientation_thankyou.txt", ctx),
+            html_body=render_to_string("membership/emails/orientation_thankyou.html", ctx),
+            best_effort=True,
+        )
+    SiteActivity.log(SiteActivity.Kind.ORIENTATION_COMPLETED, actor=None, target=booking)
+
+
+def auto_complete(*, now: datetime | None = None) -> int:
+    """Complete confirmed orientations whose slot has ended. Returns the count completed."""
+    from membership.models import OrientationBooking
+
+    cutoff = now or timezone.now()
+    pending = OrientationBooking.objects.filter(
+        status=OrientationBooking.Status.CONFIRMED, is_completed=False, slot__ends_at__lt=cutoff
+    ).select_related("slot", "guild", "member", "oriented_by")
+    count = 0
+    for booking in pending:
+        complete_orientation(booking)
+        count += 1
+    return count
+
+
+def generate_slots(*, window_weeks: int = 8, now: datetime | None = None) -> int:
+    """Materialize bookable slots from active recurring rules across a rolling window.
+
+    Idempotent (a slot is keyed by its rule + start time), and skips guilds that
+    aren't currently accepting bookings. Returns the number of slots created.
+    """
+    from membership.models import GuildOrientationSettings, OrientationAvailability, OrientationSlot
+
+    reference = now or timezone.now()
+    today = timezone.localdate()
+    created = 0
+    for rule in OrientationAvailability.objects.filter(is_active=True).select_related("guild"):
+        settings_obj = GuildOrientationSettings.objects.filter(guild=rule.guild).first()
+        if settings_obj is None or not settings_obj.is_accepting:
+            continue
+        for offset in range(window_weeks * 7):
+            day = today + timedelta(days=offset)
+            if day.weekday() != rule.weekday:
+                continue
+            start_dt = timezone.make_aware(datetime.combine(day, rule.start_time))
+            if start_dt <= reference:
+                continue
+            _slot, was_created = OrientationSlot.objects.get_or_create(
+                availability=rule,
+                starts_at=start_dt,
+                defaults={
+                    "guild": rule.guild,
+                    "ends_at": timezone.make_aware(datetime.combine(day, rule.end_time)),
+                    "seats": rule.seats,
+                    "location": rule.location or settings_obj.default_location,
+                    "source": OrientationSlot.Source.GENERATED,
+                },
+            )
+            if was_created:
+                created += 1
+    return created

@@ -25,7 +25,7 @@ class Command(BaseCommand):
         failed: list[str] = []
 
         # --- Always-run tasks (idempotent, no-op outside their window) ---
-        for task in ("send_voting_reminders", "send_lease_expiry_reminders"):
+        for task in ("send_voting_reminders", "send_lease_expiry_reminders", "auto_complete_orientations"):
             try:
                 call_command(task, stdout=self.stdout, stderr=self.stderr)
                 self.stdout.write(f"  ✓ {task}")
@@ -33,16 +33,17 @@ class Command(BaseCommand):
                 self.stderr.write(self.style.ERROR(f"  ✗ {task}: {exc}"))
                 failed.append(task)
 
-        # --- Daily task: sync calendar + CMS sources (~6 AM Portland = 13:xx UTC) ---
+        # --- Daily tasks (~6 AM Portland = 13:xx UTC) ---
         if now.hour == 13:
-            try:
-                call_command("sync_all_sources", stdout=self.stdout, stderr=self.stderr)
-                self.stdout.write("  ✓ sync_all_sources")
-            except Exception as exc:
-                self.stderr.write(self.style.ERROR(f"  ✗ sync_all_sources: {exc}"))
-                failed.append("sync_all_sources")
+            for task in ("sync_all_sources", "generate_orientation_slots"):
+                try:
+                    call_command(task, stdout=self.stdout, stderr=self.stderr)
+                    self.stdout.write(f"  ✓ {task}")
+                except Exception as exc:
+                    self.stderr.write(self.style.ERROR(f"  ✗ {task}: {exc}"))
+                    failed.append(task)
         else:
-            self.stdout.write("  – sync_all_sources skipped (not 13:xx UTC)")
+            self.stdout.write("  – daily tasks skipped (not 13:xx UTC)")
 
         if failed:
             self.stderr.write(self.style.ERROR(f"Failed: {', '.join(failed)}"))

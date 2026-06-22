@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth.models import User
 from django.core import mail, signing
+from django.utils import timezone
 
 from core.models import Notification, SiteActivity
 from membership import orientations
-from membership.models import OrientationBooking
+from membership.models import OrientationBooking, OrientationSlot
 from tests.membership.factories import (
     GuildFactory,
     GuildOrientationSettingsFactory,
     MemberFactory,
     MembershipPlanFactory,
+    OrientationAvailabilityFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
 )
@@ -236,3 +240,107 @@ def describe_cancel_slot():
         assert first.status == OrientationBooking.Status.CANCELLED
         assert second.status == OrientationBooking.Status.CANCELLED
         assert len(mail.outbox) == 2
+
+
+def _past_confirmed_booking(guild: object) -> OrientationBooking:
+    slot = OrientationSlotFactory(
+        guild=guild,
+        starts_at=timezone.now() - timedelta(hours=3),
+        ends_at=timezone.now() - timedelta(hours=2),
+    )
+    booking = OrientationBookingFactory(slot=slot)
+    booking.confirm()
+    return booking
+
+
+def describe_complete_orientation():
+    def it_marks_complete_and_sends_the_thankyou_email():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(
+            guild=guild,
+            is_enabled=True,
+            thankyou_email_enabled=True,
+            thankyou_email_subject="Thanks!",
+            thankyou_email_body="Here are your next steps.",
+        )
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
+
+        orientations.complete_orientation(booking)
+
+        booking.refresh_from_db()
+        assert booking.is_completed is True
+        assert mail.outbox[0].subject == "Thanks!"
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_COMPLETED).exists()
+
+    def it_skips_the_email_when_not_configured():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
+
+        orientations.complete_orientation(booking)
+
+        booking.refresh_from_db()
+        assert booking.is_completed is True
+        assert mail.outbox == []
+
+
+def describe_auto_complete():
+    def it_completes_only_past_confirmed_bookings():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        past_confirmed = _past_confirmed_booking(guild)
+        future_confirmed = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
+        future_confirmed.confirm()
+        past_requested = OrientationBookingFactory(
+            slot=OrientationSlotFactory(
+                guild=guild,
+                starts_at=timezone.now() - timedelta(hours=3),
+                ends_at=timezone.now() - timedelta(hours=2),
+            )
+        )
+
+        completed = orientations.auto_complete()
+
+        assert completed == 1
+        past_confirmed.refresh_from_db()
+        future_confirmed.refresh_from_db()
+        past_requested.refresh_from_db()
+        assert past_confirmed.is_completed is True
+        assert future_confirmed.is_completed is False
+        assert past_requested.is_completed is False
+
+
+def describe_generate_slots():
+    def it_creates_future_slots_from_an_active_rule():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        OrientationAvailabilityFactory(guild=guild)
+
+        created = orientations.generate_slots()
+
+        assert created >= 1
+        assert OrientationSlot.objects.filter(guild=guild, source=OrientationSlot.Source.GENERATED).exists()
+
+    def it_is_idempotent():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        OrientationAvailabilityFactory(guild=guild)
+
+        first = orientations.generate_slots()
+        second = orientations.generate_slots()
+
+        assert first >= 1
+        assert second == 0
+
+    def it_skips_closed_guilds():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True, is_closed=True)
+        OrientationAvailabilityFactory(guild=guild)
+
+        assert orientations.generate_slots() == 0
+
+    def it_skips_guilds_without_settings():
+        guild = GuildFactory()
+        OrientationAvailabilityFactory(guild=guild)
+
+        assert orientations.generate_slots() == 0
