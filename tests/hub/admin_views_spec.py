@@ -86,6 +86,41 @@ def describe_admin_members():
         assert b"Findable Person" in response.content
 
 
+def describe_admin_member_invite():
+    def it_requires_login(client):
+        response = client.post(reverse("hub_admin_member_invite"), {"email": "new@x.com"})
+        assert response.status_code == 302
+
+    def it_forbids_plain_members(client):
+        user = _create_member_user(username="mi1")
+        client.login(username=user.username, password="p")
+        response = client.post(reverse("hub_admin_member_invite"), {"email": "new@x.com"})
+        assert response.status_code == 403
+
+    def it_rejects_get(client):
+        _create_superuser(client, username="invadmin")
+        response = client.get(reverse("hub_admin_member_invite"))
+        assert response.status_code == 405
+
+    def it_sends_an_invite_and_redirects(client):
+        from core.models import Invite
+
+        _create_superuser(client, username="invadmin")
+        response = client.post(reverse("hub_admin_member_invite"), {"email": "newbie@x.com"})
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_members")
+        assert Invite.objects.filter(email="newbie@x.com").exists()
+
+    def it_shows_an_error_for_an_existing_member(client):
+        from core.models import Invite
+
+        _create_superuser(client, username="invadmin")
+        _create_member_user(username="taken")  # active member with email taken@x.com
+        response = client.post(reverse("hub_admin_member_invite"), {"email": "taken@x.com"}, follow=True)
+        assert b"already exists" in response.content
+        assert not Invite.objects.filter(email="taken@x.com").exists()
+
+
 def describe_admin_member_edit_role_dispatch():
     def it_promotes_to_instructor(client):
         _create_superuser(client)

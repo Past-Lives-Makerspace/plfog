@@ -321,12 +321,25 @@ class Invite(models.Model):
         if plan is None:
             raise ValueError("Cannot invite: no membership plan exists yet.")
 
-        member = Member.objects.create(
-            _pre_signup_email=email,
-            full_legal_name=email,
-            membership_plan=plan,
-            status=Member.Status.INVITED,
+        # Reuse an existing invited placeholder (e.g. pulled from Airtable) instead of
+        # creating a duplicate Member for the same email. Only reuse one with no invite
+        # already attached, so the Invite.member one-to-one never collides.
+        member = (
+            Member.objects.filter(
+                _pre_signup_email__iexact=email,
+                status=Member.Status.INVITED,
+                invite__isnull=True,
+            )
+            .order_by("pk")
+            .first()
         )
+        if member is None:
+            member = Member.objects.create(
+                _pre_signup_email=email,
+                full_legal_name=email,
+                membership_plan=plan,
+                status=Member.Status.INVITED,
+            )
 
         invite = cls.objects.create(email=email, invited_by=invited_by, member=member)
         invite.send_invite_email()

@@ -1561,7 +1561,9 @@ def _get_calendar_context(
     events_qs = CalendarEvent.objects.filter(start_dt__date__gte=fetch_from, start_dt__date__lte=fetch_to)
     if guild is not None:
         events_qs = events_qs.filter(guild=guild)
-    all_events = list(events_qs.select_related("guild", "feed").order_by("start_dt"))
+    # CalendarEvent rows, optionally merged with synthetic guild entries (classes/orientations)
+    # that duck-type CalendarEvent — hence the Any element type.
+    all_events: list[Any] = list(events_qs.select_related("guild", "feed").order_by("start_dt"))
     if guild is not None:
         # Surface this guild's CMS classes + orientation slots on the calendar — they
         # aren't CalendarEvent rows, so wrap them as synthetic entries and merge in.
@@ -1881,6 +1883,25 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
     ctx = _get_hub_context(request)
     return render(request, "hub/admin/member_edit.html", {**ctx, "form": form, "member": member})
+
+
+@fog_admin_required
+@require_POST
+def admin_member_invite(request: HttpRequest) -> HttpResponse:
+    """Invite a member to the FOG app by email — reuses the core Invite flow."""
+    from core.models import Invite
+    from membership.forms import InviteMemberForm
+
+    form = InviteMemberForm(request.POST)
+    if form.is_valid():
+        try:
+            Invite.create_and_send(email=form.cleaned_data["email"], invited_by=request.user)
+            messages.success(request, f"Invite sent to {form.cleaned_data['email']}.")
+        except ValueError as exc:
+            messages.error(request, str(exc))
+    else:
+        messages.error(request, str(form.errors["email"][0]))
+    return redirect("hub_admin_members")
 
 
 def _legacy_instructor_sync_status() -> tuple[list[dict[str, object]], int]:

@@ -130,6 +130,16 @@ def describe_Invite():
             assert invite.member.status == Member.Status.INVITED
             assert invite.member._pre_signup_email == "fresh@example.com"
 
+        def it_reuses_an_existing_invited_member(admin_user):
+            from tests.membership.factories import MemberFactory
+
+            existing = MemberFactory(_pre_signup_email="airtable@example.com", status=Member.Status.INVITED)
+            with patch("core.email.send_mail"):
+                invite = Invite.create_and_send(email="airtable@example.com", invited_by=admin_user)
+
+            assert invite.member == existing
+            assert Member.objects.filter(_pre_signup_email__iexact="airtable@example.com").count() == 1
+
         def it_sends_invite_email(admin_user):
             MembershipPlanFactory()
             Invite.create_and_send(email="send@example.com", invited_by=admin_user)

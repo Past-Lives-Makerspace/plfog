@@ -127,6 +127,7 @@ urlpatterns = [
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
     path("manage/voting/", views.admin_voting_dashboard, name="hub_admin_voting_dashboard"),
     path("manage/members/", views.admin_members, name="hub_admin_members"),
+    path("manage/members/invite/", views.admin_member_invite, name="hub_admin_member_invite"),
     path("manage/members/<int:pk>/edit/", views.admin_member_edit, name="hub_admin_member_edit"),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
 ]
