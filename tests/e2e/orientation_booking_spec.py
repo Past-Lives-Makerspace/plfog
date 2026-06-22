@@ -9,13 +9,21 @@ from __future__ import annotations
 from django.urls import reverse
 from playwright.sync_api import expect
 
-from tests.membership.factories import GuildFactory, GuildOrientationSettingsFactory, OrientationSlotFactory
+from tests.membership.factories import (
+    GuildFactory,
+    GuildOrientationSettingsFactory,
+    MembershipPlanFactory,
+    OrientationSlotFactory,
+)
 
 MEMBER_EMAIL = "orient-member@example.com"
 
 
 def describe_orientation_booking():
     def it_lets_a_member_request_an_orientation(live_server, page, login_via_code):
+        # A plan must exist so the login signal auto-creates the member the
+        # orientation section is gated on (CI's fresh DB has none by default).
+        MembershipPlanFactory()
         guild = GuildFactory(name="Woodshop")
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True, info="Bring closed-toe shoes")
         OrientationSlotFactory(guild=guild, enabled_settings=False)
