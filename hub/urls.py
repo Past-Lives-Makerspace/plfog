@@ -37,6 +37,14 @@ urlpatterns = [
         name="hub_orientation_cancel_mine",
     ),
     path("orientation/act/<str:token>/", views.orientation_action, name="hub_orientation_action"),
+    path("orientations/", views.orientations_dashboard, name="hub_orientations_dashboard"),
+    path("orientations/export/", views.orientations_export, name="hub_orientations_export"),
+    path("orientations/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),
+    path(
+        "orientations/bookings/<int:booking_pk>/toggle-completed/",
+        views.orientation_toggle_completed,
+        name="hub_orientation_toggle_completed",
+    ),
     path("guilds/<int:pk>/join/", views.guild_join, name="hub_guild_join"),
     path("guilds/<int:pk>/leave/", views.guild_leave, name="hub_guild_leave"),
     path(

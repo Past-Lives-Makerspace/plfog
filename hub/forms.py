@@ -510,6 +510,21 @@ class OrientationSlotForm(forms.ModelForm):
         return cleaned
 
 
+class OrientationAddMemberForm(forms.Form):
+    """Admin/lead adds a member to an orientation slot from the dashboard."""
+
+    member = forms.ModelChoiceField(
+        queryset=Member.objects.filter(status=Member.Status.ACTIVE).order_by("full_legal_name"),
+        label="Member",
+    )
+    slot = forms.ModelChoiceField(queryset=OrientationSlot.objects.none(), label="Slot")
+
+    def __init__(self, *args: Any, slot_queryset: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if slot_queryset is not None:
+            cast(forms.ModelChoiceField, self.fields["slot"]).queryset = slot_queryset
+
+
 class GuildAnnouncementForm(forms.ModelForm):
     """Post a news announcement on a guild page."""
 

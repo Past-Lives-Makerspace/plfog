@@ -14,7 +14,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST, require_http_methods
@@ -717,6 +717,151 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
         return render(request, "hub/orientation_action.html", {"invalid": True}, status=400)
     result = orientations.apply_token_action(booking, action) if request.method == "POST" else None
     return render(request, "hub/orientation_action.html", {"booking": booking, "action": action, "result": result})
+
+
+def _can_access_orientations(request: HttpRequest) -> bool:
+    """True for admins and any guild lead — they may view the orientations dashboard."""
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual("admin"):
+        return True
+    member = _get_member(request)
+    return member is not None and member.is_guild_lead
+
+
+def _manageable_slots(request: HttpRequest) -> Any:
+    """Upcoming slots this request may add members to: all for admins, own-guild for leads."""
+    from membership.models import OrientationSlot
+
+    qs = OrientationSlot.objects.upcoming().select_related("guild")
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual("admin"):
+        return qs
+    member = _get_member(request)
+    if member is None:
+        return OrientationSlot.objects.none()
+    return qs.filter(guild__guild_lead=member)
+
+
+def _filter_orientations(request: HttpRequest, bookings: Any) -> Any:
+    """Apply the dashboard's guild / scope / status / completed / date-range filters."""
+    member = _get_member(request)
+    guild_filter = request.GET.get("guild", "")
+    if guild_filter.isdigit():
+        bookings = bookings.filter(guild_id=int(guild_filter))
+    if request.GET.get("scope") == "mine" and member is not None:
+        bookings = bookings.filter(guild__guild_lead=member)
+    status_filter = request.GET.get("status", "")
+    if status_filter:
+        bookings = bookings.filter(status=status_filter)
+    completed = request.GET.get("completed", "")
+    if completed == "yes":
+        bookings = bookings.filter(is_completed=True)
+    elif completed == "no":
+        bookings = bookings.filter(is_completed=False)
+    start = request.GET.get("start", "")
+    if start:
+        bookings = bookings.filter(slot__starts_at__date__gte=start)
+    end = request.GET.get("end", "")
+    if end:
+        bookings = bookings.filter(slot__starts_at__date__lte=end)
+    return bookings
+
+
+@login_required
+def orientations_dashboard(request: HttpRequest) -> HttpResponse:
+    """Admin/guild-lead dashboard: upcoming + a sortable, filterable, exportable table."""
+    from classes.table import prepare_table
+
+    from hub.forms import OrientationAddMemberForm
+    from membership.models import Guild, OrientationBooking
+
+    if not _can_access_orientations(request):
+        return HttpResponse("Forbidden", status=403)
+
+    base = OrientationBooking.objects.select_related("slot", "guild", "member", "oriented_by")
+    table = prepare_table(
+        request,
+        _filter_orientations(request, base),
+        search_fields=["member__full_legal_name", "member__preferred_name", "guild__name"],
+        default_sort="slot__starts_at",
+        default_dir="desc",
+    )
+    upcoming = (
+        OrientationBooking.objects.upcoming().select_related("slot", "guild", "member").order_by("slot__starts_at")[:25]
+    )
+    view_as = getattr(request, "view_as", None)
+    member = _get_member(request)
+    return render(
+        request,
+        "hub/orientations_dashboard.html",
+        {
+            **_get_hub_context(request),
+            **table,
+            "upcoming": upcoming,
+            "guilds": Guild.objects.filter(is_active=True).order_by("name"),
+            "statuses": OrientationBooking.Status.choices,
+            "add_member_form": OrientationAddMemberForm(slot_queryset=_manageable_slots(request)),
+            "is_admin": view_as is not None and view_as.has_actual("admin"),
+            "my_member_id": member.pk if member is not None else None,
+            "guild_filter": request.GET.get("guild", ""),
+            "scope": request.GET.get("scope", ""),
+            "status_filter": request.GET.get("status", ""),
+            "completed_filter": request.GET.get("completed", ""),
+            "start": request.GET.get("start", ""),
+            "end": request.GET.get("end", ""),
+        },
+    )
+
+
+@login_required
+def orientations_export(request: HttpRequest) -> HttpResponse | StreamingHttpResponse:
+    """Download the filtered orientations list as CSV."""
+    from membership.models import OrientationBooking
+    from membership.orientation_exports import stream_orientations_csv
+
+    if not _can_access_orientations(request):
+        return HttpResponse("Forbidden", status=403)
+    bookings = _filter_orientations(request, OrientationBooking.objects.all())
+    return stream_orientations_csv(bookings)
+
+
+@login_required
+@require_POST
+def orientation_add_member(request: HttpRequest) -> HttpResponse:
+    """POST-only — admin/lead adds a member to an orientation slot (emails them like a self-booking)."""
+    from hub.forms import OrientationAddMemberForm
+    from membership import orientations
+    from membership.models import OrientationError
+
+    if not _can_access_orientations(request):
+        return HttpResponse("Forbidden", status=403)
+    form = OrientationAddMemberForm(request.POST, slot_queryset=_manageable_slots(request))
+    if form.is_valid():
+        try:
+            orientations.request_orientation(form.cleaned_data["slot"], form.cleaned_data["member"])
+            messages.success(request, f"Added {form.cleaned_data['member'].display_name} — they've been emailed.")
+        except OrientationError as exc:
+            messages.error(request, str(exc))
+    else:
+        messages.error(request, "Couldn't add the member — pick an active member and an upcoming slot.")
+    return redirect("hub_orientations_dashboard")
+
+
+@login_required
+@require_POST
+def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """POST-only — flip an orientation's completed flag (lead of that guild / admin only)."""
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("guild"), pk=booking_pk)
+    forbidden = _require_can_edit_guild(request, booking.guild)
+    if forbidden is not None:
+        return forbidden
+    if booking.is_completed:
+        booking.uncomplete()
+    else:
+        booking.mark_completed()
+    return redirect("hub_orientations_dashboard")
 
 
 def _surface_product_errors(request: HttpRequest, form: Any, formset: Any) -> None:
