@@ -19,6 +19,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonRe
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_POST
 
 if TYPE_CHECKING:
@@ -1413,7 +1414,43 @@ def teach_profile(request: HttpRequest) -> HttpResponse:
     return redirect(reverse("hub_user_settings") + "?tab=profile")
 
 
+def _render_class_preview(
+    request: HttpRequest,
+    offering: ClassOffering,
+    *,
+    is_admin: bool = False,
+    is_instructor: bool = False,
+    can_edit_offering: bool = False,
+    edit_url: str | None = None,
+) -> HttpResponse:
+    """Render the public class detail page in preview mode (drafts included).
+
+    Shared by the login-gated owner/admin preview and the token-authorized
+    reviewer preview. ``is_preview`` makes the public template show its
+    "preview" banner and bypass the published-only gating.
+    """
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    return render(
+        request,
+        "classes/public/detail.html",
+        {
+            "offering": offering,
+            "can_edit_offering": can_edit_offering,
+            "edit_url": edit_url,
+            "is_admin": is_admin,
+            "is_instructor": is_instructor,
+            "settings_obj": ClassSettings.load(),
+            "site_config": SiteConfiguration.load(),
+            "upcoming_sessions": upcoming_sessions,
+            "member_price_cents": offering.member_price_cents,
+            "spots_remaining": offering.spots_remaining,
+            "is_preview": True,
+        },
+    )
+
+
 @login_required
+@xframe_options_sameorigin
 def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     """Preview the public detail page for any class — including drafts.
 
@@ -1442,33 +1479,37 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     if not (is_admin or (user_member is not None and user_member.can_edit_class(offering))):
         return HttpResponseForbidden("You can only preview your own classes.")
 
-    can_edit_offering = True
     edit_url = None
     if is_admin:
         edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
     elif user_member is not None:
         # Instructors and guild leads manage the class from the teaching portal.
         edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
-    settings_obj = ClassSettings.load()
-    member_price_cents = offering.member_price_cents
-    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
-    return render(
+    return _render_class_preview(
         request,
-        "classes/public/detail.html",
-        {
-            "offering": offering,
-            "can_edit_offering": can_edit_offering,
-            "edit_url": edit_url,
-            "is_admin": is_admin,
-            "is_instructor": is_instructor,
-            "settings_obj": settings_obj,
-            "site_config": SiteConfiguration.load(),
-            "upcoming_sessions": upcoming_sessions,
-            "member_price_cents": member_price_cents,
-            "spots_remaining": offering.spots_remaining,
-            "is_preview": True,
-        },
+        offering,
+        is_admin=is_admin,
+        is_instructor=is_instructor,
+        can_edit_offering=True,
+        edit_url=edit_url,
     )
+
+
+@xframe_options_sameorigin
+def class_review_preview(request: HttpRequest, token: str) -> HttpResponse:
+    """Token-authorized student-eye preview of a class under review (no login).
+
+    Lets a guild lead or admin who opened the emailed review link see exactly
+    how the public class page will look once published. Read-only — the token
+    already proves the visitor is a designated reviewer, so no edit affordances
+    are shown. Framed same-origin inside the review page.
+    """
+    approval = get_object_or_404(ClassApproval, token=token)
+    offering = get_object_or_404(
+        ClassOffering.objects.select_related("category", "instructor").prefetch_related("sessions", "gallery_images"),
+        pk=approval.class_offering_id,
+    )
+    return _render_class_preview(request, offering)
 
 
 class OverviewRange(TypedDict):

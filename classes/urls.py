@@ -86,6 +86,7 @@ urlpatterns = [
     path("admin/<int:pk>/review/", views.admin_class_review, name="admin_class_review"),
     # Tokenized review page — emailed reviewers act without a hub login.
     path("review/<str:token>/", views.class_review, name="class_review"),
+    path("review/<str:token>/preview/", views.class_review_preview, name="class_review_preview"),
     path("admin/<int:pk>/archive/", views.admin_class_archive, name="admin_class_archive"),
     path("admin/<int:pk>/duplicate/", views.admin_class_duplicate, name="admin_class_duplicate"),
     path("admin/<int:pk>/another-date-set/", views.admin_class_duplicate_run, name="admin_class_duplicate_run"),

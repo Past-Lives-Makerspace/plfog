@@ -68,6 +68,18 @@
     </form>
   {% endif %}
 
+  {# Live student preview — exactly how the published class page will look #}
+  {% if is_tokenized %}{% url 'classes:class_review_preview' token=approval.token as preview_url %}{% else %}{% url 'classes:class_preview' pk=offering.pk as preview_url %}{% endif %}
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin:1.5rem 0 0.5rem;">
+    <h2 style="font-size:1.1rem;margin:0;">Student preview</h2>
+    <a href="{{ preview_url }}" target="_blank" rel="noopener" style="font-size:0.85rem;white-space:nowrap;">Open in a new tab ↗</a>
+  </div>
+  <p style="color:var(--hub-text-muted);font-size:0.9rem;margin:0 0 0.75rem;">Exactly how this class page will look to a prospective student once it's published.</p>
+  <div style="border:1px solid var(--hub-card-border);border-radius:8px;overflow:hidden;background:var(--hub-bg);margin-bottom:1.5rem;">
+    <iframe title="Student preview of {{ offering.title }}" loading="lazy" src="{{ preview_url }}"
+            style="display:block;width:100%;height:720px;border:0;"></iframe>
+  </div>
+
   {# Approval progress across all required roles #}
   <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Approval progress</h2>
   <ul style="list-style:none;padding:0;margin:0 0 1.5rem;display:flex;flex-direction:column;gap:6px;">
