@@ -15,10 +15,22 @@ if TYPE_CHECKING:
     from classes.models import ClassApproval, ClassOffering, ClassSession, Registration
 
 
-def _admin_review_recipients() -> list[str]:
-    """Return the configured admin reviewer email list, deduplicated."""
-    raw = getattr(settings, "CLASS_ADMIN_NOTIFY_EMAILS", "") or ""
+def _admin_recipients() -> list[str]:
+    """Email addresses for admin notifications, deduplicated and order-preserving.
+
+    Resolves every Member with the Admin role (via their primary email), then
+    unions in any addresses configured via ``CLASS_ADMIN_NOTIFY_EMAILS``. The
+    setting is an optional extra — admins on the roster are notified out of the
+    box, with no per-environment configuration required.
+    """
+    from membership.models import Member
+
     seen: list[str] = []
+    for member in Member.objects.filter(fog_role=Member.FogRole.ADMIN):
+        email = member.primary_email
+        if email and email not in seen:
+            seen.append(email)
+    raw = getattr(settings, "CLASS_ADMIN_NOTIFY_EMAILS", "") or ""
     for chunk in raw.split(","):
         email = chunk.strip()
         if email and email not in seen:
@@ -146,8 +158,8 @@ def send_instructor_registration_notification(registration: "Registration") -> N
 
 
 def send_admin_registration_notification(registration: "Registration") -> None:
-    """Notify admins that someone registered for a class (if configured)."""
-    admin_emails = [e.strip() for e in getattr(settings, "CLASS_ADMIN_NOTIFY_EMAILS", "").split(",") if e.strip()]
+    """Notify admins that someone registered for a class."""
+    admin_emails = _admin_recipients()
     if not admin_emails:
         return
     offering = registration.class_offering
@@ -240,7 +252,7 @@ def send_admin_review_request(offering: "ClassOffering", approval: "ClassApprova
     Mirrors the guild-lead path: admins get the request, the instructor gets
     the explainer.
     """
-    _send_review_request_email(offering, approval, recipients=_admin_review_recipients(), role_label="Admin")
+    _send_review_request_email(offering, approval, recipients=_admin_recipients(), role_label="Admin")
     _send_instructor_review_explainer(offering, approval)
 
 
@@ -251,7 +263,7 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
     approves and the Admin gate opens. Carries the admin row's tokenized review
     link and the "executive validation" wording from the spec.
     """
-    recipients = _admin_review_recipients()
+    recipients = _admin_recipients()
     if not recipients:
         return
     review_url = _absolute_url(reverse("classes:class_review", kwargs={"token": approval.token}))

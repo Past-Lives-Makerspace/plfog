@@ -5,7 +5,7 @@ from __future__ import annotations
 from django.core import mail
 
 from classes.emails import (
-    _admin_review_recipients,
+    _admin_recipients,
     send_admin_review_request,
     send_admin_validation_request,
     send_class_review_decision,
@@ -13,14 +13,36 @@ from classes.emails import (
 )
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassApproval, ClassOffering
+from membership.models import Member
 from tests.membership.factories import GuildFactory, MemberFactory
 
 
-def describe_admin_review_recipients():
-    def it_deduplicates_repeated_addresses(settings):
+def describe_admin_recipients():
+    def it_deduplicates_repeated_addresses(db, settings):
         settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com, admin@example.com, other@example.com"
-        result = _admin_review_recipients()
+        result = _admin_recipients()
         assert result == ["admin@example.com", "other@example.com"]
+
+    def it_includes_admin_members_from_the_db(db, settings):
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        MemberFactory(fog_role=Member.FogRole.ADMIN, _pre_signup_email="dbadmin@example.com")
+        assert _admin_recipients() == ["dbadmin@example.com"]
+
+    def it_unions_db_admins_with_the_setting_and_dedupes(db, settings):
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = "dbadmin@example.com, extra@example.com"
+        MemberFactory(fog_role=Member.FogRole.ADMIN, _pre_signup_email="dbadmin@example.com")
+        # DB admin comes first; the setting's duplicate is dropped, the extra kept.
+        assert _admin_recipients() == ["dbadmin@example.com", "extra@example.com"]
+
+    def it_excludes_admin_members_without_an_email(db, settings):
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        MemberFactory(fog_role=Member.FogRole.ADMIN, _pre_signup_email="")
+        assert _admin_recipients() == []
+
+    def it_ignores_non_admin_members(db, settings):
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        MemberFactory(fog_role=Member.FogRole.MEMBER, _pre_signup_email="member@example.com")
+        assert _admin_recipients() == []
 
 
 def _make_guilded_category():
