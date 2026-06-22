@@ -2688,3 +2688,21 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-guild-faq__a { padding-bottom: 0.75rem; color: var(--hub-text-muted); }
 .pl-guild-roster { display: flex; flex-direction: column; gap: 0.5rem; }
 .pl-guild-links a { display: block; padding: 0.5rem 0; color: var(--color-tuscan-yellow); }
+
+/* Orientation slot booking table. Layout lives in classes (not inline) so Alpine's
+   x-show — which strips inline `display` when it reveals a row — can't break the columns. */
+.pl-orient-slots__head,
+.pl-orient-slots__row { display: flex; align-items: center; gap: 1rem; }
+.pl-orient-slots__head {
+    padding: 0 0 0.4rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--hub-text-muted);
+}
+.pl-orient-slots__row { padding: 0.55rem 0; border-top: 1px solid var(--hub-border); }
+.pl-orient-slots__date { flex: 0 0 6rem; font-weight: 500; }
+.pl-orient-slots__time { flex: 1; color: var(--hub-text-muted); font-size: 0.9rem; }
+.pl-orient-slots__action { flex: 0 0 7rem; text-align: right; }
+.pl-orient-slots__action .hub-btn { width: 100%; }
+.pl-orient-slots__pager { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; }

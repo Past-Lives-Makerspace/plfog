@@ -34,21 +34,18 @@ Member-facing orientation section on the guild page. Context:
     {% if orientation_slots %}
     {# Show 5 at a time with prev/next arrows so a long run of slots stays compact. #}
     <div x-data="{ page: 0, size: 5, total: {{ orientation_slots|length }} }">
-      <div style="display:flex; align-items:center; gap:1rem; padding:0 0 0.4rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--hub-text-muted);">
-        <span style="flex:0 0 5rem;">Date</span>
-        <span style="flex:1;">Time</span>
-        <span style="flex:0 0 4rem; text-align:center;">Seats</span>
-        <span style="flex:0 0 5.5rem;"></span>
+      <div class="pl-orient-slots__head">
+        <span class="pl-orient-slots__date">Date</span>
+        <span class="pl-orient-slots__time">Time</span>
+        <span class="pl-orient-slots__action"></span>
       </div>
       <ul style="list-style:none; padding:0; margin:0;">
         {% for slot in orientation_slots %}
         {% with pks=slot.pk|stringformat:"s" %}
-        <li x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size"
-            style="display:flex; align-items:center; gap:1rem; padding:0.55rem 0; border-top:1px solid var(--hub-border);">
-          <span style="flex:0 0 5rem; font-weight:500;">{{ slot.starts_at|date:"D M j" }}</span>
-          <span style="flex:1; color:var(--hub-text-muted); font-size:0.9rem;">{{ slot.starts_at|time:"g:i A" }} – {{ slot.ends_at|time:"g:i A" }}</span>
-          <span style="flex:0 0 4rem; text-align:center; color:var(--hub-text-muted); font-size:0.85rem;">{{ slot.seats_remaining }}</span>
-          <span style="flex:0 0 5.5rem; text-align:right;">
+        <li x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-orient-slots__row">
+          <span class="pl-orient-slots__date">{{ slot.starts_at|date:"D M j" }}</span>
+          <span class="pl-orient-slots__time">{{ slot.starts_at|time:"g:i A" }} – {{ slot.ends_at|time:"g:i A" }}</span>
+          <span class="pl-orient-slots__action">
             {% if slot.is_full %}
             <span class="hub-text-muted" style="font-size:0.85rem;">Full</span>
             {% else %}
@@ -61,7 +58,7 @@ Member-facing orientation section on the guild page. Context:
         {% endwith %}
         {% endfor %}
       </ul>
-      <div x-show="total > size" x-cloak style="display:flex; align-items:center; gap:0.75rem; margin-top:0.75rem;">
+      <div x-show="total > size" x-cloak class="pl-orient-slots__pager">
         <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.max(0, page - 1)" :disabled="page === 0" aria-label="Previous slots">←</button>
         <span class="hub-text-muted" style="font-size:0.85rem;" x-text="(page + 1) + ' / ' + Math.ceil(total / size)"></span>
         <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.min(Math.ceil(total / size) - 1, page + 1)" :disabled="page >= Math.ceil(total / size) - 1" aria-label="More slots">→</button>

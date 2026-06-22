@@ -93,7 +93,7 @@
 <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin:0 0 1rem;">
     {% if member_count %}<span class="hub-badge">{{ member_count }} member{{ member_count|pluralize }}</span>{% endif %}
     {% if class_count %}<span class="hub-badge">{{ class_count }} class{{ class_count|pluralize:"es" }}</span>{% endif %}
-    <span class="hub-badge">{% if guild.next_meeting_at %}Next meeting {{ guild.next_meeting_at|date:"M j" }}{% else %}Meetings TBA{% endif %}</span>
+    {% if guild.next_meeting_at %}<span class="hub-badge">Next meeting {{ guild.next_meeting_at|date:"M j" }}</span>{% endif %}
 </div>
 
 {# Join lives in the "Get Involved" panel; leaving a guild is disabled for now. #}

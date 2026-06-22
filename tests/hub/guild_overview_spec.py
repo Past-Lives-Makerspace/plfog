@@ -34,14 +34,15 @@ def _published_class(guild, **kwargs):
 
 @pytest.mark.django_db
 def describe_guild_overview():
-    def it_shows_stat_chips_with_tba_when_no_meeting(client: Client):
+    def it_omits_the_meeting_chip_when_there_is_no_next_meeting(client: Client):
         _member("ov1")
         client.login(username="ov1", password="pw")
         guild = GuildFactory()
         resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
         assert resp.status_code == 200
-        assert b"member" in resp.content
-        assert b"Meetings TBA" in resp.content
+        # The "Meetings TBA" chip is gone — no chip when there's nothing scheduled.
+        assert b"Meetings TBA" not in resp.content
+        assert b"Next meeting" not in resp.content
 
     def it_lists_upcoming_classes_for_this_guild_only(client: Client):
         _member("ov2")
