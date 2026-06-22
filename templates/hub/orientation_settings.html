@@ -2,10 +2,12 @@
 {% block title %}Orientations · {{ guild.name }}{% endblock %}
 {% block content %}
 <div x-data="{}">
+  <p style="margin-bottom:0.75rem;">
+    <a href="{% url 'hub_guild_detail' guild.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to {{ guild.name }}</a>
+  </p>
   <h1 class="hub-page-title">Orientations · {{ guild.name }}</h1>
   <p class="hub-text-muted" style="margin-bottom:1.5rem;">
     Set whether this guild offers orientations, your recurring hours, one-off slots, and the follow-up emails members get.
-    <a href="{% url 'hub_guild_detail' guild.pk %}">Back to the guild page</a>.
   </p>
 
   <form method="post" class="hub-form">

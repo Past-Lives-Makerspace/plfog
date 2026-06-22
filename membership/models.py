@@ -61,27 +61,31 @@ def _compute_next_meeting(
     """The next guild-meeting date from a cadence config, or None for TBA.
 
     Precedence: an explicit TBA flag wins, then a future manual override, then
-    the weekly/monthly recurrence. A monthly date that has already passed this
-    month rolls to next month. Returns None when nothing is configured.
+    the monthly recurrence. Every cadence is monthly-based (monthly, every two
+    months, or every three months) anchored on the nth weekday of the month;
+    when this month's instance has already passed it rolls forward by the
+    cadence interval. Returns None when nothing is configured.
     """
     if is_tba:
         return None
     if override is not None and override >= today:
         return override
-    if weekday is None:
+    intervals: dict[str, int] = {
+        Guild.MeetingCadence.MONTHLY: 1,
+        Guild.MeetingCadence.EVERY_2_MONTHS: 2,
+        Guild.MeetingCadence.EVERY_3_MONTHS: 3,
+    }
+    interval = intervals.get(cadence)
+    if interval is None or weekday is None or week_of_month is None:
         return None
     from dateutil.relativedelta import FR, MO, SA, SU, TH, TU, WE, relativedelta
 
     wd = (MO, TU, WE, TH, FR, SA, SU)[weekday]
-    if cadence == Guild.MeetingCadence.WEEKLY:
-        return today + relativedelta(weekday=wd(+1))
-    if cadence == Guild.MeetingCadence.MONTHLY and week_of_month:
-        first = today.replace(day=1)
-        candidate = _nth_weekday(first, wd, week_of_month)
-        if candidate < today:
-            candidate = _nth_weekday(first + relativedelta(months=1), wd, week_of_month)
-        return candidate
-    return None
+    first = today.replace(day=1)
+    candidate = _nth_weekday(first, wd, week_of_month)
+    if candidate < today:
+        candidate = _nth_weekday(first + relativedelta(months=interval), wd, week_of_month)
+    return candidate
 
 
 # ---------------------------------------------------------------------------
@@ -651,11 +655,12 @@ class Guild(HeroCropMixin, models.Model):
 
     class MeetingCadence(models.TextChoices):
         NONE = "none", "No regular meeting"
-        WEEKLY = "weekly", "Weekly"
         MONTHLY = "monthly", "Monthly"
+        EVERY_2_MONTHS = "every_2_months", "Every 2 months"
+        EVERY_3_MONTHS = "every_3_months", "Every 3 months"
 
     meeting_cadence = models.CharField(
-        max_length=10,
+        max_length=20,
         choices=MeetingCadence.choices,
         default=MeetingCadence.NONE,
         help_text="How often the guild meets — drives the auto-computed next-meeting date.",

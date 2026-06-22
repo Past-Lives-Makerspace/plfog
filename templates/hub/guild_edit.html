@@ -1,133 +1,193 @@
 {% extends "hub/base.html" %}
 {% block title %}Edit {{ guild.name }}{% endblock %}
 {% block content %}
-<div x-data="{}">
+<div x-data="{ section: 'basic' }">
 <h1 class="hub-page-title">Edit {{ guild.name }}</h1>
 
-<p style="margin:-0.5rem 0 1.25rem;">
-  <a href="{% url 'hub_guild_orientation_edit' guild.pk %}" class="hub-btn hub-btn--sm">Manage orientations →</a>
-</p>
+<div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;">
+  <button type="button" class="vote-tab" :class="section === 'basic' ? 'vote-tab--active' : ''" @click="section = 'basic'">Basic Information</button>
+  <button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>
+  <button type="button" class="vote-tab" :class="section === 'images' ? 'vote-tab--active' : ''" @click="section = 'images'">Images</button>
+  <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ &amp; Links</button>
+  <button type="button" class="vote-tab" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements</button>
+  {# Orientations is its own editor (settings, recurring hours, slots) — the tab opens that page. #}
+  <a href="{% url 'hub_guild_orientation_edit' guild.pk %}" class="vote-tab" style="text-decoration:none;">Orientations</a>
+</div>
 
 <form method="post" enctype="multipart/form-data" class="hub-form">
   {% csrf_token %}
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Basic Information</h2>
-    {% include "components/form_field.html" with field=form.name %}
-    {% include "components/form_field.html" with field=form.about %}
-    {% include "components/form_field.html" with field=form.youtube_url %}
-    {% include "components/form_field.html" with field=form.contact_email %}
-    {% include "components/form_field.html" with field=form.discord_url %}
-    {% include "components/form_field.html" with field=form.website_url %}
-    {% include "components/form_field.html" with field=form.show_members %}
-    {% include "components/form_field.html" with field=form.featured_class field_label="Featured class" %}
-  </div>
+  {# Where to land after a successful save. The per-link delete button flips this to "edit" so you stay here. #}
+  <input type="hidden" name="after" value="detail">
 
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Meetings</h2>
-    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Set a cadence (e.g. monthly · 3rd · Thursday) and the page shows the next date automatically. Use the override for a one-off, or tick TBA if nothing's scheduled yet.</p>
-    {% include "components/form_field.html" with field=form.meeting_cadence %}
-    {% include "components/form_field.html" with field=form.meeting_weekday %}
-    {% include "components/form_field.html" with field=form.meeting_week_of_month %}
-    {% include "components/form_field.html" with field=form.meeting_time %}
-    {% include "components/form_field.html" with field=form.meeting_location %}
-    {% include "components/form_field.html" with field=form.meeting_next_override %}
-    {% include "components/form_field.html" with field=form.meeting_is_tba %}
-    {% include "components/form_field.html" with field=form.meeting_schedule %}
-  </div>
-
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Branding</h2>
-    {% url 'hub_guild_banner_delete' guild.pk as guild_banner_delete_url %}
-    {% include "components/image_field.html" with field=form.banner_image current_image=guild.banner_image delete_url=guild_banner_delete_url modal_id="delete-guild-banner" label="Hero / banner image" shape="rect" thumbnail_width="240px" thumbnail_height="80px" delete_button_text="Delete banner" confirm_title="Delete banner image?" confirm_message="The banner will be removed from this guild's page and from our storage. This can't be undone." hint_html="Optional. Shown across the top of the guild page." %}
-  </div>
-
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Calendar Integration</h2>
-    {% include "components/form_field.html" with field=form.calendar_url %}
-    {% include "components/form_field.html" with field=form.calendar_color %}
-  </div>
-
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Gallery</h2>
-    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Optional. Photos shown in the gallery section. Images save instantly — no need to hit Save.</p>
-    {% url 'hub_guild_image_upload' guild.pk as upload_url %}
-    {% url 'hub_guild_image_reorder' guild.pk as reorder_url %}
-    {# delete and alt URLs are prefixes: /guilds/1/images/ (JS appends [id]/delete/ or [id]/alt/) #}
-    {% url 'hub_guild_image_upload' guild.pk as base_url %}
-    {% with delete_url_prefix=base_url|slice:":-7" %}
-      {% include "components/gallery_manager.html" with instance=guild images=guild.gallery_images.all upload_url=upload_url reorder_url=reorder_url delete_url_prefix=delete_url_prefix alt_url_prefix=delete_url_prefix csrf_token=csrf_token %}
-    {% endwith %}
-  </div>
-
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">FAQ</h2>
-    {{ faq_formset.management_form }}
-    <div style="display:flex; flex-direction:column; gap:1rem;">
-      {% for f in faq_formset %}
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
-          {% include "components/form_field.html" with field=f.question %}
-          {% include "components/form_field.html" with field=f.answer %}
-          {% if f.instance.pk %}
-            {% include "components/form_field.html" with field=f.DELETE field_label="Delete this FAQ" %}
-          {% endif %}
-          {{ f.id }}
-          {{ f.sort_order }}
-        </div>
-      {% endfor %}
+  {# ── Basic Information ───────────────────────────────────────────── #}
+  <div x-show="section === 'basic'">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Basic Information</h2>
+      {% include "components/form_field.html" with field=form.name %}
+      {% include "components/form_field.html" with field=form.about %}
+      <div class="pl-form-grid">
+        {% include "components/form_field.html" with field=form.youtube_url %}
+        {% include "components/form_field.html" with field=form.contact_email %}
+        {% include "components/form_field.html" with field=form.discord_url %}
+        {% include "components/form_field.html" with field=form.website_url %}
+        {% include "components/form_field.html" with field=form.featured_class field_label="Featured class" %}
+      </div>
+      {% include "components/form_field.html" with field=form.show_members %}
     </div>
   </div>
 
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Links</h2>
-    {{ link_formset.management_form }}
-    <div style="display:flex; flex-direction:column; gap:1rem;">
-      {% for f in link_formset %}
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
-          <div style="display:flex; gap:1rem; flex-wrap:wrap;">
-            <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=f.label %}</div>
-            <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=f.url %}</div>
+  {# ── Meetings (+ Calendar Integration) ───────────────────────────── #}
+  <div x-show="section === 'meetings'" x-cloak>
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Meetings</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Set a cadence (e.g. monthly · 3rd · Thursday) and the page shows the next date automatically. Use the override for a one-off, or tick TBA if nothing's scheduled yet.</p>
+      <div class="pl-form-grid">
+        {% include "components/form_field.html" with field=form.meeting_cadence %}
+        {% include "components/form_field.html" with field=form.meeting_weekday %}
+        {% include "components/form_field.html" with field=form.meeting_week_of_month %}
+        {% include "components/form_field.html" with field=form.meeting_time_choice %}
+        {% include "components/form_field.html" with field=form.meeting_location %}
+        {% include "components/form_field.html" with field=form.meeting_next_override %}
+      </div>
+      {% include "components/form_field.html" with field=form.meeting_is_tba %}
+      {% include "components/form_field.html" with field=form.meeting_schedule %}
+    </div>
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Calendar Integration</h2>
+      <div class="pl-form-grid">
+        {% include "components/form_field.html" with field=form.calendar_url %}
+        {% include "components/form_field.html" with field=form.calendar_color %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Images (Branding + Gallery) ─────────────────────────────────── #}
+  <div x-show="section === 'images'" x-cloak>
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Branding</h2>
+      {% url 'hub_guild_banner_delete' guild.pk as guild_banner_delete_url %}
+      {% include "components/image_field.html" with field=form.banner_image current_image=guild.banner_image delete_url=guild_banner_delete_url modal_id="delete-guild-banner" label="Hero / banner image" shape="rect" thumbnail_width="240px" thumbnail_height="80px" delete_button_text="Delete banner" confirm_title="Delete banner image?" confirm_message="The banner will be removed from this guild's page and from our storage. This can't be undone." hint_html="Optional. Shown across the top of the guild page." %}
+    </div>
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Gallery</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Optional. Photos shown in the gallery section. Images save instantly — no need to hit Save.</p>
+      {% url 'hub_guild_image_upload' guild.pk as upload_url %}
+      {% url 'hub_guild_image_reorder' guild.pk as reorder_url %}
+      {# delete and alt URLs are prefixes: /guilds/1/images/ (JS appends [id]/delete/ or [id]/alt/) #}
+      {% url 'hub_guild_image_upload' guild.pk as base_url %}
+      {% with delete_url_prefix=base_url|slice:":-7" %}
+        {% include "components/gallery_manager.html" with instance=guild images=guild.gallery_images.all upload_url=upload_url reorder_url=reorder_url delete_url_prefix=delete_url_prefix alt_url_prefix=delete_url_prefix csrf_token=csrf_token %}
+      {% endwith %}
+    </div>
+  </div>
+
+  {# ── FAQ & Links ─────────────────────────────────────────────────── #}
+  <div x-show="section === 'content'" x-cloak>
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">FAQ</h2>
+      {{ faq_formset.management_form }}
+      <div id="faq-rows" style="display:flex; flex-direction:column; gap:1rem;">
+        {% for f in faq_formset %}
+          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+            {% include "components/form_field.html" with field=f.question %}
+            {% include "components/form_field.html" with field=f.answer %}
+            {% if f.instance.pk %}
+              {% include "components/form_field.html" with field=f.DELETE field_label="Delete this FAQ" %}
+            {% endif %}
+            {{ f.id }}
+            {{ f.sort_order }}
           </div>
-          {% if f.instance.pk %}
-            {% include "components/form_field.html" with field=f.DELETE field_label="Delete this link" %}
-          {% endif %}
-          {{ f.id }}
-          {{ f.sort_order }}
+        {% endfor %}
+      </div>
+
+      {# Hidden empty-form template, cloned by the +Add button below. #}
+      <template id="faq-empty-template">
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {% with faq_formset.empty_form as ef %}
+            {% include "components/form_field.html" with field=ef.question %}
+            {% include "components/form_field.html" with field=ef.answer %}
+            {{ ef.id }}
+            {{ ef.sort_order }}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" onclick="this.closest('.hub-card').remove();">Remove</button>
+          {% endwith %}
         </div>
-      {% endfor %}
+      </template>
+
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+              onclick="
+                const tpl = document.getElementById('faq-empty-template');
+                const total = document.getElementById('id_faq-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                document.getElementById('faq-rows').appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add a question
+      </button>
+    </div>
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Links</h2>
+      {{ link_formset.management_form }}
+      <div style="display:flex; flex-direction:column; gap:1rem;">
+        {% for f in link_formset %}
+          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+            <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+              <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=f.label %}</div>
+              <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=f.url %}</div>
+            </div>
+            {% if f.instance.pk %}
+              <div style="display:none;">{{ f.DELETE }}</div>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.after.value = 'edit'; this.form.requestSubmit();">
+                Delete this link
+              </button>
+            {% endif %}
+            {{ f.id }}
+            {{ f.sort_order }}
+          </div>
+        {% endfor %}
+      </div>
     </div>
   </div>
 
-  <div style="margin-top:2rem; display:flex; gap:1rem;">
+  <div x-show="section !== 'announcements'" style="margin-top:0.5rem; display:flex; gap:1rem;">
     <button type="submit" class="pl-btn pl-btn--primary">Save Changes</button>
     <a href="{% url 'hub_guild_detail' guild.pk %}" class="pl-btn pl-btn--secondary">Cancel</a>
   </div>
 </form>
 
-<div class="hub-card" style="margin-top:2rem; padding:1.5rem;">
-  <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Post an Announcement</h2>
-  <form method="post" action="{% url 'hub_guild_announcement_create' guild.pk %}" class="hub-form">
-    {% csrf_token %}
-    {% include "components/form_field.html" with field=announcement_form.title %}
-    {% include "components/form_field.html" with field=announcement_form.body %}
-    {% include "components/form_field.html" with field=announcement_form.expires_at %}
-    <button type="submit" class="pl-btn pl-btn--primary">Post Announcement</button>
-  </form>
-</div>
+{# ── Announcements (separate form, lives outside the main form) ─────── #}
+<div x-show="section === 'announcements'" x-cloak>
+  <div class="hub-card" style="padding:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Post an Announcement</h2>
+    <form method="post" action="{% url 'hub_guild_announcement_create' guild.pk %}" class="hub-form">
+      {% csrf_token %}
+      {% include "components/form_field.html" with field=announcement_form.title %}
+      {% include "components/form_field.html" with field=announcement_form.body %}
+      {% include "components/form_field.html" with field=announcement_form.expires_at %}
+      <button type="submit" class="pl-btn pl-btn--primary">Post Announcement</button>
+    </form>
+  </div>
 
-<div class="hub-card" style="margin-top:2rem; padding:1.5rem;">
-  <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Recent Announcements</h2>
-  <div style="display:flex; flex-direction:column; gap:0.75rem;">
-    {% for a in guild.announcements.all %}
-    <div class="hub-card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem; padding:1rem; background:rgba(255,255,255,0.02);">
-      <div>
-        <strong>{{ a.title }}</strong>{% if not a.is_active %} <span class="hub-badge">Expired</span>{% endif %}
-        <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}{% if a.expires_at %} · hides {{ a.expires_at|date:"M j, Y" }}{% endif %}</div>
+  <div class="hub-card" style="margin-top:1.5rem; padding:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Recent Announcements</h2>
+    <div style="display:flex; flex-direction:column; gap:0.75rem;">
+      {% for a in guild.announcements.all %}
+      <div class="hub-card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem; padding:1rem; background:rgba(255,255,255,0.02);">
+        <div>
+          <strong>{{ a.title }}</strong>{% if not a.is_active %} <span class="hub-badge">Expired</span>{% endif %}
+          <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}{% if a.expires_at %} · hides {{ a.expires_at|date:"M j, Y" }}{% endif %}</div>
+        </div>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'del-ann-{{ a.pk }}')" style="min-height:unset; padding:0.25rem 0.6rem;">Delete</button>
       </div>
-      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'del-ann-{{ a.pk }}')" style="min-height:unset; padding:0.25rem 0.6rem;">Delete</button>
+      {% empty %}
+      <p class="hub-text-muted">No announcements yet.</p>
+      {% endfor %}
     </div>
-    {% empty %}
-    <p class="hub-text-muted">No announcements yet.</p>
-    {% endfor %}
   </div>
 </div>
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import time
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
@@ -25,6 +26,19 @@ from membership.models import (
 )
 
 
+def _meeting_time_label(hour24: int, minute: int) -> str:
+    """Render a 24h time as a friendly 12h label, e.g. (18, 0) -> '6:00 PM'."""
+    hour12 = hour24 % 12 or 12
+    suffix = "AM" if hour24 < 12 else "PM"
+    return f"{hour12}:{minute:02d} {suffix}"
+
+
+# Preset meeting times on the half hour, 6:00 AM through 9:30 PM — one easy dropdown.
+_MEETING_TIME_CHOICES: list[tuple[str, str]] = [("", "—")] + [
+    (f"{hour:02d}:{minute:02d}", _meeting_time_label(hour, minute)) for hour in range(6, 22) for minute in (0, 30)
+]
+
+
 class GuildEditForm(forms.ModelForm):
     """Edit form for a guild's public-facing fields, including calendar integration."""
 
@@ -38,8 +52,9 @@ class GuildEditForm(forms.ModelForm):
         choices=_WEEKDAY_CHOICES, coerce=int, required=False, empty_value=None, label="Meeting day"
     )
     meeting_week_of_month = forms.TypedChoiceField(
-        choices=_WEEK_CHOICES, coerce=int, required=False, empty_value=None, label="Week of month (for monthly)"
+        choices=_WEEK_CHOICES, coerce=int, required=False, empty_value=None, label="Week of month"
     )
+    meeting_time_choice = forms.ChoiceField(choices=_MEETING_TIME_CHOICES, required=False, label="Meeting time")
 
     class Meta:
         model = Guild
@@ -53,7 +68,6 @@ class GuildEditForm(forms.ModelForm):
             "meeting_cadence",
             "meeting_weekday",
             "meeting_week_of_month",
-            "meeting_time",
             "meeting_location",
             "meeting_next_override",
             "meeting_is_tba",
@@ -74,7 +88,6 @@ class GuildEditForm(forms.ModelForm):
                 attrs={"type": "color", "class": "pl-color-input"},
             ),
             "youtube_url": forms.URLInput(attrs={"placeholder": "https://youtube.com/watch?v=..."}),
-            "meeting_time": forms.TimeInput(attrs={"type": "time"}),
             "meeting_location": forms.TextInput(attrs={"placeholder": "Studio B"}),
             "meeting_next_override": forms.DateInput(attrs={"type": "date"}),
             "meeting_schedule": forms.Textarea(
@@ -89,7 +102,6 @@ class GuildEditForm(forms.ModelForm):
             "calendar_color": "Calendar Color",
             "youtube_url": "YouTube video",
             "meeting_cadence": "Meeting cadence",
-            "meeting_time": "Meeting time",
             "meeting_location": "Meeting location",
             "meeting_next_override": "Override next date (optional)",
             "meeting_is_tba": "No meeting scheduled yet (show TBA)",
@@ -124,6 +136,30 @@ class GuildEditForm(forms.ModelForm):
             )
         else:
             featured.queryset = ClassOffering.objects.none()
+
+        # Seed the time dropdown from the stored 24h meeting_time, preserving an
+        # off-grid value (not on the half hour, or outside 6 AM–9:30 PM) as its own option.
+        existing = self.instance.meeting_time if self.instance and self.instance.pk else None
+        if existing is not None:
+            key = existing.strftime("%H:%M")
+            choices = list(_MEETING_TIME_CHOICES)
+            if key not in {value for value, _ in choices}:
+                choices.append((key, _meeting_time_label(existing.hour, existing.minute)))
+            field = cast(forms.ChoiceField, self.fields["meeting_time_choice"])
+            field.choices = choices
+            field.initial = key
+
+    def save(self, commit: bool = True) -> Guild:
+        guild = super().save(commit=False)
+        choice = self.cleaned_data.get("meeting_time_choice")
+        if choice:
+            hour_str, minute_str = choice.split(":")
+            guild.meeting_time = time(int(hour_str), int(minute_str))
+        else:
+            guild.meeting_time = None
+        if commit:
+            guild.save()
+        return guild
 
 
 class ProfileSettingsForm(forms.ModelForm):

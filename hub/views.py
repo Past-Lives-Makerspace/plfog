@@ -458,6 +458,7 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "links": links,
             "announcements": announcements,
             "roster": roster,
+            "member": member,
             "is_member_of_guild": is_member_of_guild,
             "member_count": member_count,
             "class_count": class_count,
@@ -502,6 +503,8 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             guild.add_gallery_images(request.FILES.getlist("gallery_images"))
 
             messages.success(request, "Guild page updated.")
+            if request.POST.get("after") == "edit":
+                return redirect("hub_guild_edit", pk=guild.pk)
             return redirect("hub_guild_detail", pk=guild.pk)
     else:
         form = GuildEditForm(instance=guild)

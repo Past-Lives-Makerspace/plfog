@@ -14,7 +14,12 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from billing.models import Product, ProductRevenueSplit
 from hub.forms import GuildEditForm
 from membership.models import GuildImage, Member
-from tests.membership.factories import GuildAnnouncementFactory, GuildFactory, MembershipPlanFactory
+from tests.membership.factories import (
+    GuildAnnouncementFactory,
+    GuildFactory,
+    GuildLinkFactory,
+    MembershipPlanFactory,
+)
 
 _PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -342,6 +347,49 @@ def describe_guild_edit():
         # The form re-renders with an inline error on the name field
         assert "name" in response.context["form"].errors
 
+    def it_redirects_to_the_detail_page_after_a_normal_save(client: Client):
+        _user_with_role("admin_det", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Keep")
+        client.login(username="admin_det", password="pass")
+        url = reverse("hub_guild_edit", args=[guild.pk])
+        response = client.post(url, data={"name": "Keep", "about": "", **_empty_guild_formsets()})
+        assert response.status_code == 302
+        assert response["Location"] == reverse("hub_guild_detail", args=[guild.pk])
+
+    def it_deletes_a_link_immediately_and_returns_to_the_edit_page(client: Client):
+        _user_with_role("admin_lnk", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Forge")
+        link = GuildLinkFactory(guild=guild, label="Old Discord", url="https://discord.gg/x")
+        client.login(username="admin_lnk", password="pass")
+        url = reverse("hub_guild_edit", args=[guild.pk])
+        data = {
+            "name": "Forge Renamed",  # an unsaved edit that must NOT be lost on the reload
+            "about": "",
+            "after": "edit",
+            "faq-TOTAL_FORMS": "0",
+            "faq-INITIAL_FORMS": "0",
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+            "links-TOTAL_FORMS": "1",
+            "links-INITIAL_FORMS": "1",
+            "links-MIN_NUM_FORMS": "0",
+            "links-MAX_NUM_FORMS": "1000",
+            "links-0-id": str(link.pk),
+            "links-0-label": link.label,
+            "links-0-url": link.url,
+            "links-0-sort_order": "0",
+            "links-0-DELETE": "on",
+        }
+        response = client.post(url, data=data)
+        assert response.status_code == 302
+        # Lands back on the edit page (not the public detail page) ...
+        assert response["Location"] == reverse("hub_guild_edit", args=[guild.pk])
+        # ... the link is gone ...
+        assert not guild.links.filter(pk=link.pk).exists()
+        # ... and the rest of the form was saved, so nothing was lost.
+        guild.refresh_from_db()
+        assert guild.name == "Forge Renamed"
+
 
 @pytest.mark.django_db
 def describe_guild_product_create_errors():
@@ -588,3 +636,55 @@ def describe_guild_edit_delete_controls():
         # Announcement delete control is still a standard modal trigger
         assert f"del-ann-{announcement.pk}".encode() in response.content
         assert reverse("hub_guild_announcement_delete", args=[guild.pk, announcement.pk]).encode() in response.content
+
+    def it_renders_a_red_immediate_delete_button_for_each_saved_link(client: Client):
+        _user_with_role("admin_lnkbtn", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        GuildLinkFactory(guild=guild, label="Discord")
+        client.login(username="admin_lnkbtn", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        # A red button (not a save-time toggle switch) that submits immediately ...
+        assert b"Delete this link" in response.content
+        assert b"requestSubmit()" in response.content
+        # ... and the hidden hint that keeps us on the edit page after the delete.
+        assert b'name="after"' in response.content
+
+
+@pytest.mark.django_db
+def describe_guild_edit_tabs():
+    def it_splits_the_long_form_into_tabbed_sections(client: Client):
+        _user_with_role("admin_tabs", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="admin_tabs", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        # Alpine tab state defaults to Basic Information.
+        assert b"x-data=\"{ section: 'basic' }\"" in response.content
+        # Each requested tab is a switchable button.
+        for tab in (b"basic", b"meetings", b"images", b"content", b"announcements"):
+            assert b"section = '" + tab + b"'" in response.content
+        # Calendar Integration and FAQ/Links live under tabs (using discretion).
+        assert b"Calendar Integration" in response.content
+        assert b"FAQ &amp; Links" in response.content
+        # Orientations is a tab in the same row (a link to its own editor page).
+        orientation_url = reverse("hub_guild_orientation_edit", args=[guild.pk]).encode()
+        assert b'<a href="' + orientation_url + b'" class="vote-tab"' in response.content
+
+    def it_lays_short_inputs_out_in_two_columns(client: Client):
+        _user_with_role("admin_grid", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="admin_grid", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        assert b'class="pl-form-grid"' in response.content
+
+    def it_offers_a_button_to_add_more_faq_questions(client: Client):
+        _user_with_role("admin_faq_add", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="admin_faq_add", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        # The clone-source template and the add button are both present.
+        assert b'id="faq-empty-template"' in response.content
+        assert b"+ Add a question" in response.content

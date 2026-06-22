@@ -89,3 +89,37 @@ def describe_guild_detail():
 
             assert response.status_code == 200
             assert response.context["tab"] is None
+
+    def describe_join_button():
+        def it_shows_a_join_button_to_a_linked_member_not_in_the_guild(client: Client):
+            guild = GuildFactory()
+            _linked_user(client)
+            response = client.get(f"/guilds/{guild.pk}/")
+            assert b"Join this guild" in response.content
+
+        def it_hides_the_join_button_from_unlinked_accounts(client: Client):
+            guild = GuildFactory()
+            user = User.objects.create_user(username="unlinked_join", password="pass")
+            from membership.models import Member
+
+            Member.objects.filter(user=user).delete()
+            client.login(username="unlinked_join", password="pass")
+            response = client.get(f"/guilds/{guild.pk}/")
+            assert b"Join this guild" not in response.content
+
+    def describe_stat_chips():
+        def it_hides_member_and_class_chips_when_zero(client: Client):
+            guild = GuildFactory()
+            _linked_user(client)
+            response = client.get(f"/guilds/{guild.pk}/")
+            assert b"0 member" not in response.content
+            assert b"0 class" not in response.content
+
+        def it_shows_the_member_chip_when_the_guild_has_members(client: Client):
+            from membership.models import GuildMembership
+
+            guild = GuildFactory()
+            user, _ = _linked_user(client)
+            GuildMembership.objects.create(guild=guild, member=user.member)
+            response = client.get(f"/guilds/{guild.pk}/")
+            assert b"1 member" in response.content
