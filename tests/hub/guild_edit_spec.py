@@ -688,3 +688,13 @@ def describe_guild_edit_tabs():
         # The clone-source template and the add button are both present.
         assert b'id="faq-empty-template"' in response.content
         assert b"+ Add a question" in response.content
+
+    def it_offers_a_button_to_add_more_links(client: Client):
+        _user_with_role("admin_link_add", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="admin_link_add", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        # The clone-source template and the add button are both present.
+        assert b'id="link-empty-template"' in response.content
+        assert b"+ Add a link" in response.content

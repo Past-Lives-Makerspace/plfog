@@ -123,3 +123,20 @@ def describe_guild_detail():
             GuildMembership.objects.create(guild=guild, member=user.member)
             response = client.get(f"/guilds/{guild.pk}/")
             assert b"1 member" in response.content
+
+    def describe_faq_tab():
+        def it_shows_a_faq_tab_when_the_guild_has_faqs(client: Client):
+            from membership.models import GuildFAQItem
+
+            guild = GuildFactory()
+            _linked_user(client)
+            GuildFAQItem.objects.create(guild=guild, question="Why?", answer="Because.", sort_order=0)
+            response = client.get(f"/guilds/{guild.pk}/")
+            assert b"section = 'faq'" in response.content
+            assert b"Why?" in response.content
+
+        def it_hides_the_faq_tab_when_the_guild_has_no_faqs(client: Client):
+            guild = GuildFactory()
+            _linked_user(client)
+            response = client.get(f"/guilds/{guild.pk}/")
+            assert b"section = 'faq'" not in response.content

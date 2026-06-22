@@ -132,7 +132,7 @@
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Links</h2>
       {{ link_formset.management_form }}
-      <div style="display:flex; flex-direction:column; gap:1rem;">
+      <div id="link-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in link_formset %}
           <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
             <div style="display:flex; gap:1rem; flex-wrap:wrap;">
@@ -151,6 +151,34 @@
           </div>
         {% endfor %}
       </div>
+
+      {# Hidden empty-form template, cloned by the +Add button below. #}
+      <template id="link-empty-template">
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {% with link_formset.empty_form as ef %}
+            <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+              <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=ef.label %}</div>
+              <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=ef.url %}</div>
+            </div>
+            {{ ef.id }}
+            {{ ef.sort_order }}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+          {% endwith %}
+        </div>
+      </template>
+
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+              onclick="
+                const tpl = document.getElementById('link-empty-template');
+                const total = document.getElementById('id_links-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                document.getElementById('link-rows').appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add a link
+      </button>
     </div>
   </div>
 

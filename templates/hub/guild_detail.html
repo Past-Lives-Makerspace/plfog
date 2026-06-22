@@ -103,6 +103,7 @@
     <button type="button" class="vote-tab" :class="section === 'calendar' ? 'vote-tab--active' : ''" @click="section = 'calendar'">Calendar</button>
     <button type="button" class="vote-tab" :class="section === 'classes' ? 'vote-tab--active' : ''" @click="section = 'classes'">Classes</button>
     <button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>
+    {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">FAQ</button>{% endif %}
 </nav>
 
 <div x-show="section === 'overview'">
@@ -185,18 +186,6 @@
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">Meetings</h2>
             <p>{{ guild.meeting_schedule|linebreaksbr }}</p>
-        </section>
-        {% endif %}
-
-        {% if faq_items %}
-        <section class="pl-guild-section">
-            <h2 class="pl-guild-section__h2">FAQ</h2>
-            {% for item in faq_items %}
-            <div x-data="{ open: false }">
-                <div class="pl-guild-faq__q" @click="open = !open">{{ item.question }}</div>
-                <div class="pl-guild-faq__a" x-show="open" x-cloak>{{ item.answer|linebreaksbr }}</div>
-            </div>
-            {% endfor %}
         </section>
         {% endif %}
     </main>
@@ -302,6 +291,20 @@
     </aside>
 </div>
 </div>{# /overview panel #}
+
+{% if faq_items %}
+<div x-show="section === 'faq'" x-cloak>
+    <section class="pl-guild-section">
+        <h2 class="pl-guild-section__h2">FAQ</h2>
+        {% for item in faq_items %}
+        <div x-data="{ open: false }">
+            <div class="pl-guild-faq__q" @click="open = !open">{{ item.question }}</div>
+            <div class="pl-guild-faq__a" x-show="open" x-cloak>{{ item.answer|linebreaksbr }}</div>
+        </div>
+        {% endfor %}
+    </section>
+</div>
+{% endif %}
 
 <div x-show="section === 'calendar'" x-cloak>
     {% include "hub/partials/guild_calendar.html" with week_days=calendar.week_days week_label=calendar.week_label month_days=calendar.month_days month_headers=calendar.month_headers month_label=calendar.month_label guild=guild %}
