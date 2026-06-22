@@ -111,14 +111,16 @@ def describe_teach_overview():
             RegistrationFactory(class_offering=mine, status=Registration.Status.WAITLISTED)
             client.force_login(instructor_fixture.user)
             resp = client.get(reverse("classes:teach_overview"))
-            assert b"Active waitlists" in resp.content
+            assert b"Waitlists" in resp.content
             assert b"Wheel 101" in resp.content
+            assert b"waiting" in resp.content
 
-        def it_hides_the_waitlist_section_when_none(instructor_fixture, client):
+        def it_shows_an_empty_message_when_no_waitlists(instructor_fixture, client):
+            # The compact Waitlists strip always renders (admin parity); empty shows a note.
             ClassOfferingFactory(instructor=instructor_fixture, slug="no-wait")
             client.force_login(instructor_fixture.user)
             resp = client.get(reverse("classes:teach_overview"))
-            assert b"Active waitlists" not in resp.content
+            assert b"No active waitlists." in resp.content
 
     def describe_quick_links():
         def it_links_to_registrations_and_codes(instructor_fixture, client):

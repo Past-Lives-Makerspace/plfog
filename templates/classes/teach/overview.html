@@ -5,18 +5,18 @@
 {% if is_guild_lead %}
   {# Guild-lead review queue: classes in a guild this member leads, waiting on them. #}
   <section class="hub-card" style="margin:0 0 1.25rem;">
-    <h2 style="margin-top:0;">Needs your attention</h2>
+    <h2 class="overview-title">Waiting on your review <span class="overview-title__count">({{ guild_lead_pending|length }})</span></h2>
     <p style="color:var(--hub-text-muted);margin:0 0 0.5rem;font-size:.9rem;">Classes in your guild waiting on your review.</p>
     {% for item in guild_lead_pending %}
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
         <span>{{ item.offering.title }}<span style="color:var(--hub-text-muted);"> · {{ item.offering.category.name }}</span></span>
         <span style="display:flex;gap:6px;">
           <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">Edit</a>
-          <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_review' token=item.token %}">Review</a>
+          <a class="hub-btn hub-btn--sm" href="{% url 'classes:class_review' token=item.token %}">Review</a>
         </span>
       </div>
     {% empty %}
-      <p style="color:var(--hub-text-muted);">Nothing waiting on your review right now.</p>
+      <p style="color:var(--hub-text-muted);">Nothing waiting on your review — you're all caught up! 🎉</p>
     {% endfor %}
   </section>
 {% endif %}
@@ -31,30 +31,47 @@
     <a class="hub-btn" href="{% url 'classes:teach_class_create' %}">+ Create your first class</a>
   </div>
 {% else %}
-  <div style="display:flex;flex-direction:column;gap:1.25rem;">
+  <div class="cms-overview" style="display:flex;flex-direction:column;gap:1.25rem;">
 
-    {# Needs attention: pending review + drafts #}
+    {# ① Needs you: drafts to finish + classes awaiting admin review #}
     <section class="hub-card" style="margin:0;">
-      <h2 style="margin-top:0;">Needs you</h2>
-      {% for c in pending_classes %}
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--hub-border);">
-          <span>{{ c.title }}</span>
-          <span style="color:var(--hub-text-muted);">awaiting admin review</span>
+      <h2 class="overview-title">Needs your attention <span class="overview-title__count">({{ stats.drafts|add:stats.pending }})</span></h2>
+      {% for c in drafts %}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+          <a href="{% url 'classes:teach_class_edit' pk=c.pk %}">{{ c.title }}</a>
+          <span style="display:flex;align-items:center;gap:8px;">
+            <span style="color:var(--hub-text-muted);">Draft</span>
+            <a class="hub-btn hub-btn--sm" href="{% url 'classes:teach_class_edit' pk=c.pk %}">Finish &amp; submit</a>
+          </span>
         </div>
       {% endfor %}
-      {% for c in drafts %}
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+      {% for c in pending_classes %}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
           <a href="{% url 'classes:teach_class_edit' pk=c.pk %}">{{ c.title }}</a>
-          <span style="color:var(--hub-text-muted);">draft — finish &amp; submit</span>
+          <span class="hub-pill" style="color:var(--hub-text-muted);white-space:nowrap;">Awaiting admin review</span>
         </div>
       {% endfor %}
       {% if not pending_classes and not drafts %}
-        <p style="color:var(--hub-text-muted);">Nothing needs your attention right now.</p>
+        <p style="color:var(--hub-text-muted);">Nothing needs your attention — you're all caught up! 🎉</p>
       {% endif %}
     </section>
 
-    {# At a glance (no money) #}
+    {# ② Upcoming classes this week #}
     <section class="hub-card" style="margin:0;">
+      <h2 class="overview-title">Your classes this week</h2>
+      {% for c in upcoming_classes %}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+          <a href="{% url 'classes:teach_class_detail' pk=c.pk %}">{{ c.title }}</a>
+          <span style="color:var(--hub-text-muted);white-space:nowrap;">{{ c.next_session_at|date:"D M j, g:i a" }}</span>
+        </div>
+      {% empty %}
+        <p style="color:var(--hub-text-muted);">No classes scheduled in the next 7 days.</p>
+      {% endfor %}
+    </section>
+
+    {# ③ At a glance (no money — instructors don't see revenue) #}
+    <section class="hub-card" style="margin:0;">
+      <h2 class="overview-title" style="margin-bottom:0.9rem;">At a glance</h2>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;">
         <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.published }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">published</div></div>
         <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.pending }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">awaiting review</div></div>
@@ -63,33 +80,46 @@
       </div>
     </section>
 
-    {# Active waitlists #}
-    {% if waitlist_classes %}
-    <section class="hub-card" style="margin:0;">
-      <h2 style="margin-top:0;">Active waitlists</h2>
-      {% for c in waitlist_classes %}
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--hub-border);">
-          <span>{{ c.title }}</span><span style="color:var(--hub-text-muted);">{{ c.waiting }} waiting</span>
-        </div>
-      {% endfor %}
-    </section>
-    {% endif %}
-
-    {# Recent sign-ups #}
-    <section class="hub-card" style="margin:0;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <h2 style="margin:0;">Recent sign-ups</h2>
-        <a href="{% url 'classes:teach_registrations' %}">View all →</a>
-      </div>
-      <table style="width:100%;margin-top:8px;">
-        <tbody>
-        {% for r in recent_registrations %}
-          <tr><td>{{ r.first_name }} {{ r.last_name }}</td><td>{{ r.class_offering.title }}</td></tr>
+    {# ④ Waitlist pressure — compact strip #}
+    <section class="hub-card" style="margin:0;padding:0.75rem 1rem;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <h2 class="overview-title" style="margin:0;">Waitlists</h2>
+        {% for c in waitlist_classes %}
+          <a href="{% url 'classes:teach_class_waitlist' pk=c.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ c.title }} · {{ c.waiting }} waiting</a>
         {% empty %}
-          <tr><td style="color:var(--hub-text-muted);padding:0.5rem 0;">No sign-ups yet.</td></tr>
+          <span style="color:var(--hub-text-muted);font-size:0.875rem;">No active waitlists.</span>
         {% endfor %}
-        </tbody>
-      </table>
+      </div>
+    </section>
+
+    {# ⑤ Recent sign-ups #}
+    <section class="hub-card" style="margin:0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <h2 class="overview-title" style="margin:0;">Recent sign-ups</h2>
+        <a href="{% url 'classes:teach_registrations' %}">View all sign-ups →</a>
+      </div>
+      <div class="admin-table-wrap" style="margin-top:8px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Member</th>
+              <th>Class</th>
+              <th style="text-align:right;">When</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for r in recent_registrations %}
+            <tr>
+              <td>{{ r.first_name }} {{ r.last_name }}</td>
+              <td>{{ r.class_offering.title }}</td>
+              <td style="text-align:right;white-space:nowrap;color:var(--hub-text-muted);">{{ r.registered_at|date:"M j, g:i a" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="3" style="color:var(--hub-text-muted);padding:1.5rem 0.75rem;">No sign-ups yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </section>
 
   </div>

@@ -860,9 +860,27 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     classes, they don't approve them. Empty state nudges a first class."""
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     my_classes = ClassOffering.objects.for_instructor(teaching_member)
+    now = timezone.now()
 
     drafts = my_classes.filter(status=ClassOffering.Status.DRAFT).select_related("category").order_by("-updated_at")
     pending = my_classes.filter(status=ClassOffering.Status.PENDING).select_related("category").order_by("created_at")
+    week_end = now + timedelta(days=7)
+    upcoming_classes = (
+        my_classes.filter(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+            status=ClassOffering.Status.PUBLISHED,
+            sessions__starts_at__gte=now,
+            sessions__starts_at__lt=week_end,
+        )
+        .annotate(
+            next_session_at=Min(
+                "sessions__starts_at",
+                filter=Q(sessions__starts_at__gte=now, sessions__starts_at__lt=week_end),
+            )
+        )
+        .select_related("category")
+        .distinct()
+        .order_by("next_session_at")
+    )
     waitlist_classes = (
         my_classes.annotate(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
             waiting=Count(
@@ -899,6 +917,7 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
             "instructor": teaching_member,
             "drafts": drafts,
             "pending_classes": pending,
+            "upcoming_classes": upcoming_classes,
             "waitlist_classes": waitlist_classes,
             "recent_registrations": recent_registrations,
             "has_classes": my_classes.exists(),
