@@ -2,13 +2,13 @@
 {% load classes_tags %}
 
 {# State island — read by focusEvent() so chip clicks can hop pages #}
-<script type="application/json" id="pl-cal-state">{"week_offset": {{ week_offset }}, "month_offset": {{ month_offset }}, "event_page": {{ event_page }}, "event_total_pages": {{ event_total_pages }}, "month_event_pages": {{ month_event_pages_json|safe }}, "events_url": "{% url 'hub_community_calendar_events' %}"}</script>
+<script type="application/json" id="pl-cal-state">{"week_offset": {{ week_offset }}, "month_offset": {{ month_offset }}, "event_page": {{ event_page }}, "event_total_pages": {{ event_total_pages }}, "month_event_pages": {{ month_event_pages_json|safe }}, "events_url": "{{ events_url }}"}</script>
 
 
 {# Week navigation #}
 <div class="pl-calendar-nav" x-show="calView === 'week'">
     <button class="pl-calendar-nav__btn"
-            hx-get="{% url 'hub_community_calendar_events' %}?week_offset={{ week_offset|add:-1 }}&amp;month_offset={{ month_offset }}"
+            hx-get="{{ events_url }}?week_offset={{ week_offset|add:-1 }}&amp;month_offset={{ month_offset }}"
             hx-target="#pl-calendar-events-area"
             hx-swap="innerHTML"
             hx-indicator="#pl-calendar-loading">
@@ -16,7 +16,7 @@
     </button>
     <span class="pl-calendar-nav__label">{{ week_label }}</span>
     <button class="pl-calendar-nav__btn"
-            hx-get="{% url 'hub_community_calendar_events' %}?week_offset={{ week_offset|add:1 }}&amp;month_offset={{ month_offset }}"
+            hx-get="{{ events_url }}?week_offset={{ week_offset|add:1 }}&amp;month_offset={{ month_offset }}"
             hx-target="#pl-calendar-events-area"
             hx-swap="innerHTML"
             hx-indicator="#pl-calendar-loading">
@@ -57,7 +57,7 @@
 {# Month navigation #}
 <div class="pl-calendar-nav" x-show="calView === 'month'">
     <button class="pl-calendar-nav__btn"
-            hx-get="{% url 'hub_community_calendar_events' %}?week_offset={{ week_offset }}&amp;month_offset={{ month_offset|add:-1 }}"
+            hx-get="{{ events_url }}?week_offset={{ week_offset }}&amp;month_offset={{ month_offset|add:-1 }}"
             hx-target="#pl-calendar-events-area"
             hx-swap="innerHTML"
             hx-indicator="#pl-calendar-loading">
@@ -65,7 +65,7 @@
     </button>
     <span class="pl-calendar-nav__label">{{ month_label }}</span>
     <button class="pl-calendar-nav__btn"
-            hx-get="{% url 'hub_community_calendar_events' %}?week_offset={{ week_offset }}&amp;month_offset={{ month_offset|add:1 }}"
+            hx-get="{{ events_url }}?week_offset={{ week_offset }}&amp;month_offset={{ month_offset|add:1 }}"
             hx-target="#pl-calendar-events-area"
             hx-swap="innerHTML"
             hx-indicator="#pl-calendar-loading">
@@ -143,7 +143,7 @@
     <div class="pl-calendar-pagination">
         {% if event_page > 1 %}
         <button class="pl-calendar-pagination__btn"
-                hx-get="{% url 'hub_community_calendar_events' %}?week_offset={{ week_offset }}&amp;month_offset={{ month_offset }}&amp;page={{ event_page|add:-1 }}"
+                hx-get="{{ events_url }}?week_offset={{ week_offset }}&amp;month_offset={{ month_offset }}&amp;page={{ event_page|add:-1 }}"
                 hx-target="#pl-calendar-events-area"
                 hx-swap="innerHTML"
                 hx-indicator="#pl-calendar-loading">
@@ -159,7 +159,7 @@
         <span class="pl-calendar-pagination__label">{{ event_page }} / {{ event_total_pages }}</span>
         {% if event_page < event_total_pages %}
         <button class="pl-calendar-pagination__btn"
-                hx-get="{% url 'hub_community_calendar_events' %}?week_offset={{ week_offset }}&amp;month_offset={{ month_offset }}&amp;page={{ event_page|add:1 }}"
+                hx-get="{{ events_url }}?week_offset={{ week_offset }}&amp;month_offset={{ month_offset }}&amp;page={{ event_page|add:1 }}"
                 hx-target="#pl-calendar-events-area"
                 hx-swap="innerHTML"
                 hx-indicator="#pl-calendar-loading">

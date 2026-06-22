@@ -87,6 +87,19 @@ def describe_guild_orientation_edit():
         assert settings_obj.is_enabled is True
         assert settings_obj.default_location == "Front desk"
 
+    def it_saves_the_custom_request_toggle(client: Client):
+        _user_with_role("ed_custom", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="ed_custom", password="pass")
+        # Unchecked in the POST → False (a posted checkbox is only present when on).
+        client.post(reverse("hub_guild_orientation_edit", args=[guild.pk]), _settings_payload(is_enabled="on"))
+        assert GuildOrientationSettings.objects.get(guild=guild).allow_custom_requests is False
+        client.post(
+            reverse("hub_guild_orientation_edit", args=[guild.pk]),
+            _settings_payload(is_enabled="on", allow_custom_requests="on"),
+        )
+        assert GuildOrientationSettings.objects.get(guild=guild).allow_custom_requests is True
+
     def it_saves_a_recurring_rule(client: Client):
         _user_with_role("ed_rule", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()

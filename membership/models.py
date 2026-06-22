@@ -1452,6 +1452,9 @@ class GuildOrientationSettings(models.Model):
         help_text="The guild these orientation settings belong to.",
     )
     is_enabled = models.BooleanField(default=False, help_text="Offer orientation booking on this guild's page.")
+    allow_custom_requests = models.BooleanField(
+        default=True, help_text="Let members propose their own orientation time instead of only picking a posted slot."
+    )
     info = models.TextField(
         blank=True, default="", help_text="Orientation info shown to members before they book (plain text)."
     )

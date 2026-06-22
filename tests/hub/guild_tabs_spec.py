@@ -1,4 +1,4 @@
-"""Guild page tabs: Overview / Schedule (calendar + classes + orientation) / Buyables."""
+"""Guild page tabs: Overview / Guild Calendar (calendar + classes + orientation) / Buyables."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from classes.factories import CategoryFactory, ClassOfferingFactory
+from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering
 from membership.models import CalendarEvent
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
@@ -65,16 +65,17 @@ def describe_guild_tabs():
         body = client.get(reverse("hub_guild_detail", args=[guild.pk])).content
         assert b"Self-contained, read-only guild calendar" not in body
 
-    def it_lists_published_classes_in_the_classes_tab(client: Client):
+    def it_shows_published_class_sessions_on_the_guild_calendar(client: Client):
         _member("t2")
         client.login(username="t2", password="pw")
         guild = GuildFactory()
-        ClassOfferingFactory(
+        published = ClassOfferingFactory(
             category=CategoryFactory(guild=guild),
             status=ClassOffering.Status.PUBLISHED,
             title="Anvil Basics",
             slug="anvil-basics",
         )
+        ClassSessionFactory(class_offering=published, starts_at=timezone.now() + timedelta(days=2))
         ClassOfferingFactory(
             category=CategoryFactory(guild=guild),
             status=ClassOffering.Status.DRAFT,
@@ -112,3 +113,39 @@ def describe_guild_tabs():
         resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
         assert b"Forge Open Studio" in resp.content
         assert b"Other Guild Event" not in resp.content
+
+    def it_synthesizes_class_entries_only_for_the_guild_calendar(client: Client):
+        _member("t7")
+        client.login(username="t7", password="pw")
+        guild = GuildFactory()
+        published = ClassOfferingFactory(
+            category=CategoryFactory(guild=guild),
+            status=ClassOffering.Status.PUBLISHED,
+            title="Unique Forge Class",
+            slug="unique-forge",
+        )
+        ClassSessionFactory(class_offering=published, starts_at=timezone.now() + timedelta(days=1))
+
+        guild_resp = client.get(reverse("hub_guild_calendar_events", args=[guild.pk]))
+        community_resp = client.get(reverse("hub_community_calendar_events"))
+
+        assert guild_resp.status_code == 200
+        assert b"Unique Forge Class" in guild_resp.content
+        # Nav buttons point back at the guild-scoped endpoint, not the community one.
+        assert reverse("hub_guild_calendar_events", args=[guild.pk]).encode() in guild_resp.content
+        # Synthetic entries never leak into the community calendar (it reads CalendarEvent only).
+        assert b"Unique Forge Class" not in community_resp.content
+
+    def it_shows_orientation_slots_on_the_guild_calendar(client: Client):
+        from tests.membership.factories import GuildOrientationSettingsFactory, OrientationSlotFactory
+
+        _member("t8")
+        client.login(username="t8", password="pw")
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        OrientationSlotFactory(guild=guild, enabled_settings=False, starts_at=timezone.now() + timedelta(days=1))
+
+        resp = client.get(reverse("hub_guild_calendar_events", args=[guild.pk]))
+
+        assert resp.status_code == 200
+        assert b"Orientation" in resp.content

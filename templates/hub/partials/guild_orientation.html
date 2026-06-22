@@ -5,7 +5,7 @@ Member-facing orientation section on the guild page. Context:
   is_oriented         — bool, member already oriented for this guild
   orientation_slots   — bookable upcoming slots (only when none of the above)
 {% endcomment %}
-<section class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem;" aria-label="Orientation">
+<section id="guild-orientation" class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem;" aria-label="Orientation">
   {% if is_oriented %}
     <p style="margin:0; font-size:0.95rem; color:var(--hub-text);">✓ You're oriented for {{ guild.name }}.</p>
 
@@ -60,6 +60,17 @@ Member-facing orientation section on the guild page. Context:
     </div>
     {% else %}
     <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No orientation times posted yet — check back soon.</p>
+    {% endif %}
+    {% if orientation.allow_custom_requests %}
+    <div style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);">
+      <p class="hub-text-muted" style="margin:0 0 0.5rem; font-size:0.85rem;">None of these times work? Propose your own and the guild lead will confirm it.</p>
+      <form method="post" action="{% url 'hub_guild_orientation_request_custom' guild.pk %}" class="hub-form" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+        {% csrf_token %}
+        <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=custom_request_form.starts_at %}</div>
+        <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=custom_request_form.note %}</div>
+        <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Request custom time</button>
+      </form>
+    </div>
     {% endif %}
   {% endif %}
 </section>

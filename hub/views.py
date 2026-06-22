@@ -419,6 +419,11 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
         .order_by("title")
     )
     calendar = _get_calendar_context(request, guild=guild)
+    calendar["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
+    guild_cal_filters = ["classes", "orientation"]
+    if guild.calendar_url:
+        guild_cal_filters.append(str(guild.pk))
+    calendar["default_filters_json"] = json.dumps(guild_cal_filters).replace('"', '\\"')
     pulse = _guild_pulse(guild)
 
     from membership.models import GuildOrientationSettings
@@ -436,6 +441,10 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
         and not orientation.is_closed
         else []
     )
+
+    from hub.forms import OrientationCustomRequestForm
+
+    custom_request_form = OrientationCustomRequestForm()
 
     guild_ct = ContentType.objects.get_for_model(Guild)
 
@@ -471,6 +480,7 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "is_oriented": is_oriented,
             "show_orientation": show_orientation,
             "orientation_slots": orientation_slots,
+            "custom_request_form": custom_request_form,
         },
     )
 
@@ -632,6 +642,49 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     except OrientationError as exc:
         messages.error(request, str(exc))
     return redirect("hub_guild_detail", pk=slot.guild_id)
+
+
+@login_required
+@require_POST
+def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — a member proposes a custom orientation time. Creates a one-off slot
+    at that time and books it, reusing the normal request/confirm/email flow."""
+    from datetime import timedelta
+
+    from hub.forms import OrientationCustomRequestForm
+    from membership import orientations
+    from membership.models import GuildOrientationSettings, OrientationError, OrientationSlot
+
+    guild = get_object_or_404(Guild, pk=pk)
+    member = _get_member(request)
+    if member is None:
+        messages.error(request, "You need a member profile to request an orientation.")
+        return redirect("hub_guild_detail", pk=guild.pk)
+    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
+    if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
+        messages.error(request, "This guild isn't taking custom orientation requests right now.")
+        return redirect("hub_guild_detail", pk=guild.pk)
+    form = OrientationCustomRequestForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Pick a valid future time for your orientation.")
+        return redirect("hub_guild_detail", pk=guild.pk)
+    starts = form.cleaned_data["starts_at"]
+    slot = OrientationSlot.objects.create(
+        guild=guild,
+        starts_at=starts,
+        ends_at=starts + timedelta(minutes=settings_obj.default_duration_minutes),
+        seats=1,
+        location=settings_obj.default_location,
+        source=OrientationSlot.Source.MANUAL,
+    )
+    try:
+        orientations.request_orientation(slot, member, note=form.cleaned_data["note"])
+    except OrientationError as exc:
+        slot.delete()
+        messages.error(request, str(exc))
+        return redirect("hub_guild_detail", pk=guild.pk)
+    messages.success(request, "Your orientation request was sent — the guild lead will confirm a time.")
+    return redirect("hub_guild_detail", pk=guild.pk)
 
 
 @login_required
@@ -1509,6 +1562,14 @@ def _get_calendar_context(
     if guild is not None:
         events_qs = events_qs.filter(guild=guild)
     all_events = list(events_qs.select_related("guild", "feed").order_by("start_dt"))
+    if guild is not None:
+        # Surface this guild's CMS classes + orientation slots on the calendar — they
+        # aren't CalendarEvent rows, so wrap them as synthetic entries and merge in.
+        from hub.calendar_entries import guild_calendar_entries
+
+        all_events = sorted(
+            [*all_events, *guild_calendar_entries(guild, fetch_from, fetch_to)], key=lambda e: e.start_dt
+        )
 
     # Week event list: events whose start date falls within the navigated week
     week_events = [e for e in all_events if week_start <= e.start_dt.date() <= week_end]
@@ -1533,7 +1594,7 @@ def _get_calendar_context(
     classes_enabled = config.sync_classes_enabled
     classes_color = config.classes_calendar_color
 
-    source_colors: dict[str, str] = {"classes": classes_color}
+    source_colors: dict[str, str] = {"classes": classes_color, "orientation": "#EEB44B"}
     for feed in calendar_feeds:
         source_colors[f"feed-{feed.pk}"] = feed.color
     for g in guilds_with_calendars:
@@ -1611,6 +1672,7 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
         default_filters.append(str(g.pk))
 
     cal_ctx["default_filters_json"] = json.dumps(default_filters).replace('"', '\\"')
+    cal_ctx["events_url"] = reverse("hub_community_calendar_events")
     return render(request, "hub/community_calendar.html", {**ctx, **cal_ctx})
 
 
@@ -1629,6 +1691,26 @@ def calendar_events_partial(request: HttpRequest) -> HttpResponse:
         month_offset = 0
         event_page = 1
     cal_ctx = _get_calendar_context(request, week_offset=week_offset, month_offset=month_offset, event_page=event_page)
+    cal_ctx["events_url"] = reverse("hub_community_calendar_events")
+    return render(request, "hub/partials/calendar_content.html", cal_ctx)
+
+
+def guild_calendar_events_partial(request: HttpRequest, pk: int) -> HttpResponse:
+    """HTMX partial — calendar grid/list scoped to one guild (its iCal events plus the
+    guild's CMS classes and orientation slots). Drives the Guild Calendar tab's nav."""
+    guild = get_object_or_404(Guild, pk=pk)
+    try:
+        week_offset = max(-52, min(52, int(request.GET.get("week_offset", 0))))
+        month_offset = max(-24, min(24, int(request.GET.get("month_offset", 0))))
+        event_page = max(1, int(request.GET.get("page", 1)))
+    except (ValueError, TypeError):
+        week_offset = 0
+        month_offset = 0
+        event_page = 1
+    cal_ctx = _get_calendar_context(
+        request, week_offset=week_offset, month_offset=month_offset, event_page=event_page, guild=guild
+    )
+    cal_ctx["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
     return render(request, "hub/partials/calendar_content.html", cal_ctx)
 
 

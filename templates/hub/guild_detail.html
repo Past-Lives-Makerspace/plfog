@@ -100,7 +100,7 @@
 <div x-data="{ section: 'overview' }">
 <nav role="tablist" style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.25rem; flex-wrap:wrap;">
     <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
-    <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Schedule</button>
+    <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
     <button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">FAQ</button>{% endif %}
 </nav>
@@ -223,6 +223,12 @@
                     <button type="submit" class="pl-btn pl-btn--primary" style="width:100%;">Join this guild</button>
                 </form>
                 {% endif %}
+                {% if show_orientation and not is_oriented %}
+                <button type="button" class="pl-btn pl-btn--primary" style="width:100%;"
+                        @click="section = 'schedule'; $nextTick(() => document.getElementById('guild-orientation')?.scrollIntoView({ behavior: 'smooth' }))">
+                    Join an Orientation
+                </button>
+                {% endif %}
                 <a href="{% url 'classes:teach_class_create' %}" class="pl-btn pl-btn--secondary" style="width:100%;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.35rem;"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1 2.5 3 6 3s6-2 6-3v-5"/></svg>
                     Teach a Class
@@ -305,31 +311,10 @@
 {% endif %}
 
 <div x-show="section === 'schedule'" x-cloak>
+    {# Calendar first — the guild's classes + orientation slots show as entries on it. #}
+    {% include "hub/partials/guild_calendar_app.html" with cal=calendar guild=guild %}
+
     {% if show_orientation %}{% include "hub/partials/guild_orientation.html" %}{% endif %}
-
-    <section class="pl-guild-section">
-        <h2 class="pl-guild-section__h2">Classes</h2>
-        {% if published_classes %}
-        <div style="display:flex; flex-direction:column; gap:0.5rem;">
-            {% for c in published_classes %}
-            <a href="{% url 'classes:register' c.slug %}" class="hub-card" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; text-decoration:none;">
-                <div>
-                    <strong>{{ c.title }}</strong>
-                    {% if c.instructor %}<div class="hub-text-muted" style="font-size:0.8125rem;">with {{ c.instructor.display_name }}</div>{% endif %}
-                </div>
-                <span class="hub-btn hub-btn--sm hub-btn--ghost">Register →</span>
-            </a>
-            {% endfor %}
-        </div>
-        {% else %}
-        <p class="hub-text-muted">No published classes in this guild yet.</p>
-        {% endif %}
-    </section>
-
-    <section class="pl-guild-section">
-        <h2 class="pl-guild-section__h2">Calendar</h2>
-        {% include "hub/partials/guild_calendar.html" with week_days=calendar.week_days week_label=calendar.week_label month_days=calendar.month_days month_headers=calendar.month_headers month_label=calendar.month_label guild=guild %}
-    </section>
 </div>
 
 <div x-show="section === 'buyables'" x-cloak>

@@ -24,6 +24,12 @@ urlpatterns = [
         name="hub_guild_orientation_slot_cancel",
     ),
     path("guilds/<int:pk>/orientation/", views.orientation_info, name="hub_orientation_info"),
+    path("guilds/<int:pk>/calendar/events/", views.guild_calendar_events_partial, name="hub_guild_calendar_events"),
+    path(
+        "guilds/<int:pk>/orientation/request-custom/",
+        views.guild_orientation_request_custom,
+        name="hub_guild_orientation_request_custom",
+    ),
     path("orientation/slots/<int:slot_pk>/book/", views.orientation_book, name="hub_orientation_book"),
     path("orientation/bookings/<int:booking_pk>/respond/", views.orientation_respond, name="hub_orientation_respond"),
     path(

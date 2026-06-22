@@ -16,6 +16,7 @@
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Booking</h2>
       {% include "components/form_field.html" with field=form.is_enabled %}
+      {% include "components/form_field.html" with field=form.allow_custom_requests %}
       {% include "components/form_field.html" with field=form.info %}
       {% include "components/form_field.html" with field=form.default_seats %}
       {% include "components/form_field.html" with field=form.default_location %}

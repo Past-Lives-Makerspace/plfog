@@ -443,6 +443,7 @@ class GuildOrientationSettingsForm(forms.ModelForm):
         model = GuildOrientationSettings
         fields = [
             "is_enabled",
+            "allow_custom_requests",
             "info",
             "default_seats",
             "default_location",
@@ -464,6 +465,7 @@ class GuildOrientationSettingsForm(forms.ModelForm):
         }
         labels = {
             "is_enabled": "Offer orientation booking on this guild's page",
+            "allow_custom_requests": "Let members propose their own orientation time",
             "info": "Orientation info",
             "default_seats": "Default seats per slot",
             "default_location": "Default location",
@@ -552,6 +554,25 @@ class OrientationSlotForm(forms.ModelForm):
         if starts and starts <= timezone.now():
             self.add_error("starts_at", "Pick a time in the future.")
         return cleaned
+
+
+class OrientationCustomRequestForm(forms.Form):
+    """A member proposing their own orientation time when no posted slot works."""
+
+    starts_at = forms.DateTimeField(
+        label="Preferred time",
+        input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"],
+        widget=forms.DateTimeInput(
+            attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
+        ),
+    )
+    note = forms.CharField(label="Note (optional)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def clean_starts_at(self) -> Any:
+        starts = self.cleaned_data["starts_at"]
+        if starts <= timezone.now():
+            raise forms.ValidationError("Pick a time in the future.")
+        return starts
 
 
 class OrientationAddMemberForm(forms.Form):

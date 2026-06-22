@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from membership.models import Member, OrientationBooking
 from tests.membership.factories import (
@@ -148,6 +151,104 @@ def describe_guild_orientation_section():
         client.login(username="sec_unlinked", password="pass")
         response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
         assert b"Get oriented for" in response.content
+
+    def it_shows_a_join_an_orientation_button_when_not_oriented(client: Client):
+        _user, guild = _setup(client, "join1")
+        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        assert b"Join an Orientation" in response.content
+
+    def it_hides_join_an_orientation_once_oriented(client: Client):
+        user, guild = _setup(client, "join2")
+        OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=user.member).mark_completed()
+        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        assert b"Join an Orientation" not in response.content
+
+
+def describe_orientation_request_custom():
+    def it_creates_a_requested_booking_at_the_chosen_time(client: Client):
+        user = _user_with_role("cust1")
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=True)
+        client.login(username="cust1", password="pass")
+        when = (timezone.now() + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M")
+
+        resp = client.post(
+            reverse("hub_guild_orientation_request_custom", args=[guild.pk]),
+            {"starts_at": when, "note": "evenings work best"},
+        )
+
+        assert resp.status_code == 302
+        booking = OrientationBooking.objects.get(guild=guild, member=user.member)
+        assert booking.status == OrientationBooking.Status.REQUESTED
+        assert booking.slot.source == "manual"
+
+    def it_refuses_when_custom_requests_are_disabled(client: Client):
+        _user_with_role("cust2")
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=False)
+        client.login(username="cust2", password="pass")
+        when = (timezone.now() + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M")
+
+        resp = client.post(reverse("hub_guild_orientation_request_custom", args=[guild.pk]), {"starts_at": when})
+
+        assert resp.status_code == 302
+        assert not OrientationBooking.objects.filter(guild=guild).exists()
+
+    def it_rejects_a_time_in_the_past(client: Client):
+        _user_with_role("cust3")
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=True)
+        client.login(username="cust3", password="pass")
+        past = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M")
+
+        resp = client.post(reverse("hub_guild_orientation_request_custom", args=[guild.pk]), {"starts_at": past})
+
+        assert resp.status_code == 302
+        assert not OrientationBooking.objects.filter(guild=guild).exists()
+
+    def it_refuses_when_the_guild_has_no_orientation_settings(client: Client):
+        _user_with_role("cust4")
+        guild = GuildFactory()
+        client.login(username="cust4", password="pass")
+        when = (timezone.now() + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M")
+
+        resp = client.post(reverse("hub_guild_orientation_request_custom", args=[guild.pk]), {"starts_at": when})
+
+        assert resp.status_code == 302
+        assert not OrientationBooking.objects.filter(guild=guild).exists()
+
+    def it_requires_a_member_profile(client: Client):
+        MembershipPlanFactory()
+        user = User.objects.create_user(username="cust_unlinked", password="pass")
+        Member.objects.filter(user=user).delete()
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=True)
+        client.login(username="cust_unlinked", password="pass")
+        when = (timezone.now() + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M")
+
+        resp = client.post(reverse("hub_guild_orientation_request_custom", args=[guild.pk]), {"starts_at": when})
+
+        assert resp.status_code == 302
+        assert not OrientationBooking.objects.filter(guild=guild).exists()
+
+    def it_does_not_orphan_a_slot_when_the_booking_is_rejected(client: Client):
+        from membership.models import OrientationSlot
+
+        user = _user_with_role("cust5")
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=True)
+        # An existing live booking blocks a second request (one active booking per guild+member).
+        OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=user.member)
+        client.login(username="cust5", password="pass")
+        when = (timezone.now() + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M")
+
+        resp = client.post(reverse("hub_guild_orientation_request_custom", args=[guild.pk]), {"starts_at": when})
+
+        assert resp.status_code == 302
+        assert OrientationBooking.objects.filter(guild=guild, member=user.member).count() == 1
+        # The extra slot created for the rejected request was rolled back — only the
+        # original booking's slot remains.
+        assert OrientationSlot.objects.filter(guild=guild).count() == 1
 
 
 def describe_orientation_respond():
