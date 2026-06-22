@@ -502,6 +502,86 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
+@login_required
+def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    """Config editor: orientation settings + recurring availability rules. Editors only."""
+    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet, OrientationSlotForm
+    from membership.models import GuildOrientationSettings
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
+
+    if request.method == "POST":
+        form = GuildOrientationSettingsForm(request.POST, instance=settings_obj)
+        rule_formset = OrientationAvailabilityFormSet(request.POST, instance=guild, prefix="rules")
+        if form.is_valid() and rule_formset.is_valid():
+            form.save()
+            rule_formset.save()
+            messages.success(request, "Orientation settings updated.")
+            return redirect("hub_guild_orientation_edit", pk=guild.pk)
+    else:
+        form = GuildOrientationSettingsForm(instance=settings_obj)
+        rule_formset = OrientationAvailabilityFormSet(instance=guild, prefix="rules")
+
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/orientation_settings.html",
+        {
+            **ctx,
+            "guild": guild,
+            "form": form,
+            "rule_formset": rule_formset,
+            "slot_form": OrientationSlotForm(),
+            "upcoming_slots": guild.orientation_slots.upcoming(),
+        },
+    )
+
+
+@login_required
+@require_POST
+def guild_orientation_slot_add(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — add a one-off orientation slot to this guild. Editors only."""
+    from hub.forms import OrientationSlotForm
+    from membership.models import OrientationSlot
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    form = OrientationSlotForm(request.POST)
+    if form.is_valid():
+        slot = form.save(commit=False)
+        slot.guild = guild
+        slot.source = OrientationSlot.Source.MANUAL
+        slot.save()
+        messages.success(request, "Orientation slot added.")
+    else:
+        for field, errors in form.errors.items():
+            for error in errors:
+                messages.error(request, f"{field}: {error}")
+    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_orientation_slot_cancel(request: HttpRequest, pk: int, slot_pk: int) -> HttpResponse:
+    """POST-only — cancel a one-off or generated orientation slot (and its bookings). Editors only."""
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    slot = get_object_or_404(guild.orientation_slots, pk=slot_pk)
+    slot.cancel(reason=request.POST.get("reason", ""))
+    messages.success(request, "Orientation slot cancelled.")
+    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+
+
 def _surface_product_errors(request: HttpRequest, form: Any, formset: Any) -> None:
     """Flash per-field form + formset errors onto ``request`` as messages."""
     if form.errors:

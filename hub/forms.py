@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.conf import settings
 from django.core.mail import send_mail
+from django.utils import timezone
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
 from core.models import CalendarFeed, SiteConfiguration
-from membership.models import Guild, GuildAnnouncement, GuildFAQItem, GuildLink, Member
+from membership.models import (
+    Guild,
+    GuildAnnouncement,
+    GuildFAQItem,
+    GuildLink,
+    GuildOrientationSettings,
+    Member,
+    OrientationAvailability,
+    OrientationSlot,
+)
 
 
 class GuildEditForm(forms.ModelForm):
@@ -380,6 +390,124 @@ class GuildLinkForm(forms.ModelForm):
 
 
 GuildLinkFormSet = forms.inlineformset_factory(Guild, GuildLink, form=GuildLinkForm, extra=1, can_delete=True)
+
+
+class GuildOrientationSettingsForm(forms.ModelForm):
+    """Edit a guild's orientation config plus its two lead-authored follow-up emails.
+
+    Enabling either follow-up email requires a subject and a body, mirroring the
+    instructor welcome-email form. Saving stamps each email's ``*_updated_at``.
+    """
+
+    class Meta:
+        model = GuildOrientationSettings
+        fields = [
+            "is_enabled",
+            "info",
+            "default_seats",
+            "default_location",
+            "default_duration_minutes",
+            "is_closed",
+            "closed_message",
+            "thankyou_email_enabled",
+            "thankyou_email_subject",
+            "thankyou_email_body",
+            "join_email_enabled",
+            "join_email_subject",
+            "join_email_body",
+        ]
+        widgets = {
+            "info": forms.Textarea(attrs={"rows": 4}),
+            "closed_message": forms.TextInput(attrs={"placeholder": "On vacation till Sept 8"}),
+            "thankyou_email_body": forms.Textarea(attrs={"rows": 6}),
+            "join_email_body": forms.Textarea(attrs={"rows": 6}),
+        }
+        labels = {
+            "is_enabled": "Offer orientation booking on this guild's page",
+            "info": "Orientation info",
+            "default_seats": "Default seats per slot",
+            "default_location": "Default location",
+            "default_duration_minutes": "Default length (minutes)",
+            "is_closed": "Temporarily closed for orientations",
+            "closed_message": "Closed message",
+            "thankyou_email_enabled": "Send a thank-you / next-steps email after orientation",
+            "thankyou_email_subject": "Thank-you subject",
+            "thankyou_email_body": "Thank-you message",
+            "join_email_enabled": "Send a welcome email when a member joins this guild",
+            "join_email_subject": "Welcome subject",
+            "join_email_body": "Welcome message",
+        }
+
+    def _require_subject_and_body(self, cleaned: dict[str, Any], prefix: str, label: str) -> None:
+        if cleaned.get(f"{prefix}_enabled"):
+            if not (cleaned.get(f"{prefix}_subject") or "").strip():
+                self.add_error(f"{prefix}_subject", f"Add a subject before turning the {label} email on.")
+            if not (cleaned.get(f"{prefix}_body") or "").strip():
+                self.add_error(f"{prefix}_body", f"Add a message before turning the {label} email on.")
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        self._require_subject_and_body(cleaned, "thankyou_email", "thank-you")
+        self._require_subject_and_body(cleaned, "join_email", "welcome")
+        return cleaned
+
+    def save(self, commit: bool = True) -> GuildOrientationSettings:
+        now = timezone.now()
+        self.instance.thankyou_email_updated_at = now
+        self.instance.join_email_updated_at = now
+        return cast(GuildOrientationSettings, super().save(commit=commit))
+
+
+class OrientationAvailabilityForm(forms.ModelForm):
+    """A single recurring orientation-availability row."""
+
+    class Meta:
+        model = OrientationAvailability
+        fields = ["weekday", "start_time", "end_time", "seats", "location", "is_active"]
+        widgets = {
+            "start_time": forms.TimeInput(attrs={"type": "time"}),
+            "end_time": forms.TimeInput(attrs={"type": "time"}),
+        }
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        start = cleaned.get("start_time")
+        end = cleaned.get("end_time")
+        if start and end and end <= start:
+            self.add_error("end_time", "End time must be after the start time.")
+        return cleaned
+
+
+OrientationAvailabilityFormSet = forms.inlineformset_factory(
+    Guild, OrientationAvailability, form=OrientationAvailabilityForm, extra=1, can_delete=True
+)
+
+
+class OrientationSlotForm(forms.ModelForm):
+    """Add a one-off orientation slot from the config editor."""
+
+    class Meta:
+        model = OrientationSlot
+        fields = ["starts_at", "ends_at", "seats", "location"]
+        widgets = {
+            "starts_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+            "ends_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for name in ("starts_at", "ends_at"):
+            cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        starts = cleaned.get("starts_at")
+        ends = cleaned.get("ends_at")
+        if starts and ends and ends <= starts:
+            self.add_error("ends_at", "End must be after the start.")
+        if starts and starts <= timezone.now():
+            self.add_error("starts_at", "Pick a time in the future.")
+        return cleaned
 
 
 class GuildAnnouncementForm(forms.ModelForm):

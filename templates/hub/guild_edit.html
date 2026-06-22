@@ -4,6 +4,10 @@
 <div x-data="{}">
 <h1 class="hub-page-title">Edit {{ guild.name }}</h1>
 
+<p style="margin:-0.5rem 0 1.25rem;">
+  <a href="{% url 'hub_guild_orientation_edit' guild.pk %}" class="hub-btn hub-btn--sm">Manage orientations →</a>
+</p>
+
 <form method="post" enctype="multipart/form-data" class="hub-form">
   {% csrf_token %}
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
