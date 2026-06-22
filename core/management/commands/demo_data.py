@@ -37,18 +37,22 @@ Default password for all logins is ``demo-pass-2026`` — override with
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import time, timedelta
+from pathlib import Path
 from typing import Any
 
 from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.files import File
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
 from classes.models import (
     Category,
+    ClassApproval,
+    ClassImage,
     ClassOffering,
     ClassSession,
     DiscountCode,
@@ -72,6 +76,36 @@ PERSONA_GUEST_EMAIL = f"guest@{DEMO_EMAIL_DOMAIN}"
 GUEST_ORDER_NUMBER = "PL-DEM2-26"
 STUDENT_PAST_ORDER_NUMBER = "PL-DMP2-26"
 STUDENT_FUTURE_ORDER_NUMBER = "PL-DMF2-26"
+
+# --- Local-dev-only personas + data (gated on settings.DEBUG) ----------------
+# The blocks below create ACTIVE demo Members, push orientation config onto real
+# guilds, and trigger no external side effects. They run on local dev only so a
+# real environment's active-member count and live guild config stay untouched.
+
+# The "test member" the QA flow logs in as to browse classes and book orientations.
+PERSONA_MEMBER_EMAIL = f"member@{DEMO_EMAIL_DOMAIN}"
+
+# Extra members who populate orientation rosters (so a slot shows more than one
+# name and there's a completed/oriented record to look at). (local-part, first, last)
+ORIENTATION_BOOKER_PERSONAS: list[tuple[str, str, str]] = [
+    ("orient-ana", "Ana", "Rivera"),
+    ("orient-ben", "Ben", "Cho"),
+    ("orient-cara", "Cara", "Nguyen"),
+    ("orient-dev", "Dev", "Patel"),
+]
+
+# Real guilds we switch orientation on for the demo (chosen because they already
+# carry GuildOrientationSettings rows in the pulled data). `--remove` re-disables
+# only the ones it left empty, so a guild with its own (non-demo) rules is spared.
+DEMO_ORIENTATION_GUILDS = ["Ceramics Guild", "Gardeners Guild", "Jewelry Guild"]
+
+# Embedded in every demo availability rule + slot `location` so teardown can find
+# exactly our rows and never touch a guild's pre-existing orientation data.
+DEMO_ORIENTATION_MARKER = "[DEMO]"
+
+# Source images for class hero/gallery attachment live here, under MEDIA_ROOT.
+# Populate with scripts/fetch_demo_images.sh; the seed skips attachment if absent.
+DEMO_IMAGE_DIRNAME = "demo_seed"
 
 
 class Command(BaseCommand):
@@ -108,21 +142,46 @@ class Command(BaseCommand):
         self._ensure_instructor_class_rosters(past_class, current_free_class, future_paid_class)
         self._ensure_guest_registration(current_free_class)
         self._ensure_discount_codes()
-        # Registration questions are global (no demo- scoping), so seeding them on
-        # a real environment leaks them onto every registrant's form. Keep this in
-        # local dev only; real environments manage questions via the CMS admin.
+
+        # Everything below is local-dev only. Registration questions are global
+        # (no demo- scoping), demo Members are ACTIVE, and the orientation seed
+        # pushes config onto real guilds — none of which should touch a real env.
+        member = None
+        pending_class = None
+        orientation_summary: list[str] = []
         if settings.DEBUG:
             self._ensure_registration_questions()
+            self._attach_images(
+                current_free_class,
+                hero="hero_intro.jpg",
+                gallery=("gallery_1.jpg", "gallery_2.jpg", "gallery_3.jpg", "gallery_4.jpg"),
+            )
+            self._attach_images(future_paid_class, hero="hero_advanced.jpg")
+            member = self._ensure_member_persona(password=password)
+            pending_class = self._ensure_pending_class(category, instructor)
+            self._attach_images(pending_class, hero="hero_pending.jpg", gallery=("gallery_4.jpg", "gallery_3.jpg"))
+            orientation_summary = self._ensure_orientations(member, password=password)
         else:
             self.stdout.write(
-                self.style.WARNING("  Registration questions: skipped (DEBUG off — manage these in the CMS admin)")
+                self.style.WARNING(
+                    "  Local-dev extras skipped (DEBUG off): registration questions, demo member, "
+                    "class images, pending-approval class, orientations."
+                )
             )
 
         self.stdout.write(self.style.SUCCESS("\nDemo data ready. Log in details:"))
         self.stdout.write(f"  Student (non-member): {PERSONA_STUDENT_EMAIL}  /  password: {password}")
         self.stdout.write(f"  Instructor:           {PERSONA_INSTRUCTOR_EMAIL}  /  password: {password}")
+        if member is not None:
+            self.stdout.write(f"  Member (orientations): {PERSONA_MEMBER_EMAIL}  /  password: {password}")
         self.stdout.write("\nGuest lookup (no login):")
         self.stdout.write(f"  Last name: Guest    Order #: {GUEST_ORDER_NUMBER}")
+        if pending_class is not None:
+            self.stdout.write(f"\nPending admin approval: {pending_class.title}  (slug: {pending_class.slug})")
+        if orientation_summary:
+            self.stdout.write("\nOrientations (enabled on real guilds — book/confirm in the hub to fire emails):")
+            for line in orientation_summary:
+                self.stdout.write(f"  • {line}")
         self.stdout.write("\nRun `python manage.py demo_data --remove` when you're done.")
 
     def _ensure_category(self) -> Category:
@@ -474,6 +533,301 @@ class Command(BaseCommand):
         )
         self.stdout.write("  Registration questions: 3 seeded (short text, yes/no, single choice)")
 
+    # --- Local-dev personas, pending class, images, orientations ------------
+
+    def _ensure_member_persona(self, *, password: str) -> Any:
+        """The 'test member' the QA flow logs in as to browse and book orientations."""
+        return self._ensure_demo_member(
+            email=PERSONA_MEMBER_EMAIL, first_name="Demo", last_name="Member", password=password
+        )
+
+    def _ensure_demo_member(self, *, email: str, first_name: str, last_name: str, password: str) -> Any:
+        """Create (or refresh) an ACTIVE demo Member with a linked, verified login.
+
+        Unlike ``_ensure_user`` this keeps the auto-created Member alive — these
+        personas *are* members (they join guilds and book orientations), so the
+        Member row must persist. Local-dev only (callers gate on DEBUG), so a
+        real environment's active-member count is never inflated.
+        """
+        from allauth.account.models import EmailAddress as AllauthEmailAddress
+
+        from membership.models import Member, MembershipPlan
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username=email,
+            defaults={"email": email, "first_name": first_name, "last_name": last_name},
+        )
+        user.set_password(password)
+        if not user.email:
+            user.email = email
+        user.first_name = first_name
+        user.last_name = last_name
+        user.save()
+        AllauthEmailAddress.objects.update_or_create(
+            user=user, email=email, defaults={"verified": True, "primary": True}
+        )
+        plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
+        member, _ = Member.objects.update_or_create(
+            user=user,
+            defaults={
+                "full_legal_name": f"{first_name} {last_name}",
+                "preferred_name": first_name,
+                "about_me": "Seeded demo member — safe to delete with `manage.py demo_data --remove`.",
+                "status": Member.Status.ACTIVE,
+                "membership_plan": plan,
+            },
+        )
+        return member
+
+    def _ensure_pending_class(self, category: Category, instructor: Any) -> ClassOffering:
+        """A class the demo instructor submitted that's waiting on admin approval.
+
+        Staged directly into PENDING with an open admin ``ClassApproval`` row so
+        it shows in the admin review queue — without firing the review email the
+        real ``submit_for_review`` path would. The QA tester approves it from the
+        admin UI, which fires the instructor-outcome email into Mailpit.
+        """
+        now = timezone.now()
+        offering, _ = ClassOffering.objects.update_or_create(
+            slug=f"{DEMO_SLUG_PREFIX}pending-review",
+            defaults={
+                "title": "[DEMO] Intro to Lampworking (Pending Approval)",
+                "category": category,
+                "instructor": instructor,
+                "created_by": instructor,
+                "description": "Seeded demo class awaiting admin approval. Safe to delete via `demo_data --remove`.",
+                "price_cents": 6500,
+                "member_discount_pct": 10,
+                "capacity": 6,
+                "status": ClassOffering.Status.PENDING,
+            },
+        )
+        offering.sessions.all().delete()
+        start = now + timedelta(days=10)
+        ClassSession.objects.create(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        # One open admin gate (token auto-fills on save). Reset on every re-seed.
+        offering.approvals.all().delete()
+        ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        return offering
+
+    def _demo_image_dir(self) -> Path | None:
+        image_dir = Path(settings.MEDIA_ROOT) / DEMO_IMAGE_DIRNAME
+        return image_dir if image_dir.is_dir() else None
+
+    def _attach_images(
+        self, offering: ClassOffering, *, hero: str | None = None, gallery: tuple[str, ...] = ()
+    ) -> None:
+        """Attach a hero and/or up to four gallery images to a class, from the demo image dir.
+
+        Idempotent and cheap to skip: a hero is set only when the field is empty
+        and gallery rows added only when the class has none, so re-seeding never
+        duplicates images. Missing source files are skipped silently, so the seed
+        still runs on a checkout that hasn't fetched images.
+        """
+        image_dir = self._demo_image_dir()
+        if image_dir is None:
+            return
+        if hero and not offering.image:
+            hero_path = image_dir / hero
+            if hero_path.is_file():
+                with hero_path.open("rb") as fh:
+                    offering.image.save(hero, File(fh), save=True)
+        if gallery and not offering.gallery_images.exists():
+            for sort_order, name in enumerate(gallery[:4]):
+                gallery_path = image_dir / name
+                if not gallery_path.is_file():
+                    continue
+                row = ClassImage(class_offering=offering, sort_order=sort_order, alt_text=f"{offering.title} photo")
+                with gallery_path.open("rb") as fh:
+                    row.image.save(name, File(fh), save=True)
+
+    def _ensure_orientations(self, member: Any, *, password: str) -> list[str]:
+        """Enable orientations on the demo guilds, post recurring times, and seed bookings.
+
+        Returns human-readable summary lines for the command output.
+        """
+        from membership import orientations
+        from membership.models import Guild
+
+        bookers = [
+            self._ensure_demo_member(
+                email=f"{local_part}@{DEMO_EMAIL_DOMAIN}", first_name=first, last_name=last, password=password
+            )
+            for local_part, first, last in ORIENTATION_BOOKER_PERSONAS
+        ]
+        guilds = []
+        for name in DEMO_ORIENTATION_GUILDS:
+            guild = Guild.objects.filter(name=name).first()
+            if guild is None:
+                self.stdout.write(self.style.WARNING(f"  Orientation: guild {name!r} not found — skipped."))
+                continue
+            self._ensure_orientation_settings(guild)
+            self._ensure_availability_rules(guild)
+            orientations.generate_slots(guild=guild)
+            guilds.append(guild)
+        summary: list[str] = []
+        if guilds:
+            self._seed_orientation_bookings(guilds, member, bookers, summary)
+        return summary
+
+    def _ensure_orientation_settings(self, guild: Any) -> Any:
+        """Switch orientation on for a guild, filling optional config only when blank.
+
+        Re-seed never clobbers a guild's own info/emails (e.g. Jewelry's pulled
+        settings); it only guarantees the guild is accepting and that the
+        thank-you / welcome emails are populated so those paths are testable.
+        """
+        from membership.models import GuildOrientationSettings
+
+        info = (
+            "Orientation is a short walkthrough of the studio, tools, and safety basics before you "
+            "start working on your own. Pick a time that works for you below."
+        )
+        obj, _ = GuildOrientationSettings.objects.get_or_create(
+            guild=guild,
+            defaults={
+                "is_enabled": True,
+                "is_closed": False,
+                "allow_custom_requests": True,
+                "info": info,
+                "default_seats": 4,
+                "default_location": "Front Desk",
+                "default_duration_minutes": 60,
+            },
+        )
+        obj.is_enabled = True
+        obj.is_closed = False
+        if not obj.info:
+            obj.info = info
+        if not obj.thankyou_email_subject:
+            obj.thankyou_email_enabled = True
+            obj.thankyou_email_subject = f"Welcome to the {guild.name}!"
+            obj.thankyou_email_body = (
+                "Thanks for completing your orientation — you're cleared to start using the space. "
+                "Reach out to your guild lead any time with questions."
+            )
+            obj.thankyou_email_updated_at = timezone.now()
+        if not obj.join_email_subject:
+            obj.join_email_enabled = True
+            obj.join_email_subject = f"You joined the {guild.name}"
+            obj.join_email_body = "Welcome aboard! Watch the guild page for upcoming orientations, classes, and events."
+            obj.join_email_updated_at = timezone.now()
+        obj.save()
+        return obj
+
+    def _ensure_availability_rules(self, guild: Any) -> None:
+        """Two weekly recurring orientation windows per guild (Wed evening, Sat late-morning)."""
+        from membership.models import OrientationAvailability
+
+        location = f"Front Desk {DEMO_ORIENTATION_MARKER}"
+        rules = [
+            (OrientationAvailability.Weekday.WEDNESDAY, time(18, 0), time(19, 0)),
+            (OrientationAvailability.Weekday.SATURDAY, time(11, 0), time(12, 0)),
+        ]
+        for weekday, start, end in rules:
+            OrientationAvailability.objects.get_or_create(
+                guild=guild,
+                weekday=weekday,
+                start_time=start,
+                defaults={"end_time": end, "seats": 4, "location": location, "is_active": True},
+            )
+
+    def _ensure_past_slot(self, guild: Any) -> Any:
+        """A single past, demo-marked manual slot so a completed orientation has somewhere to live."""
+        from membership.models import OrientationSlot
+
+        OrientationSlot.objects.filter(
+            guild=guild,
+            source=OrientationSlot.Source.MANUAL,
+            location__icontains=DEMO_ORIENTATION_MARKER,
+            starts_at__lt=timezone.now(),
+        ).delete()
+        start = (timezone.now() - timedelta(days=7)).replace(minute=0, second=0, microsecond=0)
+        return OrientationSlot.objects.create(
+            guild=guild,
+            availability=None,
+            starts_at=start,
+            ends_at=start + timedelta(hours=1),
+            seats=4,
+            location=f"Front Desk {DEMO_ORIENTATION_MARKER}",
+            source=OrientationSlot.Source.MANUAL,
+        )
+
+    def _make_booking(self, slot: Any, member: Any, status: str, *, completed: bool = False) -> Any:
+        """Create/refresh one orientation booking directly (no emails), bypassing the booking guards."""
+        from membership.models import OrientationBooking
+
+        booking, _ = OrientationBooking.objects.get_or_create(
+            slot=slot, member=member, defaults={"guild": slot.guild, "status": status}
+        )
+        booking.guild = slot.guild
+        booking.status = status
+        booking.is_completed = completed
+        if status == OrientationBooking.Status.CONFIRMED and booking.confirmed_at is None:
+            booking.confirmed_at = timezone.now()
+        if completed:
+            booking.oriented_by = slot.guild.guild_lead
+        booking.save()
+        return booking
+
+    def _seed_orientation_bookings(
+        self, guilds: list[Any], member: Any, bookers: list[Any], summary: list[str]
+    ) -> None:
+        """Spread requested / confirmed / completed bookings across the demo guilds.
+
+        The unique 'one active booking per (guild, member)' constraint is honored
+        by never giving the same member two live bookings on one guild.
+        """
+        from membership.models import OrientationBooking, OrientationSlot
+
+        status = OrientationBooking.Status
+
+        def demo_slots(guild: Any) -> list[Any]:
+            return list(
+                guild.orientation_slots.filter(
+                    source=OrientationSlot.Source.GENERATED, location__icontains=DEMO_ORIENTATION_MARKER
+                )
+                .upcoming()
+                .order_by("starts_at")
+            )
+
+        def when(slot: Any) -> str:
+            return f"{timezone.localtime(slot.starts_at):%a %b %-d, %-I%p}"
+
+        primary = guilds[0]
+        primary_slots = demo_slots(primary)
+        if primary_slots:
+            self._make_booking(primary_slots[0], member, status.REQUESTED)
+            self._make_booking(primary_slots[0], bookers[0], status.REQUESTED)
+            summary.append(
+                f"{primary.name}: {member.display_name} REQUESTED {when(primary_slots[0])} "
+                "(+ 1 more pending) — approve to test"
+            )
+        if len(primary_slots) >= 2:
+            self._make_booking(primary_slots[1], bookers[1], status.CONFIRMED)
+            summary.append(f"{primary.name}: {bookers[1].display_name} CONFIRMED {when(primary_slots[1])}")
+        past_slot = self._ensure_past_slot(primary)
+        self._make_booking(past_slot, bookers[2], status.CONFIRMED, completed=True)
+        summary.append(f"{primary.name}: {bookers[2].display_name} COMPLETED a past orientation (oriented)")
+
+        if len(guilds) >= 2:
+            second = guilds[1]
+            second_slots = demo_slots(second)
+            if second_slots:
+                self._make_booking(second_slots[0], member, status.CONFIRMED)
+                summary.append(f"{second.name}: {member.display_name} CONFIRMED {when(second_slots[0])}")
+            if len(second_slots) >= 2:
+                self._make_booking(second_slots[1], bookers[3], status.REQUESTED)
+                summary.append(f"{second.name}: {bookers[3].display_name} REQUESTED (pending)")
+
+        if len(guilds) >= 3:
+            third = guilds[2]
+            third_slots = demo_slots(third)
+            if third_slots:
+                self._make_booking(third_slots[0], bookers[0], status.REQUESTED)
+                summary.append(f"{third.name}: {bookers[0].display_name} REQUESTED (pending)")
+
     # --- Remove -------------------------------------------------------------
 
     @transaction.atomic
@@ -523,18 +877,57 @@ class Command(BaseCommand):
         RegistrationQuestion.objects.filter(prompt__startswith="Do you have any allergies").delete()
         RegistrationQuestion.objects.filter(prompt__startswith="What's your experience").delete()
 
+        slot_count, rule_count, disabled_count = self._remove_orientations()
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"Removed: {user_count} user(s), {member_count} member(s), "
                 f"{class_count} class(es), {category_count} categor(ies), {reg_count} registration(s), "
-                f"{code_count} discount code(s), {question_count} registration question(s)."
+                f"{code_count} discount code(s), {question_count} registration question(s), "
+                f"{slot_count} orientation slot(s), {rule_count} orientation rule(s), "
+                f"orientation re-disabled on {disabled_count} guild(s)."
             )
         )
+
+    def _remove_orientations(self) -> tuple[int, int, int]:
+        """Delete demo-marked orientation rules + slots and re-disable the guilds we emptied.
+
+        Demo bookings are already gone — they cascade when the demo Members are
+        deleted above. A guild that still has its own (non-demo) rules or slots
+        keeps its orientation toggle; only guilds left empty by us get switched
+        back off.
+        """
+        from membership.models import GuildOrientationSettings, OrientationAvailability, OrientationSlot
+
+        demo_slots = OrientationSlot.objects.filter(location__icontains=DEMO_ORIENTATION_MARKER)
+        demo_rules = OrientationAvailability.objects.filter(location__icontains=DEMO_ORIENTATION_MARKER)
+        slot_count = demo_slots.count()
+        rule_count = demo_rules.count()
+        demo_slots.delete()
+        demo_rules.delete()
+
+        disabled = 0
+        for name in DEMO_ORIENTATION_GUILDS:
+            obj = GuildOrientationSettings.objects.filter(guild__name=name, is_enabled=True).first()
+            if obj is None:
+                continue
+            if obj.guild.orientation_rules.exists() or obj.guild.orientation_slots.exists():
+                continue  # has its own non-demo orientation data — leave it enabled
+            obj.is_enabled = False
+            obj.save(update_fields=["is_enabled"])
+            disabled += 1
+        return slot_count, rule_count, disabled
 
     # --- Status -------------------------------------------------------------
 
     def _print_status(self) -> None:
-        from membership.models import Member
+        from membership.models import (
+            GuildOrientationSettings,
+            Member,
+            OrientationAvailability,
+            OrientationBooking,
+            OrientationSlot,
+        )
 
         User = get_user_model()
 
@@ -547,12 +940,25 @@ class Command(BaseCommand):
         self.stdout.write(f"  Users:          {users.count()}")
         for u in users:
             self.stdout.write(f"    - {u.email}")
-        self.stdout.write(f"  Members:        {members.count()}  (should normally be 0 for demo personas)")
+        self.stdout.write(
+            f"  Members:        {members.count()}  (0 on a real env; local-dev seeds active demo members)"
+        )
         self.stdout.write(f"  Classes:        {classes.count()}")
         for c in classes:
-            self.stdout.write(f"    - {c.slug} → {c.title}")
+            self.stdout.write(f"    - {c.slug} → {c.title} [{c.get_status_display()}]")
         self.stdout.write(f"  Registrations:  {regs.count()}")
         for r in regs:
             self.stdout.write(
                 f"    - {r.order_number}: {r.first_name} {r.last_name} ({r.email}) → {r.class_offering.slug}"
             )
+
+        demo_rules = OrientationAvailability.objects.filter(location__icontains=DEMO_ORIENTATION_MARKER)
+        demo_slots = OrientationSlot.objects.filter(location__icontains=DEMO_ORIENTATION_MARKER)
+        demo_bookings = OrientationBooking.objects.filter(member__user__email__endswith=f"@{DEMO_EMAIL_DOMAIN}")
+        enabled = GuildOrientationSettings.objects.filter(guild__name__in=DEMO_ORIENTATION_GUILDS, is_enabled=True)
+        self.stdout.write(
+            f"  Orientation:    {demo_rules.count()} rule(s), {demo_slots.count()} slot(s), "
+            f"{demo_bookings.count()} booking(s)"
+        )
+        for s in enabled:
+            self.stdout.write(f"    - enabled on {s.guild.name}")
