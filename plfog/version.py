@@ -34,6 +34,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Instructors now see the makerspace-wide discount codes (like the members' discount) right on their Discount Codes page, clearly marked as admin-managed and read-only, alongside their own codes — so it's obvious which codes already exist before creating a new one.",
             "Guild pages now show a 'Next Meeting' card that figures out the date for you: set a cadence like 'monthly, 3rd Thursday at 6pm in Studio B' and the page always shows the upcoming date — or a one-off override, or 'TBA' if nothing's scheduled yet.",
             "Guild leads and admins can now post announcements to their guild page — pinned at the top, above the About section — and set them to automatically disappear after a date you choose.",
+            "Guild pages now show quick stats (members, classes offered, next meeting) and an 'Upcoming classes' list that links straight to sign-up, plus a 'Get Involved' panel for joining the guild or teaching a class.",
         ],
     },
     {

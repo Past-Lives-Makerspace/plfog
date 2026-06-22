@@ -373,6 +373,13 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     roster = guild.roster_members() if guild.show_members else None
     is_member_of_guild = member is not None and guild.memberships.filter(member=member).exists()
 
+    from classes.models import ClassOffering
+
+    guild_classes = ClassOffering.objects.filter(category__guild=guild)
+    member_count = guild.memberships.count()
+    class_count = guild_classes.filter(status=ClassOffering.Status.PUBLISHED).count()
+    upcoming_classes = guild_classes.bookable().select_related("instructor")[:4]
+
     guild_ct = ContentType.objects.get_for_model(Guild)
 
     return render(
@@ -395,6 +402,9 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "announcements": announcements,
             "roster": roster,
             "is_member_of_guild": is_member_of_guild,
+            "member_count": member_count,
+            "class_count": class_count,
+            "upcoming_classes": upcoming_classes,
         },
     )
 

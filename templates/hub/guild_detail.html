@@ -85,6 +85,13 @@
     </div>
 </div>
 
+{# ── STAT CHIPS ── #}
+<div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin:0 0 1rem;">
+    <span class="hub-badge">{{ member_count }} member{{ member_count|pluralize }}</span>
+    <span class="hub-badge">{{ class_count }} class{{ class_count|pluralize:"es" }}</span>
+    <span class="hub-badge">{% if guild.next_meeting_at %}Next meeting {{ guild.next_meeting_at|date:"M j" }}{% else %}Meetings TBA{% endif %}</span>
+</div>
+
 {# ── JOIN / LEAVE ── #}
 {% if member %}
 <form method="post"
@@ -121,6 +128,23 @@
             <p class="hub-text-muted">Nothing here yet.</p>
             {% endif %}
         </section>
+
+        {% if upcoming_classes %}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">Upcoming classes</h2>
+            <div style="display:flex; flex-direction:column; gap:0.5rem;">
+                {% for c in upcoming_classes %}
+                <a href="{% url 'classes:register' c.slug %}" class="hub-card" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; text-decoration:none;">
+                    <div>
+                        <strong>{{ c.title }}</strong>
+                        {% if c.instructor %}<div class="hub-text-muted" style="font-size:0.8125rem;">with {{ c.instructor.display_name }}</div>{% endif %}
+                    </div>
+                    <div class="hub-text-muted" style="font-size:0.8125rem; white-space:nowrap;">{% if c.first_session_at %}{{ c.first_session_at|date:"M j" }}{% else %}Flexible{% endif %}</div>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
 
         {% if guild.youtube_url %}{% with vid=guild.youtube_url|youtube_embed_id %}{% if vid %}
         <section class="pl-guild-section">
@@ -182,6 +206,20 @@
             {% else %}
             <div class="hub-text-muted">TBA</div>
             {% endif %}
+        </div>
+
+        <div class="hub-card">
+            <h3 class="hub-detail-label">Get Involved</h3>
+            <div style="display:flex; flex-direction:column; gap:0.5rem;">
+                {% if member and not is_member_of_guild %}
+                <form method="post" action="{% url 'hub_guild_join' guild.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="pl-btn pl-btn--primary" style="width:100%;">Join this guild</button>
+                </form>
+                {% endif %}
+                <a href="{% url 'classes:teach_class_create' %}" class="pl-btn pl-btn--secondary" style="width:100%;">Teach a class</a>
+                {% if guild.contact_email %}<a href="mailto:{{ guild.contact_email }}" class="pl-btn pl-btn--secondary" style="width:100%;">Contact the guild</a>{% endif %}
+            </div>
         </div>
 
         {% if guild.show_members and roster %}
