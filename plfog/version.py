@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-VERSION = "0.18.0"
+VERSION = "0.18.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.18.1",
+        "date": "2026-06-22",
+        "title": "Guild page polish: clickable member count and guild icons in the directory",
+        "changes": [
+            "The member count on a guild page is now a clickable chip — tap it to jump straight to the member directory showing just that guild's members.",
+            "The member directory now shows each guild's icon next to its name on every member's card, so you can see who's in which guild at a glance.",
+        ],
+    },
     {
         "version": "0.18.0",
         "date": "2026-06-21",

@@ -91,7 +91,7 @@
 
 {# ── STAT CHIPS ── #}
 <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin:0 0 1rem;">
-    {% if member_count %}<span class="hub-badge">{{ member_count }} member{{ member_count|pluralize }}</span>{% endif %}
+    {% if member_count %}<a href="{% url 'hub_member_directory' %}?guild={{ guild.pk }}" class="hub-badge" style="text-decoration:none;" title="See these members in the directory">{{ member_count }} member{{ member_count|pluralize }}</a>{% endif %}
     {% if class_count %}<span class="hub-badge">{{ class_count }} class{{ class_count|pluralize:"es" }}</span>{% endif %}
     {% if guild.next_meeting_at %}<span class="hub-badge">Next meeting {{ guild.next_meeting_at|date:"M j" }}</span>{% endif %}
 </div>
@@ -220,7 +220,7 @@
                 {% if member and not is_member_of_guild %}
                 <form method="post" action="{% url 'hub_guild_join' guild.pk %}">
                     {% csrf_token %}
-                    <button type="submit" class="pl-btn pl-btn--primary" style="width:100%;">Join this guild</button>
+                    <button type="submit" class="pl-btn pl-btn--primary" style="width:100%;">Join This Guild</button>
                 </form>
                 {% endif %}
                 {% if show_orientation and not is_oriented %}

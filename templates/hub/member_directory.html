@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load hub_tags %}
+{% load hub_tags static %}
 {% block title %}Member Directory{% endblock %}
 
 {% block content %}
@@ -126,7 +126,12 @@
 
         {% if member.guild_memberships.all %}
         <div class="directory-card__guilds" style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.5rem;">
-            {% for gm in member.guild_memberships.all %}<span class="hub-badge">{{ gm.guild.name }}</span>{% endfor %}
+            {% for gm in member.guild_memberships.all %}
+            <span class="hub-badge" style="display:inline-flex; align-items:center; gap:0.3rem;">
+                {% if gm.guild.logo_prefix %}<img src="{% static 'img/guild_logos/'|add:gm.guild.logo_prefix|add:'_color.svg' %}" width="14" height="14" alt="">{% endif %}
+                {{ gm.guild.name }}
+            </span>
+            {% endfor %}
         </div>
         {% endif %}
 
