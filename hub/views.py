@@ -426,7 +426,7 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     orientation = GuildOrientationSettings.objects.filter(guild=guild).first()
     orientation_booking = member.active_orientation_for(guild) if member is not None else None
     is_oriented = member.is_oriented_for(guild) if member is not None else False
-    show_orientation = member is not None and orientation is not None and orientation.is_enabled
+    show_orientation = orientation is not None and orientation.is_enabled
     orientation_slots = (
         list(guild.orientation_slots.upcoming().order_by("starts_at")[:8])
         if orientation is not None

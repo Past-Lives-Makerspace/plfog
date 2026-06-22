@@ -33,20 +33,58 @@
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Recurring hours</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows we turn into bookable slots automatically.</p>
       {{ rule_formset.management_form }}
-      {% for rule in rule_formset %}
-        <div class="hub-card" style="padding:1rem; margin-bottom:0.75rem; background:rgba(255,255,255,0.02);">
+      <div id="rule-rows" style="display:flex; flex-direction:column; gap:0.75rem;">
+        {% for rule in rule_formset %}
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
           {{ rule.id }}
           <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
             <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=rule.weekday %}</div>
             <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.start_time %}</div>
             <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.end_time %}</div>
             <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=rule.seats %}</div>
-            <div style="flex:2; min-width:140px;">{% include "components/form_field.html" with field=rule.location %}</div>
           </div>
           {% include "components/form_field.html" with field=rule.is_active %}
-          {% if rule.instance.pk %}{% include "components/form_field.html" with field=rule.DELETE field_label="Remove this rule" %}{% endif %}
+          {% if rule.instance.pk %}
+            {# Real delete button: flips the hidden DELETE field and saves the page so no work is lost. #}
+            <div style="display:none;">{{ rule.DELETE }}</div>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                    onclick="document.getElementById('{{ rule.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+              Delete
+            </button>
+          {% endif %}
         </div>
-      {% endfor %}
+        {% endfor %}
+      </div>
+
+      {# Hidden empty-form template, cloned by the +Add button below. #}
+      <template id="rule-empty-template">
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {% with rule_formset.empty_form as er %}
+            {{ er.id }}
+            <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+              <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=er.weekday %}</div>
+              <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.start_time %}</div>
+              <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.end_time %}</div>
+              <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=er.seats %}</div>
+            </div>
+            {% include "components/form_field.html" with field=er.is_active %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+          {% endwith %}
+        </div>
+      </template>
+
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+              onclick="
+                const tpl = document.getElementById('rule-empty-template');
+                const total = document.getElementById('id_rules-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                document.getElementById('rule-rows').appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add recurring hours
+      </button>
     </div>
 
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">

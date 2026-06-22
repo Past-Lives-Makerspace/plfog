@@ -128,6 +128,17 @@ def describe_guild_orientation_section():
         response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
         assert b'aria-label="Orientation"' not in response.content
 
+    def it_shows_the_section_to_a_logged_in_non_member(client: Client):
+        # Being a linked member is no longer required to see the orientation section.
+        user = User.objects.create_user(username="sec_unlinked", password="pass")
+        Member.objects.filter(user=user).delete()
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        OrientationSlotFactory(guild=guild, enabled_settings=False)
+        client.login(username="sec_unlinked", password="pass")
+        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        assert b"Get oriented for" in response.content
+
 
 def describe_orientation_respond():
     def it_renders_for_an_editor(client: Client):

@@ -503,10 +503,10 @@ class OrientationAvailabilityForm(forms.ModelForm):
 
     class Meta:
         model = OrientationAvailability
-        fields = ["weekday", "start_time", "end_time", "seats", "location", "is_active"]
+        fields = ["weekday", "start_time", "end_time", "seats", "is_active"]
         widgets = {
-            "start_time": forms.TimeInput(attrs={"type": "time"}),
-            "end_time": forms.TimeInput(attrs={"type": "time"}),
+            "start_time": forms.TimeInput(attrs={"type": "time", "onclick": "this.showPicker?.()"}),
+            "end_time": forms.TimeInput(attrs={"type": "time", "onclick": "this.showPicker?.()"}),
         }
 
     def clean(self) -> dict[str, Any]:
@@ -519,7 +519,7 @@ class OrientationAvailabilityForm(forms.ModelForm):
 
 
 OrientationAvailabilityFormSet = forms.inlineformset_factory(
-    Guild, OrientationAvailability, form=OrientationAvailabilityForm, extra=1, can_delete=True
+    Guild, OrientationAvailability, form=OrientationAvailabilityForm, extra=0, can_delete=True
 )
 
 
@@ -530,8 +530,12 @@ class OrientationSlotForm(forms.ModelForm):
         model = OrientationSlot
         fields = ["starts_at", "ends_at", "seats", "location"]
         widgets = {
-            "starts_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
-            "ends_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+            "starts_at": forms.DateTimeInput(
+                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
+            ),
+            "ends_at": forms.DateTimeInput(
+                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
+            ),
         }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
