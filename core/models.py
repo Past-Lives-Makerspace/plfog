@@ -558,6 +558,11 @@ class SiteActivity(models.Model):
         INVITE_ACCEPTED = "invite_accepted", "Invite accepted"
         MEMBER_SIGNUP = "member_signup", "Member signed up"
         GUILD_ANNOUNCEMENT = "guild_announcement", "Guild announcement"
+        ORIENTATION_REQUESTED = "orientation_requested", "Orientation requested"
+        ORIENTATION_CONFIRMED = "orientation_confirmed", "Orientation confirmed"
+        ORIENTATION_DECLINED = "orientation_declined", "Orientation declined"
+        ORIENTATION_CANCELLED = "orientation_cancelled", "Orientation cancelled"
+        ORIENTATION_COMPLETED = "orientation_completed", "Orientation completed"
         LEASE_ACTIVATED = "lease_activated", "Lease activated"
         SITE_ANNOUNCEMENT = "site_announcement", "Site announcement"
 

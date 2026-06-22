@@ -1,0 +1,14 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #96ACBB;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #F4EFDD;">Orientation request received</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #F4EFDD; line-height: 1.6;">We got your request to be oriented for <strong>{{ guild.name }}</strong>.</p>
+{% include "membership/emails/_slot.html" %}
+<div style="background: rgba(238, 180, 75, 0.15); border-radius: 8px; padding: 12px 16px; margin: 16px 0;">
+    <p style="margin: 0; font-size: 13px; color: #EEB44B; font-weight: 700;">This is not an official booking yet.</p>
+    <p style="margin: 6px 0 0; font-size: 13px; color: #F4EFDD; line-height: 1.6;">The guild lead will review your request and confirm a time. We've attached a calendar hold so you don't lose track of it — you'll get an updated invite once it's confirmed.</p>
+</div>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ guild_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View guild page</a>
+</div>
+{% endblock %}

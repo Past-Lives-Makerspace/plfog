@@ -1,0 +1,11 @@
+{% extends "hub/base.html" %}
+{% block title %}Orientation · {{ guild.name }}{% endblock %}
+{% block content %}
+<h1 class="hub-page-title">Orientation · {{ guild.name }}</h1>
+{% if orientation and orientation.info %}
+<div class="hub-card" style="padding:1.5rem;">{{ orientation.info|linebreaks }}</div>
+{% else %}
+<p class="hub-text-muted">No orientation details have been posted yet.</p>
+{% endif %}
+<p style="margin-top:1rem;"><a href="{% url 'hub_guild_detail' guild.pk %}">← Back to {{ guild.name }}</a></p>
+{% endblock %}

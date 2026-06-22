@@ -1,0 +1,55 @@
+{% comment %}
+Member-facing orientation section on the guild page. Context:
+  orientation         — GuildOrientationSettings (enabled)
+  orientation_booking — the member's live booking for this guild, or None
+  is_oriented         — bool, member already oriented for this guild
+  orientation_slots   — bookable upcoming slots (only when none of the above)
+{% endcomment %}
+<section class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem;" aria-label="Orientation">
+  {% if is_oriented %}
+    <p style="margin:0; font-size:0.95rem; color:var(--hub-text);">✓ You're oriented for {{ guild.name }}.</p>
+
+  {% elif orientation_booking %}
+    <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Your orientation</h2>
+    <p style="margin:0 0 0.25rem; font-size:1rem; color:var(--hub-text);">
+      {{ orientation_booking.slot.starts_at|date:"l, F j" }} at {{ orientation_booking.slot.starts_at|time:"g:i A" }}
+      {% if orientation_booking.slot.location %}<span class="hub-text-muted">· {{ orientation_booking.slot.location }}</span>{% endif %}
+    </p>
+    {% if orientation_booking.status == "requested" %}
+    <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Requested — awaiting confirmation from the guild lead. This isn't official yet.</p>
+    {% else %}
+    <p style="margin:0 0 0.75rem; font-size:0.85rem; color:#7bdcb5;">Confirmed — see you there!</p>
+    {% endif %}
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" @click="$dispatch('open-confirm', 'cancel-my-orientation')">Cancel my orientation</button>
+    {% url 'hub_orientation_cancel_mine' orientation_booking.pk as cancel_mine_url %}
+    {% include "components/confirm_modal.html" with confirm_id="cancel-my-orientation" confirm_title="Cancel your orientation?" confirm_message="You can request a new orientation any time." confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" %}
+
+  {% elif orientation.is_closed %}
+    <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Orientations paused</h2>
+    <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">{% if orientation.closed_message %}{{ orientation.closed_message }}{% else %}This guild isn't taking orientation bookings right now — check back soon.{% endif %}</p>
+
+  {% else %}
+    <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Get oriented for {{ guild.name }}</h2>
+    {% if orientation.info %}<p class="hub-text-muted" style="margin:0 0 0.5rem; font-size:0.9rem;">{{ orientation.info|truncatewords:40 }}</p>{% endif %}
+    <p style="margin:0 0 0.75rem;"><a href="{% url 'hub_orientation_info' guild.pk %}">Orientation details →</a></p>
+    {% if orientation_slots %}
+    <ul style="list-style:none; padding:0; margin:0;">
+      {% for slot in orientation_slots %}
+      <li style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; padding:0.5rem 0; border-top:1px solid var(--hub-border);">
+        <span>{{ slot.starts_at|date:"D M j" }} · {{ slot.starts_at|time:"g:i A" }}
+          <span class="hub-text-muted">· {{ slot.seats_remaining }} seat{{ slot.seats_remaining|pluralize }} left</span></span>
+        {% if slot.is_full %}
+        <span class="hub-text-muted" style="font-size:0.85rem;">Full</span>
+        {% else %}
+        <form method="post" action="{% url 'hub_orientation_book' slot.pk %}">{% csrf_token %}
+          <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Request</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No orientation times posted yet — check back soon.</p>
+    {% endif %}
+  {% endif %}
+</section>

@@ -114,6 +114,8 @@
 <div x-show="section === 'overview'">
 <div class="pl-guild-grid">
     <main>
+        {% if show_orientation %}{% include "hub/partials/guild_orientation.html" %}{% endif %}
+
         {% if guild.featured_class %}
         <section class="pl-guild-section">
             <a href="{% url 'classes:register' guild.featured_class.slug %}" class="hub-card" style="display:flex; gap:1rem; align-items:center; text-decoration:none;">

@@ -1,0 +1,10 @@
+Hi {{ greeting_name }},
+
+Good news — your orientation for {{ guild.name }} is confirmed!
+
+  When: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}
+{% if slot.location %}  Where: {{ slot.location }}
+{% endif %}
+We've attached an updated calendar invite. See you there!
+
+— Past Lives Makerspace

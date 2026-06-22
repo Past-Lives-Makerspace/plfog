@@ -91,6 +91,18 @@ TRIGGERS: list[Trigger] = [
     Trigger("funding_results_published", "Funding results published", "Guild allocations were finalized.", "Voting"),
     # Guild activity
     Trigger("guild_announcement", "Guild announcement", "A guild you're in posted an announcement.", "Guilds"),
+    Trigger(
+        "orientation_requested",
+        "Orientation requested",
+        "Someone requested an orientation for a guild you lead.",
+        "Guilds",
+    ),
+    Trigger(
+        "orientation_update",
+        "Orientation updates",
+        "Your orientation request was confirmed, declined, or cancelled.",
+        "Guilds",
+    ),
     # Billing / tab
     Trigger("tab_charged", "Tab charged", "Your monthly tab was charged.", "Billing"),
     Trigger("tab_charge_failed", "Tab charge failed", "A charge failed — update your payment method.", "Billing"),

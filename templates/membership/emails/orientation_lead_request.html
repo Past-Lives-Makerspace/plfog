@@ -1,0 +1,10 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 12px; color: #EEB44B; text-transform: uppercase; letter-spacing: 0.08em;">New orientation request</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #F4EFDD;">{{ booking.member.display_name }} wants to be oriented for {{ guild.name }}</p>
+{% include "membership/emails/_slot.html" %}
+{% if booking.member_note %}<p style="margin: 0 0 16px; font-size: 14px; color: #F4EFDD; line-height: 1.6;"><span style="color: #96ACBB;">Note:</span> {{ booking.member_note }}</p>{% endif %}
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ respond_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Respond to request</a>
+</div>
+{% endblock %}

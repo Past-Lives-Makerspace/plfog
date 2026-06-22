@@ -421,6 +421,22 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     calendar = _get_calendar_context(request, guild=guild)
     pulse = _guild_pulse(guild)
 
+    from membership.models import GuildOrientationSettings
+
+    orientation = GuildOrientationSettings.objects.filter(guild=guild).first()
+    orientation_booking = member.active_orientation_for(guild) if member is not None else None
+    is_oriented = member.is_oriented_for(guild) if member is not None else False
+    show_orientation = member is not None and orientation is not None and orientation.is_enabled
+    orientation_slots = (
+        list(guild.orientation_slots.upcoming().order_by("starts_at")[:8])
+        if orientation is not None
+        and show_orientation
+        and not is_oriented
+        and orientation_booking is None
+        and not orientation.is_closed
+        else []
+    )
+
     guild_ct = ContentType.objects.get_for_model(Guild)
 
     return render(
@@ -449,6 +465,11 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "published_classes": published_classes,
             "calendar": calendar,
             "pulse": pulse,
+            "orientation": orientation,
+            "orientation_booking": orientation_booking,
+            "is_oriented": is_oriented,
+            "show_orientation": show_orientation,
+            "orientation_slots": orientation_slots,
         },
     )
 
@@ -571,15 +592,111 @@ def guild_orientation_slot_add(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def guild_orientation_slot_cancel(request: HttpRequest, pk: int, slot_pk: int) -> HttpResponse:
     """POST-only — cancel a one-off or generated orientation slot (and its bookings). Editors only."""
+    from membership import orientations
+
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
 
     slot = get_object_or_404(guild.orientation_slots, pk=slot_pk)
-    slot.cancel(reason=request.POST.get("reason", ""))
+    orientations.cancel_slot(slot, reason=request.POST.get("reason", ""))
     messages.success(request, "Orientation slot cancelled.")
     return redirect("hub_guild_orientation_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
+    """POST-only — a logged-in member requests an orientation for a slot."""
+    from membership import orientations
+    from membership.models import OrientationError, OrientationSlot
+
+    slot = get_object_or_404(OrientationSlot, pk=slot_pk)
+    member = _get_member(request)
+    if member is None:
+        messages.error(request, "You need a member profile to book an orientation.")
+        return redirect("hub_guild_detail", pk=slot.guild_id)
+    try:
+        orientations.request_orientation(slot, member, note=request.POST.get("note", ""))
+        messages.success(
+            request,
+            "Orientation requested! Check your email for the details — it's not official until the guild lead confirms.",
+        )
+    except OrientationError as exc:
+        messages.error(request, str(exc))
+    return redirect("hub_guild_detail", pk=slot.guild_id)
+
+
+@login_required
+def orientation_info(request: HttpRequest, pk: int) -> HttpResponse:
+    """The guild's orientation info page (what to expect, how to prepare)."""
+    from membership.models import GuildOrientationSettings
+
+    guild = get_object_or_404(Guild, pk=pk)
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/orientation_info.html",
+        {**ctx, "guild": guild, "orientation": GuildOrientationSettings.objects.filter(guild=guild).first()},
+    )
+
+
+@login_required
+def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """Lead/admin respond view — confirm, decline, or cancel an orientation request."""
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("slot", "guild", "member"), pk=booking_pk)
+    forbidden = _require_can_edit_guild(request, booking.guild)
+    if forbidden is not None:
+        return forbidden
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "confirm":
+            orientations.confirm_orientation(booking)
+            messages.success(request, "Orientation confirmed — the member has been emailed.")
+        elif action == "decline":
+            orientations.decline_orientation(booking, note=request.POST.get("note", ""))
+            messages.success(request, "Orientation declined — the member has been notified.")
+        return redirect("hub_orientation_respond", booking_pk=booking.pk)
+
+    ctx = _get_hub_context(request)
+    return render(request, "hub/orientation_respond.html", {**ctx, "booking": booking})
+
+
+@login_required
+@require_POST
+def orientation_lead_cancel(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """POST-only — a lead/admin cancels a confirmed orientation (used by the respond page modal)."""
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("guild"), pk=booking_pk)
+    forbidden = _require_can_edit_guild(request, booking.guild)
+    if forbidden is not None:
+        return forbidden
+    orientations.cancel_orientation(booking, actor_label="the guild")
+    messages.success(request, "Orientation cancelled — the member has been notified.")
+    return redirect("hub_orientation_respond", booking_pk=booking.pk)
+
+
+@login_required
+@require_POST
+def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """POST-only — a member cancels their own orientation booking."""
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking, pk=booking_pk)
+    member = _get_member(request)
+    if member is None or booking.member_id != member.pk:
+        return HttpResponse("Forbidden", status=403)
+    orientations.cancel_orientation(booking, actor_label=member.display_name)
+    messages.success(request, "Your orientation was cancelled.")
+    return redirect("hub_guild_detail", pk=booking.guild_id)
 
 
 def _surface_product_errors(request: HttpRequest, form: Any, formset: Any) -> None:

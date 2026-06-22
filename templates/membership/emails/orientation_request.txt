@@ -1,0 +1,15 @@
+Hi {{ greeting_name }},
+
+We received your orientation request for {{ guild.name }}.
+
+  When: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}
+{% if slot.location %}  Where: {{ slot.location }}
+{% endif %}
+*** THIS IS NOT AN OFFICIAL BOOKING YET. ***
+The guild lead will review your request and confirm a time. We've attached a
+calendar hold so you don't lose track of it — you'll get an updated invite once
+it's confirmed.
+
+Manage your request: {{ guild_url }}
+
+— Past Lives Makerspace
