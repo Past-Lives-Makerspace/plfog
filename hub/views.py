@@ -379,6 +379,12 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     member_count = guild.memberships.count()
     class_count = guild_classes.filter(status=ClassOffering.Status.PUBLISHED).count()
     upcoming_classes = guild_classes.bookable().select_related("instructor")[:4]
+    published_classes = (
+        guild_classes.filter(status=ClassOffering.Status.PUBLISHED)
+        .select_related("instructor", "category")
+        .order_by("title")
+    )
+    calendar = _get_calendar_context(request, guild=guild)
 
     guild_ct = ContentType.objects.get_for_model(Guild)
 
@@ -405,6 +411,8 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "member_count": member_count,
             "class_count": class_count,
             "upcoming_classes": upcoming_classes,
+            "published_classes": published_classes,
+            "calendar": calendar,
         },
     )
 
@@ -1050,7 +1058,11 @@ _CALENDAR_PAGE_SIZE = 10
 
 
 def _get_calendar_context(
-    request: HttpRequest, week_offset: int = 0, month_offset: int = 0, event_page: int = 1
+    request: HttpRequest,
+    week_offset: int = 0,
+    month_offset: int = 0,
+    event_page: int = 1,
+    guild: "Guild | None" = None,
 ) -> dict[str, Any]:
     """Build context for both the full calendar page and the HTMX partial.
 
@@ -1086,11 +1098,10 @@ def _get_calendar_context(
     fetch_from = min(week_start, window_start)
     fetch_to = max(week_end, window_end)
 
-    all_events = list(
-        CalendarEvent.objects.filter(start_dt__date__gte=fetch_from, start_dt__date__lte=fetch_to)
-        .select_related("guild", "feed")
-        .order_by("start_dt")
-    )
+    events_qs = CalendarEvent.objects.filter(start_dt__date__gte=fetch_from, start_dt__date__lte=fetch_to)
+    if guild is not None:
+        events_qs = events_qs.filter(guild=guild)
+    all_events = list(events_qs.select_related("guild", "feed").order_by("start_dt"))
 
     # Week event list: events whose start date falls within the navigated week
     week_events = [e for e in all_events if week_start <= e.start_dt.date() <= week_end]

@@ -104,6 +104,14 @@
 </form>
 {% endif %}
 
+<div x-data="{ section: 'overview' }">
+<nav role="tablist" style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.25rem; flex-wrap:wrap;">
+    <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
+    <button type="button" class="vote-tab" :class="section === 'calendar' ? 'vote-tab--active' : ''" @click="section = 'calendar'">Calendar</button>
+    <button type="button" class="vote-tab" :class="section === 'classes' ? 'vote-tab--active' : ''" @click="section = 'classes'">Classes</button>
+</nav>
+
+<div x-show="section === 'overview'">
 <div class="pl-guild-grid">
     <main>
         {% if announcements %}
@@ -253,6 +261,30 @@
         {% endif %}
     </aside>
 </div>
+</div>{# /overview panel #}
+
+<div x-show="section === 'calendar'" x-cloak>
+    {% include "hub/partials/guild_calendar.html" with week_days=calendar.week_days week_label=calendar.week_label month_days=calendar.month_days month_headers=calendar.month_headers month_label=calendar.month_label guild=guild %}
+</div>
+
+<div x-show="section === 'classes'" x-cloak>
+    {% if published_classes %}
+    <div style="display:flex; flex-direction:column; gap:0.5rem;">
+        {% for c in published_classes %}
+        <a href="{% url 'classes:register' c.slug %}" class="hub-card" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; text-decoration:none;">
+            <div>
+                <strong>{{ c.title }}</strong>
+                {% if c.instructor %}<div class="hub-text-muted" style="font-size:0.8125rem;">with {{ c.instructor.display_name }}</div>{% endif %}
+            </div>
+            <span class="hub-btn hub-btn--sm hub-btn--ghost">Register →</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted">No published classes in this guild yet.</p>
+    {% endif %}
+</div>
+</div>{# /section scope #}
 
 {# Guild lead profile modal — triggered from the aside lead card #}
 {% if guild.guild_lead %}

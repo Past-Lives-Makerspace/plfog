@@ -35,6 +35,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Guild pages now show a 'Next Meeting' card that figures out the date for you: set a cadence like 'monthly, 3rd Thursday at 6pm in Studio B' and the page always shows the upcoming date — or a one-off override, or 'TBA' if nothing's scheduled yet.",
             "Guild leads and admins can now post announcements to their guild page — pinned at the top, above the About section — and set them to automatically disappear after a date you choose.",
             "Guild pages now show quick stats (members, classes offered, next meeting) and an 'Upcoming classes' list that links straight to sign-up, plus a 'Get Involved' panel for joining the guild or teaching a class.",
+            "Guild pages are now organized into tabs — Overview, Calendar, and Classes. The Calendar tab shows that guild's events and class sessions in the same week/month view as the main calendar, and the Classes tab lists all the guild's published classes with one-click sign-up.",
         ],
     },
     {
