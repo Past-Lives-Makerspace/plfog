@@ -4,13 +4,13 @@
 <form method="get" class="admin-toolbar" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
     <input type="search" name="q" value="{{ q }}" placeholder="Search registrations…"
            style="padding:0.45rem 0.75rem; min-width:200px; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
-    <select name="status" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
+    <select name="status" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;">
         <option value="">All statuses</option>
         {% for value, label in status_choices %}
         <option value="{{ value }}"{% if value == status_filter %} selected{% endif %}>{{ label }}</option>
         {% endfor %}
     </select>
-    <select name="class" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
+    <select name="class" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;">
         <option value="">All classes</option>
         {% for offering in class_options %}
         <option value="{{ offering.pk }}"{% if offering.pk|stringformat:'s' == class_filter %} selected{% endif %}>{{ offering.title }}</option>

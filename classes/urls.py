@@ -78,6 +78,7 @@ urlpatterns = [
     path("admin/<int:pk>/registrations/export/", views.admin_class_export, name="admin_class_export"),
     path("admin/<int:pk>/waitlist/", views.admin_class_waitlist, name="admin_class_waitlist"),
     path("admin/<int:pk>/discount-codes/", views.admin_class_discount_codes, name="admin_class_discount_codes"),
+    path("admin/<int:pk>/emails/", views.admin_class_emails, name="admin_class_emails"),
     path("admin/<int:pk>/preview/", views.class_preview, name="class_preview"),
     path("admin/<int:pk>/edit/", views.admin_class_edit, name="admin_class_edit"),
     path("admin/<int:pk>/email/", views.admin_class_email, name="admin_class_email"),

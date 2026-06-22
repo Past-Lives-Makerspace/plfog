@@ -1825,6 +1825,32 @@ def admin_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @classes_admin_access_required
+def admin_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
+    """Author a class's welcome email from the admin class workspace (any class)."""
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    form = TeachWelcomeEmailForm(request.POST or None, instance=offering)
+    if request.method == "POST" and form.is_valid():
+        offering = form.save()
+        if "send_test" in request.POST:
+            send_class_welcome_email_test(offering, request.user.email)
+            messages.success(request, f"Saved — and sent a test to {request.user.email}.")
+        else:
+            messages.success(request, "Welcome email saved.")
+        return redirect("classes:admin_class_emails", pk=offering.pk)
+    return render(
+        request,
+        "classes/admin/class_emails.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "emails",
+            "offering": offering,
+            "form": form,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@classes_admin_access_required
 @require_POST
 def admin_class_email(request: HttpRequest, pk: int) -> HttpResponse:
     from classes.forms import AdminClassEmailForm

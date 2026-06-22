@@ -948,7 +948,7 @@ class RegistrationMoveForm(forms.Form):
         self.fields["target"].queryset = offerings.order_by("title")
         self.fields["target"].widget.attrs["style"] = (
             "padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; "
-            "background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;"
+            "background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;"
         )
 
 
