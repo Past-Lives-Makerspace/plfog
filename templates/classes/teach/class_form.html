@@ -3,7 +3,7 @@
 {% block tab_content %}
 <h2 style="margin-top:0;">{% if mode == 'create' %}New Class{% else %}Edit Class — {{ offering.title }}{% endif %}</h2>
 {% if offering and offering.status == 'pending' %}
-    <p style="padding:0.75rem 1rem; background:rgba(238,180,75,0.1); border:1px solid rgba(238,180,75,0.25); border-radius:6px; color:var(--hub-text-muted); margin-bottom:1rem;">
+    <p style="padding:0.75rem 1rem; background:rgba(238,180,75,0.1); border:1px solid rgba(238,180,75,0.25); border-radius:6px; color:var(--hub-text-muted); margin-top:1rem; margin-bottom:1rem;">
         This class is pending admin review. You can still edit it until it's approved.
     </p>
 {% endif %}
