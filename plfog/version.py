@@ -36,6 +36,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Guild leads and admins can now post announcements to their guild page — pinned at the top, above the About section — and set them to automatically disappear after a date you choose.",
             "Guild pages now show quick stats (members, classes offered, next meeting) and an 'Upcoming classes' list that links straight to sign-up, plus a 'Get Involved' panel for joining the guild or teaching a class.",
             "Guild pages are now organized into tabs — Overview, Calendar, and Classes. The Calendar tab shows that guild's events and class sessions in the same week/month view as the main calendar, and the Classes tab lists all the guild's published classes with one-click sign-up.",
+            "Guild pages now have a 'Recent Activity' feed showing the latest happenings — new members joining, fresh announcements, and newly published classes.",
         ],
     },
     {

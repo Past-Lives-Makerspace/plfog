@@ -230,6 +230,20 @@
             </div>
         </div>
 
+        {% if pulse %}
+        <div class="hub-card">
+            <h3 class="hub-detail-label">Recent Activity</h3>
+            <div style="display:flex; flex-direction:column; gap:0.6rem;">
+                {% for item in pulse %}
+                <div style="font-size:0.85rem;">
+                    {{ item.text }}
+                    <span class="hub-text-muted" style="display:block; font-size:0.75rem;">{{ item.when|date:"M j, Y" }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         {% if guild.show_members and roster %}
         <div class="hub-card">
             <h3 class="hub-detail-label">Members</h3>

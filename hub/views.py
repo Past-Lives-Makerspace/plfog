@@ -336,6 +336,29 @@ def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
     )
 
 
+def _guild_pulse(guild: "Guild", limit: int = 6) -> list[dict[str, Any]]:
+    """A short 'what's happening' feed for a guild: recent joins, announcements, and new classes.
+
+    Synthesized from existing rows (no new activity table) and merged newest-first.
+    """
+    from classes.models import ClassOffering
+
+    items: list[dict[str, Any]] = []
+    for membership in guild.memberships.select_related("member").order_by("-joined_at")[:limit]:
+        items.append({"when": membership.joined_at, "text": f"{membership.member.display_name} joined the guild"})
+    for announcement in guild.announcements.active().order_by("-published_at")[:limit]:
+        items.append({"when": announcement.published_at, "text": f"Announcement: {announcement.title}"})
+    classes = (
+        ClassOffering.objects.filter(category__guild=guild, status=ClassOffering.Status.PUBLISHED)
+        .exclude(published_at=None)
+        .order_by("-published_at")[:limit]
+    )
+    for offering in classes:
+        items.append({"when": offering.published_at, "text": f"New class: {offering.title}"})
+    items.sort(key=lambda item: item["when"], reverse=True)
+    return items[:limit]
+
+
 def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """Guild detail page — shows about text, active products, and cart interface."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm, build_product_split_formset
@@ -385,6 +408,7 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
         .order_by("title")
     )
     calendar = _get_calendar_context(request, guild=guild)
+    pulse = _guild_pulse(guild)
 
     guild_ct = ContentType.objects.get_for_model(Guild)
 
@@ -413,6 +437,7 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "upcoming_classes": upcoming_classes,
             "published_classes": published_classes,
             "calendar": calendar,
+            "pulse": pulse,
         },
     )
 
