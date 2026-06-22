@@ -4,7 +4,19 @@
 
 {% block content %}
 <h1 class="hub-page-title">Member Directory</h1>
-<p class="hub-text-muted" style="margin-bottom: 1.5rem;">{{ members|length }} active member{{ members|length|pluralize }}.</p>
+<p class="hub-text-muted" style="margin-bottom: 1rem;">{{ members|length }} active member{{ members|length|pluralize }}.</p>
+
+{% if guilds %}
+<form method="get" style="margin-bottom:1.5rem;">
+    <label style="font-size:0.85rem; color:var(--hub-text-muted); margin-right:0.5rem;">Filter by guild:</label>
+    <select name="guild" onchange="this.form.submit()" style="background:var(--hub-card-bg,#0c2236);color:var(--hub-text,#f4efdd);border:1px solid var(--hub-border);border-radius:6px;padding:0.45rem 0.75rem;font-size:0.875rem;">
+        <option value="">All guilds</option>
+        {% for g in guilds %}
+        <option value="{{ g.pk }}"{% if g.pk|stringformat:'s' == guild_filter %} selected{% endif %}>{{ g.name }}</option>
+        {% endfor %}
+    </select>
+</form>
+{% endif %}
 
 {% if is_admin %}
 <div style="background:rgba(238,180,75,0.08);border:1px solid rgba(238,180,75,0.25);border-radius:8px;padding:0.75rem 1rem;margin-bottom:1.25rem;color:var(--hub-text);font-size:0.9375rem;display:flex;align-items:center;gap:0.625rem;">
@@ -111,6 +123,12 @@
         </div>
         {% endif %}
         {% endwith %}
+
+        {% if member.guild_memberships.all %}
+        <div class="directory-card__guilds" style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.5rem;">
+            {% for gm in member.guild_memberships.all %}<span class="hub-badge">{{ gm.guild.name }}</span>{% endfor %}
+        </div>
+        {% endif %}
 
     </div>
     {% endfor %}

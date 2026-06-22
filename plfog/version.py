@@ -38,6 +38,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Guild pages are now organized into tabs — Overview, Calendar, and Classes. The Calendar tab shows that guild's events and class sessions in the same week/month view as the main calendar, and the Classes tab lists all the guild's published classes with one-click sign-up.",
             "Guild pages now have a 'Recent Activity' feed showing the latest happenings — new members joining, fresh announcements, and newly published classes.",
             "Guild leads can now spotlight a 'featured class' that appears as a highlighted sign-up card at the top of their guild page.",
+            "The member directory now shows which guilds each member belongs to, and you can filter the directory by guild to see everyone in one. Joining a guild is instant, and you can join as many as you like.",
         ],
     },
     {

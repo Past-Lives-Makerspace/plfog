@@ -249,6 +249,9 @@ def member_directory(request: HttpRequest) -> HttpResponse:
     member_qs = Member.objects.filter(status=Member.Status.ACTIVE).distinct()
     if not is_admin:
         member_qs = member_qs.filter(Q(show_in_directory=True) | must_show)
+    guild_filter = request.GET.get("guild", "")
+    if guild_filter.isdigit():
+        member_qs = member_qs.filter(guild_memberships__guild_id=int(guild_filter))
     members = (
         member_qs.select_related("membership_plan", "user")
         .prefetch_related(
@@ -256,14 +259,22 @@ def member_directory(request: HttpRequest) -> HttpResponse:
                 "user__emailaddress_set",
                 queryset=EmailAddress.objects.filter(primary=True),
                 to_attr="_primary_emailaddresses",
-            )
+            ),
+            "guild_memberships__guild",
         )
         .order_by("full_legal_name")
     )
     return render(
         request,
         "hub/member_directory.html",
-        {**ctx, "members": members, "current_member": current_member, "is_admin": is_admin},
+        {
+            **ctx,
+            "members": members,
+            "current_member": current_member,
+            "is_admin": is_admin,
+            "guilds": Guild.objects.filter(is_active=True).order_by("name"),
+            "guild_filter": guild_filter,
+        },
     )
 
 
