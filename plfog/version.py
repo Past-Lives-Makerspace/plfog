@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-VERSION = "0.18.3"
+VERSION = "0.18.4"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.18.4",
+        "date": "2026-06-22",
+        "title": "Readable note box on the orientation request page",
+        "changes": [
+            "Fixed the 'decline with a note' box on the orientation request page — in dark mode it was showing as a white box. It now matches the dark theme like the rest of the page.",
+        ],
+    },
     {
         "version": "0.18.3",
         "date": "2026-06-22",

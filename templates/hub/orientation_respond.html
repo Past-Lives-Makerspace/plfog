@@ -21,8 +21,10 @@
     <form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="decline">
-      <label for="decline-note" style="display:block; font-size:0.85rem; color:var(--hub-text-muted); margin-bottom:0.35rem;">Decline with an optional note (e.g. suggest another time):</label>
-      <textarea id="decline-note" name="note" rows="3" style="width:100%; margin-bottom:0.75rem;"></textarea>
+      <div class="hub-form-group">
+        <label for="decline-note">Decline with an optional note (e.g. suggest another time):</label>
+        <textarea id="decline-note" name="note" rows="3"></textarea>
+      </div>
       <button type="submit" class="hub-btn hub-btn--sm hub-btn--danger">Decline request</button>
     </form>
   </div>
