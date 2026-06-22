@@ -386,6 +386,15 @@ body.classes-portal {
 
 .cp-page a{color:var(--gold-text);text-decoration:none;cursor:pointer}
 .cp-page a:hover{text-decoration:underline;color:var(--gold-light)}
+/* Hub button components (pl-btn) used inside the CMS public pages: the generic
+   .cp-page anchor color/underline above would otherwise override their own
+   styling and, on hover, paint the label the same gold as the hover background
+   (making it vanish). Keep them looking like the standard hub buttons. */
+.cp-page a.pl-btn:hover{text-decoration:none}
+.cp-page a.pl-btn--primary,
+.cp-page a.pl-btn--primary:hover{color:var(--color-navy)}
+.cp-page a.pl-btn--secondary,
+.cp-page a.pl-btn--secondary:hover{color:var(--hub-text)}
 .cp-page .cp-container{max-width:var(--max);margin:0 auto;padding:0 24px}
 
 .cp-page #hero{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:56px 24px 60px;background:transparent}
@@ -605,18 +614,18 @@ body.classes-portal {
 }
 .cp-detail__back {
   display: inline-block;
-  margin-bottom: 0;
-  padding: 8px 16px;
+  margin-bottom: 18px;
+  padding: 7px 14px;
   border-radius: 4px;
-  background: var(--color-tuscan-yellow);
-  color: var(--color-navy);
+  background: rgba(0,0,0,0.35);
+  color: var(--color-cream);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
   letter-spacing: 0.04em;
-  transition: background .2s, transform .2s;
+  backdrop-filter: blur(8px);
 }
-.cp-detail__back:hover { background: var(--color-yellow-hover, #d4a043); color: var(--color-navy); text-decoration: none; transform: translateY(-1px); }
+.cp-detail__back:hover { background: rgba(0,0,0,0.55); color: var(--color-cream); text-decoration: none; }
 .cp-detail__cat-row {
   display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 8px;
 }

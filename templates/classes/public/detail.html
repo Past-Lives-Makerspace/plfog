@@ -102,7 +102,7 @@
 
   {# Back link (left) + edit/adjust controls (right): under the hero image, above the body #}
   <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; margin:0.85rem 0 1.5rem; flex-wrap:wrap;">
-      <a class="cp-detail__back" href="{% url 'classes:public_list' %}" style="margin-bottom:0;">&larr; All classes &amp; workshops</a>
+      <a class="pl-btn pl-btn--primary" href="{% url 'classes:public_list' %}">&larr; All classes &amp; workshops</a>
 
       {# --- Visual Placement Tool --- #}
       {% if can_edit_offering or can_edit_category %}
