@@ -310,6 +310,37 @@ def describe_auto_complete():
         assert past_requested.is_completed is False
 
 
+def describe_member_joined_guild():
+    def it_emails_the_member_and_notifies_the_lead():
+        lead = _member_with_user("join_lead")
+        guild = GuildFactory(guild_lead=lead)
+        GuildOrientationSettingsFactory(
+            guild=guild,
+            is_enabled=True,
+            join_email_enabled=True,
+            join_email_subject="Welcome!",
+            join_email_body="Glad you joined.",
+        )
+        member = _member_with_user("join_member")
+
+        orientations.member_joined_guild(guild, member)
+
+        assert mail.outbox[0].to == [member.primary_email]
+        assert mail.outbox[0].subject == "Welcome!"
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.GUILD_JOINED).exists()
+        assert Notification.objects.filter(user=lead.user, trigger="guild_joined").exists()
+
+    def it_skips_the_email_when_not_configured():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        member = _member_with_user("join_noemail")
+
+        orientations.member_joined_guild(guild, member)
+
+        assert mail.outbox == []
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.GUILD_JOINED).exists()
+
+
 def describe_generate_slots():
     def it_creates_future_slots_from_an_active_rule():
         guild = GuildFactory()

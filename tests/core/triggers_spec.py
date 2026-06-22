@@ -4,8 +4,8 @@ from core import triggers
 
 
 def describe_catalogue():
-    def it_has_29_configurable_triggers_plus_forced():
-        assert len(triggers.TRIGGERS) == 30  # 29 opt-in + new_login (forced)
+    def it_has_30_configurable_triggers_plus_forced():
+        assert len(triggers.TRIGGERS) == 31  # 30 opt-in + new_login (forced)
 
     def it_looks_up_by_key():
         t = triggers.get("class_published")

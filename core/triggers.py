@@ -103,6 +103,12 @@ TRIGGERS: list[Trigger] = [
         "Your orientation request was confirmed, declined, or cancelled.",
         "Guilds",
     ),
+    Trigger(
+        "guild_joined",
+        "New guild member",
+        "A new member joined a guild you lead.",
+        "Guilds",
+    ),
     # Billing / tab
     Trigger("tab_charged", "Tab charged", "Your monthly tab was charged.", "Billing"),
     Trigger("tab_charge_failed", "Tab charge failed", "A charge failed — update your payment method.", "Billing"),

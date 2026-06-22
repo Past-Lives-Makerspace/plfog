@@ -1,0 +1,9 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #96ACBB;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #F4EFDD;">Welcome to {{ guild.name }}!</p>
+<div style="font-size: 14px; color: #F4EFDD; line-height: 1.7;">{{ body|linebreaks }}</div>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ guild_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View guild page</a>
+</div>
+{% endblock %}

@@ -59,6 +59,8 @@ class GuildEditForm(forms.ModelForm):
             "meeting_is_tba",
             "meeting_schedule",
             "contact_email",
+            "discord_url",
+            "website_url",
             "show_members",
             "featured_class",
         ]
@@ -93,6 +95,8 @@ class GuildEditForm(forms.ModelForm):
             "meeting_is_tba": "No meeting scheduled yet (show TBA)",
             "meeting_schedule": "Meeting notes",
             "contact_email": "Contact email",
+            "discord_url": "Discord channel URL",
+            "website_url": "Website URL",
             "show_members": "Show members roster",
             "featured_class": "Featured class",
         }

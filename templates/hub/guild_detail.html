@@ -241,7 +241,9 @@
                 </form>
                 {% endif %}
                 <a href="{% url 'classes:teach_class_create' %}" class="pl-btn pl-btn--secondary" style="width:100%;">Teach a class</a>
-                {% if guild.contact_email %}<a href="mailto:{{ guild.contact_email }}" class="pl-btn pl-btn--secondary" style="width:100%;">Contact the guild</a>{% endif %}
+                {% if guild.guild_lead.primary_email %}<a href="mailto:{{ guild.guild_lead.primary_email }}" class="pl-btn pl-btn--secondary" style="width:100%;">Email guild lead</a>{% elif guild.contact_email %}<a href="mailto:{{ guild.contact_email }}" class="pl-btn pl-btn--secondary" style="width:100%;">Contact the guild</a>{% endif %}
+                {% if guild.discord_url %}<a href="{{ guild.discord_url }}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary" style="width:100%;">Discord channel</a>{% endif %}
+                {% if guild.website_url %}<a href="{{ guild.website_url }}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary" style="width:100%;">Website</a>{% endif %}
             </div>
         </div>
 

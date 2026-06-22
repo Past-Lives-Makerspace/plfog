@@ -679,6 +679,12 @@ class Guild(HeroCropMixin, models.Model):
     contact_email = models.EmailField(
         blank=True, default="", help_text="Optional guild contact email shown on the page."
     )
+    discord_url = models.URLField(
+        blank=True, default="", help_text="Link to the guild's Discord channel, shown as a button on the page."
+    )
+    website_url = models.URLField(
+        blank=True, default="", help_text="Link to the guild's external website, shown as a button on the page."
+    )
     show_members = models.BooleanField(
         default=False, help_text="Show the opt-in members roster on the public guild page."
     )

@@ -23,7 +23,7 @@ from core import notifications
 from core.models import SiteActivity
 
 if TYPE_CHECKING:
-    from membership.models import Member, OrientationBooking, OrientationSlot
+    from membership.models import Guild, Member, OrientationBooking, OrientationSlot
 
 _ACTION_SALT = "orientation-action"
 _ACTION_MAX_AGE = 90 * 24 * 3600  # 90 days — long enough to schedule, bounded for safety
@@ -355,3 +355,35 @@ def generate_slots(*, window_weeks: int = 8, now: datetime | None = None) -> int
             if was_created:
                 created += 1
     return created
+
+
+def member_joined_guild(guild: Guild, member: Member) -> None:
+    """Fan out when a member joins a guild: welcome email (if configured), lead notification, activity."""
+    from membership.models import GuildOrientationSettings
+
+    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
+    if settings_obj is not None and settings_obj.join_email_ready:
+        ctx = {
+            "guild": guild,
+            "greeting_name": member.display_name,
+            "body": settings_obj.join_email_body,
+            "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.pk])),
+        }
+        core_email.send(
+            to=member.primary_email,
+            subject=settings_obj.join_email_subject,
+            trigger_kind="guild.welcome",
+            text_body=render_to_string("membership/emails/guild_welcome.txt", ctx),
+            html_body=render_to_string("membership/emails/guild_welcome.html", ctx),
+            best_effort=True,
+        )
+    SiteActivity.log(SiteActivity.Kind.GUILD_JOINED, actor=member.user, target=guild)
+    lead = guild.guild_lead
+    if lead is not None and lead.user is not None:
+        notifications.dispatch(
+            "guild_joined",
+            [lead.user],
+            title="New guild member",
+            body=f"{member.display_name} joined {guild.name}.",
+            url=reverse("hub_guild_detail", args=[guild.pk]),
+        )

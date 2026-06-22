@@ -563,6 +563,7 @@ class SiteActivity(models.Model):
         ORIENTATION_DECLINED = "orientation_declined", "Orientation declined"
         ORIENTATION_CANCELLED = "orientation_cancelled", "Orientation cancelled"
         ORIENTATION_COMPLETED = "orientation_completed", "Orientation completed"
+        GUILD_JOINED = "guild_joined", "Joined a guild"
         LEASE_ACTIVATED = "lease_activated", "Lease activated"
         SITE_ANNOUNCEMENT = "site_announcement", "Site announcement"
 

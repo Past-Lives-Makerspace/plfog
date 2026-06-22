@@ -1197,12 +1197,15 @@ def guild_banner_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
     """Current member joins this guild (idempotent)."""
+    from membership import orientations
     from membership.models import GuildMembership
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
     if member is not None:
-        GuildMembership.objects.get_or_create(guild=guild, member=member)
+        _membership, created = GuildMembership.objects.get_or_create(guild=guild, member=member)
+        if created:
+            orientations.member_joined_guild(guild, member)
         messages.success(request, f"You joined {guild.name}.")
     return redirect("hub_guild_detail", pk=guild.pk)
 
