@@ -53,7 +53,7 @@
             <img src="{% static 'img/favicon.png' %}" alt="Past Lives" class="pl-brand__icon" width="24" height="24">
             <span class="pl-brand__info">
                 <span class="pl-brand__text">Past Lives FOG</span>
-                <button type="button" class="pl-brand__label pl-badge--version" style="border:0;cursor:pointer;padding:0;background:none;" onclick="event.preventDefault();event.stopPropagation();document.getElementById('changelog-modal').style.display='flex'">[v{{ app_version }}]</button>
+                <button type="button" class="pl-badge--version" onclick="event.preventDefault();event.stopPropagation();document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>
             </span>
         </a>
 
