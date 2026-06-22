@@ -11,5 +11,6 @@ calendar hold so you don't lose track of it — you'll get an updated invite onc
 it's confirmed.
 
 Manage your request: {{ guild_url }}
+Need to cancel? {{ cancel_url }}
 
 — Past Lives Makerspace

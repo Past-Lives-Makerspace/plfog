@@ -36,6 +36,7 @@ urlpatterns = [
         views.orientation_cancel_mine,
         name="hub_orientation_cancel_mine",
     ),
+    path("orientation/act/<str:token>/", views.orientation_action, name="hub_orientation_action"),
     path("guilds/<int:pk>/join/", views.guild_join, name="hub_guild_join"),
     path("guilds/<int:pk>/leave/", views.guild_leave, name="hub_guild_leave"),
     path(

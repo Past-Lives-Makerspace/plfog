@@ -5,6 +5,8 @@
 {% include "membership/emails/_slot.html" %}
 {% if booking.member_note %}<p style="margin: 0 0 16px; font-size: 14px; color: #F4EFDD; line-height: 1.6;"><span style="color: #96ACBB;">Note:</span> {{ booking.member_note }}</p>{% endif %}
 <div style="text-align: center; margin: 24px 0 0;">
-    <a href="{{ respond_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Respond to request</a>
+    <a href="{{ confirm_url }}" style="display: inline-block; padding: 12px 24px; margin: 0 4px 8px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Confirm</a>
+    <a href="{{ decline_url }}" style="display: inline-block; padding: 12px 24px; margin: 0 4px 8px; background-color: transparent; color: #F4EFDD; font-size: 14px; font-weight: 700; text-decoration: none; border: 1px solid rgba(244,239,221,0.3); border-radius: 6px;">Decline</a>
 </div>
+<p style="margin: 12px 0 0; text-align: center; font-size: 12px; color: #96ACBB;">Or <a href="{{ respond_url }}" style="color: #EEB44B;">respond on the hub</a> to suggest another time.</p>
 {% endblock %}

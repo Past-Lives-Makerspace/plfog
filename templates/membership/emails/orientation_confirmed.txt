@@ -7,4 +7,6 @@ Good news — your orientation for {{ guild.name }} is confirmed!
 {% endif %}
 We've attached an updated calendar invite. See you there!
 
+Can't make it? Cancel here: {{ cancel_url }}
+
 — Past Lives Makerspace

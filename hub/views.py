@@ -699,6 +699,26 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
     return redirect("hub_guild_detail", pk=booking.guild_id)
 
 
+def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
+    """No-login landing for email action links (lead confirm/decline, member cancel).
+
+    GET shows a one-click confirmation page (so email-client link prefetch can't
+    mutate); POST applies the action. The signed token authorizes exactly one
+    action on one booking.
+    """
+    from django.core.signing import BadSignature
+
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    try:
+        booking, action = orientations.read_action_token(token)
+    except (BadSignature, OrientationBooking.DoesNotExist):
+        return render(request, "hub/orientation_action.html", {"invalid": True}, status=400)
+    result = orientations.apply_token_action(booking, action) if request.method == "POST" else None
+    return render(request, "hub/orientation_action.html", {"booking": booking, "action": action, "result": result})
+
+
 def _surface_product_errors(request: HttpRequest, form: Any, formset: Any) -> None:
     """Flash per-field form + formset errors onto ``request`` as messages."""
     if form.errors:

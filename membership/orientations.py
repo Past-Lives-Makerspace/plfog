@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import icalendar
 from django.conf import settings
+from django.core import signing
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
@@ -23,11 +24,64 @@ from core.models import SiteActivity
 if TYPE_CHECKING:
     from membership.models import Member, OrientationBooking, OrientationSlot
 
+_ACTION_SALT = "orientation-action"
+_ACTION_MAX_AGE = 90 * 24 * 3600  # 90 days — long enough to schedule, bounded for safety
+_ACTIONS = frozenset({"confirm", "decline", "cancel"})
+
 
 def _absolute_url(path: str) -> str:
     """Turn a relative hub path into an absolute URL using the member-site base."""
     base = settings.MEMBER_BASE_URL.rstrip("/")
     return f"{base}{path}"
+
+
+def make_action_token(booking: OrientationBooking, action: str) -> str:
+    """Sign a no-login token authorizing one ``action`` on one ``booking`` (for email links)."""
+    return signing.dumps({"booking": booking.pk, "action": action}, salt=_ACTION_SALT)
+
+
+def read_action_token(token: str) -> tuple[OrientationBooking, str]:
+    """Decode an action token to its (booking, action).
+
+    Raises:
+        signing.BadSignature: If the token is invalid, expired, or names an unknown action.
+        OrientationBooking.DoesNotExist: If the booking no longer exists.
+    """
+    from membership.models import OrientationBooking
+
+    data = signing.loads(token, salt=_ACTION_SALT, max_age=_ACTION_MAX_AGE)
+    action = data["action"]
+    if action not in _ACTIONS:
+        raise signing.BadSignature("unknown orientation action")
+    booking = OrientationBooking.objects.select_related("slot", "guild", "member").get(pk=data["booking"])
+    return booking, action
+
+
+def apply_token_action(booking: OrientationBooking, action: str) -> str:
+    """Apply an email-link action, honoring valid state transitions.
+
+    Returns a short status: "confirmed", "declined", "cancelled", or "already"
+    (when the booking was no longer in a state the action applies to).
+    """
+    from membership.models import OrientationBooking
+
+    statuses = OrientationBooking.Status
+    if action == "cancel":
+        if booking.status in (statuses.REQUESTED, statuses.CONFIRMED):
+            cancel_orientation(booking, actor_label=booking.member.display_name)
+            return "cancelled"
+        return "already"
+    if booking.status != statuses.REQUESTED:
+        return "already"
+    if action == "confirm":
+        confirm_orientation(booking)
+        return "confirmed"
+    decline_orientation(booking)
+    return "declined"
+
+
+def _action_url(booking: OrientationBooking, action: str) -> str:
+    return _absolute_url(reverse("hub_orientation_action", args=[make_action_token(booking, action)]))
 
 
 def build_ics(booking: OrientationBooking, *, method: str, status: str) -> bytes:
@@ -68,6 +122,7 @@ def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
         "guild": booking.guild,
         "greeting_name": member.display_name,
         "guild_url": _absolute_url(reverse("hub_guild_detail", args=[booking.guild_id])),
+        "cancel_url": _action_url(booking, "cancel"),
         **extra,
     }
 
@@ -137,7 +192,12 @@ def _send_lead_request_email(booking: OrientationBooking) -> None:
     lead = booking.guild.guild_lead
     if lead is None:
         return
-    ctx = _context(booking, respond_url=_absolute_url(reverse("hub_orientation_respond", args=[booking.pk])))
+    ctx = _context(
+        booking,
+        respond_url=_absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
+        confirm_url=_action_url(booking, "confirm"),
+        decline_url=_action_url(booking, "decline"),
+    )
     text_body = render_to_string("membership/emails/orientation_lead_request.txt", ctx)
     html_body = render_to_string("membership/emails/orientation_lead_request.html", ctx)
     core_email.send(

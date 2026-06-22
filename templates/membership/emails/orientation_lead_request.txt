@@ -6,7 +6,11 @@ New orientation request for {{ guild.name }}
 {% if slot.location %}  Where: {{ slot.location }}
 {% endif %}{% if booking.member_note %}  Note: {{ booking.member_note }}
 {% endif %}
-Respond (confirm, decline, or suggest another time):
+Quick actions (no login needed):
+  Confirm: {{ confirm_url }}
+  Decline: {{ decline_url }}
+
+Or respond on the hub (suggest another time, see details):
 {{ respond_url }}
 
 — Past Lives Makerspace

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth.models import User
-from django.core import mail
+from django.core import mail, signing
 
 from core.models import Notification, SiteActivity
 from membership import orientations
@@ -168,6 +168,56 @@ def describe_cancel_orientation():
         booking.refresh_from_db()
         assert booking.status == OrientationBooking.Status.CANCELLED
         assert mail.outbox[0].to == [member.primary_email]
+
+
+def describe_action_tokens():
+    def it_round_trips_a_token():
+        booking = OrientationBookingFactory()
+        token = orientations.make_action_token(booking, "confirm")
+        decoded_booking, action = orientations.read_action_token(token)
+        assert decoded_booking.pk == booking.pk
+        assert action == "confirm"
+
+    def it_rejects_a_tampered_token():
+        with pytest.raises(signing.BadSignature):
+            orientations.read_action_token("not-a-real-token")
+
+    def it_rejects_an_unknown_action():
+        booking = OrientationBookingFactory()
+        token = signing.dumps({"booking": booking.pk, "action": "destroy"}, salt="orientation-action")
+        with pytest.raises(signing.BadSignature):
+            orientations.read_action_token(token)
+
+
+def describe_apply_token_action():
+    def it_confirms_a_requested_booking():
+        booking = OrientationBookingFactory()
+        assert orientations.apply_token_action(booking, "confirm") == "confirmed"
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.CONFIRMED
+
+    def it_declines_a_requested_booking():
+        booking = OrientationBookingFactory()
+        assert orientations.apply_token_action(booking, "decline") == "declined"
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.DECLINED
+
+    def it_cancels_a_confirmed_booking():
+        booking = OrientationBookingFactory()
+        booking.confirm()
+        assert orientations.apply_token_action(booking, "cancel") == "cancelled"
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.CANCELLED
+
+    def it_reports_already_for_a_resolved_request():
+        booking = OrientationBookingFactory()
+        booking.decline()
+        assert orientations.apply_token_action(booking, "confirm") == "already"
+
+    def it_reports_already_when_cancelling_a_resolved_booking():
+        booking = OrientationBookingFactory()
+        booking.cancel()
+        assert orientations.apply_token_action(booking, "cancel") == "already"
 
 
 def describe_cancel_slot():
