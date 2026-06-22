@@ -257,6 +257,7 @@ return response
 9. **No inline styles** except for truly one-off layout adjustments. Add a CSS class instead.
 10. **Image placeholders:** When designing product cards or profile sections, leave space for future image support but don't build upload infrastructure.
 11. **Editing a list of rows, or deleting something?** Follow *Editable Lists & Destructive Actions* — `extra=0` + a "+ Add" button, real Delete buttons (never toggles) that save the page, margin-spaced so they clear the field above.
+12. **Never put `display` in an inline `style` on an `x-show` element.** Alpine's `x-show` *removes* the inline `display` property when it reveals the element, so inline `display:flex`/`grid` silently reverts to the default on first show (collapsing flex columns, etc.). Put the layout in a CSS class — Alpine only toggles `display:none` on/off and the class provides the real display. (This bit the orientation slot table: only the header — which had no `x-show` — kept its columns.)
 
 ## CSS Files
 
