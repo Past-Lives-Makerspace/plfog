@@ -4,50 +4,70 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('membership', '0040_guild_hero_crop_h_guild_hero_crop_w_and_more'),
+        ("membership", "0040_guild_hero_crop_h_guild_hero_crop_w_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='guild',
-            name='meeting_cadence',
-            field=models.CharField(choices=[('none', 'No regular meeting'), ('weekly', 'Weekly'), ('monthly', 'Monthly')], default='none', help_text='How often the guild meets — drives the auto-computed next-meeting date.', max_length=10),
+            model_name="guild",
+            name="meeting_cadence",
+            field=models.CharField(
+                choices=[("none", "No regular meeting"), ("weekly", "Weekly"), ("monthly", "Monthly")],
+                default="none",
+                help_text="How often the guild meets — drives the auto-computed next-meeting date.",
+                max_length=10,
+            ),
         ),
         migrations.AddField(
-            model_name='guild',
-            name='meeting_is_tba',
-            field=models.BooleanField(default=False, help_text='Force the next meeting to show as TBA even when a cadence is set.'),
+            model_name="guild",
+            name="meeting_is_tba",
+            field=models.BooleanField(
+                default=False, help_text="Force the next meeting to show as TBA even when a cadence is set."
+            ),
         ),
         migrations.AddField(
-            model_name='guild',
-            name='meeting_location',
-            field=models.CharField(blank=True, default='', help_text="Where the meeting happens, e.g. 'Studio B'.", max_length=200),
+            model_name="guild",
+            name="meeting_location",
+            field=models.CharField(
+                blank=True, default="", help_text="Where the meeting happens, e.g. 'Studio B'.", max_length=200
+            ),
         ),
         migrations.AddField(
-            model_name='guild',
-            name='meeting_next_override',
-            field=models.DateField(blank=True, help_text='A specific one-off next-meeting date that overrides the cadence.', null=True),
+            model_name="guild",
+            name="meeting_next_override",
+            field=models.DateField(
+                blank=True, help_text="A specific one-off next-meeting date that overrides the cadence.", null=True
+            ),
         ),
         migrations.AddField(
-            model_name='guild',
-            name='meeting_time',
-            field=models.TimeField(blank=True, help_text='Start time of the meeting.', null=True),
+            model_name="guild",
+            name="meeting_time",
+            field=models.TimeField(blank=True, help_text="Start time of the meeting.", null=True),
         ),
         migrations.AddField(
-            model_name='guild',
-            name='meeting_week_of_month',
-            field=models.PositiveSmallIntegerField(blank=True, help_text='For monthly meetings: which week (1–4, or 5 for the last) of the month.', null=True),
+            model_name="guild",
+            name="meeting_week_of_month",
+            field=models.PositiveSmallIntegerField(
+                blank=True,
+                help_text="For monthly meetings: which week (1–4, or 5 for the last) of the month.",
+                null=True,
+            ),
         ),
         migrations.AddField(
-            model_name='guild',
-            name='meeting_weekday',
-            field=models.PositiveSmallIntegerField(blank=True, help_text='Day of week the guild meets (0=Mon … 6=Sun).', null=True),
+            model_name="guild",
+            name="meeting_weekday",
+            field=models.PositiveSmallIntegerField(
+                blank=True, help_text="Day of week the guild meets (0=Mon … 6=Sun).", null=True
+            ),
         ),
         migrations.AddField(
-            model_name='guildannouncement',
-            name='expires_at',
-            field=models.DateField(blank=True, help_text='Last day this announcement shows on the guild page. Blank = never expires.', null=True),
+            model_name="guildannouncement",
+            name="expires_at",
+            field=models.DateField(
+                blank=True,
+                help_text="Last day this announcement shows on the guild page. Blank = never expires.",
+                null=True,
+            ),
         ),
     ]

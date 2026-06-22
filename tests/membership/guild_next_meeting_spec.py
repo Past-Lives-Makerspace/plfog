@@ -20,7 +20,9 @@ def describe_compute_next_meeting():
     def it_uses_a_future_override_over_the_cadence():
         override = date(2026, 7, 9)
         assert (
-            _compute_next_meeting(JUL1, cadence="weekly", weekday=4, week_of_month=None, override=override, is_tba=False)
+            _compute_next_meeting(
+                JUL1, cadence="weekly", weekday=4, week_of_month=None, override=override, is_tba=False
+            )
             == override
         )
 
@@ -70,14 +72,10 @@ def describe_compute_next_meeting():
 
 def describe_guild_next_meeting_at():
     def it_computes_a_date_from_the_guilds_config(db):
-        guild = GuildFactory(
-            meeting_cadence=Guild.MeetingCadence.MONTHLY, meeting_weekday=3, meeting_week_of_month=3
-        )
+        guild = GuildFactory(meeting_cadence=Guild.MeetingCadence.MONTHLY, meeting_weekday=3, meeting_week_of_month=3)
         # Computed against real "today"; a monthly recurrence always has a next occurrence.
         assert guild.next_meeting_at is not None
 
     def it_is_none_when_marked_tba(db):
-        guild = GuildFactory(
-            meeting_is_tba=True, meeting_cadence=Guild.MeetingCadence.WEEKLY, meeting_weekday=3
-        )
+        guild = GuildFactory(meeting_is_tba=True, meeting_cadence=Guild.MeetingCadence.WEEKLY, meeting_weekday=3)
         assert guild.next_meeting_at is None

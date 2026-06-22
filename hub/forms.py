@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django import forms
 from django.conf import settings
@@ -50,6 +50,7 @@ class GuildEditForm(forms.ModelForm):
             "meeting_schedule",
             "contact_email",
             "show_members",
+            "featured_class",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Guild name"}),
@@ -83,6 +84,7 @@ class GuildEditForm(forms.ModelForm):
             "meeting_schedule": "Meeting notes",
             "contact_email": "Contact email",
             "show_members": "Show members roster",
+            "featured_class": "Featured class",
         }
         help_texts = {
             "banner_image": "Shown at the top of the guild page. Max 5 MB.",
@@ -96,6 +98,18 @@ class GuildEditForm(forms.ModelForm):
     def clean_meeting_cadence(self) -> str:
         # An omitted/blank cadence means "no regular meeting", not an empty string.
         return self.cleaned_data.get("meeting_cadence") or Guild.MeetingCadence.NONE
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        from classes.models import ClassOffering
+
+        featured = cast(forms.ModelChoiceField, self.fields["featured_class"])
+        if self.instance and self.instance.pk:
+            featured.queryset = ClassOffering.objects.filter(
+                category__guild=self.instance, status=ClassOffering.Status.PUBLISHED
+            )
+        else:
+            featured.queryset = ClassOffering.objects.none()
 
 
 class ProfileSettingsForm(forms.ModelForm):

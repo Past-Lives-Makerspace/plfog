@@ -671,6 +671,14 @@ class Guild(HeroCropMixin, models.Model):
     show_members = models.BooleanField(
         default=False, help_text="Show the opt-in members roster on the public guild page."
     )
+    featured_class = models.ForeignKey(
+        "classes.ClassOffering",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="A class to spotlight at the top of the guild page.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     leases = GenericRelation(
         "Lease",

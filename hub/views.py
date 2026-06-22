@@ -365,7 +365,7 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     from billing.models import Product
 
     guild = get_object_or_404(
-        Guild.objects.prefetch_related("products__splits__guild"),
+        Guild.objects.select_related("featured_class__instructor").prefetch_related("products__splits__guild"),
         pk=pk,
     )
     ctx = _get_hub_context(request)

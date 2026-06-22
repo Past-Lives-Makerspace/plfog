@@ -114,6 +114,19 @@
 <div x-show="section === 'overview'">
 <div class="pl-guild-grid">
     <main>
+        {% if guild.featured_class %}
+        <section class="pl-guild-section">
+            <a href="{% url 'classes:register' guild.featured_class.slug %}" class="hub-card" style="display:flex; gap:1rem; align-items:center; text-decoration:none;">
+                <div style="flex:1;">
+                    <span class="hub-badge">Featured</span>
+                    <div style="font-weight:600; font-size:1.05rem; margin-top:0.35rem;">{{ guild.featured_class.title }}</div>
+                    {% if guild.featured_class.instructor %}<div class="hub-text-muted" style="font-size:0.85rem;">with {{ guild.featured_class.instructor.display_name }}</div>{% endif %}
+                </div>
+                <span class="pl-btn pl-btn--sm pl-btn--primary">Sign up →</span>
+            </a>
+        </section>
+        {% endif %}
+
         {% if announcements %}
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">Announcements</h2>
