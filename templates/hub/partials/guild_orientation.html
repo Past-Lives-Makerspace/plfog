@@ -34,20 +34,29 @@ Member-facing orientation section on the guild page. Context:
     {% if orientation_slots %}
     {# Show 5 at a time with prev/next arrows so a long run of slots stays compact. #}
     <div x-data="{ page: 0, size: 5, total: {{ orientation_slots|length }} }">
+      <div style="display:flex; align-items:center; gap:1rem; padding:0 0 0.4rem; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--hub-text-muted);">
+        <span style="flex:0 0 5rem;">Date</span>
+        <span style="flex:1;">Time</span>
+        <span style="flex:0 0 4rem; text-align:center;">Seats</span>
+        <span style="flex:0 0 5.5rem;"></span>
+      </div>
       <ul style="list-style:none; padding:0; margin:0;">
         {% for slot in orientation_slots %}
         {% with pks=slot.pk|stringformat:"s" %}
         <li x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size"
-            style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; padding:0.5rem 0; border-top:1px solid var(--hub-border);">
-          <span>{{ slot.starts_at|date:"D M j" }} · {{ slot.starts_at|time:"g:i A" }}
-            <span class="hub-text-muted">· {{ slot.seats_remaining }} seat{{ slot.seats_remaining|pluralize }} left</span></span>
-          {% if slot.is_full %}
-          <span class="hub-text-muted" style="font-size:0.85rem;">Full</span>
-          {% else %}
-          <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="$dispatch('open-confirm', 'book-slot-{{ slot.pk }}')">Request</button>
-          {% url 'hub_orientation_book' slot.pk as book_url %}
-          {% include "components/confirm_modal.html" with confirm_id="book-slot-"|add:pks confirm_title="Request this orientation?" confirm_message="We'll send your request to the guild lead to confirm. You can cancel any time." confirm_action_url=book_url confirm_button_text="Send request" confirm_button_style="primary" %}
-          {% endif %}
+            style="display:flex; align-items:center; gap:1rem; padding:0.55rem 0; border-top:1px solid var(--hub-border);">
+          <span style="flex:0 0 5rem; font-weight:500;">{{ slot.starts_at|date:"D M j" }}</span>
+          <span style="flex:1; color:var(--hub-text-muted); font-size:0.9rem;">{{ slot.starts_at|time:"g:i A" }} – {{ slot.ends_at|time:"g:i A" }}</span>
+          <span style="flex:0 0 4rem; text-align:center; color:var(--hub-text-muted); font-size:0.85rem;">{{ slot.seats_remaining }}</span>
+          <span style="flex:0 0 5.5rem; text-align:right;">
+            {% if slot.is_full %}
+            <span class="hub-text-muted" style="font-size:0.85rem;">Full</span>
+            {% else %}
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="$dispatch('open-confirm', 'book-slot-{{ slot.pk }}')">Request</button>
+            {% url 'hub_orientation_book' slot.pk as book_url %}
+            {% include "components/confirm_modal.html" with confirm_id="book-slot-"|add:pks confirm_title="Request this orientation?" confirm_message="We'll send your request to the guild lead to confirm. You can cancel any time." confirm_action_url=book_url confirm_button_text="Send request" confirm_button_style="primary" %}
+            {% endif %}
+          </span>
         </li>
         {% endwith %}
         {% endfor %}
@@ -62,14 +71,22 @@ Member-facing orientation section on the guild page. Context:
     <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No orientation times posted yet — check back soon.</p>
     {% endif %}
     {% if orientation.allow_custom_requests %}
-    <div style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);">
-      <p class="hub-text-muted" style="margin:0 0 0.5rem; font-size:0.85rem;">None of these times work? Propose your own and the guild lead will confirm it.</p>
-      <form method="post" action="{% url 'hub_guild_orientation_request_custom' guild.pk %}" class="hub-form" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
-        {% csrf_token %}
-        <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=custom_request_form.starts_at %}</div>
-        <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=custom_request_form.note %}</div>
-        <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Request custom time</button>
-      </form>
+    <div x-data="{ showCustom: false }" style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="!showCustom" @click="showCustom = true">
+        None of these times work? Request a custom time
+      </button>
+      <div x-show="showCustom" x-cloak style="max-width:420px;">
+        <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Propose your own time and the guild lead will confirm it.</p>
+        <form method="post" action="{% url 'hub_guild_orientation_request_custom' guild.pk %}" class="hub-form">
+          {% csrf_token %}
+          {% include "components/form_field.html" with field=custom_request_form.starts_at %}
+          {% include "components/form_field.html" with field=custom_request_form.note %}
+          <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+            <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send request</button>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showCustom = false">Cancel</button>
+          </div>
+        </form>
+      </div>
     </div>
     {% endif %}
   {% endif %}

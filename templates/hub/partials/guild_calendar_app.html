@@ -1,7 +1,9 @@
 {% load static %}
-{# Guild calendar — reuses the community calendar grid/list (calendar_content.html),
-   scoped to one guild and fed its CMS classes + orientation slots.
-   Context: `cal` = the calendar context dict; `guild` = the Guild. #}
+{% comment %}
+Guild calendar — reuses the community calendar grid/list (calendar_content.html),
+scoped to one guild and fed its CMS classes + orientation slots.
+Context: `cal` = the calendar context dict; `guild` = the Guild.
+{% endcomment %}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 <div
     x-data="{
@@ -41,6 +43,7 @@
         }
     }"
     class="pl-calendar-page"
+    style="margin-bottom:1.5rem;"
 >
     <div class="pl-calendar-topbar">
         <div class="pl-calendar-topbar__left">
