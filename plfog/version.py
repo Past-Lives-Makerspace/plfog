@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "2.7.0"
+VERSION = "0.18.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "2.7.0",
+        "version": "0.18.0",
         "date": "2026-06-21",
         "title": "Guild orientations: book, run, and track shop orientations",
         "changes": [
@@ -22,7 +22,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.6.0",
+        "version": "0.17.0",
         "date": "2026-06-19",
         "title": "Clearer class types: one-off classes vs multi-session series",
         "changes": [
@@ -58,7 +58,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.8",
+        "version": "0.16.8",
         "date": "2026-06-18",
         "title": "Big booking-site update: classes, sign-in, approvals, and search",
         "changes": [
@@ -80,7 +80,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.7",
+        "version": "0.16.7",
         "date": "2026-06-15",
         "title": "Guild logos on class pages and FOG hub topbar",
         "changes": [
@@ -90,7 +90,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.6",
+        "version": "0.16.6",
         "date": "2026-06-11",
         "title": "Scheduled reminders, account page polish, onboarding fixes",
         "changes": [
@@ -100,7 +100,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.5",
+        "version": "0.16.5",
         "date": "2026-06-10",
         "title": "Classes offered on many dates show once",
         "changes": [
@@ -109,7 +109,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.4",
+        "version": "0.16.4",
         "date": "2026-06-10",
         "title": "Class session calendar saves reliably",
         "changes": [
@@ -117,7 +117,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.3",
+        "version": "0.16.3",
         "date": "2026-06-09",
         "title": "Save confirmations show up again",
         "changes": [
@@ -125,7 +125,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.2",
+        "version": "0.16.2",
         "date": "2026-06-09",
         "title": "Cleaner class titles on the Community Calendar",
         "changes": [
@@ -133,7 +133,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.1",
+        "version": "0.16.1",
         "date": "2026-06-09",
         "title": "Community Calendar shows each class once",
         "changes": [
@@ -142,7 +142,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.0",
+        "version": "0.16.0",
         "date": "2026-06-08",
         "title": "Booking-site fixes, a clearer teaching area, and email auditing",
         "changes": [
@@ -161,7 +161,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.4.0",
+        "version": "0.15.0",
         "date": "2026-06-08",
         "title": "Old-CMS classes import and sync automatically every day",
         "changes": [
@@ -169,7 +169,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.3.2",
+        "version": "0.14.2",
         "date": "2026-06-07",
         "title": "Booking site polish: upcoming-only listing, pagination, and cross-site login",
         "changes": [
@@ -183,7 +183,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.3.1",
+        "version": "0.14.1",
         "date": "2026-06-06",
         "title": "Classes from the old CMS now show up on book.pastlives.space",
         "changes": [
@@ -196,7 +196,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.3.0",
+        "version": "0.14.0",
         "date": "2026-05-28",
         "title": "Classes CMS round 2: rebrand, waitlist, dual approval, activity feed, and more",
         "changes": [
@@ -216,7 +216,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.2.2",
+        "version": "0.13.2",
         "date": "2026-05-26",
         "title": "Image uploads work on the New Class form",
         "changes": [
@@ -224,7 +224,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.2.1",
+        "version": "0.13.1",
         "date": "2026-05-26",
         "title": "Students on class detail, dollar pricing, admin create form fix",
         "changes": [
@@ -237,7 +237,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.2.0",
+        "version": "0.13.0",
         "date": "2026-05-25",
         "title": "Visual session calendar, AJAX images, admin polish",
         "changes": [
@@ -255,7 +255,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.1.0",
+        "version": "0.12.0",
         "date": "2026-05-25",
         "title": "CMS polish: styled emails, admin consolidation, instructor registrations",
         "changes": [
@@ -271,7 +271,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.7",
+        "version": "0.11.7",
         "date": "2026-05-23",
         "title": "Fix: production deploy blocked by migration conflict",
         "changes": [
@@ -279,7 +279,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.6",
+        "version": "0.11.6",
         "date": "2026-05-23",
         "title": "Classes: smarter photos, newsletter tagging, custom questions, and instructor messaging",
         "changes": [
@@ -293,7 +293,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.5",
+        "version": "0.11.5",
         "date": "2026-05-22",
         "title": "Classes: multi-image galleries with hover-zoom + a preview button",
         "changes": [
@@ -305,7 +305,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.4",
+        "version": "0.11.4",
         "date": "2026-05-22",
         "title": "book.pastlives.space: an obvious way to sign up",
         "changes": [
@@ -314,7 +314,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.3",
+        "version": "0.11.3",
         "date": "2026-05-22",
         "title": "Site Settings: add multiple calendars to the Community Calendar",
         "changes": [
@@ -324,7 +324,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.2",
+        "version": "0.11.2",
         "date": "2026-05-22",
         "title": "Delete classes outright, and a $1 minimum on paid classes",
         "changes": [
@@ -333,7 +333,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.1",
+        "version": "0.11.1",
         "date": "2026-05-22",
         "title": "Class registration: friendlier error when a price comes out too low",
         "changes": [
@@ -341,7 +341,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.0",
+        "version": "0.11.0",
         "date": "2026-05-22",
         "title": "Classes & workshops are now open to everyone at book.pastlives.space",
         "changes": [
@@ -356,7 +356,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.9.1",
+        "version": "0.10.1",
         "date": "2026-05-21",
         "title": "Stop login-page email spam from draining our daily quota",
         "changes": [
@@ -368,7 +368,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.9.0",
+        "version": "0.10.0",
         "date": "2026-05-05",
         "title": "Mailchimp signup + site-wide Google Analytics",
         "changes": [
@@ -379,7 +379,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.8.0",
+        "version": "0.9.0",
         "date": "2026-05-01",
         "title": "Calendar QOL + a redesigned Profile page that lets you control what's public",
         "changes": [
@@ -391,7 +391,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.5.2",
+        "version": "0.8.8",
         "date": "2026-04-27",
         "title": "Hotfix: site layout broken for everyone",
         "changes": [
@@ -399,7 +399,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.6",
+        "version": "0.8.7",
         "date": "2026-04-26",
         "title": "Free classes & workshops — and a fix for the Register page styling",
         "changes": [
@@ -409,7 +409,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.5",
+        "version": "0.8.6",
         "date": "2026-04-25",
         "title": "Members can sign up for classes online — plus a unified Classes page",
         "changes": [
@@ -423,7 +423,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.4",
+        "version": "0.8.5",
         "date": "2026-04-25",
         "title": "One unified view — Classes, Calendar, Payments, and admin all live in the FOG dashboard",
         "changes": [
@@ -435,7 +435,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.3",
+        "version": "0.8.4",
         "date": "2026-04-23",
         "title": "Classes: public portal, instructor dashboard, and calendar integration",
         "changes": [
@@ -449,7 +449,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.2",
+        "version": "0.8.3",
         "date": "2026-04-23",
         "title": "Fix: logout page styling",
         "changes": [
@@ -457,7 +457,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.1",
+        "version": "0.8.2",
         "date": "2026-04-21",
         "title": "Photos for member profiles, guild banners, and classes",
         "changes": [
@@ -470,7 +470,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.0.2",
+        "version": "0.8.1",
         "date": "2026-04-21",
         "title": "Hotfix: deploy failing on Render",
         "changes": [
@@ -478,7 +478,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.0.1",
+        "version": "0.8.0",
         "date": "2026-04-21",
         "title": "Classes: admin tabs foundation",
         "changes": [
@@ -489,7 +489,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.6.3",
+        "version": "0.7.3",
         "date": "2026-04-17",
         "title": "Admin role preview in the hub",
         "changes": [
@@ -497,7 +497,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.6.2",
+        "version": "0.7.2",
         "date": "2026-04-15",
         "title": "Fix: login page CSS broken after navigating from the hub",
         "changes": [
@@ -505,7 +505,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.6.1",
+        "version": "0.7.1",
         "date": "2026-04-15",
         "title": "Calendar: Classes sync, configurable colors & pagination",
         "changes": [
@@ -516,7 +516,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.6.0",
+        "version": "0.7.0",
         "date": "2026-04-15",
         "title": "Community Calendar",
         "changes": [
@@ -527,7 +527,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.7",
+        "version": "0.6.7",
         "date": "2026-04-15",
         "title": "Current Vote Standings — real totals",
         "changes": [
@@ -535,7 +535,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.6",
+        "version": "0.6.6",
         "date": "2026-04-15",
         "title": "Voting hotfixes, User Settings, and sidebar polish",
         "changes": [
@@ -550,7 +550,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.5",
+        "version": "0.6.5",
         "date": "2026-04-14",
         "title": "Edit products in place",
         "changes": [
@@ -560,7 +560,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.4",
+        "version": "0.6.4",
         "date": "2026-04-14",
         "title": "Edit Your Guild Page Directly",
         "changes": [
@@ -576,7 +576,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.3",
+        "version": "0.6.3",
         "date": "2026-04-14",
         "title": "Flexible Product Revenue Splits",
         "changes": [
@@ -588,7 +588,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.2",
+        "version": "0.6.2",
         "date": "2026-04-14",
         "title": "Local Dev Setup & Cart Toast Fix",
         "changes": [
@@ -599,7 +599,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.1",
+        "version": "0.6.1",
         "date": "2026-04-13",
         "title": "My Tab & Guild Page Hotfixes",
         "changes": [
@@ -614,7 +614,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.0",
+        "version": "0.6.0",
         "date": "2026-04-11",
         "title": "Single Stripe Account, Revenue Splits & Reports",
         "changes": [
@@ -630,7 +630,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.4.1",
+        "version": "0.5.1",
         "date": "2026-04-11",
         "title": "Funding Results — Quieter Display & Admin Email Aliases",
         "changes": [
@@ -641,7 +641,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.4.0",
+        "version": "0.5.0",
         "date": "2026-04-11",
         "title": "Email Aliases & Smarter Funding Snapshots",
         "changes": [
@@ -656,7 +656,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.3.2",
+        "version": "0.4.2",
         "date": "2026-04-07",
         "title": "Pay-as-you-go Tabs, Guild Product Cards & Stripe in Settings",
         "changes": [
@@ -669,7 +669,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.3.1",
+        "version": "0.4.1",
         "date": "2026-04-07",
         "title": "Pay Guilds Directly for Consumables",
         "changes": [
@@ -679,7 +679,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.3.0",
+        "version": "0.4.0",
         "date": "2026-04-02",
         "title": "Tab Billing System",
         "changes": [
@@ -701,7 +701,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.2.1",
+        "version": "0.3.1",
         "date": "2026-04-01",
         "title": "Mobile Sidebar Fix",
         "changes": [
@@ -711,7 +711,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.2.0",
+        "version": "0.3.0",
         "date": "2026-03-30",
         "title": "Member Management Redesign",
         "changes": [
@@ -723,7 +723,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.1.2",
+        "version": "0.2.2",
         "date": "2026-03-30",
         "title": "Mobile Sidebar Fix",
         "changes": [
@@ -731,7 +731,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.1.1",
+        "version": "0.2.1",
         "date": "2026-03-28",
         "title": "Better Discord Announcements",
         "changes": [
@@ -740,7 +740,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.1.0",
+        "version": "0.2.0",
         "date": "2026-03-28",
         "title": "Vote Standings & Discord Notifications",
         "changes": [
@@ -750,7 +750,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.0.3",
+        "version": "0.1.3",
         "date": "2026-03-28",
         "title": "Login & Email Fixes",
         "changes": [
@@ -760,7 +760,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.0.2",
+        "version": "0.1.2",
         "date": "2026-03-28",
         "title": "Admin Fixes",
         "changes": [
@@ -769,7 +769,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.0.1",
+        "version": "0.1.1",
         "date": "2026-03-27",
         "title": "Hotfix",
         "changes": [
@@ -779,7 +779,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.0.0",
+        "version": "0.1.0",
         "date": "2026-03-27",
         "title": "Launch Day",
         "changes": [
