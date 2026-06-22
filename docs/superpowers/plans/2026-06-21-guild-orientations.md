@@ -1,6 +1,6 @@
 # Guild Orientations — Spec & Implementation Plan
 
-**Status:** Spec / not yet built
+**Status:** ✅ Shipped in v2.7.0 — all 8 phases built, tested, and merged to `release-2.5.8` (Phase 0 email attachments → Phase 7 social/join email + Phase 8 changelog). Each phase landed green (full suite + lint + mypy). The Calendar-tab-style live navigation and counter-proposal flow remain the documented follow-ups (see §14).
 **Date:** 2026-06-21
 **Surface:** FOG hub (`pastlives.test:8000`) — guild pages, member booking, admin/lead dashboard
 **Related:** Builds on the guild-pages expansion (`2026-06-21-guild-pages-expansion.md`) and the configurable-email pattern (`2026-06-21-instructor-welcome-email.md`).

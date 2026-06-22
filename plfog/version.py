@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "2.6.0"
+VERSION = "2.7.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "2.7.0",
+        "date": "2026-06-21",
+        "title": "Guild orientations: book, run, and track shop orientations",
+        "changes": [
+            "Guilds can now run orientations right from their guild page. If you haven't been oriented for a guild yet, you'll see a small calendar of open times — pick one and request it in a click.",
+            "Booking an orientation sends you a confirmation email with a calendar invite you can add to Google or Outlook. It's clearly marked 'not an official booking yet' until the guild lead confirms your time.",
+            "Guild leads set everything up in one place: weekly orientation hours that fill the calendar automatically, one-off time slots, how many people fit per slot, an orientation info page, and a 'closed for orientations' switch with a note (like 'on vacation till Sept 8') for when you need a break.",
+            "When someone requests an orientation, the guild lead gets an email and can confirm, decline, or suggest another time — straight from the email with no login needed, or on the hub. Declining can include a friendly note.",
+            "Plans change: both members and guild leads can cancel or reschedule an orientation with one tap from their email, and everyone affected is notified automatically.",
+            "Leads and admins get an 'Orientations' page listing upcoming orientations across all guilds, plus a searchable, sortable history you can filter (by guild, yours, status, completed, or date range) and export to a spreadsheet.",
+            "Orientations mark themselves complete once their time passes, and the member gets a guild-lead-written 'thanks for orienting — here's what's next' email. Leads can also add a member to a slot themselves, or tick a past orientation back to 'not completed' if needed.",
+            "Guild pages now have quick contact buttons: email the guild lead, jump to the guild's Discord channel, or visit its website.",
+            "Joining a guild can now send a warm welcome email written by the guild lead, and quietly lets the lead know a new member has arrived.",
+        ],
+    },
     {
         "version": "2.6.0",
         "date": "2026-06-19",
