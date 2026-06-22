@@ -278,9 +278,7 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str) -> None
 def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:
     """Cancel a slot and run the full cancel fan-out for each of its active bookings."""
     active = list(slot.bookings.active())
-    slot.is_cancelled = True
-    slot.cancelled_reason = reason
-    slot.save(update_fields=["is_cancelled", "cancelled_reason"])
+    slot.mark_cancelled(reason=reason)
     for booking in active:
         cancel_orientation(booking, actor_label="the guild")
 

@@ -1677,11 +1677,21 @@ class OrientationSlot(models.Model):
             raise OrientationError("You already have a pending orientation for this guild.")
         return OrientationBooking.objects.create(slot=self, guild=self.guild, member=member, member_note=note)
 
-    def cancel(self, *, reason: str = "") -> None:
-        """Call off the slot and cancel each of its still-active bookings."""
+    def mark_cancelled(self, *, reason: str = "") -> None:
+        """Flip the slot's own cancel state without touching its bookings.
+
+        The slot-level state change lives here so both the silent model
+        ``cancel()`` and the email-sending service ``cancel_slot`` set the same
+        fields with the same ``update_fields``; only the per-booking fan-out
+        differs between them.
+        """
         self.is_cancelled = True
         self.cancelled_reason = reason
         self.save(update_fields=["is_cancelled", "cancelled_reason"])
+
+    def cancel(self, *, reason: str = "") -> None:
+        """Call off the slot and cancel each of its still-active bookings."""
+        self.mark_cancelled(reason=reason)
         for booking in self.bookings.active():
             booking.cancel()
 

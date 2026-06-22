@@ -170,6 +170,25 @@ def describe_OrientationSlot():
             with pytest.raises(OrientationError):
                 slot.book(member)
 
+    def describe_mark_cancelled():
+        def it_flips_the_slot_state_without_touching_bookings():
+            slot = OrientationSlotFactory(seats=3)
+            booking = OrientationBookingFactory(slot=slot)
+            slot.mark_cancelled(reason="weather")
+            slot.refresh_from_db()
+            booking.refresh_from_db()
+            assert slot.is_cancelled is True
+            assert slot.cancelled_reason == "weather"
+            # mark_cancelled owns the slot state only — bookings are left alone.
+            assert booking.status == OrientationBooking.Status.REQUESTED
+
+        def it_defaults_the_reason_to_empty():
+            slot = OrientationSlotFactory()
+            slot.mark_cancelled()
+            slot.refresh_from_db()
+            assert slot.is_cancelled is True
+            assert slot.cancelled_reason == ""
+
     def describe_cancel():
         def it_cancels_the_slot_and_its_active_bookings():
             slot = OrientationSlotFactory(seats=3)

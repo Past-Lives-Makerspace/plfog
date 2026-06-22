@@ -10,9 +10,15 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from hub.forms import GuildOrientationSettingsForm
 from membership.models import GuildOrientationSettings, OrientationAvailability, OrientationSlot
 from membership.models import Member
-from tests.membership.factories import GuildFactory, MembershipPlanFactory, OrientationSlotFactory
+from tests.membership.factories import (
+    GuildFactory,
+    GuildOrientationSettingsFactory,
+    MembershipPlanFactory,
+    OrientationSlotFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -279,3 +285,92 @@ def describe_guild_orientation_slot_cancel():
         client.login(username="can_get", password="pass")
         response = client.get(reverse("hub_guild_orientation_slot_cancel", args=[guild.pk, slot.pk]))
         assert response.status_code == 405
+
+
+def _form_data_from(instance: GuildOrientationSettings, **overrides: object) -> dict[str, str]:
+    """Build a complete bound payload mirroring ``instance``, with ``overrides`` applied.
+
+    Mirroring every field means ``changed_data`` contains only the overridden
+    fields — exactly what the timestamp gating keys off.
+    """
+    data: dict[str, str] = {}
+    for name in GuildOrientationSettingsForm.Meta.fields:
+        value = getattr(instance, name)
+        if isinstance(value, bool):
+            if value:
+                data[name] = "on"
+        else:
+            data[name] = "" if value is None else str(value)
+    for name, value in overrides.items():
+        if value is None:
+            data.pop(name, None)
+        else:
+            data[name] = str(value)
+    return data
+
+
+def describe_GuildOrientationSettingsForm_email_timestamps():
+    def it_stamps_thankyou_only_when_a_thankyou_field_changes():
+        settings_obj = GuildOrientationSettingsFactory(is_enabled=True)
+        form = GuildOrientationSettingsForm(
+            data=_form_data_from(
+                settings_obj,
+                thankyou_email_enabled="on",
+                thankyou_email_subject="Thanks!",
+                thankyou_email_body="Next steps.",
+            ),
+            instance=settings_obj,
+        )
+        assert form.is_valid(), form.errors
+        saved = form.save()
+
+        assert saved.thankyou_email_updated_at is not None
+        assert saved.join_email_updated_at is None
+
+    def it_stamps_join_only_when_a_join_field_changes():
+        settings_obj = GuildOrientationSettingsFactory(is_enabled=True)
+        form = GuildOrientationSettingsForm(
+            data=_form_data_from(
+                settings_obj,
+                join_email_enabled="on",
+                join_email_subject="Welcome!",
+                join_email_body="Glad you joined.",
+            ),
+            instance=settings_obj,
+        )
+        assert form.is_valid(), form.errors
+        saved = form.save()
+
+        assert saved.join_email_updated_at is not None
+        assert saved.thankyou_email_updated_at is None
+
+    def it_stamps_neither_when_only_an_unrelated_field_changes():
+        settings_obj = GuildOrientationSettingsFactory(is_enabled=True, is_closed=False)
+        form = GuildOrientationSettingsForm(
+            data=_form_data_from(settings_obj, is_closed="on"),
+            instance=settings_obj,
+        )
+        assert form.is_valid(), form.errors
+        saved = form.save()
+
+        assert saved.is_closed is True
+        assert saved.thankyou_email_updated_at is None
+        assert saved.join_email_updated_at is None
+
+    def it_does_not_disturb_an_existing_join_timestamp_on_an_unrelated_save():
+        # A previously-stamped join timestamp must not drift when an unrelated
+        # field is the only change.
+        original = timezone.now() - timedelta(days=3)
+        settings_obj = GuildOrientationSettingsFactory(
+            is_enabled=True,
+            is_closed=False,
+            join_email_updated_at=original,
+        )
+        form = GuildOrientationSettingsForm(
+            data=_form_data_from(settings_obj, is_closed="on"),
+            instance=settings_obj,
+        )
+        assert form.is_valid(), form.errors
+        saved = form.save()
+
+        assert saved.join_email_updated_at == original

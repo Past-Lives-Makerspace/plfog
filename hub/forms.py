@@ -125,7 +125,7 @@ class GuildEditForm(forms.ModelForm):
         # An omitted/blank cadence means "no regular meeting", not an empty string.
         return self.cleaned_data.get("meeting_cadence") or Guild.MeetingCadence.NONE
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         from classes.models import ClassOffering
 
@@ -167,7 +167,7 @@ class ProfileSettingsForm(forms.ModelForm):
 
     VISIBILITY_PREFIX = "show_"
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         # Admins, Guild Officers, Guild Leads, and Instructors are always listed —
         # the field gets force-true on save and is shown disabled with a note.
@@ -312,7 +312,7 @@ class MemberAdminEditForm(forms.ModelForm):
             "show_in_directory",
         ]
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
             self.fields["role"].initial = self._derive_initial_role(self.instance)
@@ -493,10 +493,16 @@ class GuildOrientationSettingsForm(forms.ModelForm):
         self._require_subject_and_body(cleaned, "join_email", "welcome")
         return cleaned
 
+    _THANKYOU_EMAIL_FIELDS = ("thankyou_email_enabled", "thankyou_email_subject", "thankyou_email_body")
+    _JOIN_EMAIL_FIELDS = ("join_email_enabled", "join_email_subject", "join_email_body")
+
     def save(self, commit: bool = True) -> GuildOrientationSettings:
         now = timezone.now()
-        self.instance.thankyou_email_updated_at = now
-        self.instance.join_email_updated_at = now
+        changed = set(self.changed_data)
+        if changed.intersection(self._THANKYOU_EMAIL_FIELDS):
+            self.instance.thankyou_email_updated_at = now
+        if changed.intersection(self._JOIN_EMAIL_FIELDS):
+            self.instance.join_email_updated_at = now
         return cast(GuildOrientationSettings, super().save(commit=commit))
 
 
