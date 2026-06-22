@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-VERSION = "0.18.5"
+VERSION = "0.18.6"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.18.6",
+        "date": "2026-06-22",
+        "title": "Tidier 'email registrants' panel on the class roster",
+        "changes": [
+            "On the class roster, 'Email selected registrants' is now a button that opens the message form only when you want it — it stays tucked away by default so the roster is easier to scan. The subject and message boxes also now match the dark theme instead of showing as white boxes.",
+        ],
+    },
     {
         "version": "0.18.5",
         "date": "2026-06-22",

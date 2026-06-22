@@ -48,10 +48,14 @@
             <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="emailOpen = !emailOpen" x-text="emailOpen ? 'Cancel email' : 'Email selected students'"></button>
         </div>
         <div x-show="emailOpen" x-transition style="padding:0.75rem 0;">
-            <label style="display:block; margin-bottom:0.25rem; font-size:0.85rem; color:var(--hub-text-muted);">Subject</label>
-            <input type="text" name="subject" maxlength="255" required style="width:100%; padding:0.4rem 0.6rem; margin-bottom:0.5rem;">
-            <label style="display:block; margin-bottom:0.25rem; font-size:0.85rem; color:var(--hub-text-muted);">Message</label>
-            <textarea name="body" rows="4" required style="width:100%; padding:0.4rem 0.6rem; margin-bottom:0.5rem;"></textarea>
+            <div class="hub-form-group">
+                <label>Subject</label>
+                <input type="text" name="subject" maxlength="255" required>
+            </div>
+            <div class="hub-form-group">
+                <label>Message</label>
+                <textarea name="body" rows="4" required></textarea>
+            </div>
             <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem; color:var(--hub-text-muted); margin-bottom:0.5rem;">
                 <input type="checkbox" name="bcc_self" checked> Send me a copy
             </label>
