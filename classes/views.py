@@ -1143,21 +1143,26 @@ def teach_registrations_email(request: HttpRequest) -> HttpResponse:
 
 @teaching_member_required
 def teach_discount_codes(request: HttpRequest) -> HttpResponse:
-    """Discount codes — managed by teaching members from the Teaching portal.
+    """Discount codes for the Teaching portal.
 
-    Codes are currently shared across all classes (no per-instructor
-    ownership on the DiscountCode model), so any teaching member sees every code.
-    If that becomes a problem, add an ``owner`` FK and filter here.
+    Splits codes into the instructor's own (editable, keyed off the ``created_by``
+    audit FK) and the site-wide admin codes — ``class_offering`` null and created
+    by someone else, e.g. the PLMEMBERS member discount. Site-wide codes are shown
+    read-only here; admins manage them from the Classes admin.
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    codes = DiscountCode.objects.all()
+    own_codes = DiscountCode.objects.filter(created_by=request.user).order_by("code")
+    sitewide_codes = (
+        DiscountCode.objects.filter(class_offering__isnull=True).exclude(created_by=request.user).order_by("code")
+    )
     return render(
         request,
         "classes/teach/discount_codes.html",
         {
             "active_tab": "discount_codes",
             "instructor": teaching_member,
-            "codes": codes,
+            "own_codes": own_codes,
+            "sitewide_codes": sitewide_codes,
         },
     )
 
@@ -1209,7 +1214,9 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
 @teaching_member_required
 def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    code = get_object_or_404(DiscountCode, pk=pk)
+    # Instructors may only edit codes they created; site-wide / admin codes are
+    # read-only here (scoping to created_by makes a foreign code 404, not just hidden).
+    code = get_object_or_404(DiscountCode, pk=pk, created_by=request.user)
     form = DiscountCodeForm(request.POST or None, instance=code)
     if request.method == "POST" and form.is_valid():
         form.save()
@@ -1224,7 +1231,8 @@ def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 @teaching_member_required
 def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    code = get_object_or_404(DiscountCode, pk=pk)
+    # Only the instructor who created a code may delete it; site-wide / admin codes 404.
+    code = get_object_or_404(DiscountCode, pk=pk, created_by=request.user)
     if request.method == "POST":
         code.delete()
         messages.success(request, "Discount code deleted.")

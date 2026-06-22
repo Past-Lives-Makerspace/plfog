@@ -401,7 +401,7 @@ def describe_instructor_discount_code_instructor_crud():
         """Instructor edits an existing discount code (lines 663-665)."""
         from classes.factories import DiscountCodeFactory
 
-        code = DiscountCodeFactory(discount_pct=10)
+        code = DiscountCodeFactory(discount_pct=10, created_by=instructor_fixture.user)
         client.force_login(instructor_fixture.user)
         response = client.post(
             reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}),
@@ -415,7 +415,7 @@ def describe_instructor_discount_code_instructor_crud():
         """GET on edit renders the filled form (line 666)."""
         from classes.factories import DiscountCodeFactory
 
-        code = DiscountCodeFactory(discount_pct=15)
+        code = DiscountCodeFactory(discount_pct=15, created_by=instructor_fixture.user)
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}))
         assert response.status_code == 200
@@ -425,7 +425,7 @@ def describe_instructor_discount_code_instructor_crud():
         from classes.factories import DiscountCodeFactory
         from classes.models import DiscountCode
 
-        code = DiscountCodeFactory()
+        code = DiscountCodeFactory(created_by=instructor_fixture.user)
         client.force_login(instructor_fixture.user)
         response = client.post(
             reverse("classes:teach_discount_code_delete", kwargs={"pk": code.pk}),
@@ -438,7 +438,7 @@ def describe_instructor_discount_code_instructor_crud():
         from classes.factories import DiscountCodeFactory
         from classes.models import DiscountCode
 
-        code = DiscountCodeFactory()
+        code = DiscountCodeFactory(created_by=instructor_fixture.user)
         client.force_login(instructor_fixture.user)
         response = client.get(
             reverse("classes:teach_discount_code_delete", kwargs={"pk": code.pk}),
