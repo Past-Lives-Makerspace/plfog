@@ -319,18 +319,22 @@ def auto_complete(*, now: datetime | None = None) -> int:
     return count
 
 
-def generate_slots(*, window_weeks: int = 8, now: datetime | None = None) -> int:
+def generate_slots(*, guild: Guild | None = None, window_weeks: int = 8, now: datetime | None = None) -> int:
     """Materialize bookable slots from active recurring rules across a rolling window.
 
     Idempotent (a slot is keyed by its rule + start time), and skips guilds that
-    aren't currently accepting bookings. Returns the number of slots created.
+    aren't currently accepting bookings. Returns the number of slots created. Pass
+    ``guild`` to materialize just one guild's rules (e.g. right after an editor save).
     """
     from membership.models import GuildOrientationSettings, OrientationAvailability, OrientationSlot
 
     reference = now or timezone.now()
     today = timezone.localdate()
     created = 0
-    for rule in OrientationAvailability.objects.filter(is_active=True).select_related("guild"):
+    rules = OrientationAvailability.objects.filter(is_active=True).select_related("guild")
+    if guild is not None:
+        rules = rules.filter(guild=guild)
+    for rule in rules:
         settings_obj = GuildOrientationSettings.objects.filter(guild=rule.guild).first()
         if settings_obj is None or not settings_obj.is_accepting:
             continue

@@ -109,6 +109,16 @@ def describe_guild_orientation_section():
         response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
         assert b"Get oriented for" in response.content
 
+    def it_gates_booking_behind_a_confirmation_and_paginates(client: Client):
+        _user, guild = _setup(client, "sec_confirm")
+        OrientationSlotFactory(guild=guild, enabled_settings=False)
+        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        # Request opens a confirm modal instead of posting straight to the book endpoint.
+        assert b"open-confirm" in response.content
+        assert b"Send request" in response.content
+        # Slots are shown 5 at a time with arrows.
+        assert b"size: 5" in response.content
+
     def it_shows_oriented_when_the_member_is_oriented(client: Client):
         user, guild = _setup(client, "sec2")
         OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=user.member).mark_completed()

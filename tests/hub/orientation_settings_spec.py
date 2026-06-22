@@ -111,6 +111,28 @@ def describe_guild_orientation_edit():
         assert rule.weekday == 1
         assert rule.seats == 5
 
+    def it_generates_bookable_slots_when_a_rule_is_saved(client: Client):
+        # Saving recurring hours materializes slots immediately — no waiting for the cron.
+        _user_with_role("ed_gen", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="ed_gen", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_edit", args=[guild.pk]),
+            _settings_payload(
+                is_enabled="on",
+                **{
+                    "rules-TOTAL_FORMS": "1",
+                    "rules-0-weekday": "1",
+                    "rules-0-start_time": "18:00",
+                    "rules-0-end_time": "19:00",
+                    "rules-0-seats": "5",
+                    "rules-0-is_active": "on",
+                },
+            ),
+        )
+        assert response.status_code == 302
+        assert OrientationSlot.objects.filter(guild=guild, source=OrientationSlot.Source.GENERATED).exists()
+
     def it_rejects_a_thankyou_email_with_no_subject(client: Client):
         _user_with_role("ed_email", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()

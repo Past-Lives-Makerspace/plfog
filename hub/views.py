@@ -428,7 +428,7 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     is_oriented = member.is_oriented_for(guild) if member is not None else False
     show_orientation = orientation is not None and orientation.is_enabled
     orientation_slots = (
-        list(guild.orientation_slots.upcoming().order_by("starts_at")[:8])
+        list(guild.orientation_slots.upcoming().order_by("starts_at")[:30])
         if orientation is not None
         and show_orientation
         and not is_oriented
@@ -529,7 +529,7 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required
 def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
     """Config editor: orientation settings + recurring availability rules. Editors only."""
-    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet, OrientationSlotForm
+    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet
     from membership.models import GuildOrientationSettings
 
     guild = get_object_or_404(Guild, pk=pk)
@@ -544,6 +544,11 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if form.is_valid() and rule_formset.is_valid():
             form.save()
             rule_formset.save()
+            # Materialize bookable slots now so recurring hours show up immediately —
+            # don't make the editor wait for the nightly generation cron.
+            from membership import orientations
+
+            orientations.generate_slots(guild=guild)
             messages.success(request, "Orientation settings updated.")
             return redirect("hub_guild_orientation_edit", pk=guild.pk)
     else:
@@ -559,8 +564,6 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "guild": guild,
             "form": form,
             "rule_formset": rule_formset,
-            "slot_form": OrientationSlotForm(),
-            "upcoming_slots": guild.orientation_slots.upcoming(),
         },
     )
 

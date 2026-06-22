@@ -1,4 +1,4 @@
-"""Guild page tabs: Overview / Calendar / Classes / Buyables."""
+"""Guild page tabs: Overview / Schedule (calendar + classes + orientation) / Buyables."""
 
 from __future__ import annotations
 
@@ -23,15 +23,17 @@ def _member(username: str) -> User:
 
 @pytest.mark.django_db
 def describe_guild_tabs():
-    def it_shows_the_four_tabs(client: Client):
+    def it_shows_the_tabs(client: Client):
         _member("t1")
         client.login(username="t1", password="pw")
         guild = GuildFactory()
         body = client.get(reverse("hub_guild_detail", args=[guild.pk])).content
-        assert b">Overview<" in body
-        assert b">Calendar<" in body
-        assert b">Classes<" in body
-        assert b">Buyables<" in body
+        assert b"section === 'overview'" in body
+        assert b"section === 'schedule'" in body
+        assert b"section === 'buyables'" in body
+        # Calendar and Classes were merged into the single Schedule tab.
+        assert b"section === 'calendar'" not in body
+        assert b"section === 'classes'" not in body
 
     def it_puts_the_products_card_inside_the_buyables_tab(client: Client):
         _member("t4")

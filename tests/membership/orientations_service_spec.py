@@ -375,3 +375,16 @@ def describe_generate_slots():
         OrientationAvailabilityFactory(guild=guild)
 
         assert orientations.generate_slots() == 0
+
+    def it_can_target_a_single_guild():
+        target = GuildFactory()
+        other = GuildFactory()
+        for g in (target, other):
+            GuildOrientationSettingsFactory(guild=g, is_enabled=True)
+            OrientationAvailabilityFactory(guild=g)
+
+        created = orientations.generate_slots(guild=target)
+
+        assert created >= 1
+        assert OrientationSlot.objects.filter(guild=target).exists()
+        assert not OrientationSlot.objects.filter(guild=other).exists()

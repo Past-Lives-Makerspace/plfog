@@ -105,39 +105,5 @@
 
     <button type="submit" class="hub-btn hub-btn--primary">Save orientation settings</button>
   </form>
-
-  <div class="hub-card" style="padding:1.5rem; margin:1.5rem 0;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Upcoming slots</h2>
-    {% if upcoming_slots %}
-    <ul class="hub-list" style="list-style:none; padding:0; margin:0 0 1.25rem;">
-      {% for slot in upcoming_slots %}
-      {% with pks=slot.pk|stringformat:"s" %}
-      <li style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid var(--hub-border);">
-        <span>{{ slot.starts_at|date:"D M j, g:i A" }} — {{ slot.ends_at|date:"g:i A" }}
-          <span class="hub-text-muted">· {{ slot.seats_remaining }}/{{ slot.seats }} seats left{% if slot.location %} · {{ slot.location }}{% endif %}</span></span>
-        <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
-                @click="$dispatch('open-confirm', 'cancel-slot-{{ slot.pk }}')">Cancel</button>
-        {% url 'hub_guild_orientation_slot_cancel' guild.pk slot.pk as cancel_url %}
-        {% include "components/confirm_modal.html" with confirm_id="cancel-slot-"|add:pks confirm_title="Cancel this orientation slot?" confirm_message="The slot will be cancelled and anyone booked into it will be notified." confirm_action_url=cancel_url confirm_button_text="Cancel slot" %}
-      </li>
-      {% endwith %}
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="hub-text-muted" style="margin:0 0 1.25rem;">No upcoming slots yet. Add recurring hours above, or a one-off below.</p>
-    {% endif %}
-
-    <h3 class="hub-detail-label" style="margin:0 0 0.75rem;">Add a one-off slot</h3>
-    <form method="post" action="{% url 'hub_guild_orientation_slot_add' guild.pk %}" class="hub-form">
-      {% csrf_token %}
-      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
-        <div style="flex:1; min-width:180px;">{% include "components/form_field.html" with field=slot_form.starts_at %}</div>
-        <div style="flex:1; min-width:180px;">{% include "components/form_field.html" with field=slot_form.ends_at %}</div>
-        <div style="flex:1; min-width:80px;">{% include "components/form_field.html" with field=slot_form.seats %}</div>
-        <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=slot_form.location %}</div>
-      </div>
-      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" style="margin-top:0.75rem;">Add slot</button>
-    </form>
-  </div>
 </div>
 {% endblock %}
