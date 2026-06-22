@@ -8,9 +8,45 @@ The returned row can be attached to a ``SiteActivity`` via its ``email_log`` FK.
 from __future__ import annotations
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, send_mail
 
 from core.models import TransactionalEmailLog
+
+# An attachment as (filename, content, mimetype) — e.g. ("orientation.ics", ics_bytes, "text/calendar").
+Attachment = tuple[str, str | bytes, str]
+
+
+def _deliver(
+    *,
+    subject: str,
+    text_body: str,
+    html_body: str | None,
+    from_email: str,
+    recipients: list[str],
+    attachments: list[Attachment] | None,
+) -> None:
+    """Hand the message to Django's mail backend.
+
+    Uses the plain ``send_mail`` path when there are no attachments (unchanged
+    behaviour for the vast majority of sends); switches to
+    ``EmailMultiAlternatives`` only when attachments are present, since
+    ``send_mail`` cannot carry them.
+    """
+    if not attachments:
+        send_mail(
+            subject=subject,
+            message=text_body,
+            from_email=from_email,
+            recipient_list=recipients,
+            html_message=html_body,
+        )
+        return
+    message = EmailMultiAlternatives(subject=subject, body=text_body, from_email=from_email, to=recipients)
+    if html_body:
+        message.attach_alternative(html_body, "text/html")
+    for filename, content, mimetype in attachments:
+        message.attach(filename, content, mimetype)
+    message.send()
 
 
 def send(
@@ -22,6 +58,7 @@ def send(
     html_body: str | None = None,
     from_email: str | None = None,
     best_effort: bool = False,
+    attachments: list[Attachment] | None = None,
 ) -> TransactionalEmailLog:
     """Send a transactional email and log the attempt.
 
@@ -34,6 +71,8 @@ def send(
         from_email: Overrides DEFAULT_FROM_EMAIL when given.
         best_effort: When True, swallow send failures (still logged) instead of
             re-raising. Use for non-critical sends (e.g. notification emails).
+        attachments: Optional list of (filename, content, mimetype) tuples, e.g.
+            an ``.ics`` calendar invite. Forces the multipart send path.
 
     Returns:
         The TransactionalEmailLog row written for this attempt.
@@ -44,12 +83,13 @@ def send(
     recipients = [to] if isinstance(to, str) else list(to)
     joined = ", ".join(recipients)
     try:
-        send_mail(
+        _deliver(
             subject=subject,
-            message=text_body,
+            text_body=text_body,
+            html_body=html_body,
             from_email=from_email or settings.DEFAULT_FROM_EMAIL,
-            recipient_list=recipients,
-            html_message=html_body,
+            recipients=recipients,
+            attachments=attachments,
         )
     except Exception as exc:  # noqa: BLE001 — we log then re-raise unless best_effort
         log = TransactionalEmailLog.objects.create(
