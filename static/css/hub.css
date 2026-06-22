@@ -2283,6 +2283,7 @@ a:hover { color: var(--hub-link-hover); }
 .pl-profile-row input[type="text"],
 .pl-profile-row input[type="email"],
 .pl-profile-row input[type="tel"],
+.pl-profile-row input[type="url"],
 .pl-profile-row select,
 .pl-profile-row textarea {
     width: 100%;

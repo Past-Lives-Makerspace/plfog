@@ -92,11 +92,13 @@
 
   <div class="hub-card" style="padding:1.25rem 1.5rem; margin-top:1.5rem;">
     <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Add a member to a slot</h2>
-    <form method="post" action="{% url 'hub_orientation_add_member' %}" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+    <form method="post" action="{% url 'hub_orientation_add_member' %}" class="hub-form">
       {% csrf_token %}
-      <div>{{ add_member_form.member.label_tag }}<br>{{ add_member_form.member }}</div>
-      <div>{{ add_member_form.slot.label_tag }}<br>{{ add_member_form.slot }}</div>
-      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Add member</button>
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+        <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=add_member_form.member %}</div>
+        <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=add_member_form.slot %}</div>
+      </div>
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" style="margin-top:0.75rem;">Add member</button>
     </form>
   </div>
 </div>
