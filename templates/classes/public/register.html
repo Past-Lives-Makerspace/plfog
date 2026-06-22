@@ -38,9 +38,9 @@
         </div>
 
         {% if run_options|length > 1 %}
-        <div class="reg-run-picker" style="margin-top:12px">
-          <label for="reg-run-select" style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Choose your dates</label>
-          <select id="reg-run-select" onchange="if (this.value) location.assign(this.value)" style="width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--steel-dim,#1a4568);border-radius:8px;background:var(--surface,#fff);color:var(--text,#0c2236)">
+        <div class="reg-run-picker">
+          <label for="reg-run-select">Choose your dates</label>
+          <select id="reg-run-select" onchange="if (this.value) location.assign(this.value)">
             {% for run in run_options %}
               {% with ses=run.sessions.all|upcoming_sessions %}
               <option value="{% url 'classes:register' slug=run.slug %}"{% if run.pk == offering.pk %} selected{% endif %}>{{ ses|session_date_range }}{% if run.is_series %} · {{ ses|length }} sessions{% endif %} · {% if run.spots_left == 0 %}waitlist{% else %}{{ run.spots_left }} left{% endif %}</option>

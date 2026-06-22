@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-VERSION = "0.18.2"
+VERSION = "0.18.3"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.18.3",
+        "date": "2026-06-22",
+        "title": "Readable date picker on the registration page",
+        "changes": [
+            "Fixed the 'Choose your dates' menu on the class registration page — it was showing as a hard-to-read white box that clashed with the rest of the page. It now matches the other form fields.",
+        ],
+    },
     {
         "version": "0.18.2",
         "date": "2026-06-22",
