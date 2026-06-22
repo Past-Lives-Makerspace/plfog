@@ -14,7 +14,7 @@
 
   {# ── HERO ─────────────────────────────────────────────── #}
   {% with class_img_url=offering.image|default:offering.legacy_image_url %}
-  <header class="cp-detail__hero"
+  <div class="cp-detail__herobox"
           {% if class_img_url and can_edit_offering %}
           x-data="heroPlacement({
               updateUrl: '{% url 'hub_hero_adjust' %}',
@@ -32,6 +32,7 @@
               initialObjectPosition: '{{ offering.category.hero_object_position }}'
           })"
           {% endif %}>
+  <header class="cp-detail__hero">
     {% if offering.image %}
       <img class="cp-detail__hero-img"
            src="{{ offering.image.url }}"
@@ -74,59 +75,6 @@
     <div class="cp-detail__hero-overlay"></div>
 
     <div class="cp-detail__hero-content">
-      <div style="display:flex; justify-content:space-between; align-items: flex-start; margin-bottom: 1rem;">
-        <div style="display:flex; flex-direction:column; gap:0.5rem; align-items:flex-start;">
-            <a class="cp-detail__back" href="{% url 'classes:public_list' %}" style="margin-bottom:0;">&larr; All classes &amp; workshops</a>
-            
-            {# --- Visual Placement Tool --- #}
-            {% if can_edit_offering or can_edit_category %}
-              {% if class_img_url or offering.category.hero_image %}
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    {% if can_edit_offering and edit_url %}
-                    <a href="{{ edit_url }}" style="background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 4px; color: white; display: flex; align-items: center; gap: 0.5rem; font-size: 11px; font-weight: 600; cursor: pointer; backdrop-filter: blur(4px); text-decoration: none;"
-                       x-show="!isAdjusting" title="Edit Class">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                        <span>Edit</span>
-                    </a>
-                    {% endif %}
-
-                    <button type="button" style="background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 4px; color: white; display: flex; align-items: center; gap: 0.5rem; font-size: 11px; font-weight: 600; cursor: pointer; backdrop-filter: blur(4px);"
-                            @click="startAdjusting()" x-show="!isAdjusting" :disabled="isLoading" title="Adjust Placement">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
-                        </svg>
-                        <span x-text="isLoading ? '...' : 'Adjust'"></span>
-                    </button>
-
-                    {# Sliders #}
-                    <div x-show="isAdjusting" x-cloak style="display:flex; align-items:center; gap:0.75rem; background:rgba(0,0,0,0.7); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); backdrop-filter:blur(8px);">
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <label style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">V</label>
-                            <input type="range" min="0" max="100" x-model="posY" style="width:70px; height:4px; cursor:pointer;">
-                        </div>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <label style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">H</label>
-                            <input type="range" min="0" max="100" x-model="posX" style="width:70px; height:4px; cursor:pointer;">
-                        </div>
-                        <div style="display:flex; gap:0.5rem; margin-left: 0.5rem; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 0.75rem;">
-                            <button type="button" style="background: var(--gold); border: none; padding: 3px 10px; border-radius: 4px; color: black; font-weight: 700; font-size: 10px; cursor: pointer;"
-                                    @click="save()" :disabled="isLoading">
-                                <span x-text="isLoading ? '...' : 'Save'"></span>
-                            </button>
-                            <button type="button" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); padding: 3px 10px; border-radius: 4px; color: white; font-size: 10px; cursor: pointer;"
-                                    @click="cancel()" :disabled="isLoading">
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                </div>
-              {% endif %}
-            {% endif %}
-        </div>
-      </div>
-  {% endwith %}
       <div class="cp-detail__cat-row">
         <a class="cp-detail__cat-chip" href="{% url 'classes:public_category' slug=offering.category.slug %}">
           {% if offering.category.logo_prefix %}<img src="{% static 'img/guild_logos/'|add:offering.category.logo_prefix|add:'_color.svg' %}" alt="">{% endif %}{{ offering.category.name }}
@@ -151,6 +99,60 @@
       {% endif %}
     </div>
   </header>
+
+  {# Back link (left) + edit/adjust controls (right): under the hero image, above the body #}
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; margin:0.85rem 0 1.5rem; flex-wrap:wrap;">
+      <a class="cp-detail__back" href="{% url 'classes:public_list' %}" style="margin-bottom:0;">&larr; All classes &amp; workshops</a>
+
+      {# --- Visual Placement Tool --- #}
+      {% if can_edit_offering or can_edit_category %}
+        {% if class_img_url or offering.category.hero_image %}
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            {% if can_edit_offering and edit_url %}
+            <a href="{{ edit_url }}" style="background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 4px; color: white; display: flex; align-items: center; gap: 0.5rem; font-size: 11px; font-weight: 600; cursor: pointer; backdrop-filter: blur(4px); text-decoration: none;"
+               x-show="!isAdjusting" title="Edit Class">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                <span>Edit</span>
+            </a>
+            {% endif %}
+
+            <button type="button" style="background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 4px; color: white; display: flex; align-items: center; gap: 0.5rem; font-size: 11px; font-weight: 600; cursor: pointer; backdrop-filter: blur(4px);"
+                    @click="startAdjusting()" x-show="!isAdjusting" :disabled="isLoading" title="Adjust Placement">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                </svg>
+                <span x-text="isLoading ? '...' : 'Adjust'"></span>
+            </button>
+
+            {# Sliders #}
+            <div x-show="isAdjusting" x-cloak style="display:flex; align-items:center; gap:0.75rem; background:rgba(0,0,0,0.7); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); backdrop-filter:blur(8px);">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <label style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">V</label>
+                    <input type="range" min="0" max="100" x-model="posY" style="width:70px; height:4px; cursor:pointer;">
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <label style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">H</label>
+                    <input type="range" min="0" max="100" x-model="posX" style="width:70px; height:4px; cursor:pointer;">
+                </div>
+                <div style="display:flex; gap:0.5rem; margin-left: 0.5rem; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 0.75rem;">
+                    <button type="button" style="background: var(--gold); border: none; padding: 3px 10px; border-radius: 4px; color: black; font-weight: 700; font-size: 10px; cursor: pointer;"
+                            @click="save()" :disabled="isLoading">
+                        <span x-text="isLoading ? '...' : 'Save'"></span>
+                    </button>
+                    <button type="button" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); padding: 3px 10px; border-radius: 4px; color: white; font-size: 10px; cursor: pointer;"
+                            @click="cancel()" :disabled="isLoading">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+      {% endif %}
+  </div>
+  </div>{# /herobox #}
+  {% endwith %}
 
   {# ── BODY GRID — main content left, sticky booking right ──── #}
   <div class="cp-detail__grid">

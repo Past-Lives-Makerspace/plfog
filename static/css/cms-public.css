@@ -605,18 +605,18 @@ body.classes-portal {
 }
 .cp-detail__back {
   display: inline-block;
-  margin-bottom: 18px;
-  padding: 7px 14px;
+  margin-bottom: 0;
+  padding: 8px 16px;
   border-radius: 4px;
-  background: rgba(0,0,0,0.35);
-  color: var(--color-cream);
+  background: var(--color-tuscan-yellow);
+  color: var(--color-navy);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   text-decoration: none;
   letter-spacing: 0.04em;
-  backdrop-filter: blur(8px);
+  transition: background .2s, transform .2s;
 }
-.cp-detail__back:hover { background: rgba(0,0,0,0.55); color: var(--color-cream); text-decoration: none; }
+.cp-detail__back:hover { background: var(--color-yellow-hover, #d4a043); color: var(--color-navy); text-decoration: none; transform: translateY(-1px); }
 .cp-detail__cat-row {
   display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 8px;
 }

@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-VERSION = "0.18.1"
+VERSION = "0.18.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.18.2",
+        "date": "2026-06-22",
+        "title": "Tidier class page header",
+        "changes": [
+            "Cleaned up the top of each class page: the '← All classes & workshops' link and the page's edit controls now sit in their own row just beneath the header image, instead of crowding the title over the photo. The back link is now a standard gold button so it reads cleanly in light mode.",
+        ],
+    },
     {
         "version": "0.18.1",
         "date": "2026-06-22",
