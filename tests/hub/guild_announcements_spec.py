@@ -53,3 +53,59 @@ def describe_announcement_delete_permissions():
         resp = client.post(reverse("hub_guild_announcement_delete", args=[guild.pk, announcement.pk]))
         assert resp.status_code == 403
         assert GuildAnnouncement.objects.filter(pk=announcement.pk).exists()
+
+
+@pytest.mark.django_db
+def describe_announcement_create():
+    def it_creates_an_announcement_for_an_editor(client: Client):
+        _editor_user("ac")
+        client.login(username="ac", password="pw")
+        guild = GuildFactory()
+        resp = client.post(
+            reverse("hub_guild_announcement_create", args=[guild.pk]),
+            {"title": "Forge night!", "body": "This Friday.", "expires_at": ""},
+        )
+        assert resp.status_code == 302
+        announcement = GuildAnnouncement.objects.get(guild=guild, title="Forge night!")
+        assert announcement.body == "This Friday."
+        assert announcement.author is not None
+
+    def it_rejects_an_empty_announcement(client: Client):
+        _editor_user("ac_empty")
+        client.login(username="ac_empty", password="pw")
+        guild = GuildFactory()
+        resp = client.post(reverse("hub_guild_announcement_create", args=[guild.pk]), {"title": "", "body": ""})
+        assert resp.status_code == 302
+        assert not GuildAnnouncement.objects.filter(guild=guild).exists()
+
+    def it_forbids_non_editors(client: Client):
+        MembershipPlanFactory()
+        User.objects.create_user(username="plain_ac", password="pw")  # default fog_role MEMBER
+        client.login(username="plain_ac", password="pw")
+        guild = GuildFactory()
+        resp = client.post(reverse("hub_guild_announcement_create", args=[guild.pk]), {"title": "x", "body": "y"})
+        assert resp.status_code == 403
+        assert not GuildAnnouncement.objects.filter(guild=guild).exists()
+
+
+@pytest.mark.django_db
+def describe_announcement_display():
+    def it_shows_active_announcements_on_the_guild_page(client: Client):
+        _editor_user("disp")
+        client.login(username="disp", password="pw")
+        guild = GuildFactory()
+        GuildAnnouncementFactory(guild=guild, title="LiveAnnounce")
+        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        assert b"LiveAnnounce" in resp.content
+
+    def it_hides_expired_announcements_on_the_guild_page(client: Client):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        _editor_user("disp2")
+        client.login(username="disp2", password="pw")
+        guild = GuildFactory()
+        GuildAnnouncementFactory(guild=guild, title="GoneAnnounce", expires_at=timezone.localdate() - timedelta(days=1))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        assert b"GoneAnnounce" not in resp.content

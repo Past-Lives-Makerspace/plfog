@@ -526,7 +526,7 @@ def describe_guild_edit_page():
         client.login(username="admin_pg", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert response.status_code == 200
-        assert b"Meeting schedule" in response.content
+        assert b"Meeting cadence" in response.content
 
     def it_forbids_non_editors(client: Client):
         _user_with_role("plain_pg", fog_role=Member.FogRole.MEMBER)

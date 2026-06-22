@@ -369,7 +369,7 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     gallery_images = guild.gallery_images.all()
     faq_items = guild.faq_items.all()
     links = guild.links.all()
-    announcements = guild.announcements.all()[:5]
+    announcements = guild.announcements.active()[:5]
     roster = guild.roster_members() if guild.show_members else None
     is_member_of_guild = member is not None and guild.memberships.filter(member=member).exists()
 
@@ -409,7 +409,7 @@ def _require_can_edit_guild(request: HttpRequest, guild: Guild) -> HttpResponse 
 @login_required
 def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
     """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead only."""
-    from hub.forms import GuildFAQItemFormSet, GuildLinkFormSet
+    from hub.forms import GuildAnnouncementForm, GuildFAQItemFormSet, GuildLinkFormSet
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
@@ -443,6 +443,7 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "form": form,
             "faq_formset": faq_formset,
             "link_formset": link_formset,
+            "announcement_form": GuildAnnouncementForm(),
         },
     )
 
@@ -907,6 +908,28 @@ def guild_image_alt_update(request: HttpRequest, pk: int, image_pk: int) -> Http
     image.alt_text = alt_text
     image.save(update_fields=["alt_text"])
     return HttpResponse(status=204)
+
+
+@login_required
+@require_POST
+def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
+    """Post a new announcement to a guild from the edit page. Editor only."""
+    from hub.forms import GuildAnnouncementForm
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    form = GuildAnnouncementForm(request.POST)
+    if form.is_valid():
+        announcement = form.save(commit=False)
+        announcement.guild = guild
+        announcement.author = request.user
+        announcement.save()
+        messages.success(request, "Announcement posted.")
+    else:
+        messages.error(request, "Couldn't post the announcement — add a title and body.")
+    return redirect("hub_guild_edit", pk=guild.pk)
 
 
 @login_required

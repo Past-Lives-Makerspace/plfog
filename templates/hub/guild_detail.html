@@ -99,6 +99,19 @@
 
 <div class="pl-guild-grid">
     <main>
+        {% if announcements %}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">Announcements</h2>
+            {% for a in announcements %}
+            <div class="hub-card" style="border-left:3px solid var(--color-tuscan-yellow,#EEB44B);">
+                <strong>{{ a.title }}</strong>
+                <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}</div>
+                <p>{{ a.body|linebreaksbr }}</p>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+
         {# About — keeps the "Nothing here yet" placeholder the specs assert. #}
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">About</h2>
@@ -132,19 +145,6 @@
         </section>
         {% endif %}
 
-        {% if announcements %}
-        <section class="pl-guild-section">
-            <h2 class="pl-guild-section__h2">Announcements</h2>
-            {% for a in announcements %}
-            <div class="hub-card">
-                <strong>{{ a.title }}</strong>
-                <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}</div>
-                <p>{{ a.body|linebreaksbr }}</p>
-            </div>
-            {% endfor %}
-        </section>
-        {% endif %}
-
         {% if faq_items %}
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">FAQ</h2>
@@ -171,6 +171,18 @@
             </div>
         </div>
         {% endif %}
+
+        <div class="hub-card">
+            <h3 class="hub-detail-label">Next Meeting</h3>
+            {% if guild.next_meeting_at %}
+            <div class="hub-member-name">{{ guild.next_meeting_at|date:"l, F j" }}</div>
+            <div class="hub-text-muted" style="font-size:0.875rem;">
+                {% if guild.meeting_time %}{{ guild.meeting_time|time:"g:i A" }}{% endif %}{% if guild.meeting_location %}{% if guild.meeting_time %} · {% endif %}{{ guild.meeting_location }}{% endif %}
+            </div>
+            {% else %}
+            <div class="hub-text-muted">TBA</div>
+            {% endif %}
+        </div>
 
         {% if guild.show_members and roster %}
         <div class="hub-card">

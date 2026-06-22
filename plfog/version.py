@@ -32,6 +32,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "From a registration, an admin can now cancel a spot, move someone to a different class, or mark a refund — marking a refund frees the seat and offers it to the next person on the waitlist, with a direct link to finish the actual refund in Stripe.",
             "Instructors can now write a custom 'welcome to my class' email that's sent automatically to everyone who signs up — perfect for what to bring, where to park, or how to prepare. It's separate from the order confirmation, off until you turn it on, and there's a 'send a test to me' button so you can see exactly how it'll look first.",
             "Instructors now see the makerspace-wide discount codes (like the members' discount) right on their Discount Codes page, clearly marked as admin-managed and read-only, alongside their own codes — so it's obvious which codes already exist before creating a new one.",
+            "Guild pages now show a 'Next Meeting' card that figures out the date for you: set a cadence like 'monthly, 3rd Thursday at 6pm in Studio B' and the page always shows the upcoming date — or a one-off override, or 'TBA' if nothing's scheduled yet.",
+            "Guild leads and admins can now post announcements to their guild page — pinned at the top, above the About section — and set them to automatically disappear after a date you choose.",
         ],
     },
     {

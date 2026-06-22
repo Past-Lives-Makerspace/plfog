@@ -35,6 +35,11 @@ urlpatterns = [
         name="hub_guild_image_alt",
     ),
     path(
+        "guilds/<int:pk>/announcements/new/",
+        views.guild_announcement_create,
+        name="hub_guild_announcement_create",
+    ),
+    path(
         "guilds/<int:pk>/announcements/<int:announcement_pk>/delete/",
         views.guild_announcement_delete,
         name="hub_guild_announcement_delete",

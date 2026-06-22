@@ -10,10 +10,22 @@
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Basic Information</h2>
     {% include "components/form_field.html" with field=form.name %}
     {% include "components/form_field.html" with field=form.about %}
-    {% include "components/form_field.html" with field=form.meeting_schedule field_label="Meeting schedule" %}
     {% include "components/form_field.html" with field=form.youtube_url %}
     {% include "components/form_field.html" with field=form.contact_email %}
     {% include "components/form_field.html" with field=form.show_members %}
+  </div>
+
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Meetings</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Set a cadence (e.g. monthly · 3rd · Thursday) and the page shows the next date automatically. Use the override for a one-off, or tick TBA if nothing's scheduled yet.</p>
+    {% include "components/form_field.html" with field=form.meeting_cadence %}
+    {% include "components/form_field.html" with field=form.meeting_weekday %}
+    {% include "components/form_field.html" with field=form.meeting_week_of_month %}
+    {% include "components/form_field.html" with field=form.meeting_time %}
+    {% include "components/form_field.html" with field=form.meeting_location %}
+    {% include "components/form_field.html" with field=form.meeting_next_override %}
+    {% include "components/form_field.html" with field=form.meeting_is_tba %}
+    {% include "components/form_field.html" with field=form.meeting_schedule %}
   </div>
 
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
@@ -85,13 +97,24 @@
 </form>
 
 <div class="hub-card" style="margin-top:2rem; padding:1.5rem;">
+  <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Post an Announcement</h2>
+  <form method="post" action="{% url 'hub_guild_announcement_create' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=announcement_form.title %}
+    {% include "components/form_field.html" with field=announcement_form.body %}
+    {% include "components/form_field.html" with field=announcement_form.expires_at %}
+    <button type="submit" class="pl-btn pl-btn--primary">Post Announcement</button>
+  </form>
+</div>
+
+<div class="hub-card" style="margin-top:2rem; padding:1.5rem;">
   <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Recent Announcements</h2>
   <div style="display:flex; flex-direction:column; gap:0.75rem;">
     {% for a in guild.announcements.all %}
     <div class="hub-card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem; padding:1rem; background:rgba(255,255,255,0.02);">
       <div>
-        <strong>{{ a.title }}</strong>
-        <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}</div>
+        <strong>{{ a.title }}</strong>{% if not a.is_active %} <span class="hub-badge">Expired</span>{% endif %}
+        <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}{% if a.expires_at %} · hides {{ a.expires_at|date:"M j, Y" }}{% endif %}</div>
       </div>
       <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'del-ann-{{ a.pk }}')" style="min-height:unset; padding:0.25rem 0.6rem;">Delete</button>
     </div>

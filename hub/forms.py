@@ -18,6 +18,19 @@ from membership.models import Guild, GuildAnnouncement, GuildFAQItem, GuildLink,
 class GuildEditForm(forms.ModelForm):
     """Edit form for a guild's public-facing fields, including calendar integration."""
 
+    _WEEKDAY_CHOICES = [("", "—")] + [
+        (str(i), name)
+        for i, name in enumerate(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
+    ]
+    _WEEK_CHOICES = [("", "—"), ("1", "1st"), ("2", "2nd"), ("3", "3rd"), ("4", "4th"), ("5", "Last")]
+    meeting_cadence = forms.ChoiceField(choices=Guild.MeetingCadence.choices, required=False, label="Meeting cadence")
+    meeting_weekday = forms.TypedChoiceField(
+        choices=_WEEKDAY_CHOICES, coerce=int, required=False, empty_value=None, label="Meeting day"
+    )
+    meeting_week_of_month = forms.TypedChoiceField(
+        choices=_WEEK_CHOICES, coerce=int, required=False, empty_value=None, label="Week of month (for monthly)"
+    )
+
     class Meta:
         model = Guild
         fields = [
@@ -27,6 +40,13 @@ class GuildEditForm(forms.ModelForm):
             "calendar_url",
             "calendar_color",
             "youtube_url",
+            "meeting_cadence",
+            "meeting_weekday",
+            "meeting_week_of_month",
+            "meeting_time",
+            "meeting_location",
+            "meeting_next_override",
+            "meeting_is_tba",
             "meeting_schedule",
             "contact_email",
             "show_members",
@@ -41,7 +61,12 @@ class GuildEditForm(forms.ModelForm):
                 attrs={"type": "color", "class": "pl-color-input"},
             ),
             "youtube_url": forms.URLInput(attrs={"placeholder": "https://youtube.com/watch?v=..."}),
-            "meeting_schedule": forms.Textarea(attrs={"rows": 2, "placeholder": "Tuesdays 6pm, Studio B"}),
+            "meeting_time": forms.TimeInput(attrs={"type": "time"}),
+            "meeting_location": forms.TextInput(attrs={"placeholder": "Studio B"}),
+            "meeting_next_override": forms.DateInput(attrs={"type": "date"}),
+            "meeting_schedule": forms.Textarea(
+                attrs={"rows": 2, "placeholder": "Extra notes, e.g. 'bring your current project'"}
+            ),
             "contact_email": forms.EmailInput(attrs={"placeholder": "guild@example.com"}),
         }
         labels = {
@@ -50,7 +75,12 @@ class GuildEditForm(forms.ModelForm):
             "calendar_url": "Google Calendar iCal URL",
             "calendar_color": "Calendar Color",
             "youtube_url": "YouTube video",
-            "meeting_schedule": "Meeting schedule",
+            "meeting_cadence": "Meeting cadence",
+            "meeting_time": "Meeting time",
+            "meeting_location": "Meeting location",
+            "meeting_next_override": "Override next date (optional)",
+            "meeting_is_tba": "No meeting scheduled yet (show TBA)",
+            "meeting_schedule": "Meeting notes",
             "contact_email": "Contact email",
             "show_members": "Show members roster",
         }
@@ -62,6 +92,10 @@ class GuildEditForm(forms.ModelForm):
             ),
             "calendar_color": "Color used for your guild's events on the Community Calendar.",
         }
+
+    def clean_meeting_cadence(self) -> str:
+        # An omitted/blank cadence means "no regular meeting", not an empty string.
+        return self.cleaned_data.get("meeting_cadence") or Guild.MeetingCadence.NONE
 
 
 class ProfileSettingsForm(forms.ModelForm):
@@ -339,8 +373,13 @@ class GuildAnnouncementForm(forms.ModelForm):
 
     class Meta:
         model = GuildAnnouncement
-        fields = ["title", "body"]
-        widgets = {"body": forms.Textarea(attrs={"rows": 4})}
+        fields = ["title", "body", "expires_at"]
+        widgets = {
+            "body": forms.Textarea(attrs={"rows": 4}),
+            "expires_at": forms.DateInput(attrs={"type": "date"}),
+        }
+        labels = {"expires_at": "Hide after (optional)"}
+        help_texts = {"expires_at": "Leave blank to keep it up indefinitely."}
 
 
 class SiteAnnouncementForm(forms.Form):

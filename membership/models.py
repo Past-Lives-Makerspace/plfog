@@ -40,6 +40,50 @@ def _active_lease_q(prefix: str = "", today: date_type | None = None) -> Q:
     return Q(**{start: today}) & (Q(**{end_null: True}) | Q(**{end_gte: today}))
 
 
+def _nth_weekday(month_anchor: date_type, weekday: Any, ordinal: int) -> date_type:
+    """The ordinal-th ``weekday`` of ``month_anchor``'s month (ordinal 5 = last)."""
+    from dateutil.relativedelta import relativedelta
+
+    if ordinal == 5:
+        return month_anchor + relativedelta(day=31, weekday=weekday(-1))
+    return month_anchor + relativedelta(day=1, weekday=weekday(ordinal))
+
+
+def _compute_next_meeting(
+    today: date_type,
+    *,
+    cadence: str,
+    weekday: int | None,
+    week_of_month: int | None,
+    override: date_type | None,
+    is_tba: bool,
+) -> date_type | None:
+    """The next guild-meeting date from a cadence config, or None for TBA.
+
+    Precedence: an explicit TBA flag wins, then a future manual override, then
+    the weekly/monthly recurrence. A monthly date that has already passed this
+    month rolls to next month. Returns None when nothing is configured.
+    """
+    if is_tba:
+        return None
+    if override is not None and override >= today:
+        return override
+    if weekday is None:
+        return None
+    from dateutil.relativedelta import FR, MO, SA, SU, TH, TU, WE, relativedelta
+
+    wd = (MO, TU, WE, TH, FR, SA, SU)[weekday]
+    if cadence == Guild.MeetingCadence.WEEKLY:
+        return today + relativedelta(weekday=wd(+1))
+    if cadence == Guild.MeetingCadence.MONTHLY and week_of_month:
+        first = today.replace(day=1)
+        candidate = _nth_weekday(first, wd, week_of_month)
+        if candidate < today:
+            candidate = _nth_weekday(first + relativedelta(months=1), wd, week_of_month)
+        return candidate
+    return None
+
+
 # ---------------------------------------------------------------------------
 # MembershipPlan
 # ---------------------------------------------------------------------------
@@ -593,6 +637,34 @@ class Guild(HeroCropMixin, models.Model):
     meeting_schedule = models.TextField(
         blank=True, default="", help_text="When/where the guild meets, e.g. 'Tuesdays 6pm, Studio B'."
     )
+
+    class MeetingCadence(models.TextChoices):
+        NONE = "none", "No regular meeting"
+        WEEKLY = "weekly", "Weekly"
+        MONTHLY = "monthly", "Monthly"
+
+    meeting_cadence = models.CharField(
+        max_length=10,
+        choices=MeetingCadence.choices,
+        default=MeetingCadence.NONE,
+        help_text="How often the guild meets — drives the auto-computed next-meeting date.",
+    )
+    meeting_weekday = models.PositiveSmallIntegerField(
+        null=True, blank=True, help_text="Day of week the guild meets (0=Mon … 6=Sun)."
+    )
+    meeting_week_of_month = models.PositiveSmallIntegerField(
+        null=True, blank=True, help_text="For monthly meetings: which week (1–4, or 5 for the last) of the month."
+    )
+    meeting_time = models.TimeField(null=True, blank=True, help_text="Start time of the meeting.")
+    meeting_location = models.CharField(
+        max_length=200, blank=True, default="", help_text="Where the meeting happens, e.g. 'Studio B'."
+    )
+    meeting_next_override = models.DateField(
+        null=True, blank=True, help_text="A specific one-off next-meeting date that overrides the cadence."
+    )
+    meeting_is_tba = models.BooleanField(
+        default=False, help_text="Force the next meeting to show as TBA even when a cadence is set."
+    )
     contact_email = models.EmailField(
         blank=True, default="", help_text="Optional guild contact email shown on the page."
     )
@@ -643,6 +715,18 @@ class Guild(HeroCropMixin, models.Model):
             Member.objects.filter(guild_memberships__guild=self, status=Member.Status.ACTIVE)
             .filter(models.Q(show_in_directory=True) | must_show)
             .distinct()
+        )
+
+    @property
+    def next_meeting_at(self) -> date_type | None:
+        """The next guild-meeting date from the cadence config + override, or None (TBA)."""
+        return _compute_next_meeting(
+            timezone.localdate(),
+            cadence=self.meeting_cadence,
+            weekday=self.meeting_weekday,
+            week_of_month=self.meeting_week_of_month,
+            override=self.meeting_next_override,
+            is_tba=self.meeting_is_tba,
         )
 
     @property
@@ -718,6 +802,12 @@ class GuildLink(models.Model):
         return f"{self.label} ({self.guild.name})"
 
 
+class GuildAnnouncementQuerySet(models.QuerySet):
+    def active(self) -> "GuildAnnouncementQuerySet":
+        """Announcements still showing — no expiry, or expiring today or later."""
+        return self.filter(Q(expires_at__isnull=True) | Q(expires_at__gte=timezone.localdate()))
+
+
 class GuildAnnouncement(models.Model):
     """A news post on a guild page.
 
@@ -738,12 +828,24 @@ class GuildAnnouncement(models.Model):
     title = models.CharField(max_length=300, help_text="Announcement headline.")
     body = models.TextField(help_text="Announcement body.")
     published_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Last day this announcement shows on the guild page. Blank = never expires.",
+    )
+
+    objects = GuildAnnouncementQuerySet.as_manager()
 
     class Meta:
         ordering = ["-published_at"]
 
     def __str__(self) -> str:
         return f"{self.title} ({self.guild.name})"
+
+    @property
+    def is_active(self) -> bool:
+        """Visible on the page — never expires, or the expiry is today or later."""
+        return self.expires_at is None or self.expires_at >= timezone.localdate()
 
 
 class GuildMembership(models.Model):
