@@ -2335,6 +2335,30 @@ a:hover { color: var(--hub-link-hover); }
 .pl-vis-toggle--disabled { opacity: 0.4; cursor: not-allowed; }
 [data-theme="light"] .pl-vis-toggle--on { color: #16a34a; background: rgba(22, 163, 74, 0.10); }
 
+/* iOS-style toggle switch — applied to a checkbox <input class="hub-switch-input">.
+   Reusable: any boolean form field can render as a switch by adding this class. */
+.hub-switch-input {
+    appearance: none; -webkit-appearance: none;
+    flex: none; position: relative;
+    width: 2.5rem; height: 1.375rem;
+    border-radius: 999px;
+    background: var(--hub-border);
+    cursor: pointer;
+    transition: background 0.15s ease;
+    margin: 0;
+}
+.hub-switch-input::before {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 1.125rem; height: 1.125rem;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.15s ease;
+}
+.hub-switch-input:checked { background: var(--hub-accent, #c46a1b); }
+.hub-switch-input:checked::before { transform: translateX(1.125rem); }
+.hub-switch-input:focus-visible { outline: 2px solid var(--hub-accent, #c46a1b); outline-offset: 2px; }
+.hub-switch-input:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* Always-shown badge */
 .pl-vis-static {
     display: inline-flex; align-items: center; gap: 0.3125rem;

@@ -963,6 +963,7 @@ class TeachWelcomeEmailForm(forms.ModelForm):
         model = ClassOffering
         fields = ["welcome_email_enabled", "welcome_email_subject", "welcome_email_body"]
         widgets = {
+            "welcome_email_enabled": forms.CheckboxInput(attrs={"class": "hub-switch-input"}),
             "welcome_email_subject": forms.TextInput(
                 attrs={
                     "placeholder": "Welcome to the class!",
@@ -980,7 +981,7 @@ class TeachWelcomeEmailForm(forms.ModelForm):
             ),
         }
         labels = {
-            "welcome_email_enabled": "Send this welcome email to new registrants",
+            "welcome_email_enabled": "Active",
             "welcome_email_subject": "Subject",
             "welcome_email_body": "Message",
         }

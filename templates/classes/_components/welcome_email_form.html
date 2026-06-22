@@ -11,8 +11,8 @@ Expects `form` (TeachWelcomeEmailForm) and `offering` in context. Posts to the c
     <form method="post">
         {% csrf_token %}
 
-        <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; font-size:0.95rem;">
-            {{ form.welcome_email_enabled }} {{ form.welcome_email_enabled.label }}
+        <label style="display:flex; align-items:center; gap:0.6rem; margin-bottom:1rem; font-size:0.95rem; cursor:pointer; width:fit-content;">
+            {{ form.welcome_email_enabled }} <span style="font-weight:600;">{{ form.welcome_email_enabled.label }}</span>
         </label>
         {% for error in form.welcome_email_enabled.errors %}<p style="color:var(--hub-danger,#e57373); font-size:0.85rem; margin:0 0 0.5rem;">{{ error }}</p>{% endfor %}
 
