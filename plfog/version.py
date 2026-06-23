@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "0.18.9"
+VERSION = "0.18.10"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.18.10",
+        "date": "2026-06-23",
+        "title": "Orienters, plus email management is back on the member page",
+        "changes": [
+            "Guild leads and admins can now name trusted members as 'orienters' for their guild — find the new "
+            "Orienters section on the guild's Orientations settings page. Orienters can run that guild's "
+            "orientations (confirm bookings, sign members off, and manage availability) without being given the "
+            "keys to the rest of the guild's settings.",
+            "Managing a member's email addresses is back on the member edit page: admins can add, remove, set the "
+            "primary, and mark addresses verified right there, instead of digging through the old admin screens.",
+        ],
+    },
     {
         "version": "0.18.9",
         "date": "2026-06-22",
