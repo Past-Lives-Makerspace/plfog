@@ -14,7 +14,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST, require_http_methods
@@ -37,6 +37,10 @@ from hub.forms import (
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
 from membership.models import FundingSnapshot, Guild, Member, VotePreference
+from membership.permissions import can_edit_category as _can_edit_category
+from membership.permissions import can_edit_class as _can_edit_offering
+from membership.permissions import can_edit_guild as _can_edit_guild
+from membership.permissions import can_manage_orientations as _can_manage_orientations
 
 
 class VoteStanding(TypedDict, total=False):
@@ -246,6 +250,9 @@ def member_directory(request: HttpRequest) -> HttpResponse:
     member_qs = Member.objects.filter(status=Member.Status.ACTIVE).distinct()
     if not is_admin:
         member_qs = member_qs.filter(Q(show_in_directory=True) | must_show)
+    guild_filter = request.GET.get("guild", "")
+    if guild_filter.isdigit():
+        member_qs = member_qs.filter(guild_memberships__guild_id=int(guild_filter))
     members = (
         member_qs.select_related("membership_plan", "user")
         .prefetch_related(
@@ -253,14 +260,22 @@ def member_directory(request: HttpRequest) -> HttpResponse:
                 "user__emailaddress_set",
                 queryset=EmailAddress.objects.filter(primary=True),
                 to_attr="_primary_emailaddresses",
-            )
+            ),
+            "guild_memberships__guild",
         )
         .order_by("full_legal_name")
     )
     return render(
         request,
         "hub/member_directory.html",
-        {**ctx, "members": members, "current_member": current_member, "is_admin": is_admin},
+        {
+            **ctx,
+            "members": members,
+            "current_member": current_member,
+            "is_admin": is_admin,
+            "guilds": Guild.objects.filter(is_active=True).order_by("name"),
+            "guild_filter": guild_filter,
+        },
     )
 
 
@@ -280,52 +295,10 @@ def snapshot_detail(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "hub/snapshot_detail.html", {**ctx, "snapshot": snapshot})
 
 
-def _can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
-    """Return True when the request's user may edit this guild.
-
-    Only admins, guild officers, or this guild's own lead get edit controls.
-    Honors the ``view_as`` preview mode — an admin previewing as Guest or
-    Instructor sees the page without the edit buttons, matching what that
-    lower-role viewer would see.
-    """
-    if not request.user.is_authenticated:
-        return False
-    view_as = getattr(request, "view_as", None)
-    if view_as is None:
-        return False
-    if view_as.is_admin or view_as.is_guild_officer:
-        return True
-    if not view_as.is_member:
-        return False
-    member: Member | None = getattr(request.user, "member", None)
-    if member is None:
-        return False
-    return guild.guild_lead_id == member.pk
-
-
-def _can_edit_offering(request: HttpRequest, offering: ClassOffering) -> bool:
-    """Return True when the request's user may edit this class offering."""
-    if not request.user.is_authenticated:
-        return False
-    view_as = getattr(request, "view_as", None)
-    if view_as is None:
-        return False
-    # Admin and Officer can edit anything.
-    if view_as.is_admin or view_as.is_guild_officer:
-        return True
-    if not view_as.is_member:
-        return False
-
-    member: Member | None = getattr(request.user, "member", None)
-    if member is None:
-        return False
-
-    # Guild lead of the category's guild can edit.
-    if offering.category.guild_id and offering.category.guild and offering.category.guild.guild_lead_id == member.pk:
-        return True
-
-    # The instructor can edit their own classes.
-    return offering.instructor_id == member.pk
+# Edit-permission helpers now live in membership/permissions.py (the single
+# source of truth) and are imported above as _can_edit_guild / _can_edit_offering
+# / _can_edit_category. Guild-lead authority comes solely from the
+# Guild.guild_lead FK — no role or staff flag required.
 
 
 @login_required
@@ -354,13 +327,7 @@ def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
     elif isinstance(obj, ClassOffering):
         allowed = _can_edit_offering(request, obj)
     elif isinstance(obj, Category):
-        # Category follows the Guild lead permission.
-        if obj.guild_id and obj.guild:
-            allowed = _can_edit_guild(request, obj.guild)
-        else:
-            # If no guild, only Admin/Officer can edit.
-            view_as = getattr(request, "view_as", None)
-            allowed = view_as is not None and (view_as.is_admin or view_as.is_guild_officer)
+        allowed = _can_edit_category(request, obj)
 
     if not allowed:
         return JsonResponse({"error": "Forbidden"}, status=403)
@@ -381,13 +348,36 @@ def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
     )
 
 
+def _guild_pulse(guild: "Guild", limit: int = 6) -> list[dict[str, Any]]:
+    """A short 'what's happening' feed for a guild: recent joins, announcements, and new classes.
+
+    Synthesized from existing rows (no new activity table) and merged newest-first.
+    """
+    from classes.models import ClassOffering
+
+    items: list[dict[str, Any]] = []
+    for membership in guild.memberships.select_related("member").order_by("-joined_at")[:limit]:
+        items.append({"when": membership.joined_at, "text": f"{membership.member.display_name} joined the guild"})
+    for announcement in guild.announcements.active().order_by("-published_at")[:limit]:
+        items.append({"when": announcement.published_at, "text": f"Announcement: {announcement.title}"})
+    classes = (
+        ClassOffering.objects.filter(category__guild=guild, status=ClassOffering.Status.PUBLISHED)
+        .exclude(published_at=None)
+        .order_by("-published_at")[:limit]
+    )
+    for offering in classes:
+        items.append({"when": offering.published_at, "text": f"New class: {offering.title}"})
+    items.sort(key=lambda item: item["when"], reverse=True)
+    return items[:limit]
+
+
 def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """Guild detail page — shows about text, active products, and cart interface."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm, build_product_split_formset
     from billing.models import Product
 
     guild = get_object_or_404(
-        Guild.objects.prefetch_related("products__splits__guild"),
+        Guild.objects.select_related("featured_class__instructor").prefetch_related("products__splits__guild"),
         pk=pk,
     )
     ctx = _get_hub_context(request)
@@ -414,9 +404,48 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     gallery_images = guild.gallery_images.all()
     faq_items = guild.faq_items.all()
     links = guild.links.all()
-    announcements = guild.announcements.all()[:5]
+    announcements = guild.announcements.active()[:5]
     roster = guild.roster_members() if guild.show_members else None
     is_member_of_guild = member is not None and guild.memberships.filter(member=member).exists()
+
+    from classes.models import ClassOffering
+
+    guild_classes = ClassOffering.objects.filter(category__guild=guild)
+    member_count = guild.memberships.count()
+    class_count = guild_classes.filter(status=ClassOffering.Status.PUBLISHED).count()
+    upcoming_classes = guild_classes.bookable().select_related("instructor")[:4]
+    published_classes = (
+        guild_classes.filter(status=ClassOffering.Status.PUBLISHED)
+        .select_related("instructor", "category")
+        .order_by("title")
+    )
+    calendar = _get_calendar_context(request, guild=guild)
+    calendar["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
+    guild_cal_filters = ["classes", "orientation"]
+    if guild.calendar_url:
+        guild_cal_filters.append(str(guild.pk))
+    calendar["default_filters_json"] = json.dumps(guild_cal_filters).replace('"', '\\"')
+    pulse = _guild_pulse(guild)
+
+    from membership.models import GuildOrientationSettings
+
+    orientation = GuildOrientationSettings.objects.filter(guild=guild).first()
+    orientation_booking = member.active_orientation_for(guild) if member is not None else None
+    is_oriented = member.is_oriented_for(guild) if member is not None else False
+    show_orientation = orientation is not None and orientation.is_enabled
+    orientation_slots = (
+        list(guild.orientation_slots.upcoming().order_by("starts_at")[:30])
+        if orientation is not None
+        and show_orientation
+        and not is_oriented
+        and orientation_booking is None
+        and not orientation.is_closed
+        else []
+    )
+
+    from hub.forms import OrientationCustomRequestForm
+
+    custom_request_form = OrientationCustomRequestForm()
 
     guild_ct = ContentType.objects.get_for_model(Guild)
 
@@ -439,7 +468,20 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "links": links,
             "announcements": announcements,
             "roster": roster,
+            "member": member,
             "is_member_of_guild": is_member_of_guild,
+            "member_count": member_count,
+            "class_count": class_count,
+            "upcoming_classes": upcoming_classes,
+            "published_classes": published_classes,
+            "calendar": calendar,
+            "pulse": pulse,
+            "orientation": orientation,
+            "orientation_booking": orientation_booking,
+            "is_oriented": is_oriented,
+            "show_orientation": show_orientation,
+            "orientation_slots": orientation_slots,
+            "custom_request_form": custom_request_form,
         },
     )
 
@@ -451,10 +493,22 @@ def _require_can_edit_guild(request: HttpRequest, guild: Guild) -> HttpResponse 
     return None
 
 
+def _require_can_manage_orientations(request: HttpRequest, guild: Guild) -> HttpResponse | None:
+    """Return a 403 response if the user cannot run ``guild``'s orientations, else None.
+
+    Wider than ``_require_can_edit_guild``: it also lets the guild's designated
+    orienters through. Use it for the orientation operational surfaces (dashboard,
+    booking responses, availability) — not for guild-page or class editing.
+    """
+    if not _can_manage_orientations(request, guild):
+        return HttpResponse("Forbidden", status=403)
+    return None
+
+
 @login_required
 def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
     """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead only."""
-    from hub.forms import GuildFAQItemFormSet, GuildLinkFormSet
+    from hub.forms import GuildAnnouncementForm, GuildFAQItemFormSet, GuildLinkFormSet
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
@@ -472,6 +526,8 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             guild.add_gallery_images(request.FILES.getlist("gallery_images"))
 
             messages.success(request, "Guild page updated.")
+            if request.POST.get("after") == "edit":
+                return redirect("hub_guild_edit", pk=guild.pk)
             return redirect("hub_guild_detail", pk=guild.pk)
     else:
         form = GuildEditForm(instance=guild)
@@ -488,8 +544,456 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "form": form,
             "faq_formset": faq_formset,
             "link_formset": link_formset,
+            "announcement_form": GuildAnnouncementForm(),
         },
     )
+
+
+@login_required
+def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    """Config editor: orientation settings + recurring availability rules.
+
+    Open to anyone who may manage the guild's orientations (lead, admin, or a
+    designated orienter). The Orienters roster, however, is only shown to — and
+    only editable by — full guild editors (lead/admin), guarding against an
+    orienter minting more orienters.
+    """
+    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet, OrientationOrienterAddForm
+    from membership.models import GuildOrientationSettings
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_manage_orientations(request, guild)
+    if forbidden is not None:
+        return forbidden
+    settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
+
+    if request.method == "POST":
+        form = GuildOrientationSettingsForm(request.POST, instance=settings_obj)
+        rule_formset = OrientationAvailabilityFormSet(request.POST, instance=guild, prefix="rules")
+        if form.is_valid() and rule_formset.is_valid():
+            form.save()
+            rule_formset.save()
+            # Materialize bookable slots now so recurring hours show up immediately —
+            # don't make the editor wait for the nightly generation cron.
+            from membership import orientations
+
+            orientations.generate_slots(guild=guild)
+            messages.success(request, "Orientation settings updated.")
+            return redirect("hub_guild_orientation_edit", pk=guild.pk)
+    else:
+        form = GuildOrientationSettingsForm(instance=settings_obj)
+        rule_formset = OrientationAvailabilityFormSet(instance=guild, prefix="rules")
+
+    ctx = _get_hub_context(request)
+    can_manage_orienters = _can_edit_guild(request, guild)
+    return render(
+        request,
+        "hub/orientation_settings.html",
+        {
+            **ctx,
+            "guild": guild,
+            "form": form,
+            "rule_formset": rule_formset,
+            "can_manage_orienters": can_manage_orienters,
+            "orienters": guild.orienters.order_by("full_legal_name") if can_manage_orienters else [],
+            "orienter_add_form": OrientationOrienterAddForm(member_queryset=_orienter_candidates(guild))
+            if can_manage_orienters
+            else None,
+        },
+    )
+
+
+def _orienter_candidates(guild: Guild) -> Any:
+    """Active members who could be added as orienters — excludes current orienters and the lead."""
+    from membership.models import Member
+
+    qs = Member.objects.filter(status=Member.Status.ACTIVE).exclude(orienting_guilds=guild)
+    if guild.guild_lead_id is not None:
+        qs = qs.exclude(pk=guild.guild_lead_id)
+    return qs.order_by("full_legal_name")
+
+
+@login_required
+@require_POST
+def guild_orientation_orienter_add(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — a lead/admin designates a member as an orienter for this guild."""
+    from hub.forms import OrientationOrienterAddForm
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    form = OrientationOrienterAddForm(request.POST, member_queryset=_orienter_candidates(guild))
+    if form.is_valid():
+        member = form.cleaned_data["member"]
+        guild.orienters.add(member)
+        messages.success(request, f"{member.display_name} can now run {guild.name} orientations.")
+    else:
+        messages.error(request, "Pick an active member who isn't already an orienter.")
+    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_orientation_orienter_remove(request: HttpRequest, pk: int, member_pk: int) -> HttpResponse:
+    """POST-only — a lead/admin removes an orienter from this guild."""
+    from membership.models import Member
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    member = get_object_or_404(Member, pk=member_pk)
+    guild.orienters.remove(member)
+    messages.success(request, f"{member.display_name} is no longer an orienter for {guild.name}.")
+    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_orientation_slot_add(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — add a one-off orientation slot to this guild. Editors only."""
+    from hub.forms import OrientationSlotForm
+    from membership.models import OrientationSlot
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_manage_orientations(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    form = OrientationSlotForm(request.POST)
+    if form.is_valid():
+        slot = form.save(commit=False)
+        slot.guild = guild
+        slot.source = OrientationSlot.Source.MANUAL
+        slot.save()
+        messages.success(request, "Orientation slot added.")
+    else:
+        for field, errors in form.errors.items():
+            for error in errors:
+                messages.error(request, f"{field}: {error}")
+    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_orientation_slot_cancel(request: HttpRequest, pk: int, slot_pk: int) -> HttpResponse:
+    """POST-only — cancel a one-off or generated orientation slot (and its bookings). Editors only."""
+    from membership import orientations
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_manage_orientations(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    slot = get_object_or_404(guild.orientation_slots, pk=slot_pk)
+    orientations.cancel_slot(slot, reason=request.POST.get("reason", ""))
+    messages.success(request, "Orientation slot cancelled.")
+    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
+    """POST-only — a logged-in member requests an orientation for a slot."""
+    from membership import orientations
+    from membership.models import OrientationError, OrientationSlot
+
+    slot = get_object_or_404(OrientationSlot, pk=slot_pk)
+    member = _get_member(request)
+    if member is None:
+        messages.error(request, "You need a member profile to book an orientation.")
+        return redirect("hub_guild_detail", pk=slot.guild_id)
+    try:
+        orientations.request_orientation(slot, member, note=request.POST.get("note", ""))
+        messages.success(
+            request,
+            "Orientation requested! Check your email for the details — it's not official until the guild lead confirms.",
+        )
+    except OrientationError as exc:
+        messages.error(request, str(exc))
+    return redirect("hub_guild_detail", pk=slot.guild_id)
+
+
+@login_required
+@require_POST
+def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — a member proposes a custom orientation time. Creates a one-off slot
+    at that time and books it, reusing the normal request/confirm/email flow."""
+    from datetime import timedelta
+
+    from hub.forms import OrientationCustomRequestForm
+    from membership import orientations
+    from membership.models import GuildOrientationSettings, OrientationError, OrientationSlot
+
+    guild = get_object_or_404(Guild, pk=pk)
+    member = _get_member(request)
+    if member is None:
+        messages.error(request, "You need a member profile to request an orientation.")
+        return redirect("hub_guild_detail", pk=guild.pk)
+    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
+    if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
+        messages.error(request, "This guild isn't taking custom orientation requests right now.")
+        return redirect("hub_guild_detail", pk=guild.pk)
+    form = OrientationCustomRequestForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Pick a valid future time for your orientation.")
+        return redirect("hub_guild_detail", pk=guild.pk)
+    starts = form.cleaned_data["starts_at"]
+    slot = OrientationSlot.objects.create(
+        guild=guild,
+        starts_at=starts,
+        ends_at=starts + timedelta(minutes=settings_obj.default_duration_minutes),
+        seats=1,
+        location=settings_obj.default_location,
+        source=OrientationSlot.Source.MANUAL,
+    )
+    try:
+        orientations.request_orientation(slot, member, note=form.cleaned_data["note"])
+    except OrientationError as exc:
+        slot.delete()
+        messages.error(request, str(exc))
+        return redirect("hub_guild_detail", pk=guild.pk)
+    messages.success(request, "Your orientation request was sent — the guild lead will confirm a time.")
+    return redirect("hub_guild_detail", pk=guild.pk)
+
+
+@login_required
+def orientation_info(request: HttpRequest, pk: int) -> HttpResponse:
+    """The guild's orientation info page (what to expect, how to prepare)."""
+    from membership.models import GuildOrientationSettings
+
+    guild = get_object_or_404(Guild, pk=pk)
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/orientation_info.html",
+        {**ctx, "guild": guild, "orientation": GuildOrientationSettings.objects.filter(guild=guild).first()},
+    )
+
+
+@login_required
+def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """Lead/admin respond view — confirm, decline, or cancel an orientation request."""
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("slot", "guild", "member"), pk=booking_pk)
+    forbidden = _require_can_manage_orientations(request, booking.guild)
+    if forbidden is not None:
+        return forbidden
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "confirm":
+            orientations.confirm_orientation(booking)
+            messages.success(request, "Orientation confirmed — the member has been emailed.")
+        elif action == "decline":
+            orientations.decline_orientation(booking, note=request.POST.get("note", ""))
+            messages.success(request, "Orientation declined — the member has been notified.")
+        return redirect("hub_orientation_respond", booking_pk=booking.pk)
+
+    ctx = _get_hub_context(request)
+    return render(request, "hub/orientation_respond.html", {**ctx, "booking": booking})
+
+
+@login_required
+@require_POST
+def orientation_lead_cancel(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """POST-only — a lead/admin cancels a confirmed orientation (used by the respond page modal)."""
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("guild"), pk=booking_pk)
+    forbidden = _require_can_manage_orientations(request, booking.guild)
+    if forbidden is not None:
+        return forbidden
+    orientations.cancel_orientation(booking, actor_label="the guild")
+    messages.success(request, "Orientation cancelled — the member has been notified.")
+    return redirect("hub_orientation_respond", booking_pk=booking.pk)
+
+
+@login_required
+@require_POST
+def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """POST-only — a member cancels their own orientation booking."""
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking, pk=booking_pk)
+    member = _get_member(request)
+    if member is None or booking.member_id != member.pk:
+        return HttpResponse("Forbidden", status=403)
+    orientations.cancel_orientation(booking, actor_label=member.display_name)
+    messages.success(request, "Your orientation was cancelled.")
+    return redirect("hub_guild_detail", pk=booking.guild_id)
+
+
+def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
+    """No-login landing for email action links (lead confirm/decline, member cancel).
+
+    GET shows a one-click confirmation page (so email-client link prefetch can't
+    mutate); POST applies the action. The signed token authorizes exactly one
+    action on one booking.
+    """
+    from django.core.signing import BadSignature
+
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    try:
+        booking, action = orientations.read_action_token(token)
+    except (BadSignature, OrientationBooking.DoesNotExist):
+        return render(request, "hub/orientation_action.html", {"invalid": True}, status=400)
+    result = orientations.apply_token_action(booking, action) if request.method == "POST" else None
+    return render(request, "hub/orientation_action.html", {"booking": booking, "action": action, "result": result})
+
+
+def _can_access_orientations(request: HttpRequest) -> bool:
+    """True for admins, any guild lead, and any designated orienter — they may view the dashboard."""
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual("admin"):
+        return True
+    member = _get_member(request)
+    return member is not None and (member.is_guild_lead or member.is_orienter)
+
+
+def _manageable_slots(request: HttpRequest) -> Any:
+    """Upcoming slots this request may add members to: all for admins, own-guild for leads."""
+    from membership.models import OrientationSlot
+
+    qs = OrientationSlot.objects.upcoming().select_related("guild")
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual("admin"):
+        return qs
+    member = _get_member(request)
+    if member is None:
+        return OrientationSlot.objects.none()
+    return qs.filter(Q(guild__guild_lead=member) | Q(guild__orienters=member)).distinct()
+
+
+def _filter_orientations(request: HttpRequest, bookings: Any) -> Any:
+    """Apply the dashboard's guild / scope / status / completed / date-range filters."""
+    member = _get_member(request)
+    guild_filter = request.GET.get("guild", "")
+    if guild_filter.isdigit():
+        bookings = bookings.filter(guild_id=int(guild_filter))
+    if request.GET.get("scope") == "mine" and member is not None:
+        bookings = bookings.filter(Q(guild__guild_lead=member) | Q(guild__orienters=member)).distinct()
+    status_filter = request.GET.get("status", "")
+    if status_filter:
+        bookings = bookings.filter(status=status_filter)
+    completed = request.GET.get("completed", "")
+    if completed == "yes":
+        bookings = bookings.filter(is_completed=True)
+    elif completed == "no":
+        bookings = bookings.filter(is_completed=False)
+    start = request.GET.get("start", "")
+    if start:
+        bookings = bookings.filter(slot__starts_at__date__gte=start)
+    end = request.GET.get("end", "")
+    if end:
+        bookings = bookings.filter(slot__starts_at__date__lte=end)
+    return bookings
+
+
+@login_required
+def orientations_dashboard(request: HttpRequest) -> HttpResponse:
+    """Admin/guild-lead dashboard: upcoming + a sortable, filterable, exportable table."""
+    from classes.table import prepare_table
+
+    from hub.forms import OrientationAddMemberForm
+    from membership.models import Guild, OrientationBooking
+
+    if not _can_access_orientations(request):
+        return HttpResponse("Forbidden", status=403)
+
+    base = OrientationBooking.objects.select_related("slot", "guild", "member", "oriented_by")
+    table = prepare_table(
+        request,
+        _filter_orientations(request, base),
+        search_fields=["member__full_legal_name", "member__preferred_name", "guild__name"],
+        default_sort="slot__starts_at",
+        default_dir="desc",
+    )
+    upcoming = (
+        OrientationBooking.objects.upcoming().select_related("slot", "guild", "member").order_by("slot__starts_at")[:25]
+    )
+    view_as = getattr(request, "view_as", None)
+    member = _get_member(request)
+    return render(
+        request,
+        "hub/orientations_dashboard.html",
+        {
+            **_get_hub_context(request),
+            **table,
+            "upcoming": upcoming,
+            "guilds": Guild.objects.filter(is_active=True).order_by("name"),
+            "statuses": OrientationBooking.Status.choices,
+            "add_member_form": OrientationAddMemberForm(slot_queryset=_manageable_slots(request)),
+            "is_admin": view_as is not None and view_as.has_actual("admin"),
+            "my_member_id": member.pk if member is not None else None,
+            "guild_filter": request.GET.get("guild", ""),
+            "scope": request.GET.get("scope", ""),
+            "status_filter": request.GET.get("status", ""),
+            "completed_filter": request.GET.get("completed", ""),
+            "start": request.GET.get("start", ""),
+            "end": request.GET.get("end", ""),
+        },
+    )
+
+
+@login_required
+def orientations_export(request: HttpRequest) -> HttpResponse | StreamingHttpResponse:
+    """Download the filtered orientations list as CSV."""
+    from membership.models import OrientationBooking
+    from membership.orientation_exports import stream_orientations_csv
+
+    if not _can_access_orientations(request):
+        return HttpResponse("Forbidden", status=403)
+    bookings = _filter_orientations(request, OrientationBooking.objects.all())
+    return stream_orientations_csv(bookings)
+
+
+@login_required
+@require_POST
+def orientation_add_member(request: HttpRequest) -> HttpResponse:
+    """POST-only — admin/lead adds a member to an orientation slot (emails them like a self-booking)."""
+    from hub.forms import OrientationAddMemberForm
+    from membership import orientations
+    from membership.models import OrientationError
+
+    if not _can_access_orientations(request):
+        return HttpResponse("Forbidden", status=403)
+    form = OrientationAddMemberForm(request.POST, slot_queryset=_manageable_slots(request))
+    if form.is_valid():
+        try:
+            orientations.request_orientation(form.cleaned_data["slot"], form.cleaned_data["member"])
+            messages.success(request, f"Added {form.cleaned_data['member'].display_name} — they've been emailed.")
+        except OrientationError as exc:
+            messages.error(request, str(exc))
+    else:
+        messages.error(request, "Couldn't add the member — pick an active member and an upcoming slot.")
+    return redirect("hub_orientations_dashboard")
+
+
+@login_required
+@require_POST
+def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """POST-only — flip an orientation's completed flag (lead of that guild / admin only)."""
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("guild"), pk=booking_pk)
+    forbidden = _require_can_manage_orientations(request, booking.guild)
+    if forbidden is not None:
+        return forbidden
+    if booking.is_completed:
+        booking.uncomplete()
+    else:
+        booking.mark_completed()
+    return redirect("hub_orientations_dashboard")
 
 
 def _surface_product_errors(request: HttpRequest, form: Any, formset: Any) -> None:
@@ -825,12 +1329,15 @@ def guild_banner_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
     """Current member joins this guild (idempotent)."""
+    from membership import orientations
     from membership.models import GuildMembership
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
     if member is not None:
-        GuildMembership.objects.get_or_create(guild=guild, member=member)
+        _membership, created = GuildMembership.objects.get_or_create(guild=guild, member=member)
+        if created:
+            orientations.member_joined_guild(guild, member)
         messages.success(request, f"You joined {guild.name}.")
     return redirect("hub_guild_detail", pk=guild.pk)
 
@@ -956,6 +1463,28 @@ def guild_image_alt_update(request: HttpRequest, pk: int, image_pk: int) -> Http
 
 @login_required
 @require_POST
+def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
+    """Post a new announcement to a guild from the edit page. Editor only."""
+    from hub.forms import GuildAnnouncementForm
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    form = GuildAnnouncementForm(request.POST)
+    if form.is_valid():
+        announcement = form.save(commit=False)
+        announcement.guild = guild
+        announcement.author = request.user
+        announcement.save()
+        messages.success(request, "Announcement posted.")
+    else:
+        messages.error(request, "Couldn't post the announcement — add a title and body.")
+    return redirect("hub_guild_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
 def guild_announcement_delete(request: HttpRequest, pk: int, announcement_pk: int) -> HttpResponse:
     """Delete a guild announcement. Editor only.
 
@@ -1062,7 +1591,11 @@ _CALENDAR_PAGE_SIZE = 10
 
 
 def _get_calendar_context(
-    request: HttpRequest, week_offset: int = 0, month_offset: int = 0, event_page: int = 1
+    request: HttpRequest,
+    week_offset: int = 0,
+    month_offset: int = 0,
+    event_page: int = 1,
+    guild: "Guild | None" = None,
 ) -> dict[str, Any]:
     """Build context for both the full calendar page and the HTMX partial.
 
@@ -1098,11 +1631,20 @@ def _get_calendar_context(
     fetch_from = min(week_start, window_start)
     fetch_to = max(week_end, window_end)
 
-    all_events = list(
-        CalendarEvent.objects.filter(start_dt__date__gte=fetch_from, start_dt__date__lte=fetch_to)
-        .select_related("guild", "feed")
-        .order_by("start_dt")
-    )
+    events_qs = CalendarEvent.objects.filter(start_dt__date__gte=fetch_from, start_dt__date__lte=fetch_to)
+    if guild is not None:
+        events_qs = events_qs.filter(guild=guild)
+    # CalendarEvent rows, optionally merged with synthetic guild entries (classes/orientations)
+    # that duck-type CalendarEvent — hence the Any element type.
+    all_events: list[Any] = list(events_qs.select_related("guild", "feed").order_by("start_dt"))
+    if guild is not None:
+        # Surface this guild's CMS classes + orientation slots on the calendar — they
+        # aren't CalendarEvent rows, so wrap them as synthetic entries and merge in.
+        from hub.calendar_entries import guild_calendar_entries
+
+        all_events = sorted(
+            [*all_events, *guild_calendar_entries(guild, fetch_from, fetch_to)], key=lambda e: e.start_dt
+        )
 
     # Week event list: events whose start date falls within the navigated week
     week_events = [e for e in all_events if week_start <= e.start_dt.date() <= week_end]
@@ -1127,7 +1669,7 @@ def _get_calendar_context(
     classes_enabled = config.sync_classes_enabled
     classes_color = config.classes_calendar_color
 
-    source_colors: dict[str, str] = {"classes": classes_color}
+    source_colors: dict[str, str] = {"classes": classes_color, "orientation": "#EEB44B"}
     for feed in calendar_feeds:
         source_colors[f"feed-{feed.pk}"] = feed.color
     for g in guilds_with_calendars:
@@ -1205,6 +1747,7 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
         default_filters.append(str(g.pk))
 
     cal_ctx["default_filters_json"] = json.dumps(default_filters).replace('"', '\\"')
+    cal_ctx["events_url"] = reverse("hub_community_calendar_events")
     return render(request, "hub/community_calendar.html", {**ctx, **cal_ctx})
 
 
@@ -1223,6 +1766,26 @@ def calendar_events_partial(request: HttpRequest) -> HttpResponse:
         month_offset = 0
         event_page = 1
     cal_ctx = _get_calendar_context(request, week_offset=week_offset, month_offset=month_offset, event_page=event_page)
+    cal_ctx["events_url"] = reverse("hub_community_calendar_events")
+    return render(request, "hub/partials/calendar_content.html", cal_ctx)
+
+
+def guild_calendar_events_partial(request: HttpRequest, pk: int) -> HttpResponse:
+    """HTMX partial — calendar grid/list scoped to one guild (its iCal events plus the
+    guild's CMS classes and orientation slots). Drives the Guild Calendar tab's nav."""
+    guild = get_object_or_404(Guild, pk=pk)
+    try:
+        week_offset = max(-52, min(52, int(request.GET.get("week_offset", 0))))
+        month_offset = max(-24, min(24, int(request.GET.get("month_offset", 0))))
+        event_page = max(1, int(request.GET.get("page", 1)))
+    except (ValueError, TypeError):
+        week_offset = 0
+        month_offset = 0
+        event_page = 1
+    cal_ctx = _get_calendar_context(
+        request, week_offset=week_offset, month_offset=month_offset, event_page=event_page, guild=guild
+    )
+    cal_ctx["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
     return render(request, "hub/partials/calendar_content.html", cal_ctx)
 
 
@@ -1392,7 +1955,137 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
         form = MemberAdminEditForm(instance=member)
 
     ctx = _get_hub_context(request)
-    return render(request, "hub/admin/member_edit.html", {**ctx, "form": form, "member": member})
+    return render(
+        request,
+        "hub/admin/member_edit.html",
+        {
+            **ctx,
+            "form": form,
+            "member": member,
+            "member_emails": _member_emails(member),
+            "email_add_form": _email_add_form(member),
+        },
+    )
+
+
+def _member_emails(member: Member) -> Any:
+    """The member's allauth EmailAddress rows (primary first), or None if no linked user."""
+    if member.user_id is None:
+        return None
+    from allauth.account.models import EmailAddress
+
+    return EmailAddress.objects.filter(user=member.user).order_by("-primary", "email")
+
+
+def _email_add_form(member: Member, data: Any = None) -> Any:
+    """AddEmailAliasForm bound to the member's user, or None if no linked user."""
+    if member.user_id is None:
+        return None
+    from membership.forms import AddEmailAliasForm
+
+    return AddEmailAliasForm(data, user=member.user)
+
+
+def _email_member_or_redirect(pk: int) -> tuple[Member | None, HttpResponse | None]:
+    """Fetch the member for an email action; redirect back to edit if no linked user."""
+    member = get_object_or_404(Member, pk=pk)
+    if member.user_id is None:
+        return None, redirect("hub_admin_member_edit", pk=member.pk)
+    return member, None
+
+
+@fog_admin_required
+@require_POST
+def admin_member_email_add(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — add a verified, non-primary email alias to a member from the hub edit page."""
+    from membership import email_aliases
+
+    member, early = _email_member_or_redirect(pk)
+    if member is None:
+        return cast(HttpResponse, early)
+
+    form = _email_add_form(member, request.POST)
+    if form.is_valid():
+        for level, msg in email_aliases.add_alias(member.user, form.cleaned_data["email"]):
+            getattr(messages, level)(request, msg)
+    else:
+        # AddEmailAliasForm has a single required ``email`` field, so an invalid
+        # form always carries an email error.
+        messages.error(request, form.errors["email"][0])
+    return redirect("hub_admin_member_edit", pk=member.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_member_email_remove(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — remove an email alias from a member (with the lock-out safety rules)."""
+    from allauth.account.models import EmailAddress
+
+    from membership import email_aliases
+
+    member, early = _email_member_or_redirect(pk)
+    if member is None:
+        return cast(HttpResponse, early)
+
+    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
+    for level, msg in email_aliases.remove_alias(alias):
+        getattr(messages, level)(request, msg)
+    return redirect("hub_admin_member_edit", pk=member.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_member_email_set_primary(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — promote a verified alias to the member's primary email."""
+    from allauth.account.models import EmailAddress
+
+    from membership import email_aliases
+
+    member, early = _email_member_or_redirect(pk)
+    if member is None:
+        return cast(HttpResponse, early)
+
+    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
+    for level, msg in email_aliases.set_primary(alias):
+        getattr(messages, level)(request, msg)
+    return redirect("hub_admin_member_edit", pk=member.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_member_email_toggle_verified(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — flip the verified flag on a member's email alias."""
+    from allauth.account.models import EmailAddress
+
+    from membership import email_aliases
+
+    member, early = _email_member_or_redirect(pk)
+    if member is None:
+        return cast(HttpResponse, early)
+
+    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
+    for level, msg in email_aliases.toggle_verified(alias):
+        getattr(messages, level)(request, msg)
+    return redirect("hub_admin_member_edit", pk=member.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_member_invite(request: HttpRequest) -> HttpResponse:
+    """Invite a member to the FOG app by email — reuses the core Invite flow."""
+    from core.models import Invite
+    from membership.forms import InviteMemberForm
+
+    form = InviteMemberForm(request.POST)
+    if form.is_valid():
+        try:
+            Invite.create_and_send(email=form.cleaned_data["email"], invited_by=request.user)
+            messages.success(request, f"Invite sent to {form.cleaned_data['email']}.")
+        except ValueError as exc:
+            messages.error(request, str(exc))
+    else:
+        messages.error(request, str(form.errors["email"][0]))
+    return redirect("hub_admin_members")
 
 
 def _legacy_instructor_sync_status() -> tuple[list[dict[str, object]], int]:

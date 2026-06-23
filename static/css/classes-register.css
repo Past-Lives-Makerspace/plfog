@@ -114,3 +114,38 @@
     color: var(--red);
     font-size: 12px;
 }
+
+/* Multi-run "Choose your dates" picker — uses the same input treatment as
+   .reg-field controls so it inherits the dark/light theme. (Previously inline-
+   styled against an undefined --surface token, which fell back to a white box
+   with near-invisible light text on the dark theme.) */
+.cp-page .reg-run-picker { margin-top: 12px; }
+.cp-page .reg-run-picker label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text);
+}
+.cp-page .reg-run-picker select {
+    width: 100%;
+    padding: 9px 11px;
+    background: var(--hub-input-bg);
+    border: 1px solid var(--hub-input-border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 30px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23eeb44b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    cursor: pointer;
+}
+.cp-page .reg-run-picker select option { background: var(--hub-input-bg); color: var(--text); }
+.cp-page .reg-run-picker select:focus {
+    outline: none;
+    border-color: var(--gold);
+}

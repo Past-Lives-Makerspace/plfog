@@ -72,12 +72,43 @@ TRIGGERS: list[Trigger] = [
         "Teaching",
         Audience.INSTRUCTORS_ONLY,
     ),
+    Trigger(
+        "class_review_requested",
+        "Class needs your review",
+        "An instructor submitted a class in a guild you lead — review it.",
+        "Teaching",
+    ),
+    Trigger(
+        "class_validation_requested",
+        "Class needs executive validation",
+        "A guild lead approved a class; it needs admin sign-off to publish.",
+        "Teaching",
+        Audience.STAFF_ONLY,
+    ),
     # Guild voting
     Trigger("voting_cycle_open", "Voting cycle open", "A new monthly voting cycle started.", "Voting"),
     Trigger("voting_closing_soon", "Voting closing soon", "3 days before the monthly vote closes.", "Voting"),
     Trigger("funding_results_published", "Funding results published", "Guild allocations were finalized.", "Voting"),
     # Guild activity
     Trigger("guild_announcement", "Guild announcement", "A guild you're in posted an announcement.", "Guilds"),
+    Trigger(
+        "orientation_requested",
+        "Orientation requested",
+        "Someone requested an orientation for a guild you lead.",
+        "Guilds",
+    ),
+    Trigger(
+        "orientation_update",
+        "Orientation updates",
+        "Your orientation request was confirmed, declined, or cancelled.",
+        "Guilds",
+    ),
+    Trigger(
+        "guild_joined",
+        "New guild member",
+        "A new member joined a guild you lead.",
+        "Guilds",
+    ),
     # Billing / tab
     Trigger("tab_charged", "Tab charged", "Your monthly tab was charged.", "Billing"),
     Trigger("tab_charge_failed", "Tab charge failed", "A charge failed — update your payment method.", "Billing"),

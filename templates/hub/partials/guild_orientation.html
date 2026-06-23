@@ -1,0 +1,90 @@
+{% comment %}
+Member-facing orientation section on the guild page. Context:
+  orientation         — GuildOrientationSettings (enabled)
+  orientation_booking — the member's live booking for this guild, or None
+  is_oriented         — bool, member already oriented for this guild
+  orientation_slots   — bookable upcoming slots (only when none of the above)
+{% endcomment %}
+<section id="guild-orientation" class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem;" aria-label="Orientation">
+  {% if is_oriented %}
+    <p style="margin:0; font-size:0.95rem; color:var(--hub-text);">✓ You're oriented for {{ guild.name }}.</p>
+
+  {% elif orientation_booking %}
+    <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Your orientation</h2>
+    <p style="margin:0 0 0.25rem; font-size:1rem; color:var(--hub-text);">
+      {{ orientation_booking.slot.starts_at|date:"l, F j" }} at {{ orientation_booking.slot.starts_at|time:"g:i A" }}
+      {% if orientation_booking.slot.location %}<span class="hub-text-muted">· {{ orientation_booking.slot.location }}</span>{% endif %}
+    </p>
+    {% if orientation_booking.status == "requested" %}
+    <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Requested — awaiting confirmation from the guild lead. This isn't official yet.</p>
+    {% else %}
+    <p style="margin:0 0 0.75rem; font-size:0.85rem; color:#7bdcb5;">Confirmed — see you there!</p>
+    {% endif %}
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" @click="$dispatch('open-confirm', 'cancel-my-orientation')">Cancel my orientation</button>
+    {% url 'hub_orientation_cancel_mine' orientation_booking.pk as cancel_mine_url %}
+    {% include "components/confirm_modal.html" with confirm_id="cancel-my-orientation" confirm_title="Cancel your orientation?" confirm_message="You can request a new orientation any time." confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" %}
+
+  {% elif orientation.is_closed %}
+    <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Orientations paused</h2>
+    <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">{% if orientation.closed_message %}{{ orientation.closed_message }}{% else %}This guild isn't taking orientation bookings right now — check back soon.{% endif %}</p>
+
+  {% else %}
+    <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Get oriented for {{ guild.name }}</h2>
+    {% if orientation.info %}<p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">{{ orientation.info|truncatewords:40 }}</p>{% endif %}
+    {% if orientation_slots %}
+    {# Show 5 at a time with prev/next arrows so a long run of slots stays compact. #}
+    <div x-data="{ page: 0, size: 5, total: {{ orientation_slots|length }} }">
+      <div class="pl-orient-slots__head">
+        <span class="pl-orient-slots__date">Date</span>
+        <span class="pl-orient-slots__time">Time</span>
+        <span class="pl-orient-slots__action"></span>
+      </div>
+      <ul style="list-style:none; padding:0; margin:0;">
+        {% for slot in orientation_slots %}
+        {% with pks=slot.pk|stringformat:"s" %}
+        <li x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-orient-slots__row">
+          <span class="pl-orient-slots__date">{{ slot.starts_at|date:"D M j" }}</span>
+          <span class="pl-orient-slots__time">{{ slot.starts_at|time:"g:i A" }} – {{ slot.ends_at|time:"g:i A" }}</span>
+          <span class="pl-orient-slots__action">
+            {% if slot.is_full %}
+            <span class="hub-text-muted" style="font-size:0.85rem;">Full</span>
+            {% else %}
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="$dispatch('open-confirm', 'book-slot-{{ slot.pk }}')">Request</button>
+            {% url 'hub_orientation_book' slot.pk as book_url %}
+            {% include "components/confirm_modal.html" with confirm_id="book-slot-"|add:pks confirm_title="Request this orientation?" confirm_message="We'll send your request to the guild lead to confirm. You can cancel any time." confirm_action_url=book_url confirm_button_text="Send request" confirm_button_style="primary" %}
+            {% endif %}
+          </span>
+        </li>
+        {% endwith %}
+        {% endfor %}
+      </ul>
+      <div x-show="total > size" x-cloak class="pl-orient-slots__pager">
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.max(0, page - 1)" :disabled="page === 0" aria-label="Previous slots">←</button>
+        <span class="hub-text-muted" style="font-size:0.85rem;" x-text="(page + 1) + ' / ' + Math.ceil(total / size)"></span>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.min(Math.ceil(total / size) - 1, page + 1)" :disabled="page >= Math.ceil(total / size) - 1" aria-label="More slots">→</button>
+      </div>
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No orientation times posted yet — check back soon.</p>
+    {% endif %}
+    {% if orientation.allow_custom_requests %}
+    <div x-data="{ showCustom: false }" style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="!showCustom" @click="showCustom = true">
+        None of these times work? Request a custom time
+      </button>
+      <div x-show="showCustom" x-cloak style="max-width:420px;">
+        <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Propose your own time and the guild lead will confirm it.</p>
+        <form method="post" action="{% url 'hub_guild_orientation_request_custom' guild.pk %}" class="hub-form">
+          {% csrf_token %}
+          {% include "components/form_field.html" with field=custom_request_form.starts_at %}
+          {% include "components/form_field.html" with field=custom_request_form.note %}
+          <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+            <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send request</button>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showCustom = false">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  {% endif %}
+</section>

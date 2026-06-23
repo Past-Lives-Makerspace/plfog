@@ -23,6 +23,7 @@ def dispatch(
     body: str,
     url: str = "",
     payload: dict[str, Any] | None = None,
+    html_body: str | None = None,
 ) -> None:
     """Notify users of an event.
 
@@ -57,6 +58,7 @@ def dispatch(
                 subject=title,
                 trigger_kind=f"notification.{trigger_key}",
                 text_body=body,
+                html_body=html_body,
                 best_effort=True,
             )
 

@@ -53,7 +53,10 @@
             </td>
             <td>{{ c.instructor.display_name }}</td>
             <td>{{ c.category.name }}</td>
-            <td style="white-space:nowrap;">{% if c.first_session %}{{ c.first_session|date:"M j" }}{% if c.last_session != c.first_session %} – {{ c.last_session|date:"M j" }}{% endif %}, {{ c.last_session|date:"Y" }}{% else %}<span style="color:var(--hub-text-muted);">—</span>{% endif %}</td>
+            <td style="white-space:nowrap;">
+              {% if c.first_session %}{{ c.first_session|date:"M j" }}{% if c.last_session != c.first_session %} – {{ c.last_session|date:"M j" }}{% endif %}, {{ c.last_session|date:"Y" }}{% else %}<span style="color:var(--hub-text-muted);">—</span>{% endif %}
+              {% if c.group_size and c.group_size > 1 %}<span style="margin-left:0.4rem;font-size:0.75rem;font-weight:600;padding:0.1rem 0.45rem;border-radius:9999px;background:rgba(238,180,75,0.15);color:#EEB44B;">{{ c.group_size }} dates</span>{% endif %}
+            </td>
             <td>{{ c.get_status_display }}</td>
             <td>{{ c.registration_count }}/{{ c.capacity }}</td>
         </tr>

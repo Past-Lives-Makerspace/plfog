@@ -10,6 +10,9 @@ from django.conf import settings
 from django.db import models
 from django.db.models import CheckConstraint, F, Q
 from django.utils import timezone
+from django.utils.formats import date_format
+from django.utils.html import strip_tags
+from django.utils.timezone import localtime
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
@@ -17,7 +20,9 @@ from core.models import HeroCropMixin
 from core.validators import validate_image_size
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
+    from django.db.models import QuerySet
 
     from membership.models import Member
 
@@ -41,6 +46,9 @@ I grant Past Lives Makerspace ("PLM"), its employees, and agents the right to ph
 I waive any right to inspect or approve the finished images or the use to which they may be applied. I release PLM from any claims arising from the use of my likeness.
 
 I understand that I may revoke this consent at any time by notifying PLM in writing at info@pastlives.space."""
+
+
+MAX_GALLERY_IMAGES = 10
 
 
 class Category(HeroCropMixin, models.Model):
@@ -110,11 +118,56 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         """Published classes visible in the public portal (excludes private)."""
         return self.filter(status="published", is_private=False)
 
+    def bookable(self) -> "ClassOfferingQuerySet":
+        """Public classes still open for sign-up, soonest first.
+
+        Published and non-private, and either flexibly scheduled or with a
+        *first* session still in the future. A dated class — single or series —
+        drops out the instant its first session begins: you can't join a series
+        part-way through, so a started series is never bookable. Flexible /
+        undated classes sort last. (Seat availability is separate — see
+        ``spots_remaining``.)
+        """
+        from django.db.models import Min
+
+        now = timezone.now()
+        return (
+            self.public()
+            .annotate(first_session_at=Min("sessions__starts_at"))
+            .filter(Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) | Q(first_session_at__gte=now))
+            .order_by(F("first_session_at").asc(nulls_last=True), "title")
+            .distinct()
+        )
+
     def pending_review(self) -> "ClassOfferingQuerySet":
         return self.filter(status="pending")
 
+    def awaiting_guild_lead(self, member: "Member") -> "ClassOfferingQuerySet":
+        """Pending classes whose undecided guild-lead gate this member can act on.
+
+        A class qualifies when it is PENDING, its category's guild is one this
+        member leads, and it has an undecided ``GUILD_LEAD`` approval row.
+        """
+        return self.filter(
+            status="pending",
+            category__guild__in=member.led_guilds.all(),
+            approvals__role="guild_lead",
+            approvals__decision="",
+        ).distinct()
+
     def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         return self.filter(instructor=instructor)
+
+    def editable_by(self, member: "Member") -> "ClassOfferingQuerySet":
+        """Offerings this member may edit.
+
+        Admins and guild officers may edit any class. Everyone else may edit the
+        classes they instruct plus any class whose category belongs to a guild
+        they lead (purely from the ``Guild.guild_lead`` FK — no role required).
+        """
+        if member.is_fog_admin or member.is_guild_officer:
+            return self
+        return self.filter(Q(instructor=member) | Q(category__guild__guild_lead=member)).distinct()
 
     def spots_remaining_map(self) -> dict[int, int]:
         """Map of ``{offering_pk: spots_remaining}`` for this queryset in one query.
@@ -143,6 +196,10 @@ class ClassOffering(HeroCropMixin, models.Model):
     class SchedulingModel(models.TextChoices):
         FIXED = "fixed", "Fixed sessions"
         FLEXIBLE = "flexible", "Flexible (arrange with instructor)"
+
+    class SchedulingType(models.TextChoices):
+        SINGLE_SESSION = "single_session", "Single Session"
+        SERIES_PACKAGE = "series_package", "Series Package"
 
     title = models.CharField(max_length=255, help_text="Public class title.")
     slug = models.SlugField(max_length=255, unique=True, help_text="URL slug.")
@@ -174,6 +231,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         help_text="Fixed scheduled sessions or flexible per-student scheduling.",
     )
     flexible_note = models.TextField(blank=True, help_text="Notes when scheduling_model=flexible.")
+    scheduling_type = models.CharField(
+        max_length=20,
+        choices=SchedulingType.choices,
+        default=SchedulingType.SINGLE_SESSION,
+        help_text=(
+            "Single Session: one date, one seat, one payment. "
+            "Series Package: one purchase enrolls the registrant in every "
+            "scheduled date of this class under a single payment."
+        ),
+    )
     is_private = models.BooleanField(default=False, help_text="Hidden from public portal; private registration only.")
     private_for_name = models.CharField(max_length=255, blank=True, help_text="Name shown when private.")
     recurring_pattern = models.CharField(max_length=255, blank=True, help_text="Free-text recurrence description.")
@@ -235,6 +302,20 @@ class ClassOffering(HeroCropMixin, models.Model):
             "Derived from the normalized title + category on save; empty offerings stand alone."
         ),
     )
+    welcome_email_enabled = models.BooleanField(
+        default=False,
+        help_text="When on, every new registrant also receives the instructor's welcome email.",
+    )
+    welcome_email_subject = models.CharField(
+        max_length=200, blank=True, help_text="Subject line for the instructor's welcome email."
+    )
+    welcome_email_body = models.TextField(
+        blank=True,
+        help_text="The welcome message sent to each new registrant. Plain text; line breaks are preserved.",
+    )
+    welcome_email_updated_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the welcome email content was last edited."
+    )
 
     objects = ClassOfferingQuerySet.as_manager()
 
@@ -251,15 +332,26 @@ class ClassOffering(HeroCropMixin, models.Model):
     def __str__(self) -> str:
         return self.title
 
+    @property
+    def welcome_email_ready(self) -> bool:
+        """True when the instructor welcome email is enabled and has subject + body.
+
+        The send path checks this so an enabled-but-empty welcome email never goes out.
+        """
+        return bool(
+            self.welcome_email_enabled and self.welcome_email_subject.strip() and self.welcome_email_body.strip()
+        )
+
     def save(self, *args, **kwargs) -> None:
         from django.conf import settings
 
         delete_orphan_on_replace(self, "image")
         creating = self._state.adding
+        old = None
         # If the hero image is changing, also clear the stale crop box.
         if self.pk:
             try:
-                old = type(self)._default_manager.only("image").get(pk=self.pk)
+                old = type(self)._default_manager.only("image", "grouping_key", "category_id").get(pk=self.pk)
             except type(self).DoesNotExist:
                 old = None
             new_name = getattr(self.image, "name", "") or ""
@@ -271,8 +363,14 @@ class ClassOffering(HeroCropMixin, models.Model):
                 self.hero_crop_h = None
         normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)
 
-        # Keep the catalog grouping key in sync with the title/category so the
-        # same class on many dates always collapses into one public card.
+        # Keep the catalog grouping key in sync with the title/category so every
+        # run of the same class — single one-offs AND multi-session series alike —
+        # collapses into one public card. The card lists each run as its own
+        # bookable option (a single date, or a full multi-session date-set), each
+        # keeping its own seats. Series no longer opt out of grouping: two runs of
+        # the same series (e.g. Blacksmithing 101 offered Jun 5–19 and again
+        # Jul 11–25) should read as "one class, two date-set options" — one card,
+        # not two.
         from classes.grouping import grouping_key_for
 
         self.grouping_key = grouping_key_for(self.title, self.category_id)
@@ -281,6 +379,17 @@ class ClassOffering(HeroCropMixin, models.Model):
             kwargs["update_fields"] = [*update_fields, "grouping_key"]
 
         super().save(*args, **kwargs)
+
+        # When a grouped class moves to a new category, sync siblings so the
+        # group stays coherent (same grouping_key across all dates).
+        if old is not None and old.category_id != self.category_id and old.grouping_key:
+            type(self)._default_manager.filter(
+                grouping_key=old.grouping_key,
+            ).exclude(pk=self.pk).update(
+                category_id=self.category_id,
+                grouping_key=self.grouping_key,
+            )
+
         if creating:
             from classes import activity
 
@@ -305,27 +414,69 @@ class ClassOffering(HeroCropMixin, models.Model):
         return roles
 
     def submit_for_review(self) -> list["ClassApproval"]:
-        """Move from DRAFT to PENDING and create one approval row per required role.
+        """Move from DRAFT to PENDING and open only the first-stage review gate.
 
-        Returns the freshly created approval rows so the caller (typically a
-        view) can pass them to the review-request email senders.
+        Approval is sequential: the first stage is the Guild Lead when the
+        class's category links a guild with a lead, otherwise the Admin. The
+        Admin gate is only created later, once the Guild Lead approves (see
+        ``on_review_decision_recorded``). This keeps an admin from publishing
+        before the Guild Lead has weighed in.
+
+        Notifies the first-stage reviewer (in-app + email) directly from the
+        model so every submit path — quick-submit, create, and edit — fans out
+        the same way. Returns the freshly created approval row(s) so callers
+        can introspect the result.
         """
         if self.status != self.Status.DRAFT:
             raise ValueError(f"Only draft classes can be submitted; got {self.status}.")
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
         # Clear out any stale approval rows from a prior submission cycle, then
-        # create one pending row per required role for this fresh round.
+        # open only the first-stage gate for this fresh round.
         self.approvals.all().delete()
-        rows = [ClassApproval.objects.create(class_offering=self, role=role) for role in self.required_review_roles]
+        row = self._create_first_stage_approval()
         from classes import activity
 
         activity.log(
             CmsActivity.Kind.CLASS_SUBMITTED,
             class_offering=self,
-            payload={"required_roles": [r.role for r in rows]},
+            payload={"required_roles": list(self.required_review_roles), "first_stage": row.role},
         )
-        return rows
+        self._notify_first_stage_reviewer(row)
+        return [row]
+
+    def _create_first_stage_approval(self) -> "ClassApproval":
+        """Create the single approval row that opens stage one of review.
+
+        Guild Lead when the category's guild has a lead; Admin otherwise.
+        """
+        roles = self.required_review_roles
+        first_role = (
+            ClassApproval.Role.GUILD_LEAD if ClassApproval.Role.GUILD_LEAD in roles else ClassApproval.Role.ADMIN
+        )
+        return ClassApproval.objects.create(class_offering=self, role=first_role)
+
+    def _notify_first_stage_reviewer(self, row: "ClassApproval") -> None:
+        """Fan out the stage-one notification + email for a freshly opened gate."""
+        from classes import emails
+        from core import notifications
+
+        if row.role == ClassApproval.Role.GUILD_LEAD:
+            guild = self.category.guild if self.category_id else None
+            lead = guild.guild_lead if guild else None
+            instructor_name = self.instructor.display_name if self.instructor is not None else "An instructor"
+            guild_name = guild.name if guild is not None else ""
+            if lead is not None and lead.user is not None:
+                notifications.dispatch(
+                    "class_review_requested",
+                    [lead.user],
+                    title="A class needs your review",
+                    body=f"{instructor_name} in the {guild_name} Guild requests approval for their upcoming class dates.",
+                    url="/classes/teach/",
+                )
+            emails.send_guild_lead_review_request(self, row)
+        else:
+            emails.send_admin_review_request(self, row)
 
     def approve(self, admin_user) -> "ClassApproval":
         """Record an admin approval via the ClassApproval pathway.
@@ -431,14 +582,17 @@ class ClassOffering(HeroCropMixin, models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role},
             )
-            if self.instructor is not None and self.instructor.user is not None:
-                notifications.dispatch(
-                    "instructor_class_approved",
-                    [self.instructor.user],
-                    title="Your class was approved",
-                    body=self.title,
-                    url=f"/classes/{self.slug}/",
-                )
+            # Stage-1 → Stage-2 escalation: a Guild Lead's approval opens the
+            # Admin gate (if admin review is still required and not yet open)
+            # and notifies staff for executive validation. We do not publish on
+            # this branch — publication waits for the admin to sign off.
+            if (
+                row.role == ClassApproval.Role.GUILD_LEAD
+                and ClassApproval.Role.ADMIN in self.required_review_roles
+                and not self.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
+            ):
+                admin_row = ClassApproval.objects.create(class_offering=self, role=ClassApproval.Role.ADMIN)
+                self._escalate_to_admin(admin_row, guild_lead=row.decided_by)
             required = set(self.required_review_roles)
             approved = {r.role for r in self.approvals.filter(decision=ClassApproval.Decision.APPROVED)}
             if required.issubset(approved):
@@ -451,6 +605,19 @@ class ClassOffering(HeroCropMixin, models.Model):
                     class_offering=self,
                     actor=row.decided_by,
                 )
+                # Notify the instructor only once their class is fully approved
+                # and live — not at each intermediate gate. The email path
+                # (send_class_review_decision) already reports stage-by-stage
+                # progress, so an in-app "approved" before publication would be
+                # premature and would fire twice in the two-stage flow.
+                if self.instructor is not None and self.instructor.user is not None:
+                    notifications.dispatch(
+                        "instructor_class_approved",
+                        [self.instructor.user],
+                        title="Your class was approved",
+                        body=self.title,
+                        url=f"/classes/{self.slug}/",
+                    )
                 notifications.dispatch(
                     "class_published",
                     notifications.active_member_users(),
@@ -485,10 +652,49 @@ class ClassOffering(HeroCropMixin, models.Model):
                 payload={"role": row.role, "notes_excerpt": (row.notes or "")[:200]},
             )
 
+    def _escalate_to_admin(self, admin_row: "ClassApproval", *, guild_lead: "User | None") -> None:
+        """Fire the stage-two admin escalation after a Guild Lead approves.
+
+        Notifies staff in-app and emails the configured admin reviewers with a
+        request for executive validation. The Guild Lead is named in the copy
+        so admins know who already vouched for the class.
+        """
+        from classes import emails
+        from core import notifications
+
+        instructor_name = self.instructor.display_name if self.instructor is not None else "An instructor"
+        lead_name = guild_lead.get_username() if guild_lead is not None else "A Guild Lead"
+        notifications.dispatch(
+            "class_validation_requested",
+            self._staff_users(),
+            title="A class needs executive validation",
+            body=f"{lead_name} and {instructor_name} request executive validation to publish this class.",
+            url="/classes/admin/",
+        )
+        emails.send_admin_validation_request(self, admin_row)
+
+    @staticmethod
+    def _staff_users() -> "QuerySet[User]":
+        """Staff Users who receive class-validation escalations."""
+        from django.contrib.auth.models import User
+
+        return User.objects.filter(is_staff=True)
+
     def add_gallery_images(self, files: list[UploadedFile]) -> None:
-        """Create ClassImage rows from uploaded files."""
-        for i, img_file in enumerate(files):
-            ClassImage.objects.create(class_offering=self, image=img_file, sort_order=i)
+        """Create ClassImage rows from uploaded files, appended after existing ones.
+
+        Raises:
+            ValidationError: If adding ``files`` would push the offering over
+                ``MAX_GALLERY_IMAGES``. The batch is rejected whole — no rows are
+                created — so the caller can surface one clear message.
+        """
+        from django.core.exceptions import ValidationError
+
+        current = self.gallery_images.count()
+        if current + len(files) > MAX_GALLERY_IMAGES:
+            raise ValidationError(f"A class can have at most {MAX_GALLERY_IMAGES} images.")
+        for offset, img_file in enumerate(files):
+            ClassImage.objects.create(class_offering=self, image=img_file, sort_order=current + offset)
 
     @property
     def spots_remaining(self) -> int:
@@ -497,6 +703,42 @@ class ClassOffering(HeroCropMixin, models.Model):
             status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
         ).count()
         return max(0, self.capacity - used)
+
+    @property
+    def is_series(self) -> bool:
+        """True when one purchase covers every scheduled session of this offering."""
+        return self.scheduling_type == self.SchedulingType.SERIES_PACKAGE
+
+    @property
+    def is_single(self) -> bool:
+        """True when each ticket is for a single date (the default behaviour)."""
+        return self.scheduling_type == self.SchedulingType.SINGLE_SESSION
+
+    @property
+    def series_session_count(self) -> int:
+        """Number of sessions a series ticket covers (0 for none scheduled yet)."""
+        return self.sessions.count()
+
+    @property
+    def has_started(self) -> bool:
+        """True once the first scheduled session has begun (dated classes only)."""
+        earliest = self.earliest_session_at
+        return earliest is not None and earliest < timezone.now()
+
+    @property
+    def is_bookable(self) -> bool:
+        """Whether sign-ups are still open on timing grounds.
+
+        Flexible classes are always bookable. A dated class — single or series —
+        is bookable only until its first session starts; you can't join after it
+        has begun. Seat availability is handled separately via
+        ``spots_remaining`` (a sold-out future class is still "bookable" here and
+        routes to the waitlist).
+        """
+        if self.scheduling_model == self.SchedulingModel.FLEXIBLE:
+            return True
+        earliest = self.earliest_session_at
+        return earliest is not None and earliest >= timezone.now()
 
     @property
     def member_price_cents(self) -> int | None:
@@ -539,6 +781,97 @@ class ClassOffering(HeroCropMixin, models.Model):
         session = self.sessions.order_by("starts_at").first()
         return session.starts_at if session else None
 
+    @staticmethod
+    def _truncate(text: str, limit: int) -> str:
+        """Trim ``text`` to at most ``limit`` chars on a word boundary with an ellipsis.
+
+        Never cuts a word in half: when truncation is needed we keep whole words
+        and append a single ``…`` (U+2026). Only when the first word alone is
+        longer than the window do we hard-cut mid-word.
+
+        Args:
+            text: The source string (already plain text, whitespace-collapsed).
+            limit: The maximum allowed length of the returned string.
+
+        Returns:
+            ``text`` unchanged when it already fits, otherwise a word-bounded
+            prefix ending in ``…`` whose length is ``<= limit``.
+        """
+        if len(text) <= limit:
+            return text
+        window = text[: limit - 1]
+        cut = window.rsplit(" ", 1)[0] if " " in window else window
+        return f"{cut.rstrip(' -–—,;:.')}…"
+
+    def _seo_date_label(self) -> str:
+        """Localized 'Mon D, YYYY' label for the offering's defining session.
+
+        Prefers the next upcoming session so live pages read as a future event;
+        falls back to the earliest session so expired/archived offerings still
+        carry a distinguishing, indexable date. Returns ``""`` when the offering
+        has no sessions at all.
+        """
+        dt = self.first_upcoming_session_at or self.earliest_session_at
+        if dt is None:
+            return ""
+        return date_format(localtime(dt), "M j, Y")
+
+    @property
+    def seo_title(self) -> str:
+        """Unique, ≤60-char class-identifying title for the page ``<title>``.
+
+        Starts from the date-stripped base title and greedily appends the
+        session date then the instructor, dropping segments from the right when
+        over the 60-char budget. The date is added before the instructor because
+        it is the stronger uniqueness signal for sibling offerings of the same
+        class on different dates. The brand suffix is intentionally omitted to
+        stay within Google's title width.
+
+        Returns:
+            A plain-text title of length 1–60 (HTML auto-escaped at render time).
+        """
+        from classes.templatetags.classes_tags import strip_date_suffix
+
+        base = strip_date_suffix(self.title).strip()
+        result = base
+        date_label = self._seo_date_label()
+        if date_label:
+            candidate = f"{result} — {date_label}"
+            if len(candidate) <= 60:
+                result = candidate
+        if self.instructor:
+            name = (self.instructor.display_name or "").strip()
+            first_name = name.split(" ")[0]
+            # Skip the instructor segment when the title already names them, so
+            # "Blacksmithing 101 with Glen" + instructor "Glen Morris" doesn't
+            # read "... with Glen — <date> with Glen Morris".
+            mentions_instructor = name.lower() in result.lower() or f"with {first_name}".lower() in result.lower()
+            candidate = f"{result} with {name}"
+            if name and not mentions_instructor and len(candidate) <= 60:
+                result = candidate
+        return self._truncate(result, 60)
+
+    @property
+    def seo_description(self) -> str:
+        """≤160-char plain-text meta description for the page ``<head>``.
+
+        Uses the offering's own description with HTML stripped and whitespace
+        collapsed; when blank, falls back to a category-aware sentence so every
+        page still emits a meaningful, distinct description. Trimmed on a word
+        boundary so it never ends mid-word.
+
+        Returns:
+            A plain-text description of length 1–160 (HTML auto-escaped at
+            render time).
+        """
+        from classes.templatetags.classes_tags import strip_date_suffix
+
+        raw = " ".join(strip_tags(self.description or "").split())
+        if not raw:
+            base = strip_date_suffix(self.title).strip()
+            raw = f"{base} at Past Lives Makerspace in Portland, OR. {self.category.name} class — register online."
+        return self._truncate(raw, 160)
+
     def duplicate(self) -> "ClassOffering":
         """Clone this offering as a fresh draft with a unique slug and title."""
         base_slug = f"{self.slug}-copy"
@@ -553,6 +886,33 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.status = self.Status.DRAFT
         self.published_at = None
         self.approved_by = None
+        self.save()
+        return self
+
+    def duplicate_as_new_run(self) -> "ClassOffering":
+        """Clone as a fresh draft "run" of the SAME class on a new set of dates.
+
+        Unlike :meth:`duplicate`, the title is kept verbatim so the new run shares
+        this class's ``grouping_key`` and collapses into the same public catalog
+        card — it becomes another date-set option rather than a separate class.
+        The clone starts with no sessions (a new pk has no related rows yet) so
+        the instructor/admin fills in fresh dates, and as a DRAFT so it isn't
+        public until reviewed/published. ``legacy_cms_id`` is cleared: a
+        hand-added run is locally authored, not a synced legacy node, and the
+        partial unique constraint would otherwise reject the duplicate.
+        """
+        base_slug = f"{self.slug}-run"
+        slug = base_slug
+        n = 1
+        while ClassOffering.objects.filter(slug=slug).exists():
+            n += 1
+            slug = f"{base_slug}-{n}"
+        self.pk = None
+        self.slug = slug
+        self.status = self.Status.DRAFT
+        self.published_at = None
+        self.approved_by = None
+        self.legacy_cms_id = ""
         self.save()
         return self
 
@@ -694,6 +1054,16 @@ class ClassImage(models.Model):
 
     def __str__(self) -> str:
         return f"Image #{self.pk} for {self.class_offering.title}"
+
+    def clean(self) -> None:
+        from django.core.exceptions import ValidationError
+
+        super().clean()
+        existing = ClassImage.objects.filter(class_offering=self.class_offering)
+        if self.pk:
+            existing = existing.exclude(pk=self.pk)
+        if existing.count() >= MAX_GALLERY_IMAGES:
+            raise ValidationError(f"A class can have at most {MAX_GALLERY_IMAGES} images.")
 
     def save(self, *args, **kwargs) -> None:
         from django.conf import settings
@@ -891,6 +1261,11 @@ class RegistrationReminder(models.Model):
 
 
 class Registration(models.Model):
+    # Transient (non-persisted) attribute a view sets before a status-changing
+    # save() to attribute a confirm/refund action in the audit feed. Unset on a
+    # fresh instance — read via getattr(..., None).
+    _acting_user: "User | None"
+
     class Status(models.TextChoices):
         PENDING = "pending", "Pending payment"
         CONFIRMED = "confirmed", "Confirmed"
@@ -1002,9 +1377,15 @@ class Registration(models.Model):
         from core import notifications
 
         user = self.member.user if (self.member is not None and self.member.user is not None) else None
+        # ``_acting_user`` is a transient (non-persisted) attribute a view sets
+        # before a status-changing save() to attribute confirm/refund actions in
+        # the audit feed. Unset (e.g. the Stripe webhook) → None → "System".
+        acting = getattr(self, "_acting_user", None)
         if creating:
             if self.status == self.Status.WAITLISTED:
-                activity.log(CmsActivity.Kind.WAITLIST_JOINED, class_offering=self.class_offering, registration=self)
+                activity.log(
+                    CmsActivity.Kind.WAITLIST_JOINED, class_offering=self.class_offering, registration=self, actor=user
+                )
                 if user is not None:
                     notifications.dispatch(
                         "waitlist_confirmed",
@@ -1015,12 +1396,18 @@ class Registration(models.Model):
                     )
             else:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_CREATED, class_offering=self.class_offering, registration=self
+                    CmsActivity.Kind.REGISTRATION_CREATED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                    actor=user,
                 )
         elif prior_status is not None and prior_status != self.status:
             if self.status == self.Status.CONFIRMED:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_CONFIRMED, class_offering=self.class_offering, registration=self
+                    CmsActivity.Kind.REGISTRATION_CONFIRMED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                    actor=acting,
                 )
                 if user is not None:
                     notifications.dispatch(
@@ -1032,7 +1419,10 @@ class Registration(models.Model):
                     )
             elif self.status == self.Status.REFUNDED:
                 activity.log(
-                    CmsActivity.Kind.REGISTRATION_REFUNDED, class_offering=self.class_offering, registration=self
+                    CmsActivity.Kind.REGISTRATION_REFUNDED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                    actor=acting,
                 )
                 if user is not None:
                     notifications.dispatch(
@@ -1074,7 +1464,15 @@ class Registration(models.Model):
             self.member = match
             super().save(update_fields=["member"])
 
-    def cancel(self, reason: str = "") -> None:
+    def cancel(self, reason: str = "", actor: "User | None" = None) -> None:
+        """Cancel this registration and record who did it.
+
+        ``actor`` is the authenticated user who triggered the cancellation —
+        an admin from the admin tab, or the registrant from the self-serve
+        page. It is threaded into the activity log so the audit feed shows a
+        name rather than "System". ``None`` when no human acted (e.g. an
+        automated path).
+        """
         previously_held_a_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
         was_waitlisted = self.status == self.Status.WAITLISTED
         self.status = self.Status.CANCELLED
@@ -1087,10 +1485,53 @@ class Registration(models.Model):
             CmsActivity.Kind.WAITLIST_LEFT if was_waitlisted else CmsActivity.Kind.REGISTRATION_CANCELLED,
             class_offering=self.class_offering,
             registration=self,
+            actor=actor,
             payload={"reason": reason} if reason else {},
         )
         if previously_held_a_spot:
             self.class_offering.promote_next_from_waitlist()
+
+    def mark_refunded(self, reason: str = "", actor: "User | None" = None) -> None:
+        """Record this registration as refunded — record-only, issues no Stripe refund.
+
+        The actual money refund is issued by hand in the Stripe dashboard; this
+        records the decision, frees the spot, and promotes the waitlist. The
+        REFUNDED status transition in ``save()`` logs the audit entry and notifies
+        the registrant; ``actor`` is threaded through ``_acting_user`` so the feed
+        attributes the admin rather than "System".
+        """
+        previously_held_a_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
+        self._acting_user = actor
+        self.status = self.Status.REFUNDED
+        self.cancellation_reason = reason
+        self.save(update_fields=["status", "cancellation_reason"])
+        if previously_held_a_spot:
+            self.class_offering.promote_next_from_waitlist()
+
+    def move_to(self, target: "ClassOffering", actor: "User | None" = None) -> None:
+        """Reassign this registration to a different class, keeping payment as-is.
+
+        No price reconciliation: ``amount_paid_cents`` is unchanged. The source
+        class's waitlist is promoted if this registration was holding a spot
+        there. Raises ``ValueError`` if ``target`` is the current class.
+        """
+        if target.pk == self.class_offering_id:
+            raise ValueError("Cannot move a registration to its current class.")
+        source = self.class_offering
+        held_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
+        self.class_offering = target
+        self.save(update_fields=["class_offering"])
+        from classes import activity
+
+        activity.log(
+            CmsActivity.Kind.REGISTRATION_MOVED,
+            class_offering=target,
+            registration=self,
+            actor=actor,
+            payload={"from": source.title, "to": target.title},
+        )
+        if held_spot:
+            source.promote_next_from_waitlist()
 
     @property
     def waitlist_position(self) -> int | None:
@@ -1272,6 +1713,7 @@ class CmsActivity(models.Model):
         REGISTRATION_CONFIRMED = "registration_confirmed", "Payment confirmed"
         REGISTRATION_CANCELLED = "registration_cancelled", "Cancelled"
         REGISTRATION_REFUNDED = "registration_refunded", "Refunded"
+        REGISTRATION_MOVED = "registration_moved", "Moved"
         WAITLIST_JOINED = "waitlist_joined", "Joined waitlist"
         WAITLIST_NOTIFIED = "waitlist_notified", "Notified of open spot"
         WAITLIST_LEFT = "waitlist_left", "Left waitlist"

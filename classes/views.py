@@ -11,13 +11,15 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Count, F, Max, Min, Q, Sum
+from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import TruncDate
-from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_POST
 
 if TYPE_CHECKING:
@@ -28,11 +30,13 @@ if TYPE_CHECKING:
 from classes.emails import (
     send_admin_registration_notification,
     send_class_review_decision,
-    send_class_review_requests,
+    send_class_welcome_email,
+    send_class_welcome_email_test,
     send_instructor_registration_notification,
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
 )
+from classes.questions import prefill_answers
 from classes.table import prepare_table
 from classes.forms import (
     CategoryForm,
@@ -42,10 +46,12 @@ from classes.forms import (
     ClassSettingsForm,
     DiscountCodeForm,
     TeachClassOfferingForm,
+    TeachWelcomeEmailForm,
     RegistrationForm,
     RegistrationQuestionForm,
 )
 from classes.models import (
+    MAX_GALLERY_IMAGES,
     Category,
     ClassApproval,
     ClassImage,
@@ -62,22 +68,31 @@ _ViewFunc = Callable[..., HttpResponse]
 
 
 def _browsable_classes() -> Any:
-    """Published, non-private classes with at least one upcoming session.
+    """Published, non-private classes still open for booking, soonest first.
 
-    Flexible-scheduling classes are always included (no fixed session dates).
-    Classes whose last session has already passed are excluded.
-    Ordered by soonest upcoming session; flexible/TBA classes sort to the end.
+    Delegates the date gate to ``ClassOffering.objects.bookable()``: flexible
+    classes always qualify; a dated class (single or series) drops off the
+    instant its first session starts, so a part-finished series is never listed.
     """
-    now = timezone.now()
-    return (
-        ClassOffering.objects.public()
-        .filter(Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) | Q(sessions__starts_at__gte=now))
-        .select_related("category", "instructor")
-        .prefetch_related("sessions")
-        .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
-        .order_by(F("first_session_at").asc(nulls_last=True), "title")
-        .distinct()
+    return ClassOffering.objects.bookable().select_related("category", "instructor").prefetch_related("sessions")
+
+
+def _bookable_run_options(offering: Any) -> list[Any]:
+    """Still-bookable date-sets of this class, including the current run.
+
+    Powers the register-page dropdown for switching runs. Returns an empty list
+    unless there's an actual choice (more than one bookable run in the group).
+    Each returned offering carries a ``spots_left`` attribute for its label.
+    """
+    runs = list(
+        ClassOffering.objects.bookable().filter(grouping_key=offering.grouping_key).prefetch_related("sessions")
     )
+    if len(runs) <= 1:
+        return []
+    run_spots = ClassOffering.objects.filter(pk__in=[r.pk for r in runs]).spots_remaining_map()
+    for run in runs:
+        run.spots_left = run_spots.get(run.pk, run.capacity)
+    return runs
 
 
 class _CatalogGroup:
@@ -273,20 +288,22 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     member_price_cents = offering.member_price_cents
     now = timezone.now()
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
+    # A series is its full set of dates; a single class is its one date. Show every
+    # session for a series (so a started one still reads as the N-session series it
+    # is, with past dates marked) and just the dated session for a single.
+    schedule_sessions = list(offering.sessions.order_by("starts_at")) if offering.is_series else upcoming_sessions
 
     # Other dates this same class is offered on, so the visitor can switch dates
-    # without hunting through the catalog. Each sibling keeps its own seats.
+    # without hunting through the catalog. Only runs you can still book are shown
+    # (a started run is dropped), and each keeps its own seats.
     sibling_offerings: list[Any] = []
     if offering.grouping_key:
         sibling_offerings = list(
-            ClassOffering.objects.public()
-            .filter(grouping_key=offering.grouping_key, sessions__starts_at__gte=now)
+            ClassOffering.objects.bookable()
+            .filter(grouping_key=offering.grouping_key)
             .exclude(pk=offering.pk)
             .select_related("instructor")
             .prefetch_related("sessions")
-            .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
-            .order_by("first_session_at")
-            .distinct()
         )
         sib_spots = ClassOffering.objects.filter(pk__in=[s.pk for s in sibling_offerings]).spots_remaining_map()
         for sibling in sibling_offerings:
@@ -300,32 +317,32 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         .order_by("-created_at")[:3]
     )
     from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
+    from membership.permissions import can_edit_category as can_edit_category_perm
+    from membership.permissions import can_edit_class, is_effective_staff
 
     view_as = getattr(request, "view_as", None)
-    # Admins and Officers always get edit rights for heroes.
+    # is_admin reflects the *actual* role — used for banners/admin links on the page.
     is_admin = view_as is not None and (view_as.has_actual(ROLE_ADMIN) or view_as.has_actual(ROLE_GUILD_OFFICER))
 
     member = getattr(request.user, "member", None)
     is_instructor = member is not None and offering.instructor_id == member.pk
 
-    can_edit_offering = is_admin or is_instructor
+    # One shared rule decides edit rights: admin/officer, the lead of the
+    # category's guild (FK only), or the instructor. view_as preview is honored.
+    can_edit_offering = can_edit_class(request, offering)
     edit_url = None
-    if is_admin:
-        edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
-    elif is_instructor:
-        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
-
-    can_edit_category = False
+    if can_edit_offering:
+        if is_effective_staff(request):
+            edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        else:
+            # Instructors and guild leads manage the class from the teaching portal.
+            edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
 
     # If the class has NO specific image (real or legacy), it falls back to the category image.
     has_no_class_image = not offering.image and not offering.legacy_image_url
-
-    if has_no_class_image and offering.category.hero_image:
-        if is_admin:
-            can_edit_category = True
-        elif member is not None and offering.category.guild_id:
-            # Guild Leads can adjust their category images.
-            can_edit_category = offering.category.guild.guild_lead_id == member.pk
+    can_edit_category = bool(
+        has_no_class_image and offering.category.hero_image and can_edit_category_perm(request, offering.category)
+    )
 
     offering_ct = ContentType.objects.get_for_model(ClassOffering)
     category_ct = ContentType.objects.get_for_model(Category)
@@ -346,6 +363,9 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "settings_obj": settings_obj,
             "site_config": SiteConfiguration.load(),
             "upcoming_sessions": upcoming_sessions,
+            "schedule_sessions": schedule_sessions,
+            "is_bookable": offering.is_bookable,
+            "now": now,
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
             "related_offerings": related_offerings,
@@ -427,6 +447,40 @@ def _registration_initial_for_user(user: "AbstractBaseUser | AnonymousUser | Non
     }
 
 
+def _cache_registration_to_profile(request: HttpRequest, registration: Registration) -> None:
+    """Seed the logged-in user's profile from their registration answers (no-op for guests)."""
+    if not request.user.is_authenticated:
+        return
+    from core.models import UserProfile
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    profile.cache_from_registration(registration)
+    # Remember the custom-question answers so the next registration pre-fills them.
+    answers = {a.question_id: a.answer_text for a in registration.custom_answers.all()}
+    if answers:
+        profile.set_custom_answers(answers)
+
+
+def _register_prefill(request: HttpRequest) -> tuple[str, dict[int, str], bool, dict[str, str]]:
+    """Resolve the email + pre-fill inputs for the registration form.
+
+    On POST the email comes from the submitted data; on GET an ``?email=`` query
+    (sent by the email field's HTMX recall) lets a returning guest's saved answers
+    pre-fill. Returns ``(bound_email, custom_answers_initial, answers_prefilled,
+    field_initial)`` — the field initial pre-fills standard fields from the
+    logged-in user's Member record (GET only).
+    """
+    if request.method == "POST":
+        bound_email = (request.POST.get("email") or "").strip()
+    else:
+        bound_email = (request.GET.get("email") or "").strip()
+    custom_answers_initial, answers_prefilled = prefill_answers(request.user, bound_email)
+    field_initial = {} if request.method == "POST" else _registration_initial_for_user(request.user)
+    if bound_email and request.method != "POST":
+        field_initial.setdefault("email", bound_email)
+    return bound_email, custom_answers_initial, answers_prefilled, field_initial
+
+
 def register(request: HttpRequest, slug: str) -> HttpResponse:
     """Public registration form — collects info, signs waivers, kicks off Stripe Checkout.
 
@@ -440,6 +494,12 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     )
     settings_obj = ClassSettings.load()
 
+    # You can't join a class once it has started — a series can't be entered
+    # part-way through. Send late arrivals back to the detail page with a note.
+    if not offering.is_bookable:
+        messages.info(request, "Registration has closed for this class — it has already started.")
+        return redirect("classes:public_class_detail", slug=offering.slug)
+
     # Waitlist intent: ?waitlist=1 (offered when the class is sold out) routes
     # to the no-charge waitlist branch below. Forced on automatically when the
     # class has no spots left so we never hide the option from a registrant
@@ -448,10 +508,8 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
 
     # Two-pass form: first POST validates email so we can detect a member
     # before computing price, then re-binds to surface the discounted total.
-    # GET requests pre-fill from the logged-in user's Member record when present.
-    bound_email = (request.POST.get("email") or "").strip() if request.method == "POST" else ""
+    bound_email, custom_answers_initial, answers_prefilled, initial = _register_prefill(request)
     member = _member_for_email(bound_email) if bound_email else None
-    initial = {} if request.method == "POST" else _registration_initial_for_user(request.user)
 
     form = RegistrationForm(
         request.POST or None,
@@ -461,12 +519,15 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         client_ip=_client_ip(request),
         initial=initial,
         is_waitlist=is_waitlist,
+        user=request.user,
+        custom_answers_initial=custom_answers_initial,
     )
 
     if request.method == "POST" and form.is_valid() and is_waitlist:
         # The form sets status=WAITLISTED on save (see RegistrationForm.save), so the
         # WAITLIST_JOINED activity is logged at creation time.
         registration = form.save()
+        _cache_registration_to_profile(request, registration)
         send_waitlist_joined_confirmation(registration)
         messages.success(
             request,
@@ -476,10 +537,18 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
 
     if request.method == "POST" and form.is_valid():
         registration = form.save()
+        _cache_registration_to_profile(request, registration)
         final_price = form.compute_final_price_cents()
 
         if final_price == 0:
             # Free class — confirm + email immediately, no Stripe round-trip.
+            # Attribute the confirmation to the acting user (registrant) so the
+            # audit feed records who confirmed, not "System".
+            registration._acting_user = (
+                request.user
+                if request.user.is_authenticated
+                else (registration.member.user if registration.member and registration.member.user else None)
+            )
             registration.status = Registration.Status.CONFIRMED
             registration.confirmed_at = timezone.now()
             registration.amount_paid_cents = 0
@@ -488,6 +557,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
                 _bump_discount_use_count(registration.discount_code_id)
                 _log_discount_redeemed(registration)
             send_registration_confirmation(registration)
+            send_class_welcome_email(registration)
             send_instructor_registration_notification(registration)
             _instructor = registration.class_offering.instructor
             if _instructor is not None and _instructor.user is not None:
@@ -518,10 +588,18 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             + f"?reg={registration.self_serve_token}"
         )
 
+        # A series is still ONE line item at the series price — only the Stripe
+        # line-item name gains a "(N-session series)" suffix so the buyer's
+        # receipt reads clearly. No loop, no fan-out: one Registration, one
+        # Checkout Session, one charge, one seat (Option A).
+        product_name = offering.title
+        if offering.is_series and offering.series_session_count > 1:
+            product_name = f"{offering.title} ({offering.series_session_count}-session series)"
+
         try:
             checkout = stripe_utils.create_class_checkout_session(
                 amount_cents=final_price,
-                product_name=offering.title,
+                product_name=product_name,
                 customer_email=registration.email,
                 success_url=success_url,
                 cancel_url=cancel_url,
@@ -542,6 +620,9 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         return redirect(checkout["url"])
 
     member_price_cents = offering.member_price_cents
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+
+    run_options = _bookable_run_options(offering)
 
     return render(
         request,
@@ -554,6 +635,9 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             "member_price_cents": member_price_cents,
             "spots_remaining": offering.spots_remaining,
             "is_waitlist": is_waitlist,
+            "upcoming_sessions": upcoming_sessions,
+            "run_options": run_options,
+            "answers_prefilled": answers_prefilled,
         },
     )
 
@@ -638,7 +722,10 @@ def my_registration_cancel(request: HttpRequest, token: str) -> HttpResponse:
     }:
         messages.info(request, "This registration is already cancelled.")
         return redirect("classes:my_registration", token=token)
-    registration.cancel(reason="self-serve")
+    registration.cancel(
+        reason="self-serve",
+        actor=request.user if request.user.is_authenticated else None,
+    )
     messages.success(request, "Your registration is cancelled.")
     return redirect("classes:my_registration", token=token)
 
@@ -717,6 +804,56 @@ def classes_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
     return wrapper  # type: ignore[return-value]
 
 
+def classes_registrations_access_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator: the consolidated registrations list/export is open to admins and
+    to instructors/guild-leads, who see only their own classes' registrations.
+
+    Admins reach it via their actual admin role (preview-independent). Everyone
+    else needs at least one class they can edit (``editable_by``) — a plain member
+    with no classes is forbidden. Mutating a registration (cancel / move / refund)
+    stays admin-only via ``classes_admin_access_required``.
+    """
+
+    @wraps(view_func)
+    @login_required
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        view_as = getattr(request, "view_as", None)
+        if view_as is not None and view_as.has_actual("admin"):
+            return view_func(request, *args, **kwargs)
+        member = getattr(request.user, "member", None)
+        if member is not None and ClassOffering.objects.editable_by(member).exists():
+            return view_func(request, *args, **kwargs)
+        return HttpResponseForbidden("You don't have access to registrations.")
+
+    return wrapper  # type: ignore[return-value]
+
+
+def _scoped_registrations(request: HttpRequest) -> QuerySet[Registration]:
+    """Registrations this request may see.
+
+    Admins and guild officers see every registration; everyone else sees only
+    those for classes they can edit (a class they instruct, or one in a guild
+    they lead). Callers are gated by ``classes_registrations_access_required``,
+    so a non-admin here always has a linked member.
+    """
+    qs = Registration.objects.select_related("class_offering", "member")
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual("admin"):
+        return qs
+    return qs.filter(class_offering__in=ClassOffering.objects.editable_by(request.user.member))
+
+
+def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> QuerySet[Registration]:
+    """Apply the optional ``status`` and ``class`` GET filters to a registration queryset."""
+    status = request.GET.get("status", "")
+    if status in Registration.Status.values:
+        qs = qs.filter(status=status)
+    raw_class = request.GET.get("class", "")
+    if raw_class.isdigit():
+        qs = qs.filter(class_offering_id=int(raw_class))
+    return qs
+
+
 @teaching_member_required
 def teach_overview(request: HttpRequest) -> HttpResponse:
     """Teaching dashboard: the teaching member's drafts, classes awaiting review,
@@ -724,9 +861,27 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     classes, they don't approve them. Empty state nudges a first class."""
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     my_classes = ClassOffering.objects.for_instructor(teaching_member)
+    now = timezone.now()
 
     drafts = my_classes.filter(status=ClassOffering.Status.DRAFT).select_related("category").order_by("-updated_at")
     pending = my_classes.filter(status=ClassOffering.Status.PENDING).select_related("category").order_by("created_at")
+    week_end = now + timedelta(days=7)
+    upcoming_classes = (
+        my_classes.filter(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+            status=ClassOffering.Status.PUBLISHED,
+            sessions__starts_at__gte=now,
+            sessions__starts_at__lt=week_end,
+        )
+        .annotate(
+            next_session_at=Min(
+                "sessions__starts_at",
+                filter=Q(sessions__starts_at__gte=now, sessions__starts_at__lt=week_end),
+            )
+        )
+        .select_related("category")
+        .distinct()
+        .order_by("next_session_at")
+    )
     waitlist_classes = (
         my_classes.annotate(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
             waiting=Count(
@@ -752,6 +907,9 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
         ).count(),
     }
 
+    is_guild_lead = teaching_member.is_guild_lead
+    guild_lead_pending = _guild_lead_review_queue(teaching_member) if is_guild_lead else []
+
     return render(
         request,
         "classes/teach/overview.html",
@@ -760,12 +918,39 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
             "instructor": teaching_member,
             "drafts": drafts,
             "pending_classes": pending,
+            "upcoming_classes": upcoming_classes,
             "waitlist_classes": waitlist_classes,
             "recent_registrations": recent_registrations,
             "has_classes": my_classes.exists(),
             "stats": stats,
+            "is_guild_lead": is_guild_lead,
+            "guild_lead_pending": guild_lead_pending,
         },
     )
+
+
+def _guild_lead_review_queue(member: Member) -> list[dict]:
+    """Build the guild-lead review queue for ``member``'s teaching dashboard.
+
+    Each entry pairs a pending class with the token of its undecided
+    ``GUILD_LEAD`` approval so the panel can link straight to the tokenized
+    review page — guild leads have no admin access, so the token is their door.
+    """
+    offerings = (
+        ClassOffering.objects.awaiting_guild_lead(member)
+        .select_related("category", "instructor")
+        .prefetch_related("approvals")
+        .order_by("created_at")
+    )
+    queue: list[dict] = []
+    for offering in offerings:
+        gl_row = next(
+            (a for a in offering.approvals.all() if a.role == ClassApproval.Role.GUILD_LEAD and not a.decision),
+            None,
+        )
+        if gl_row is not None:
+            queue.append({"offering": offering, "token": gl_row.token})
+    return queue
 
 
 @teaching_member_required
@@ -842,14 +1027,19 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         offering = form.save()
         formset.instance = offering
         formset.save()
-        offering.add_gallery_images(request.FILES.getlist("gallery_images"))
-        submit_now = request.POST.get("action") == "submit"
-        if submit_now:
-            offering.submit_for_review()
-            messages.success(request, f"Submitted “{offering.title}” for admin review.")
+        try:
+            offering.add_gallery_images(request.FILES.getlist("gallery_images"))
+        except ValidationError as exc:
+            offering.delete()  # roll back the half-created offering
+            form.add_error(None, exc.messages[0])
         else:
-            messages.success(request, f"Saved draft ‘{offering.title}’.")
-        return redirect("classes:teach_class_edit", pk=offering.pk)
+            submit_now = request.POST.get("action") == "submit"
+            if submit_now:
+                offering.submit_for_review()
+                messages.success(request, f"Submitted “{offering.title}” for admin review.")
+            else:
+                messages.success(request, f"Saved draft ‘{offering.title}’.")
+            return redirect("classes:teach_class_edit", pk=offering.pk)
     return _render_teach_class_form(
         request,
         form=form,
@@ -863,7 +1053,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
 def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     offering = get_object_or_404(
-        ClassOffering.objects.filter(instructor=teaching_member).prefetch_related("gallery_images"),
+        ClassOffering.objects.editable_by(teaching_member).prefetch_related("gallery_images"),
         pk=pk,
     )
     if offering.status in {ClassOffering.Status.PUBLISHED, ClassOffering.Status.ARCHIVED}:
@@ -894,17 +1084,27 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @teaching_member_required
+def teach_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
+    """Offer one of my classes on another set of dates — clones it as a grouped draft run."""
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
+    if request.method == "POST":
+        run = offering.duplicate_as_new_run()
+        messages.success(request, "New date-set added as a draft. Add its dates, then submit for review.")
+        return redirect("classes:teach_class_edit", pk=run.pk)
+    return redirect("classes:teach_class_edit", pk=offering.pk)
+
+
+@teaching_member_required
 def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     """Transition a draft to 'pending review'."""
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
     if request.method == "POST" and offering.status == ClassOffering.Status.DRAFT:
-        approvals = offering.submit_for_review()
-        send_class_review_requests(offering, approvals)
-        roles_label = " + ".join(a.get_role_display() for a in approvals)
+        (first_gate,) = offering.submit_for_review()
         messages.success(
             request,
-            f"Submitted “{offering.title}” for review by {roles_label}.",
+            f"Submitted “{offering.title}” for review by {first_gate.get_role_display()}.",
         )
     return redirect("classes:teach_dashboard")
 
@@ -963,21 +1163,26 @@ def teach_registrations_email(request: HttpRequest) -> HttpResponse:
 
 @teaching_member_required
 def teach_discount_codes(request: HttpRequest) -> HttpResponse:
-    """Discount codes — managed by teaching members from the Teaching portal.
+    """Discount codes for the Teaching portal.
 
-    Codes are currently shared across all classes (no per-instructor
-    ownership on the DiscountCode model), so any teaching member sees every code.
-    If that becomes a problem, add an ``owner`` FK and filter here.
+    Splits codes into the instructor's own (editable, keyed off the ``created_by``
+    audit FK) and the site-wide admin codes — ``class_offering`` null and created
+    by someone else, e.g. the PLMEMBERS member discount. Site-wide codes are shown
+    read-only here; admins manage them from the Classes admin.
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    codes = DiscountCode.objects.all()
+    own_codes = DiscountCode.objects.filter(created_by=request.user).order_by("code")
+    sitewide_codes = (
+        DiscountCode.objects.filter(class_offering__isnull=True).exclude(created_by=request.user).order_by("code")
+    )
     return render(
         request,
         "classes/teach/discount_codes.html",
         {
             "active_tab": "discount_codes",
             "instructor": teaching_member,
-            "codes": codes,
+            "own_codes": own_codes,
+            "sitewide_codes": sitewide_codes,
         },
     )
 
@@ -1029,7 +1234,9 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
 @teaching_member_required
 def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    code = get_object_or_404(DiscountCode, pk=pk)
+    # Instructors may only edit codes they created; site-wide / admin codes are
+    # read-only here (scoping to created_by makes a foreign code 404, not just hidden).
+    code = get_object_or_404(DiscountCode, pk=pk, created_by=request.user)
     form = DiscountCodeForm(request.POST or None, instance=code)
     if request.method == "POST" and form.is_valid():
         form.save()
@@ -1044,7 +1251,8 @@ def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 @teaching_member_required
 def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    code = get_object_or_404(DiscountCode, pk=pk)
+    # Only the instructor who created a code may delete it; site-wide / admin codes 404.
+    code = get_object_or_404(DiscountCode, pk=pk, created_by=request.user)
     if request.method == "POST":
         code.delete()
         messages.success(request, "Discount code deleted.")
@@ -1093,6 +1301,15 @@ def teach_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
             **_class_workspace_counts(offering),
         },
     )
+
+
+@teaching_member_required  # type: ignore[arg-type]  # StreamingHttpResponse is an HttpResponseBase, not HttpResponse
+def teach_class_export(request: HttpRequest, pk: int) -> StreamingHttpResponse:
+    """Download a CSV of every registration for one of the teaching member's own classes."""
+    from classes.exports import stream_registrations_csv
+
+    offering = _teach_class_or_404(request, pk)  # scopes to instructor=request.teaching_member → 404 otherwise
+    return stream_registrations_csv(offering)
 
 
 @teaching_member_required
@@ -1165,11 +1382,75 @@ def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @teaching_member_required
+def teach_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
+    """Author the per-class welcome email. Editable by the instructor, the guild's lead, or an admin."""
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    offering = get_object_or_404(ClassOffering.objects.editable_by(teaching_member), pk=pk)
+    form = TeachWelcomeEmailForm(request.POST or None, instance=offering)
+    if request.method == "POST" and form.is_valid():
+        offering = form.save()
+        if "send_test" in request.POST:
+            send_class_welcome_email_test(offering, request.user.email)
+            messages.success(request, f"Saved — and sent a test to {request.user.email}.")
+        else:
+            messages.success(request, "Welcome email saved.")
+        return redirect("classes:teach_class_emails", pk=offering.pk)
+    return render(
+        request,
+        "classes/teach/class_emails.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "emails",
+            "instructor": teaching_member,
+            "offering": offering,
+            "form": form,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@teaching_member_required
 def teach_profile(request: HttpRequest) -> HttpResponse:
     return redirect(reverse("hub_user_settings") + "?tab=profile")
 
 
+def _render_class_preview(
+    request: HttpRequest,
+    offering: ClassOffering,
+    *,
+    is_admin: bool = False,
+    is_instructor: bool = False,
+    can_edit_offering: bool = False,
+    edit_url: str | None = None,
+) -> HttpResponse:
+    """Render the public class detail page in preview mode (drafts included).
+
+    Shared by the login-gated owner/admin preview and the token-authorized
+    reviewer preview. ``is_preview`` makes the public template show its
+    "preview" banner and bypass the published-only gating.
+    """
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    return render(
+        request,
+        "classes/public/detail.html",
+        {
+            "offering": offering,
+            "can_edit_offering": can_edit_offering,
+            "edit_url": edit_url,
+            "is_admin": is_admin,
+            "is_instructor": is_instructor,
+            "settings_obj": ClassSettings.load(),
+            "site_config": SiteConfiguration.load(),
+            "upcoming_sessions": upcoming_sessions,
+            "member_price_cents": offering.member_price_cents,
+            "spots_remaining": offering.spots_remaining,
+            "is_preview": True,
+        },
+    )
+
+
 @login_required
+@xframe_options_sameorigin
 def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     """Preview the public detail page for any class — including drafts.
 
@@ -1194,35 +1475,41 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     user_member = MemberModel.objects.filter(user=request.user).first()
     is_instructor = user_member is not None and offering.instructor_id == user_member.pk
 
-    if not (is_admin or is_instructor):
+    # The owning instructor, the lead of the category's guild, or any admin may preview.
+    if not (is_admin or (user_member is not None and user_member.can_edit_class(offering))):
         return HttpResponseForbidden("You can only preview your own classes.")
 
-    can_edit_offering = True
     edit_url = None
     if is_admin:
         edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
-    elif is_instructor:
+    elif user_member is not None:
+        # Instructors and guild leads manage the class from the teaching portal.
         edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
-    settings_obj = ClassSettings.load()
-    member_price_cents = offering.member_price_cents
-    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
-    return render(
+    return _render_class_preview(
         request,
-        "classes/public/detail.html",
-        {
-            "offering": offering,
-            "can_edit_offering": can_edit_offering,
-            "edit_url": edit_url,
-            "is_admin": is_admin,
-            "is_instructor": is_instructor,
-            "settings_obj": settings_obj,
-            "site_config": SiteConfiguration.load(),
-            "upcoming_sessions": upcoming_sessions,
-            "member_price_cents": member_price_cents,
-            "spots_remaining": offering.spots_remaining,
-            "is_preview": True,
-        },
+        offering,
+        is_admin=is_admin,
+        is_instructor=is_instructor,
+        can_edit_offering=True,
+        edit_url=edit_url,
     )
+
+
+@xframe_options_sameorigin
+def class_review_preview(request: HttpRequest, token: str) -> HttpResponse:
+    """Token-authorized student-eye preview of a class under review (no login).
+
+    Lets a guild lead or admin who opened the emailed review link see exactly
+    how the public class page will look once published. Read-only — the token
+    already proves the visitor is a designated reviewer, so no edit affordances
+    are shown. Framed same-origin inside the review page.
+    """
+    approval = get_object_or_404(ClassApproval, token=token)
+    offering = get_object_or_404(
+        ClassOffering.objects.select_related("category", "instructor").prefetch_related("sessions", "gallery_images"),
+        pk=approval.class_offering_id,
+    )
+    return _render_class_preview(request, offering)
 
 
 class OverviewRange(TypedDict):
@@ -1354,11 +1641,37 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         status_filter = ""
     instructor_filter = request.GET.get("instructor", "").strip()
 
-    base = ClassOffering.objects.select_related("instructor", "category").annotate(
-        # distinct=True so the sessions join below doesn't inflate the registration tally.
-        registration_count=Count("registrations", distinct=True),
-        first_session=Min("sessions__starts_at"),
-        last_session=Max("sessions__starts_at"),
+    # For grouped classes (same title+category on multiple dates), show only the
+    # lowest-pk representative. Solo classes (blank grouping_key) always show.
+    _group_rep_pk = (
+        ClassOffering.objects.filter(
+            grouping_key=OuterRef("grouping_key"),
+            grouping_key__gt="",
+        )
+        .order_by("pk")
+        .values("pk")[:1]
+    )
+    _group_size = (
+        ClassOffering.objects.filter(
+            grouping_key=OuterRef("grouping_key"),
+            grouping_key__gt="",
+        )
+        .values("grouping_key")
+        .annotate(_c=Count("pk"))
+        .values("_c")
+    )
+
+    base = (
+        ClassOffering.objects.select_related("instructor", "category")
+        .annotate(
+            # distinct=True so the sessions join below doesn't inflate the registration tally.
+            registration_count=Count("registrations", distinct=True),
+            first_session=Min("sessions__starts_at"),
+            last_session=Max("sessions__starts_at"),
+            _group_rep_pk=Subquery(_group_rep_pk),
+            group_size=Subquery(_group_size, output_field=IntegerField()),
+        )
+        .filter(Q(grouping_key="") | Q(pk=F("_group_rep_pk")))
     )
     qs = base.filter(status=status_filter) if status_filter else base
     if instructor_filter:
@@ -1403,9 +1716,14 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
         offering.save()
         session_formset.instance = offering
         session_formset.save()
-        offering.add_gallery_images(request.FILES.getlist("gallery_images"))
-        messages.success(request, f"{offering.title} is published.")
-        return redirect("classes:admin_class_edit", pk=offering.pk)
+        try:
+            offering.add_gallery_images(request.FILES.getlist("gallery_images"))
+        except ValidationError as exc:
+            offering.delete()  # roll back the half-created offering
+            form.add_error(None, exc.messages[0])
+        else:
+            messages.success(request, f"{offering.title} is published.")
+            return redirect("classes:admin_class_edit", pk=offering.pk)
 
     sessions_data: list[dict] = []
     if session_formset.is_bound:
@@ -1529,6 +1847,15 @@ def admin_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
+@classes_admin_access_required  # type: ignore[arg-type]  # StreamingHttpResponse is HttpResponseBase, not HttpResponse
+def admin_class_export(request: HttpRequest, pk: int) -> StreamingHttpResponse:
+    """Download a CSV of every registration for one class (admin — any class)."""
+    from classes.exports import stream_registrations_csv
+
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    return stream_registrations_csv(offering)
+
+
 @classes_admin_access_required
 def admin_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering, pk=pk)
@@ -1560,6 +1887,32 @@ def admin_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
             "active_subtab": "discount_codes",
             "offering": offering,
             "codes": codes,
+            **_class_workspace_counts(offering),
+        },
+    )
+
+
+@classes_admin_access_required
+def admin_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
+    """Author a class's welcome email from the admin class workspace (any class)."""
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    form = TeachWelcomeEmailForm(request.POST or None, instance=offering)
+    if request.method == "POST" and form.is_valid():
+        offering = form.save()
+        if "send_test" in request.POST:
+            send_class_welcome_email_test(offering, request.user.email)
+            messages.success(request, f"Saved — and sent a test to {request.user.email}.")
+        else:
+            messages.success(request, "Welcome email saved.")
+        return redirect("classes:admin_class_emails", pk=offering.pk)
+    return render(
+        request,
+        "classes/admin/class_emails.html",
+        {
+            "active_tab": "classes",
+            "active_subtab": "emails",
+            "offering": offering,
+            "form": form,
             **_class_workspace_counts(offering),
         },
     )
@@ -1796,6 +2149,17 @@ def admin_class_duplicate(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @classes_admin_access_required
+def admin_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
+    """Offer this class on another set of dates — clones it as a grouped draft run."""
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    if request.method == "POST":
+        run = offering.duplicate_as_new_run()
+        messages.success(request, "New date-set added as a draft. Add its dates, then publish when ready.")
+        return redirect("classes:admin_class_edit", pk=run.pk)
+    return redirect("classes:admin_class_detail", pk=offering.pk)
+
+
+@classes_admin_access_required
 def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
     """Hard-delete a class — only when it has no registrations.
 
@@ -1834,8 +2198,8 @@ def admin_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering, pk=pk)
-    if offering.gallery_images.count() >= 10:
-        return JsonResponse({"error": "Maximum 10 gallery images."}, status=400)
+    if offering.gallery_images.count() >= MAX_GALLERY_IMAGES:
+        return JsonResponse({"error": f"A class can have at most {MAX_GALLERY_IMAGES} images."}, status=400)
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
@@ -1940,34 +2304,58 @@ def admin_category_delete(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:admin_categories")
 
 
-@classes_admin_access_required
+@classes_registrations_access_required
 def admin_registrations(request: HttpRequest) -> HttpResponse:
+    scoped = _scoped_registrations(request)
     table = prepare_table(
         request,
-        Registration.objects.select_related("class_offering", "member"),
+        _filter_registrations(request, scoped),
         search_fields=["first_name", "last_name", "email", "class_offering__title"],
         default_sort="registered_at",
         default_dir="desc",
     )
+    class_options = ClassOffering.objects.filter(registrations__in=scoped).distinct().order_by("title")
     return render(
         request,
         "classes/admin/registrations.html",
-        {"active_tab": "registrations", **table},
+        {
+            "active_tab": "registrations",
+            "status_choices": Registration.Status.choices,
+            "status_filter": request.GET.get("status", ""),
+            "class_options": class_options,
+            "class_filter": request.GET.get("class", ""),
+            **table,
+        },
     )
 
 
-@classes_admin_access_required
+@classes_registrations_access_required
+def admin_registrations_export(request: HttpRequest) -> StreamingHttpResponse:
+    """Download the filtered, role-scoped registrations list as a CSV."""
+    from classes.exports import stream_registrations_query_csv
+
+    registrations = _filter_registrations(request, _scoped_registrations(request))
+    return stream_registrations_query_csv(registrations, filename_stem="registrations")
+
+
+@classes_registrations_access_required
 def admin_registration_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    from classes.forms import RegistrationMoveForm
+
     registration = get_object_or_404(
-        Registration.objects.select_related("class_offering", "member", "discount_code").prefetch_related(
-            "waivers", "custom_answers__question"
-        ),
+        _scoped_registrations(request)
+        .select_related("discount_code")
+        .prefetch_related("waivers", "custom_answers__question"),
         pk=pk,
     )
     return render(
         request,
         "classes/admin/registration_detail.html",
-        {"active_tab": "registrations", "registration": registration},
+        {
+            "active_tab": "registrations",
+            "registration": registration,
+            "move_form": RegistrationMoveForm(current=registration.class_offering),
+        },
     )
 
 
@@ -1975,8 +2363,35 @@ def admin_registration_detail(request: HttpRequest, pk: int) -> HttpResponse:
 def admin_registration_cancel(request: HttpRequest, pk: int) -> HttpResponse:
     registration = get_object_or_404(Registration, pk=pk)
     if request.method == "POST":
-        registration.cancel(reason=request.POST.get("reason", ""))
+        actor = request.user if request.user.is_authenticated else None
+        registration.cancel(reason=request.POST.get("reason", ""), actor=actor)
         messages.success(request, "Registration cancelled.")
+    return redirect("classes:admin_registration_detail", pk=pk)
+
+
+@classes_admin_access_required
+@require_POST
+def admin_registration_move(request: HttpRequest, pk: int) -> HttpResponse:
+    from classes.forms import RegistrationMoveForm
+
+    registration = get_object_or_404(Registration, pk=pk)
+    form = RegistrationMoveForm(request.POST, current=registration.class_offering)
+    if form.is_valid():
+        actor = request.user if request.user.is_authenticated else None
+        registration.move_to(form.cleaned_data["target"], actor=actor)
+        messages.success(request, "Registration moved.")
+    else:
+        messages.error(request, "Could not move registration — pick a valid class.")
+    return redirect("classes:admin_registration_detail", pk=pk)
+
+
+@classes_admin_access_required
+@require_POST
+def admin_registration_refund(request: HttpRequest, pk: int) -> HttpResponse:
+    registration = get_object_or_404(Registration, pk=pk)
+    actor = request.user if request.user.is_authenticated else None
+    registration.mark_refunded(reason=request.POST.get("reason", ""), actor=actor)
+    messages.success(request, "Registration marked as refunded.")
     return redirect("classes:admin_registration_detail", pk=pk)
 
 

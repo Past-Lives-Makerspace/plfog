@@ -1,0 +1,60 @@
+{% load classes_tags %}
+{# Self-contained, read-only guild calendar: current week + rolling 4-week window, scoped to this guild's events. Deep navigation lives on the full Community Calendar. #}
+<div x-data="{ calView: 'week' }">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
+        <div style="display:flex; gap:0.5rem;">
+            <button type="button" class="pl-btn pl-btn--sm" :class="calView === 'week' ? 'pl-btn--primary' : 'pl-btn--secondary'" @click="calView = 'week'">Week</button>
+            <button type="button" class="pl-btn pl-btn--sm" :class="calView === 'month' ? 'pl-btn--primary' : 'pl-btn--secondary'" @click="calView = 'month'">Month</button>
+        </div>
+        <a href="{% url 'hub_community_calendar' %}" class="pl-btn pl-btn--sm pl-btn--secondary">Full calendar ↗</a>
+    </div>
+
+    {# Week #}
+    <div x-show="calView === 'week'">
+        <div class="pl-calendar-nav"><span class="pl-calendar-nav__label">{{ week_label }}</span></div>
+        <div class="pl-calendar-grid pl-calendar-grid--week">
+            {% for day in week_days %}
+            <div class="pl-calendar-grid__day{% if day.is_today %} pl-calendar-grid__day--today{% endif %}">
+                <div class="pl-calendar-grid__day-header">
+                    <span class="pl-calendar-grid__day-name">{{ day.date|date:"D" }}</span>
+                    <span class="pl-calendar-grid__day-num{% if day.is_today %} pl-calendar-grid__day-num--today{% endif %}">{{ day.date|date:"j" }}</span>
+                </div>
+                <div class="pl-calendar-grid__day-chips">
+                    {% for event in day.events|slice:":3" %}
+                    <span class="pl-calendar-grid__chip{% if event.is_in_progress %} pl-calendar-grid__chip--live{% endif %}" style="--chip-color: {{ guild.calendar_color|default:'#4B9FEE' }};" title="{{ event.title|strip_date_suffix }}">
+                        {% if not event.all_day %}<span class="pl-calendar-grid__chip-time">{{ event.start_dt|date:"g:ia" }}</span>{% endif %}
+                        <span class="pl-calendar-grid__chip-title">{{ event.title|strip_date_suffix }}</span>
+                    </span>
+                    {% endfor %}
+                    {% if day.events|length > 3 %}<span class="pl-calendar-grid__more">+{{ day.events|length|add:"-3" }}</span>{% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# Month #}
+    <div x-show="calView === 'month'" x-cloak>
+        <div class="pl-calendar-nav"><span class="pl-calendar-nav__label">{{ month_label }}</span></div>
+        <div class="pl-calendar-grid pl-calendar-grid--month">
+            {% for header in month_headers %}<div class="pl-calendar-grid__week-header">{{ header }}</div>{% endfor %}
+            {% for day in month_days %}
+            <div class="pl-calendar-grid__day{% if day.is_today %} pl-calendar-grid__day--today{% endif %}">
+                <div class="pl-calendar-grid__day-header">
+                    <span class="pl-calendar-grid__day-num{% if day.is_today %} pl-calendar-grid__day-num--today{% endif %}">{{ day.date|date:"j" }}</span>
+                </div>
+                <div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                    {% for event in day.events|slice:":2" %}
+                    <span class="pl-calendar-grid__chip{% if event.is_in_progress %} pl-calendar-grid__chip--live{% endif %}" style="--chip-color: {{ guild.calendar_color|default:'#4B9FEE' }};" title="{{ event.title|strip_date_suffix }}">
+                        <span class="pl-calendar-grid__chip-title">{{ event.title|strip_date_suffix }}</span>
+                    </span>
+                    {% endfor %}
+                    {% if day.events|length > 2 %}<span class="pl-calendar-grid__more">+{{ day.events|length|add:"-2" }}</span>{% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-top:1rem;">Class sessions show automatically. Guild leads can add their own events via a Google Calendar link on the Edit page.</p>
+</div>

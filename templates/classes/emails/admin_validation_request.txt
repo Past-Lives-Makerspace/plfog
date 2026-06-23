@@ -1,0 +1,16 @@
+EXECUTIVE VALIDATION REQUESTED
+
+{{ offering.title }}
+by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
+Price {{ offering.price_cents }} cents · Capacity {{ offering.capacity }}
+{% if offering.member_discount_pct %}{{ offering.member_discount_pct }}% member discount{% endif %}
+
+{{ guild_lead_name }} and {{ instructor_name }} request executive validation
+to publish this class. The guild lead has already approved it; your sign-off
+is the final step before it goes live.
+
+Open the review page:
+{{ review_url }}
+
+You're getting this because your address is configured as a class
+reviewer at Past Lives Makerspace.

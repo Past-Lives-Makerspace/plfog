@@ -1,0 +1,9 @@
+Hi {{ greeting_name }},
+
+Welcome to {{ guild.name }}!
+
+{{ body }}
+
+Guild page: {{ guild_url }}
+
+— Past Lives Makerspace

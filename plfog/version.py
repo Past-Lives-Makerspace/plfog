@@ -2,11 +2,185 @@
 
 from __future__ import annotations
 
-VERSION = "2.5.7"
+VERSION = "0.18.11"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "2.5.7",
+        "version": "0.18.11",
+        "date": "2026-06-23",
+        "title": "Faster first-time sign-in on the booking site",
+        "changes": [
+            "Signing in to the booking site for the first time no longer asks a set of intake questions — "
+            "you go straight to your account. Newsletter sign-up still happens the usual way, with the "
+            "opt-in checkbox when you register for a class.",
+        ],
+    },
+    {
+        "version": "0.18.10",
+        "date": "2026-06-23",
+        "title": "Orienters, plus email management is back on the member page",
+        "changes": [
+            "Guild leads and admins can now name trusted members as 'orienters' for their guild — find the new "
+            "Orienters section on the guild's Orientations settings page. Orienters can run that guild's "
+            "orientations (confirm bookings, sign members off, and manage availability) without being given the "
+            "keys to the rest of the guild's settings.",
+            "Managing a member's email addresses is back on the member edit page: admins can add, remove, set the "
+            "primary, and mark addresses verified right there, instead of digging through the old admin screens.",
+        ],
+    },
+    {
+        "version": "0.18.9",
+        "date": "2026-06-22",
+        "title": "Reviewers see a live preview of the class page",
+        "changes": [
+            "When a guild lead or admin reviews a class before it goes live, the review page now shows a live preview of exactly how the class page will look to a prospective student — right alongside the approve/decline controls — so you can sign off on what people will actually see.",
+        ],
+    },
+    {
+        "version": "0.18.8",
+        "date": "2026-06-22",
+        "title": "A clearer teaching dashboard and a simpler welcome-email switch",
+        "changes": [
+            "The teaching dashboard now matches the polished class-catalog dashboard: clearer section "
+            "headings, a 'your classes this week' list, a tidy recent sign-ups table, and an at-a-glance "
+            "summary — so it's easier to see what needs your attention.",
+            "The class welcome email now has a simple Active on/off switch instead of a wordy checkbox, so "
+            "it's obvious whether the note is being sent to new registrants.",
+        ],
+    },
+    {
+        "version": "0.18.7",
+        "date": "2026-06-22",
+        "title": "Admins reliably get class-review and registration emails",
+        "changes": [
+            "When an instructor submits a class for approval, the studio's admins now automatically get the 'a class needs review' email — it goes to everyone with the Admin role, so it works without any extra setup. Admins also reliably get the 'new registration' notifications the same way.",
+        ],
+    },
+    {
+        "version": "0.18.6",
+        "date": "2026-06-22",
+        "title": "Tidier 'email registrants' panel on the class roster",
+        "changes": [
+            "On the class roster, 'Email selected registrants' is now a button that opens the message form only when you want it — it stays tucked away by default so the roster is easier to scan. The subject and message boxes also now match the dark theme instead of showing as white boxes.",
+        ],
+    },
+    {
+        "version": "0.18.5",
+        "date": "2026-06-22",
+        "title": "Easier session scheduling in dark mode",
+        "changes": [
+            "When scheduling class sessions, the date and time boxes now open their picker as soon as you click anywhere on them, and the little calendar and clock icons are now visible in dark mode. The 'Duration' menu options are readable in dark mode too.",
+        ],
+    },
+    {
+        "version": "0.18.4",
+        "date": "2026-06-22",
+        "title": "Readable note box on the orientation request page",
+        "changes": [
+            "Fixed the 'decline with a note' box on the orientation request page — in dark mode it was showing as a white box. It now matches the dark theme like the rest of the page.",
+        ],
+    },
+    {
+        "version": "0.18.3",
+        "date": "2026-06-22",
+        "title": "Readable date picker on the registration page",
+        "changes": [
+            "Fixed the 'Choose your dates' menu on the class registration page — it was showing as a hard-to-read white box that clashed with the rest of the page. It now matches the other form fields.",
+        ],
+    },
+    {
+        "version": "0.18.2",
+        "date": "2026-06-22",
+        "title": "Tidier class page header",
+        "changes": [
+            "Cleaned up the top of each class page: the '← All classes & workshops' link and the page's edit controls now sit in their own row just beneath the header image, instead of crowding the title over the photo. The back link is now a standard gold button so it reads cleanly in light mode.",
+        ],
+    },
+    {
+        "version": "0.18.1",
+        "date": "2026-06-22",
+        "title": "Guild page polish: clickable member count and guild icons in the directory",
+        "changes": [
+            "The member count on a guild page is now a clickable chip — tap it to jump straight to the member directory showing just that guild's members.",
+            "The member directory now shows each guild's icon next to its name on every member's card, so you can see who's in which guild at a glance.",
+        ],
+    },
+    {
+        "version": "0.18.0",
+        "date": "2026-06-21",
+        "title": "Guild orientations: book, run, and track shop orientations",
+        "changes": [
+            "Guilds can now run orientations right from their guild page. If you haven't been oriented for a guild yet, you'll see a small calendar of open times — pick one and request it in a click.",
+            "Booking an orientation sends you a confirmation email with a calendar invite you can add to Google or Outlook. It's clearly marked 'not an official booking yet' until the guild lead confirms your time.",
+            "Guild leads set everything up in one place: weekly orientation hours that fill the calendar automatically, one-off time slots, how many people fit per slot, an orientation info page, and a 'closed for orientations' switch with a note (like 'on vacation till Sept 8') for when you need a break.",
+            "When someone requests an orientation, the guild lead gets an email and can confirm, decline, or suggest another time — straight from the email with no login needed, or on the hub. Declining can include a friendly note.",
+            "Plans change: both members and guild leads can cancel or reschedule an orientation with one tap from their email, and everyone affected is notified automatically.",
+            "Leads and admins get an 'Orientations' page listing upcoming orientations across all guilds, plus a searchable, sortable history you can filter (by guild, yours, status, completed, or date range) and export to a spreadsheet.",
+            "Orientations mark themselves complete once their time passes, and the member gets a guild-lead-written 'thanks for orienting — here's what's next' email. Leads can also add a member to a slot themselves, or tick a past orientation back to 'not completed' if needed.",
+            "Guild pages now have quick contact buttons: email the guild lead, jump to the guild's Discord channel, or visit its website.",
+            "Joining a guild can now send a warm welcome email written by the guild lead, and quietly lets the lead know a new member has arrived.",
+        ],
+    },
+    {
+        "version": "0.17.0",
+        "date": "2026-06-19",
+        "title": "Clearer class types: one-off classes vs multi-session series",
+        "changes": [
+            "Classes that run over several dates — like a 3-week Blacksmithing course — are now clearly marked as a 'multi-session series.' One sign-up enrolls you in every date in the set, and the class and registration pages spell out all the dates so you know exactly what you're booking.",
+            "When the same class is offered on more than one set of dates (say, a June run and a July run), the catalog now shows it as a single class with a 'Pick a session set' chooser, instead of looking like a pile of separate single days.",
+            "The registration page now has a 'Choose your dates' dropdown listing every available run of that class, so you can switch to a different set of dates without going back to the catalog.",
+            "Classes brought over from the old class site are now correctly recognized as a series when they span multiple dates, so multi-week courses no longer show up as a bunch of one-off sessions.",
+            "A class that has already begun no longer shows up as open for sign-up — you can't join a multi-week series part-way through — so the catalog only lists classes you can actually still book. A series page now lists every date in the set, with ones that already happened clearly marked.",
+            "Setting up or editing a class now starts with a clear, plain-language choice between a 'Single class (one date)' and a 'Multi-session series' — and you can add or remove dates anytime, even after publishing.",
+            "Instructors and admins can offer the same class on another set of dates with one click ('Offer on another set of dates'); the new run starts as a draft and automatically stays grouped under the same class on the public page.",
+            "We added an automated test that clicks through the site the way a real member does — requesting a sign-in code, entering it, and registering for a free class — so we catch a broken sign-in or booking flow before it ever reaches you. It runs on every change we make.",
+            "The 'email me a sign-in code' page now matches the site's light theme instead of falling back to a plain, unstyled page.",
+            "Pages now show a slim progress bar at the top while loading or saving, so opening a class or saving a form no longer feels frozen on slower connections.",
+            "The admin 'Sync Now' button for the legacy CMS now shows a spinner and a progress bar while it runs — and estimates how long it'll take based on the previous sync.",
+            "The extra questions on the registration form (like experience level or allergies) are now only the ones set up in the class admin — a few leftover sample questions that were showing by mistake have been cleared out.",
+            "We now remember your answers to those questions. The next time you register for a class while signed in, your previous answers are filled in for you — ready to tweak if anything's changed.",
+            "Booked before as a guest, without an account? Enter the same email and your earlier answers come back automatically, with a clear note so it's never a surprise.",
+            "The registration page now offers a clear choice up front: log in, create a free account to manage your bookings, or simply continue as a guest.",
+            "If you create an account, we ask these questions just once during sign-up, so you're not re-typing the same things every time you book a class.",
+            "Guild Leads can now reliably manage their guild's classes and pages. If you lead a guild, you can edit and adjust any class in your guild's categories — and the Edit/Adjust controls only ever appear for that guild's lead or an admin. Previously some guild leads were treated as regular members and couldn't save their changes.",
+            "Admins now have a single Registrations page listing everyone signed up across all classes, with search, quick filters by class and status, and a one-click export to a spreadsheet.",
+            "Instructors and guild leads get that same Registrations view for just their own classes, so they can see who's coming to what they teach without needing admin access.",
+            "From a registration, an admin can now cancel a spot, move someone to a different class, or mark a refund — marking a refund frees the seat and offers it to the next person on the waitlist, with a direct link to finish the actual refund in Stripe.",
+            "Instructors can now write a custom 'welcome to my class' email that's sent automatically to everyone who signs up — perfect for what to bring, where to park, or how to prepare. It's separate from the order confirmation, off until you turn it on, and there's a 'send a test to me' button so you can see exactly how it'll look first.",
+            "Instructors now see the makerspace-wide discount codes (like the members' discount) right on their Discount Codes page, clearly marked as admin-managed and read-only, alongside their own codes — so it's obvious which codes already exist before creating a new one.",
+            "Guild pages now show a 'Next Meeting' card that figures out the date for you: set a cadence like 'monthly, 3rd Thursday at 6pm in Studio B' and the page always shows the upcoming date — or a one-off override, or 'TBA' if nothing's scheduled yet.",
+            "Guild leads and admins can now post announcements to their guild page — pinned at the top, above the About section — and set them to automatically disappear after a date you choose.",
+            "Guild pages now show quick stats (members, classes offered, next meeting) and an 'Upcoming classes' list that links straight to sign-up, plus a 'Get Involved' panel for joining the guild or teaching a class.",
+            "Guild pages are now organized into tabs — Overview, Calendar, and Classes. The Calendar tab shows that guild's events and class sessions in the same week/month view as the main calendar, and the Classes tab lists all the guild's published classes with one-click sign-up.",
+            "Guild pages now have a 'Recent Activity' feed showing the latest happenings — new members joining, fresh announcements, and newly published classes.",
+            "Guild leads can now spotlight a 'featured class' that appears as a highlighted sign-up card at the top of their guild page.",
+            "The member directory now shows which guilds each member belongs to, and you can filter the directory by guild to see everyone in one. Joining a guild is instant, and you can join as many as you like.",
+        ],
+    },
+    {
+        "version": "0.16.8",
+        "date": "2026-06-18",
+        "title": "Big booking-site update: classes, sign-in, approvals, and search",
+        "changes": [
+            "Fixed a 500 error that prevented new account signups on the booking site.",
+            "The 'new sign-in from a new device' security email now uses the same polished template as other Past Lives emails.",
+            "The site activity feed now correctly shows who registered for a class instead of 'System'.",
+            "The '+N more dates/sessions' text on class listings is now clickable and expands to show all dates inline.",
+            "The admin Classes list now groups classes that share the same title and category into one row, showing a date count badge. Changing the category on one grouped class automatically updates the rest.",
+            "Class pages now spell out 'Past Lives Members' next to the member price instead of the 'PL' shorthand.",
+            "The booking-site sign-in, sign-up, and welcome/onboarding pages now match the light theme used everywhere else, so the text is easy to read in light mode instead of washed out.",
+            "When you register for a class while signed in, your pronouns and phone number now carry over to your profile and welcome steps, so you don't have to type them again.",
+            "Class image galleries are now capped at 10 photos, with a clear '10/10' indicator when you reach the limit.",
+            "Admins and instructors can now export a class's participant list to a spreadsheet (name, email, registration date, payment status) right from the registrations page.",
+            "If you've already opted in to class email updates, the newsletter checkbox no longer reappears at checkout. Behind the scenes, 'first-time student' email tagging now correctly skips people we already know as members.",
+            "Each class page now generates its own unique title and description for search engines, so the same class offered on different dates no longer looks like duplicate pages to Google.",
+            "New classes are now approved in order — first the guild lead, then a Past Lives admin — and guild leads get a 'Needs your attention' panel for classes awaiting their sign-off.",
+            "The site activity log now records exactly who confirmed, cancelled, or refunded a class registration, instead of attributing some of those actions to 'System'.",
+            "Classes can now be set up as a multi-session 'Series Package' — one sign-up and one payment enrolls you in all the dates — or a 'Single Session', with a badge on listings so you can tell them apart at a glance.",
+        ],
+    },
+    {
+        "version": "0.16.7",
         "date": "2026-06-15",
         "title": "Guild logos on class pages and FOG hub topbar",
         "changes": [
@@ -16,7 +190,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.6",
+        "version": "0.16.6",
         "date": "2026-06-11",
         "title": "Scheduled reminders, account page polish, onboarding fixes",
         "changes": [
@@ -26,7 +200,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.5",
+        "version": "0.16.5",
         "date": "2026-06-10",
         "title": "Classes offered on many dates show once",
         "changes": [
@@ -35,7 +209,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.4",
+        "version": "0.16.4",
         "date": "2026-06-10",
         "title": "Class session calendar saves reliably",
         "changes": [
@@ -43,7 +217,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.3",
+        "version": "0.16.3",
         "date": "2026-06-09",
         "title": "Save confirmations show up again",
         "changes": [
@@ -51,7 +225,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.2",
+        "version": "0.16.2",
         "date": "2026-06-09",
         "title": "Cleaner class titles on the Community Calendar",
         "changes": [
@@ -59,7 +233,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.1",
+        "version": "0.16.1",
         "date": "2026-06-09",
         "title": "Community Calendar shows each class once",
         "changes": [
@@ -68,7 +242,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.5.0",
+        "version": "0.16.0",
         "date": "2026-06-08",
         "title": "Booking-site fixes, a clearer teaching area, and email auditing",
         "changes": [
@@ -87,7 +261,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.4.0",
+        "version": "0.15.0",
         "date": "2026-06-08",
         "title": "Old-CMS classes import and sync automatically every day",
         "changes": [
@@ -95,7 +269,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.3.2",
+        "version": "0.14.2",
         "date": "2026-06-07",
         "title": "Booking site polish: upcoming-only listing, pagination, and cross-site login",
         "changes": [
@@ -109,7 +283,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.3.1",
+        "version": "0.14.1",
         "date": "2026-06-06",
         "title": "Classes from the old CMS now show up on book.pastlives.space",
         "changes": [
@@ -122,7 +296,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.3.0",
+        "version": "0.14.0",
         "date": "2026-05-28",
         "title": "Classes CMS round 2: rebrand, waitlist, dual approval, activity feed, and more",
         "changes": [
@@ -142,7 +316,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.2.2",
+        "version": "0.13.2",
         "date": "2026-05-26",
         "title": "Image uploads work on the New Class form",
         "changes": [
@@ -150,7 +324,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.2.1",
+        "version": "0.13.1",
         "date": "2026-05-26",
         "title": "Students on class detail, dollar pricing, admin create form fix",
         "changes": [
@@ -163,7 +337,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.2.0",
+        "version": "0.13.0",
         "date": "2026-05-25",
         "title": "Visual session calendar, AJAX images, admin polish",
         "changes": [
@@ -181,7 +355,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.1.0",
+        "version": "0.12.0",
         "date": "2026-05-25",
         "title": "CMS polish: styled emails, admin consolidation, instructor registrations",
         "changes": [
@@ -197,7 +371,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.7",
+        "version": "0.11.7",
         "date": "2026-05-23",
         "title": "Fix: production deploy blocked by migration conflict",
         "changes": [
@@ -205,7 +379,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.6",
+        "version": "0.11.6",
         "date": "2026-05-23",
         "title": "Classes: smarter photos, newsletter tagging, custom questions, and instructor messaging",
         "changes": [
@@ -219,7 +393,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.5",
+        "version": "0.11.5",
         "date": "2026-05-22",
         "title": "Classes: multi-image galleries with hover-zoom + a preview button",
         "changes": [
@@ -231,7 +405,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.4",
+        "version": "0.11.4",
         "date": "2026-05-22",
         "title": "book.pastlives.space: an obvious way to sign up",
         "changes": [
@@ -240,7 +414,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.3",
+        "version": "0.11.3",
         "date": "2026-05-22",
         "title": "Site Settings: add multiple calendars to the Community Calendar",
         "changes": [
@@ -250,7 +424,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.2",
+        "version": "0.11.2",
         "date": "2026-05-22",
         "title": "Delete classes outright, and a $1 minimum on paid classes",
         "changes": [
@@ -259,7 +433,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.1",
+        "version": "0.11.1",
         "date": "2026-05-22",
         "title": "Class registration: friendlier error when a price comes out too low",
         "changes": [
@@ -267,7 +441,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "2.0.0",
+        "version": "0.11.0",
         "date": "2026-05-22",
         "title": "Classes & workshops are now open to everyone at book.pastlives.space",
         "changes": [
@@ -282,7 +456,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.9.1",
+        "version": "0.10.1",
         "date": "2026-05-21",
         "title": "Stop login-page email spam from draining our daily quota",
         "changes": [
@@ -294,7 +468,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.9.0",
+        "version": "0.10.0",
         "date": "2026-05-05",
         "title": "Mailchimp signup + site-wide Google Analytics",
         "changes": [
@@ -305,7 +479,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.8.0",
+        "version": "0.9.0",
         "date": "2026-05-01",
         "title": "Calendar QOL + a redesigned Profile page that lets you control what's public",
         "changes": [
@@ -317,7 +491,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.5.2",
+        "version": "0.8.8",
         "date": "2026-04-27",
         "title": "Hotfix: site layout broken for everyone",
         "changes": [
@@ -325,7 +499,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.6",
+        "version": "0.8.7",
         "date": "2026-04-26",
         "title": "Free classes & workshops — and a fix for the Register page styling",
         "changes": [
@@ -335,7 +509,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.5",
+        "version": "0.8.6",
         "date": "2026-04-25",
         "title": "Members can sign up for classes online — plus a unified Classes page",
         "changes": [
@@ -349,7 +523,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.4",
+        "version": "0.8.5",
         "date": "2026-04-25",
         "title": "One unified view — Classes, Calendar, Payments, and admin all live in the FOG dashboard",
         "changes": [
@@ -361,7 +535,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.3",
+        "version": "0.8.4",
         "date": "2026-04-23",
         "title": "Classes: public portal, instructor dashboard, and calendar integration",
         "changes": [
@@ -375,7 +549,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.2",
+        "version": "0.8.3",
         "date": "2026-04-23",
         "title": "Fix: logout page styling",
         "changes": [
@@ -383,7 +557,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.1",
+        "version": "0.8.2",
         "date": "2026-04-21",
         "title": "Photos for member profiles, guild banners, and classes",
         "changes": [
@@ -396,7 +570,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.0.2",
+        "version": "0.8.1",
         "date": "2026-04-21",
         "title": "Hotfix: deploy failing on Render",
         "changes": [
@@ -404,7 +578,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.7.0.1",
+        "version": "0.8.0",
         "date": "2026-04-21",
         "title": "Classes: admin tabs foundation",
         "changes": [
@@ -415,7 +589,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.6.3",
+        "version": "0.7.3",
         "date": "2026-04-17",
         "title": "Admin role preview in the hub",
         "changes": [
@@ -423,7 +597,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.6.2",
+        "version": "0.7.2",
         "date": "2026-04-15",
         "title": "Fix: login page CSS broken after navigating from the hub",
         "changes": [
@@ -431,7 +605,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.6.1",
+        "version": "0.7.1",
         "date": "2026-04-15",
         "title": "Calendar: Classes sync, configurable colors & pagination",
         "changes": [
@@ -442,7 +616,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.6.0",
+        "version": "0.7.0",
         "date": "2026-04-15",
         "title": "Community Calendar",
         "changes": [
@@ -453,7 +627,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.7",
+        "version": "0.6.7",
         "date": "2026-04-15",
         "title": "Current Vote Standings — real totals",
         "changes": [
@@ -461,7 +635,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.6",
+        "version": "0.6.6",
         "date": "2026-04-15",
         "title": "Voting hotfixes, User Settings, and sidebar polish",
         "changes": [
@@ -476,7 +650,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.5",
+        "version": "0.6.5",
         "date": "2026-04-14",
         "title": "Edit products in place",
         "changes": [
@@ -486,7 +660,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.4",
+        "version": "0.6.4",
         "date": "2026-04-14",
         "title": "Edit Your Guild Page Directly",
         "changes": [
@@ -502,7 +676,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.3",
+        "version": "0.6.3",
         "date": "2026-04-14",
         "title": "Flexible Product Revenue Splits",
         "changes": [
@@ -514,7 +688,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.2",
+        "version": "0.6.2",
         "date": "2026-04-14",
         "title": "Local Dev Setup & Cart Toast Fix",
         "changes": [
@@ -525,7 +699,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.1",
+        "version": "0.6.1",
         "date": "2026-04-13",
         "title": "My Tab & Guild Page Hotfixes",
         "changes": [
@@ -540,7 +714,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.5.0",
+        "version": "0.6.0",
         "date": "2026-04-11",
         "title": "Single Stripe Account, Revenue Splits & Reports",
         "changes": [
@@ -556,7 +730,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.4.1",
+        "version": "0.5.1",
         "date": "2026-04-11",
         "title": "Funding Results — Quieter Display & Admin Email Aliases",
         "changes": [
@@ -567,7 +741,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.4.0",
+        "version": "0.5.0",
         "date": "2026-04-11",
         "title": "Email Aliases & Smarter Funding Snapshots",
         "changes": [
@@ -582,7 +756,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.3.2",
+        "version": "0.4.2",
         "date": "2026-04-07",
         "title": "Pay-as-you-go Tabs, Guild Product Cards & Stripe in Settings",
         "changes": [
@@ -595,7 +769,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.3.1",
+        "version": "0.4.1",
         "date": "2026-04-07",
         "title": "Pay Guilds Directly for Consumables",
         "changes": [
@@ -605,7 +779,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.3.0",
+        "version": "0.4.0",
         "date": "2026-04-02",
         "title": "Tab Billing System",
         "changes": [
@@ -627,7 +801,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.2.1",
+        "version": "0.3.1",
         "date": "2026-04-01",
         "title": "Mobile Sidebar Fix",
         "changes": [
@@ -637,7 +811,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.2.0",
+        "version": "0.3.0",
         "date": "2026-03-30",
         "title": "Member Management Redesign",
         "changes": [
@@ -649,7 +823,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.1.2",
+        "version": "0.2.2",
         "date": "2026-03-30",
         "title": "Mobile Sidebar Fix",
         "changes": [
@@ -657,7 +831,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.1.1",
+        "version": "0.2.1",
         "date": "2026-03-28",
         "title": "Better Discord Announcements",
         "changes": [
@@ -666,7 +840,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.1.0",
+        "version": "0.2.0",
         "date": "2026-03-28",
         "title": "Vote Standings & Discord Notifications",
         "changes": [
@@ -676,7 +850,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.0.3",
+        "version": "0.1.3",
         "date": "2026-03-28",
         "title": "Login & Email Fixes",
         "changes": [
@@ -686,7 +860,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.0.2",
+        "version": "0.1.2",
         "date": "2026-03-28",
         "title": "Admin Fixes",
         "changes": [
@@ -695,7 +869,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.0.1",
+        "version": "0.1.1",
         "date": "2026-03-27",
         "title": "Hotfix",
         "changes": [
@@ -705,7 +879,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "1.0.0",
+        "version": "0.1.0",
         "date": "2026-03-27",
         "title": "Launch Day",
         "changes": [

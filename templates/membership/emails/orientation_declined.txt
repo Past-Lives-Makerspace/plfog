@@ -1,0 +1,12 @@
+Hi {{ greeting_name }},
+
+Thanks for your interest in {{ guild.name }}. The guild lead wasn't able to
+confirm your requested orientation time.
+{% if booking.lead_note %}
+A note from the guild lead:
+{{ booking.lead_note }}
+{% endif %}
+You're welcome to pick another time on the guild page:
+{{ guild_url }}
+
+— Past Lives Makerspace

@@ -15,10 +15,22 @@ if TYPE_CHECKING:
     from classes.models import ClassApproval, ClassOffering, ClassSession, Registration
 
 
-def _admin_review_recipients() -> list[str]:
-    """Return the configured admin reviewer email list, deduplicated."""
-    raw = getattr(settings, "CLASS_ADMIN_NOTIFY_EMAILS", "") or ""
+def _admin_recipients() -> list[str]:
+    """Email addresses for admin notifications, deduplicated and order-preserving.
+
+    Resolves every Member with the Admin role (via their primary email), then
+    unions in any addresses configured via ``CLASS_ADMIN_NOTIFY_EMAILS``. The
+    setting is an optional extra — admins on the roster are notified out of the
+    box, with no per-environment configuration required.
+    """
+    from membership.models import Member
+
     seen: list[str] = []
+    for member in Member.objects.filter(fog_role=Member.FogRole.ADMIN):
+        email = member.primary_email
+        if email and email not in seen:
+            seen.append(email)
+    raw = getattr(settings, "CLASS_ADMIN_NOTIFY_EMAILS", "") or ""
     for chunk in raw.split(","):
         email = chunk.strip()
         if email and email not in seen:
@@ -67,6 +79,61 @@ def send_registration_confirmation(registration: "Registration") -> None:
     )
 
 
+def _welcome_email_bodies(offering: "ClassOffering", *, greeting_name: str, self_serve_url: str) -> tuple[str, str]:
+    """Render the (text, html) bodies for an instructor's welcome email."""
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    context = {
+        "offering": offering,
+        "greeting_name": greeting_name,
+        "upcoming_sessions": upcoming_sessions,
+        "self_serve_url": self_serve_url,
+        "body": offering.welcome_email_body,
+    }
+    text_body = render_to_string("classes/emails/welcome.txt", context)
+    html_body = render_to_string("classes/emails/welcome.html", context)
+    return text_body, html_body
+
+
+def send_class_welcome_email(registration: "Registration") -> None:
+    """Send the instructor-authored welcome email to a newly-confirmed registrant.
+
+    Best-effort and a no-op unless the class's welcome email is enabled and has a
+    subject + body (``welcome_email_ready``). Called right after the order
+    confirmation on the free-class and paid-webhook confirmation paths, so it
+    reaches only people who are actually in the class (never waitlist joins).
+    """
+    offering = registration.class_offering
+    if not offering.welcome_email_ready:
+        return
+    self_serve_url = _absolute_url(reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}))
+    text_body, html_body = _welcome_email_bodies(
+        offering, greeting_name=registration.first_name, self_serve_url=self_serve_url
+    )
+    core_email.send(
+        to=registration.email,
+        subject=offering.welcome_email_subject,
+        trigger_kind="classes.welcome_email",
+        text_body=text_body,
+        html_body=html_body,
+        best_effort=True,
+    )
+
+
+def send_class_welcome_email_test(offering: "ClassOffering", recipient_email: str) -> None:
+    """Send a test render of a class's welcome email to one address (the editor)."""
+    text_body, html_body = _welcome_email_bodies(
+        offering, greeting_name="there", self_serve_url=_absolute_url(reverse("classes:public_list"))
+    )
+    core_email.send(
+        to=recipient_email,
+        subject=f"[Test] {offering.welcome_email_subject}",
+        trigger_kind="classes.welcome_email_test",
+        text_body=text_body,
+        html_body=html_body,
+        best_effort=True,
+    )
+
+
 def send_instructor_registration_notification(registration: "Registration") -> None:
     """Notify the instructor that someone registered for their class."""
     offering = registration.class_offering
@@ -91,8 +158,8 @@ def send_instructor_registration_notification(registration: "Registration") -> N
 
 
 def send_admin_registration_notification(registration: "Registration") -> None:
-    """Notify admins that someone registered for a class (if configured)."""
-    admin_emails = [e.strip() for e in getattr(settings, "CLASS_ADMIN_NOTIFY_EMAILS", "").split(",") if e.strip()]
+    """Notify admins that someone registered for a class."""
+    admin_emails = _admin_recipients()
     if not admin_emails:
         return
     offering = registration.class_offering
@@ -113,70 +180,112 @@ def send_admin_registration_notification(registration: "Registration") -> None:
     )
 
 
-def send_class_review_requests(offering: "ClassOffering", approvals: list["ClassApproval"]) -> None:
-    """Fire the review-request emails created by ``submit_for_review()``.
-
-    Sends one email per approval row:
-      * Admin rows go to every address in ``CLASS_ADMIN_NOTIFY_EMAILS``.
-      * Guild-lead rows go to the guild_lead's user email when set.
+def _send_review_request_email(
+    offering: "ClassOffering", row: "ClassApproval", *, recipients: list[str], role_label: str
+) -> None:
+    """Render and send the stage-one ``review_request`` email to ``recipients``.
 
     Each email carries a tokenized ``/classes/review/<token>/`` link so the
-    reviewer can act without a hub login. Also sends the instructor a
-    "here's what happens next" explainer in the same call.
+    reviewer can act without a hub login. No-op when there are no recipients.
     """
-    from classes.models import ClassApproval
+    if not recipients:
+        return
+    review_url = _absolute_url(reverse("classes:class_review", kwargs={"token": row.token}))
+    context = {
+        "offering": offering,
+        "approval": row,
+        "review_url": review_url,
+        "role_label": role_label,
+    }
+    text_body = render_to_string("classes/emails/review_request.txt", context)
+    html_body = render_to_string("classes/emails/review_request.html", context)
+    core_email.send(
+        to=recipients,
+        subject=f"Review request: {offering.title}",
+        trigger_kind="classes.review_request",
+        text_body=text_body,
+        html_body=html_body,
+        best_effort=True,
+    )
 
-    for row in approvals:
-        review_url = _absolute_url(reverse("classes:class_review", kwargs={"token": row.token}))
-        recipients: list[str] = []
-        if row.role == ClassApproval.Role.ADMIN:
-            recipients = _admin_review_recipients()
-            role_label = "Admin"
-        elif row.role == ClassApproval.Role.GUILD_LEAD:
-            guild = offering.category.guild
-            lead = guild.guild_lead if guild else None
-            if lead and lead.primary_email:
-                recipients = [lead.primary_email]
-            role_label = "Guild Lead"
-        else:
-            role_label = row.get_role_display()
-        if not recipients:
-            continue
-        context = {
-            "offering": offering,
-            "approval": row,
-            "review_url": review_url,
-            "role_label": role_label,
-        }
-        text_body = render_to_string("classes/emails/review_request.txt", context)
-        html_body = render_to_string("classes/emails/review_request.html", context)
-        core_email.send(
-            to=recipients,
-            subject=f"Review request: {offering.title}",
-            trigger_kind="classes.review_request",
-            text_body=text_body,
-            html_body=html_body,
-            best_effort=True,
-        )
 
-    # Tell the instructor what's happening so they don't wonder.
-    if offering.instructor and offering.instructor.primary_email:
-        instructor_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
-        ctx = {
-            "offering": offering,
-            "approvals": approvals,
-            "instructor_url": instructor_url,
-        }
-        text_body = render_to_string("classes/emails/review_submitted_instructor.txt", ctx)
-        html_body = render_to_string("classes/emails/review_submitted_instructor.html", ctx)
-        core_email.send(
-            to=offering.instructor.primary_email,
-            subject=f"Your class '{offering.title}' is in review",
-            trigger_kind="classes.review_request_instructor",
-            text_body=text_body,
-            html_body=html_body,
-            best_effort=True,
-        )
+def _send_instructor_review_explainer(offering: "ClassOffering", row: "ClassApproval") -> None:
+    """Tell the instructor their class is in review so they don't wonder."""
+    if not (offering.instructor and offering.instructor.primary_email):
+        return
+    instructor_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+    ctx = {
+        "offering": offering,
+        "approvals": [row],
+        "instructor_url": instructor_url,
+    }
+    text_body = render_to_string("classes/emails/review_submitted_instructor.txt", ctx)
+    html_body = render_to_string("classes/emails/review_submitted_instructor.html", ctx)
+    core_email.send(
+        to=offering.instructor.primary_email,
+        subject=f"Your class '{offering.title}' is in review",
+        trigger_kind="classes.review_request_instructor",
+        text_body=text_body,
+        html_body=html_body,
+        best_effort=True,
+    )
+
+
+def send_guild_lead_review_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
+    """Stage one: email the guild lead the review request + tell the instructor.
+
+    Fired from ``ClassOffering.submit_for_review()`` when the first-stage gate
+    is the Guild Lead. The guild lead's address resolves from the category's
+    guild; when it's missing, only the instructor explainer goes out.
+    """
+    guild = offering.category.guild if offering.category_id else None
+    lead = guild.guild_lead if guild else None
+    recipients = [lead.primary_email] if (lead and lead.primary_email) else []
+    _send_review_request_email(offering, approval, recipients=recipients, role_label="Guild Lead")
+    _send_instructor_review_explainer(offering, approval)
+
+
+def send_admin_review_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
+    """Stage one for lead-less categories: email admins the review request.
+
+    Used when a category has no guild lead, so the Admin gate is stage one.
+    Mirrors the guild-lead path: admins get the request, the instructor gets
+    the explainer.
+    """
+    _send_review_request_email(offering, approval, recipients=_admin_recipients(), role_label="Admin")
+    _send_instructor_review_explainer(offering, approval)
+
+
+def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
+    """Stage two: email admins for executive validation after a guild-lead approval.
+
+    Fired from ``ClassOffering.on_review_decision_recorded`` when a Guild Lead
+    approves and the Admin gate opens. Carries the admin row's tokenized review
+    link and the "executive validation" wording from the spec.
+    """
+    recipients = _admin_recipients()
+    if not recipients:
+        return
+    review_url = _absolute_url(reverse("classes:class_review", kwargs={"token": approval.token}))
+    guild = offering.category.guild if offering.category_id else None
+    lead = guild.guild_lead if guild else None
+    context = {
+        "offering": offering,
+        "approval": approval,
+        "review_url": review_url,
+        "guild_lead_name": lead.display_name if lead is not None else "A guild lead",
+        "instructor_name": offering.instructor.display_name if offering.instructor is not None else "the instructor",
+    }
+    text_body = render_to_string("classes/emails/admin_validation_request.txt", context)
+    html_body = render_to_string("classes/emails/admin_validation_request.html", context)
+    core_email.send(
+        to=recipients,
+        subject=f"Executive validation needed: {offering.title}",
+        trigger_kind="classes.admin_validation_request",
+        text_body=text_body,
+        html_body=html_body,
+        best_effort=True,
+    )
 
 
 def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") -> None:

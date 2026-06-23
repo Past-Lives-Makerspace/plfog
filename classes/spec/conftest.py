@@ -37,3 +37,30 @@ def member_user(db):
         defaults={"full_legal_name": "Plain Member", "fog_role": Member.FogRole.MEMBER, "membership_plan": plan},
     )
     return user
+
+
+@pytest.fixture
+def free_offering(db):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, InstructorFactory
+    from classes.models import ClassOffering
+
+    offering = ClassOfferingFactory(
+        title="Free Demo",
+        slug="free-demo",
+        category=CategoryFactory(),
+        instructor=InstructorFactory(),
+        status=ClassOffering.Status.PUBLISHED,
+        price_cents=0,
+        member_discount_pct=0,
+        capacity=4,
+    )
+    ClassSessionFactory(
+        class_offering=offering,
+        starts_at=timezone.now() + timedelta(days=3),
+        ends_at=timezone.now() + timedelta(days=3, hours=2),
+    )
+    return offering

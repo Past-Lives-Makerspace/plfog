@@ -1,0 +1,105 @@
+{% extends "hub/base.html" %}
+{% load classes_tags %}
+{% block title %}Orientations{% endblock %}
+{% block content %}
+<div x-data="{}">
+  <h1 class="hub-page-title">Orientations</h1>
+
+  {% if upcoming %}
+  <div class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Upcoming</h2>
+    <ul style="list-style:none; padding:0; margin:0;">
+      {% for b in upcoming %}
+      <li style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; padding:0.5rem 0; border-top:1px solid var(--hub-border);">
+        <span>
+          <strong>{{ b.member.display_name }}</strong> · {{ b.guild.name }}
+          <span class="hub-text-muted">· {{ b.slot.starts_at|date:"D M j, g:i A" }}</span>
+          {% if b.status == "requested" %}<span class="hub-badge" style="background:rgba(238,180,75,0.18); color:#EEB44B;">Pending</span>{% endif %}
+        </span>
+        <a href="{% url 'hub_orientation_respond' b.pk %}" class="hub-btn hub-btn--sm">Respond</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <form method="get" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-bottom:1rem;">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search member or guild…"
+           style="padding:0.45rem 0.75rem; min-width:180px; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
+    <select name="guild" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;">
+      <option value="">All guilds</option>
+      {% for g in guilds %}<option value="{{ g.pk }}"{% if g.pk|stringformat:'s' == guild_filter %} selected{% endif %}>{{ g.name }}</option>{% endfor %}
+    </select>
+    <select name="scope" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;">
+      <option value="">All</option>
+      <option value="mine"{% if scope == "mine" %} selected{% endif %}>Mine (guilds I lead)</option>
+    </select>
+    <select name="status" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;">
+      <option value="">Any status</option>
+      {% for value, label in statuses %}<option value="{{ value }}"{% if value == status_filter %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <select name="completed" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;">
+      <option value="">Any</option>
+      <option value="yes"{% if completed_filter == "yes" %} selected{% endif %}>Completed</option>
+      <option value="no"{% if completed_filter == "no" %} selected{% endif %}>Not completed</option>
+    </select>
+    <input type="date" name="start" value="{{ start }}" style="padding:0.4rem; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit;">
+    <input type="date" name="end" value="{{ end }}" style="padding:0.4rem; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit;">
+    {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+    {% if sort_dir %}<input type="hidden" name="dir" value="{{ sort_dir }}">{% endif %}
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
+    <a href="{% url 'hub_orientations_export' %}{% if base_params %}?{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">Export CSV</a>
+  </form>
+
+  <div class="admin-table-wrap">
+  <table>
+    <thead>
+      <tr>
+        {% sort_header "When" "slot__starts_at" sort sort_dir base_params %}
+        {% sort_header "Member" "member__full_legal_name" sort sort_dir base_params %}
+        {% sort_header "Guild" "guild__name" sort sort_dir base_params %}
+        {% sort_header "Status" "status" sort sort_dir base_params %}
+        <th>Oriented by</th>
+        <th>Completed</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for b in page %}
+      <tr>
+        <td>{{ b.slot.starts_at|date:"Y-m-d H:i" }}</td>
+        <td><a href="{% url 'hub_orientation_respond' b.pk %}">{{ b.member.display_name }}</a></td>
+        <td>{{ b.guild.name }}</td>
+        <td>{{ b.get_status_display }}</td>
+        <td>{{ b.oriented_by.display_name|default:"—" }}</td>
+        <td>
+          {% if is_admin or b.guild.guild_lead_id == my_member_id %}
+          <form method="post" action="{% url 'hub_orientation_toggle_completed' b.pk %}" style="margin:0;">
+            {% csrf_token %}
+            <button type="submit" class="hub-btn hub-btn--sm{% if b.is_completed %} hub-btn--primary{% endif %}">{% if b.is_completed %}✓ Done{% else %}Mark done{% endif %}</button>
+          </form>
+          {% else %}
+          {% if b.is_completed %}✓{% else %}—{% endif %}
+          {% endif %}
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">{% if q %}No orientations matching "{{ q }}".{% else %}No orientations yet.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% include "components/table_pagination.html" with page=page base_params=base_params %}
+
+  <div class="hub-card" style="padding:1.25rem 1.5rem; margin-top:1.5rem;">
+    <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Add a member to a slot</h2>
+    <form method="post" action="{% url 'hub_orientation_add_member' %}" class="hub-form">
+      {% csrf_token %}
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+        <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=add_member_form.member %}</div>
+        <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=add_member_form.slot %}</div>
+      </div>
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" style="margin-top:0.75rem;">Add member</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

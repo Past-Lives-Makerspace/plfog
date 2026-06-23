@@ -61,6 +61,15 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
 
         return Invite.objects.filter(email__iexact=email, accepted_at__isnull=True).exists()
 
+    def save_user(self, request: HttpRequest, user: object, form: Any, commit: bool = True) -> object:
+        from core.allauth_state import enter_allauth_signup, exit_allauth_signup
+
+        enter_allauth_signup()
+        try:
+            return super().save_user(request, user, form, commit=commit)
+        finally:
+            exit_allauth_signup()
+
     def login(self, request: HttpRequest, user: object) -> None:
         """Sync permissions from Member role (and admin-domain override), then log in."""
         self._sync_permissions(user)
@@ -98,19 +107,13 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         )
 
     def get_login_redirect_url(self, request: HttpRequest) -> str:
-        """Land on the right place based on surface and onboarding status.
+        """Land on the right place based on surface.
 
-        - Public/book surface, user not yet onboarded → start onboarding wizard.
-        - Public/book surface, user onboarded → /account/ overview.
+        - Public/book surface → /account/ overview (no onboarding step).
         - Members surface (anywhere else) → Community Calendar (existing behavior).
         """
         surface = getattr(request, "surface", "members")
         if surface == "public":
-            from core.models import UserProfile
-
-            profile = UserProfile.objects.filter(user=request.user).first()  # type: ignore[misc]
-            if profile is None or not profile.is_onboarded:
-                return reverse("account:onboarding_step1")
             return reverse("account:overview")
         return reverse("hub_community_calendar")
 
@@ -202,6 +205,22 @@ class AutoCreateUserLoginCodeForm(RequestLoginCodeForm):
             raise get_adapter().validation_error("too_many_login_attempts")
         return value
 
+    @staticmethod
+    def _create_user_idempotent(email: str) -> None:
+        """Create a passwordless User, tolerating a concurrent create.
+
+        Two login-code requests for the same new email (e.g. a double-clicked
+        submit) can both pass the existence check in ``clean_email``; the
+        username unique constraint then makes the loser raise IntegrityError.
+        Swallow it — the user exists either way — instead of surfacing a 500.
+        """
+        from django.db import IntegrityError
+
+        try:
+            User.objects.create_user(username=email, email=email)
+        except IntegrityError:
+            logger.info("Login-code user already created concurrently for %s", email)
+
     def clean_email(self) -> str:
         """Auto-create User for known Members, then run normal allauth lookup."""
         from membership.models import Member, MemberEmail
@@ -210,7 +229,7 @@ class AutoCreateUserLoginCodeForm(RequestLoginCodeForm):
         if email and not User.objects.filter(email__iexact=email).exists():
             # Check primary email on Member
             if Member.objects.filter(_pre_signup_email__iexact=email, user__isnull=True).exists():
-                User.objects.create_user(username=email, email=email)
+                self._create_user_idempotent(email)
                 logger.info("Auto-created User for existing Member (primary email): %s", email)
             else:
                 # Check email aliases
@@ -218,7 +237,7 @@ class AutoCreateUserLoginCodeForm(RequestLoginCodeForm):
                     alias = MemberEmail.objects.select_related("member").get(
                         email__iexact=email, member__user__isnull=True
                     )
-                    User.objects.create_user(username=email, email=email)
+                    self._create_user_idempotent(email)
                     logger.info(
                         "Auto-created User for existing Member (alias email): %s -> %s",
                         email,

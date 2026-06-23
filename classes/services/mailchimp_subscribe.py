@@ -17,15 +17,38 @@ from classes.models import Registration
 logger = logging.getLogger(__name__)
 
 
+def _is_known_member(email: str) -> bool:
+    """True when this email belongs to a known Past Lives Member.
+
+    Unions the three email stores (see membership/CLAUDE.md): the member's
+    stored pre-signup email (the Airtable-mirror value), any staged alias,
+    and any verified allauth EmailAddress for a linked member. Anyone the
+    Airtable pull created has a Member row, so this also satisfies the
+    "check the email against the member registry" requirement without a
+    separate Airtable lookup (Airtable mirrors no class history).
+    """
+    from membership.models import Member, MemberEmail
+
+    if Member.objects.filter(_pre_signup_email__iexact=email).exists():
+        return True
+    if MemberEmail.objects.filter(email__iexact=email).exists():
+        return True
+    return Member.objects.filter(
+        user__emailaddress__email__iexact=email,
+        user__emailaddress__verified=True,
+    ).exists()
+
+
 def derive_tags(registration: Registration) -> list[str]:
     """Build the Mailchimp tag list for a confirmed registration.
 
     Always includes ``class-registrant``. Adds category and instructor slugs
     so segmentation can target a specific kind of student. Adds a ``guild-``
     tag when the category is linked to a makerspace Guild. Adds
-    ``first-time-student`` when this is the registrant's first confirmed
-    registration (by email match — best-effort, since the same person could
-    register under multiple email aliases).
+    ``first-time-student`` only when this is the registrant's first confirmed
+    registration (by email match) AND the email does not belong to a known
+    Past Lives Member — so returning members and Airtable-imported members are
+    never mis-tagged as first-timers.
     """
     offering = registration.class_offering
     tags = ["class-registrant"]
@@ -45,7 +68,7 @@ def derive_tags(registration: Registration) -> list[str]:
         .exclude(pk=registration.pk)
         .exists()
     )
-    if not prior_confirmed:
+    if not prior_confirmed and not _is_known_member(registration.email):
         tags.append("first-time-student")
 
     return tags
@@ -81,3 +104,23 @@ def subscribe_registration(registration: Registration) -> None:
 
     registration.subscribed_to_mailchimp = True
     registration.save(update_fields=["subscribed_to_mailchimp"])
+
+    _stamp_profile_subscribed(registration)
+
+
+def _stamp_profile_subscribed(registration: Registration) -> None:
+    """Mirror the opt-in onto the registrant's UserProfile when one exists.
+
+    Keeps the 'already opted in' signal (used to hide the marketing checkbox)
+    accurate across both the class-registration and account-signup paths.
+    Fails closed: anonymous registrants have no profile, so nothing happens.
+    """
+    from django.utils import timezone
+
+    member = registration.member
+    user = getattr(member, "user", None) if member is not None else None
+    profile = getattr(user, "profile", None) if user is not None else None
+    if profile is None or profile.subscribed_to_mailchimp_at is not None:
+        return
+    profile.subscribed_to_mailchimp_at = timezone.now()
+    profile.save(update_fields=["subscribed_to_mailchimp_at"])

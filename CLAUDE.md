@@ -337,7 +337,9 @@ def calculate_discount(self, subtotal: Decimal, code: str) -> Decimal:
 
 ### BDD-Style with pytest-describe
 
-Tests use `pytest-describe` with nested `describe_*/context_*/it_*`. Test files are `*_spec.py` in a `spec/` subdirectory per app. The `spec/` directory signals BDD-style organization.
+Tests use `pytest-describe` with `describe_*` blocks nesting `it_*` tests. Test files are `*_spec.py` in a `spec/` subdirectory per app. The `spec/` directory signals BDD-style organization.
+
+> **Only `describe_*` nests.** `context_*` is NOT a collected prefix here (see the pytest config below), so a `context_*` block is silently skipped and every `it_*` inside it never runs. Use `describe_*` for every nested block, including conditional ones (`describe_when_…`).
 
 ```
 myapp/
@@ -364,7 +366,7 @@ def describe_MyModel():
             record = MyModelFactory(items=[RelatedModelFactory(price=10, quantity=2)])
             assert record.calculate_total() == Decimal("20.00")
 
-        def context_with_no_items():
+        def describe_with_no_items():
             def it_returns_zero(db):
                 record = MyModelFactory(items=[])
                 assert record.calculate_total() == Decimal("0.00")
@@ -376,7 +378,7 @@ def describe_MyModel():
             record.refresh_from_db()
             assert record.status == "placed"
 
-        def context_with_insufficient_stock():
+        def describe_with_insufficient_stock():
             def it_raises_validation_error(db):
                 record = MyModelFactory(items=[RelatedModelFactory(quantity=100)])
                 with pytest.raises(ValidationError):
@@ -410,9 +412,11 @@ class MyModelFactory(factory.django.DjangoModelFactory):
 ```toml
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "plfog.settings"
-python_files = ["*_spec.py"]
+python_files = ["*_spec.py", "test_*.py"]
 python_classes = ["Describe*"]
-python_functions = ["describe_*", "context_*", "it_*"]
+# Only these prefixes are collected. `context_*` is deliberately absent — a
+# context_* block is silently skipped and the it_* tests inside it never run.
+python_functions = ["it_*", "test_*", "describe_*"]
 addopts = "--strict-markers --tb=short -q"
 ```
 

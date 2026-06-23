@@ -3,7 +3,7 @@
 {% block tab_content %}
 <h2 style="margin-top:0;">{% if mode == 'create' %}New Class{% else %}Edit Class — {{ offering.title }}{% endif %}</h2>
 {% if offering and offering.status == 'pending' %}
-    <p style="padding:0.75rem 1rem; background:rgba(238,180,75,0.1); border:1px solid rgba(238,180,75,0.25); border-radius:6px; color:var(--hub-text-muted); margin-bottom:1rem;">
+    <p style="padding:0.75rem 1rem; background:rgba(238,180,75,0.1); border:1px solid rgba(238,180,75,0.25); border-radius:6px; color:var(--hub-text-muted); margin-top:1rem; margin-bottom:1rem;">
         This class is pending admin review. You can still edit it until it's approved.
     </p>
 {% endif %}
@@ -13,6 +13,7 @@
         {% if field.name == 'image' %}
             {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image crop_field=form.hero_crop offering=offering %}
         {% elif field.name == 'hero_crop' %}
+        {% elif field.name == 'scheduling_type' %}{# rendered as a guided chooser just above the dates #}
         {% elif field.name == 'description' or field.name == 'prerequisites' or field.name == 'materials_included' or field.name == 'materials_to_bring' or field.name == 'safety_requirements' or field.name == 'age_guardian_note' or field.name == 'flexible_note' %}
             {% include "classes/_components/collapsible_field.html" with field=field %}
         {% else %}
@@ -20,12 +21,15 @@
         {% endif %}
     {% endfor %}
 
+    {% include "classes/_components/scheduling_type_field.html" with field=form.scheduling_type %}
+
+    <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Dates &amp; sessions</h3>
+    <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Add a single date for a one-off class, or every date in the series — students enroll once for all of them. You can add or remove dates here anytime.</p>
+    {% include "classes/_components/session_calendar.html" %}
+
     <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Gallery images</h3>
     <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Optional. Add extra photos shown below the hero — finished pieces, the studio space, tool close-ups, etc. Images save instantly.</p>
     {% include "classes/_components/image_formset.html" with offering=offering %}
-
-    <h3 style="margin-top:1.5rem;">Sessions</h3>
-    {% include "classes/_components/session_calendar.html" %}
 
     {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
 
@@ -40,6 +44,13 @@
         <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_dashboard' %}">Cancel</a>
     </div>
 </form>
+{% if mode == 'edit' and offering and offering.pk %}
+<form method="post" action="{% url 'classes:teach_class_duplicate_run' pk=offering.pk %}" style="margin-top:1.25rem; padding-top:1.25rem; border-top:1px solid var(--hub-border,#2a3550);">
+    {% csrf_token %}
+    <button type="submit" class="hub-btn hub-btn--sm">+ Offer on another set of dates</button>
+    <p style="color:var(--hub-text-muted); font-size:0.8rem; margin:0.4rem 0 0;">Runs this same class again on a different date-set. Creates a draft copy with no dates yet — add the new dates, then submit for review. It stays grouped under this class on the public page.</p>
+</form>
+{% endif %}
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>
 <link rel="stylesheet" href="{% static 'css/session-calendar.css' %}">
 {% endblock %}

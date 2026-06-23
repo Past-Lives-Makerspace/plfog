@@ -85,6 +85,31 @@ class ClassOfferingFactory(DjangoModelFactory):
     member_discount_pct = 10
     capacity = 6
     status = models.ClassOffering.Status.DRAFT
+    scheduling_type = models.ClassOffering.SchedulingType.SINGLE_SESSION
+
+
+class SeriesClassOfferingFactory(ClassOfferingFactory):
+    """A series-package offering. Pass ``session_count=N`` to attach N weekly sessions."""
+
+    class Meta:
+        model = models.ClassOffering
+        skip_postgeneration_save = True
+
+    scheduling_type = models.ClassOffering.SchedulingType.SERIES_PACKAGE
+
+    @factory.post_generation
+    def session_count(self, create, extracted, **kwargs):
+        if not create or not extracted:
+            return
+        # Start one week out so every session is upcoming (views filter on
+        # ``starts_at >= now``); spacing one week apart mirrors a real course.
+        base = timezone.now() + timedelta(days=7)
+        for i in range(extracted):
+            ClassSessionFactory(
+                class_offering=self,
+                starts_at=base + timedelta(days=7 * i),
+                ends_at=base + timedelta(days=7 * i, hours=2),
+            )
 
 
 class ClassImageFactory(DjangoModelFactory):

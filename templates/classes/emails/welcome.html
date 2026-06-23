@@ -1,0 +1,57 @@
+{% load i18n %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #12121f; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #12121f; padding: 40px 20px;">
+<tr>
+<td align="center">
+<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width: 480px; width: 100%;">
+    <!-- Header -->
+    <tr>
+    <td style="text-align: center; padding-bottom: 32px;">
+        <span style="font-size: 22px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em;">Past Lives</span>
+        <span style="display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 8px; border-radius: 10px; background-color: rgba(238, 180, 75, 0.15); color: #EEB44B;">BETA</span>
+    </td>
+    </tr>
+    <!-- Card -->
+    <tr>
+    <td style="background-color: #092E4C; border-radius: 12px; padding: 40px 32px;">
+        <p style="margin: 0 0 8px; font-size: 14px; color: #96ACBB; font-weight: 400;">Hi {{ greeting_name }},</p>
+        <p style="margin: 0 0 8px; font-size: 12px; color: #EEB44B; text-transform: uppercase; letter-spacing: 0.08em;">A note from your instructor</p>
+        <p style="margin: 0 0 24px; font-size: 18px; font-weight: 700; color: #F4EFDD;">Welcome to "{{ offering.title }}"</p>
+
+        <!-- Instructor's message -->
+        <div style="font-size: 14px; color: #F4EFDD; line-height: 1.7;">{{ body|linebreaks }}</div>
+
+        {% if upcoming_sessions %}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 24px;">
+            <tr>
+            <td style="padding: 12px 0; border-top: 1px solid rgba(244, 239, 221, 0.1);">
+                <span style="font-size: 12px; color: #96ACBB; text-transform: uppercase; letter-spacing: 0.08em;">Schedule</span><br>
+                {% for session in upcoming_sessions %}<span style="font-size: 14px; color: #F4EFDD;">{{ session.starts_at|date:"l, F j, Y" }} at {{ session.starts_at|time:"g:i A" }}</span>{% if not forloop.last %}<br>{% endif %}{% endfor %}
+            </td>
+            </tr>
+        </table>{% endif %}
+
+        <!-- CTA -->
+        <div style="text-align: center; margin: 24px 0 0;">
+            <a href="{{ self_serve_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View Class Details</a>
+        </div>
+    </td>
+    </tr>
+    <!-- Footer -->
+    <tr>
+    <td style="text-align: center; padding-top: 32px;">
+        <p style="margin: 0 0 4px; font-size: 13px; color: #F4EFDD;">See you soon!</p>
+        <p style="margin: 16px 0 0; font-size: 13px; color: #F4EFDD; font-weight: 600;">Past Lives Makerspace</p>
+        <p style="margin: 2px 0 0; font-size: 12px; color: #96ACBB; font-style: italic;">Do It Together</p>
+    </td>
+    </tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>

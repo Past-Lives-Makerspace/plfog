@@ -354,6 +354,16 @@ def describe_public_class_detail():
         assert response.status_code == 200
         assert b"Sold out" in response.content
 
+    def it_renders_a_unique_seo_title_and_meta_description(published_class, client):
+        from django.utils.html import escape
+
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+        html = response.content.decode()
+        assert response.status_code == 200
+        assert escape(published_class.seo_title) in html
+        assert 'name="description"' in html
+        assert escape(published_class.seo_description[:30]) in html
+
 
 def describe_catalog_grouping():
     def _publish(title, slug, category, instructor, days_out, capacity=6):
@@ -380,8 +390,10 @@ def describe_catalog_grouping():
 
         response = client.get(reverse("classes:public_list"))
 
-        # The class title renders once even though it is offered on three dates.
-        assert response.content.count(b"Blacksmithing 101 with Glen") == 1
+        # One card renders even though the class is offered on three dates. We
+        # count the card element rather than the title text, since the title now
+        # also appears in the media link's aria-label.
+        assert response.content.count(b'class="cls-card"') == 1
         assert b"Pick a date" in response.content
         assert b"3 dates" in response.content
 

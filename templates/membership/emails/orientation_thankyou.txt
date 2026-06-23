@@ -1,0 +1,5 @@
+Hi {{ greeting_name }},
+
+{{ body }}
+
+— {{ guild.name }} · Past Lives Makerspace

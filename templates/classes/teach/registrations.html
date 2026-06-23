@@ -9,7 +9,7 @@
 {% endif %}
 {% if class_groups %}
 {% for group in class_groups %}
-<div x-data="{ open: true, allChecked: false, toggleAll(ev) { this.$refs.section.querySelectorAll('input[name=registration_ids]').forEach(cb => cb.checked = ev.target.checked); this.allChecked = ev.target.checked; } }" style="margin-bottom:1.5rem;border:1px solid var(--hub-border);border-radius:8px;overflow:hidden;">
+<div x-data="{ open: true, emailOpen: false, allChecked: false, toggleAll(ev) { this.$refs.section.querySelectorAll('input[name=registration_ids]').forEach(cb => cb.checked = ev.target.checked); this.allChecked = ev.target.checked; } }" style="margin-bottom:1.5rem;border:1px solid var(--hub-border);border-radius:8px;overflow:hidden;">
 
     <div @click="open = !open" style="display:flex;justify-content:space-between;align-items:center;padding:0.6rem 1rem;background:var(--hub-bg-muted, rgba(0,0,0,0.03));cursor:pointer;user-select:none;">
         <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -62,18 +62,28 @@
             </table>
 
             <div style="padding:0.75rem 1rem;border-top:1px solid var(--hub-border);">
-                <h3 style="margin:0 0 0.5rem;font-size:1rem;">Email selected registrants</h3>
-                <p style="margin:0 0 0.5rem;color:var(--hub-text-muted);font-size:0.85rem;">
-                    Recipients are BCC'd so no one sees the others' emails. Tick the rows above first.
-                </p>
-                <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem;color:var(--hub-text-muted);">Subject</label>
-                <input type="text" name="subject" maxlength="255" required style="width:100%;padding:0.4rem 0.6rem;margin-bottom:0.5rem;">
-                <label style="display:block;margin-bottom:0.25rem;font-size:0.85rem;color:var(--hub-text-muted);">Message</label>
-                <textarea name="body" rows="4" required style="width:100%;padding:0.4rem 0.6rem;margin-bottom:0.5rem;"></textarea>
-                <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;color:var(--hub-text-muted);margin-bottom:0.5rem;">
-                    <input type="checkbox" name="bcc_self" checked> Send me a copy
-                </label>
-                <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send</button>
+                <button type="button" @click="emailOpen = !emailOpen" :aria-expanded="emailOpen"
+                        class="hub-btn hub-btn--sm hub-btn--ghost">
+                    <span x-text="emailOpen ? '▾' : '▸'" style="font-size:0.7rem;"></span>
+                    Email selected registrants
+                </button>
+                <div x-show="emailOpen" x-transition style="margin-top:0.75rem;">
+                    <p style="margin:0 0 0.75rem;color:var(--hub-text-muted);font-size:0.85rem;">
+                        Recipients are BCC'd so no one sees the others' emails. Tick the rows above first.
+                    </p>
+                    <div class="hub-form-group">
+                        <label>Subject</label>
+                        <input type="text" name="subject" maxlength="255" required>
+                    </div>
+                    <div class="hub-form-group">
+                        <label>Message</label>
+                        <textarea name="body" rows="4" required></textarea>
+                    </div>
+                    <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;color:var(--hub-text-muted);margin-bottom:0.5rem;">
+                        <input type="checkbox" name="bcc_self" checked> Send me a copy
+                    </label>
+                    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send</button>
+                </div>
             </div>
         </form>
     {% else %}

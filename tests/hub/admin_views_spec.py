@@ -86,6 +86,41 @@ def describe_admin_members():
         assert b"Findable Person" in response.content
 
 
+def describe_admin_member_invite():
+    def it_requires_login(client):
+        response = client.post(reverse("hub_admin_member_invite"), {"email": "new@x.com"})
+        assert response.status_code == 302
+
+    def it_forbids_plain_members(client):
+        user = _create_member_user(username="mi1")
+        client.login(username=user.username, password="p")
+        response = client.post(reverse("hub_admin_member_invite"), {"email": "new@x.com"})
+        assert response.status_code == 403
+
+    def it_rejects_get(client):
+        _create_superuser(client, username="invadmin")
+        response = client.get(reverse("hub_admin_member_invite"))
+        assert response.status_code == 405
+
+    def it_sends_an_invite_and_redirects(client):
+        from core.models import Invite
+
+        _create_superuser(client, username="invadmin")
+        response = client.post(reverse("hub_admin_member_invite"), {"email": "newbie@x.com"})
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_members")
+        assert Invite.objects.filter(email="newbie@x.com").exists()
+
+    def it_shows_an_error_for_an_existing_member(client):
+        from core.models import Invite
+
+        _create_superuser(client, username="invadmin")
+        _create_member_user(username="taken")  # active member with email taken@x.com
+        response = client.post(reverse("hub_admin_member_invite"), {"email": "taken@x.com"}, follow=True)
+        assert b"already exists" in response.content
+        assert not Invite.objects.filter(email="taken@x.com").exists()
+
+
 def describe_admin_member_edit_role_dispatch():
     def it_promotes_to_instructor(client):
         _create_superuser(client)
@@ -414,3 +449,162 @@ def describe_fog_admin_required():
         # a user who doesn't actually hold admin.
         response = view(request)
         assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Hub-native email-address management on the member edit page
+# ---------------------------------------------------------------------------
+
+
+def _target_with_email(*, username: str = "edittarget") -> User:
+    """An editable member with a single primary, verified EmailAddress."""
+    from allauth.account.models import EmailAddress
+
+    user = _create_member_user(username=username)
+    EmailAddress.objects.filter(user=user).delete()
+    EmailAddress.objects.create(user=user, email=f"{username}@x.com", verified=True, primary=True)
+    return user
+
+
+def describe_admin_member_email_panel():
+    def it_renders_emails_and_the_add_form_for_a_linked_member(client):
+        _create_superuser(client)
+        target = _target_with_email()
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        assert response.status_code == 200
+        assert b"Email addresses" in response.content
+        assert b"edittarget@x.com" in response.content
+        assert reverse("hub_admin_member_email_add", args=[target.member.pk]).encode() in response.content
+
+    def it_shows_a_note_for_an_unlinked_member(client):
+        from tests.membership.factories import MemberFactory
+
+        _create_superuser(client)
+        member = MemberFactory(user=None, _pre_signup_email="airtable-only@x.com")
+        response = client.get(reverse("hub_admin_member_edit", args=[member.pk]))
+        assert response.status_code == 200
+        assert response.context["member_emails"] is None
+        assert b"No linked user yet" in response.content
+
+
+def describe_admin_member_email_add():
+    def it_adds_a_verified_non_primary_alias(client):
+        from allauth.account.models import EmailAddress
+
+        _create_superuser(client)
+        target = _target_with_email()
+        response = client.post(
+            reverse("hub_admin_member_email_add", args=[target.member.pk]),
+            data={"email": "alt@example.com"},
+        )
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_member_edit", args=[target.member.pk])
+        created = EmailAddress.objects.get(user=target, email="alt@example.com")
+        assert created.verified is True
+        assert created.primary is False
+
+    def it_rejects_a_duplicate_without_creating(client):
+        from allauth.account.models import EmailAddress
+
+        _create_superuser(client)
+        target = _target_with_email()
+        response = client.post(
+            reverse("hub_admin_member_email_add", args=[target.member.pk]),
+            data={"email": "edittarget@x.com"},
+        )
+        assert response.status_code == 302
+        assert EmailAddress.objects.filter(user=target).count() == 1
+
+    def it_forbids_a_plain_member(client):
+        target = _target_with_email(username="add_forbid")
+        plain = _create_member_user(username="add_plain")
+        client.login(username=plain.username, password="p")
+        response = client.post(
+            reverse("hub_admin_member_email_add", args=[target.member.pk]),
+            data={"email": "nope@example.com"},
+        )
+        assert response.status_code == 403
+
+    def it_redirects_for_an_unlinked_member(client):
+        from tests.membership.factories import MemberFactory
+
+        _create_superuser(client)
+        member = MemberFactory(user=None, _pre_signup_email="airtable@x.com")
+        response = client.post(
+            reverse("hub_admin_member_email_add", args=[member.pk]),
+            data={"email": "new@example.com"},
+        )
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_member_edit", args=[member.pk])
+
+    def it_rejects_get(client):
+        _create_superuser(client)
+        target = _target_with_email(username="add_get")
+        response = client.get(reverse("hub_admin_member_email_add", args=[target.member.pk]))
+        assert response.status_code == 405
+
+
+def describe_admin_member_email_actions():
+    def _alias(user, email, *, verified=True, primary=False):
+        from allauth.account.models import EmailAddress
+
+        return EmailAddress.objects.create(user=user, email=email, verified=verified, primary=primary)
+
+    def it_removes_a_non_primary_alias(client):
+        from allauth.account.models import EmailAddress
+
+        _create_superuser(client)
+        target = _target_with_email(username="rm")
+        alias = _alias(target, "gone@example.com")
+        response = client.post(
+            reverse("hub_admin_member_email_remove", args=[target.member.pk, alias.pk]),
+        )
+        assert response.status_code == 302
+        assert not EmailAddress.objects.filter(pk=alias.pk).exists()
+
+    def it_promotes_a_verified_alias_to_primary(client):
+        _create_superuser(client)
+        target = _target_with_email(username="sp")
+        alias = _alias(target, "next@example.com", verified=True, primary=False)
+        response = client.post(
+            reverse("hub_admin_member_email_set_primary", args=[target.member.pk, alias.pk]),
+        )
+        assert response.status_code == 302
+        alias.refresh_from_db()
+        assert alias.primary is True
+
+    def it_toggles_verified(client):
+        _create_superuser(client)
+        target = _target_with_email(username="tv")
+        alias = _alias(target, "unv@example.com", verified=False, primary=False)
+        response = client.post(
+            reverse("hub_admin_member_email_toggle_verified", args=[target.member.pk, alias.pk]),
+        )
+        assert response.status_code == 302
+        alias.refresh_from_db()
+        assert alias.verified is True
+
+    def it_redirects_remove_for_an_unlinked_member(client):
+        from tests.membership.factories import MemberFactory
+
+        _create_superuser(client)
+        member = MemberFactory(user=None, _pre_signup_email="a@x.com")
+        response = client.post(reverse("hub_admin_member_email_remove", args=[member.pk, 1]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_member_edit", args=[member.pk])
+
+    def it_redirects_set_primary_for_an_unlinked_member(client):
+        from tests.membership.factories import MemberFactory
+
+        _create_superuser(client)
+        member = MemberFactory(user=None, _pre_signup_email="b@x.com")
+        response = client.post(reverse("hub_admin_member_email_set_primary", args=[member.pk, 1]))
+        assert response.status_code == 302
+
+    def it_redirects_toggle_verified_for_an_unlinked_member(client):
+        from tests.membership.factories import MemberFactory
+
+        _create_superuser(client)
+        member = MemberFactory(user=None, _pre_signup_email="c@x.com")
+        response = client.post(reverse("hub_admin_member_email_toggle_verified", args=[member.pk, 1]))
+        assert response.status_code == 302

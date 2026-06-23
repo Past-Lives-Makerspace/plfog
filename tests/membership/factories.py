@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from decimal import Decimal
 
 import factory
@@ -17,10 +17,14 @@ from membership.models import (
     GuildFAQItem,
     GuildLink,
     GuildMembership,
+    GuildOrientationSettings,
     Lease,
     Member,
     MemberEmail,
     MembershipPlan,
+    OrientationAvailability,
+    OrientationBooking,
+    OrientationSlot,
     Space,
     VotePreference,
 )
@@ -141,6 +145,57 @@ class FundingSnapshotFactory(factory.django.DjangoModelFactory):
     contributor_count = 10
     funding_pool = Decimal("100.00")
     results = factory.LazyFunction(dict)
+
+
+class GuildOrientationSettingsFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildOrientationSettings
+        django_get_or_create = ("guild",)
+
+    guild = factory.SubFactory(GuildFactory)
+    is_enabled = True
+
+
+class OrientationAvailabilityFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = OrientationAvailability
+
+    guild = factory.SubFactory(GuildFactory)
+    weekday = OrientationAvailability.Weekday.TUESDAY
+    start_time = factory.LazyFunction(lambda: time(18, 0))
+    end_time = factory.LazyFunction(lambda: time(19, 0))
+    seats = 4
+
+
+class OrientationSlotFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = OrientationSlot
+        skip_postgeneration_save = True
+
+    guild = factory.SubFactory(GuildFactory)
+    starts_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=2))
+    ends_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=2, hours=1))
+    seats = 4
+
+    @factory.post_generation
+    def enabled_settings(obj, create, extracted, **kwargs):  # noqa: N805
+        """Give the slot's guild enabled orientation settings so it's bookable by default.
+
+        Pass ``enabled_settings=False`` to skip (e.g. to exercise the
+        not-configured / disabled paths).
+        """
+        if not create or extracted is False:
+            return
+        GuildOrientationSettings.objects.get_or_create(guild=obj.guild, defaults={"is_enabled": True})
+
+
+class OrientationBookingFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = OrientationBooking
+
+    slot = factory.SubFactory(OrientationSlotFactory)
+    member = factory.SubFactory(MemberFactory)
+    # guild is denormalized from the slot in OrientationBooking.save().
 
 
 class LeaseFactory(factory.django.DjangoModelFactory):

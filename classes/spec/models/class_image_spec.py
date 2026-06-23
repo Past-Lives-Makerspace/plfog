@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from io import BytesIO
 
+import pytest
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from classes.factories import CategoryFactory, ClassImageFactory, ClassOfferingFactory
+from classes.models import MAX_GALLERY_IMAGES, ClassImage
 
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
@@ -30,9 +33,62 @@ def describe_ClassImage():
         ClassImageFactory(class_offering=offering, image=_image_file("b.png"))
         offering_pk = offering.pk
         offering.delete()
-        from classes.models import ClassImage
 
         assert ClassImage.objects.filter(class_offering_id=offering_pk).count() == 0
+
+    def describe_clean():
+        def it_rejects_the_11th_image(db):
+            offering = ClassOfferingFactory()
+            for i in range(MAX_GALLERY_IMAGES):
+                ClassImageFactory(class_offering=offering, image=_image_file(f"{i}.png"), sort_order=i)
+            eleventh = ClassImage(class_offering=offering, image=_image_file("x.png"))
+            with pytest.raises(ValidationError):
+                eleventh.full_clean()
+
+        def it_allows_the_10th_image(db):
+            offering = ClassOfferingFactory()
+            for i in range(MAX_GALLERY_IMAGES - 1):
+                ClassImageFactory(class_offering=offering, image=_image_file(f"{i}.png"), sort_order=i)
+            tenth = ClassImage(class_offering=offering, image=_image_file("ten.png"))
+            tenth.full_clean()  # must not raise
+
+        def it_allows_resaving_an_existing_image_at_the_cap(db):
+            offering = ClassOfferingFactory()
+            images = [
+                ClassImageFactory(class_offering=offering, image=_image_file(f"{i}.png"), sort_order=i)
+                for i in range(MAX_GALLERY_IMAGES)
+            ]
+            images[0].alt_text = "updated"
+            images[0].full_clean()  # excludes self.pk — must not raise
+
+
+def describe_add_gallery_images():
+    def it_creates_rows_for_each_file(db):
+        offering = ClassOfferingFactory()
+        offering.add_gallery_images([_image_file("a.png"), _image_file("b.png")])
+        assert offering.gallery_images.count() == 2
+
+    def it_rejects_a_batch_that_exceeds_the_cap(db):
+        offering = ClassOfferingFactory()
+        files = [_image_file(f"{i}.png") for i in range(MAX_GALLERY_IMAGES + 1)]
+        with pytest.raises(ValidationError):
+            offering.add_gallery_images(files)
+        assert offering.gallery_images.count() == 0  # atomic: nothing created
+
+    def it_rejects_when_existing_plus_batch_exceeds_cap(db):
+        offering = ClassOfferingFactory()
+        for i in range(MAX_GALLERY_IMAGES - 1):
+            ClassImageFactory(class_offering=offering, image=_image_file(f"e{i}.png"), sort_order=i)
+        with pytest.raises(ValidationError):
+            offering.add_gallery_images([_image_file("x.png"), _image_file("y.png")])
+        assert offering.gallery_images.count() == MAX_GALLERY_IMAGES - 1  # batch rejected whole
+
+    def it_appends_after_existing_images(db):
+        offering = ClassOfferingFactory()
+        ClassImageFactory(class_offering=offering, image=_image_file("first.png"), sort_order=0)
+        offering.add_gallery_images([_image_file("second.png")])
+        orders = list(offering.gallery_images.order_by("sort_order").values_list("sort_order", flat=True))
+        assert orders == [0, 1]  # appended, not colliding at 0
 
 
 def describe_display_images():

@@ -565,7 +565,7 @@ def describe_AdminRedirectAccountAdapter():
             request = rf.get("/accounts/signup/?email=getparam@example.com")
             assert adapter.is_open_for_signup(request) is True
 
-        def context_on_public_surface():
+        def describe_on_public_surface():
             def it_returns_true_even_when_members_surface_is_invite_only(rf):
                 from plfog.adapters import AdminRedirectAccountAdapter
 
@@ -746,23 +746,7 @@ def describe_get_login_redirect_url_public_surface():
 
         assert url == reverse("account:overview")
 
-    def it_redirects_non_onboarded_public_user_to_onboarding_step1(rf):
-        from core.models import UserProfile
-        from plfog.adapters import AdminRedirectAccountAdapter
-
-        adapter = AdminRedirectAccountAdapter()
-        user = User.objects.create_user(username="notyet", email="notyet@example.com", password="pass")
-        UserProfile.objects.create(user=user, onboarding_completed_at=None)
-
-        request = rf.get("/")
-        request.surface = "public"
-        request.user = user
-
-        url = adapter.get_login_redirect_url(request)
-
-        assert url == reverse("account:onboarding_step1")
-
-    def it_redirects_public_user_with_no_profile_to_onboarding_step1(rf):
+    def it_redirects_public_user_with_no_profile_to_account_overview(rf):
         from plfog.adapters import AdminRedirectAccountAdapter
 
         adapter = AdminRedirectAccountAdapter()
@@ -778,7 +762,7 @@ def describe_get_login_redirect_url_public_surface():
 
         url = adapter.get_login_redirect_url(request)
 
-        assert url == reverse("account:onboarding_step1")
+        assert url == reverse("account:overview")
 
     def it_redirects_members_surface_to_community_calendar(rf):
         from plfog.adapters import AdminRedirectAccountAdapter
@@ -815,6 +799,41 @@ def describe_AutoCreateUserLoginCodeForm():
                 form.clean_email()
 
             assert User.objects.filter(email__iexact="alias@example.com").exists()
+
+    def describe_create_user_idempotent():
+        def it_creates_a_single_user_for_a_new_email():
+            from plfog.adapters import AutoCreateUserLoginCodeForm
+
+            AutoCreateUserLoginCodeForm._create_user_idempotent("fresh@example.com")
+
+            assert User.objects.filter(username="fresh@example.com").count() == 1
+
+        def it_swallows_integrityerror_when_a_concurrent_create_collides():
+            from django.db import IntegrityError
+
+            from plfog.adapters import AutoCreateUserLoginCodeForm
+
+            # Simulate the losing race: the username unique constraint fires on a
+            # create that raced an identical one. The method must swallow it.
+            with patch.object(
+                User.objects, "create_user", side_effect=IntegrityError("UNIQUE constraint failed: auth_user.username")
+            ):
+                AutoCreateUserLoginCodeForm._create_user_idempotent("race@example.com")  # must not raise
+
+            # The winning create (mocked away here) is what leaves the row; the
+            # loser added nothing and raised nothing.
+            assert User.objects.filter(username="race@example.com").count() == 0
+
+        def it_logs_when_a_concurrent_create_collides(caplog):
+            from django.db import IntegrityError
+
+            from plfog.adapters import AutoCreateUserLoginCodeForm
+
+            with patch.object(User.objects, "create_user", side_effect=IntegrityError("collision")):
+                with caplog.at_level(logging.INFO, logger="plfog.adapters"):
+                    AutoCreateUserLoginCodeForm._create_user_idempotent("race@example.com")
+
+            assert "already created concurrently" in caplog.text
 
     def describe_honeypot():
         def it_rejects_submission_when_honeypot_is_filled():
@@ -934,3 +953,77 @@ def describe_unknown_account_email_suppression():
 
     def it_is_disabled_at_the_settings_level(settings):
         assert getattr(settings, "ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS", True) is False
+
+
+def describe_signup_save_user_deferred_migration():
+    """End-to-end signup POST through ``save_user``'s thread-local guard.
+
+    ``save_user`` sets the ``is_in_allauth_signup`` flag so the post-save User
+    signal skips ``migrate_to_user`` (allauth's ``setup_user_email`` asserts no
+    EmailAddress rows exist yet); the ``user_signed_up`` handler then runs the
+    deferred migration. A 500 here means the set→skip→deferred-run sequence
+    broke, so these specs guard the real POST, not a mocked path.
+    """
+
+    def it_completes_signup_without_a_500_and_runs_the_deferred_migration(client):
+        from allauth.account.models import EmailAddress
+
+        from membership.models import MemberEmail
+        from tests.membership.factories import MemberEmailFactory
+
+        config = SiteConfiguration.load()
+        config.registration_mode = SiteConfiguration.RegistrationMode.OPEN
+        config.save()
+
+        # Stage an Airtable-style unlinked member whose primary email is the one
+        # being used to sign up, plus a separate alias the deferred migration
+        # must promote into a verified EmailAddress.
+        staged = MemberEmailFactory(
+            member__user=None,
+            member___pre_signup_email="signup@example.com",
+            email="alias@example.com",
+        )
+        member = staged.member
+
+        response = client.post("/accounts/signup/", {"email": "signup@example.com"})
+
+        # A 500 would mean the deferred-migration guard broke; signup must succeed.
+        assert response.status_code == 302
+        user = User.objects.get(email__iexact="signup@example.com")
+
+        # The deferred migrate_to_user ran: the alias staging row was promoted to
+        # an EmailAddress and the MemberEmail staging row consumed.
+        assert EmailAddress.objects.filter(user=user, email__iexact="signup@example.com", primary=True).exists()
+        assert EmailAddress.objects.filter(user=user, email__iexact="alias@example.com").exists()
+        assert not MemberEmail.objects.filter(member=member).exists()
+        member.refresh_from_db()
+        assert member.user == user
+
+    def it_defers_migrate_to_user_until_after_the_signup_flag_clears(client):
+        # The User post-save signal must SKIP migrate_to_user while the flag is
+        # set inside save_user, and only the deferred user_signed_up handler
+        # runs it — once, with the flag already cleared.
+        from membership.managers import MemberEmailManager
+        from tests.membership.factories import MembershipPlanFactory
+
+        MembershipPlanFactory()
+        config = SiteConfiguration.load()
+        config.registration_mode = SiteConfiguration.RegistrationMode.OPEN
+        config.save()
+
+        from core.allauth_state import is_in_allauth_signup
+
+        flags_at_call: list[bool] = []
+        original = MemberEmailManager.migrate_to_user
+
+        def _spy(self, user):
+            flags_at_call.append(is_in_allauth_signup())
+            return original(self, user)
+
+        with patch.object(MemberEmailManager, "migrate_to_user", autospec=True, side_effect=_spy):
+            response = client.post("/accounts/signup/", {"email": "brandnew@example.com"})
+
+        assert response.status_code == 302
+        # Exactly one migrate_to_user call, and it ran after the flag cleared —
+        # never during the in-signup window.
+        assert flags_at_call == [False]

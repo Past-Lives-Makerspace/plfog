@@ -52,6 +52,14 @@ Three places an email can live for a Member. Future agents MUST understand which
 
 Never set `is_staff`/`is_superuser` directly — always go through `set_fog_role()`.
 
+## Guild Leads — edit authority
+
+A guild's lead is **only** the `Guild.guild_lead` FK (→ Member). That FK alone grants edit rights — no FOG role, Django group, or `is_staff` flag required. `fog_role` (admin / guild_officer) is a *separate*, cross-guild staff tier and keeps working independently.
+
+- **One source of truth for "who may edit what":** `membership/permissions.py` — `can_edit_guild(request, guild)`, `can_edit_class(request, offering)`, `can_edit_category(request, category)` (all `view_as`-aware). For role-based checks (commands, model logic, tests) use `Member.can_edit_guild` / `Member.can_edit_class` and `ClassOffering.objects.editable_by(member)`. Don't reimplement these inline in views.
+- Never gate a guild-lead surface on `is_staff`, `fog_role`, or `member_type` — that reintroduces the drift that left real leads unable to save. `MemberType.GUILD_LEAD` is an Airtable label only and grants nothing.
+- Guild was removed from the Django admin (v1.6.0). Assign a lead with `manage.py set_guild_lead --guild <name|id> --member <email>` (it warns if that member has no linked user). Detect drift with `manage.py audit_guild_leads` (leads with no login, inactive leads, guilds with no lead).
+
 ## Key QuerySet Methods
 
 - `Member.objects.active()` — status=ACTIVE

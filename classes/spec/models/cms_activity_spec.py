@@ -47,6 +47,51 @@ def describe_CmsActivity():
             reg.cancel(reason="changed mind")
             assert CmsActivity.objects.filter(kind=CmsActivity.Kind.REGISTRATION_CANCELLED, registration=reg).exists()
 
+    def describe_registration_actor():
+        def it_records_the_acting_user_on_cancel(db):
+            from django.contrib.auth import get_user_model
+
+            actor = get_user_model().objects.create_user(username="canceller@example.com")
+            reg = RegistrationFactory(status=Registration.Status.CONFIRMED, email="ac@example.com")
+            reg.cancel(reason="admin pull", actor=actor)
+            row = CmsActivity.objects.get(kind=CmsActivity.Kind.REGISTRATION_CANCELLED, registration=reg)
+            assert row.actor == actor
+
+        def it_defaults_cancel_actor_to_none(db):
+            reg = RegistrationFactory(status=Registration.Status.CONFIRMED, email="an@example.com")
+            reg.cancel(reason="no actor")
+            row = CmsActivity.objects.get(kind=CmsActivity.Kind.REGISTRATION_CANCELLED, registration=reg)
+            assert row.actor is None
+
+        def it_records_the_acting_user_on_confirm(db):
+            from django.contrib.auth import get_user_model
+
+            actor = get_user_model().objects.create_user(username="confirmer@example.com")
+            reg = RegistrationFactory(status=Registration.Status.PENDING, email="cf@example.com")
+            reg._acting_user = actor
+            reg.status = Registration.Status.CONFIRMED
+            reg.save(update_fields=["status"])
+            row = CmsActivity.objects.get(kind=CmsActivity.Kind.REGISTRATION_CONFIRMED, registration=reg)
+            assert row.actor == actor
+
+        def it_leaves_confirm_actor_none_when_unset(db):
+            reg = RegistrationFactory(status=Registration.Status.PENDING, email="cu@example.com")
+            reg.status = Registration.Status.CONFIRMED
+            reg.save(update_fields=["status"])
+            row = CmsActivity.objects.get(kind=CmsActivity.Kind.REGISTRATION_CONFIRMED, registration=reg)
+            assert row.actor is None
+
+        def it_records_the_acting_user_on_refund(db):
+            from django.contrib.auth import get_user_model
+
+            actor = get_user_model().objects.create_user(username="refunder@example.com")
+            reg = RegistrationFactory(status=Registration.Status.CONFIRMED, email="rf@example.com")
+            reg._acting_user = actor
+            reg.status = Registration.Status.REFUNDED
+            reg.save(update_fields=["status"])
+            row = CmsActivity.objects.get(kind=CmsActivity.Kind.REGISTRATION_REFUNDED, registration=reg)
+            assert row.actor == actor
+
     def describe_discount_code_hooks():
         def it_logs_discount_code_created(db):
             code = DiscountCodeFactory()

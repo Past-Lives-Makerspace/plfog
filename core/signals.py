@@ -6,6 +6,7 @@ from typing import Any
 
 from allauth.account.signals import user_logged_in, user_logged_out, user_signed_up
 from django.dispatch import receiver
+from django.template.loader import render_to_string
 
 from core.models import SiteActivity
 
@@ -24,12 +25,17 @@ def _on_login(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
     signature = hashlib.sha256(f"{ua}|{ip}".encode()).hexdigest()
     _, created = KnownLoginSignature.objects.get_or_create(user=user, signature=signature)
     if created:
+        html_body = render_to_string(
+            "core/email/new_login.html",
+            {"settings_url": request.build_absolute_uri("/settings/")},
+        )
         notifications.dispatch(
             "new_login",
             [user],
             title="New login detected",
             body="Your account was accessed from a new browser or device.",
             url="/settings/",
+            html_body=html_body,
         )
 
 
@@ -40,6 +46,13 @@ def _on_logout(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
 
 @receiver(user_signed_up)
 def _on_signup(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
+    from membership.models import MemberEmail
+
+    # migrate_to_user was intentionally skipped in post_save during allauth signup
+    # (to avoid setup_user_email's assertion). Run it now that allauth has finished
+    # its own email setup.
+    MemberEmail.objects.migrate_to_user(user)
+
     SiteActivity.log(SiteActivity.Kind.MEMBER_SIGNUP, actor=user)
 
     from django.contrib.auth.models import User

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date as date_type
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -18,6 +18,9 @@ from core.images import normalize_field_if_uploaded
 from core.models import HeroCropMixin, SiteActivity
 from core.validators import validate_image_size
 from membership.managers import MemberEmailManager
+
+if TYPE_CHECKING:
+    from classes.models import ClassOffering
 
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
 
@@ -35,6 +38,54 @@ def _active_lease_q(prefix: str = "", today: date_type | None = None) -> Q:
     end_null = f"{prefix}end_date__isnull"
     end_gte = f"{prefix}end_date__gte"
     return Q(**{start: today}) & (Q(**{end_null: True}) | Q(**{end_gte: today}))
+
+
+def _nth_weekday(month_anchor: date_type, weekday: Any, ordinal: int) -> date_type:
+    """The ordinal-th ``weekday`` of ``month_anchor``'s month (ordinal 5 = last)."""
+    from dateutil.relativedelta import relativedelta
+
+    if ordinal == 5:
+        return month_anchor + relativedelta(day=31, weekday=weekday(-1))
+    return month_anchor + relativedelta(day=1, weekday=weekday(ordinal))
+
+
+def _compute_next_meeting(
+    today: date_type,
+    *,
+    cadence: str,
+    weekday: int | None,
+    week_of_month: int | None,
+    override: date_type | None,
+    is_tba: bool,
+) -> date_type | None:
+    """The next guild-meeting date from a cadence config, or None for TBA.
+
+    Precedence: an explicit TBA flag wins, then a future manual override, then
+    the monthly recurrence. Every cadence is monthly-based (monthly, every two
+    months, or every three months) anchored on the nth weekday of the month;
+    when this month's instance has already passed it rolls forward by the
+    cadence interval. Returns None when nothing is configured.
+    """
+    if is_tba:
+        return None
+    if override is not None and override >= today:
+        return override
+    intervals: dict[str, int] = {
+        Guild.MeetingCadence.MONTHLY: 1,
+        Guild.MeetingCadence.EVERY_2_MONTHS: 2,
+        Guild.MeetingCadence.EVERY_3_MONTHS: 3,
+    }
+    interval = intervals.get(cadence)
+    if interval is None or weekday is None or week_of_month is None:
+        return None
+    from dateutil.relativedelta import FR, MO, SA, SU, TH, TU, WE, relativedelta
+
+    wd = (MO, TU, WE, TH, FR, SA, SU)[weekday]
+    first = today.replace(day=1)
+    candidate = _nth_weekday(first, wd, week_of_month)
+    if candidate < today:
+        candidate = _nth_weekday(first + relativedelta(months=interval), wd, week_of_month)
+    return candidate
 
 
 # ---------------------------------------------------------------------------
@@ -365,15 +416,55 @@ class Member(models.Model):
         """True when this member may edit the given guild (admin, officer, or that guild's lead)."""
         return self.is_fog_admin or self.is_guild_officer or guild.guild_lead_id == self.pk
 
+    def can_manage_orientations(self, guild: Guild) -> bool:
+        """True when this member may run the guild's orientations.
+
+        Editors (admin / officer / lead) always can; so can a member the guild has
+        designated as an orienter. Role-based — use ``membership.permissions.
+        can_manage_orientations`` in views to honor ``view_as`` preview mode.
+        """
+        return self.can_edit_guild(guild) or guild.orienters.filter(pk=self.pk).exists()
+
+    def can_edit_class(self, offering: ClassOffering) -> bool:
+        """True when this member may edit the class offering.
+
+        Editors are admins/officers, the lead of the class's category's guild
+        (purely from the ``Guild.guild_lead`` FK), or the class's own instructor.
+        Role-based — use ``membership.permissions.can_edit_class`` in views to
+        honor ``view_as`` preview mode.
+        """
+        if self.is_fog_admin or self.is_guild_officer:
+            return True
+        guild = offering.category.guild
+        if guild is not None and guild.guild_lead_id == self.pk:
+            return True
+        return offering.instructor_id == self.pk
+
     @property
     def is_guild_lead(self) -> bool:
         """True when this member leads at least one guild."""
         return Guild.objects.filter(guild_lead=self).exists()
 
     @property
+    def is_orienter(self) -> bool:
+        """True when this member is a designated orienter for at least one guild."""
+        return self.orienting_guilds.exists()
+
+    @property
     def is_instructor(self) -> bool:
         """True when this member has a public instructor profile (instructor_slug is set)."""
         return bool(self.instructor_slug)
+
+    def is_oriented_for(self, guild: Guild) -> bool:
+        """True when the member has a completed orientation for this guild."""
+        return self.orientation_bookings.filter(guild=guild, is_completed=True).exists()
+
+    def active_orientation_for(self, guild: Guild) -> OrientationBooking | None:
+        """The member's live (requested or confirmed) orientation booking for this guild, if any."""
+        return self.orientation_bookings.filter(
+            guild=guild,
+            status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
+        ).first()
 
     @property
     def must_be_listed_in_directory(self) -> bool:
@@ -539,6 +630,16 @@ class Guild(HeroCropMixin, models.Model):
         on_delete=models.SET_NULL,
         related_name="led_guilds",
     )
+    orienters = models.ManyToManyField(
+        Member,
+        blank=True,
+        related_name="orienting_guilds",
+        help_text=(
+            "Members trusted to run this guild's orientations — confirm bookings, sign members off, "
+            "and manage availability. They cannot edit the guild page, manage classes, or add other "
+            "orienters; only the guild lead or an admin can."
+        ),
+    )
     notes = models.TextField(blank=True)
     about = models.TextField(
         blank=True,
@@ -575,11 +676,54 @@ class Guild(HeroCropMixin, models.Model):
     meeting_schedule = models.TextField(
         blank=True, default="", help_text="When/where the guild meets, e.g. 'Tuesdays 6pm, Studio B'."
     )
+
+    class MeetingCadence(models.TextChoices):
+        NONE = "none", "No regular meeting"
+        MONTHLY = "monthly", "Monthly"
+        EVERY_2_MONTHS = "every_2_months", "Every 2 months"
+        EVERY_3_MONTHS = "every_3_months", "Every 3 months"
+
+    meeting_cadence = models.CharField(
+        max_length=20,
+        choices=MeetingCadence.choices,
+        default=MeetingCadence.NONE,
+        help_text="How often the guild meets — drives the auto-computed next-meeting date.",
+    )
+    meeting_weekday = models.PositiveSmallIntegerField(
+        null=True, blank=True, help_text="Day of week the guild meets (0=Mon … 6=Sun)."
+    )
+    meeting_week_of_month = models.PositiveSmallIntegerField(
+        null=True, blank=True, help_text="For monthly meetings: which week (1–4, or 5 for the last) of the month."
+    )
+    meeting_time = models.TimeField(null=True, blank=True, help_text="Start time of the meeting.")
+    meeting_location = models.CharField(
+        max_length=200, blank=True, default="", help_text="Where the meeting happens, e.g. 'Studio B'."
+    )
+    meeting_next_override = models.DateField(
+        null=True, blank=True, help_text="A specific one-off next-meeting date that overrides the cadence."
+    )
+    meeting_is_tba = models.BooleanField(
+        default=False, help_text="Force the next meeting to show as TBA even when a cadence is set."
+    )
     contact_email = models.EmailField(
         blank=True, default="", help_text="Optional guild contact email shown on the page."
     )
+    discord_url = models.URLField(
+        blank=True, default="", help_text="Link to the guild's Discord channel, shown as a button on the page."
+    )
+    website_url = models.URLField(
+        blank=True, default="", help_text="Link to the guild's external website, shown as a button on the page."
+    )
     show_members = models.BooleanField(
         default=False, help_text="Show the opt-in members roster on the public guild page."
+    )
+    featured_class = models.ForeignKey(
+        "classes.ClassOffering",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="A class to spotlight at the top of the guild page.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     leases = GenericRelation(
@@ -625,6 +769,18 @@ class Guild(HeroCropMixin, models.Model):
             Member.objects.filter(guild_memberships__guild=self, status=Member.Status.ACTIVE)
             .filter(models.Q(show_in_directory=True) | must_show)
             .distinct()
+        )
+
+    @property
+    def next_meeting_at(self) -> date_type | None:
+        """The next guild-meeting date from the cadence config + override, or None (TBA)."""
+        return _compute_next_meeting(
+            timezone.localdate(),
+            cadence=self.meeting_cadence,
+            weekday=self.meeting_weekday,
+            week_of_month=self.meeting_week_of_month,
+            override=self.meeting_next_override,
+            is_tba=self.meeting_is_tba,
         )
 
     @property
@@ -700,6 +856,12 @@ class GuildLink(models.Model):
         return f"{self.label} ({self.guild.name})"
 
 
+class GuildAnnouncementQuerySet(models.QuerySet):
+    def active(self) -> "GuildAnnouncementQuerySet":
+        """Announcements still showing — no expiry, or expiring today or later."""
+        return self.filter(Q(expires_at__isnull=True) | Q(expires_at__gte=timezone.localdate()))
+
+
 class GuildAnnouncement(models.Model):
     """A news post on a guild page.
 
@@ -720,12 +882,24 @@ class GuildAnnouncement(models.Model):
     title = models.CharField(max_length=300, help_text="Announcement headline.")
     body = models.TextField(help_text="Announcement body.")
     published_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Last day this announcement shows on the guild page. Blank = never expires.",
+    )
+
+    objects = GuildAnnouncementQuerySet.as_manager()
 
     class Meta:
         ordering = ["-published_at"]
 
     def __str__(self) -> str:
         return f"{self.title} ({self.guild.name})"
+
+    @property
+    def is_active(self) -> bool:
+        """Visible on the page — never expires, or the expiry is today or later."""
+        return self.expires_at is None or self.expires_at >= timezone.localdate()
 
 
 class GuildMembership(models.Model):
@@ -1276,3 +1450,399 @@ class CalendarEvent(models.Model):
             return False
         now = timezone.now()
         return self.start_dt <= now < self.end_dt
+
+
+# ---------------------------------------------------------------------------
+# Orientations
+# ---------------------------------------------------------------------------
+
+
+class OrientationError(Exception):
+    """Raised when an orientation booking can't be made or transitioned."""
+
+
+class GuildOrientationSettings(models.Model):
+    """Per-guild orientation configuration plus two lead-editable follow-up emails.
+
+    A guild offers orientation booking only when ``is_enabled`` is on; a lead can
+    temporarily stop taking bookings with ``is_closed`` + a ``closed_message``
+    (e.g. "On vacation till Sept 8") without losing their configuration.
+    """
+
+    guild = models.OneToOneField(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="orientation_settings",
+        help_text="The guild these orientation settings belong to.",
+    )
+    is_enabled = models.BooleanField(default=False, help_text="Offer orientation booking on this guild's page.")
+    allow_custom_requests = models.BooleanField(
+        default=True, help_text="Let members propose their own orientation time instead of only picking a posted slot."
+    )
+    info = models.TextField(
+        blank=True, default="", help_text="Orientation info shown to members before they book (plain text)."
+    )
+    default_seats = models.PositiveSmallIntegerField(default=4, help_text="Default capacity for new orientation slots.")
+    default_location = models.CharField(
+        max_length=200, blank=True, default="", help_text="Default place orientations happen, e.g. 'Front desk'."
+    )
+    default_duration_minutes = models.PositiveSmallIntegerField(
+        default=60, help_text="Length of a slot generated from a recurring rule, in minutes."
+    )
+    is_closed = models.BooleanField(default=False, help_text="Temporarily stop taking orientation bookings.")
+    closed_message = models.CharField(
+        max_length=300, blank=True, default="", help_text="Shown while closed, e.g. 'On vacation till Sept 8'."
+    )
+    thankyou_email_enabled = models.BooleanField(
+        default=False, help_text="Send a thank-you / next-steps email once an orientation is completed."
+    )
+    thankyou_email_subject = models.CharField(
+        max_length=200, blank=True, default="", help_text="Subject line of the thank-you email."
+    )
+    thankyou_email_body = models.TextField(
+        blank=True, default="", help_text="Body of the thank-you email (plain text, line breaks preserved)."
+    )
+    thankyou_email_updated_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the thank-you email was last edited."
+    )
+    join_email_enabled = models.BooleanField(
+        default=False, help_text="Send a welcome email when a member joins this guild."
+    )
+    join_email_subject = models.CharField(
+        max_length=200, blank=True, default="", help_text="Subject line of the welcome email."
+    )
+    join_email_body = models.TextField(
+        blank=True, default="", help_text="Body of the welcome email (plain text, line breaks preserved)."
+    )
+    join_email_updated_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the welcome email was last edited."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Guild orientation settings"
+        verbose_name_plural = "Guild orientation settings"
+
+    def __str__(self) -> str:
+        return f"Orientation settings for {self.guild.name}"
+
+    @property
+    def thankyou_email_ready(self) -> bool:
+        """True when the thank-you email is enabled and has both subject and body."""
+        return self.thankyou_email_enabled and bool(self.thankyou_email_subject) and bool(self.thankyou_email_body)
+
+    @property
+    def join_email_ready(self) -> bool:
+        """True when the welcome email is enabled and has both subject and body."""
+        return self.join_email_enabled and bool(self.join_email_subject) and bool(self.join_email_body)
+
+    @property
+    def is_accepting(self) -> bool:
+        """True when this guild is taking orientation bookings right now."""
+        return self.is_enabled and not self.is_closed
+
+
+class OrientationAvailability(models.Model):
+    """A weekly recurring window during which a guild offers orientations.
+
+    The slot-generation job materializes concrete ``OrientationSlot`` rows from
+    each active rule across a rolling window.
+    """
+
+    class Weekday(models.IntegerChoices):
+        MONDAY = 0, "Monday"
+        TUESDAY = 1, "Tuesday"
+        WEDNESDAY = 2, "Wednesday"
+        THURSDAY = 3, "Thursday"
+        FRIDAY = 4, "Friday"
+        SATURDAY = 5, "Saturday"
+        SUNDAY = 6, "Sunday"
+
+    guild = models.ForeignKey(
+        Guild, on_delete=models.CASCADE, related_name="orientation_rules", help_text="Parent guild."
+    )
+    weekday = models.PositiveSmallIntegerField(
+        choices=Weekday.choices, help_text="Day of week this rule recurs on (0=Mon … 6=Sun)."
+    )
+    start_time = models.TimeField(help_text="When the orientation window starts.")
+    end_time = models.TimeField(help_text="When the orientation window ends.")
+    seats = models.PositiveSmallIntegerField(default=4, help_text="Capacity for slots generated from this rule.")
+    location = models.CharField(
+        max_length=200, blank=True, default="", help_text="Overrides the guild's default location for these slots."
+    )
+    is_active = models.BooleanField(default=True, help_text="Generate slots from this rule.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["weekday", "start_time"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(end_time__gt=models.F("start_time")),
+                name="ck_orientationavailability_end_after_start",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.guild.name} orientation: {self.get_weekday_display()} {self.start_time:%H:%M}"
+
+
+class OrientationSlotQuerySet(models.QuerySet):
+    def for_guild(self, guild: Guild) -> OrientationSlotQuerySet:
+        return self.filter(guild=guild)
+
+    def upcoming(self) -> OrientationSlotQuerySet:
+        """Future, uncancelled slots."""
+        return self.filter(is_cancelled=False, starts_at__gte=timezone.now())
+
+    def bookable(self) -> OrientationSlotQuerySet:
+        """Upcoming slots at guilds currently accepting bookings (does not check seats)."""
+        return self.upcoming().filter(
+            guild__orientation_settings__is_enabled=True,
+            guild__orientation_settings__is_closed=False,
+        )
+
+
+class OrientationSlot(models.Model):
+    """A concrete, bookable orientation appointment with a seat cap."""
+
+    class Source(models.TextChoices):
+        MANUAL = "manual", "Added manually"
+        GENERATED = "generated", "From a recurring rule"
+
+    guild = models.ForeignKey(
+        Guild, on_delete=models.CASCADE, related_name="orientation_slots", help_text="Parent guild."
+    )
+    availability = models.ForeignKey(
+        OrientationAvailability,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="slots",
+        help_text="The recurring rule that generated this slot, if any.",
+    )
+    source = models.CharField(
+        max_length=10, choices=Source.choices, default=Source.MANUAL, help_text="How this slot was created."
+    )
+    starts_at = models.DateTimeField(help_text="When the orientation starts.")
+    ends_at = models.DateTimeField(help_text="When the orientation ends.")
+    seats = models.PositiveSmallIntegerField(default=4, help_text="Total capacity.")
+    location = models.CharField(max_length=200, blank=True, default="", help_text="Where the orientation happens.")
+    is_cancelled = models.BooleanField(default=False, help_text="Set when the slot is called off.")
+    cancelled_reason = models.CharField(max_length=300, blank=True, default="", help_text="Why the slot was cancelled.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OrientationSlotQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["starts_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["availability", "starts_at"],
+                condition=Q(availability__isnull=False),
+                name="uq_orientationslot_rule_start",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.guild.name} orientation @ {self.starts_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def seats_taken(self) -> int:
+        """Active (requested or confirmed) bookings — declined/cancelled free their seat."""
+        return self.bookings.filter(
+            status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED]
+        ).count()
+
+    @property
+    def seats_remaining(self) -> int:
+        return max(self.seats - self.seats_taken, 0)
+
+    @property
+    def is_full(self) -> bool:
+        return self.seats_remaining <= 0
+
+    @property
+    def has_started(self) -> bool:
+        return self.starts_at <= timezone.now()
+
+    @property
+    def is_past(self) -> bool:
+        """The orientation window has fully elapsed (used by the auto-complete job)."""
+        return self.ends_at <= timezone.now()
+
+    @property
+    def is_bookable(self) -> bool:
+        """Future, uncancelled, has a free seat, and the guild is accepting bookings."""
+        if self.is_cancelled or self.has_started or self.is_full:
+            return False
+        settings_obj = GuildOrientationSettings.objects.filter(guild=self.guild).first()
+        return settings_obj is not None and settings_obj.is_accepting
+
+    def book(self, member: Member, *, note: str = "") -> OrientationBooking:
+        """Create a requested booking for ``member`` on this slot.
+
+        Args:
+            member: The member requesting the orientation.
+            note: Optional free-text note the member adds.
+
+        Returns:
+            The newly created (REQUESTED) OrientationBooking.
+
+        Raises:
+            OrientationError: If the slot can't be booked, or the member is
+                already oriented for or already has a live booking on this guild.
+        """
+        if not self.is_bookable:
+            raise OrientationError("This orientation slot is not available to book.")
+        if member.is_oriented_for(self.guild):
+            raise OrientationError("You're already oriented for this guild.")
+        if member.active_orientation_for(self.guild) is not None:
+            raise OrientationError("You already have a pending orientation for this guild.")
+        return OrientationBooking.objects.create(slot=self, guild=self.guild, member=member, member_note=note)
+
+    def mark_cancelled(self, *, reason: str = "") -> None:
+        """Flip the slot's own cancel state without touching its bookings.
+
+        The slot-level state change lives here so both the silent model
+        ``cancel()`` and the email-sending service ``cancel_slot`` set the same
+        fields with the same ``update_fields``; only the per-booking fan-out
+        differs between them.
+        """
+        self.is_cancelled = True
+        self.cancelled_reason = reason
+        self.save(update_fields=["is_cancelled", "cancelled_reason"])
+
+    def cancel(self, *, reason: str = "") -> None:
+        """Call off the slot and cancel each of its still-active bookings."""
+        self.mark_cancelled(reason=reason)
+        for booking in self.bookings.active():
+            booking.cancel()
+
+
+class OrientationBookingQuerySet(models.QuerySet):
+    def for_guild(self, guild: Guild) -> OrientationBookingQuerySet:
+        return self.filter(guild=guild)
+
+    def active(self) -> OrientationBookingQuerySet:
+        """Requested or confirmed — i.e. still occupying a seat."""
+        return self.filter(status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED])
+
+    def upcoming(self) -> OrientationBookingQuerySet:
+        return self.active().filter(slot__starts_at__gte=timezone.now())
+
+    def pending(self) -> OrientationBookingQuerySet:
+        """Awaiting a lead's decision."""
+        return self.filter(status=OrientationBooking.Status.REQUESTED)
+
+    def completed(self) -> OrientationBookingQuerySet:
+        return self.filter(is_completed=True)
+
+
+class OrientationBooking(models.Model):
+    """A member's orientation request and, once it happens, the orientation record.
+
+    A booking starts as ``REQUESTED`` (not an official booking yet). The lead
+    ``CONFIRMED``s, ``DECLINED``s, or it gets ``CANCELLED``. ``is_completed`` is
+    set automatically after the slot ends (a lead can uncheck it) and is what
+    marks the member oriented for the guild.
+    """
+
+    class Status(models.TextChoices):
+        REQUESTED = "requested", "Requested"
+        CONFIRMED = "confirmed", "Confirmed"
+        DECLINED = "declined", "Declined"
+        CANCELLED = "cancelled", "Cancelled"
+
+    slot = models.ForeignKey(
+        OrientationSlot, on_delete=models.CASCADE, related_name="bookings", help_text="The slot booked."
+    )
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="orientation_bookings",
+        help_text="Denormalized from the slot for cheap filtering and scoping.",
+    )
+    member = models.ForeignKey(
+        Member, on_delete=models.CASCADE, related_name="orientation_bookings", help_text="Who's getting oriented."
+    )
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.REQUESTED, help_text="Request lifecycle state."
+    )
+    is_completed = models.BooleanField(
+        default=False,
+        help_text="Whether the orientation actually happened. Auto-set after the slot ends; editable by leads.",
+    )
+    oriented_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orientations_given",
+        help_text="Who gave the orientation.",
+    )
+    member_note = models.TextField(blank=True, default="", help_text="Optional note from the member when requesting.")
+    lead_note = models.TextField(blank=True, default="", help_text="Note from the lead when declining or following up.")
+    requested_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    declined_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    objects = OrientationBookingQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-requested_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["guild", "member"],
+                condition=Q(status__in=["requested", "confirmed"]),
+                name="uq_orientationbooking_active_per_guild",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member} — {self.guild.name} orientation ({self.get_status_display()})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.slot_id and not self.guild_id:
+            self.guild = self.slot.guild
+        super().save(*args, **kwargs)
+
+    @property
+    def is_upcoming(self) -> bool:
+        """Still live (requested/confirmed) and the slot is in the future."""
+        return self.status in (self.Status.REQUESTED, self.Status.CONFIRMED) and self.slot.starts_at >= timezone.now()
+
+    def confirm(self, *, oriented_by: Member | None = None) -> None:
+        """Accept the request; default the giver to the guild lead."""
+        self.status = self.Status.CONFIRMED
+        self.confirmed_at = timezone.now()
+        self.oriented_by = oriented_by or self.guild.guild_lead
+        self.save(update_fields=["status", "confirmed_at", "oriented_by"])
+
+    def decline(self, *, note: str = "") -> None:
+        """Turn down the request, optionally with a note for the member."""
+        self.status = self.Status.DECLINED
+        self.declined_at = timezone.now()
+        self.lead_note = note
+        self.save(update_fields=["status", "declined_at", "lead_note"])
+
+    def cancel(self) -> None:
+        """Cancel the booking, freeing its seat."""
+        self.status = self.Status.CANCELLED
+        self.cancelled_at = timezone.now()
+        self.save(update_fields=["status", "cancelled_at"])
+
+    def mark_completed(self, *, oriented_by: Member | None = None) -> None:
+        """Record that the orientation happened — this is what marks the member oriented."""
+        self.is_completed = True
+        if oriented_by is not None:
+            self.oriented_by = oriented_by
+        elif self.oriented_by is None:
+            self.oriented_by = self.guild.guild_lead
+        self.save(update_fields=["is_completed", "oriented_by"])
+
+    def uncomplete(self) -> None:
+        """Undo a completion (a lead correcting an auto-completed no-show)."""
+        self.is_completed = False
+        self.save(update_fields=["is_completed"])

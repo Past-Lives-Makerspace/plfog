@@ -148,6 +148,40 @@ For destructive actions (delete, void, deactivate).
 {% include "components/confirm_modal.html" with confirm_id="void-charge" confirm_title="Void this charge?" confirm_message="This will remove the charge from the member's tab." confirm_action_url="/billing/void/42/" confirm_button_text="Void Charge" %}
 ```
 
+## Editable Lists & Destructive Actions
+
+Mandatory for any page that edits a list of rows (a Django formset) or deletes something. These exist because getting them wrong has burned us repeatedly: blank rows blocking save, delete rendered as a toggle switch, buttons clashing with the field above.
+
+### Delete is a button, never a toggle
+
+- A delete control is a **button**, never a checkbox/switch. Do **not** pass a formset's `DELETE` field through `form_field.html` — it auto-renders as a toggle (see Rule 3's exception). Render `{{ form.DELETE }}` hidden and drive it from a real button.
+- Style: `pl-btn pl-btn--danger pl-btn--sm`. Never a raw full-size `<button>Delete</button>`.
+- Always give it `style="margin-top:0.75rem;"` (or a class) so it clears the field/toggle above it. A delete button flush against the last field is a bug, not a detail to fix later.
+
+### Deleting a saved row saves the whole page (no lost work)
+
+For a row already in the DB (`form.instance.pk`), the Delete button flips the hidden `DELETE` field and submits the form, so every other edit on the page is preserved:
+
+```html
+{% if form.instance.pk %}
+  <div style="display:none;">{{ form.DELETE }}</div>
+  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+          onclick="document.getElementById('{{ form.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+    Delete
+  </button>
+{% endif %}
+```
+
+### Adding/removing rows — `extra=0` + an explicit "+ Add" button
+
+A formset with `extra=1` renders a perpetual blank row that can **block save** — a required field on the blank row (or a checkbox defaulting checked) makes it fail validation, and the user can't save work they've already done. Don't do that. Instead:
+
+- Build the formset with **`extra=0`** so only real rows render.
+- Add rows on demand with a **"+ Add …" button** that clones a hidden `<template>` of `formset.empty_form`, replaces `__prefix__` with the new index, and bumps `id_<prefix>-TOTAL_FORMS`.
+- Cloned (un-saved) rows get a **"Remove" button** that just removes the DOM node — no save needed, and a half-filled row the user abandons never blocks the save.
+
+Canonical implementations to copy: the FAQ and Links editors in `templates/hub/guild_edit.html`, and the recurring-hours editor in `templates/hub/orientation_settings.html`.
+
 ## Interaction Patterns
 
 | Scenario | Pattern | Example |
@@ -157,6 +191,7 @@ For destructive actions (delete, void, deactivate).
 | Destructive action | Confirm modal | Delete product, void charge |
 | Success feedback (HTMX) | Toast notification | "Added to your tab!" |
 | Success feedback (full page) | Django messages | Login, signup |
+| Optional / secondary form on a page | Toggle button reveals it (`x-show`, closed by default) | "Email selected registrants" |
 
 **Rule of thumb:** If the action doesn't need the user to leave the page, use a modal + toast. If it's a full form with many fields, use an inline form or dedicated page.
 
@@ -214,7 +249,7 @@ return response
 
 1. **Always use `components/form_field.html`** for form fields — never render raw `{{ field }}` with manual label/error HTML.
 2. **Always use `components/modal.html`** for modals — never build one-off modal HTML with custom overlay/backdrop.
-3. **Always use `components/toggle.html`** for boolean fields — never render checkboxes directly or build custom toggle HTML.
+3. **Always use `components/toggle.html`** for boolean fields — never render checkboxes directly or build custom toggle HTML. **Exception:** a formset's `DELETE` field is not a user-facing boolean — render it hidden behind a real Delete button (see *Editable Lists & Destructive Actions*).
 4. **Use the `pl-` CSS prefix** for all new component classes. Never add classes with other prefixes.
 5. **Quick forms (1-3 fields) → modal.** Longer forms → inline or dedicated page.
 6. **After mutating actions, return a toast** via `trigger_toast()`. Don't redirect with Django messages for HTMX requests.
@@ -222,6 +257,10 @@ return response
 8. **Card layout:** Wrap content sections in `<div class="hub-card">` for hub pages.
 9. **No inline styles** except for truly one-off layout adjustments. Add a CSS class instead.
 10. **Image placeholders:** When designing product cards or profile sections, leave space for future image support but don't build upload infrastructure.
+11. **Editing a list of rows, or deleting something?** Follow *Editable Lists & Destructive Actions* — `extra=0` + a "+ Add" button, real Delete buttons (never toggles) that save the page, margin-spaced so they clear the field above.
+12. **Never put `display` in an inline `style` on an `x-show` element.** Alpine's `x-show` *removes* the inline `display` property when it reveals the element, so inline `display:flex`/`grid` silently reverts to the default on first show (collapsing flex columns, etc.). Put the layout in a CSS class — Alpine only toggles `display:none` on/off and the class provides the real display. (This bit the orientation slot table: only the header — which had no `x-show` — kept its columns.)
+13. **Never inline-style a form control (`<select>`/`<input>`/`<textarea>`) with `background`/`color`.** Give it a CSS class that uses the theme's input tokens, or scope it under an existing field wrapper — `.hub-form-group` on hub pages, `.reg-field` on public-classes pages, `.bk-field` on book-account pages — which already style any `input`/`select`/`textarea` inside them. (A bare, un-wrapped `<textarea>` on a hub page renders as a browser-default white box — wrap it in `.hub-form-group`.) Valid input tokens: `--hub-input-bg` / `--hub-input-border` / `--text` (hub + public-classes pages) and `--bk-input-bg` / `--bk-input-color` (book-account pages). **`--surface` is NOT a defined token** — `background:var(--surface,#fff)` silently falls back to white, so the control renders as a white box with near-invisible light text on the dark theme. Also style `select option { background; color }` — native option popups don't inherit the select's colors. (This is what broke the registration "Choose your dates" dropdown and the orientation "decline note" textarea.)
+14. **Native `<input type="date">` / `<input type="time">` need dark-mode help.** The browser's picker icon (`::-webkit-calendar-picker-indicator`) is black by default — invisible on the dark theme. Invert it (`filter: invert(1)`) and reset it under `[data-theme="light"]` (`filter: none`). Also let the whole field open the picker, not just the icon: `@click="try { $event.currentTarget.showPicker() } catch (e) {}"` (the `try/catch` swallows the harmless "already open" error thrown when the icon itself is clicked). (This was the session-scheduler date/time/Duration popover.)
 
 ## CSS Files
 

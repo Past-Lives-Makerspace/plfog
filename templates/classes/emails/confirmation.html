@@ -21,6 +21,7 @@
     <td style="background-color: #092E4C; border-radius: 12px; padding: 40px 32px;">
         <p style="margin: 0 0 8px; font-size: 14px; color: #96ACBB; font-weight: 400;">Hi {{ registration.first_name }},</p>
         <p style="margin: 0 0 24px; font-size: 18px; font-weight: 700; color: #F4EFDD;">You're confirmed for "{{ offering.title }}"</p>
+        {% if offering.is_series and offering.series_session_count > 1 %}<p style="margin: 0 0 24px; font-size: 14px; color: #96ACBB;">This is a series package — your one sign-up enrolls you in all {{ offering.series_session_count }} sessions listed below.</p>{% endif %}
 
         <!-- Details -->
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">

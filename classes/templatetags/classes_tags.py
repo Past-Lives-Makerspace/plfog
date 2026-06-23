@@ -203,6 +203,24 @@ def session_time_range(session) -> str:
 
 
 @register.filter
+def session_date_range(sessions) -> str:
+    """First–last date span of a session list, e.g. 'Jun 5 – Jun 19'.
+
+    A single date (or a list whose dates all fall on the same day) renders as
+    just that date. Used on catalog cards and the detail page to summarize a
+    multi-session series option as one compact range. Returns "" when empty.
+    """
+    from django.utils.timezone import localtime
+
+    items = sorted((s for s in (sessions or []) if s.starts_at), key=lambda s: s.starts_at)
+    if not items:
+        return ""
+    first = localtime(items[0].starts_at).strftime("%b %-d")
+    last = localtime(items[-1].starts_at).strftime("%b %-d")
+    return first if first == last else f"{first} – {last}"
+
+
+@register.filter
 def strip_date_suffix(value: str | None) -> str:
     """Strip CMS-imported date suffixes like ' - 6/5/26' or ' 9/8/26, 9/10/26' from a title."""
     if not value:

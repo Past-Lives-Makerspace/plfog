@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils import timezone
+
+if TYPE_CHECKING:
+    from classes.models import Registration
 
 
 class HeroCropMixin(models.Model):
@@ -152,6 +155,13 @@ class SiteConfiguration(models.Model):
         editable=False,
         verbose_name="Legacy CMS last synced at",
         help_text="Timestamp of the last successful legacy CMS sync.",
+    )
+    legacy_cms_last_sync_duration = models.FloatField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name="Legacy CMS last sync duration (seconds)",
+        help_text="Wall-clock seconds the last successful legacy CMS sync took. Used to estimate progress.",
     )
     mailchimp_api_key = models.CharField(
         max_length=255,
@@ -311,12 +321,25 @@ class Invite(models.Model):
         if plan is None:
             raise ValueError("Cannot invite: no membership plan exists yet.")
 
-        member = Member.objects.create(
-            _pre_signup_email=email,
-            full_legal_name=email,
-            membership_plan=plan,
-            status=Member.Status.INVITED,
+        # Reuse an existing invited placeholder (e.g. pulled from Airtable) instead of
+        # creating a duplicate Member for the same email. Only reuse one with no invite
+        # already attached, so the Invite.member one-to-one never collides.
+        member = (
+            Member.objects.filter(
+                _pre_signup_email__iexact=email,
+                status=Member.Status.INVITED,
+                invite__isnull=True,
+            )
+            .order_by("pk")
+            .first()
         )
+        if member is None:
+            member = Member.objects.create(
+                _pre_signup_email=email,
+                full_legal_name=email,
+                membership_plan=plan,
+                status=Member.Status.INVITED,
+            )
 
         invite = cls.objects.create(email=email, invited_by=invited_by, member=member)
         invite.send_invite_email()
@@ -405,6 +428,11 @@ class UserProfile(models.Model):
         blank=True,
         help_text="List of Category slugs the user opted into for new-class email notifications.",
     )
+    custom_question_answers = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Remembered answers to the CMS registration questions, keyed by question id (as a string).",
+    )
     accessibility_note = models.TextField(
         blank=True,
         help_text="Free-text accessibility note from onboarding step 3.",
@@ -435,9 +463,47 @@ class UserProfile(models.Model):
     def __str__(self) -> str:
         return f"Profile for {self.user.email}"
 
-    @property
-    def is_onboarded(self) -> bool:
-        return self.onboarding_completed_at is not None
+    def cache_from_registration(self, registration: Registration) -> None:
+        """Seed empty profile fields from a class registration's overlapping answers.
+
+        Only fills fields that are currently blank — a registration never
+        overwrites a value the user has already set. Maps exactly the fields
+        with a clean 1:1 semantic match (pronouns, phone); see the onboarding
+        pre-fill plan for the full mapping rationale.
+        """
+        mapping = {"pronouns": registration.pronouns, "phone": registration.phone}
+        changed: list[str] = []
+        for field_name, incoming in mapping.items():
+            if not getattr(self, field_name) and incoming:
+                setattr(self, field_name, incoming)
+                changed.append(field_name)
+        if changed:
+            self.save(update_fields=changed)
+
+    def set_custom_answers(self, answers: dict[int, str]) -> None:
+        """Remember the user's answers to CMS registration questions for pre-fill next time.
+
+        Merges the incoming answers over whatever is already stored — a later
+        registration updates a changed answer but never wipes an unrelated one.
+        Empty/blank answers are ignored so a skipped optional question doesn't
+        clobber a previously remembered value. Keys are stored as strings because
+        JSON object keys are always strings.
+
+        Args:
+            answers: Map of RegistrationQuestion id to the answer text.
+        """
+        merged = dict(self.custom_question_answers)
+        changed = False
+        for question_id, text in answers.items():
+            if text in (None, ""):
+                continue
+            key = str(question_id)
+            if merged.get(key) != text:
+                merged[key] = text
+                changed = True
+        if changed:
+            self.custom_question_answers = merged
+            self.save(update_fields=["custom_question_answers", "updated_at"])
 
 
 class TransactionalEmailLog(models.Model):
@@ -501,6 +567,12 @@ class SiteActivity(models.Model):
         INVITE_ACCEPTED = "invite_accepted", "Invite accepted"
         MEMBER_SIGNUP = "member_signup", "Member signed up"
         GUILD_ANNOUNCEMENT = "guild_announcement", "Guild announcement"
+        ORIENTATION_REQUESTED = "orientation_requested", "Orientation requested"
+        ORIENTATION_CONFIRMED = "orientation_confirmed", "Orientation confirmed"
+        ORIENTATION_DECLINED = "orientation_declined", "Orientation declined"
+        ORIENTATION_CANCELLED = "orientation_cancelled", "Orientation cancelled"
+        ORIENTATION_COMPLETED = "orientation_completed", "Orientation completed"
+        GUILD_JOINED = "guild_joined", "Joined a guild"
         LEASE_ACTIVATED = "lease_activated", "Lease activated"
         SITE_ANNOUNCEMENT = "site_announcement", "Site announcement"
 

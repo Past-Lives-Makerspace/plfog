@@ -7,7 +7,7 @@
 {% if is_public_surface %}
 <div class="cp-page">
 {% block portal_content %}
-<div class="bk-themed-signup">
+<div class="bk-themed-signup bk-auth-surface">
   <link rel="stylesheet" href="{% static 'css/book-account.css' %}">
   <div class="bk-auth">
     <div class="bk-auth-card">
@@ -27,7 +27,7 @@
           {% if form.email.errors %}
           <div class="bk-field-hint" style="color:#f87171">{{ form.email.errors.0 }}</div>
           {% endif %}
-          <div class="bk-field-hint">We'll send a 6-digit code to verify it's you.</div>
+          <div class="bk-field-hint">We'll send a code to verify it's you.</div>
         </div>
         <div class="bk-auth-actions">
           <button type="submit" class="bk-btn-primary">Send my code</button>

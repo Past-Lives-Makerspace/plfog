@@ -200,6 +200,42 @@
     box-shadow: 0 0 0 3px rgba(238, 180, 75, 0.15);
 }
 
+/* Custom dropdown chevron — replaces the native arrow that crowds the right edge. */
+.pl-form-group select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    padding-right: 2.25rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2396ACBB' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem;
+}
+
+/* Date/time pickers: let the native picker indicator (the clock/calendar glyph)
+   and the dropdown follow the dark theme — otherwise the glyph renders black and
+   is invisible on the dark input background. */
+.pl-form-group input[type="time"],
+.pl-form-group input[type="date"],
+.pl-form-group input[type="datetime-local"] {
+    color-scheme: dark;
+}
+
+/* Two-column field layout for long edit forms. Column gap only — each
+   .pl-form-group keeps its own margin-bottom for vertical rhythm. Collapses
+   to a single column on narrow screens. */
+.pl-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1.25rem;
+}
+
+@media (max-width: 640px) {
+    .pl-form-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 .pl-field-errors {
     list-style: none;
     margin: 0;
@@ -621,6 +657,12 @@
     background: #fff;
     border-color: #d1d5db;
     color: #1f2937;
+}
+
+[data-theme="light"] .pl-form-group input[type="time"],
+[data-theme="light"] .pl-form-group input[type="date"],
+[data-theme="light"] .pl-form-group input[type="datetime-local"] {
+    color-scheme: light;
 }
 
 [data-theme="light"] .pl-field-hint {

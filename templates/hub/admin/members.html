@@ -26,22 +26,60 @@
     outline: none; border-color: #EEB44B; background: rgba(255,255,255,0.06);
   }
   .members-filters select option { background: #092E4C; color: #F4EFDD; }
-  .members-filters .filter-label {
+  .members-filters .filter-label,
+  .members-invite .filter-label {
     font-size: 0.75rem;
     color: var(--hub-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     margin-right: 0.25rem;
   }
+  .members-invite {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+    padding: 0.85rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+  }
+  .members-invite input[type="email"] {
+    background: rgba(255,255,255,0.04);
+    color: var(--hub-text);
+    border: 1px solid var(--hub-border);
+    border-radius: 6px;
+    padding: 0.4rem 0.65rem;
+    font-size: 0.875rem;
+    font-family: inherit;
+    min-width: 240px;
+    flex: 1 1 240px;
+    max-width: 360px;
+  }
+  .members-invite input[type="email"]:focus {
+    outline: none; border-color: #EEB44B; background: rgba(255,255,255,0.06);
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="hub-card">
+<div class="hub-card" x-data="{ showInvite: false }">
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem;">
     <h1 class="hub-page-title" style="margin:0;">Manage Members</h1>
-    <span style="color:var(--hub-text-muted);font-size:0.875rem;">{{ page.paginator.count }} member{{ page.paginator.count|pluralize }}</span>
+    <div style="display:flex;align-items:center;gap:0.75rem;">
+      <span style="color:var(--hub-text-muted);font-size:0.875rem;">{{ page.paginator.count }} member{{ page.paginator.count|pluralize }}</span>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="showInvite = !showInvite">+ Invite a member</button>
+    </div>
   </div>
+
+  <form method="post" action="{% url 'hub_admin_member_invite' %}" class="members-invite" x-show="showInvite" x-cloak hx-boost="false">
+    {% csrf_token %}
+    <label class="filter-label" for="invite-email">Invite by email</label>
+    <input type="email" id="invite-email" name="email" placeholder="name@example.com" required autocomplete="off">
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send invite</button>
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showInvite = false">Cancel</button>
+  </form>
 
   <form method="get" class="members-filters">
     <input type="search" name="q" value="{{ search }}" placeholder="Search name, email, discord…" autocomplete="off">

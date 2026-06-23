@@ -1,0 +1,12 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #96ACBB;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #F4EFDD;">Your orientation is confirmed!</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #F4EFDD; line-height: 1.6;">You're all set for your <strong>{{ guild.name }}</strong> orientation.</p>
+{% include "membership/emails/_slot.html" %}
+<p style="margin: 0 0 16px; font-size: 13px; color: #96ACBB; line-height: 1.6;">We've attached an updated calendar invite. See you there!</p>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ guild_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View guild page</a>
+</div>
+<p style="margin: 16px 0 0; text-align: center; font-size: 12px; color: #96ACBB;">Can't make it? <a href="{{ cancel_url }}" style="color: #EEB44B;">Cancel your orientation</a></p>
+{% endblock %}

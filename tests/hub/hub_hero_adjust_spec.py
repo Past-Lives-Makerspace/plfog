@@ -100,3 +100,20 @@ def describe_hub_hero_adjust():
         data = {"content_type_id": ct.id, "object_id": offering.id, "crop": {"x": 1, "y": 1, "w": 1, "h": 1}}
         response = client.post("/hero-adjust/", data, content_type="application/json")
         assert response.status_code == 403
+
+    def it_forbids_a_lead_of_a_different_guild_for_class_offering(client):
+        member = login_member(client, "u11")
+        GuildFactory(guild_lead=member)  # leads a different guild
+        offering = ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory()))
+        ct = ContentType.objects.get_for_model(offering)
+        data = {"content_type_id": ct.id, "object_id": offering.id, "crop": {"x": 1, "y": 1, "w": 1, "h": 1}}
+        response = client.post("/hero-adjust/", data, content_type="application/json")
+        assert response.status_code == 403
+
+    def it_forbids_a_plain_member_for_class_offering(client):
+        login_member(client, "u12")
+        offering = ClassOfferingFactory()
+        ct = ContentType.objects.get_for_model(offering)
+        data = {"content_type_id": ct.id, "object_id": offering.id, "crop": {"x": 1, "y": 1, "w": 1, "h": 1}}
+        response = client.post("/hero-adjust/", data, content_type="application/json")
+        assert response.status_code == 403

@@ -96,6 +96,16 @@ On create (no pk): multi-file input that submits with the form, with local previ
     font-size: 0.75rem;
     color: var(--hub-text-muted);
 }
+.cls-image-count {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    margin-bottom: 0.4rem;
+}
+.cls-image-upload-zone.is-full {
+    opacity: 0.5;
+    pointer-events: none;
+    cursor: not-allowed;
+}
 </style>
 
 {% if offering and offering.pk %}
@@ -119,6 +129,8 @@ On create (no pk): multi-file input that submits with the form, with local previ
         {% endfor %}
     </div>
 
+    <div class="cls-image-count" id="gallery-count"></div>
+
     <label class="cls-image-upload-zone" id="gallery-upload-zone">
         <input type="file" accept="image/*" id="gallery-file-input" style="display:none;">
         <span class="cls-image-upload-label">+ Add image</span>
@@ -133,9 +145,17 @@ On create (no pk): multi-file input that submits with the form, with local previ
     const grid = document.getElementById('gallery-grid');
     const zone = document.getElementById('gallery-upload-zone');
     const fileInput = document.getElementById('gallery-file-input');
+    const countEl = document.getElementById('gallery-count');
     const uploadUrl = manager.dataset.uploadUrl;
     const reorderUrl = manager.dataset.reorderUrl;
     const csrf = manager.dataset.csrf;
+    const MAX_IMAGES = 10;
+
+    function updateCount() {
+        const n = grid.children.length;
+        countEl.textContent = `${n} / ${MAX_IMAGES} images`;
+        zone.classList.toggle('is-full', n >= MAX_IMAGES);
+    }
 
     // --- Upload ---
     fileInput.addEventListener('change', () => {
@@ -183,6 +203,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
             <div class="cls-image-drag-handle" title="Drag to reorder">&#x2807;</div>`;
         grid.appendChild(card);
         bindCard(card);
+        updateCount();
     }
 
     // --- Delete ---
@@ -190,7 +211,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
         card.querySelector('.cls-image-remove').addEventListener('click', function() {
             const id = this.dataset.id;
             fetch(`/classes/admin/images/${id}/delete/`, { method: 'POST', headers: {'X-CSRFToken': csrf} })
-                .then(r => { if (r.ok) card.remove(); });
+                .then(r => { if (r.ok) { card.remove(); updateCount(); } });
         });
         card.querySelector('.cls-image-alt').addEventListener('change', function() {
             const id = this.dataset.id;
@@ -234,12 +255,14 @@ On create (no pk): multi-file input that submits with the form, with local previ
 
     // Bind existing cards
     grid.querySelectorAll('.cls-image-cell').forEach(bindCard);
+    updateCount();
 })();
 </script>
 {% else %}
 {# Create mode — multi-file input, previews shown locally, uploaded with form #}
 <div id="gallery-create">
     <div id="gallery-preview-grid" class="cls-image-grid"></div>
+    <div class="cls-image-count" id="gallery-count"></div>
     <label class="cls-image-upload-zone" id="gallery-upload-zone">
         <input type="file" name="gallery_images" accept="image/*" multiple id="gallery-file-input" style="display:none;">
         <span class="cls-image-upload-label">+ Add images</span>
@@ -251,7 +274,15 @@ On create (no pk): multi-file input that submits with the form, with local previ
     const zone = document.getElementById('gallery-upload-zone');
     const fileInput = document.getElementById('gallery-file-input');
     const grid = document.getElementById('gallery-preview-grid');
+    const countEl = document.getElementById('gallery-count');
     if (!zone || !fileInput || !grid) return;
+    const MAX_IMAGES = 10;
+
+    function updateCount() {
+        const n = grid.children.length;
+        countEl.textContent = `${n} / ${MAX_IMAGES} images`;
+        zone.classList.toggle('is-full', n >= MAX_IMAGES);
+    }
 
     // Accumulate files in a DataTransfer so the input carries all of them on submit
     const dt = new DataTransfer();
@@ -259,6 +290,10 @@ On create (no pk): multi-file input that submits with the form, with local previ
     function addFiles(files) {
         for (const file of files) {
             if (!file.type.startsWith('image/')) continue;
+            if (grid.children.length >= MAX_IMAGES) {
+                countEl.textContent = `${MAX_IMAGES} / ${MAX_IMAGES} images — that's the maximum.`;
+                break;
+            }
             dt.items.add(file);
             const idx = dt.files.length - 1;
             const card = document.createElement('div');
@@ -282,6 +317,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
             grid.appendChild(card);
         }
         fileInput.files = dt.files;
+        updateCount();
     }
 
     function rebuildFileList() {
@@ -296,6 +332,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
         dt.items.clear();
         for (const f of newDt.files) dt.items.add(f);
         fileInput.files = dt.files;
+        updateCount();
     }
 
     fileInput.addEventListener('change', () => {
@@ -309,6 +346,8 @@ On create (no pk): multi-file input that submits with the form, with local previ
         const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
         if (files.length) addFiles(files);
     });
+
+    updateCount();
 })();
 </script>
 {% endif %}

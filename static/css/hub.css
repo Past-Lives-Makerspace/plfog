@@ -439,18 +439,24 @@ a:hover { color: var(--hub-link-hover); }
 }
 
 .pl-badge--version {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
     font-size: 0.6875rem;
-    font-weight: 500;
-    letter-spacing: 0.05em;
-    color: var(--hub-text-muted);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--color-tuscan-yellow);
+    background-color: rgba(238, 180, 75, 0.15);
+    padding: 0.125rem 0.5rem;
+    border-radius: 999px;
     border: none;
     cursor: pointer;
     font-family: var(--font-body);
-    transition: color 0.15s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .pl-badge--version:hover {
-    color: var(--hub-text);
+    background-color: rgba(238, 180, 75, 0.28);
 }
 
 /* View switcher — distinct button to switch between admin/hub */
@@ -2283,6 +2289,7 @@ a:hover { color: var(--hub-link-hover); }
 .pl-profile-row input[type="text"],
 .pl-profile-row input[type="email"],
 .pl-profile-row input[type="tel"],
+.pl-profile-row input[type="url"],
 .pl-profile-row select,
 .pl-profile-row textarea {
     width: 100%;
@@ -2327,6 +2334,30 @@ a:hover { color: var(--hub-link-hover); }
 .pl-vis-toggle--off:hover { background: rgba(255,255,255,0.05); }
 .pl-vis-toggle--disabled { opacity: 0.4; cursor: not-allowed; }
 [data-theme="light"] .pl-vis-toggle--on { color: #16a34a; background: rgba(22, 163, 74, 0.10); }
+
+/* iOS-style toggle switch — applied to a checkbox <input class="hub-switch-input">.
+   Reusable: any boolean form field can render as a switch by adding this class. */
+.hub-switch-input {
+    appearance: none; -webkit-appearance: none;
+    flex: none; position: relative;
+    width: 2.5rem; height: 1.375rem;
+    border-radius: 999px;
+    background: var(--hub-border);
+    cursor: pointer;
+    transition: background 0.15s ease;
+    margin: 0;
+}
+.hub-switch-input::before {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 1.125rem; height: 1.125rem;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.15s ease;
+}
+.hub-switch-input:checked { background: var(--hub-accent, #c46a1b); }
+.hub-switch-input:checked::before { transform: translateX(1.125rem); }
+.hub-switch-input:focus-visible { outline: 2px solid var(--hub-accent, #c46a1b); outline-offset: 2px; }
+.hub-switch-input:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Always-shown badge */
 .pl-vis-static {
@@ -2687,3 +2718,21 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-guild-faq__a { padding-bottom: 0.75rem; color: var(--hub-text-muted); }
 .pl-guild-roster { display: flex; flex-direction: column; gap: 0.5rem; }
 .pl-guild-links a { display: block; padding: 0.5rem 0; color: var(--color-tuscan-yellow); }
+
+/* Orientation slot booking table. Layout lives in classes (not inline) so Alpine's
+   x-show — which strips inline `display` when it reveals a row — can't break the columns. */
+.pl-orient-slots__head,
+.pl-orient-slots__row { display: flex; align-items: center; gap: 1rem; }
+.pl-orient-slots__head {
+    padding: 0 0 0.4rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--hub-text-muted);
+}
+.pl-orient-slots__row { padding: 0.55rem 0; border-top: 1px solid var(--hub-border); }
+.pl-orient-slots__date { flex: 0 0 6rem; font-weight: 500; }
+.pl-orient-slots__time { flex: 1; color: var(--hub-text-muted); font-size: 0.9rem; }
+.pl-orient-slots__action { flex: 0 0 7rem; text-align: right; }
+.pl-orient-slots__action .hub-btn { width: 100%; }
+.pl-orient-slots__pager { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; }

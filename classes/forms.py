@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from django import forms
 from django.core.exceptions import ValidationError
 from django.forms import inlineformset_factory
+from django.utils import timezone
 from django.utils.text import slugify
 
 from classes.models import (
@@ -25,6 +26,7 @@ from classes.models import (
     RegistrationQuestion,
     Waiver,
 )
+from classes.questions import active_questions, collect_answers, inject_fields
 from classes.templatetags.classes_tags import youtube_embed_id as _youtube_embed_id
 
 
@@ -40,6 +42,8 @@ def _validate_youtube_url(url: str) -> str:
 
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+
     from membership.models import Member
 
 
@@ -179,7 +183,26 @@ class _FreeClassMixin:
             offering.member_discount_pct = 0
 
 
-class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
+class _SchedulingTypeMixin:
+    """Renders ``scheduling_type`` as a guided two-option radio choice.
+
+    The model stores ``single_session`` / ``series_package``; here we swap the
+    widget to radio buttons and relabel them in plain language so the create/edit
+    form reads as a direct "one-off class vs multi-session series" decision rather
+    than a bare dropdown. Templates iterate the radio to render the option cards.
+    """
+
+    def setup_scheduling_type_field(self) -> None:
+        field = self.fields["scheduling_type"]  # type: ignore[attr-defined]
+        field.widget = forms.RadioSelect()
+        field.choices = [  # type: ignore[attr-defined]  # ChoiceField setter propagates to the new widget
+            (ClassOffering.SchedulingType.SINGLE_SESSION, "Single class (one date)"),
+            (ClassOffering.SchedulingType.SERIES_PACKAGE, "Multi-session series"),
+        ]
+        field.label = "How does this class run?"
+
+
+class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, forms.ModelForm):
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
 
     class Meta:
@@ -200,6 +223,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
             "member_discount_pct",
             "capacity",
             "scheduling_model",
+            "scheduling_type",
             "flexible_note",
             "is_private",
             "private_for_name",
@@ -212,6 +236,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
         self.fields["member_discount_pct"].label = "Member discount (%)"
         self.add_is_free_field()
         self.add_hero_crop_field()
+        self.setup_scheduling_type_field()
 
     def clean_video_url(self) -> str:
         return _validate_youtube_url(self.cleaned_data.get("video_url", ""))
@@ -231,7 +256,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
         return offering
 
 
-class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
+class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, forms.ModelForm):
     """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated."""
 
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
@@ -252,6 +277,7 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
             "member_discount_pct",
             "capacity",
             "scheduling_model",
+            "scheduling_type",
             "flexible_note",
             "image",
             "video_url",
@@ -263,6 +289,7 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, forms.ModelForm):
         self.fields["member_discount_pct"].label = "Member discount (%)"
         self.add_is_free_field()
         self.add_hero_crop_field()
+        self.setup_scheduling_type_field()
 
     def clean_video_url(self) -> str:
         return _validate_youtube_url(self.cleaned_data.get("video_url", ""))
@@ -558,6 +585,8 @@ class RegistrationForm(forms.ModelForm):
         member: "Member | None" = None,
         client_ip: str = "",
         is_waitlist: bool = False,
+        user: "AbstractBaseUser | AnonymousUser | None" = None,
+        custom_answers_initial: dict[int, str] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -572,12 +601,32 @@ class RegistrationForm(forms.ModelForm):
             # Hide model release fields entirely when the class doesn't need them.
             self.fields.pop("model_release_signature")
             self.fields.pop("accepts_model_release")
+        if self._user_already_opted_in(user):
+            # Don't re-ask a user who already opted in during a prior session.
+            self.fields.pop("wants_newsletter", None)
         if is_waitlist:
             # Waitlist signups don't transact money so the discount field is
             # noise on the form. Drop it so the registrant isn't confused.
             self.fields.pop("discount_code", None)
-        self._custom_questions = list(RegistrationQuestion.objects.filter(is_active=True))
-        self._inject_custom_question_fields()
+        self._custom_questions = list(active_questions())
+        inject_fields(self, self._custom_questions, custom_answers_initial)
+        if self._custom_questions:
+            # A returning guest has no email on first GET, so their saved answers
+            # can't pre-fill server-side yet. When the email changes, HTMX re-fetches
+            # just the questions block (hx-select) so previous answers appear without
+            # disturbing the rest of the form.
+            from django.urls import reverse
+
+            self.fields["email"].widget.attrs.update(
+                {
+                    "hx-get": reverse("classes:register", kwargs={"slug": offering.slug}),
+                    "hx-trigger": "change",
+                    "hx-target": "#custom-questions-block",
+                    "hx-select": "#custom-questions-block",
+                    "hx-swap": "outerHTML",
+                    "hx-include": "this",
+                }
+            )
         # On the first GET render, pre-fill the discount field with the best
         # class-scoped auto-apply code (if one exists). The registrant can
         # still clear it before submitting.
@@ -586,6 +635,14 @@ class RegistrationForm(forms.ModelForm):
             if applied is not None:
                 self.fields["discount_code"].initial = applied.code
                 self.auto_applied_discount = applied
+
+    @staticmethod
+    def _user_already_opted_in(user: "AbstractBaseUser | AnonymousUser | None") -> bool:
+        """True when a logged-in user has already opted into Mailchimp."""
+        if user is None or not user.is_authenticated:
+            return False
+        profile = getattr(user, "profile", None)
+        return profile is not None and profile.subscribed_to_mailchimp_at is not None
 
     def _find_auto_apply_discount(self) -> DiscountCode | None:
         """Pick the class-scoped auto-apply code that yields the lowest final price.
@@ -598,43 +655,6 @@ class RegistrationForm(forms.ModelForm):
         if self.member is not None and self.offering.member_price_cents is not None:
             base = self.offering.member_price_cents
         return DiscountCode.objects.best_auto_apply_for(self.offering, base)
-
-    def _inject_custom_question_fields(self) -> None:
-        """Add one dynamic form field per active RegistrationQuestion.
-
-        Field name pattern: ``custom_q_<pk>``. Type is mapped from the
-        question's ``question_type``. Required flag follows the question's
-        ``is_required``. choices_json drives the options for SINGLE_CHOICE.
-        """
-        for q in self._custom_questions:
-            field_name = f"custom_q_{q.pk}"
-            field: forms.Field
-            if q.question_type == RegistrationQuestion.QuestionType.LONG_TEXT:
-                field = forms.CharField(
-                    required=q.is_required,
-                    label=q.prompt,
-                    widget=forms.Textarea(attrs={"rows": 3}),
-                )
-            elif q.question_type == RegistrationQuestion.QuestionType.YES_NO:
-                field = forms.TypedChoiceField(
-                    required=q.is_required,
-                    label=q.prompt,
-                    choices=[("", "Choose…"), ("yes", "Yes"), ("no", "No")],
-                )
-            elif q.question_type == RegistrationQuestion.QuestionType.SINGLE_CHOICE:
-                options = [(c, c) for c in (q.choices_json or [])]
-                field = forms.ChoiceField(
-                    required=q.is_required,
-                    label=q.prompt,
-                    choices=[("", "Choose…")] + options,
-                )
-            else:  # SHORT_TEXT and any future fallthrough
-                field = forms.CharField(
-                    required=q.is_required,
-                    label=q.prompt,
-                    max_length=500,
-                )
-            self.fields[field_name] = field
 
     def clean_discount_code(self) -> DiscountCode | None:
         from django.db.models import Q
@@ -702,15 +722,21 @@ class RegistrationForm(forms.ModelForm):
             self._create_custom_answers(registration)
         return registration
 
+    def custom_answers(self) -> dict[int, str]:
+        """Non-empty answers to the custom questions, keyed by question id.
+
+        Exposed so the view can remember them on the registrant's profile after
+        a successful save without reaching into form internals.
+        """
+        return collect_answers(self, self._custom_questions)
+
     def _create_custom_answers(self, registration: Registration) -> None:
-        answers = []
-        for q in self._custom_questions:
-            raw = self.cleaned_data.get(f"custom_q_{q.pk}")
-            if raw in (None, ""):
-                continue
-            answers.append(RegistrationAnswer(registration=registration, question=q, answer_text=str(raw)))
-        if answers:
-            RegistrationAnswer.objects.bulk_create(answers)
+        rows = [
+            RegistrationAnswer(registration=registration, question_id=qid, answer_text=text)
+            for qid, text in self.custom_answers().items()
+        ]
+        if rows:
+            RegistrationAnswer.objects.bulk_create(rows)
 
     @property
     def custom_question_fields(self):
@@ -899,3 +925,76 @@ class AdminClassEmailForm(forms.Form):
                 [InstructorMessageRecipient(message=message, registration=r, email=r.email) for r in registrations]
             )
         return message
+
+
+class RegistrationMoveForm(forms.Form):
+    """Pick a different class to reassign a registration to.
+
+    The target queryset excludes the registration's current class, so a
+    same-class move can't be selected (or POSTed) at all — no extra clean needed.
+    """
+
+    target = forms.ModelChoiceField(
+        queryset=ClassOffering.objects.none(),
+        label="Move to class",
+        empty_label="Choose a class…",
+    )
+
+    def __init__(self, *args: object, current: "ClassOffering | None" = None, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        offerings = ClassOffering.objects.all()
+        if current is not None:
+            offerings = offerings.exclude(pk=current.pk)
+        self.fields["target"].queryset = offerings.order_by("title")
+        self.fields["target"].widget.attrs["style"] = (
+            "padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; "
+            "background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;"
+        )
+
+
+class TeachWelcomeEmailForm(forms.ModelForm):
+    """Edit a class's instructor-authored welcome email.
+
+    Enabling the email requires a subject and a body, so an empty welcome email
+    can never be switched on. Saving stamps ``welcome_email_updated_at``.
+    """
+
+    class Meta:
+        model = ClassOffering
+        fields = ["welcome_email_enabled", "welcome_email_subject", "welcome_email_body"]
+        widgets = {
+            "welcome_email_enabled": forms.CheckboxInput(attrs={"class": "hub-switch-input"}),
+            "welcome_email_subject": forms.TextInput(
+                attrs={
+                    "placeholder": "Welcome to the class!",
+                    "style": "width:100%; padding:0.45rem 0.75rem; border:1px solid var(--hub-border); "
+                    "border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.9rem;",
+                }
+            ),
+            "welcome_email_body": forms.Textarea(
+                attrs={
+                    "rows": 12,
+                    "style": "width:100%; padding:0.6rem 0.75rem; border:1px solid var(--hub-border); "
+                    "border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.9rem; "
+                    "line-height:1.6;",
+                }
+            ),
+        }
+        labels = {
+            "welcome_email_enabled": "Active",
+            "welcome_email_subject": "Subject",
+            "welcome_email_body": "Message",
+        }
+
+    def clean(self) -> dict[str, object]:
+        cleaned = super().clean()
+        if cleaned.get("welcome_email_enabled"):
+            if not (cleaned.get("welcome_email_subject") or "").strip():
+                self.add_error("welcome_email_subject", "Add a subject before turning the welcome email on.")
+            if not (cleaned.get("welcome_email_body") or "").strip():
+                self.add_error("welcome_email_body", "Add a message before turning the welcome email on.")
+        return cleaned
+
+    def save(self, commit: bool = True) -> ClassOffering:
+        self.instance.welcome_email_updated_at = timezone.now()
+        return super().save(commit=commit)

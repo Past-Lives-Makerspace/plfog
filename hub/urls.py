@@ -12,6 +12,55 @@ urlpatterns = [
     path("guilds/<int:pk>/edit/", views.guild_edit, name="hub_guild_edit"),
     path("hero-adjust/", views.hub_hero_adjust, name="hub_hero_adjust"),
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
+    path("guilds/<int:pk>/orientation/edit/", views.guild_orientation_edit, name="hub_guild_orientation_edit"),
+    path(
+        "guilds/<int:pk>/orientation/orienters/add/",
+        views.guild_orientation_orienter_add,
+        name="hub_guild_orientation_orienter_add",
+    ),
+    path(
+        "guilds/<int:pk>/orientation/orienters/<int:member_pk>/remove/",
+        views.guild_orientation_orienter_remove,
+        name="hub_guild_orientation_orienter_remove",
+    ),
+    path(
+        "guilds/<int:pk>/orientation/slots/add/",
+        views.guild_orientation_slot_add,
+        name="hub_guild_orientation_slot_add",
+    ),
+    path(
+        "guilds/<int:pk>/orientation/slots/<int:slot_pk>/cancel/",
+        views.guild_orientation_slot_cancel,
+        name="hub_guild_orientation_slot_cancel",
+    ),
+    path("guilds/<int:pk>/orientation/", views.orientation_info, name="hub_orientation_info"),
+    path("guilds/<int:pk>/calendar/events/", views.guild_calendar_events_partial, name="hub_guild_calendar_events"),
+    path(
+        "guilds/<int:pk>/orientation/request-custom/",
+        views.guild_orientation_request_custom,
+        name="hub_guild_orientation_request_custom",
+    ),
+    path("orientation/slots/<int:slot_pk>/book/", views.orientation_book, name="hub_orientation_book"),
+    path("orientation/bookings/<int:booking_pk>/respond/", views.orientation_respond, name="hub_orientation_respond"),
+    path(
+        "orientation/bookings/<int:booking_pk>/lead-cancel/",
+        views.orientation_lead_cancel,
+        name="hub_orientation_lead_cancel",
+    ),
+    path(
+        "orientation/bookings/<int:booking_pk>/cancel/",
+        views.orientation_cancel_mine,
+        name="hub_orientation_cancel_mine",
+    ),
+    path("orientation/act/<str:token>/", views.orientation_action, name="hub_orientation_action"),
+    path("orientations/", views.orientations_dashboard, name="hub_orientations_dashboard"),
+    path("orientations/export/", views.orientations_export, name="hub_orientations_export"),
+    path("orientations/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),
+    path(
+        "orientations/bookings/<int:booking_pk>/toggle-completed/",
+        views.orientation_toggle_completed,
+        name="hub_orientation_toggle_completed",
+    ),
     path("guilds/<int:pk>/join/", views.guild_join, name="hub_guild_join"),
     path("guilds/<int:pk>/leave/", views.guild_leave, name="hub_guild_leave"),
     path(
@@ -33,6 +82,11 @@ urlpatterns = [
         "guilds/<int:pk>/images/<int:image_pk>/alt/",
         views.guild_image_alt_update,
         name="hub_guild_image_alt",
+    ),
+    path(
+        "guilds/<int:pk>/announcements/new/",
+        views.guild_announcement_create,
+        name="hub_guild_announcement_create",
     ),
     path(
         "guilds/<int:pk>/announcements/<int:announcement_pk>/delete/",
@@ -83,6 +137,27 @@ urlpatterns = [
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
     path("manage/voting/", views.admin_voting_dashboard, name="hub_admin_voting_dashboard"),
     path("manage/members/", views.admin_members, name="hub_admin_members"),
+    path("manage/members/invite/", views.admin_member_invite, name="hub_admin_member_invite"),
     path("manage/members/<int:pk>/edit/", views.admin_member_edit, name="hub_admin_member_edit"),
+    path(
+        "manage/members/<int:pk>/emails/add/",
+        views.admin_member_email_add,
+        name="hub_admin_member_email_add",
+    ),
+    path(
+        "manage/members/<int:pk>/emails/<int:email_pk>/remove/",
+        views.admin_member_email_remove,
+        name="hub_admin_member_email_remove",
+    ),
+    path(
+        "manage/members/<int:pk>/emails/<int:email_pk>/set-primary/",
+        views.admin_member_email_set_primary,
+        name="hub_admin_member_email_set_primary",
+    ),
+    path(
+        "manage/members/<int:pk>/emails/<int:email_pk>/toggle-verified/",
+        views.admin_member_email_toggle_verified,
+        name="hub_admin_member_email_toggle_verified",
+    ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
 ]

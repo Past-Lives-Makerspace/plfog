@@ -193,6 +193,7 @@ def describe_create_class():
                 "member_discount_pct": 10,
                 "capacity": 6,
                 "scheduling_model": "fixed",
+                "scheduling_type": "single_session",
                 "description": "d",
                 "prerequisites": "",
                 "materials_included": "",
@@ -236,6 +237,7 @@ def describe_create_class():
                 "member_discount_pct": 10,
                 "capacity": 6,
                 "scheduling_model": "fixed",
+                "scheduling_type": "single_session",
                 "description": "d",
                 "prerequisites": "",
                 "materials_included": "",
@@ -259,6 +261,49 @@ def describe_create_class():
         assert response.status_code == 302
         offering = ClassOffering.objects.get(slug="gallery-class")
         assert ClassImage.objects.filter(class_offering=offering).count() == 2
+
+    def it_rejects_an_over_cap_gallery_batch_without_publishing(admin_user, client, db):
+        from classes.factories import CategoryFactory, InstructorFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        response = client.post(
+            reverse("classes:admin_class_create"),
+            {
+                "title": "Too Many Photos",
+                "slug": "too-many-photos",
+                "category": cat.pk,
+                "instructor": inst.pk,
+                "price_cents": "50.00",
+                "member_discount_pct": 10,
+                "capacity": 6,
+                "scheduling_model": "fixed",
+                "scheduling_type": "single_session",
+                "description": "d",
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "flexible_note": "",
+                "private_for_name": "",
+                "recurring_pattern": "",
+                "sessions-TOTAL_FORMS": "0",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "gallery_images": [_image_file(f"{i}.png") for i in range(11)],
+            },
+        )
+        assert response.status_code == 200
+        assert "at most 10 images" in response.content.decode().lower()
+        assert not ClassOffering.objects.filter(slug="too-many-photos").exists()
 
 
 def describe_edit_class():
@@ -286,6 +331,7 @@ def describe_edit_class():
                 "member_discount_pct": offering.member_discount_pct,
                 "capacity": offering.capacity,
                 "scheduling_model": offering.scheduling_model,
+                "scheduling_type": offering.scheduling_type,
                 "description": offering.description,
                 "prerequisites": "",
                 "materials_included": "",

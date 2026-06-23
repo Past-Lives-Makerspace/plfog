@@ -1,0 +1,80 @@
+{% load static %}
+{% comment %}
+Guild calendar — reuses the community calendar grid/list (calendar_content.html),
+scoped to one guild and fed its CMS classes + orientation slots.
+Context: `cal` = the calendar context dict; `guild` = the Guild.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'css/calendar.css' %}">
+<div
+    x-data="{
+        calView: localStorage.getItem('guildCalView') || 'week',
+        activeFilters: JSON.parse(localStorage.getItem('guildCalFilters-{{ guild.pk }}') || '{{ cal.default_filters_json }}'),
+        setView(v) { this.calView = v; localStorage.setItem('guildCalView', v); },
+        toggleFilter(key) {
+            if (this.activeFilters.includes(key)) {
+                this.activeFilters = this.activeFilters.filter(k => k !== key);
+            } else {
+                this.activeFilters.push(key);
+            }
+            localStorage.setItem('guildCalFilters-{{ guild.pk }}', JSON.stringify(this.activeFilters));
+        },
+        isActive(key) { return this.activeFilters.includes(key); },
+        flashTarget(pk) {
+            const matches = document.querySelectorAll('.pl-calendar-list__item[data-event-pk=\'' + pk + '\']');
+            const target = Array.from(matches).find(el => el.offsetParent !== null) || matches[0];
+            if (!target) return false;
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            target.classList.add('pl-calendar-list__item--flash');
+            setTimeout(() => target.classList.remove('pl-calendar-list__item--flash'), 1800);
+            return true;
+        },
+        focusEvent(pk) {
+            const stateEl = document.getElementById('pl-cal-state');
+            const state = stateEl ? JSON.parse(stateEl.textContent) : null;
+            if (!state || this.calView !== 'month') { this.flashTarget(pk); return; }
+            const targetPage = state.month_event_pages[pk];
+            if (targetPage && targetPage !== state.event_page) {
+                const url = state.events_url + '?week_offset=' + state.week_offset + '&month_offset=' + state.month_offset + '&page=' + targetPage;
+                htmx.ajax('GET', url, { target: '#pl-calendar-events-area', swap: 'innerHTML' })
+                    .then(() => requestAnimationFrame(() => this.flashTarget(pk)));
+                return;
+            }
+            this.flashTarget(pk);
+        }
+    }"
+    class="pl-calendar-page"
+    style="margin-bottom:1.5rem;"
+>
+    <div class="pl-calendar-topbar">
+        <div class="pl-calendar-topbar__left">
+            <div class="pl-calendar-view-toggle">
+                <button class="pl-calendar-view-toggle__btn" :class="{ 'pl-calendar-view-toggle__btn--active': calView === 'week' }" @click="setView('week')">Week</button>
+                <button class="pl-calendar-view-toggle__btn" :class="{ 'pl-calendar-view-toggle__btn--active': calView === 'month' }" @click="setView('month')">Month</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="pl-calendar-filters">
+        <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('classes') }" @click="toggleFilter('classes')" style="--filter-color: {{ cal.classes_color|default:'#888888' }};">
+            <span class="pl-calendar-filter__dot" style="background: {{ cal.classes_color|default:'#888888' }};"></span>
+            Classes
+        </button>
+        <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('orientation') }" @click="toggleFilter('orientation')" style="--filter-color: #EEB44B;">
+            <span class="pl-calendar-filter__dot" style="background: #EEB44B;"></span>
+            Orientation
+        </button>
+        {% if guild.calendar_url %}
+        <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('{{ guild.pk }}') }" @click="toggleFilter('{{ guild.pk }}')" style="--filter-color: {{ guild.calendar_color }};">
+            <span class="pl-calendar-filter__dot" style="background: {{ guild.calendar_color }};"></span>
+            {{ guild.name }} events
+        </button>
+        {% endif %}
+    </div>
+
+    <div style="position:relative;">
+        <div id="pl-calendar-loading" class="pl-calendar-loading-bar htmx-indicator"></div>
+        <div id="pl-calendar-events-area">
+            {% include "hub/partials/calendar_content.html" with week_days=cal.week_days month_days=cal.month_days week_events=cal.week_events month_events=cal.month_events month_headers=cal.month_headers source_colors=cal.source_colors week_label=cal.week_label month_label=cal.month_label week_offset=cal.week_offset month_offset=cal.month_offset event_page=cal.event_page event_total_pages=cal.event_total_pages month_event_pages_json=cal.month_event_pages_json events_url=cal.events_url %}
+        </div>
+    </div>
+</div>

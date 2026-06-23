@@ -1,0 +1,69 @@
+{% comment %}
+Top navigation/save progress bar for hx-boosted requests. Self-contained (one guarded
+inline script that injects its own CSS), mirroring components/toast.html so it survives a
+stale service-worker cache or a missing collectstatic.
+
+Because hub/base.html boosts the whole body (hx-boost="true"), every internal page navigation
+AND every form save is an htmx request — so this single component gives immediate "working…"
+feedback on slow class-detail loads and on Save across guild/profile/class-edit/settings pages.
+
+Listens on `document` (htmx events bubble there, so it survives body swaps) and lives on
+<html> (outside <body>) so a boosted body swap never wipes it mid-request.
+{% endcomment %}
+<script>
+(function () {
+  if (window.__plbInit) return;
+  window.__plbInit = true;
+
+  var css =
+    '.plb-bar{position:fixed;top:0;left:0;height:3px;width:0;z-index:2147483600;' +
+    'background:linear-gradient(90deg,#60a5fa,#34d399);box-shadow:0 0 10px rgba(96,165,250,.55);' +
+    'border-radius:0 2px 2px 0;opacity:0;pointer-events:none;' +
+    'transition:width .2s ease,opacity .3s ease}' +
+    '.plb-bar.plb-on{opacity:1}';
+  var style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
+
+  var bar = document.createElement('div');
+  bar.className = 'plb-bar';
+  bar.setAttribute('aria-hidden', 'true');
+  document.documentElement.appendChild(bar);
+
+  var active = 0, pct = 0, trickle = null, showTimer = null;
+  function set(p) { pct = p; bar.style.width = p + '%'; }
+
+  function begin() {
+    active++;
+    if (active > 1) return;
+    clearTimeout(showTimer);
+    // brief delay so instant responses don't flash the bar
+    showTimer = setTimeout(function () {
+      bar.classList.add('plb-on');
+      set(8);
+      clearInterval(trickle);
+      trickle = setInterval(function () {
+        if (pct < 90) set(pct + (90 - pct) * 0.12);
+      }, 200);
+    }, 120);
+  }
+
+  function end() {
+    active = Math.max(0, active - 1);
+    if (active > 0) return;
+    clearTimeout(showTimer);
+    clearInterval(trickle);
+    set(100);
+    setTimeout(function () {
+      bar.classList.remove('plb-on');
+      setTimeout(function () { set(0); }, 300);
+    }, 150);
+  }
+
+  document.addEventListener('htmx:beforeRequest', begin);
+  document.addEventListener('htmx:afterRequest', end);
+  document.addEventListener('htmx:responseError', end);
+  document.addEventListener('htmx:sendError', end);
+  document.addEventListener('htmx:timeout', end);
+})();
+</script>

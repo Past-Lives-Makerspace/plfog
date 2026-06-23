@@ -21,12 +21,51 @@
         <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">&larr; Class details</a>
       </div>
       <div class="detail-body">
+        {% if not user.is_authenticated %}
+        <div class="reg-account-band" style="display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;margin-bottom:12px;padding:10px 12px;border:1px solid var(--steel-dim,#1a4568);border-radius:8px;font-size:13px;">
+          <span>Booked with us before, or want to manage this booking later?</span>
+          <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" hx-boost="false" style="font-weight:600">Log in</a>
+          <span aria-hidden="true">·</span>
+          <a href="{% url 'account_signup' %}?next={{ request.path|urlencode }}" hx-boost="false" style="font-weight:600">Create an account</a>
+          <span style="color:var(--steel-dim)">— or just continue as a guest below.</span>
+        </div>
+        {% endif %}
         <div class="reg-summary">
-          <div>{{ offering.title }}</div>
+          <div>{{ offering.title|strip_date_suffix }}</div>
           <div class="total">{{ offering.price_cents|cents_as_price }}</div>
-          {% if member_price_cents %}<div style="font-size:11px;color:var(--steel-dim);margin-top:2px">Members: {{ member_price_cents|cents_as_price }} (auto-applied if your email matches a verified member)</div>{% endif %}
+          {% if member_price_cents %}<div style="font-size:11px;color:var(--steel-dim);margin-top:2px">Past Lives Members: {{ member_price_cents|cents_as_price }} (auto-applied if your email matches a verified member)</div>{% endif %}
           {% if spots_remaining <= 3 %}<div style="font-size:11px;color:var(--red);margin-top:6px">Only {{ spots_remaining }} spot{{ spots_remaining|pluralize }} left</div>{% endif %}
         </div>
+
+        {% if run_options|length > 1 %}
+        <div class="reg-run-picker">
+          <label for="reg-run-select">Choose your dates</label>
+          <select id="reg-run-select" onchange="if (this.value) location.assign(this.value)">
+            {% for run in run_options %}
+              {% with ses=run.sessions.all|upcoming_sessions %}
+              <option value="{% url 'classes:register' slug=run.slug %}"{% if run.pk == offering.pk %} selected{% endif %}>{{ ses|session_date_range }}{% if run.is_series %} · {{ ses|length }} sessions{% endif %} · {% if run.spots_left == 0 %}waitlist{% else %}{{ run.spots_left }} left{% endif %}</option>
+              {% endwith %}
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+
+        {% if upcoming_sessions %}
+        <div class="reg-schedule" style="margin-top:12px;padding:12px 14px;border:1px solid var(--steel-dim,#1a4568);border-radius:8px;">
+          {% if offering.scheduling_type == 'series_package' and upcoming_sessions|length > 1 %}
+            <div style="font-size:12px;font-weight:600;margin-bottom:6px">This is a multi-session series — one registration enrolls you in all {{ upcoming_sessions|length }} sessions:</div>
+          {% else %}
+            <div style="font-size:12px;font-weight:600;margin-bottom:6px">Class date:</div>
+          {% endif %}
+          <ul style="list-style:none;margin:0;padding:0;font-size:13px;">
+            {% for session in upcoming_sessions %}
+              <li style="padding:3px 0;">
+                {% if offering.scheduling_type == 'series_package' and upcoming_sessions|length > 1 %}<span style="opacity:0.6">{{ forloop.counter }}.</span> {% endif %}{{ session.starts_at|date:"l, F j, Y" }} · {{ session|session_time_range }}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
 
         {% if form.non_field_errors %}
           <div class="reg-error-block" style="margin-top:12px">
@@ -78,23 +117,32 @@
             {% if form.discount_code.errors %}<ul class="reg-errors">{% for e in form.discount_code.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
           </div>
 
-          {% if form.custom_question_fields %}
-          <fieldset class="reg-custom-questions" style="margin:14px 0 4px;padding:12px 14px;border:1px solid var(--steel-dim,#1a4568);border-radius:8px;">
-            <legend style="padding:0 6px;font-size:12px;color:var(--steel-dim);">A few more questions</legend>
-            {% for cf in form.custom_question_fields %}
-            <div class="reg-field" style="margin-top:8px;">
-              <label for="{{ cf.id_for_label }}">{{ cf.label }}{% if cf.field.required %} <span aria-hidden="true">*</span>{% endif %}</label>
-              {{ cf }}
-              {% if cf.errors %}<ul class="reg-errors">{% for e in cf.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+          <div id="custom-questions-block">
+            {% if answers_prefilled %}
+            <div class="reg-prefill-note" style="margin:12px 0 0;padding:8px 12px;border-radius:8px;background:var(--surface-2,#eef4f9);font-size:12px;color:var(--steel-dim);">
+              We filled in answers from a previous booking with this email — please review and update anything that's changed.
             </div>
-            {% endfor %}
-          </fieldset>
-          {% endif %}
+            {% endif %}
+            {% if form.custom_question_fields %}
+            <fieldset class="reg-custom-questions" style="margin:14px 0 4px;padding:12px 14px;border:1px solid var(--steel-dim,#1a4568);border-radius:8px;">
+              <legend style="padding:0 6px;font-size:12px;color:var(--steel-dim);">A few more questions</legend>
+              {% for cf in form.custom_question_fields %}
+              <div class="reg-field" style="margin-top:8px;">
+                <label for="{{ cf.id_for_label }}">{{ cf.label }}{% if cf.field.required %} <span aria-hidden="true">*</span>{% endif %}</label>
+                {{ cf }}
+                {% if cf.errors %}<ul class="reg-errors">{% for e in cf.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+              </div>
+              {% endfor %}
+            </fieldset>
+            {% endif %}
+          </div>
 
+          {% if form.wants_newsletter %}
           <label class="reg-check" style="margin-top:4px">
             {{ form.wants_newsletter }}
             <span>{{ form.wants_newsletter.label }}</span>
           </label>
+          {% endif %}
 
           <div class="reg-waiver">
             <h3>Liability Waiver</h3>
