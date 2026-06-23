@@ -15,7 +15,13 @@ from django.test import RequestFactory
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, UserFactory
 from membership.models import Member
-from membership.permissions import can_edit_category, can_edit_class, can_edit_guild, is_effective_staff
+from membership.permissions import (
+    can_edit_category,
+    can_edit_class,
+    can_edit_guild,
+    can_manage_orientations,
+    is_effective_staff,
+)
 from tests.membership.factories import GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
@@ -52,6 +58,32 @@ def describe_member_can_edit_class():
         assert plain.can_edit_class(offering) is False
 
 
+def describe_member_can_manage_orientations():
+    def it_allows_an_editor():
+        admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
+        lead = MemberFactory()
+        guild = GuildFactory(guild_lead=lead)
+        assert admin.can_manage_orientations(guild) is True
+        assert lead.can_manage_orientations(guild) is True
+
+    def it_allows_a_designated_orienter():
+        orienter = MemberFactory()
+        guild = GuildFactory()
+        guild.orienters.add(orienter)
+        assert orienter.can_manage_orientations(guild) is True
+
+    def it_denies_an_unrelated_member():
+        stranger = MemberFactory()
+        guild = GuildFactory()
+        assert stranger.can_manage_orientations(guild) is False
+
+    def it_reports_orienter_membership_via_is_orienter():
+        member = MemberFactory()
+        assert member.is_orienter is False
+        GuildFactory().orienters.add(member)
+        assert member.is_orienter is True
+
+
 def describe_request_helpers_without_view_as():
     def it_denies_an_anonymous_request():
         request = RequestFactory().get("/")
@@ -61,6 +93,11 @@ def describe_request_helpers_without_view_as():
         assert can_edit_category(request, CategoryFactory(guild=None)) is False
         # A category with a guild defers to can_edit_guild — still denied here.
         assert can_edit_category(request, CategoryFactory(guild=GuildFactory())) is False
+
+    def it_denies_orientation_management_for_an_anonymous_request():
+        request = RequestFactory().get("/")
+        request.user = AnonymousUser()
+        assert can_manage_orientations(request, GuildFactory()) is False
 
     def it_denies_an_authenticated_request_with_no_view_as():
         request = RequestFactory().get("/")

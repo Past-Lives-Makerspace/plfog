@@ -416,6 +416,15 @@ class Member(models.Model):
         """True when this member may edit the given guild (admin, officer, or that guild's lead)."""
         return self.is_fog_admin or self.is_guild_officer or guild.guild_lead_id == self.pk
 
+    def can_manage_orientations(self, guild: Guild) -> bool:
+        """True when this member may run the guild's orientations.
+
+        Editors (admin / officer / lead) always can; so can a member the guild has
+        designated as an orienter. Role-based — use ``membership.permissions.
+        can_manage_orientations`` in views to honor ``view_as`` preview mode.
+        """
+        return self.can_edit_guild(guild) or guild.orienters.filter(pk=self.pk).exists()
+
     def can_edit_class(self, offering: ClassOffering) -> bool:
         """True when this member may edit the class offering.
 
@@ -435,6 +444,11 @@ class Member(models.Model):
     def is_guild_lead(self) -> bool:
         """True when this member leads at least one guild."""
         return Guild.objects.filter(guild_lead=self).exists()
+
+    @property
+    def is_orienter(self) -> bool:
+        """True when this member is a designated orienter for at least one guild."""
+        return self.orienting_guilds.exists()
 
     @property
     def is_instructor(self) -> bool:
@@ -615,6 +629,16 @@ class Guild(HeroCropMixin, models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="led_guilds",
+    )
+    orienters = models.ManyToManyField(
+        Member,
+        blank=True,
+        related_name="orienting_guilds",
+        help_text=(
+            "Members trusted to run this guild's orientations — confirm bookings, sign members off, "
+            "and manage availability. They cannot edit the guild page, manage classes, or add other "
+            "orienters; only the guild lead or an admin can."
+        ),
     )
     notes = models.TextField(blank=True)
     about = models.TextField(

@@ -56,6 +56,20 @@ def can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
     return member is not None and guild.guild_lead_id == member.pk
 
 
+def can_manage_orientations(request: HttpRequest, guild: Guild) -> bool:
+    """True when this request may run the guild's orientations.
+
+    Editors (admin / officer / the guild's lead) always can; so can a member the
+    guild has designated as an orienter. Honors ``view_as`` preview mode like the
+    other helpers — an admin previewing as a member sees only what that viewer
+    would. Adding or removing orienters stays gated on ``can_edit_guild``.
+    """
+    if can_edit_guild(request, guild):
+        return True
+    member = _editing_member(request)
+    return member is not None and guild.orienters.filter(pk=member.pk).exists()
+
+
 def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:
     """True when this request may edit the class offering.
 
