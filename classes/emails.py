@@ -13,6 +13,7 @@ from django.utils import timezone
 
 if TYPE_CHECKING:
     from classes.models import ClassApproval, ClassOffering, ClassSession, Registration
+    from membership.models import Guild
 
 
 def _admin_recipients() -> list[str]:
@@ -33,6 +34,22 @@ def _admin_recipients() -> list[str]:
     raw = getattr(settings, "CLASS_ADMIN_NOTIFY_EMAILS", "") or ""
     for chunk in raw.split(","):
         email = chunk.strip()
+        if email and email not in seen:
+            seen.append(email)
+    return seen
+
+
+def _guild_leadership_recipients(guild: "Guild | None") -> list[str]:
+    """Every distinct email for the guild's lead and staff — they share review duties.
+
+    Staff (co-leads, secretaries, treasurers, orienters) carry full guild-lead
+    permissions, so each guild-lead review request fans out to all of them.
+    """
+    if guild is None:
+        return []
+    seen: list[str] = []
+    for member in guild.leadership_members():
+        email = member.primary_email
         if email and email not in seen:
             seen.append(email)
     return seen
@@ -232,15 +249,15 @@ def _send_instructor_review_explainer(offering: "ClassOffering", row: "ClassAppr
 
 
 def send_guild_lead_review_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
-    """Stage one: email the guild lead the review request + tell the instructor.
+    """Stage one: email the guild's lead and staff the review request + tell the instructor.
 
-    Fired from ``ClassOffering.submit_for_review()`` when the first-stage gate
-    is the Guild Lead. The guild lead's address resolves from the category's
-    guild; when it's missing, only the instructor explainer goes out.
+    Fired from ``ClassOffering.submit_for_review()`` when the first-stage gate is the
+    Guild Lead. Recipients resolve from the category's guild — its lead plus every staff
+    member, all of whom share guild-lead review duties. When none have an email on file,
+    only the instructor explainer goes out.
     """
     guild = offering.category.guild if offering.category_id else None
-    lead = guild.guild_lead if guild else None
-    recipients = [lead.primary_email] if (lead and lead.primary_email) else []
+    recipients = _guild_leadership_recipients(guild)
     _send_review_request_email(offering, approval, recipients=recipients, role_label="Guild Lead")
     _send_instructor_review_explainer(offering, approval)
 

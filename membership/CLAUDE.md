@@ -60,6 +60,10 @@ A guild's lead is **only** the `Guild.guild_lead` FK (→ Member). That FK alone
 - Never gate a guild-lead surface on `is_staff`, `fog_role`, or `member_type` — that reintroduces the drift that left real leads unable to save. `MemberType.GUILD_LEAD` is an Airtable label only and grants nothing.
 - Guild was removed from the Django admin (v1.6.0). Assign a lead with `manage.py set_guild_lead --guild <name|id> --member <email>` (it warns if that member has no linked user). Detect drift with `manage.py audit_guild_leads` (leads with no login, inactive leads, guilds with no lead).
 
+### Guild Staff (co-leads, secretaries, treasurers, orienters)
+
+Beyond the single `guild_lead` FK, a guild has `GuildStaffMembership` rows (`role` ∈ co_lead / secretary / treasurer / orienter), managed by leads/staff on the **Staff tab** of the guild edit page. **Every staff role grants the same authority as the lead** — `can_edit_guild`/`can_edit_class`/`can_manage_orientations` all treat staff like the lead, and `editable_by`/`awaiting_guild_lead` include staffed guilds. Lead-facing emails and notifications (class-review requests, orientation requests) fan out to `Guild.leadership_members()` (lead + all staff, deduped). The former orientation-only `Guild.orienters` M2M was folded into the `orienter` staff role (migration `0049`); orienters now get full lead permissions. Use `Member.is_guild_staff` / `Member.staffed_guilds` and `Guild.is_staffed_by` / `staff_by_role` / `leadership_members`.
+
 ## Key QuerySet Methods
 
 - `Member.objects.active()` — status=ACTIVE

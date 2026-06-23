@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.18.11"
+VERSION = "0.19.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.0",
+        "date": "2026-06-23",
+        "title": "Guild staff roles — co-leads, secretaries, treasurers, and orienters",
+        "changes": [
+            "Guild leads can now build out a staff team. Your guild's edit page has a new Staff tab where you "
+            "can name co-guild leads, secretaries, treasurers, and orienters. Everyone you add gets the same "
+            "access you have as lead — they can edit the guild page, manage and approve classes, run "
+            "orientations, and they're copied on the same emails (class-approval requests and orientation "
+            "requests), so nothing has to wait on one person.",
+            "Your guild's page now shows your whole leadership team under the Guild Lead section, each labeled "
+            "with their role, so members know who to reach.",
+            "Tidied up the orientation settings page — choosing who runs orientations now lives with the rest "
+            "of your staff on the new Staff tab, instead of being tucked beneath the Save button.",
+        ],
+    },
     {
         "version": "0.18.11",
         "date": "2026-06-23",

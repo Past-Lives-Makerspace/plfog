@@ -507,8 +507,8 @@ def _require_can_manage_orientations(request: HttpRequest, guild: Guild) -> Http
 
 @login_required
 def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead only."""
-    from hub.forms import GuildAnnouncementForm, GuildFAQItemFormSet, GuildLinkFormSet
+    """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead/staff only."""
+    from hub.forms import GuildAnnouncementForm, GuildFAQItemFormSet, GuildLinkFormSet, GuildStaffAddForm
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
@@ -545,6 +545,8 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "faq_formset": faq_formset,
             "link_formset": link_formset,
             "announcement_form": GuildAnnouncementForm(),
+            "staff_by_role": guild.staff_by_role(),
+            "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild)),
         },
     )
 
@@ -553,12 +555,11 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
 def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
     """Config editor: orientation settings + recurring availability rules.
 
-    Open to anyone who may manage the guild's orientations (lead, admin, or a
-    designated orienter). The Orienters roster, however, is only shown to — and
-    only editable by — full guild editors (lead/admin), guarding against an
-    orienter minting more orienters.
+    Open to anyone who may manage the guild's orientations (lead, admin, or staff).
+    Who *runs* orientations — the guild's staff — is now managed on the guild's Staff
+    tab, not here, so this page is purely the booking + availability configuration.
     """
-    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet, OrientationOrienterAddForm
+    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet
     from membership.models import GuildOrientationSettings
 
     guild = get_object_or_404(Guild, pk=pk)
@@ -585,7 +586,6 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
         rule_formset = OrientationAvailabilityFormSet(instance=guild, prefix="rules")
 
     ctx = _get_hub_context(request)
-    can_manage_orienters = _can_edit_guild(request, guild)
     return render(
         request,
         "hub/orientation_settings.html",
@@ -594,20 +594,16 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "guild": guild,
             "form": form,
             "rule_formset": rule_formset,
-            "can_manage_orienters": can_manage_orienters,
-            "orienters": guild.orienters.order_by("full_legal_name") if can_manage_orienters else [],
-            "orienter_add_form": OrientationOrienterAddForm(member_queryset=_orienter_candidates(guild))
-            if can_manage_orienters
-            else None,
+            "can_edit_guild": _can_edit_guild(request, guild),
         },
     )
 
 
-def _orienter_candidates(guild: Guild) -> Any:
-    """Active members who could be added as orienters — excludes current orienters and the lead."""
+def _staff_candidates(guild: Guild) -> Any:
+    """Active members who can be added as guild staff — excludes the guild's lead."""
     from membership.models import Member
 
-    qs = Member.objects.filter(status=Member.Status.ACTIVE).exclude(orienting_guilds=guild)
+    qs = Member.objects.filter(status=Member.Status.ACTIVE)
     if guild.guild_lead_id is not None:
         qs = qs.exclude(pk=guild.guild_lead_id)
     return qs.order_by("full_legal_name")
@@ -615,40 +611,50 @@ def _orienter_candidates(guild: Guild) -> Any:
 
 @login_required
 @require_POST
-def guild_orientation_orienter_add(request: HttpRequest, pk: int) -> HttpResponse:
-    """POST-only — a lead/admin designates a member as an orienter for this guild."""
-    from hub.forms import OrientationOrienterAddForm
+def guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — a lead/admin/staff member assigns another member a guild staff role."""
+    from hub.forms import GuildStaffAddForm
+    from membership.models import GuildStaffMembership
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
 
-    form = OrientationOrienterAddForm(request.POST, member_queryset=_orienter_candidates(guild))
+    form = GuildStaffAddForm(request.POST, member_queryset=_staff_candidates(guild))
     if form.is_valid():
         member = form.cleaned_data["member"]
-        guild.orienters.add(member)
-        messages.success(request, f"{member.display_name} can now run {guild.name} orientations.")
+        role = form.cleaned_data["role"]
+        _, created = GuildStaffMembership.objects.get_or_create(guild=guild, member=member, role=role)
+        if created:
+            messages.success(
+                request,
+                f"{member.display_name} is now {GuildStaffMembership.Role(role).label} of {guild.name}.",
+            )
+        else:
+            messages.info(request, f"{member.display_name} already holds that role.")
     else:
-        messages.error(request, "Pick an active member who isn't already an orienter.")
-    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+        messages.error(request, "Pick an active member and a staff role.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
 
 
 @login_required
 @require_POST
-def guild_orientation_orienter_remove(request: HttpRequest, pk: int, member_pk: int) -> HttpResponse:
-    """POST-only — a lead/admin removes an orienter from this guild."""
-    from membership.models import Member
+def guild_staff_remove(request: HttpRequest, pk: int, staff_pk: int) -> HttpResponse:
+    """POST-only — a lead/admin/staff member removes a staff role from this guild."""
+    from membership.models import GuildStaffMembership
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
 
-    member = get_object_or_404(Member, pk=member_pk)
-    guild.orienters.remove(member)
-    messages.success(request, f"{member.display_name} is no longer an orienter for {guild.name}.")
-    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+    staff = get_object_or_404(GuildStaffMembership, pk=staff_pk, guild=guild)
+    member_name = staff.member.display_name
+    role_label = staff.get_role_display()
+    staff.delete()
+    messages.success(request, f"{member_name} is no longer {role_label} of {guild.name}.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
 
 
 @login_required
@@ -852,16 +858,16 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
 
 
 def _can_access_orientations(request: HttpRequest) -> bool:
-    """True for admins, any guild lead, and any designated orienter — they may view the dashboard."""
+    """True for admins, any guild lead, and any guild staff member — they may view the dashboard."""
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.has_actual("admin"):
         return True
     member = _get_member(request)
-    return member is not None and (member.is_guild_lead or member.is_orienter)
+    return member is not None and (member.is_guild_lead or member.is_guild_staff)
 
 
 def _manageable_slots(request: HttpRequest) -> Any:
-    """Upcoming slots this request may add members to: all for admins, own-guild for leads."""
+    """Upcoming slots this request may add members to: all for admins, own-guild for leads/staff."""
     from membership.models import OrientationSlot
 
     qs = OrientationSlot.objects.upcoming().select_related("guild")
@@ -871,7 +877,7 @@ def _manageable_slots(request: HttpRequest) -> Any:
     member = _get_member(request)
     if member is None:
         return OrientationSlot.objects.none()
-    return qs.filter(Q(guild__guild_lead=member) | Q(guild__orienters=member)).distinct()
+    return qs.filter(Q(guild__guild_lead=member) | Q(guild__staff_memberships__member=member)).distinct()
 
 
 def _filter_orientations(request: HttpRequest, bookings: Any) -> Any:
@@ -881,7 +887,7 @@ def _filter_orientations(request: HttpRequest, bookings: Any) -> Any:
     if guild_filter.isdigit():
         bookings = bookings.filter(guild_id=int(guild_filter))
     if request.GET.get("scope") == "mine" and member is not None:
-        bookings = bookings.filter(Q(guild__guild_lead=member) | Q(guild__orienters=member)).distinct()
+        bookings = bookings.filter(Q(guild__guild_lead=member) | Q(guild__staff_memberships__member=member)).distinct()
     status_filter = request.GET.get("status", "")
     if status_filter:
         bookings = bookings.filter(status=status_filter)

@@ -145,12 +145,13 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def awaiting_guild_lead(self, member: "Member") -> "ClassOfferingQuerySet":
         """Pending classes whose undecided guild-lead gate this member can act on.
 
-        A class qualifies when it is PENDING, its category's guild is one this
-        member leads, and it has an undecided ``GUILD_LEAD`` approval row.
+        A class qualifies when it is PENDING, its category's guild is one this member
+        leads or holds a staff role on, and it has an undecided ``GUILD_LEAD`` approval
+        row.
         """
         return self.filter(
             status="pending",
-            category__guild__in=member.led_guilds.all(),
+            category__guild__in=member.staffed_guilds,
             approvals__role="guild_lead",
             approvals__decision="",
         ).distinct()
@@ -162,12 +163,16 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         """Offerings this member may edit.
 
         Admins and guild officers may edit any class. Everyone else may edit the
-        classes they instruct plus any class whose category belongs to a guild
-        they lead (purely from the ``Guild.guild_lead`` FK — no role required).
+        classes they instruct plus any class whose category belongs to a guild they
+        lead or hold a staff role on.
         """
         if member.is_fog_admin or member.is_guild_officer:
             return self
-        return self.filter(Q(instructor=member) | Q(category__guild__guild_lead=member)).distinct()
+        return self.filter(
+            Q(instructor=member)
+            | Q(category__guild__guild_lead=member)
+            | Q(category__guild__staff_memberships__member=member)
+        ).distinct()
 
     def spots_remaining_map(self) -> dict[int, int]:
         """Map of ``{offering_pk: spots_remaining}`` for this queryset in one query.
@@ -463,13 +468,15 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         if row.role == ClassApproval.Role.GUILD_LEAD:
             guild = self.category.guild if self.category_id else None
-            lead = guild.guild_lead if guild else None
             instructor_name = self.instructor.display_name if self.instructor is not None else "An instructor"
             guild_name = guild.name if guild is not None else ""
-            if lead is not None and lead.user is not None:
+            reviewer_users = (
+                [m.user for m in guild.leadership_members() if m.user is not None] if guild is not None else []
+            )
+            if reviewer_users:
                 notifications.dispatch(
                     "class_review_requested",
-                    [lead.user],
+                    reviewer_users,
                     title="A class needs your review",
                     body=f"{instructor_name} in the {guild_name} Guild requests approval for their upcoming class dates.",
                     url="/classes/teach/",

@@ -11,10 +11,11 @@ from django.utils import timezone
 
 from core.models import Notification, SiteActivity
 from membership import orientations
-from membership.models import OrientationBooking, OrientationSlot
+from membership.models import GuildStaffMembership, OrientationBooking, OrientationSlot
 from tests.membership.factories import (
     GuildFactory,
     GuildOrientationSettingsFactory,
+    GuildStaffMembershipFactory,
     MemberFactory,
     MembershipPlanFactory,
     OrientationAvailabilityFactory,
@@ -78,6 +79,18 @@ def describe_request_orientation():
         assert b"BEGIN:VCALENDAR" in _ics_bytes(member_email)
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_REQUESTED).exists()
         assert Notification.objects.filter(user=lead.user, trigger="orientation_requested").exists()
+
+    def it_also_emails_and_notifies_guild_staff():
+        guild, lead = _enabled_guild_with_lead("svc_lead_staff")
+        staff = _member_with_user("svc_staff")
+        GuildStaffMembershipFactory(guild=guild, member=staff, role=GuildStaffMembership.Role.CO_LEAD)
+        member = _member_with_user("svc_member_staff")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+
+        orientations.request_orientation(slot, member, note="hi")
+
+        recipients = {addr for m in mail.outbox for addr in m.to}
+        assert {member.primary_email, lead.primary_email, staff.primary_email} <= recipients
 
     def it_skips_the_lead_email_when_the_guild_has_no_lead():
         guild = GuildFactory()

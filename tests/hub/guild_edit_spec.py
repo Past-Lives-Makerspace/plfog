@@ -659,10 +659,10 @@ def describe_guild_edit_tabs():
         client.login(username="admin_tabs", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert response.status_code == 200
-        # Alpine tab state defaults to Basic Information.
-        assert b"x-data=\"{ section: 'basic' }\"" in response.content
+        # Alpine tab state reads ?tab= from the URL, defaulting to Basic Information.
+        assert b"new URLSearchParams(window.location.search).get('tab') || 'basic'" in response.content
         # Each requested tab is a switchable button.
-        for tab in (b"basic", b"meetings", b"images", b"content", b"announcements"):
+        for tab in (b"basic", b"meetings", b"images", b"content", b"announcements", b"staff"):
             assert b"section = '" + tab + b"'" in response.content
         # Calendar Integration and FAQ/Links live under tabs (using discretion).
         assert b"Calendar Integration" in response.content

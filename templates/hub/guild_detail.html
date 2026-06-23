@@ -189,9 +189,11 @@
     </main>
 
     <aside>
-        {% if guild.guild_lead %}
+        {% with staff_groups=guild.staff_by_role %}
+        {% if guild.guild_lead or staff_groups %}
         <div class="hub-card">
             <h3 class="hub-detail-label">Guild Lead</h3>
+            {% if guild.guild_lead %}
             <div class="hub-member-row" style="cursor:pointer;" @click="$dispatch('open-modal', 'guild-lead-profile')">
                 <div class="hub-member-avatar">{{ guild.guild_lead.display_name|make_list|first|upper }}</div>
                 <div class="hub-member-info">
@@ -199,8 +201,21 @@
                     <span class="hub-badge">Lead</span>
                 </div>
             </div>
+            {% endif %}
+            {% for role_label, memberships in staff_groups %}
+              {% for sm in memberships %}
+              <div class="hub-member-row">
+                  <div class="hub-member-avatar">{{ sm.member.display_name|make_list|first|upper }}</div>
+                  <div class="hub-member-info">
+                      <span class="hub-member-name">{{ sm.member.display_name }}</span>
+                      <span class="hub-badge">{{ role_label }}</span>
+                  </div>
+              </div>
+              {% endfor %}
+            {% endfor %}
         </div>
         {% endif %}
+        {% endwith %}
 
         <div class="hub-card">
             <h3 class="hub-detail-label">Next Meeting</h3>

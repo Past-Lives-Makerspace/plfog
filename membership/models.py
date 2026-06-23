@@ -413,30 +413,36 @@ class Member(models.Model):
         return self.fog_role == self.FogRole.GUILD_OFFICER
 
     def can_edit_guild(self, guild: Guild) -> bool:
-        """True when this member may edit the given guild (admin, officer, or that guild's lead)."""
-        return self.is_fog_admin or self.is_guild_officer or guild.guild_lead_id == self.pk
+        """True when this member may edit the given guild.
+
+        Editors are admins, officers, the guild's lead (the ``Guild.guild_lead`` FK),
+        and anyone holding a staff role on the guild — every staff role carries the
+        same edit authority as the lead.
+        """
+        return self.is_fog_admin or self.is_guild_officer or guild.guild_lead_id == self.pk or guild.is_staffed_by(self)
 
     def can_manage_orientations(self, guild: Guild) -> bool:
         """True when this member may run the guild's orientations.
 
-        Editors (admin / officer / lead) always can; so can a member the guild has
-        designated as an orienter. Role-based — use ``membership.permissions.
-        can_manage_orientations`` in views to honor ``view_as`` preview mode.
+        Anyone who can edit the guild can run its orientations — that now includes
+        every staff member (orienters are a staff role). Role-based — use
+        ``membership.permissions.can_manage_orientations`` in views to honor
+        ``view_as`` preview mode.
         """
-        return self.can_edit_guild(guild) or guild.orienters.filter(pk=self.pk).exists()
+        return self.can_edit_guild(guild)
 
     def can_edit_class(self, offering: ClassOffering) -> bool:
         """True when this member may edit the class offering.
 
-        Editors are admins/officers, the lead of the class's category's guild
-        (purely from the ``Guild.guild_lead`` FK), or the class's own instructor.
-        Role-based — use ``membership.permissions.can_edit_class`` in views to
-        honor ``view_as`` preview mode.
+        Editors are admins/officers, the lead or any staff member of the class's
+        category's guild, or the class's own instructor. Role-based — use
+        ``membership.permissions.can_edit_class`` in views to honor ``view_as``
+        preview mode.
         """
         if self.is_fog_admin or self.is_guild_officer:
             return True
         guild = offering.category.guild
-        if guild is not None and guild.guild_lead_id == self.pk:
+        if guild is not None and (guild.guild_lead_id == self.pk or guild.is_staffed_by(self)):
             return True
         return offering.instructor_id == self.pk
 
@@ -446,9 +452,18 @@ class Member(models.Model):
         return Guild.objects.filter(guild_lead=self).exists()
 
     @property
-    def is_orienter(self) -> bool:
-        """True when this member is a designated orienter for at least one guild."""
-        return self.orienting_guilds.exists()
+    def is_guild_staff(self) -> bool:
+        """True when this member holds a staff role on at least one guild.
+
+        Staff (co-leads, secretaries, treasurers, orienters) all carry full
+        guild-lead permissions on the guilds where they hold a role.
+        """
+        return self.guild_staff_roles.exists()
+
+    @property
+    def staffed_guilds(self) -> models.QuerySet[Guild]:
+        """Guilds this member leads or holds any staff role on (i.e. has lead authority)."""
+        return Guild.objects.filter(models.Q(guild_lead=self) | models.Q(staff_memberships__member=self)).distinct()
 
     @property
     def is_instructor(self) -> bool:
@@ -630,16 +645,6 @@ class Guild(HeroCropMixin, models.Model):
         on_delete=models.SET_NULL,
         related_name="led_guilds",
     )
-    orienters = models.ManyToManyField(
-        Member,
-        blank=True,
-        related_name="orienting_guilds",
-        help_text=(
-            "Members trusted to run this guild's orientations — confirm bookings, sign members off, "
-            "and manage availability. They cannot edit the guild page, manage classes, or add other "
-            "orienters; only the guild lead or an admin can."
-        ),
-    )
     notes = models.TextField(blank=True)
     about = models.TextField(
         blank=True,
@@ -801,6 +806,91 @@ class Guild(HeroCropMixin, models.Model):
             ),
         )["total"]
         return total
+
+    def is_staffed_by(self, member: Member) -> bool:
+        """True when ``member`` holds any staff role on this guild (separate from the lead FK)."""
+        return self.staff_memberships.filter(member=member).exists()
+
+    def staff_by_role(self) -> list[tuple[str, list[GuildStaffMembership]]]:
+        """Staff memberships grouped by role label, in role-declaration order, for display.
+
+        Returns ``(role_label, [memberships])`` pairs, omitting roles that have no members.
+        Each membership carries its ``member`` and ``pk`` for display and removal.
+        """
+        by_role: dict[str, list[GuildStaffMembership]] = {}
+        for staff in self.staff_memberships.select_related("member"):
+            by_role.setdefault(staff.role, []).append(staff)
+        grouped: list[tuple[str, list[GuildStaffMembership]]] = []
+        for role in GuildStaffMembership.Role:
+            rows = by_role.get(role.value)
+            if rows:
+                rows.sort(key=lambda s: (s.member.full_legal_name or "").lower())
+                grouped.append((role.label, rows))
+        return grouped
+
+    def leadership_members(self) -> list[Member]:
+        """The guild lead plus every staff member, de-duplicated — all who hold lead authority.
+
+        Fans out the emails and notifications that previously went to the lead alone.
+        """
+        members: list[Member] = []
+        seen: set[int] = set()
+        if self.guild_lead_id is not None and self.guild_lead is not None:
+            members.append(self.guild_lead)
+            seen.add(self.guild_lead_id)
+        for staff in self.staff_memberships.select_related("member"):
+            if staff.member_id not in seen:
+                members.append(staff.member)
+                seen.add(staff.member_id)
+        return members
+
+
+class GuildStaffMembership(models.Model):
+    """A member's leadership role on a guild, beyond the single ``Guild.guild_lead`` FK.
+
+    Every staff role grants the **same** authority as the guild lead: staff may edit
+    the guild page, manage and approve its classes, run its orientations, and receive
+    every email the lead does (class-review and orientation requests). The role is a
+    label for display and organization — it is not a permission tier. The primary
+    ``Guild.guild_lead`` stays an admin-assigned FK and is never managed here.
+    """
+
+    class Role(models.TextChoices):
+        CO_LEAD = "co_lead", "Co-Guild Lead"
+        SECRETARY = "secretary", "Secretary"
+        TREASURER = "treasurer", "Treasurer"
+        ORIENTER = "orienter", "Orienter"
+
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="staff_memberships",
+        help_text="The guild this staff role applies to.",
+    )
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="guild_staff_roles",
+        help_text="The member holding the staff role.",
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        help_text="The staff role held — every role carries full guild-lead permissions.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this role was assigned.")
+
+    class Meta:
+        ordering = ["role", "member__full_legal_name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["guild", "member", "role"],
+                name="uq_guildstaff_guild_member_role",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name} — {self.get_role_display()} of {self.guild.name}"
 
 
 class GuildImage(models.Model):

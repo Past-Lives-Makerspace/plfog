@@ -13,8 +13,8 @@ from classes.emails import (
 )
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassApproval, ClassOffering
-from membership.models import Member
-from tests.membership.factories import GuildFactory, MemberFactory
+from membership.models import GuildStaffMembership, Member
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MemberFactory
 
 
 def describe_admin_recipients():
@@ -74,6 +74,22 @@ def describe_send_guild_lead_review_request():
         assert offering.title in review_email.subject
         assert f"/classes/review/{row.token}/" in review_email.body
         assert "Guild Lead" in review_email.body
+
+    def it_also_emails_guild_staff_on_the_review_request(db, settings):
+        """The single review-request email fans out to the lead and every staff member."""
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        cat = _make_guilded_category()  # lead = emailguildlead@example.com
+        staff_member = MemberFactory(_pre_signup_email="coleadstaff@example.com")
+        GuildStaffMembershipFactory(guild=cat.guild, member=staff_member, role=GuildStaffMembership.Role.CO_LEAD)
+        inst_user = UserFactory(username="inststaff@example.com")
+        instructor = InstructorFactory(user=inst_user, full_legal_name="InstS", instructor_slug="insts")
+        offering = ClassOfferingFactory(instructor=instructor, category=cat, status=ClassOffering.Status.DRAFT)
+        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+
+        send_guild_lead_review_request(offering, row)
+
+        review_email = next(m for m in mail.outbox if "emailguildlead@example.com" in m.to)
+        assert "coleadstaff@example.com" in review_email.to
 
     def it_skips_guild_lead_email_when_lead_has_no_email(db, settings):
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""

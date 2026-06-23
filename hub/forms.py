@@ -596,13 +596,17 @@ class OrientationAddMemberForm(forms.Form):
             cast(forms.ModelChoiceField, self.fields["slot"]).queryset = slot_queryset
 
 
-class OrientationOrienterAddForm(forms.Form):
-    """Lead/admin designates a member as an orienter for a guild."""
+class GuildStaffAddForm(forms.Form):
+    """Lead/admin/staff assigns a member a guild staff role (co-lead, secretary, treasurer, orienter)."""
 
     member = forms.ModelChoiceField(queryset=Member.objects.none(), label="Member")
+    role = forms.ChoiceField(choices=[], label="Role")
 
     def __init__(self, *args: Any, member_queryset: Any = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        from membership.models import GuildStaffMembership
+
+        cast(forms.ChoiceField, self.fields["role"]).choices = GuildStaffMembership.Role.choices
         if member_queryset is not None:
             cast(forms.ModelChoiceField, self.fields["member"]).queryset = member_queryset
 

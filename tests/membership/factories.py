@@ -18,6 +18,7 @@ from membership.models import (
     GuildLink,
     GuildMembership,
     GuildOrientationSettings,
+    GuildStaffMembership,
     Lease,
     Member,
     MemberEmail,
@@ -109,6 +110,15 @@ class GuildMembershipFactory(factory.django.DjangoModelFactory):
 
     guild = factory.SubFactory(GuildFactory)
     member = factory.SubFactory(MemberFactory)
+
+
+class GuildStaffMembershipFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildStaffMembership
+
+    guild = factory.SubFactory(GuildFactory)
+    member = factory.SubFactory(MemberFactory)
+    role = GuildStaffMembership.Role.CO_LEAD
 
 
 class VotePreferenceFactory(factory.django.DjangoModelFactory):

@@ -190,8 +190,11 @@ def request_orientation(slot: OrientationSlot, member: Member, *, note: str = ""
 
 
 def _send_lead_request_email(booking: OrientationBooking) -> None:
-    lead = booking.guild.guild_lead
-    if lead is None:
+    recipients: list[str] = []
+    for member in booking.guild.leadership_members():
+        if member.primary_email and member.primary_email not in recipients:
+            recipients.append(member.primary_email)
+    if not recipients:
         return
     ctx = _context(
         booking,
@@ -202,7 +205,7 @@ def _send_lead_request_email(booking: OrientationBooking) -> None:
     text_body = render_to_string("membership/emails/orientation_lead_request.txt", ctx)
     html_body = render_to_string("membership/emails/orientation_lead_request.html", ctx)
     core_email.send(
-        to=lead.primary_email,
+        to=recipients,
         subject=f"New orientation request — {booking.guild.name}",
         trigger_kind="orientations.lead_request",
         text_body=text_body,
