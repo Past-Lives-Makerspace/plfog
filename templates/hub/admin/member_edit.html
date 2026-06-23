@@ -65,4 +65,53 @@
     </div>
   </form>
 </div>
+
+<div class="hub-card" style="margin-top:1.5rem;max-width:680px;">
+  <h2 class="hub-page-title" style="font-size:1.1rem;margin:0 0 0.2rem;">Email addresses</h2>
+  <p style="color:var(--hub-text-muted);font-size:0.8125rem;margin:0 0 1rem;">
+    Sign-in addresses for this member. Any <strong>verified</strong> address can be used to log in;
+    the <strong>primary</strong> is where account email is sent.
+  </p>
+
+  {% if member_emails is None %}
+    <p style="color:var(--hub-text-muted);font-size:0.875rem;margin:0;">
+      No linked user yet — emails can be managed once this member signs up.
+    </p>
+  {% else %}
+    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.25rem;">
+      {% for email in member_emails %}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;padding:0.55rem 0.75rem;background:rgba(255,255,255,0.03);border:1px solid var(--hub-border);border-radius:6px;">
+        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+          <span style="color:var(--hub-text);">{{ email.email }}</span>
+          {% if email.primary %}<span style="font-size:0.7rem;font-weight:600;color:#EEB44B;border:1px solid #EEB44B;border-radius:999px;padding:0.05rem 0.5rem;">★ primary</span>{% endif %}
+          {% if email.verified %}<span style="font-size:0.7rem;font-weight:600;color:#6ee7b7;border:1px solid #6ee7b7;border-radius:999px;padding:0.05rem 0.5rem;">✓ verified</span>{% else %}<span style="font-size:0.7rem;font-weight:600;color:var(--hub-text-muted);border:1px solid var(--hub-border);border-radius:999px;padding:0.05rem 0.5rem;">unverified</span>{% endif %}
+        </div>
+        <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+          {% if email.verified and not email.primary %}
+          <form method="post" action="{% url 'hub_admin_member_email_set_primary' member.pk email.pk %}">{% csrf_token %}
+            <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Set primary</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{% url 'hub_admin_member_email_toggle_verified' member.pk email.pk %}">{% csrf_token %}
+            <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">{% if email.verified %}Unmark verified{% else %}Mark verified{% endif %}</button>
+          </form>
+          <form method="post" action="{% url 'hub_admin_member_email_remove' member.pk email.pk %}">{% csrf_token %}
+            <button type="submit" class="hub-btn hub-btn--sm hub-btn--danger">Remove</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <form method="post" action="{% url 'hub_admin_member_email_add' member.pk %}" class="member-edit-form"
+          style="display:flex;gap:0.5rem;align-items:flex-start;flex-wrap:wrap;">
+      {% csrf_token %}
+      <div style="flex:1;min-width:240px;">
+        {{ email_add_form.email }}
+        {% if email_add_form.email.errors %}<div style="color:#f87171;font-size:0.8125rem;margin-top:0.25rem;">{{ email_add_form.email.errors }}</div>{% endif %}
+      </div>
+      <button type="submit" class="hub-btn hub-btn--primary">Add email</button>
+    </form>
+  {% endif %}
+</div>
 {% endblock %}

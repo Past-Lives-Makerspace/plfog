@@ -40,6 +40,7 @@ from membership.models import FundingSnapshot, Guild, Member, VotePreference
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
+from membership.permissions import can_manage_orientations as _can_manage_orientations
 
 
 class VoteStanding(TypedDict, total=False):
@@ -492,6 +493,18 @@ def _require_can_edit_guild(request: HttpRequest, guild: Guild) -> HttpResponse 
     return None
 
 
+def _require_can_manage_orientations(request: HttpRequest, guild: Guild) -> HttpResponse | None:
+    """Return a 403 response if the user cannot run ``guild``'s orientations, else None.
+
+    Wider than ``_require_can_edit_guild``: it also lets the guild's designated
+    orienters through. Use it for the orientation operational surfaces (dashboard,
+    booking responses, availability) — not for guild-page or class editing.
+    """
+    if not _can_manage_orientations(request, guild):
+        return HttpResponse("Forbidden", status=403)
+    return None
+
+
 @login_required
 def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
     """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead only."""
@@ -538,12 +551,18 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Config editor: orientation settings + recurring availability rules. Editors only."""
-    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet
+    """Config editor: orientation settings + recurring availability rules.
+
+    Open to anyone who may manage the guild's orientations (lead, admin, or a
+    designated orienter). The Orienters roster, however, is only shown to — and
+    only editable by — full guild editors (lead/admin), guarding against an
+    orienter minting more orienters.
+    """
+    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet, OrientationOrienterAddForm
     from membership.models import GuildOrientationSettings
 
     guild = get_object_or_404(Guild, pk=pk)
-    forbidden = _require_can_edit_guild(request, guild)
+    forbidden = _require_can_manage_orientations(request, guild)
     if forbidden is not None:
         return forbidden
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
@@ -566,6 +585,7 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
         rule_formset = OrientationAvailabilityFormSet(instance=guild, prefix="rules")
 
     ctx = _get_hub_context(request)
+    can_manage_orienters = _can_edit_guild(request, guild)
     return render(
         request,
         "hub/orientation_settings.html",
@@ -574,8 +594,61 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "guild": guild,
             "form": form,
             "rule_formset": rule_formset,
+            "can_manage_orienters": can_manage_orienters,
+            "orienters": guild.orienters.order_by("full_legal_name") if can_manage_orienters else [],
+            "orienter_add_form": OrientationOrienterAddForm(member_queryset=_orienter_candidates(guild))
+            if can_manage_orienters
+            else None,
         },
     )
+
+
+def _orienter_candidates(guild: Guild) -> Any:
+    """Active members who could be added as orienters — excludes current orienters and the lead."""
+    from membership.models import Member
+
+    qs = Member.objects.filter(status=Member.Status.ACTIVE).exclude(orienting_guilds=guild)
+    if guild.guild_lead_id is not None:
+        qs = qs.exclude(pk=guild.guild_lead_id)
+    return qs.order_by("full_legal_name")
+
+
+@login_required
+@require_POST
+def guild_orientation_orienter_add(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — a lead/admin designates a member as an orienter for this guild."""
+    from hub.forms import OrientationOrienterAddForm
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    form = OrientationOrienterAddForm(request.POST, member_queryset=_orienter_candidates(guild))
+    if form.is_valid():
+        member = form.cleaned_data["member"]
+        guild.orienters.add(member)
+        messages.success(request, f"{member.display_name} can now run {guild.name} orientations.")
+    else:
+        messages.error(request, "Pick an active member who isn't already an orienter.")
+    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_orientation_orienter_remove(request: HttpRequest, pk: int, member_pk: int) -> HttpResponse:
+    """POST-only — a lead/admin removes an orienter from this guild."""
+    from membership.models import Member
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    member = get_object_or_404(Member, pk=member_pk)
+    guild.orienters.remove(member)
+    messages.success(request, f"{member.display_name} is no longer an orienter for {guild.name}.")
+    return redirect("hub_guild_orientation_edit", pk=guild.pk)
 
 
 @login_required
@@ -586,7 +659,7 @@ def guild_orientation_slot_add(request: HttpRequest, pk: int) -> HttpResponse:
     from membership.models import OrientationSlot
 
     guild = get_object_or_404(Guild, pk=pk)
-    forbidden = _require_can_edit_guild(request, guild)
+    forbidden = _require_can_manage_orientations(request, guild)
     if forbidden is not None:
         return forbidden
 
@@ -611,7 +684,7 @@ def guild_orientation_slot_cancel(request: HttpRequest, pk: int, slot_pk: int) -
     from membership import orientations
 
     guild = get_object_or_404(Guild, pk=pk)
-    forbidden = _require_can_edit_guild(request, guild)
+    forbidden = _require_can_manage_orientations(request, guild)
     if forbidden is not None:
         return forbidden
 
@@ -708,7 +781,7 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
     from membership.models import OrientationBooking
 
     booking = get_object_or_404(OrientationBooking.objects.select_related("slot", "guild", "member"), pk=booking_pk)
-    forbidden = _require_can_edit_guild(request, booking.guild)
+    forbidden = _require_can_manage_orientations(request, booking.guild)
     if forbidden is not None:
         return forbidden
 
@@ -734,7 +807,7 @@ def orientation_lead_cancel(request: HttpRequest, booking_pk: int) -> HttpRespon
     from membership.models import OrientationBooking
 
     booking = get_object_or_404(OrientationBooking.objects.select_related("guild"), pk=booking_pk)
-    forbidden = _require_can_edit_guild(request, booking.guild)
+    forbidden = _require_can_manage_orientations(request, booking.guild)
     if forbidden is not None:
         return forbidden
     orientations.cancel_orientation(booking, actor_label="the guild")
@@ -779,12 +852,12 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
 
 
 def _can_access_orientations(request: HttpRequest) -> bool:
-    """True for admins and any guild lead — they may view the orientations dashboard."""
+    """True for admins, any guild lead, and any designated orienter — they may view the dashboard."""
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.has_actual("admin"):
         return True
     member = _get_member(request)
-    return member is not None and member.is_guild_lead
+    return member is not None and (member.is_guild_lead or member.is_orienter)
 
 
 def _manageable_slots(request: HttpRequest) -> Any:
@@ -798,7 +871,7 @@ def _manageable_slots(request: HttpRequest) -> Any:
     member = _get_member(request)
     if member is None:
         return OrientationSlot.objects.none()
-    return qs.filter(guild__guild_lead=member)
+    return qs.filter(Q(guild__guild_lead=member) | Q(guild__orienters=member)).distinct()
 
 
 def _filter_orientations(request: HttpRequest, bookings: Any) -> Any:
@@ -808,7 +881,7 @@ def _filter_orientations(request: HttpRequest, bookings: Any) -> Any:
     if guild_filter.isdigit():
         bookings = bookings.filter(guild_id=int(guild_filter))
     if request.GET.get("scope") == "mine" and member is not None:
-        bookings = bookings.filter(guild__guild_lead=member)
+        bookings = bookings.filter(Q(guild__guild_lead=member) | Q(guild__orienters=member)).distinct()
     status_filter = request.GET.get("status", "")
     if status_filter:
         bookings = bookings.filter(status=status_filter)
@@ -913,7 +986,7 @@ def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpR
     from membership.models import OrientationBooking
 
     booking = get_object_or_404(OrientationBooking.objects.select_related("guild"), pk=booking_pk)
-    forbidden = _require_can_edit_guild(request, booking.guild)
+    forbidden = _require_can_manage_orientations(request, booking.guild)
     if forbidden is not None:
         return forbidden
     if booking.is_completed:
@@ -1882,7 +1955,118 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
         form = MemberAdminEditForm(instance=member)
 
     ctx = _get_hub_context(request)
-    return render(request, "hub/admin/member_edit.html", {**ctx, "form": form, "member": member})
+    return render(
+        request,
+        "hub/admin/member_edit.html",
+        {
+            **ctx,
+            "form": form,
+            "member": member,
+            "member_emails": _member_emails(member),
+            "email_add_form": _email_add_form(member),
+        },
+    )
+
+
+def _member_emails(member: Member) -> Any:
+    """The member's allauth EmailAddress rows (primary first), or None if no linked user."""
+    if member.user_id is None:
+        return None
+    from allauth.account.models import EmailAddress
+
+    return EmailAddress.objects.filter(user=member.user).order_by("-primary", "email")
+
+
+def _email_add_form(member: Member, data: Any = None) -> Any:
+    """AddEmailAliasForm bound to the member's user, or None if no linked user."""
+    if member.user_id is None:
+        return None
+    from membership.forms import AddEmailAliasForm
+
+    return AddEmailAliasForm(data, user=member.user)
+
+
+def _email_member_or_redirect(pk: int) -> tuple[Member | None, HttpResponse | None]:
+    """Fetch the member for an email action; redirect back to edit if no linked user."""
+    member = get_object_or_404(Member, pk=pk)
+    if member.user_id is None:
+        return None, redirect("hub_admin_member_edit", pk=member.pk)
+    return member, None
+
+
+@fog_admin_required
+@require_POST
+def admin_member_email_add(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — add a verified, non-primary email alias to a member from the hub edit page."""
+    from membership import email_aliases
+
+    member, early = _email_member_or_redirect(pk)
+    if member is None:
+        return cast(HttpResponse, early)
+
+    form = _email_add_form(member, request.POST)
+    if form.is_valid():
+        for level, msg in email_aliases.add_alias(member.user, form.cleaned_data["email"]):
+            getattr(messages, level)(request, msg)
+    else:
+        # AddEmailAliasForm has a single required ``email`` field, so an invalid
+        # form always carries an email error.
+        messages.error(request, form.errors["email"][0])
+    return redirect("hub_admin_member_edit", pk=member.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_member_email_remove(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — remove an email alias from a member (with the lock-out safety rules)."""
+    from allauth.account.models import EmailAddress
+
+    from membership import email_aliases
+
+    member, early = _email_member_or_redirect(pk)
+    if member is None:
+        return cast(HttpResponse, early)
+
+    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
+    for level, msg in email_aliases.remove_alias(alias):
+        getattr(messages, level)(request, msg)
+    return redirect("hub_admin_member_edit", pk=member.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_member_email_set_primary(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — promote a verified alias to the member's primary email."""
+    from allauth.account.models import EmailAddress
+
+    from membership import email_aliases
+
+    member, early = _email_member_or_redirect(pk)
+    if member is None:
+        return cast(HttpResponse, early)
+
+    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
+    for level, msg in email_aliases.set_primary(alias):
+        getattr(messages, level)(request, msg)
+    return redirect("hub_admin_member_edit", pk=member.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_member_email_toggle_verified(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — flip the verified flag on a member's email alias."""
+    from allauth.account.models import EmailAddress
+
+    from membership import email_aliases
+
+    member, early = _email_member_or_redirect(pk)
+    if member is None:
+        return cast(HttpResponse, early)
+
+    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
+    for level, msg in email_aliases.toggle_verified(alias):
+        getattr(messages, level)(request, msg)
+    return redirect("hub_admin_member_edit", pk=member.pk)
 
 
 @fog_admin_required

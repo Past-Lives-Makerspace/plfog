@@ -106,5 +106,42 @@
 
     <button type="submit" class="hub-btn hub-btn--primary">Save orientation settings</button>
   </form>
+
+  {% if can_manage_orienters %}
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Orienters</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
+      Members trusted to run {{ guild.name }} orientations — they can confirm bookings, sign members off,
+      and manage availability, but can't edit the guild page or add other orienters.
+    </p>
+
+    {% if orienters %}
+    <div style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem;">
+      {% for orienter in orienters %}
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.5rem 0.75rem; background:rgba(255,255,255,0.02); border-radius:6px;">
+        <span>{{ orienter.display_name }}</span>
+        <form method="post" action="{% url 'hub_guild_orientation_orienter_remove' guild.pk orienter.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="hub-btn hub-btn--sm hub-btn--danger">Remove</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="font-size:0.875rem; margin-bottom:1rem;">
+      No orienters yet — only the guild lead and admins can run orientations.
+    </p>
+    {% endif %}
+
+    <form method="post" action="{% url 'hub_guild_orientation_orienter_add' guild.pk %}"
+          style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap;">
+      {% csrf_token %}
+      <div style="flex:1; min-width:220px;">
+        {% include "components/form_field.html" with field=orienter_add_form.member %}
+      </div>
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Add orienter</button>
+    </form>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

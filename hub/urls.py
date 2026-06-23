@@ -14,6 +14,16 @@ urlpatterns = [
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
     path("guilds/<int:pk>/orientation/edit/", views.guild_orientation_edit, name="hub_guild_orientation_edit"),
     path(
+        "guilds/<int:pk>/orientation/orienters/add/",
+        views.guild_orientation_orienter_add,
+        name="hub_guild_orientation_orienter_add",
+    ),
+    path(
+        "guilds/<int:pk>/orientation/orienters/<int:member_pk>/remove/",
+        views.guild_orientation_orienter_remove,
+        name="hub_guild_orientation_orienter_remove",
+    ),
+    path(
         "guilds/<int:pk>/orientation/slots/add/",
         views.guild_orientation_slot_add,
         name="hub_guild_orientation_slot_add",
@@ -129,5 +139,25 @@ urlpatterns = [
     path("manage/members/", views.admin_members, name="hub_admin_members"),
     path("manage/members/invite/", views.admin_member_invite, name="hub_admin_member_invite"),
     path("manage/members/<int:pk>/edit/", views.admin_member_edit, name="hub_admin_member_edit"),
+    path(
+        "manage/members/<int:pk>/emails/add/",
+        views.admin_member_email_add,
+        name="hub_admin_member_email_add",
+    ),
+    path(
+        "manage/members/<int:pk>/emails/<int:email_pk>/remove/",
+        views.admin_member_email_remove,
+        name="hub_admin_member_email_remove",
+    ),
+    path(
+        "manage/members/<int:pk>/emails/<int:email_pk>/set-primary/",
+        views.admin_member_email_set_primary,
+        name="hub_admin_member_email_set_primary",
+    ),
+    path(
+        "manage/members/<int:pk>/emails/<int:email_pk>/toggle-verified/",
+        views.admin_member_email_toggle_verified,
+        name="hub_admin_member_email_toggle_verified",
+    ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
 ]
