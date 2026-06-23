@@ -15,6 +15,7 @@ from django.views.decorators.http import require_POST
 from allauth.account.models import EmailAddress
 
 from core.models import Invite
+from membership import email_aliases
 from membership.forms import AddEmailAliasForm, InviteMemberForm
 from membership.models import FundingSnapshot, Member, VotePreference
 from membership.vote_calculator import calculate_results
@@ -310,16 +311,8 @@ def member_aliases_add(request: HttpRequest, pk: int) -> HttpResponse:
         }
         return render(request, "admin/membership/member/aliases.html", context)
 
-    EmailAddress.objects.create(
-        user=member.user,
-        email=form.cleaned_data["email"],
-        verified=True,
-        primary=False,
-    )
-    messages.success(
-        request,
-        f"Added alias '{form.cleaned_data['email']}' to {member}.",
-    )
+    for level, msg in email_aliases.add_alias(member.user, form.cleaned_data["email"]):
+        getattr(messages, level)(request, msg)
     return redirect("admin_member_aliases", pk=member.pk)
 
 
@@ -342,30 +335,8 @@ def member_aliases_remove(request: HttpRequest, pk: int, email_pk: int) -> HttpR
 
     alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
 
-    total = EmailAddress.objects.filter(user=member.user).count()
-    if total == 1:
-        messages.error(
-            request,
-            f"Cannot remove '{alias.email}' — it's the only email on this account. "
-            "Removing it would lock the member out.",
-        )
-        return redirect("admin_member_aliases", pk=member.pk)
-
-    was_primary = alias.primary
-    alias_email = alias.email
-    alias.delete()
-
-    if was_primary:
-        next_verified = EmailAddress.objects.filter(user=member.user, verified=True).order_by("pk").first()
-        if next_verified is not None:
-            next_verified.set_as_primary(conditional=False)
-        else:
-            messages.warning(
-                request,
-                "This member has no verified emails left and cannot log in. Add and verify one immediately.",
-            )
-
-    messages.success(request, f"Removed alias '{alias_email}'.")
+    for level, msg in email_aliases.remove_alias(alias):
+        getattr(messages, level)(request, msg)
     return redirect("admin_member_aliases", pk=member.pk)
 
 
@@ -386,15 +357,8 @@ def member_aliases_set_primary(request: HttpRequest, pk: int, email_pk: int) -> 
 
     alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
 
-    if not alias.verified:
-        messages.error(
-            request,
-            f"Cannot set '{alias.email}' as primary — it isn't verified yet.",
-        )
-        return redirect("admin_member_aliases", pk=member.pk)
-
-    alias.set_as_primary(conditional=False)
-    messages.success(request, f"'{alias.email}' is now the primary email.")
+    for level, msg in email_aliases.set_primary(alias):
+        getattr(messages, level)(request, msg)
     return redirect("admin_member_aliases", pk=member.pk)
 
 
@@ -412,17 +376,7 @@ def member_aliases_toggle_verified(request: HttpRequest, pk: int, email_pk: int)
         return redirect("admin:membership_member_change", member.pk)
 
     alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
-    alias.verified = not alias.verified
-    alias.save(update_fields=["verified"])
 
-    if not alias.verified and alias.primary:
-        messages.warning(
-            request,
-            f"'{alias.email}' is the primary email and is now un-verified. "
-            "Login will still work until another email is promoted, but this is fragile.",
-        )
-    else:
-        state = "verified" if alias.verified else "un-verified"
-        messages.success(request, f"'{alias.email}' is now {state}.")
-
+    for level, msg in email_aliases.toggle_verified(alias):
+        getattr(messages, level)(request, msg)
     return redirect("admin_member_aliases", pk=member.pk)
