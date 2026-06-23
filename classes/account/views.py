@@ -7,17 +7,12 @@ can look up their booking without an account.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
-
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, HttpResponseRedirect
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import FormView, TemplateView
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import User
 
 
 class _RelayAwareLoginMixin(LoginRequiredMixin):
@@ -217,137 +212,3 @@ class LookupView(FormView):
         ctx = self.get_context_data(form=form)
         ctx["lookup_state"] = "form"
         return self.render_to_response(ctx)
-
-
-class OnboardingStepView(_RelayAwareLoginMixin, FormView):
-    """Common parent for the 3 onboarding steps.
-
-    Each step writes its form's cleaned fields to the user's UserProfile, then
-    advances to the next step (or to /account/ at the end). The Skip link in
-    the template links straight to /account/ without saving anything.
-    """
-
-    step: int = 1
-    total_steps: int = 3
-    profile_fields: tuple[str, ...] = ()
-
-    def get_template_names(self) -> list[str]:
-        return [f"classes/account/onboarding/step{self.step}.html"]
-
-    def get_initial(self) -> dict[str, object]:
-        initial = super().get_initial()
-        from core.models import UserProfile
-
-        profile = UserProfile.objects.filter(user=cast("User", self.request.user)).first()
-        if profile is not None:
-            for name in self.profile_fields:
-                initial[name] = getattr(profile, name)
-        return initial
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        ctx["step"] = self.step
-        ctx["total_steps"] = self.total_steps
-        return ctx
-
-    def get_success_url(self) -> str:
-        if self.step < self.total_steps:
-            return reverse_lazy(f"account:onboarding_step{self.step + 1}").__str__()
-        return reverse_lazy("account:overview").__str__()
-
-    def form_valid(self, form):
-        from core.models import UserProfile
-        from core.services.mailchimp_account import subscribe_user
-
-        profile, _ = UserProfile.objects.get_or_create(user=self.request.user)
-        for field_name, value in form.cleaned_data.items():
-            setattr(profile, field_name, value)
-        is_final_step = self.step == self.total_steps
-        if is_final_step:
-            profile.onboarding_completed_at = timezone.now()
-        profile.save()
-        if is_final_step:
-            # Push to Mailchimp now that we have the full persona/referral/interest
-            # context. subscribe_user is idempotent and never raises.
-            try:
-                subscribe_user(self.request.user)
-            except Exception:  # pragma: no cover - defensive; subscribe_user already swallows
-                pass
-        return super().form_valid(form)
-
-
-class OnboardingStep1View(OnboardingStepView):
-    step = 1
-    profile_fields = ("first_attendance_status",)
-
-    @property
-    def form_class(self):
-        from classes.account.forms import OnboardingStep1Form
-
-        return OnboardingStep1Form
-
-
-class OnboardingStep2View(OnboardingStepView):
-    step = 2
-    profile_fields = ("preferred_name", "pronouns", "phone", "referral_source")
-
-    @property
-    def form_class(self):
-        from classes.account.forms import OnboardingStep2Form
-
-        return OnboardingStep2Form
-
-
-class OnboardingStep3View(OnboardingStepView):
-    step = 3
-    profile_fields = ("interest_category_slugs", "accessibility_note")
-
-    def get_success_url(self) -> str:
-        # When custom questions are configured, finish onboarding by asking them
-        # once. Completion (onboarding_completed_at) is stamped here regardless,
-        # so the questions step is purely additive and never blocks finishing.
-        from classes.questions import active_questions
-
-        if active_questions().exists():
-            return reverse_lazy("account:onboarding_questions").__str__()
-        return super().get_success_url()
-
-    @property
-    def form_class(self):
-        from classes.account.forms import OnboardingStep3Form
-
-        return OnboardingStep3Form
-
-
-class OnboardingQuestionsView(_RelayAwareLoginMixin, FormView):
-    """Optional final onboarding step: the CMS registration questions, asked once.
-
-    Reached after step 3 only when active questions exist. The answers are saved
-    to the user's profile so future class registrations pre-fill them.
-    """
-
-    template_name = "classes/account/onboarding/questions.html"
-    success_url = reverse_lazy("account:overview")
-
-    @property
-    def form_class(self):
-        from classes.account.forms import OnboardingQuestionsForm
-
-        return OnboardingQuestionsForm
-
-    def get_initial(self) -> dict[str, object]:
-        initial = super().get_initial()
-        from core.models import UserProfile
-
-        profile = UserProfile.objects.filter(user=cast("User", self.request.user)).first()
-        if profile is not None:
-            for key, value in profile.custom_question_answers.items():
-                initial[f"custom_q_{key}"] = value
-        return initial
-
-    def form_valid(self, form):
-        from core.models import UserProfile
-
-        profile, _ = UserProfile.objects.get_or_create(user=self.request.user)
-        profile.set_custom_answers(form.answers())
-        return super().form_valid(form)

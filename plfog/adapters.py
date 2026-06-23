@@ -107,19 +107,13 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         )
 
     def get_login_redirect_url(self, request: HttpRequest) -> str:
-        """Land on the right place based on surface and onboarding status.
+        """Land on the right place based on surface.
 
-        - Public/book surface, user not yet onboarded → start onboarding wizard.
-        - Public/book surface, user onboarded → /account/ overview.
+        - Public/book surface → /account/ overview (no onboarding step).
         - Members surface (anywhere else) → Community Calendar (existing behavior).
         """
         surface = getattr(request, "surface", "members")
         if surface == "public":
-            from core.models import UserProfile
-
-            profile = UserProfile.objects.filter(user=request.user).first()  # type: ignore[misc]
-            if profile is None or not profile.is_onboarded:
-                return reverse("account:onboarding_step1")
             return reverse("account:overview")
         return reverse("hub_community_calendar")
 

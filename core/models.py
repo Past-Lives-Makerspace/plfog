@@ -463,10 +463,6 @@ class UserProfile(models.Model):
     def __str__(self) -> str:
         return f"Profile for {self.user.email}"
 
-    @property
-    def is_onboarded(self) -> bool:
-        return self.onboarding_completed_at is not None
-
     def cache_from_registration(self, registration: Registration) -> None:
         """Seed empty profile fields from a class registration's overlapping answers.
 

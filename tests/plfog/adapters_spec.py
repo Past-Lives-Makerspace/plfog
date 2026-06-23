@@ -746,23 +746,7 @@ def describe_get_login_redirect_url_public_surface():
 
         assert url == reverse("account:overview")
 
-    def it_redirects_non_onboarded_public_user_to_onboarding_step1(rf):
-        from core.models import UserProfile
-        from plfog.adapters import AdminRedirectAccountAdapter
-
-        adapter = AdminRedirectAccountAdapter()
-        user = User.objects.create_user(username="notyet", email="notyet@example.com", password="pass")
-        UserProfile.objects.create(user=user, onboarding_completed_at=None)
-
-        request = rf.get("/")
-        request.surface = "public"
-        request.user = user
-
-        url = adapter.get_login_redirect_url(request)
-
-        assert url == reverse("account:onboarding_step1")
-
-    def it_redirects_public_user_with_no_profile_to_onboarding_step1(rf):
+    def it_redirects_public_user_with_no_profile_to_account_overview(rf):
         from plfog.adapters import AdminRedirectAccountAdapter
 
         adapter = AdminRedirectAccountAdapter()
@@ -778,7 +762,7 @@ def describe_get_login_redirect_url_public_surface():
 
         url = adapter.get_login_redirect_url(request)
 
-        assert url == reverse("account:onboarding_step1")
+        assert url == reverse("account:overview")
 
     def it_redirects_members_surface_to_community_calendar(rf):
         from plfog.adapters import AdminRedirectAccountAdapter
