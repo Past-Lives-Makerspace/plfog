@@ -54,20 +54,50 @@ def global_webhook() -> str:
 def webhook_for_event(event_key: str) -> str:
     """Resolve the webhook ``event_key`` should broadcast to.
 
-    Returns the per-event override when one is configured, else the global
-    webhook. A blank result means Discord is disabled for this event (the adapter
-    treats it as a no-op).
+    Resolution order (most specific first):
+
+    1. **DB-backed route** (:class:`core.models.DiscordWebhookRoute`, Phase 3) — an
+       *enabled* route overrides the global webhook: a non-blank URL redirects the
+       post; a blank URL deliberately *disables* Discord for this event (returns
+       ``""``). A disabled route is ignored.
+    2. **In-code override** (:data:`EVENT_WEBHOOK_OVERRIDES`) — the Phase-2 seam, kept
+       as a secondary fallback for tests / programmatic config.
+    3. **Global webhook** (``settings.DISCORD_NOTIFY_WEBHOOK_URL``).
+
+    A blank result means Discord is disabled for this event (the adapter treats it
+    as a no-op).
 
     Args:
         event_key: The :class:`core.events.registry.EventType` key being emitted.
 
     Returns:
-        The webhook URL, or ``""`` when none is configured (disabled).
+        The webhook URL, or ``""`` when none is configured / disabled.
     """
+    route = _db_route(event_key)
+    if route is not None and route.overrides_global:
+        # Enabled route wins — its effective_webhook is the URL, or "" for a
+        # deliberate disable (which we honor by returning "" without falling back).
+        return route.effective_webhook
+
     override = EVENT_WEBHOOK_OVERRIDES.get(event_key, "").strip()
     if override:
         return override
     return global_webhook()
+
+
+def _db_route(event_key: str):  # type: ignore[no-untyped-def]
+    """Fetch the DB routing row for ``event_key``, or ``None`` if absent / unavailable.
+
+    Imported lazily (the model layer must not be touched at import time) and tolerant
+    of the table not yet existing (pre-migration) — Discord routing is best-effort
+    and must never break the spine.
+    """
+    try:
+        from core.models import DiscordWebhookRoute
+
+        return DiscordWebhookRoute.objects.filter(event_key=event_key).first()
+    except Exception:  # pragma: no cover - defensive: DB unavailable / table missing
+        return None
 
 
 def build_embed_payload(message: Message) -> dict[str, object]:

@@ -797,3 +797,214 @@ class KnownLoginSignature(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["user", "signature"], name="uq_loginsignature_user_signature"),
         ]
+
+
+class NotificationTemplate(models.Model):
+    """Admin-editable authored copy for one ``(event, channel)`` pair (design §2.3).
+
+    Phase 3 (Decision 6): all subject/body copy lives in the DB so the copy team
+    edits everything in an admin catalogue — code only **seeds** initial values
+    (see :mod:`core.events.copy` + the ``seed_notification_templates`` command).
+    One row per ``(event_key, channel)`` that needs authored copy.
+
+    Rendering is a constrained merge-field substitution over a documented per-event
+    context (:mod:`core.events.rendering`), never raw Django template execution from
+    the DB. ``is_overridden`` is set when the copy team edits a row; the seed command
+    preserves overridden rows so re-seeding never clobbers authored copy.
+    """
+
+    event_key = models.CharField(max_length=60, help_text="The EventType key this copy belongs to.")
+    channel = models.CharField(max_length=20, help_text="The channel key this copy is rendered for (email, in_app, …).")
+    subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The subject / title line, with {{ merge_field }} placeholders.",
+    )
+    body_text = models.TextField(
+        blank=True,
+        default="",
+        help_text="The plain-text body, with {{ merge_field }} placeholders.",
+    )
+    body_html = models.TextField(
+        blank=True,
+        default="",
+        help_text="The HTML body, with {{ merge_field }} placeholders (autoescaped on render).",
+    )
+    is_overridden = models.BooleanField(
+        default=False,
+        help_text="True once the copy team has edited this row; the seed command then preserves it.",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="edited_notification_templates",
+        help_text="The user who last edited this copy (null for seeded rows).",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this copy was last written.")
+
+    class Meta:
+        ordering = ["event_key", "channel"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["event_key", "channel"],
+                name="uq_notificationtemplate_event_channel",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        flag = " (overridden)" if self.is_overridden else ""
+        return f"{self.event_key}[{self.channel}]{flag}"
+
+    def snapshot_version(self) -> "NotificationTemplateVersion":
+        """Append a :class:`NotificationTemplateVersion` capturing the CURRENT copy.
+
+        Call this *before* mutating the row so the prior copy is preserved for the
+        history + revert UI. Returns the created version row.
+        """
+        return NotificationTemplateVersion.objects.create(
+            template=self,
+            subject=self.subject,
+            body_text=self.body_text,
+            body_html=self.body_html,
+            edited_by=self.updated_by,
+        )
+
+    def apply_edit(self, *, subject: str, body_text: str, body_html: str, editor: Any | None) -> None:
+        """Snapshot the prior copy, then write the new copy as an admin override.
+
+        Versioning is automatic: every edit snapshots the row's current copy into a
+        :class:`NotificationTemplateVersion` first, so the history + revert surface
+        always has the prior state. Marks the row ``is_overridden`` so the seed
+        command will not clobber it.
+        """
+        self.snapshot_version()
+        self.subject = subject
+        self.body_text = body_text
+        self.body_html = body_html
+        self.is_overridden = True
+        self.updated_by = editor if (editor is not None and getattr(editor, "pk", None)) else None
+        self.save(update_fields=["subject", "body_text", "body_html", "is_overridden", "updated_by", "updated_at"])
+
+    def revert_to(self, version: "NotificationTemplateVersion", *, editor: Any | None) -> None:
+        """Restore the copy captured in ``version`` (snapshotting current first).
+
+        Reverting is itself an edit: the current copy is snapshotted before the
+        older copy is restored, so a revert is undoable in turn. The row stays
+        ``is_overridden`` (a revert is a deliberate copy-team action).
+
+        Raises:
+            ValueError: If ``version`` belongs to a different template.
+        """
+        if version.template_id != self.pk:
+            raise ValueError("Cannot revert to a version that belongs to a different template.")
+        self.apply_edit(
+            subject=version.subject,
+            body_text=version.body_text,
+            body_html=version.body_html,
+            editor=editor,
+        )
+
+
+class NotificationTemplateVersion(models.Model):
+    """One immutable snapshot of a :class:`NotificationTemplate`'s copy (design §2.3).
+
+    Every edit snapshots the prior copy here so the admin catalogue can show history
+    and revert. ``django-simple-history`` is not in the project (checked), so this is
+    a hand-rolled, append-only version table — simpler and dependency-free.
+    """
+
+    template = models.ForeignKey(
+        NotificationTemplate,
+        on_delete=models.CASCADE,
+        related_name="versions",
+        help_text="The template this snapshot belongs to.",
+    )
+    subject = models.CharField(max_length=255, blank=True, default="", help_text="Subject as it was at snapshot time.")
+    body_text = models.TextField(blank=True, default="", help_text="Text body as it was at snapshot time.")
+    body_html = models.TextField(blank=True, default="", help_text="HTML body as it was at snapshot time.")
+    edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="notification_template_versions",
+        help_text="The user whose edit this snapshot captures (null for seeded copy).",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["template", "-created_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.template.event_key}[{self.template.channel}] @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class DiscordWebhookRoute(models.Model):
+    """DB-backed Discord event→webhook routing override (design §2.4, Decision 9).
+
+    Phase 2 left ``core.events.discord.EVENT_WEBHOOK_OVERRIDES`` as an in-code seam;
+    Phase 3 makes it DB-backed + admin-editable. One row maps an ``event_key`` to a
+    specific webhook URL; :func:`core.events.discord.webhook_for_event` reads these
+    rows first and falls back to the global webhook when none matches (or when the
+    row is disabled). A blank ``webhook_url`` disables Discord for that event even
+    when a global webhook is configured.
+    """
+
+    event_key = models.CharField(
+        max_length=60,
+        unique=True,
+        help_text="The EventType key this route applies to (one route per event).",
+    )
+    webhook_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="The Discord webhook this event posts to. Blank = Discord disabled for this event.",
+    )
+    is_enabled = models.BooleanField(
+        default=True,
+        help_text="When off, this route is ignored and the event falls back to the global webhook.",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="edited_discord_routes",
+        help_text="The user who last edited this route.",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this route was last written.")
+
+    class Meta:
+        ordering = ["event_key"]
+
+    def __str__(self) -> str:
+        state = "on" if self.is_enabled else "off"
+        return f"{self.event_key} → discord ({state})"
+
+    @property
+    def effective_webhook(self) -> str:
+        """The webhook this route contributes, or ``""`` when it should not apply.
+
+        An enabled route with a non-blank URL overrides the global webhook. A
+        disabled route contributes nothing (the caller falls back to global). An
+        enabled-but-blank route is a deliberate *disable* and is handled by the
+        caller via :meth:`overrides_global`.
+        """
+        if not self.is_enabled:
+            return ""
+        return (self.webhook_url or "").strip()
+
+    @property
+    def overrides_global(self) -> bool:
+        """Whether this row should override the global webhook (incl. a blank disable).
+
+        An enabled route always overrides the global default — a non-blank URL
+        redirects the post; a blank URL deliberately silences Discord for the event.
+        A disabled route does not override (fall back to global).
+        """
+        return self.is_enabled

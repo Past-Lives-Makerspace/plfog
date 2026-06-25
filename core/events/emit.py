@@ -26,12 +26,14 @@ from typing import TYPE_CHECKING, Any
 from django.db import IntegrityError
 
 from core.events import channels as channel_module
-from core.events import preferences, resolvers
+from core.events import preferences, resolvers, templates
 from core.events.channels import Message
 from core.events.registry import Channel, get_event
 from core.models import EventDelivery, SiteActivity
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.contrib.auth.models import User
     from django.db.models import Model
 
@@ -77,13 +79,20 @@ def emit(
 
     recipients = resolvers.resolve(event.recipient, ctx)
 
-    message = Message(
-        title=title,
-        body=body,
-        url=url,
-        html_body=html_body,
-        trigger_kind=event_key,
+    # Copy mode (Phase 3): when the caller passes no explicit ``title``/``body``,
+    # render each channel's message from the DB-backed (or seeded-default) copy
+    # against ``ctx``. When the caller DOES pass explicit strings, the Phase-1
+    # incremental path is preserved exactly — the same Message goes to every
+    # channel and nothing reads the copy catalogue.
+    use_copy = not (title or body)
+    fixed_message = (
+        None if use_copy else Message(title=title, body=body, url=url, html_body=html_body, trigger_kind=event_key)
     )
+
+    def message_for(channel: Channel) -> Message:
+        if fixed_message is not None:
+            return fixed_message
+        return templates.rendered_message(event_key, channel, ctx, url=url)
 
     delivered: list[tuple[int, Channel]] = []
     skipped_duplicates: list[tuple[int, Channel]] = []
@@ -99,12 +108,12 @@ def emit(
                 # recipient — handled below, after the per-recipient fan-out.
                 continue
             if _record_delivery(event_key, user, channel, period):
-                adapter.deliver(user, message)
+                adapter.deliver(user, message_for(channel))
                 delivered.append((user.pk, channel))
             else:
                 skipped_duplicates.append((user.pk, channel))
 
-    broadcast_channels = _broadcast_fan_out(event, message, period, delivered, skipped_duplicates)
+    broadcast_channels = _broadcast_fan_out(event, message_for, period, delivered, skipped_duplicates)
 
     return EmitResult(
         event_key=event_key,
@@ -118,7 +127,7 @@ def emit(
 
 def _broadcast_fan_out(
     event: Any,
-    message: Message,
+    message_for: Callable[[Channel], Message],
     period: str,
     delivered: list[tuple[int, Channel]],
     skipped_duplicates: list[tuple[int, Channel]],
@@ -129,7 +138,8 @@ def _broadcast_fan_out(
     per-recipient preferences (it has no per-user target). Deduped on the same
     :class:`core.models.EventDelivery` ledger using a synthetic ``broadcast`` target
     ref so a re-run from a scheduler does not double-post. Best-effort: the adapter
-    swallows ordinary failures.
+    swallows ordinary failures. ``message_for`` renders the per-channel message (so a
+    broadcast channel gets its own DB/seeded copy, same as the per-recipient ones).
     """
     posted: list[Channel] = []
     for spec in event.channels:
@@ -140,7 +150,7 @@ def _broadcast_fan_out(
         if not adapter.is_broadcast:
             continue
         if _record_broadcast(event.key, channel, period):
-            channel_module.broadcast(adapter, message)
+            channel_module.broadcast(adapter, message_for(channel))
             delivered.append((0, channel))
             posted.append(channel)
         else:

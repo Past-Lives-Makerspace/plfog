@@ -1,0 +1,50 @@
+{% extends "hub/base.html" %}
+
+{% block title %}Discord routing — {{ event.label }} — Past Lives{% endblock %}
+
+{% block extra_head %}
+<style>
+  .ntf-meta { color: var(--hub-text-muted); font-size: 0.8125rem; margin: 0 0 1rem; }
+  .ntf-meta strong { color: var(--hub-text); }
+  .ntf-disc-note {
+    background: var(--hub-surface); border: 1px solid var(--hub-border); border-radius: 8px;
+    padding: 0.75rem 0.9rem; margin-bottom: 1.25rem; font-size: 0.8125rem; color: var(--hub-text-muted); max-width: 60ch;
+  }
+  .ntf-disc-state { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.25rem; font-size: 0.875rem; }
+  .ntf-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .ntf-dot--on { background: var(--color-success); }
+  .ntf-dot--off { background: var(--hub-text-muted); }
+  .ntf-disc-fields { display: flex; flex-direction: column; gap: 1rem; max-width: 560px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hub-card">
+  <a href="{% url 'hub_admin_notifications' %}#{{ event.key }}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false" style="margin-bottom:0.75rem;">← Back to all notifications</a>
+  <h1 class="hub-page-title" style="margin:0 0 0.25rem;">Discord routing — {{ event.label }}</h1>
+  <p class="ntf-meta"><strong>{{ event.key }}</strong></p>
+
+  <div class="ntf-disc-note">
+    Discord is a per-event broadcast: when this event fires, one embed posts to the webhook below.
+    Leave the URL blank with the route <em>enabled</em> to deliberately silence Discord for this event,
+    or disable the route to fall back to the site-wide default webhook. For security, the stored webhook
+    URL is write-only — it is never shown back here.
+  </div>
+
+  <div class="ntf-disc-state">
+    <span class="ntf-dot {% if discord_active %}ntf-dot--on{% else %}ntf-dot--off{% endif %}"></span>
+    <span>This event currently {% if discord_active %}posts to Discord{% else %}does not post to Discord{% endif %}.</span>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="ntf-disc-fields">
+      {% include "components/form_field.html" with field=form.webhook_url %}
+      {% include "components/toggle.html" with field=form.is_enabled toggle_label="Route enabled" toggle_description="Off = ignore this route and fall back to the global webhook." %}
+      <div>
+        <button type="submit" class="hub-btn hub-btn--primary">Save routing</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

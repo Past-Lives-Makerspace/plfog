@@ -1,0 +1,132 @@
+{% extends "hub/base.html" %}
+
+{% block title %}Notifications — Past Lives{% endblock %}
+
+{% block extra_head %}
+<style>
+  .ntf-intro { color: var(--hub-text-muted); margin: 0 0 1.5rem; max-width: 60ch; }
+  .ntf-group { margin-bottom: 2rem; }
+  .ntf-group__heading {
+    font-family: 'Lato', sans-serif;
+    font-size: 1.05rem;
+    color: var(--hub-text);
+    margin: 0 0 0.75rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--hub-border);
+  }
+  .ntf-event {
+    border: 1px solid var(--hub-border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    margin-bottom: 0.85rem;
+    background: var(--hub-surface);
+  }
+  .ntf-event__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem 0.75rem;
+    margin-bottom: 0.35rem;
+  }
+  .ntf-event__title { font-weight: 700; color: var(--hub-text); }
+  .ntf-event__key {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+  }
+  .ntf-event__desc { color: var(--hub-text-muted); font-size: 0.875rem; margin: 0 0 0.6rem; }
+  .ntf-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    line-height: 1.4;
+  }
+  .ntf-badge--locked { background: rgba(238,180,75,0.15); color: var(--color-tuscan-yellow); }
+  .ntf-badge--optout { background: rgba(61,139,212,0.15); color: var(--hub-blue); }
+  .ntf-audience { font-size: 0.8125rem; color: var(--hub-text-muted); margin: 0 0 0.6rem; }
+  .ntf-audience strong { color: var(--hub-text); font-weight: 600; }
+  .ntf-channels { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .ntf-chan {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8125rem;
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 7px;
+    color: var(--hub-text);
+    text-decoration: none;
+    background: var(--hub-card-bg);
+  }
+  .ntf-chan:hover { border-color: var(--color-tuscan-yellow); }
+  .ntf-chan__lock { font-size: 0.7rem; color: var(--hub-text-muted); }
+  .ntf-chan--forced .ntf-chan__lock { color: var(--color-tuscan-yellow); }
+  .ntf-discord {
+    margin-top: 0.6rem;
+    font-size: 0.8125rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .ntf-discord__state { color: var(--hub-text-muted); }
+  .ntf-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .ntf-dot--on { background: var(--color-success); }
+  .ntf-dot--off { background: var(--hub-text-muted); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hub-card">
+  <h1 class="hub-page-title" style="margin:0 0 0.25rem;">Notifications</h1>
+  <p class="ntf-intro">
+    Every notification the makerspace can send, grouped by category. Each shows who receives it,
+    whether members can opt out, the channels it goes out on, and its Discord routing. Click a channel
+    to edit its wording with a live preview.
+  </p>
+
+  {% for category, events in groups %}
+    <div class="ntf-group" id="cat-{{ category|slugify }}">
+      <h2 class="ntf-group__heading">{{ category }}</h2>
+
+      {% for ev in events %}
+        <div class="ntf-event" id="{{ ev.event.key }}">
+          <div class="ntf-event__head">
+            <span class="ntf-event__title">{{ ev.event.label }}</span>
+            <span class="ntf-event__key">{{ ev.event.key }}</span>
+            {% if ev.is_locked %}
+              <span class="ntf-badge ntf-badge--locked" title="At least one channel is forced — members can't opt out.">Forced</span>
+            {% else %}
+              <span class="ntf-badge ntf-badge--optout" title="Members can opt out of every channel.">Opt-out-able</span>
+            {% endif %}
+          </div>
+          <p class="ntf-event__desc">{{ ev.event.description }}</p>
+          <p class="ntf-audience"><strong>Audience:</strong> {{ ev.audience }}</p>
+
+          <div class="ntf-channels">
+            {% for ch in ev.channels %}
+              <a class="ntf-chan {% if ch.is_forced %}ntf-chan--forced{% endif %}"
+                 href="{% url 'hub_admin_notification_edit' ev.event.key ch.channel.value %}"
+                 title="{{ ch.lock_label }}">
+                {{ ch.label }}
+                <span class="ntf-chan__lock">· {% if ch.is_forced %}forced{% else %}{% if ch.has_copy %}edited{% else %}default{% endif %}{% endif %}</span>
+              </a>
+            {% endfor %}
+          </div>
+
+          <div class="ntf-discord">
+            <span class="ntf-dot {% if ev.discord_webhook_configured %}ntf-dot--on{% else %}ntf-dot--off{% endif %}"></span>
+            <span class="ntf-discord__state">
+              Discord: {% if ev.discord_webhook_configured %}routed{% else %}not routed{% endif %}
+            </span>
+            <a class="hub-btn hub-btn--ghost hub-btn--sm" href="{% url 'hub_admin_notification_discord' ev.event.key %}">
+              Edit routing
+            </a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

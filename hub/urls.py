@@ -1,7 +1,7 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import views
+from . import notification_views, views
 
 urlpatterns = [
     path("guilds/voting/", views.guild_voting, name="hub_guild_voting"),
@@ -179,4 +179,26 @@ urlpatterns = [
         name="hub_admin_member_email_toggle_verified",
     ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
+    # --- Notification copy catalogue (design §2.3 + §2.4, Decision 6) ---
+    path("manage/notifications/", notification_views.catalogue, name="hub_admin_notifications"),
+    path(
+        "manage/notifications/<str:event_key>/<str:channel>/edit/",
+        notification_views.edit_copy,
+        name="hub_admin_notification_edit",
+    ),
+    path(
+        "manage/notifications/<str:event_key>/<str:channel>/preview/",
+        notification_views.preview_copy,
+        name="hub_admin_notification_preview",
+    ),
+    path(
+        "manage/notifications/<str:event_key>/<str:channel>/revert/<int:version_id>/",
+        notification_views.revert_copy,
+        name="hub_admin_notification_revert",
+    ),
+    path(
+        "manage/notifications/<str:event_key>/discord/",
+        notification_views.edit_discord_route,
+        name="hub_admin_notification_discord",
+    ),
 ]
