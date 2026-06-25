@@ -85,14 +85,17 @@ def describe_read_tab():
         guild = GuildFactory()
         client.login(username="r1", password="pass")
         resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
-        assert b"Meeting Notes" not in resp.content
+        # Target the tab button's unique Alpine directive, not the bare phrase
+        # "Meeting Notes" — that phrase also appears in the release-notes/changelog
+        # copy rendered elsewhere on the hub page, which would false-positive here.
+        assert b"section = 'notes'" not in resp.content
 
     def it_shows_the_tab_for_staff_with_zero_notes(client: Client):
         user = _user_with_role("r2")
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="r2", password="pass")
         resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
-        assert b"Meeting Notes" in resp.content
+        assert b"section = 'notes'" in resp.content
         assert b"Post your first agenda" in resp.content
 
     def it_shows_the_tab_for_everyone_when_a_note_exists(client: Client):
@@ -101,7 +104,7 @@ def describe_read_tab():
         GuildMeetingNoteFactory(guild=guild, title="June recap")
         client.login(username="r3", password="pass")
         resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
-        assert b"Meeting Notes" in resp.content
+        assert b"section = 'notes'" in resp.content
         assert b"June recap" in resp.content
 
     def it_renders_a_link_attachment_with_rel_and_target(client: Client):
