@@ -159,6 +159,163 @@
     box-shadow: 0 0 0 3px rgba(238, 180, 75, 0.3);
 }
 
+/* Compact toggle for dense grids (the notification matrix). */
+.pl-toggle--sm {
+    width: 36px;
+    height: 20px;
+}
+
+.pl-toggle--sm .pl-toggle__slider::before {
+    height: 14px;
+    width: 14px;
+    left: 3px;
+    bottom: 3px;
+}
+
+.pl-toggle--sm input:checked + .pl-toggle__slider::before {
+    transform: translateX(16px);
+}
+
+/* Locked-on toggle: a forced / always-on channel the user can't change. Reads as on
+   but visibly inert (no pointer, dimmed) so it's clearly not interactive. */
+.pl-toggle--locked {
+    cursor: default;
+}
+
+.pl-toggle--locked .pl-toggle__slider {
+    cursor: default;
+    opacity: 0.55;
+    background-color: var(--color-tuscan-yellow, #EEB44B);
+}
+
+.pl-toggle--locked .pl-toggle__slider::before {
+    transform: translateX(16px);
+}
+
+/* A small lock glyph sits in the knob to read as "always on, not interactive". */
+.pl-toggle__lock {
+    position: absolute;
+    top: 50%;
+    left: 3px;
+    transform: translate(1px, -50%);
+    color: var(--color-navy, #092E4C);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.pl-toggle--sm .pl-toggle__lock {
+    transform: translate(18px, -50%);
+}
+
+/* ========================================
+   Notification preference matrix (event × channel)
+   ======================================== */
+/* Horizontal-scroll wrapper: on narrow screens the matrix scrolls as a unit
+   rather than crushing its columns (matches the .admin-table-wrap pattern). */
+.pl-notif-matrix__scroll {
+    border: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.pl-notif-matrix {
+    /* Column count is set per-instance via --pl-notif-cols (the rendered channel
+       count) so the grid always matches the template and never hardcodes a number. */
+    --pl-notif-cols: 5;
+    display: grid;
+    /* The event column flexes; the fixed 64px channel columns set an intrinsic floor,
+       so when they don't fit, the __scroll wrapper takes over rather than crushing them. */
+    grid-template-columns: minmax(200px, 1fr) repeat(var(--pl-notif-cols), 64px);
+    align-items: stretch;
+}
+
+.pl-notif-matrix__head,
+.pl-notif-matrix__row {
+    display: contents;
+}
+
+.pl-notif-matrix__event-head,
+.pl-notif-matrix__chan-head {
+    background: var(--hub-surface, rgba(255, 255, 255, 0.04));
+    color: var(--hub-text-muted, #8b97a8);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.5rem 0.5rem;
+    border-bottom: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
+}
+
+.pl-notif-matrix__event-head {
+    text-align: left;
+}
+
+.pl-notif-matrix__chan-head {
+    text-align: center;
+}
+
+.pl-notif-matrix__event,
+.pl-notif-matrix__cell {
+    padding: 0.6rem 0.5rem;
+    border-bottom: 1px solid var(--hub-border, rgba(255, 255, 255, 0.08));
+}
+
+/* Drop the last row's bottom border (the container's border closes it). */
+.pl-notif-matrix__row:last-child .pl-notif-matrix__event,
+.pl-notif-matrix__row:last-child .pl-notif-matrix__cell {
+    border-bottom: none;
+}
+
+.pl-notif-matrix__event-label {
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--hub-text, #F4EFDD);
+}
+
+.pl-notif-matrix__event-desc {
+    font-size: 0.72rem;
+    margin-top: 0.1rem;
+}
+
+.pl-notif-matrix__cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pl-notif-matrix__na {
+    color: var(--hub-text-muted, #8b97a8);
+    opacity: 0.4;
+    font-size: 0.85rem;
+}
+
+@media (max-width: 640px) {
+    .pl-notif-matrix {
+        /* Tighter on phones; the __scroll wrapper carries the horizontal overflow. */
+        grid-template-columns: minmax(150px, 1fr) repeat(var(--pl-notif-cols), 52px);
+    }
+}
+
+/* Notifications tab chrome — replaces one-off inline styles. */
+.pl-notif-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.25rem;
+}
+
+.pl-notif-intro {
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
+.pl-notif-category {
+    margin: 1.25rem 0 0.5rem;
+}
+
+.pl-notif-actions {
+    margin-top: 1.5rem;
+}
+
 /* ========================================
    Form Field
    ======================================== */

@@ -338,29 +338,12 @@
                     <button type="submit" name="action_add" class="hub-btn hub-btn--primary">Add Email</button>
                 </div>
             </form>
-        </div>
-
-        {# --- Email Preferences card --- #}
-        <div class="hub-card">
-            <h2 style="font-size: 1rem; font-weight: 600; margin: 0 0 0.25rem;">Email Preferences</h2>
-            <p class="hub-text-muted" style="margin-bottom: 1rem; font-size: 0.85rem;">
-                Which emails should we send you from Past Lives Makerspace?
+            <p class="hub-text-muted" style="margin-top:1.25rem;font-size:0.8rem;">
+                Choose which emails you receive in the
+                <button type="button" @click="tab = 'notifications'"
+                        style="background:none;border:0;padding:0;color:var(--color-tuscan-yellow);cursor:pointer;font:inherit;text-decoration:underline;">Notifications</button>
+                tab.
             </p>
-            <form method="post" class="hub-form">
-                {% csrf_token %}
-                <input type="hidden" name="form_id" value="email_prefs">
-                {% include "components/toggle.html" with field=prefs_form.voting_results toggle_label="Voting Result Emails" toggle_description="Get notified when guild voting results are published" %}
-                {% if prefs_form.errors %}
-                <ul class="hub-field-errors">
-                    {% for field_errors in prefs_form.errors.values %}
-                        {% for error in field_errors %}<li>{{ error }}</li>{% endfor %}
-                    {% endfor %}
-                </ul>
-                {% endif %}
-                <div style="margin-top: 1.25rem;">
-                    <button type="submit" class="hub-btn hub-btn--primary">Save Preferences</button>
-                </div>
-            </form>
         </div>
     </div>
 

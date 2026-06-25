@@ -133,7 +133,6 @@ def _emit_member_email(
     action: str,
     subject: str,
     template: str,
-    email_trigger_kind: str,
     ics: tuple[str, bytes, str] | None,
     in_app_title: str = "",
     in_app_body: str = "",
@@ -141,11 +140,13 @@ def _emit_member_email(
     """Emit a member-facing orientation email (structural shell + optional ``.ics``).
 
     The email body is the existing ``membership/emails/<template>.{txt,html}`` shell,
-    preserved verbatim; the ``.ics`` rides along as an attachment. ``email_trigger_kind``
-    keeps the old ``TransactionalEmailLog`` audit label. When ``in_app_title`` is set the
-    member also gets an ``orientation_update`` bell row (confirm/decline/cancel); when it
-    is empty (the request-received email) no in-app row is created — the member context is
-    suppressed so the resolver finds nobody and only the explicit email goes out.
+    preserved verbatim; the ``.ics`` rides along as an attachment. The
+    ``TransactionalEmailLog`` audit label is the event key (``orientation_update``) — one
+    vocabulary, so the audit log joins to the event + its preferences (Phase 7). When
+    ``in_app_title`` is set the member also gets an ``orientation_update`` bell row
+    (confirm/decline/cancel); when it is empty (the request-received email) no in-app row
+    is created — the member context is suppressed so the resolver finds nobody and only
+    the explicit email goes out.
 
     ``action`` buckets the idempotency window per booking + lifecycle step, so a booking's
     request / confirm / decline / cancel emails are independent (each one sends once),
@@ -168,7 +169,6 @@ def _emit_member_email(
         url=reverse("hub_guild_detail", args=[booking.guild_id]),
         attachments=[ics] if ics is not None else None,
         email_to=booking.member.primary_email,
-        email_trigger_kind=email_trigger_kind,
         period=f"booking:{booking.pk}:{action}",
     )
 
@@ -189,7 +189,6 @@ def request_orientation(slot: OrientationSlot, member: Member, *, note: str = ""
         action="request",
         subject=f"Orientation request received — {booking.guild.name}",
         template="orientation_request",
-        email_trigger_kind="orientations.request",
         ics=_ics(booking, method="REQUEST", status="TENTATIVE"),
     )
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_REQUESTED, actor=member.user, target=booking)
@@ -227,7 +226,6 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
         in_app_body=f"{booking.member.display_name} requested an orientation for {booking.guild.name}.",
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         email_to=recipients or None,
-        email_trigger_kind="orientations.lead_request",
         period=f"booking:{booking.pk}:request",
     )
 
@@ -246,7 +244,6 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
         action="confirm",
         subject=f"Orientation confirmed — {booking.guild.name}",
         template="orientation_confirmed",
-        email_trigger_kind="orientations.confirmed",
         ics=_ics(booking, method="REQUEST", status="CONFIRMED"),
         in_app_title="Orientation confirmed",
         in_app_body=f"Your orientation for {booking.guild.name} is confirmed.",
@@ -262,7 +259,6 @@ def decline_orientation(booking: OrientationBooking, *, note: str = "") -> None:
         action="decline",
         subject=f"About your orientation request — {booking.guild.name}",
         template="orientation_declined",
-        email_trigger_kind="orientations.declined",
         ics=None,
         in_app_title="Orientation not confirmed",
         in_app_body=f"Your orientation request for {booking.guild.name} couldn't be confirmed.",
@@ -278,7 +274,6 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str) -> None
         action="cancel",
         subject=f"Orientation cancelled — {booking.guild.name}",
         template="orientation_cancelled",
-        email_trigger_kind="orientations.cancelled",
         ics=_ics(booking, method="CANCEL", status="CANCELLED"),
         in_app_title="Orientation cancelled",
         in_app_body=f"The orientation for {booking.guild.name} was cancelled.",
@@ -325,7 +320,6 @@ def complete_orientation(booking: OrientationBooking) -> None:
             html_template="membership/emails/orientation_thankyou.html",
             template_context=ctx,
             email_to=booking.member.primary_email,
-            email_trigger_kind="orientations.thankyou",
             period=f"booking:{booking.pk}:thankyou",
         )
 
@@ -399,11 +393,14 @@ def member_joined_guild(guild: Guild, member: Member) -> None:
     from membership.models import GuildOrientationSettings
 
     settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
-    welcome_ready = settings_obj is not None and settings_obj.join_email_ready
+    # A configured welcome email needs a settings row that is join_email_ready; bind it to
+    # a separate name so the type checker can narrow ``GuildOrientationSettings | None``.
+    welcome_settings = settings_obj if (settings_obj is not None and settings_obj.join_email_ready) else None
+    welcome_ready = welcome_settings is not None
     template_context = {
         "guild": guild,
         "greeting_name": member.display_name,
-        "body": settings_obj.join_email_body if welcome_ready else "",
+        "body": welcome_settings.join_email_body if welcome_settings is not None else "",
         "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.pk])),
     }
     emit_with_email_shell(
@@ -411,7 +408,7 @@ def member_joined_guild(guild: Guild, member: Member) -> None:
         actor=member.user,
         target=guild,
         context={"guild": guild},
-        subject=settings_obj.join_email_subject if welcome_ready else "",
+        subject=welcome_settings.join_email_subject if welcome_settings is not None else "",
         text_template="membership/emails/guild_welcome.txt",
         html_template="membership/emails/guild_welcome.html",
         template_context=template_context,
@@ -419,6 +416,5 @@ def member_joined_guild(guild: Guild, member: Member) -> None:
         in_app_body=f"{member.display_name} joined {guild.name}.",
         url=reverse("hub_guild_detail", args=[guild.pk]),
         email_to=member.primary_email if welcome_ready else None,
-        email_trigger_kind="guild.welcome",
         period=f"guild:{guild.pk}:join:{member.pk}",
     )

@@ -1,10 +1,11 @@
-"""The event-driven notification spine (Phase 1 — the foundation, built additively).
+"""The event-driven notification spine.
 
-This package is the new foundation for the notification redesign described in
-``docs/superpowers/plans/2026-06-24-notification-architecture-redesign.md``. It
-is built **alongside** the existing ``core/triggers.py`` + ``core/notifications.dispatch``
-machinery and changes NO existing send behavior. Senders migrate onto ``emit()``
-in a later phase.
+This package is the foundation for the notification redesign described in
+``docs/superpowers/plans/2026-06-24-notification-architecture-redesign.md``. After the
+migration phases it is the **only** send path: every notification flows through
+``emit()`` (the old ``core.notifications.dispatch`` fan-out has been removed). The
+legacy ``core/triggers.py`` catalogue is retained only as the structural seed for the
+event registry.
 
 Public surface:
 
@@ -15,8 +16,8 @@ Public surface:
   :class:`core.models.EventDelivery`.
 * :mod:`core.events.resolvers` — the role × scope recipient resolvers (§3).
 * :mod:`core.events.channels` — the pluggable channel adapters (§2.4).
-* :mod:`core.events.preferences` — channel-generic, backward-compatible preference
-  resolution (§2.7), falling back to the legacy ``NotificationPreference`` columns.
+* :mod:`core.events.preferences` — channel-generic preference resolution (§2.7) on the
+  unified per-(event, channel) ``NotificationPreference`` model.
 """
 
 from __future__ import annotations

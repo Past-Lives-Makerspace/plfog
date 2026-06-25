@@ -75,7 +75,9 @@ def describe_guild_announcement():
         opted_out = linked_member()
         GuildMembershipFactory(guild=guild, member=default_member)
         GuildMembershipFactory(guild=guild, member=opted_out)
-        NotificationPreference.objects.create(user=opted_out.user, trigger="guild_announcement", email_enabled=False)
+        NotificationPreference.objects.create(
+            user=opted_out.user, event_key="guild_announcement", channel="email", enabled=False
+        )
         announcement = GuildAnnouncement.objects.create(guild=guild, title="News", body="Body.")
 
         announcement.notify_members()
@@ -124,7 +126,9 @@ def describe_site_announcement():
     def it_honors_email_opt_out(linked_member):
         default_member = linked_member()
         opted_out = linked_member()
-        NotificationPreference.objects.create(user=opted_out.user, trigger="site_announcement", email_enabled=False)
+        NotificationPreference.objects.create(
+            user=opted_out.user, event_key="site_announcement", channel="email", enabled=False
+        )
         emit(
             "site_announcement",
             context={"member_name": "there", "announcement_title": "Hi", "announcement_body": "B", "site_url": "/"},
@@ -206,7 +210,9 @@ def describe_voting_results_published():
         g1, g2, g3 = GuildFactory(name="A"), GuildFactory(name="B"), GuildFactory(name="C")
         member = _voter("results@example.com")
         VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3, signed_up=False)
-        NotificationPreference.objects.create(user=member.user, trigger="voting.results_published", email_enabled=True)
+        NotificationPreference.objects.create(
+            user=member.user, event_key="voting.results_published", channel="email", enabled=True
+        )
 
         snapshot = FundingSnapshot.take()
         assert snapshot is not None
@@ -245,7 +251,9 @@ def describe_release_published():
     def it_honors_email_opt_out(linked_member):
         default_member = linked_member()
         opted_out = linked_member()
-        NotificationPreference.objects.create(user=opted_out.user, trigger="release.published", email_enabled=False)
+        NotificationPreference.objects.create(
+            user=opted_out.user, event_key="release.published", channel="email", enabled=False
+        )
         call_command("announce_release")
         emailed = set(TransactionalEmailLog.objects.values_list("to_email", flat=True))
         assert default_member.user.email in emailed

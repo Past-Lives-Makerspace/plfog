@@ -104,7 +104,7 @@ def describe_event_registry():
 
     def describe_activity_kind():
         def it_maps_known_triggers_to_their_activity_kind():
-            assert get_event("class_published").activity_kind == "class_published"
+            assert get_event("new_member_joined").activity_kind == "member_signup"
             assert get_event("tab_charged").activity_kind == "tab_charged"
 
         def it_leaves_activity_kind_none_when_no_log_exists():
@@ -113,6 +113,7 @@ def describe_event_registry():
         def it_leaves_activity_kind_none_when_classes_cmsactivity_mirror_owns_the_site_row():
             # These classes events write their SiteActivity via the CmsActivity mirror
             # (classes.activity._SITE_KIND_MAP), so emit must NOT log a duplicate.
+            assert get_event("class_published").activity_kind is None
             assert get_event("registration_confirmed").activity_kind is None
             assert get_event("waitlist_confirmed").activity_kind is None
             assert get_event("class_review_requested").activity_kind is None

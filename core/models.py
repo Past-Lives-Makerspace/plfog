@@ -681,35 +681,39 @@ class Notification(models.Model):
 
 
 class NotificationPreference(models.Model):
-    """Per-user, per-trigger push/email opt-in. Absent row → trigger defaults apply."""
+    """Per-user, per-(event, channel) opt-in/out. Absent row → the event's channel default applies.
+
+    The design's unified per-channel preference shape (§2.7): one row per
+    ``(user, event_key, channel)``. This generalizes the old two-boolean
+    ``push_enabled`` / ``email_enabled`` columns so new channels (scheduled email,
+    digest, Discord) are first-class — a preference is now just *"does this user want
+    this event on this channel?"*. The data migration that introduced this shape
+    fanned each old row into one EMAIL + one PUSH row, preserving every opt-in/out.
+
+    ``enabled`` records the user's explicit choice. A FORCED channel ignores it (the
+    event is always delivered); for a non-forced channel an absent row means the
+    event's channel default decides (``ON`` → opt-in, ``OFF`` → opted out).
+    """
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notification_prefs")
-    trigger = models.CharField(max_length=40, help_text="Trigger key from core.triggers.")
-    push_enabled = models.BooleanField(default=False, help_text="Send browser push for this trigger.")
-    email_enabled = models.BooleanField(default=False, help_text="Send email for this trigger.")
+    event_key = models.CharField(max_length=60, help_text="Event key from core.events.registry.")
+    channel = models.CharField(max_length=20, help_text="Channel key from core.events.registry.Channel.")
+    enabled = models.BooleanField(default=False, help_text="Whether this user receives this event on this channel.")
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["user", "trigger"], name="uq_notificationpreference_user_trigger"),
+            models.UniqueConstraint(
+                fields=["user", "event_key", "channel"],
+                name="uq_notificationpreference_user_event_channel",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["user", "event_key"], name="idx_notifpref_user_event"),
         ]
 
     def __str__(self) -> str:
-        return f"{self.user.email}:{self.trigger} (push={self.push_enabled}, email={self.email_enabled})"
-
-
-class ScheduledNotificationMarker(models.Model):
-    """Idempotency guard for time-based notification jobs.
-
-    A unique ``key`` records that a given scheduled notification already fired,
-    e.g. "voting_closing:2026-06" or "lease_expiring:42". Jobs get_or_create
-    the key and skip when it already exists.
-    """
-
-    key = models.CharField(max_length=120, unique=True, help_text="Stable per-notification idempotency key.")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self) -> str:
-        return self.key
+        state = "on" if self.enabled else "off"
+        return f"{self.user.email}:{self.event_key}/{self.channel}={state}"
 
 
 class EventDelivery(models.Model):

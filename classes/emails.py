@@ -108,7 +108,6 @@ def send_registration_confirmation(registration: "Registration") -> None:
         in_app_body=offering.title,
         url="/classes/account/",
         email_to=registration.email,
-        email_trigger_kind="classes.registration_confirmation",
         period=f"reg:{registration.pk}:confirmation",
     )
 
@@ -192,11 +191,12 @@ def emit_instructor_new_registration(registration: "Registration") -> None:
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n\n"
         f"You now have {offering.registrations.count()}/{offering.capacity} spots filled."
     )
+    # No trigger_kind → emit labels the audit row with the event key
+    # (instructor_new_registration), one vocabulary so the log joins to the event + prefs.
     email_message = Message(
         title=subject,
         body=body,
         url="/classes/teach/",
-        trigger_kind="classes.instructor_registration",
     )
     emit(
         "instructor_new_registration",
@@ -238,7 +238,8 @@ def send_admin_registration_notification(registration: "Registration") -> None:
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
         f"Capacity: {offering.registrations.count()}/{offering.capacity}"
     )
-    email_message = Message(title=subject, body=body, trigger_kind="classes.admin_registration")
+    # No trigger_kind → emit labels the audit row with the event key (one vocabulary).
+    email_message = Message(title=subject, body=body)
     emit(
         "instructor_new_registration",
         target=registration,
@@ -295,7 +296,6 @@ def _emit_review_request(
         ),
         url="/classes/teach/",
         email_to=recipients or None,
-        email_trigger_kind="classes.review_request",
         period=f"approval:{row.pk}:request",
     )
 
@@ -330,7 +330,6 @@ def _emit_instructor_review_explainer(offering: "ClassOffering", row: "ClassAppr
         template_context=template_context,
         url=instructor_url,
         email_to=offering.instructor.primary_email,
-        email_trigger_kind="classes.review_request_instructor",
         period=f"approval:{row.pk}:instructor_explainer",
     )
 
@@ -412,7 +411,6 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
         in_app_body=f"{lead_name} and {instructor_name} request executive validation to publish this class.",
         url="/classes/admin/",
         email_to=recipients,
-        email_trigger_kind="classes.admin_validation_request",
         period=f"approval:{approval.pk}:validation",
     )
 
@@ -499,7 +497,6 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
         in_app_body=in_app_body,
         url=in_app_url,
         email_to=instructor.primary_email,
-        email_trigger_kind="classes.review_decision",
         period=f"approval:{row.pk}:decision",
     )
 
@@ -534,7 +531,6 @@ def send_waitlist_joined_confirmation(registration: "Registration") -> None:
         in_app_body=offering.title,
         url="/classes/account/",
         email_to=registration.email,
-        email_trigger_kind="classes.waitlist_joined",
         period=f"reg:{registration.pk}:waitlist_joined",
     )
 
@@ -576,7 +572,6 @@ def send_waitlist_spot_opened(registration: "Registration") -> None:
         in_app_body=offering.title,
         url="/classes/account/",
         email_to=registration.email,
-        email_trigger_kind="classes.waitlist_spot_opened",
         period=f"reg:{registration.pk}:waitlist_spot_opened",
     )
 
@@ -623,7 +618,6 @@ def build_class_reminder_occurrence(
         html_template="classes/emails/reminder.html",
         template_context=template_context,
         url="/classes/account/",
-        email_trigger_kind="classes.reminder",
     )
     return ScheduledOccurrence(
         event_key="class_reminder",

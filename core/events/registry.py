@@ -176,8 +176,11 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "class_published": Recipients.ALL_ACTIVE_MEMBERS,
     "class_reminder": Recipients.REGISTRANT,
     "registration_confirmed": Recipients.REGISTRANT,
-    "class_cancelled": Recipients.REGISTRANT,
-    "class_details_changed": Recipients.REGISTRANT,
+    # class_cancelled is the site-wide "a class was cancelled" broadcast that
+    # ClassOffering.archive() emits with no per-member context — it resolves ALL active
+    # members (matching the pre-migration ``dispatch(active_member_users())``), not a
+    # single registrant.
+    "class_cancelled": Recipients.ALL_ACTIVE_MEMBERS,
     "waitlist_spot_available": Recipients.NEXT_WAITLISTED,
     "waitlist_confirmed": Recipients.REGISTRANT,
     "refund_issued": Recipients.REGISTRANT,
@@ -185,13 +188,8 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "instructor_class_approved": Recipients.INSTRUCTOR,
     "instructor_changes_requested": Recipients.INSTRUCTOR,
     "instructor_new_registration": Recipients.INSTRUCTOR,
-    "instructor_class_at_capacity": Recipients.INSTRUCTOR,
     "class_review_requested": Recipients.GUILD_LEADERSHIP,
     "class_validation_requested": Recipients.FOG_ADMINS,
-    # Guild voting
-    "voting_cycle_open": Recipients.ALL_VOTERS,
-    "voting_closing_soon": Recipients.ALL_VOTERS,
-    "funding_results_published": Recipients.ALL_VOTERS,
     # Guild activity
     "guild_announcement": Recipients.ALL_ACTIVE_MEMBERS,
     "orientation_requested": Recipients.GUILD_ORIENTERS,
@@ -209,7 +207,6 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "new_member_joined": Recipients.FOG_ADMINS,
     # Spaces / leases
     "lease_expiring": Recipients.LEASE_TENANT,
-    "lease_activated": Recipients.LEASE_TENANT,
     # Admin broadcasts
     "site_announcement": Recipients.ALL_ACTIVE_MEMBERS,
     # Security — forced, no toggle
@@ -220,7 +217,7 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
 # (audit-E). Triggers with no corresponding activity kind get ``None`` (no
 # activity row is written when they are emitted).
 _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
-    "class_published": "class_published",
+    "class_published": None,  # see the class_cancelled note below (CmsActivity mirror is the source)
     "class_reminder": None,
     # ``registration_confirmed`` / ``waitlist_confirmed`` / ``class_review_requested`` /
     # ``instructor_class_approved`` log NO SiteActivity via emit: the classes app writes its
@@ -231,32 +228,37 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     # also logged the SiteActivity here it would write the row twice. Keeping these ``None``
     # makes the CmsActivity mirror the single source of the SiteActivity, exactly as today.
     "registration_confirmed": None,
-    "class_cancelled": "class_cancelled",
-    "class_details_changed": None,
+    # ``class_cancelled`` / ``class_published`` / ``refund_issued`` log NO SiteActivity
+    # via emit: the classes app already writes the CmsActivity at each workflow point and
+    # ``classes.activity.log`` MIRRORS it into the matching SiteActivity kind
+    # (class_archived→class_cancelled, class_published→class_published,
+    # registration_refunded→refund_issued — see ``classes.activity._SITE_KIND_MAP``). If
+    # emit also logged the SiteActivity here it would write the row twice; keeping these
+    # ``None`` makes the CmsActivity mirror the single source, exactly as before the
+    # dispatch→emit migration.
+    "class_cancelled": None,
     "waitlist_spot_available": None,
     "waitlist_confirmed": None,
-    "refund_issued": "refund_issued",
+    "refund_issued": None,
     "instructor_class_approved": None,
     "instructor_changes_requested": None,
     "instructor_new_registration": None,
-    "instructor_class_at_capacity": None,
     "class_review_requested": None,
     "class_validation_requested": None,
-    "voting_cycle_open": None,
-    "voting_closing_soon": None,
-    "funding_results_published": "funding_snapshot_taken",
     "guild_announcement": "guild_announcement",
     "orientation_requested": "orientation_requested",
     "orientation_update": None,
     "guild_joined": "guild_joined",
     "tab_charged": "tab_charged",
     "tab_charge_failed": "tab_charge_failed",
-    "tab_entry_added": "tab_entry_added",
+    # ``tab_entry_added`` logs NO SiteActivity via emit: ``Tab.add_entry`` already writes
+    # the TAB_ENTRY_ADDED SiteActivity (attributed to the adding admin). Keeping this
+    # ``None`` makes that the single source after the dispatch→emit migration.
+    "tab_entry_added": None,
     "tab_approaching_limit": None,
     "invite_accepted": "invite_accepted",
     "new_member_joined": "member_signup",
     "lease_expiring": None,
-    "lease_activated": "lease_activated",
     "site_announcement": "site_announcement",
     # new_login logs NO activity via emit: ``core.signals._on_login`` writes the
     # LOGIN SiteActivity row unconditionally for EVERY login (the new_login event

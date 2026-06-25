@@ -21,8 +21,8 @@ def describe_emit():
         def it_writes_an_activity_row_when_the_event_declares_a_kind(linked_member):
             actor = User.objects.create_user(username="actor", email="actor@example.com")
             linked_member()
-            emit("class_published", actor=actor, context={}, title="t", body="b")
-            assert SiteActivity.objects.filter(kind="class_published", actor=actor).exists()
+            emit("site_announcement", actor=actor, context={}, title="t", body="b")
+            assert SiteActivity.objects.filter(kind="site_announcement", actor=actor).exists()
 
         def it_writes_no_activity_row_when_none_declared(linked_member):
             member = linked_member()
@@ -38,7 +38,9 @@ def describe_emit():
 
         def it_emails_only_opted_in_recipients(linked_member):
             opted = linked_member()
-            NotificationPreference.objects.create(user=opted.user, trigger="class_published", email_enabled=True)
+            NotificationPreference.objects.create(
+                user=opted.user, event_key="class_published", channel="email", enabled=True
+            )
             linked_member()  # not opted in
             emit("class_published", context={}, title="t", body="b")
             logs = list(TransactionalEmailLog.objects.filter(trigger_kind="class_published"))
@@ -73,7 +75,9 @@ def describe_emit():
     def describe_idempotency():
         def it_does_not_redeliver_on_re_emit(linked_member):
             member = linked_member()
-            NotificationPreference.objects.create(user=member.user, trigger="class_published", email_enabled=True)
+            NotificationPreference.objects.create(
+                user=member.user, event_key="class_published", channel="email", enabled=True
+            )
             emit("class_published", context={}, title="t", body="b")
             emit("class_published", context={}, title="t", body="b")
             # Exactly one in-app row and one email despite two emits.
@@ -122,7 +126,9 @@ def describe_per_channel_overrides():
         from core.events.channels import Message
 
         member = linked_member()
-        NotificationPreference.objects.create(user=member.user, trigger="registration_confirmed", email_enabled=True)
+        NotificationPreference.objects.create(
+            user=member.user, event_key="registration_confirmed", channel="email", enabled=True
+        )
         override = Message(
             title="Structural subject",
             body="Line one\nLine two\nSessions: Jul 12, Jul 19",
@@ -144,7 +150,9 @@ def describe_per_channel_overrides():
 
     def it_passes_email_attachments_through_to_the_choke_point(linked_member):
         member = linked_member()
-        NotificationPreference.objects.create(user=member.user, trigger="orientation_update", email_enabled=True)
+        NotificationPreference.objects.create(
+            user=member.user, event_key="orientation_update", channel="email", enabled=True
+        )
         ics = ("orientation.ics", b"BEGIN:VCALENDAR", "text/calendar")
         with patch("core.events.channels.send_email") as mock_send:
             emit(

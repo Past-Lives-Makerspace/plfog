@@ -68,7 +68,9 @@ def describe_emit_copy_mode():
 
         member = linked_member(email="reg@example.com")
         # Opt the member into email for this event.
-        NotificationPreference.objects.create(user=member.user, trigger="registration_confirmed", email_enabled=True)
+        NotificationPreference.objects.create(
+            user=member.user, event_key="registration_confirmed", channel="email", enabled=True
+        )
         emit(
             "registration_confirmed",
             context={

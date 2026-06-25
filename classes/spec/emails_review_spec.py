@@ -123,7 +123,9 @@ def describe_guild_lead_review_request_no_double_send():
         cat = CategoryFactory(guild=guild)
         # Lead opts into class_review_requested email — would have produced a 2nd
         # generic email before the dispatch's suppress_email=True.
-        NotificationPreference.objects.create(user=lead_user, trigger="class_review_requested", email_enabled=True)
+        NotificationPreference.objects.create(
+            user=lead_user, event_key="class_review_requested", channel="email", enabled=True
+        )
         instructor = InstructorFactory(user=UserFactory(email="i@example.com"), instructor_slug="i-rev")
         offering = ClassOfferingFactory(instructor=instructor, category=cat, status=ClassOffering.Status.DRAFT)
         SiteActivity.objects.all().delete()

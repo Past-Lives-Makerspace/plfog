@@ -289,64 +289,6 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
-    "voting_closing_soon": EventCopy(
-        placeholders=("member_name", "closes_at", "voting_url"),
-        sample_context={
-            "member_name": "Robin Vale",
-            "closes_at": "in 2 days",
-            "voting_url": "https://pastlives.example/guilds/voting/",
-        },
-        channels={
-            Channel.IN_APP: ChannelCopy(
-                subject="Voting closes soon",
-                body_text="Guild voting closes {{ closes_at }} — cast your vote.",
-            ),
-            Channel.EMAIL: ChannelCopy(
-                subject="Last call: guild voting closes {{ closes_at }}",
-                body_text=(
-                    "Hi {{ member_name }},\n\n"
-                    "Guild funding voting closes {{ closes_at }}. Make sure your vote is in: "
-                    "{{ voting_url }}\n\nPast Lives Makerspace"
-                ),
-                body_html=(
-                    "<p>Hi {{ member_name }},</p>"
-                    "<p>Guild funding voting closes {{ closes_at }}. Make sure your vote is in.</p>"
-                    '<p><a href="{{ voting_url }}">Cast your vote</a></p>'
-                    "<p>Past Lives Makerspace</p>"
-                ),
-            ),
-        },
-    ),
-    "funding_results_published": EventCopy(
-        placeholders=("member_name", "allocation_summary", "voting_url"),
-        sample_context={
-            "member_name": "Robin Vale",
-            "allocation_summary": "Metal Guild $600 · Fiber Guild $400 · Print Guild $250",
-            "voting_url": "https://pastlives.example/guilds/voting/history/",
-        },
-        channels={
-            Channel.IN_APP: ChannelCopy(
-                subject="Funding results are in",
-                body_text="This month's guild allocations have been published.",
-            ),
-            Channel.EMAIL: ChannelCopy(
-                subject="This month's guild funding results",
-                body_text=(
-                    "Hi {{ member_name }},\n\n"
-                    "The votes are counted. This month's allocations:\n\n"
-                    "{{ allocation_summary }}\n\nFull breakdown: {{ voting_url }}\n\n"
-                    "Past Lives Makerspace"
-                ),
-                body_html=(
-                    "<p>Hi {{ member_name }},</p>"
-                    "<p>The votes are counted. This month's allocations:</p>"
-                    "<p>{{ allocation_summary }}</p>"
-                    '<p><a href="{{ voting_url }}">See the full breakdown</a></p>'
-                    "<p>Past Lives Makerspace</p>"
-                ),
-            ),
-        },
-    ),
     "guild_announcement": EventCopy(
         placeholders=("guild_name", "announcement_title", "announcement_body", "guild_url"),
         sample_context={

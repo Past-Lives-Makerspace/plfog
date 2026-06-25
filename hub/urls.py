@@ -141,11 +141,6 @@ urlpatterns = [
         RedirectView.as_view(pattern_name="hub_user_settings", query_string=False, permanent=False),
         name="hub_profile_settings",
     ),
-    path(
-        "settings/emails/",
-        RedirectView.as_view(url="/settings/?tab=emails", permanent=False),
-        name="hub_email_preferences",
-    ),
     path("feedback/", views.beta_feedback, name="hub_beta_feedback"),
     path("tab/", views.tab_detail, name="hub_tab_detail"),
     path("tab/history/", views.tab_history, name="hub_tab_history"),

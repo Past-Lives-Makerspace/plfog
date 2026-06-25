@@ -77,8 +77,8 @@ def describe_send_receipt():
 
         send_receipt(charge)
 
-        assert TransactionalEmailLog.objects.filter(trigger_kind="billing.receipt").exists()
-        log = TransactionalEmailLog.objects.get(trigger_kind="billing.receipt")
+        assert TransactionalEmailLog.objects.filter(trigger_kind="tab_charged").exists()
+        log = TransactionalEmailLog.objects.get(trigger_kind="tab_charged")
         assert log.to_email == "log@example.com"
         assert log.status == TransactionalEmailLog.Status.SENT
 
@@ -113,7 +113,7 @@ def describe_send_receipt():
         send_receipt(charge)
 
         assert len(mail.outbox) == 0
-        assert not TransactionalEmailLog.objects.filter(trigger_kind="billing.receipt").exists()
+        assert not TransactionalEmailLog.objects.filter(trigger_kind="tab_charged").exists()
 
 
 def describe_notify_admin_charge_failed():
@@ -150,8 +150,8 @@ def describe_notify_admin_charge_failed():
 
         notify_admin_charge_failed(charge)
 
-        assert TransactionalEmailLog.objects.filter(trigger_kind="billing.charge_failed_admin").exists()
-        log = TransactionalEmailLog.objects.get(trigger_kind="billing.charge_failed_admin")
+        assert TransactionalEmailLog.objects.filter(trigger_kind="tab_charge_failed").exists()
+        log = TransactionalEmailLog.objects.get(trigger_kind="tab_charge_failed")
         assert log.to_email == "admin@example.com"
         assert log.status == TransactionalEmailLog.Status.SENT
 

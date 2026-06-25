@@ -56,7 +56,6 @@ def send_receipt(charge: TabCharge) -> None:
         in_app_body=f"${charge.amount} was charged to your tab.",
         url="/tab/",
         email_to=member.primary_email,
-        email_trigger_kind="billing.receipt",
         period=f"charge:{charge.pk}",
     )
 
@@ -101,6 +100,5 @@ def notify_admin_charge_failed(charge: TabCharge) -> None:
         in_app_body="A charge to your tab failed — please update your payment method.",
         url="/tab/",
         email_to=admin_emails,
-        email_trigger_kind="billing.charge_failed_admin",
         period=f"charge:{charge.pk}",
     )

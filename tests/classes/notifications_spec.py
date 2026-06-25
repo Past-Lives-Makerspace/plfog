@@ -178,7 +178,9 @@ def describe_registration_confirmed_notification():
         )
         # Opt the member into the confirmation email — the single event still produces
         # exactly one email (the rich shell via email_to), never a second generic one.
-        NotificationPreference.objects.create(user=member_user, trigger="registration_confirmed", email_enabled=True)
+        NotificationPreference.objects.create(
+            user=member_user, event_key="registration_confirmed", channel="email", enabled=True
+        )
         Notification.objects.all().delete()
         mail.outbox.clear()
 

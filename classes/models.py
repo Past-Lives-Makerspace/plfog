@@ -502,15 +502,19 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.status = self.Status.ARCHIVED
         self.save(update_fields=["status", "updated_at"])
         from classes import activity
-        from core import notifications
+        from core.events.emit import emit
 
         activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=self)
-        notifications.dispatch(
+        # In-app broadcast to all active members (the ``class_cancelled`` event resolves
+        # ALL_ACTIVE_MEMBERS; its EMAIL channel defaults off, so this matches the old
+        # in-app-only dispatch — email only to a member who has opted in).
+        emit(
             "class_cancelled",
-            notifications.active_member_users(),
+            target=self,
             title="A class was cancelled",
             body=self.title,
             url="/classes/",
+            period=f"offering:{self.pk}:archived",
         )
 
     def promote_next_from_waitlist(self) -> "Registration | None":
@@ -567,8 +571,6 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         from classes import activity
 
-        from core import notifications
-
         if row.decision == ClassApproval.Decision.APPROVED:
             activity.log(
                 CmsActivity.Kind.CLASS_APPROVED,
@@ -602,14 +604,20 @@ class ClassOffering(HeroCropMixin, models.Model):
                 # The instructor's "Your class was approved" bell row + the rich "live!"
                 # email now both fan out from the single ``instructor_class_approved`` event
                 # emitted by ``classes.emails.send_class_review_decision`` (called by the
-                # view right after the publishing decision). Dispatching it here too would
-                # double the bell row, so the decision event owns it.
-                notifications.dispatch(
+                # view right after the publishing decision). This separate broadcast is the
+                # "a new class is live" in-app fan-out to ALL active members (resolved by the
+                # ``class_published`` event); its EMAIL channel defaults off, matching the old
+                # in-app-only dispatch.
+                from core.events.emit import emit
+
+                emit(
                     "class_published",
-                    notifications.active_member_users(),
+                    actor=row.decided_by,
+                    target=self,
                     title="New class published",
                     body=self.title,
                     url=f"/classes/{self.slug}/",
+                    period=f"offering:{self.pk}:published",
                 )
         elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
             self.status = self.Status.DRAFT
@@ -1344,7 +1352,6 @@ class Registration(models.Model):
     def _dispatch_status_notification(self, creating: bool, prior_status: str | None) -> None:
         """Dispatch in-app notifications triggered by registration status transitions."""
         from classes import activity
-        from core import notifications
 
         user = self.member.user if (self.member is not None and self.member.user is not None) else None
         # ``_acting_user`` is a transient (non-persisted) attribute a view sets
@@ -1387,13 +1394,21 @@ class Registration(models.Model):
                     registration=self,
                     actor=acting,
                 )
-                if user is not None:
-                    notifications.dispatch(
+                if self.member is not None:
+                    # In-app row (+ email only if the member opted into refund email) to the
+                    # member the refund concerns. The ``refund_issued`` event resolves the
+                    # REGISTRANT; its EMAIL channel defaults off, matching the old dispatch.
+                    from core.events.emit import emit
+
+                    emit(
                         "refund_issued",
-                        [user],
+                        actor=acting,
+                        target=self,
+                        context={"member": self.member},
                         title="Refund issued",
                         body=self.class_offering.title,
                         url="/classes/account/",
+                        period=f"reg:{self.pk}:refund",
                     )
 
     @staticmethod

@@ -1,4 +1,4 @@
-"""Channel-generic preference resolution — backward-compatible with legacy columns."""
+"""Channel-generic preference resolution on the unified per-(event, channel) model."""
 
 from __future__ import annotations
 
@@ -16,6 +16,10 @@ def _user():
     return User.objects.create_user(username="pref", email="pref@example.com")
 
 
+def _pref(user, event_key, channel, enabled):
+    return NotificationPreference.objects.create(user=user, event_key=event_key, channel=channel.value, enabled=enabled)
+
+
 def describe_wants():
     def describe_in_app():
         def it_is_always_on_for_declared_events():
@@ -25,36 +29,44 @@ def describe_wants():
         def it_ignores_preferences_for_forced_email():
             user = _user()
             # new_login forces email; an explicit opt-out row must not matter.
-            NotificationPreference.objects.create(user=user, trigger="new_login", email_enabled=False)
+            _pref(user, "new_login", Channel.EMAIL, False)
             assert preferences.wants(user, "new_login", Channel.EMAIL) is True
 
-    def describe_email_with_legacy_columns():
-        def it_reads_email_enabled_from_an_explicit_row():
+    def describe_email_per_channel_row():
+        def it_reads_enabled_from_an_explicit_row():
             user = _user()
-            NotificationPreference.objects.create(user=user, trigger="class_published", email_enabled=True)
+            _pref(user, "class_published", Channel.EMAIL, True)
             assert preferences.wants(user, "class_published", Channel.EMAIL) is True
 
         def it_respects_an_explicit_opt_out():
             user = _user()
-            NotificationPreference.objects.create(user=user, trigger="class_published", email_enabled=False)
+            _pref(user, "class_published", Channel.EMAIL, False)
             assert preferences.wants(user, "class_published", Channel.EMAIL) is False
 
         def it_falls_back_to_the_event_default_with_no_row():
             # class_published defaults email OFF.
             assert preferences.wants(_user(), "class_published", Channel.EMAIL) is False
 
-    def describe_push_with_legacy_columns():
-        def it_reads_push_enabled_from_an_explicit_row():
+    def describe_push_per_channel_row():
+        def it_reads_enabled_from_an_explicit_row():
             user = _user()
-            NotificationPreference.objects.create(user=user, trigger="class_published", push_enabled=True)
+            _pref(user, "class_published", Channel.PUSH, True)
             assert preferences.wants(user, "class_published", Channel.PUSH) is True
 
         def it_defaults_push_off_with_no_row():
             assert preferences.wants(_user(), "class_published", Channel.PUSH) is False
 
+    def describe_non_legacy_channels():
+        def it_now_honors_a_real_per_channel_preference():
+            # Discord is a per-event broadcast channel that site.announcement declares; the
+            # per-channel model lets a row govern it directly (no legacy column existed before).
+            user = _user()
+            _pref(user, "site_announcement", Channel.DISCORD, False)
+            assert preferences.wants(user, "site_announcement", Channel.DISCORD) is False
+
     def describe_undeclared_channel():
         def it_returns_false_when_event_has_no_such_channel():
-            # No legacy trigger declares discord.
+            # A seeded legacy event (class_published) declares no discord channel.
             assert preferences.wants(_user(), "class_published", Channel.DISCORD) is False
 
 
@@ -65,7 +77,7 @@ def describe_enabled_channels():
 
     def it_includes_email_when_opted_in():
         user = _user()
-        NotificationPreference.objects.create(user=user, trigger="class_published", email_enabled=True)
+        _pref(user, "class_published", Channel.EMAIL, True)
         assert preferences.enabled_channels(user, "class_published") == [Channel.IN_APP, Channel.EMAIL]
 
     def it_includes_forced_email_without_a_row():

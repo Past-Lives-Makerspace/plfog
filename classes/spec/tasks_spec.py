@@ -94,7 +94,7 @@ def describe_send_due_class_reminders():
         MembershipPlan.objects.create(name="Standard", monthly_price="50.00")
         user = User.objects.create_user(username="optedin@example.com", email="optedin@example.com")
         member = Member.objects.get(user=user)
-        NotificationPreference.objects.create(user=user, trigger="class_reminder", email_enabled=True)
+        NotificationPreference.objects.create(user=user, event_key="class_reminder", channel="email", enabled=True)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         start = timezone.now() + timedelta(hours=24, minutes=1)
         ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))

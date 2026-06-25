@@ -416,6 +416,7 @@ class Tab(models.Model):
             SiteActivity.log(SiteActivity.Kind.TAB_ENTRY_ADDED, actor=added_by, target=entry)
 
             self._dispatch_entry_notifications(
+                entry=entry,
                 added_by=added_by,
                 is_self_service=is_self_service,
                 description=description,
@@ -428,6 +429,7 @@ class Tab(models.Model):
     def _dispatch_entry_notifications(
         self,
         *,
+        entry: TabEntry,
         added_by: User | None,
         is_self_service: bool,
         description: str,
@@ -435,25 +437,37 @@ class Tab(models.Model):
         current: Decimal,
         locked_self: Tab,
     ) -> None:
-        """Dispatch in-app notifications for a newly added tab entry."""
-        from core import notifications
+        """Dispatch in-app notifications for a newly added tab entry.
 
+        Each event is keyed by the entry's pk in its dedupe ``period`` so every entry
+        fires its own notification (the old ``dispatch`` had no dedupe) while a re-run
+        of the same add is idempotent.
+        """
+        from core.events.emit import emit
+
+        # Both events resolve the TAB_MEMBER (the tab's own member); their EMAIL channel
+        # defaults off, so this matches the old in-app-only dispatch. The SiteActivity row
+        # for the entry is logged by ``add_entry`` (the event's registry ``activity_kind``
+        # is None to avoid duplicating it).
         if added_by is not None and not is_self_service and self.member.user is not None:
-            notifications.dispatch(
+            emit(
                 "tab_entry_added",
-                [self.member.user],
+                actor=added_by,
+                context={"member": self.member},
                 title="Tab entry added",
                 body=f"{description} — ${amount}",
                 url="/tab/",
+                period=f"entry:{entry.pk}:added",
             )
         limit = locked_self.effective_tab_limit
         if self.member.user is not None and limit and (current + amount) / limit >= Decimal("0.80"):
-            notifications.dispatch(
+            emit(
                 "tab_approaching_limit",
-                [self.member.user],
+                context={"member": self.member},
                 title="Tab approaching its limit",
                 body=f"Your tab balance is ${current + amount} of ${limit}.",
                 url="/tab/",
+                period=f"entry:{entry.pk}:limit",
             )
 
     def lock(self, reason: str) -> None:

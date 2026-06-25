@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from hub.forms import EmailPreferencesForm, ProfileSettingsForm
+from hub.forms import ProfileSettingsForm
 from tests.membership.factories import MemberFactory
 
 
@@ -97,15 +97,3 @@ def describe_profile_settings_form():
         assert form.fields["show_email"].initial is True
         # Unset key defaults to True (public):
         assert form.fields["show_pronouns"].initial is True
-
-
-def describe_email_preferences_form():
-    def it_accepts_checked_voting_results():
-        form = EmailPreferencesForm({"voting_results": "on"})
-        assert form.is_valid()
-        assert form.cleaned_data["voting_results"] is True
-
-    def it_accepts_unchecked_voting_results():
-        form = EmailPreferencesForm({})
-        assert form.is_valid()
-        assert form.cleaned_data["voting_results"] is False

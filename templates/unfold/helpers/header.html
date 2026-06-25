@@ -48,7 +48,6 @@
                 {% endif %}
             </div>
             <a href="{% url 'hub_profile_settings' %}" class="pl-profile__dropdown-item" role="menuitem">Profile</a>
-            <a href="{% url 'hub_email_preferences' %}" class="pl-profile__dropdown-item" role="menuitem">Email Preferences</a>
             <a href="{% url 'account_email' %}" class="pl-profile__dropdown-item" role="menuitem">Manage email addresses</a>
             <div class="pl-profile__dropdown-divider"></div>
             <form method="post" action="{% url 'admin:logout' %}">

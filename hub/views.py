@@ -27,7 +27,6 @@ from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
     CalendarFeedFormSet,
-    EmailPreferencesForm,
     GuildEditForm,
     MemberAdminEditForm,
     ProfileSettingsForm,
@@ -1203,13 +1202,14 @@ def guild_eyop_form(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 def user_settings(request: HttpRequest) -> HttpResponse:
-    """Tabbed user settings page — Profile + Emails (manage addresses + preferences).
+    """Tabbed user settings page — Profile + Emails + Notifications.
 
-    Two forms POST to this endpoint, disambiguated by the ``form_id`` hidden field:
-    ``profile`` (member info) and ``email_prefs`` (notification toggles). Email
-    address management (add, primary, verify, remove) POSTs to allauth's
-    ``account_email`` URL, which is overridden in ``plfog.urls`` to redirect back
-    here after each action.
+    Three concerns POST to this endpoint, disambiguated by the ``form_id`` hidden
+    field: ``profile`` (member info) and ``notifications`` (the event × channel
+    preference matrix). Email address management (add, primary, verify, remove) POSTs
+    to allauth's ``account_email`` URL, which is overridden in ``plfog.urls`` to
+    redirect back here after each action. The Notifications tab is the unified
+    preferences matrix (design §2.7) sourced from the event registry.
     """
     from allauth.account.forms import AddEmailForm
     from allauth.account.models import EmailAddress
@@ -1235,30 +1235,11 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     else:
         profile_form = None
 
-    prefs_form: EmailPreferencesForm
-    if request.method == "POST" and request.POST.get("form_id") == "email_prefs":
-        prefs_form = EmailPreferencesForm(request.POST)
-        if prefs_form.is_valid():
-            messages.success(request, "Email preferences updated.")
-            return redirect(f"{request.path}?tab=emails")
-    else:
-        prefs_form = EmailPreferencesForm(initial={"voting_results": True})
-
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
     if request.method == "POST" and request.POST.get("form_id") == "notifications":
-        from core import triggers
-        from core.models import NotificationPreference
+        from core.events import settings_matrix
 
-        is_instructor = bool(member and member.is_instructor)
-        for t in triggers.for_member(is_instructor=is_instructor, is_staff=user.is_staff):
-            NotificationPreference.objects.update_or_create(
-                user=user,
-                trigger=t.key,
-                defaults={
-                    "push_enabled": request.POST.get(f"push_{t.key}") == "on",
-                    "email_enabled": request.POST.get(f"email_{t.key}") == "on",
-                },
-            )
+        settings_matrix.save_matrix(user, request.POST)
         messages.success(request, "Notification preferences updated.")
         return redirect(f"{request.path}?tab=notifications")
 
@@ -1275,11 +1256,13 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     if member is None and request.method == "GET" and not request.GET.get("tab"):
         messages.info(request, "Your account is not linked to a membership.")
 
-    from core import triggers as _triggers
-    from core.models import NotificationPreference as _NP
+    from core.events import settings_matrix
 
-    notif_groups = _triggers.by_category(is_instructor=bool(member and member.is_instructor), is_staff=user.is_staff)
-    notif_prefs = {p.trigger: p for p in _NP.objects.filter(user=user)}
+    notif_matrix = settings_matrix.build_matrix(user)
+    notif_channels = [(channel, settings_matrix.CHANNEL_LABELS[channel]) for channel in settings_matrix.USER_CHANNELS]
+    # Channel labels keyed by channel value, so each matrix cell can build its own
+    # screen-reader name (event × channel) via the get_item template filter.
+    notif_channel_labels = {channel.value: label for channel, label in notif_channels}
 
     return render(
         request,
@@ -1288,13 +1271,13 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             **ctx,
             "member": member,
             "profile_form": profile_form,
-            "prefs_form": prefs_form,
             "add_email_form": add_email_form,
             "email_addresses": email_addresses,
             "primary_verified_json": primary_verified_json,
             "active_tab": active_tab,
-            "notif_groups": notif_groups,
-            "notif_prefs": notif_prefs,
+            "notif_matrix": notif_matrix,
+            "notif_channels": notif_channels,
+            "notif_channel_labels": notif_channel_labels,
         },
     )
 

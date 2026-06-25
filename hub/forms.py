@@ -236,12 +236,6 @@ class ProfileSettingsForm(forms.ModelForm):
         }
 
 
-class EmailPreferencesForm(forms.Form):
-    """Form for email notification preferences."""
-
-    voting_results = forms.BooleanField(required=False, label="Voting Result Emails")
-
-
 class BetaFeedbackForm(forms.Form):
     """Form for submitting beta feedback (bug reports, feature requests, general feedback)."""
 

@@ -1382,7 +1382,7 @@ class FundingSnapshot(models.Model):
         Logs the FUNDING_SNAPSHOT_TAKEN SiteActivity (the event's registry
         ``activity_kind``) and fans out an email + in-app row to every voter, carrying
         the per-guild allocation summary as a merge field. Supersedes the old
-        ``notifications.dispatch("funding_results_published")`` (one vocabulary now:
+        ``funding_results_published`` trigger (now deleted; one vocabulary:
         ``voting.results_published``). Deduped on the snapshot pk so re-publishing the
         same snapshot never double-sends, while a new snapshot (new pk) does notify.
         """
