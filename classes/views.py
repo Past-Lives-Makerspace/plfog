@@ -56,6 +56,7 @@ from classes.models import (
     ClassApproval,
     ClassImage,
     ClassOffering,
+    ClassSession,
     ClassSettings,
     CmsActivity,
     DiscountCode,
@@ -257,7 +258,7 @@ def public_list(request: HttpRequest) -> HttpResponse:
         "page_obj": page_obj,
         "paginator": paginator,
         "filter_querystring": filter_querystring,
-        "total_classes": paginator.count,
+        "upcoming_session_count": ClassSession.objects.upcoming_public_count(),
         "total_instructors": classes_qs.values("instructor_id").exclude(instructor_id__isnull=True).distinct().count(),
         "total_categories": len(categories),
     }
@@ -574,6 +575,9 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             from classes.services.mailchimp_subscribe import subscribe_registration
 
             subscribe_registration(registration)
+            from core.services.guest_account import ensure_account_for_registration
+
+            ensure_account_for_registration(registration)
             return redirect("classes:register_success", slug=offering.slug)
 
         # Paid class — kick off Stripe Checkout.

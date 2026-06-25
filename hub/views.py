@@ -405,6 +405,7 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     faq_items = guild.faq_items.all()
     links = guild.links.all()
     announcements = guild.announcements.active()[:5]
+    meeting_notes = guild.meeting_notes.prefetch_related("attachments")
     roster = guild.roster_members() if guild.show_members else None
     is_member_of_guild = member is not None and guild.memberships.filter(member=member).exists()
 
@@ -414,11 +415,6 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     member_count = guild.memberships.count()
     class_count = guild_classes.filter(status=ClassOffering.Status.PUBLISHED).count()
     upcoming_classes = guild_classes.bookable().select_related("instructor")[:4]
-    published_classes = (
-        guild_classes.filter(status=ClassOffering.Status.PUBLISHED)
-        .select_related("instructor", "category")
-        .order_by("title")
-    )
     calendar = _get_calendar_context(request, guild=guild)
     calendar["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
     guild_cal_filters = ["classes", "orientation"]
@@ -467,13 +463,13 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "faq_items": faq_items,
             "links": links,
             "announcements": announcements,
+            "meeting_notes": meeting_notes,
             "roster": roster,
             "member": member,
             "is_member_of_guild": is_member_of_guild,
             "member_count": member_count,
             "class_count": class_count,
             "upcoming_classes": upcoming_classes,
-            "published_classes": published_classes,
             "calendar": calendar,
             "pulse": pulse,
             "orientation": orientation,
@@ -515,14 +511,13 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
     if forbidden is not None:
         return forbidden
 
+    # FAQ and Links now save themselves via guild_faq_save / guild_links_save (their own
+    # forms on the FAQ & Links tab). The main form here only covers Basic/Meetings/Images
+    # — but it still instantiates both formsets for the GET render so the tab can draw rows.
     if request.method == "POST":
         form = GuildEditForm(request.POST, request.FILES, instance=guild)
-        faq_formset = GuildFAQItemFormSet(request.POST, instance=guild, prefix="faq")
-        link_formset = GuildLinkFormSet(request.POST, instance=guild, prefix="links")
-        if form.is_valid() and faq_formset.is_valid() and link_formset.is_valid():
+        if form.is_valid():
             form.save()
-            faq_formset.save()
-            link_formset.save()
             guild.add_gallery_images(request.FILES.getlist("gallery_images"))
 
             messages.success(request, "Guild page updated.")
@@ -531,8 +526,8 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             return redirect("hub_guild_detail", pk=guild.pk)
     else:
         form = GuildEditForm(instance=guild)
-        faq_formset = GuildFAQItemFormSet(instance=guild, prefix="faq")
-        link_formset = GuildLinkFormSet(instance=guild, prefix="links")
+    faq_formset = GuildFAQItemFormSet(instance=guild, prefix="faq")
+    link_formset = GuildLinkFormSet(instance=guild, prefix="links")
 
     ctx = _get_hub_context(request)
     return render(
@@ -1506,6 +1501,160 @@ def guild_announcement_delete(request: HttpRequest, pk: int, announcement_pk: in
     get_object_or_404(GuildAnnouncement, pk=announcement_pk, guild=guild).delete()
     messages.success(request, "Announcement deleted.")
     return redirect("hub_guild_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_faq_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the guild's FAQ rows from their own form on the FAQ & Links tab. Editor only.
+
+    The FAQ section is its own ``<form>`` (it can't be nested in the main edit form), so it
+    persists here independently and redirects back to the same tab with a Django message.
+    """
+    from hub.forms import GuildFAQItemFormSet
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    formset = GuildFAQItemFormSet(request.POST, instance=guild, prefix="faq")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "FAQ saved.")
+    else:
+        messages.error(request, "Couldn't save the FAQ — check the highlighted fields.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=content")
+
+
+@login_required
+@require_POST
+def guild_links_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the guild's Links rows from their own form on the FAQ & Links tab. Editor only."""
+    from hub.forms import GuildLinkFormSet
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    formset = GuildLinkFormSet(request.POST, instance=guild, prefix="links")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Links saved.")
+    else:
+        messages.error(request, "Couldn't save the links — check the highlighted fields.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=content")
+
+
+@login_required
+def guild_announcement_edit(request: HttpRequest, pk: int, announcement_pk: int) -> HttpResponse:
+    """Edit an existing announcement from a modal on the Announcements tab. Editor only.
+
+    GET (HTMX) renders the prefilled form into the modal body. POST validates and, on success,
+    swaps the updated row back in (``hx-swap-oob``), fires a success toast, and tells the shared
+    modal to close (it has no auto-close on ``htmx:after-request`` — the close must be driven
+    from the server). ``published_at`` and ``author`` are never touched on edit.
+    """
+    from hub.forms import GuildAnnouncementForm
+    from membership.models import GuildAnnouncement
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    announcement = get_object_or_404(GuildAnnouncement, pk=announcement_pk, guild=guild)
+
+    if request.method == "POST":
+        form = GuildAnnouncementForm(request.POST, instance=announcement)
+        if form.is_valid():
+            form.save()
+            response = render(
+                request,
+                "hub/partials/_guild_announcement_row.html",
+                {"guild": guild, "a": announcement, "oob": True},
+            )
+            # One response carries three things: the OOB row swap (body), the success toast
+            # (HX-Trigger), and the modal-close event. trigger_toast owns HX-Trigger, so the
+            # close-modal event rides HX-Trigger-After-Settle to avoid clobbering the toast.
+            trigger_toast(response, "Announcement updated.", "success")
+            response["HX-Trigger-After-Settle"] = json.dumps({"close-modal": f"edit-ann-{announcement.pk}"})
+            return response
+        # Invalid: re-render the modal form with field errors, modal stays open (no close trigger).
+        return render(
+            request,
+            "hub/partials/guild_announcement_edit_form.html",
+            {"guild": guild, "announcement": announcement, "form": form},
+        )
+
+    form = GuildAnnouncementForm(instance=announcement)
+    return render(
+        request,
+        "hub/partials/guild_announcement_edit_form.html",
+        {"guild": guild, "announcement": announcement, "form": form},
+    )
+
+
+@login_required
+def guild_meeting_notes(request: HttpRequest, pk: int) -> HttpResponse:
+    """Management list of a guild's meeting notes (Edit / Delete). Editor only."""
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    notes = guild.meeting_notes.prefetch_related("attachments")
+    ctx = _get_hub_context(request)
+    return render(request, "hub/guild_meeting_notes.html", {**ctx, "guild": guild, "notes": notes})
+
+
+@login_required
+def guild_meeting_note_edit(request: HttpRequest, pk: int, note_pk: int | None = None) -> HttpResponse:
+    """Add (no ``note_pk``) or edit a meeting note plus its attachment formset. Editor only."""
+    from hub.forms import GuildMeetingNoteAttachmentFormSet, GuildMeetingNoteForm
+    from membership.models import GuildMeetingNote
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    note = get_object_or_404(GuildMeetingNote, pk=note_pk, guild=guild) if note_pk is not None else GuildMeetingNote()
+
+    if request.method == "POST":
+        form = GuildMeetingNoteForm(request.POST, instance=note)
+        formset = GuildMeetingNoteAttachmentFormSet(request.POST, request.FILES, instance=note, prefix="att")
+        if form.is_valid() and formset.is_valid():
+            note = form.save(commit=False)
+            note.guild = guild
+            if note.created_by_id is None:
+                note.created_by = request.user
+            note.save()
+            formset.instance = note
+            formset.save()
+            messages.success(request, "Meeting notes saved.")
+            return redirect("hub_guild_meeting_notes", pk=guild.pk)
+    else:
+        form = GuildMeetingNoteForm(instance=note)
+        formset = GuildMeetingNoteAttachmentFormSet(instance=note, prefix="att")
+
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/guild_meeting_note_edit.html",
+        {**ctx, "guild": guild, "note": note, "form": form, "attachment_formset": formset},
+    )
+
+
+@login_required
+@require_POST
+def guild_meeting_note_delete(request: HttpRequest, pk: int, note_pk: int) -> HttpResponse:
+    """Delete a meeting note (attachments cascade). POST only, editor only."""
+    from membership.models import GuildMeetingNote
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    get_object_or_404(GuildMeetingNote, pk=note_pk, guild=guild).delete()
+    messages.success(request, "Meeting notes deleted.")
+    return redirect("hub_guild_meeting_notes", pk=guild.pk)
 
 
 @login_required

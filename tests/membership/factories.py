@@ -6,6 +6,7 @@ from decimal import Decimal
 import factory
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models.signals import post_save
 from django.utils import timezone
 from factory.django import mute_signals
@@ -16,6 +17,8 @@ from membership.models import (
     GuildAnnouncement,
     GuildFAQItem,
     GuildLink,
+    GuildMeetingNote,
+    GuildMeetingNoteAttachment,
     GuildMembership,
     GuildOrientationSettings,
     GuildStaffMembership,
@@ -102,6 +105,37 @@ class GuildAnnouncementFactory(factory.django.DjangoModelFactory):
     guild = factory.SubFactory(GuildFactory)
     title = factory.Sequence(lambda n: f"Announcement {n}")
     body = "Body text."
+
+
+class GuildMeetingNoteFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildMeetingNote
+
+    guild = factory.SubFactory(GuildFactory)
+    meeting_date = date(2026, 6, 1)
+    title = factory.Sequence(lambda n: f"Meeting {n}")
+    body = ""
+
+
+class GuildMeetingNoteAttachmentFactory(factory.django.DjangoModelFactory):
+    """Defaults to a link attachment. Use the ``file`` trait for an uploaded file.
+
+    Exactly one of file / url is ever set — the model's XOR constraint requires it.
+    """
+
+    class Meta:
+        model = GuildMeetingNoteAttachment
+
+    note = factory.SubFactory(GuildMeetingNoteFactory)
+    label = factory.Sequence(lambda n: f"Attachment {n}")
+    url = "https://docs.example.com/agenda"
+    file = ""
+
+    class Params:
+        file_doc = factory.Trait(
+            url="",
+            file=factory.LazyFunction(lambda: SimpleUploadedFile("agenda.pdf", b"%PDF-1.4 test", "application/pdf")),
+        )
 
 
 class GuildMembershipFactory(factory.django.DjangoModelFactory):

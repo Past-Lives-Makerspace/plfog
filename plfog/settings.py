@@ -233,6 +233,9 @@ _R2_READY = all([R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCE
 # Maximum upload size for ImageField uploads (members, guilds, classes).
 MAX_UPLOAD_IMAGE_BYTES = int(os.environ.get("MAX_UPLOAD_IMAGE_BYTES", str(3 * 1024 * 1024)))  # 3 MB
 
+# Maximum upload size for document FileField uploads (guild meeting-note attachments).
+MAX_UPLOAD_DOCUMENT_BYTES = int(os.environ.get("MAX_UPLOAD_DOCUMENT_BYTES", str(25 * 1024 * 1024)))  # 25 MB
+
 # Auto-resize ceilings (longest edge in pixels) applied by core.images.normalize_image
 # on save. Hero/banner images get a higher cap; gallery/profile images sit lower.
 IMAGE_MAX_LONG_EDGE_HERO = int(os.environ.get("IMAGE_MAX_LONG_EDGE_HERO", "2400"))

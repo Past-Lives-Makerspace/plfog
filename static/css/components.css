@@ -221,6 +221,19 @@
     color-scheme: dark;
 }
 
+/* File input: theme the native ::file-selector-button — otherwise it renders as an
+   OS-default light button on the dark theme. No CSS file styled it before this. */
+.pl-form-group input[type="file"]::file-selector-button {
+    background: var(--hub-input-bg, rgba(255, 255, 255, 0.06));
+    color: var(--hub-text, #F4EFDD);
+    border: 1px solid var(--hub-input-border, rgba(255, 255, 255, 0.12));
+    border-radius: 6px;
+    padding: 0.35rem 0.75rem;
+    margin-right: 0.75rem;
+    font-size: 0.8125rem;
+    cursor: pointer;
+}
+
 /* Two-column field layout for long edit forms. Column gap only — each
    .pl-form-group keeps its own margin-bottom for vertical rhythm. Collapses
    to a single column on narrow screens. */
@@ -663,6 +676,12 @@
 [data-theme="light"] .pl-form-group input[type="date"],
 [data-theme="light"] .pl-form-group input[type="datetime-local"] {
     color-scheme: light;
+}
+
+[data-theme="light"] .pl-form-group input[type="file"]::file-selector-button {
+    background: #f3f4f6;
+    color: #1f2937;
+    border-color: #d1d5db;
 }
 
 [data-theme="light"] .pl-field-hint {

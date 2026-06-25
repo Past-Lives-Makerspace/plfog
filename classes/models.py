@@ -68,8 +68,8 @@ class Category(HeroCropMixin, models.Model):
     icon_svg = models.TextField(
         blank=True,
         help_text=(
-            "Inline SVG markup shown next to the category name on public pages. "
-            "Tint via currentColor. Defaults to a Lucide icon seeded for known categories."
+            "Inline SVG markup shown next to the guild name on public pages. "
+            "Tint via currentColor. Defaults to a Lucide icon seeded for known guilds."
         ),
     )
     guild = models.ForeignKey(
@@ -78,7 +78,7 @@ class Category(HeroCropMixin, models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="categories",
-        help_text="Optional link to the makerspace Guild that owns this category. Used for Mailchimp tagging.",
+        help_text="Optional link to the membership Guild that owns this grouping. Used for Mailchimp tagging.",
     )
 
     @property
@@ -100,7 +100,8 @@ class Category(HeroCropMixin, models.Model):
 
     class Meta:
         ordering = ["sort_order", "name"]
-        verbose_name_plural = "Categories"
+        verbose_name = "Guild"
+        verbose_name_plural = "Guilds"
 
     def __str__(self) -> str:
         return self.name
@@ -209,7 +210,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     title = models.CharField(max_length=255, help_text="Public class title.")
     slug = models.SlugField(max_length=255, unique=True, help_text="URL slug.")
     category = models.ForeignKey(
-        Category, on_delete=models.PROTECT, related_name="classes", help_text="Category grouping."
+        Category, on_delete=models.PROTECT, related_name="classes", help_text="Guild grouping."
     )
     instructor = models.ForeignKey(
         "membership.Member",
@@ -1080,6 +1081,26 @@ class ClassImage(models.Model):
         super().save(*args, **kwargs)
 
 
+class ClassSessionQuerySet(models.QuerySet["ClassSession"]):
+    def upcoming_public(self) -> "ClassSessionQuerySet":
+        """Future sessions whose offering is publicly visible (published + non-private).
+
+        Mirrors ``ClassOfferingQuerySet.public()`` across the FK (``status="published"``,
+        ``is_private=False``) rather than ``bookable()``: a part-started series is no
+        longer *bookable* as a whole, but its still-future sessions remain real,
+        dated, purchasable inventory and should be counted.
+        """
+        return self.filter(
+            starts_at__gte=timezone.now(),
+            class_offering__status="published",
+            class_offering__is_private=False,
+        )
+
+    def upcoming_public_count(self) -> int:
+        """How many purchasable, dated sessions are live in the public catalog."""
+        return self.upcoming_public().count()
+
+
 class ClassSession(models.Model):
     class_offering = models.ForeignKey(
         ClassOffering,
@@ -1090,6 +1111,8 @@ class ClassSession(models.Model):
     starts_at = models.DateTimeField(help_text="Start (timezone-aware).")
     ends_at = models.DateTimeField(help_text="End (timezone-aware).")
     sort_order = models.PositiveIntegerField(default=0, help_text="Display order within a class.")
+
+    objects = ClassSessionQuerySet.as_manager()
 
     class Meta:
         ordering = ["starts_at"]
@@ -1348,6 +1371,13 @@ class Registration(models.Model):
         default=False,
         help_text="Did the registrant tick the newsletter opt-in box at signup?",
     )
+    create_account = models.BooleanField(
+        default=False,
+        help_text=(
+            "Did an anonymous registrant opt into having a passwordless Past Lives account created once their "
+            "booking is confirmed? Always False for already-logged-in registrants."
+        ),
+    )
     subscribed_to_mailchimp = models.BooleanField(default=False, help_text="Whether MailChimp subscribe succeeded.")
     cancellation_reason = models.TextField(blank=True, help_text="Internal reason recorded when an admin cancels.")
     registered_at = models.DateTimeField(auto_now_add=True, help_text="When this registration was created.")
@@ -1587,6 +1617,15 @@ class RegistrationQuestion(models.Model):
         default=True, help_text="Uncheck to retire a question without deleting historical answers."
     )
     sort_order = models.PositiveIntegerField(default=0, help_text="Ascending sort; lower shows first.")
+    mailchimp_tag = models.CharField(
+        max_length=80,
+        blank=True,
+        default="",
+        help_text=(
+            "Optional Mailchimp tag prefix for this question's answers. Leave blank to auto-derive a tag "
+            "from the prompt. Only Yes/No and Single Choice answers are pushed to Mailchimp as tags."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -1594,6 +1633,44 @@ class RegistrationQuestion(models.Model):
 
     def __str__(self) -> str:
         return self.prompt[:80]
+
+    @property
+    def is_taggable(self) -> bool:
+        """Whether this question's answers should be pushed to Mailchimp as tags.
+
+        Only Yes/No and Single Choice answers segment cleanly. Free-text
+        (short/long) answers make poor tags, so they're recorded on the
+        registration but never sent to Mailchimp.
+        """
+        return self.question_type in (self.QuestionType.YES_NO, self.QuestionType.SINGLE_CHOICE)
+
+    def tag_for(self, answer_text: str) -> str | None:
+        """Build the Mailchimp tag for this question's given answer, or None.
+
+        Returns None for non-taggable question types, blank answers, and a
+        Yes/No "no" (we only tag the affirmative so segments key on opt-in).
+        The tag prefix is the admin-set ``mailchimp_tag`` when present, else a
+        slug of the prompt. Single-choice answers append the answer slug; a
+        Yes/No "yes" uses the prefix alone.
+        """
+        from django.utils.text import slugify
+
+        if not self.is_taggable:
+            return None
+        value = (answer_text or "").strip()
+        if not value:
+            return None
+        prefix = slugify(self.mailchimp_tag) if self.mailchimp_tag else f"q-{slugify(self.prompt)[:40]}"
+        if not prefix:
+            return None
+        if self.question_type == self.QuestionType.YES_NO:
+            if value.strip().lower() not in ("yes", "true", "on", "1"):
+                return None
+            return prefix
+        answer_slug = slugify(value)[:40]
+        if not answer_slug:
+            return None
+        return f"{prefix}-{answer_slug}"
 
 
 class RegistrationAnswer(models.Model):

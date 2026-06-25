@@ -69,6 +69,34 @@ def describe_send_due_class_reminders():
         sent = send_due_class_reminders(window_minutes=15)
         assert sent == 0
 
+    def it_sends_a_single_email_even_when_the_member_opted_into_reminder_email(db, settings):
+        # Regression: the dedicated reminder email plus dispatch's generic email
+        # used to double-send to a registrant opted into class_reminder email.
+        from django.contrib.auth.models import User
+
+        from core.models import NotificationPreference
+        from membership.models import Member, MembershipPlan
+
+        settings.DEFAULT_FROM_EMAIL = "noreply@pastlives.space"
+        cfg = ClassSettings.load()
+        cfg.reminder_hours_before = 24
+        cfg.save()
+        # A MembershipPlan must exist for the post_save signal to auto-create a Member.
+        MembershipPlan.objects.create(name="Standard", monthly_price="50.00")
+        user = User.objects.create_user(username="optedin@example.com", email="optedin@example.com")
+        member = Member.objects.get(user=user)
+        NotificationPreference.objects.create(user=user, trigger="class_reminder", email_enabled=True)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        start = timezone.now() + timedelta(hours=24, minutes=1)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        RegistrationFactory(
+            class_offering=offering, status=Registration.Status.CONFIRMED, member=member, email=user.email
+        )
+        mail.outbox.clear()
+        sent = send_due_class_reminders(window_minutes=30)
+        assert sent == 1
+        assert len(mail.outbox) == 1
+
 
 def describe_sync_local_class_events():
     def it_upserts_published_class_sessions_as_calendar_events(db):

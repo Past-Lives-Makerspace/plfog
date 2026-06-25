@@ -25,6 +25,11 @@ def describe_Category():
         with pytest.raises(Exception):
             CategoryFactory(name="Pottery")
 
+    def it_is_labeled_guild_for_the_admin(db):
+        # User-facing relabel: the model reads "Guild"/"Guilds" in the Django admin.
+        assert Category._meta.verbose_name == "Guild"
+        assert Category._meta.verbose_name_plural == "Guilds"
+
     def describe_logo_prefix():
         def it_resolves_from_the_category_name(db):
             category = CategoryFactory(name="Woodworking")

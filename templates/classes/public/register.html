@@ -27,7 +27,7 @@
           <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" hx-boost="false" style="font-weight:600">Log in</a>
           <span aria-hidden="true">·</span>
           <a href="{% url 'account_signup' %}?next={{ request.path|urlencode }}" hx-boost="false" style="font-weight:600">Create an account</a>
-          <span style="color:var(--steel-dim)">— or just continue as a guest below.</span>
+          <span style="color:var(--steel-dim)">— or just book below and we can make you a free account in one step.</span>
         </div>
         {% endif %}
         <div class="reg-summary">
@@ -141,6 +141,13 @@
           <label class="reg-check" style="margin-top:4px">
             {{ form.wants_newsletter }}
             <span>{{ form.wants_newsletter.label }}</span>
+          </label>
+          {% endif %}
+
+          {% if form.create_account %}
+          <label class="reg-check" style="margin-top:4px">
+            {{ form.create_account }}
+            <span>{{ form.create_account.label }}</span>
           </label>
           {% endif %}
 

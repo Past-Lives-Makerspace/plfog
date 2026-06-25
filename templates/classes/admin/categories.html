@@ -2,8 +2,8 @@
 {% load classes_tags %}
 {% block tab_content %}
 <div class="admin-toolbar">
-    {% include "components/table_search.html" with q=q placeholder="Search categories…" %}
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_category_create' %}">+ New Category</a>
+    {% include "components/table_search.html" with q=q placeholder="Search guilds…" %}
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_category_create' %}">+ New Guild</a>
 </div>
 <div class="admin-table-wrap">
 <table>
@@ -29,14 +29,14 @@
                     <button type="button"
                             class="hub-btn hub-btn--sm hub-btn--danger"
                             @click="$dispatch('open-confirm', '{{ cat_modal_id }}')">Delete</button>
-                    {% include "components/confirm_modal.html" with confirm_id=cat_modal_id confirm_title="Delete this category?" confirm_message="Any classes still in this category will block the delete." confirm_action_url=cat_delete_url confirm_button_text="Delete Category" %}
+                    {% include "components/confirm_modal.html" with confirm_id=cat_modal_id confirm_title="Delete this guild?" confirm_message="Any classes still in this guild will block the delete." confirm_action_url=cat_delete_url confirm_button_text="Delete Guild" %}
                 </div>
             </td>
         </tr>
     {% empty %}
         <tr>
             <td colspan="4" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
-                {% if q %}No categories matching "{{ q }}".{% else %}No categories yet.{% endif %}
+                {% if q %}No guilds matching "{{ q }}".{% else %}No guilds yet.{% endif %}
             </td>
         </tr>
     {% endfor %}

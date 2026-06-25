@@ -402,6 +402,8 @@ class ClassReviewDecisionForm(forms.Form):
         ),
         required=False,
         label="Notes for the instructor",
+        help_text="Optional when you approve. Required when you request changes or decline, "
+        "so the instructor knows what to fix.",
     )
 
     def clean(self) -> dict:
@@ -498,7 +500,14 @@ class RegistrationQuestionForm(forms.ModelForm):
             "is_required",
             "is_active",
             "sort_order",
+            "mailchimp_tag",
         ]
+        help_texts = {
+            "mailchimp_tag": (
+                "Optional. For Yes/No and Single Choice questions, the newsletter tag prefix sent to Mailchimp "
+                "when someone opts in. Leave blank to auto-name it from the question."
+            ),
+        }
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -566,6 +575,7 @@ class RegistrationForm(forms.ModelForm):
             "prior_experience",
             "looking_for",
             "wants_newsletter",
+            "create_account",
         ]
         widgets = {
             "prior_experience": forms.Textarea(attrs={"rows": 3}),
@@ -574,6 +584,10 @@ class RegistrationForm(forms.ModelForm):
         labels = {
             "wants_newsletter": (
                 "Keep me in the loop — email me about future classes, events, and what's happening at Past Lives."
+            ),
+            "create_account": (
+                "Create a Past Lives account so you can manage your bookings — "
+                "no password, we'll email you a sign-in code."
             ),
         }
 
@@ -604,6 +618,14 @@ class RegistrationForm(forms.ModelForm):
         if self._user_already_opted_in(user):
             # Don't re-ask a user who already opted in during a prior session.
             self.fields.pop("wants_newsletter", None)
+        if user is not None and user.is_authenticated:
+            # Logged-in registrants already have an account — nothing to offer.
+            self.fields.pop("create_account", None)
+        else:
+            # Anonymous registrants: offer the account, opt-in but default ON.
+            self.fields["create_account"].required = False
+            if not self.is_bound:
+                self.fields["create_account"].initial = True
         if is_waitlist:
             # Waitlist signups don't transact money so the discount field is
             # noise on the form. Drop it so the registrant isn't confused.

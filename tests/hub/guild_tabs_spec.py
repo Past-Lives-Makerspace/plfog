@@ -149,3 +149,49 @@ def describe_guild_tabs():
 
         assert resp.status_code == 200
         assert b"Orientation" in resp.content
+
+
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+    b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+@pytest.mark.django_db
+def describe_guild_gallery_tab():
+    def it_shows_a_gallery_tab_and_panel_when_images_exist(client: Client):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from membership.models import GuildImage
+
+        _member("g1")
+        client.login(username="g1", password="pw")
+        guild = GuildFactory()
+        GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("g.png", _PNG))
+        body = client.get(reverse("hub_guild_detail", args=[guild.pk])).content
+        # The tab button and its own panel are both present.
+        assert b">Gallery</button>" in body
+        assert b"section === 'gallery'" in body
+
+    def it_omits_the_gallery_tab_and_panel_when_no_images(client: Client):
+        _member("g2")
+        client.login(username="g2", password="pw")
+        guild = GuildFactory()
+        body = client.get(reverse("hub_guild_detail", args=[guild.pk])).content
+        assert b">Gallery</button>" not in body
+        assert b"section === 'gallery'" not in body
+
+    def it_does_not_render_the_gallery_inside_the_overview_panel(client: Client):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from membership.models import GuildImage
+
+        _member("g3")
+        client.login(username="g3", password="pw")
+        guild = GuildFactory()
+        GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("g.png", _PNG))
+        body = client.get(reverse("hub_guild_detail", args=[guild.pk])).content
+        # The Gallery heading now lives only in the gallery panel, which sits after the
+        # overview panel closes — so the gallery section must come after the gallery x-show.
+        assert body.index(b"section === 'gallery'") < body.index(b'pl-guild-section__h2">Gallery')

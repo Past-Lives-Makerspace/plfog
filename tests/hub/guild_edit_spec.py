@@ -13,10 +13,11 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from billing.models import Product, ProductRevenueSplit
 from hub.forms import GuildEditForm
-from membership.models import GuildImage, Member
+from membership.models import GuildFAQItem, GuildImage, GuildLink, Member
 from tests.membership.factories import (
     GuildAnnouncementFactory,
     GuildFactory,
+    GuildFAQItemFactory,
     GuildLinkFactory,
     MembershipPlanFactory,
 )
@@ -356,20 +357,15 @@ def describe_guild_edit():
         assert response.status_code == 302
         assert response["Location"] == reverse("hub_guild_detail", args=[guild.pk])
 
-    def it_deletes_a_link_immediately_and_returns_to_the_edit_page(client: Client):
+    def it_deletes_a_link_via_its_own_save_view_and_returns_to_the_content_tab(client: Client):
+        # Link deletion moved OUT of the main edit form into guild_links_save, which posts to its
+        # own action and redirects back to ?tab=content. (Was the old main-form `after=edit` flow.)
         _user_with_role("admin_lnk", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory(name="Forge")
         link = GuildLinkFactory(guild=guild, label="Old Discord", url="https://discord.gg/x")
         client.login(username="admin_lnk", password="pass")
-        url = reverse("hub_guild_edit", args=[guild.pk])
+        url = reverse("hub_guild_links_save", args=[guild.pk])
         data = {
-            "name": "Forge Renamed",  # an unsaved edit that must NOT be lost on the reload
-            "about": "",
-            "after": "edit",
-            "faq-TOTAL_FORMS": "0",
-            "faq-INITIAL_FORMS": "0",
-            "faq-MIN_NUM_FORMS": "0",
-            "faq-MAX_NUM_FORMS": "1000",
             "links-TOTAL_FORMS": "1",
             "links-INITIAL_FORMS": "1",
             "links-MIN_NUM_FORMS": "0",
@@ -382,13 +378,10 @@ def describe_guild_edit():
         }
         response = client.post(url, data=data)
         assert response.status_code == 302
-        # Lands back on the edit page (not the public detail page) ...
-        assert response["Location"] == reverse("hub_guild_edit", args=[guild.pk])
-        # ... the link is gone ...
+        # Lands back on the FAQ & Links tab ...
+        assert response["Location"] == reverse("hub_guild_edit", args=[guild.pk]) + "?tab=content"
+        # ... and the link is gone.
         assert not guild.links.filter(pk=link.pk).exists()
-        # ... and the rest of the form was saved, so nothing was lost.
-        guild.refresh_from_db()
-        assert guild.name == "Forge Renamed"
 
 
 @pytest.mark.django_db
@@ -583,9 +576,9 @@ def describe_guild_edit_page():
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert response.status_code == 403
 
-    def it_saves_basic_fields_and_faq_on_post(client: Client):
-        from membership.models import GuildFAQItem
-
+    def it_saves_basic_fields_on_post(client: Client):
+        # The main edit form now covers only Basic/Meetings/Images; FAQ saves through its own
+        # view (guild_faq_save), exercised in describe_guild_faq_save.
         _user_with_role("admin_save", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory(name="Old")
         client.login(username="admin_save", password="pass")
@@ -598,23 +591,11 @@ def describe_guild_edit_page():
                 "youtube_url": "",
                 "meeting_schedule": "Tuesdays",
                 "contact_email": "",
-                "faq-TOTAL_FORMS": "1",
-                "faq-INITIAL_FORMS": "0",
-                "faq-MIN_NUM_FORMS": "0",
-                "faq-MAX_NUM_FORMS": "1000",
-                "faq-0-question": "Why?",
-                "faq-0-answer": "Because",
-                "faq-0-sort_order": "0",
-                "links-TOTAL_FORMS": "0",
-                "links-INITIAL_FORMS": "0",
-                "links-MIN_NUM_FORMS": "0",
-                "links-MAX_NUM_FORMS": "1000",
             },
         )
         assert response.status_code == 302
         guild.refresh_from_db()
         assert guild.name == "New Name"
-        assert GuildFAQItem.objects.filter(guild=guild, question="Why?").exists()
 
 
 @pytest.mark.django_db
@@ -644,11 +625,11 @@ def describe_guild_edit_delete_controls():
         client.login(username="admin_lnkbtn", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert response.status_code == 200
-        # A red button (not a save-time toggle switch) that submits immediately ...
+        # A red button (not a save-time toggle switch) that submits its own form immediately.
+        # (Links now lives in its own form posting to guild_links_save, so the old main-form
+        # `after` hidden-input trick is gone — see describe_guild_content_tab_template.)
         assert b"Delete this link" in response.content
         assert b"requestSubmit()" in response.content
-        # ... and the hidden hint that keeps us on the edit page after the delete.
-        assert b'name="after"' in response.content
 
 
 @pytest.mark.django_db
@@ -698,3 +679,281 @@ def describe_guild_edit_tabs():
         # The clone-source template and the add button are both present.
         assert b'id="link-empty-template"' in response.content
         assert b"+ Add a link" in response.content
+
+
+@pytest.mark.django_db
+def describe_guild_faq_save():
+    """FAQ now saves through its own form/view, separate from the main edit form."""
+
+    def it_adds_a_new_faq_row_and_redirects_to_the_content_tab(client: Client):
+        _user_with_role("faq_add", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="faq_add", password="pass")
+        data = {
+            "faq-TOTAL_FORMS": "1",
+            "faq-INITIAL_FORMS": "0",
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+            "faq-0-question": "What should I bring?",
+            "faq-0-answer": "Just yourself.",
+            "faq-0-sort_order": "0",
+        }
+        response = client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data, follow=True)
+        assert response.status_code == 200
+        assert response.redirect_chain[-1][0] == reverse("hub_guild_edit", args=[guild.pk]) + "?tab=content"
+        assert GuildFAQItem.objects.filter(guild=guild, question="What should I bring?").exists()
+        msgs = [str(m) for m in response.context["messages"]]
+        assert "FAQ saved." in msgs
+
+    def it_edits_an_existing_faq_rows_text(client: Client):
+        _user_with_role("faq_edit", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        faq = GuildFAQItemFactory(guild=guild, question="Old?", answer="Old answer")
+        client.login(username="faq_edit", password="pass")
+        data = {
+            "faq-TOTAL_FORMS": "1",
+            "faq-INITIAL_FORMS": "1",
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+            "faq-0-id": str(faq.pk),
+            "faq-0-question": "New?",
+            "faq-0-answer": "New answer",
+            "faq-0-sort_order": "0",
+        }
+        response = client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data)
+        assert response.status_code == 302
+        faq.refresh_from_db()
+        assert faq.question == "New?"
+        assert faq.answer == "New answer"
+
+    def it_deletes_a_saved_faq_row_when_delete_is_checked(client: Client):
+        _user_with_role("faq_del", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        faq = GuildFAQItemFactory(guild=guild)
+        client.login(username="faq_del", password="pass")
+        data = {
+            "faq-TOTAL_FORMS": "1",
+            "faq-INITIAL_FORMS": "1",
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+            "faq-0-id": str(faq.pk),
+            "faq-0-question": faq.question,
+            "faq-0-answer": faq.answer,
+            "faq-0-sort_order": "0",
+            "faq-0-DELETE": "on",
+        }
+        response = client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data)
+        assert response.status_code == 302
+        assert not GuildFAQItem.objects.filter(pk=faq.pk).exists()
+
+    def it_saves_cleanly_with_extra_zero_no_blank_row_block(client: Client):
+        # With extra=0 a POST whose TOTAL_FORMS covers only the real rows saves without a
+        # phantom blank row failing required-field validation — the bug this whole split fixes.
+        _user_with_role("faq_x0", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        faq = GuildFAQItemFactory(guild=guild, question="Keep?", answer="Keep")
+        client.login(username="faq_x0", password="pass")
+        data = {
+            "faq-TOTAL_FORMS": "1",
+            "faq-INITIAL_FORMS": "1",
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+            "faq-0-id": str(faq.pk),
+            "faq-0-question": "Keep?",
+            "faq-0-answer": "Keep",
+            "faq-0-sort_order": "0",
+        }
+        response = client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data, follow=True)
+        assert response.status_code == 200
+        assert "FAQ saved." in [str(m) for m in response.context["messages"]]
+
+    def it_flashes_an_error_when_a_row_is_invalid(client: Client):
+        _user_with_role("faq_inv", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="faq_inv", password="pass")
+        data = {
+            "faq-TOTAL_FORMS": "1",
+            "faq-INITIAL_FORMS": "0",
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+            "faq-0-question": "",  # required → invalid
+            "faq-0-answer": "An answer with no question",
+            "faq-0-sort_order": "0",
+        }
+        response = client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data, follow=True)
+        assert response.status_code == 200
+        msgs = [str(m) for m in response.context["messages"]]
+        assert any("Couldn't save the FAQ" in m for m in msgs)
+        assert not GuildFAQItem.objects.filter(guild=guild).exists()
+
+    def it_forbids_non_editors(client: Client):
+        _user_with_role("faq_403", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory()
+        client.login(username="faq_403", password="pass")
+        data = {
+            "faq-TOTAL_FORMS": "0",
+            "faq-INITIAL_FORMS": "0",
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+        }
+        response = client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data)
+        assert response.status_code == 403
+
+    def it_rejects_get_requests(client: Client):
+        _user_with_role("faq_get", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="faq_get", password="pass")
+        response = client.get(reverse("hub_guild_faq_save", args=[guild.pk]))
+        assert response.status_code == 405
+
+
+@pytest.mark.django_db
+def describe_guild_links_save():
+    """Links now saves through its own form/view, separate from the main edit form."""
+
+    def it_adds_a_new_link_row_and_redirects_to_the_content_tab(client: Client):
+        _user_with_role("lnk_add", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="lnk_add", password="pass")
+        data = {
+            "links-TOTAL_FORMS": "1",
+            "links-INITIAL_FORMS": "0",
+            "links-MIN_NUM_FORMS": "0",
+            "links-MAX_NUM_FORMS": "1000",
+            "links-0-label": "Discord",
+            "links-0-url": "https://discord.gg/abc",
+            "links-0-sort_order": "0",
+        }
+        response = client.post(reverse("hub_guild_links_save", args=[guild.pk]), data=data, follow=True)
+        assert response.status_code == 200
+        assert response.redirect_chain[-1][0] == reverse("hub_guild_edit", args=[guild.pk]) + "?tab=content"
+        assert GuildLink.objects.filter(guild=guild, label="Discord").exists()
+        assert "Links saved." in [str(m) for m in response.context["messages"]]
+
+    def it_edits_an_existing_link(client: Client):
+        _user_with_role("lnk_edit", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        link = GuildLinkFactory(guild=guild, label="Old", url="https://old.example.com")
+        client.login(username="lnk_edit", password="pass")
+        data = {
+            "links-TOTAL_FORMS": "1",
+            "links-INITIAL_FORMS": "1",
+            "links-MIN_NUM_FORMS": "0",
+            "links-MAX_NUM_FORMS": "1000",
+            "links-0-id": str(link.pk),
+            "links-0-label": "New",
+            "links-0-url": "https://new.example.com",
+            "links-0-sort_order": "0",
+        }
+        response = client.post(reverse("hub_guild_links_save", args=[guild.pk]), data=data)
+        assert response.status_code == 302
+        link.refresh_from_db()
+        assert link.label == "New"
+        assert link.url == "https://new.example.com"
+
+    def it_deletes_only_the_flagged_link_and_leaves_faq_untouched(client: Client):
+        # The Links Delete button posts to its OWN form now, so deleting one link removes
+        # only that row — other links survive and FAQ rows (a different form) are untouched.
+        _user_with_role("lnk_iso", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        keep = GuildLinkFactory(guild=guild, label="Keep")
+        drop = GuildLinkFactory(guild=guild, label="Drop")
+        faq = GuildFAQItemFactory(guild=guild, question="Survives?")
+        client.login(username="lnk_iso", password="pass")
+        data = {
+            "links-TOTAL_FORMS": "2",
+            "links-INITIAL_FORMS": "2",
+            "links-MIN_NUM_FORMS": "0",
+            "links-MAX_NUM_FORMS": "1000",
+            "links-0-id": str(keep.pk),
+            "links-0-label": keep.label,
+            "links-0-url": keep.url,
+            "links-0-sort_order": "0",
+            "links-1-id": str(drop.pk),
+            "links-1-label": drop.label,
+            "links-1-url": drop.url,
+            "links-1-sort_order": "1",
+            "links-1-DELETE": "on",
+        }
+        response = client.post(reverse("hub_guild_links_save", args=[guild.pk]), data=data)
+        assert response.status_code == 302
+        assert GuildLink.objects.filter(pk=keep.pk).exists()
+        assert not GuildLink.objects.filter(pk=drop.pk).exists()
+        assert GuildFAQItem.objects.filter(pk=faq.pk).exists()
+
+    def it_forbids_non_editors(client: Client):
+        _user_with_role("lnk_403", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory()
+        client.login(username="lnk_403", password="pass")
+        data = {
+            "links-TOTAL_FORMS": "0",
+            "links-INITIAL_FORMS": "0",
+            "links-MIN_NUM_FORMS": "0",
+            "links-MAX_NUM_FORMS": "1000",
+        }
+        response = client.post(reverse("hub_guild_links_save", args=[guild.pk]), data=data)
+        assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def describe_guild_content_tab_template():
+    """Template-level guarantees for the FAQ & Links tab after the form split."""
+
+    def it_renders_each_section_as_its_own_form_posting_to_its_save_view(client: Client):
+        _user_with_role("ct_forms", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="ct_forms", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        assert reverse("hub_guild_faq_save", args=[guild.pk]).encode() in response.content
+        assert reverse("hub_guild_links_save", args=[guild.pk]).encode() in response.content
+        assert b"Save FAQ" in response.content
+        assert b"Save Links" in response.content
+
+    def it_renders_faq_delete_as_hidden_field_plus_danger_button_not_a_toggle(client: Client):
+        _user_with_role("ct_faqdel", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        GuildFAQItemFactory(guild=guild)
+        client.login(username="ct_faqdel", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        # The real Delete button is present ...
+        assert b"Delete this question" in response.content
+        assert b"requestSubmit()" in response.content
+        # ... and the old toggle label that form_field.html would have produced is gone.
+        assert b"Delete this FAQ" not in response.content
+
+    def it_does_not_carry_the_main_form_after_trick_on_the_split_forms(client: Client):
+        # The split FAQ/Links delete buttons must NOT reference this.form.after — that hidden
+        # input only lived in the main edit form and is gone from these standalone forms.
+        _user_with_role("ct_after", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        GuildLinkFactory(guild=guild)
+        GuildFAQItemFactory(guild=guild)
+        client.login(username="ct_after", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert b"this.form.after" not in response.content
+
+    def it_hides_the_page_wide_save_on_the_content_tab(client: Client):
+        _user_with_role("ct_save", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="ct_save", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert b"section !== 'content'" in response.content
+
+    def it_shows_empty_states_when_there_are_no_rows(client: Client):
+        _user_with_role("ct_empty", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="ct_empty", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert b"No questions yet. Add your first." in response.content
+        assert b"No links yet. Add your first." in response.content
+
+    def it_renders_the_announcement_edit_modal_body_target(client: Client):
+        # Guards blocker 1: the Edit button's hx-target must match modal.html's {{ modal_id }}-body.
+        _user_with_role("ct_annmodal", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        announcement = GuildAnnouncementFactory(guild=guild)
+        client.login(username="ct_annmodal", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert f'hx-target="#edit-ann-{announcement.pk}-body"'.encode() in response.content

@@ -4,10 +4,11 @@
 
 | App | Purpose |
 |-----|---------|
-| `membership/` | Core domain: Member, Guild, Space, Lease, voting, funding snapshots |
+| `membership/` | Core domain: Member, Guild (+ staff roles, orientations, FAQ/links/announcements), Space, Lease, voting, funding snapshots |
+| `classes/` | **Book CMS** — classes/workshops: offerings, sessions, registrations, approvals, discount codes, instructor emails, CSV export (served on the `book.` subdomain) |
 | `billing/` | Stripe tab system: Tab, TabEntry, TabCharge, StripeAccount, Product |
-| `core/` | Auth infrastructure: Invite, SiteConfiguration, PushSubscription |
-| `hub/` | Member-facing views (guild voting, directory, tab, profile) |
+| `core/` | Auth + platform infra: Invite, SiteConfiguration, PushSubscription, notifications/triggers, transactional email (`core.email.send`), SiteActivity, scheduled tasks |
+| `hub/` | Member-facing views (guild voting, directory, tab, profile, guild pages) |
 | `airtable_sync/` | Airtable bidirectional sync for members, spaces, leases, votes |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
 | `education/` | Placeholder (empty — migrations only) |
@@ -20,6 +21,9 @@
 - `Member` — makerspace member; has Status, MemberType, FogRole; linked 1:1 to User via allauth
 - `MembershipPlan` — tiered pricing (monthly_price, deposit_required)
 - `Guild` — interest guild; members vote on which guild receives funding
+- `GuildStaffMembership` — guild staff roles (co-lead/secretary/treasurer/orienter); each grants full lead authority
+- `GuildMembership` — a member's membership in a guild
+- `GuildOrientationSettings` / `GuildFAQItem` / `GuildLink` / `GuildAnnouncement` / `GuildImage` — guild-page content & orientations
 - `VotePreference` — persistent 3-choice ranked vote per member (synced to Airtable)
 - `FundingSnapshot` — immutable historical funding calc; guild allocations stored in results JSON
 - `Space` — physical space (studio/storage/parking/desk); linked to Airtable
@@ -38,6 +42,22 @@
 - `SiteConfiguration` — singleton (pk=1); controls RegistrationMode (open / invite_only)
 - `Invite` — email invite with pre-created Member placeholder; accepted on signup
 - `PushSubscription` — Web Push subscription per user
+- `Notification` / `NotificationPreference` — per-user in-app notifications + per-trigger channel prefs (see `core/triggers.py` catalogue, `core/notifications.py` dispatch)
+- `TransactionalEmailLog` — logs every email sent via `core.email.send()` (sync; console in dev, Resend in prod)
+- `SiteActivity` — cross-app activity/audit feed
+
+### classes (book CMS — `book.` subdomain)
+- `Category` (+ `verbose_name`) — class grouping; **UI labeled "Guild"** (see relabel plan); optional FK to `membership.Guild`
+- `ClassOffering` (+ `ClassOfferingQuerySet`) — a class/workshop; status DRAFT/PENDING/PUBLISHED/ARCHIVED; `public()` / `bookable()`; sequential approval state machine; instructor welcome-email fields
+- `ClassSession` — individual dated session (`starts_at` / `ends_at`); a series offering has many
+- `ClassApproval` (+ QuerySet) — sequential guild-lead→admin approval rows with tokenized review links
+- `Registration` — a signup; status PENDING/CONFIRMED/WAITLISTED/CANCELLED/REFUNDED; `self_serve_token`
+- `RegistrationQuestion` / `RegistrationAnswer` — custom per-class signup questions
+- `RegistrationReminder` — dedupe audit for scheduled reminder emails
+- `DiscountCode` (+ QuerySet) — per-class discount codes
+- `ClassImage` (gallery) · `Waiver` · `InstructorMessage` / `InstructorMessageRecipient` (instructor→registrant messaging)
+- `CmsActivity` — classes activity feed (mirrors to `core.SiteActivity`)
+- `ClassSettings` — singleton (pk=1); reminder timing, email footers, admin-notify emails
 
 ## URL Structure
 
@@ -64,24 +84,46 @@
 /tab/                           My Tab (current balance + add entry)
 /tab/history/                   Past billing charges
 /                               Home / redirects (core.views)
+
+# --- classes / book CMS (mounted at /classes/, served on book. subdomain) ---
+/classes/                       Public class catalog
+/classes/<slug>/                Public class detail
+/classes/<slug>/register        Register for a class
+/classes/category/<slug>/       Browse a category (UI: "guild")
+/classes/instructor/<slug>/     Public instructor page
+/classes/my/<token>/            Registrant self-serve (manage / cancel)
+/classes/review/<token>/        Tokenized class review (guild lead / admin)
+/classes/teach/                 Instructor dashboard + class management
+/classes/admin/                 CMS admin (overview, classes, registrations, categories, discount codes, settings)
+/classes/admin/registrations/export/  Registrations CSV download
+/account/                       Book CMS account area (classes.account)
 ```
 
 ## Test Structure
 
-All tests in `tests/` mirroring app names:
+BDD/spec style (pytest-describe, `*_spec.py`, `describe_*` / `it_*`). **Two locations coexist** — newer apps keep specs beside the code in a per-app `spec/` dir; older suites live under the root `tests/` tree.
+
+Per-app `spec/` dirs (newer):
 ```
-tests/
-  billing/          models/, management/, views, forms, webhook_handlers, stripe_utils, ...
-  membership/       models, admin, forms, guild, signals, vote_calculator, ...
-  hub/              views, guild_voting, tab_views, guild_pages, templatetags, ...
-  core/             models, admin, checks, context_processors, home, ...
-  airtable_sync/    client, service, config, airtable_pull, integration, ...
-  auth/             allauth_spec.py
-  admin/            admin_login_spec.py
-  plfog/            adapters, auto_admin, dashboard, settings, wsgi
+classes/spec/    models/, views/, exports_spec.py, emails_*_spec.py, ...   (+ classes/factories.py)
+billing/spec/    ...
+core/spec/       ...
 ```
 
-Factories: `tests/membership/factories.py`, `tests/billing/factories.py`
+Root `tests/` tree (mirrors app names):
+```
+tests/
+  membership/    models, admin, forms, guild, signals, vote_calculator, ...
+  hub/           views, guild_voting, tab_views, guild_pages, templatetags, ...
+  airtable_sync/ client, service, config, airtable_pull, integration, ...
+  auth/          allauth_spec.py        admin/  admin_login_spec.py
+  plfog/         adapters, auto_admin, dashboard, settings, wsgi
+  e2e/           Playwright browser tests (login→book flow, axe a11y ratchet)
+```
+
+Factories: `classes/factories.py`, `tests/membership/factories.py`, `tests/billing/factories.py`.
+
+> `context_*` blocks are **not** collected — use `describe_*` for every nested block (see CLAUDE.md §7).
 
 Root `conftest.py` provides:
 - `_disable_airtable_sync` (autouse) — sets `AIRTABLE_SYNC_ENABLED=False`
@@ -104,6 +146,9 @@ Root `conftest.py` provides:
 - **Tab.add_entry()** uses `select_for_update()` + `transaction.atomic()` to prevent race conditions on balance checks.
 - **Tab charges to guilds** use Stripe Connect destination charges (`create_destination_payment_intent`); charges without a guild use standard PaymentIntents.
 - **Fog roles** map to Django permissions: admin→is_superuser+is_staff, guild_officer→is_staff, member→neither.
+- **Class approval** is a *sequential* state machine in `ClassOffering` / `ClassApproval`: submit creates only the first gate (guild lead if the category's guild has a lead, else admin); guild-lead approval escalates and creates the admin gate; publish requires all required roles approved.
+- **All transactional email** goes through the single choke-point `core.email.send()` (logs to `TransactionalEmailLog`). Senders live in `classes/emails.py`. Event/notification routing is `core/triggers.py` + `core/notifications.py` (in-app always; email/push on per-user opt-in).
+- **Scheduled jobs** run via `core/management/commands/run_scheduled_tasks.py` (Render `cron` every 15 min, `render.yaml`). NB: `classes` reminder/follow-up emails are *not yet* wired into this dispatcher (see the event-driven-notifications spike).
 
 ## Version & Changelog
 

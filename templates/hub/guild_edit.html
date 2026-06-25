@@ -11,6 +11,8 @@
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ &amp; Links</button>
   <button type="button" class="vote-tab" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements</button>
   <button type="button" class="vote-tab" :class="section === 'staff' ? 'vote-tab--active' : ''" @click="section = 'staff'">Staff</button>
+  {# Meeting Notes is its own management page (file uploads + a repeated formset) — the tab opens that page. #}
+  <a href="{% url 'hub_guild_meeting_notes' guild.pk %}" class="vote-tab" style="text-decoration:none;">Meeting Notes</a>
   {# Orientations is its own editor (settings, recurring hours, slots) — the tab opens that page. #}
   <a href="{% url 'hub_guild_orientation_edit' guild.pk %}" class="vote-tab" style="text-decoration:none;">Orientations</a>
 </div>
@@ -84,8 +86,16 @@
     </div>
   </div>
 
-  {# ── FAQ & Links ─────────────────────────────────────────────────── #}
-  <div x-show="section === 'content'" x-cloak>
+  <div x-show="section !== 'announcements' && section !== 'staff' && section !== 'content'" style="margin-top:0.5rem; display:flex; gap:1rem;">
+    <button type="submit" class="pl-btn pl-btn--primary">Save Changes</button>
+    <a href="{% url 'hub_guild_detail' guild.pk %}" class="pl-btn pl-btn--secondary">Cancel</a>
+  </div>
+</form>
+
+{# ── FAQ & Links (each its own form, outside the main form — you can't nest forms) ──── #}
+<div x-show="section === 'content'" x-cloak>
+  <form method="post" action="{% url 'hub_guild_faq_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">FAQ</h2>
       {{ faq_formset.management_form }}
@@ -95,11 +105,17 @@
             {% include "components/form_field.html" with field=f.question %}
             {% include "components/form_field.html" with field=f.answer %}
             {% if f.instance.pk %}
-              {% include "components/form_field.html" with field=f.DELETE field_label="Delete this FAQ" %}
+              <div style="display:none;">{{ f.DELETE }}</div>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                Delete this question
+              </button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
+        {% empty %}
+          <p class="hub-text-muted">No questions yet. Add your first.</p>
         {% endfor %}
       </div>
 
@@ -111,7 +127,7 @@
             {% include "components/form_field.html" with field=ef.answer %}
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -128,8 +144,15 @@
               ">
         + Add a question
       </button>
-    </div>
 
+      <div style="margin-top:1rem;">
+        <button type="submit" class="pl-btn pl-btn--primary">Save FAQ</button>
+      </div>
+    </div>
+  </form>
+
+  <form method="post" action="{% url 'hub_guild_links_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Links</h2>
       {{ link_formset.management_form }}
@@ -142,14 +165,16 @@
             </div>
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
-                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.after.value = 'edit'; this.form.requestSubmit();">
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this link
               </button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
+        {% empty %}
+          <p class="hub-text-muted">No links yet. Add your first.</p>
         {% endfor %}
       </div>
 
@@ -180,14 +205,13 @@
               ">
         + Add a link
       </button>
-    </div>
-  </div>
 
-  <div x-show="section !== 'announcements' && section !== 'staff'" style="margin-top:0.5rem; display:flex; gap:1rem;">
-    <button type="submit" class="pl-btn pl-btn--primary">Save Changes</button>
-    <a href="{% url 'hub_guild_detail' guild.pk %}" class="pl-btn pl-btn--secondary">Cancel</a>
-  </div>
-</form>
+      <div style="margin-top:1rem;">
+        <button type="submit" class="pl-btn pl-btn--primary">Save Links</button>
+      </div>
+    </div>
+  </form>
+</div>
 
 {# ── Announcements (separate form, lives outside the main form) ─────── #}
 <div x-show="section === 'announcements'" x-cloak>
@@ -206,13 +230,7 @@
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Recent Announcements</h2>
     <div style="display:flex; flex-direction:column; gap:0.75rem;">
       {% for a in guild.announcements.all %}
-      <div class="hub-card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem; padding:1rem; background:rgba(255,255,255,0.02);">
-        <div>
-          <strong>{{ a.title }}</strong>{% if not a.is_active %} <span class="hub-badge">Expired</span>{% endif %}
-          <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}{% if a.expires_at %} · hides {{ a.expires_at|date:"M j, Y" }}{% endif %}</div>
-        </div>
-        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'del-ann-{{ a.pk }}')" style="min-height:unset; padding:0.25rem 0.6rem;">Delete</button>
-      </div>
+      {% include "hub/partials/_guild_announcement_row.html" with a=a %}
       {% empty %}
       <p class="hub-text-muted">No announcements yet.</p>
       {% endfor %}
@@ -224,6 +242,7 @@
   {% url 'hub_guild_announcement_delete' guild.pk a.pk as ann_delete_url %}
   {% with pks=a.pk|stringformat:"s" %}
     {% include "components/confirm_modal.html" with confirm_id="del-ann-"|add:pks confirm_action_url=ann_delete_url confirm_title="Delete announcement?" confirm_message="Delete this announcement? This can't be undone." %}
+    {% include "components/modal.html" with modal_id="edit-ann-"|add:pks modal_title="Edit announcement" modal_size="md" %}
   {% endwith %}
 {% endfor %}
 

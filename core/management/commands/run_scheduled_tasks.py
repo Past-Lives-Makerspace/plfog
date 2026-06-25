@@ -25,7 +25,12 @@ class Command(BaseCommand):
         failed: list[str] = []
 
         # --- Always-run tasks (idempotent, no-op outside their window) ---
-        for task in ("send_voting_reminders", "send_lease_expiry_reminders", "auto_complete_orientations"):
+        for task in (
+            "send_voting_reminders",
+            "send_lease_expiry_reminders",
+            "auto_complete_orientations",
+            "send_class_reminders",
+        ):
             try:
                 call_command(task, stdout=self.stdout, stderr=self.stderr)
                 self.stdout.write(f"  ✓ {task}")

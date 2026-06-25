@@ -2,9 +2,119 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.0"
+VERSION = "0.19.9"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.9",
+        "date": "2026-06-24",
+        "title": "No more double class-reminder emails",
+        "changes": [
+            "If you'd turned on email for class reminders in your notification settings, you could end up "
+            "getting the same 'your class is coming up' reminder twice — once as the nicely formatted reminder "
+            "and once as a plain copy. Now you get a single reminder email, and the reminder still shows up in "
+            "your notification bell and as a browser notification if you have those switched on.",
+        ],
+    },
+    {
+        "version": "0.19.8",
+        "date": "2026-06-24",
+        "title": "Class reminder emails now send automatically",
+        "changes": [
+            "The 'your class is coming up' reminder email now goes out on its own ahead of each class — "
+            "no one has to remember to send it. Everyone who's confirmed for a class gets a single reminder "
+            "before it starts (how far ahead is set in the class settings), and we make sure the same reminder "
+            "never gets sent twice.",
+        ],
+    },
+    {
+        "version": "0.19.7",
+        "date": "2026-06-24",
+        "title": "Book a class, get an account — and your answers help us send the right newsletters",
+        "changes": [
+            "Booking a class can now set you up with a free Past Lives account in the same step — no extra "
+            "sign-up, no password. There's a checkbox on the registration form (already ticked, uncheck it to "
+            "skip) that says we'll email you a sign-in code so you can come back and manage your bookings. The "
+            "account is created once your spot is confirmed — for free classes right away, for paid classes "
+            "after payment goes through — and your booking and the questions you answered are linked to it. If "
+            "you've booked with us before under the same email, we just connect this booking to your existing "
+            "account instead of making a duplicate.",
+            "When you opt into the newsletter while registering, the answers you gave to the class's questions "
+            "(like 'Have you done a tool orientation?' or which experience level you picked) now go to "
+            "Mailchimp as tags, so we can sign you up for the mailing lists that actually fit you instead of "
+            "one generic list. Only yes/no and pick-one answers are sent; free-text answers stay private to "
+            "your registration. Studio staff can set a custom tag name per question in the class settings.",
+        ],
+    },
+    {
+        "version": "0.19.6",
+        "date": "2026-06-24",
+        "title": "Guild page tidy-up: your classes live on the Guild Calendar",
+        "changes": [
+            "Small clean-up to the guild pages: a guild's published classes show up on its Guild Calendar "
+            "tab (alongside orientations and the guild's own events), and the Overview still lists the next "
+            "few you can sign up for — so there's one clear place to see what's coming and book it.",
+        ],
+    },
+    {
+        "version": "0.19.5",
+        "date": "2026-06-24",
+        "title": "Guild meeting notes: post agendas and recaps on your guild page",
+        "changes": [
+            "Guild staff can now post meeting notes and agendas on the guild page — each with a date, a "
+            "write-up, and any files or links members can download. Add and edit them from the new Meeting "
+            "Notes area, reached from your guild's edit page.",
+            "Members can read past meetings in a clean, newest-first list on the guild's new Meeting Notes "
+            "tab — with the write-up nicely formatted and each attachment a one-tap download or link.",
+        ],
+    },
+    {
+        "version": "0.19.4",
+        "date": "2026-06-24",
+        "title": "Easier guild page editing: per-section Save, a Gallery tab, and editable announcements",
+        "changes": [
+            "Editing your guild's FAQ and Links is simpler — each section now has its own Save button, so "
+            "you can add or fix a question without scrolling to the bottom of the page to save everything "
+            "at once.",
+            "Guild photo galleries now get their own tab on the guild page, so your pictures are easy to "
+            "find instead of being tucked at the bottom of the Overview.",
+            "You can now edit an announcement after posting it — fix a typo or update the details right from "
+            "the guild's edit page, without deleting it and starting over.",
+        ],
+    },
+    {
+        "version": "0.19.3",
+        "date": "2026-06-24",
+        "title": "Class groupings are now called 'Guilds'",
+        "changes": [
+            "Class groupings are now called 'Guilds' everywhere in the catalog and the class manager, "
+            "instead of 'Categories' — so the wording matches how the makerspace already talks about its "
+            "guilds. Nothing else changes: the same groupings, filters, and pages work exactly as before, "
+            "just with the new name. Our demo example studio is now 'Lamp Working' too.",
+        ],
+    },
+    {
+        "version": "0.19.2",
+        "date": "2026-06-24",
+        "title": "Classes catalog highlights how many upcoming sessions you can book",
+        "changes": [
+            "The Classes & Workshops catalog now shows how many upcoming sessions you can book at a glance, "
+            "instead of just how many class types we offer. A workshop offered on six different dates now counts "
+            "as six sessions you could sign up for, so the headline number reflects everything that's actually "
+            "open to book right now.",
+        ],
+    },
+    {
+        "version": "0.19.1",
+        "date": "2026-06-24",
+        "title": "Readable feedback box when reviewing a class in dark mode",
+        "changes": [
+            "When you review a submitted class and leave a note for the instructor, the notes box now "
+            "matches the rest of the page instead of showing as a hard-to-read white box in dark mode — so "
+            "you can actually see what you're typing. There's also a short reminder beneath it that a note is "
+            "optional when you approve, but required when you request changes or decline.",
+        ],
+    },
     {
         "version": "0.19.0",
         "date": "2026-06-23",

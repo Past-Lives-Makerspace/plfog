@@ -108,3 +108,6 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
     from classes.services.mailchimp_subscribe import subscribe_registration
 
     subscribe_registration(registration)
+    from core.services.guest_account import ensure_account_for_registration
+
+    ensure_account_for_registration(registration)

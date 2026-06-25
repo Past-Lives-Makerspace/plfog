@@ -89,6 +89,29 @@ urlpatterns = [
         views.guild_announcement_delete,
         name="hub_guild_announcement_delete",
     ),
+    path(
+        "guilds/<int:pk>/announcements/<int:announcement_pk>/edit/",
+        views.guild_announcement_edit,
+        name="hub_guild_announcement_edit",
+    ),
+    path("guilds/<int:pk>/faq/save/", views.guild_faq_save, name="hub_guild_faq_save"),
+    path("guilds/<int:pk>/links/save/", views.guild_links_save, name="hub_guild_links_save"),
+    path("guilds/<int:pk>/meeting-notes/", views.guild_meeting_notes, name="hub_guild_meeting_notes"),
+    path(
+        "guilds/<int:pk>/meeting-notes/add/",
+        views.guild_meeting_note_edit,
+        name="hub_guild_meeting_note_add",
+    ),
+    path(
+        "guilds/<int:pk>/meeting-notes/<int:note_pk>/edit/",
+        views.guild_meeting_note_edit,
+        name="hub_guild_meeting_note_edit",
+    ),
+    path(
+        "guilds/<int:pk>/meeting-notes/<int:note_pk>/delete/",
+        views.guild_meeting_note_delete,
+        name="hub_guild_meeting_note_delete",
+    ),
     path("guilds/<int:pk>/cart/confirm/", views.guild_cart_confirm, name="hub_guild_cart_confirm"),
     path("guilds/<int:pk>/eyop-form/", views.guild_eyop_form, name="hub_guild_eyop_form"),
     path(

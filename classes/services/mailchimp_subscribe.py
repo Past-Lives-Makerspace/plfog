@@ -39,6 +39,24 @@ def _is_known_member(email: str) -> bool:
     ).exists()
 
 
+def _answer_tags(registration: Registration) -> list[str]:
+    """Mailchimp tags derived from the registrant's own question answers.
+
+    Only Yes/No and Single Choice answers are pushed (free-text makes poor
+    tags); a Yes/No "no" is omitted so segments key on the affirmative. The
+    tag name is admin-controlled per question via ``RegistrationQuestion``.
+    Duplicates are dropped while preserving order.
+    """
+    tags: list[str] = []
+    seen: set[str] = set()
+    for answer in registration.custom_answers.select_related("question"):
+        tag = answer.question.tag_for(answer.answer_text)
+        if tag and tag not in seen:
+            seen.add(tag)
+            tags.append(tag)
+    return tags
+
+
 def derive_tags(registration: Registration) -> list[str]:
     """Build the Mailchimp tag list for a confirmed registration.
 
@@ -48,7 +66,9 @@ def derive_tags(registration: Registration) -> list[str]:
     ``first-time-student`` only when this is the registrant's first confirmed
     registration (by email match) AND the email does not belong to a known
     Past Lives Member — so returning members and Airtable-imported members are
-    never mis-tagged as first-timers.
+    never mis-tagged as first-timers. Finally appends a tag per taggable
+    question answer so Mailchimp segments can route on what the registrant
+    actually told us.
     """
     offering = registration.class_offering
     tags = ["class-registrant"]
@@ -70,6 +90,8 @@ def derive_tags(registration: Registration) -> list[str]:
     )
     if not prior_confirmed and not _is_known_member(registration.email):
         tags.append("first-time-student")
+
+    tags.extend(_answer_tags(registration))
 
     return tags
 

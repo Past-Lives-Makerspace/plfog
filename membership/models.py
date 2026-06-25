@@ -16,7 +16,7 @@ from django.utils import timezone
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
 from core.models import HeroCropMixin, SiteActivity
-from core.validators import validate_image_size
+from core.validators import validate_document, validate_image_size
 from membership.managers import MemberEmailManager
 
 if TYPE_CHECKING:
@@ -990,6 +990,124 @@ class GuildAnnouncement(models.Model):
     def is_active(self) -> bool:
         """Visible on the page — never expires, or the expiry is today or later."""
         return self.expires_at is None or self.expires_at >= timezone.localdate()
+
+
+class GuildMeetingNote(models.Model):
+    """One meeting's notes / agenda on a guild page.
+
+    A bundle per meeting: a date, a title, an optional Markdown body, and any
+    number of child attachments (each a file OR a link). Members who can view the
+    guild page can read these; staff/leads add, edit, and delete them. Meeting
+    notes never expire, so there is no ``active()`` queryset — the default related
+    manager plus ``Meta.ordering`` covers the page query.
+    """
+
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="meeting_notes",
+        help_text="Parent guild.",
+    )
+    meeting_date = models.DateField(help_text="The date this meeting took place (or is scheduled for).")
+    title = models.CharField(max_length=300, help_text="Short headline, e.g. 'June general meeting'.")
+    body = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional written notes. Supports Markdown — bold, lists, links.",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who posted these notes.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-meeting_date", "-created_at"]  # newest meeting first; tie-break newest post
+
+    def __str__(self) -> str:
+        return f"{self.title} — {self.guild.name} ({self.meeting_date:%Y-%m-%d})"
+
+    @property
+    def body_html(self) -> str:
+        """Body Markdown rendered to sanitized HTML (safe to mark_safe in templates)."""
+        from membership.markdown import render_markdown
+
+        return render_markdown(self.body)
+
+
+class GuildMeetingNoteAttachment(models.Model):
+    """A file OR a link attached to a meeting note, repeated per note.
+
+    Mirrors ``GuildImage`` for upload mechanics (``upload_to``, ``sort_order``,
+    ``created_at``, ``save()`` orphan cleanup) but stores a document (not an image)
+    and runs no image normalization. Exactly one of ``file`` / ``url`` is set —
+    the friendly per-row guard lives on the form (``GuildMeetingNoteAttachmentForm``);
+    the ``CheckConstraint`` here is the DB integrity backstop.
+    """
+
+    note = models.ForeignKey(
+        GuildMeetingNote,
+        on_delete=models.CASCADE,
+        related_name="attachments",
+        help_text="Parent meeting note.",
+    )
+    label = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="What to call this — e.g. 'Agenda PDF'. Defaults to the file name or link.",
+    )
+    file = models.FileField(
+        upload_to="guilds/meeting_notes/",
+        blank=True,
+        validators=[validate_document],
+        help_text="Upload a document (PDF, Word, slides, spreadsheet…). Leave blank if you're adding a link instead.",
+    )
+    url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Link to an external doc (e.g. a Google Doc). Leave blank if you uploaded a file instead.",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=((Q(file="") & ~Q(url="")) | (~Q(file="") & Q(url=""))),
+                name="ck_meetingnoteattachment_file_xor_url",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Attachment #{self.pk} for {self.note.title}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "file")  # mirror GuildImage; no image normalization
+        super().save(*args, **kwargs)
+
+    @property
+    def is_file(self) -> bool:
+        return bool(self.file)
+
+    @property
+    def is_link(self) -> bool:
+        return bool(self.url)
+
+    @property
+    def display_name(self) -> str:
+        """Label if set, else the file's base name, else the URL."""
+        if self.label:
+            return self.label
+        if self.file and self.file.name:
+            return self.file.name.rsplit("/", 1)[-1]
+        return self.url
 
 
 class GuildMembership(models.Model):

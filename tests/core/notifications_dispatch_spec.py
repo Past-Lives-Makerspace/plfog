@@ -52,3 +52,21 @@ def describe_dispatch():
         NotificationPreference.objects.create(user=u, trigger="class_published", email_enabled=True)
         notifications.dispatch("class_published", [u], title="t", body="b")
         assert not TransactionalEmailLog.objects.exists()
+
+    def describe_suppress_email():
+        def it_does_not_email_an_opted_in_user():
+            u = _user(7)
+            NotificationPreference.objects.create(user=u, trigger="class_reminder", email_enabled=True)
+            notifications.dispatch("class_reminder", [u], title="t", body="b", suppress_email=True)
+            assert not TransactionalEmailLog.objects.filter(trigger_kind="notification.class_reminder").exists()
+
+        def it_still_creates_in_app_and_pushes():
+            u = _user(8)
+            NotificationPreference.objects.create(
+                user=u, trigger="class_reminder", push_enabled=True, email_enabled=True
+            )
+            PushSubscription.objects.create(user=u, endpoint="https://p/z", p256dh="k", auth="a")
+            with patch("core.notifications.send_web_push") as mock_push:
+                notifications.dispatch("class_reminder", [u], title="t", body="b", suppress_email=True)
+            assert Notification.objects.filter(user=u, trigger="class_reminder").exists()
+            mock_push.assert_called_once()

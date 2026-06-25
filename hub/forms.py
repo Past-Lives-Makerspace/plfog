@@ -19,6 +19,8 @@ from membership.models import (
     GuildAnnouncement,
     GuildFAQItem,
     GuildLink,
+    GuildMeetingNote,
+    GuildMeetingNoteAttachment,
     GuildOrientationSettings,
     Member,
     OrientationAvailability,
@@ -417,7 +419,7 @@ class GuildFAQItemForm(forms.ModelForm):
         }
 
 
-GuildFAQItemFormSet = forms.inlineformset_factory(Guild, GuildFAQItem, form=GuildFAQItemForm, extra=1, can_delete=True)
+GuildFAQItemFormSet = forms.inlineformset_factory(Guild, GuildFAQItem, form=GuildFAQItemForm, extra=0, can_delete=True)
 
 
 class GuildLinkForm(forms.ModelForm):
@@ -429,7 +431,48 @@ class GuildLinkForm(forms.ModelForm):
         widgets = {"sort_order": forms.HiddenInput()}
 
 
-GuildLinkFormSet = forms.inlineformset_factory(Guild, GuildLink, form=GuildLinkForm, extra=1, can_delete=True)
+GuildLinkFormSet = forms.inlineformset_factory(Guild, GuildLink, form=GuildLinkForm, extra=0, can_delete=True)
+
+
+class GuildMeetingNoteForm(forms.ModelForm):
+    """The note's own fields (date, title, Markdown body). ``guild``/``created_by`` set in the view."""
+
+    class Meta:
+        model = GuildMeetingNote
+        fields = ["meeting_date", "title", "body"]
+        widgets = {
+            "meeting_date": forms.DateInput(attrs={"type": "date"}),
+            "body": forms.Textarea(attrs={"rows": 6}),
+        }
+
+
+class GuildMeetingNoteAttachmentForm(forms.ModelForm):
+    """A single attachment row — exactly one of file / url, enforced here (the user-facing guard)."""
+
+    class Meta:
+        model = GuildMeetingNoteAttachment
+        fields = ["label", "file", "url", "sort_order"]
+        widgets = {"sort_order": forms.HiddenInput()}
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        # Rows flagged for deletion skip the check — mirrors OrientationAvailabilityForm.
+        if cleaned.get("DELETE"):
+            return cleaned
+        has_file = bool(cleaned.get("file"))
+        has_url = bool(cleaned.get("url"))
+        if has_file == has_url:  # both empty or both filled
+            raise forms.ValidationError("Each attachment needs exactly one of: an uploaded file OR a link.")
+        return cleaned
+
+
+GuildMeetingNoteAttachmentFormSet = forms.inlineformset_factory(
+    GuildMeetingNote,
+    GuildMeetingNoteAttachment,
+    form=GuildMeetingNoteAttachmentForm,
+    extra=0,
+    can_delete=True,
+)
 
 
 class GuildOrientationSettingsForm(forms.ModelForm):

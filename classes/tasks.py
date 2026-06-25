@@ -51,12 +51,16 @@ def send_due_class_reminders(window_minutes: int = 15) -> int:
             if user is not None:
                 from core import notifications
 
+                # ``send_reminder_email`` above is the dedicated class-reminder
+                # email; suppress dispatch's generic email so an opted-in user
+                # receives the in-app row and push only, never two emails.
                 notifications.dispatch(
                     "class_reminder",
                     [user],
                     title="Class reminder",
                     body=f"{session.class_offering.title} starts soon.",
                     url="/classes/account/",
+                    suppress_email=True,
                 )
             sent += 1
     return sent

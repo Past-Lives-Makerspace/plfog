@@ -1,0 +1,99 @@
+{% extends "hub/base.html" %}
+{% block title %}{% if note.pk %}Edit{% else %}Add{% endif %} meeting notes · {{ guild.name }}{% endblock %}
+{% block content %}
+<div x-data="{}">
+  <p style="margin-bottom:0.75rem;">
+    <a href="{% url 'hub_guild_meeting_notes' guild.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to meeting notes</a>
+  </p>
+  <h1 class="hub-page-title">{% if note.pk %}Edit meeting notes{% else %}Add meeting notes{% endif %}</h1>
+
+  <form method="post" enctype="multipart/form-data" class="hub-form">
+    {% csrf_token %}
+
+    {# ── Note fields ──────────────────────────────────────────────── #}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Meeting</h2>
+      {% include "components/form_field.html" with field=form.meeting_date %}
+      {% include "components/form_field.html" with field=form.title %}
+      {% include "components/form_field.html" with field=form.body field_hint="Supports Markdown — **bold**, lists, links. Optional." %}
+    </div>
+
+    {# ── Attachment sub-editor (file OR link per row) ─────────────── #}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Files &amp; links</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Add <strong>one</strong> per row: upload a file <em>or</em> paste a link.</p>
+      {{ attachment_formset.management_form }}
+      {% for error in attachment_formset.non_form_errors %}
+        <p class="pl-field-error">{{ error }}</p>
+      {% endfor %}
+      <div id="note-attachment-rows" style="display:flex; flex-direction:column; gap:1rem;">
+        {% for f in attachment_formset %}
+        <div class="hub-card" style="padding:1rem; background:var(--hub-surface);">
+          {{ f.id }}
+          {% for error in f.non_field_errors %}
+            <p class="pl-field-error">{{ error }}</p>
+          {% endfor %}
+          <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+            <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=f.label %}</div>
+            <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=f.file %}</div>
+            <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=f.url %}</div>
+          </div>
+          {{ f.sort_order }}
+          {% if f.instance.pk %}
+            {% if f.instance.is_file %}
+              <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.25rem 0 0;">Current file: {{ f.instance.display_name }}. Choosing a new file replaces it; re-attach the file for this row if the form bounces with an error — it isn't kept.</p>
+            {% else %}
+              <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.25rem 0 0;">Current link: {{ f.instance.display_name }}.</p>
+            {% endif %}
+            {# Real delete button: flips the hidden DELETE field and saves the page so no work is lost. #}
+            <div style="display:none;">{{ f.DELETE }}</div>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                    onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+              Delete
+            </button>
+          {% endif %}
+        </div>
+        {% empty %}
+        <p class="hub-text-muted" id="note-attachment-empty">No files or links yet — add one below.</p>
+        {% endfor %}
+      </div>
+
+      {# Hidden empty-form template, cloned by the +Add button below. #}
+      <template id="att-empty-template">
+        <div class="hub-card" style="padding:1rem; background:var(--hub-surface);">
+          {% with attachment_formset.empty_form as ef %}
+            {{ ef.id }}
+            <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+              <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=ef.label %}</div>
+              <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=ef.file %}</div>
+              <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=ef.url %}</div>
+            </div>
+            {{ ef.sort_order }}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+          {% endwith %}
+        </div>
+      </template>
+
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+              onclick="
+                const empty = document.getElementById('note-attachment-empty');
+                if (empty) empty.remove();
+                const tpl = document.getElementById('att-empty-template');
+                const total = document.getElementById('id_att-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                document.getElementById('note-attachment-rows').appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add file or link
+      </button>
+    </div>
+
+    <div style="display:flex; gap:1rem;">
+      <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+      <a href="{% url 'hub_guild_meeting_notes' guild.pk %}" class="pl-btn pl-btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

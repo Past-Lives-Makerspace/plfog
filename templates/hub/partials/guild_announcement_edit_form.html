@@ -1,0 +1,18 @@
+{% comment %}
+Prefilled announcement-edit form, HTMX-loaded into the edit modal body
+(#edit-ann-<pk>-body). On submit the view OOB-swaps the updated row, fires a
+success toast, and triggers close-modal to dismiss this modal. On invalid input
+the view re-renders this partial with field errors and the modal stays open.
+
+Params: guild, announcement, form (GuildAnnouncementForm bound to the announcement)
+{% endcomment %}
+<form hx-post="{% url 'hub_guild_announcement_edit' guild.pk announcement.pk %}" hx-swap="none">
+  {% csrf_token %}
+  {% include "components/form_field.html" with field=form.title %}
+  {% include "components/form_field.html" with field=form.body %}
+  {% include "components/form_field.html" with field=form.expires_at %}
+  <div style="display:flex; gap:0.75rem; margin-top:1rem;">
+    <button type="submit" class="pl-btn pl-btn--primary">Save changes</button>
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'edit-ann-{{ announcement.pk }}')">Cancel</button>
+  </div>
+</form>

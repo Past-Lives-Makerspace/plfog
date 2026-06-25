@@ -1,6 +1,7 @@
 {% extends "hub/base.html" %}
 {% load static %}
 {% load classes_tags %}
+{% load membership_md %}
 {% block title %}{{ guild.name }}{% endblock %}
 
 {% block extra_head %}
@@ -103,6 +104,8 @@
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
     <button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">FAQ</button>{% endif %}
+    {% if meeting_notes or can_edit_this_guild %}<button type="button" class="vote-tab" :class="section === 'notes' ? 'vote-tab--active' : ''" @click="section = 'notes'">Meeting Notes</button>{% endif %}
+    {% if gallery_images %}<button type="button" class="vote-tab" :class="section === 'gallery' ? 'vote-tab--active' : ''" @click="section = 'gallery'">Gallery</button>{% endif %}
 </nav>
 
 <div x-show="section === 'overview'">
@@ -172,13 +175,6 @@
             </div>
         </section>
         {% endif %}{% endwith %}{% endif %}
-
-        {% if gallery_images %}
-        <section class="pl-guild-section">
-            <h2 class="pl-guild-section__h2">Gallery</h2>
-            {% include "hub/_guild_gallery.html" %}
-        </section>
-        {% endif %}
 
         {% if guild.meeting_schedule %}
         <section class="pl-guild-section">
@@ -321,6 +317,51 @@
             <div class="pl-guild-faq__a" x-show="open" x-cloak>{{ item.answer|linebreaksbr }}</div>
         </div>
         {% endfor %}
+    </section>
+</div>
+{% endif %}
+
+{% if meeting_notes or can_edit_this_guild %}
+<div x-show="section === 'notes'" x-cloak>
+    <section class="pl-guild-section">
+        {% if can_edit_this_guild %}
+        <div style="margin-bottom:1rem;">
+            <a href="{% url 'hub_guild_meeting_notes' guild.pk %}" class="hub-btn hub-btn--sm">Manage meeting notes</a>
+        </div>
+        {% endif %}
+        {% for note in meeting_notes %}
+        <div class="hub-card" style="margin-bottom:1rem;">
+            <div class="hub-text-muted" style="font-size:0.8125rem;">{{ note.meeting_date|date:"F j, Y" }}</div>
+            <h3 style="margin:0.25rem 0 0.5rem;">{{ note.title }}</h3>
+            {% if note.body %}
+            <div class="pl-md">{{ note.body|guild_markdown }}</div>
+            {% endif %}
+            {% with atts=note.attachments.all %}
+            {% if atts %}
+            <div style="display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:0.75rem;">
+                {% for att in atts %}
+                {% if att.is_file %}
+                <a href="{{ att.file.url }}" download class="hub-btn hub-btn--sm">📄 {{ att.display_name }}</a>
+                {% else %}
+                <a href="{{ att.url }}" target="_blank" rel="noopener nofollow noreferrer" class="hub-btn hub-btn--sm">🔗 {{ att.display_name }}</a>
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+        </div>
+        {% empty %}
+        <p class="hub-text-muted">No meeting notes yet. Post your first agenda or recap so members can catch up.</p>
+        {% endfor %}
+    </section>
+</div>
+{% endif %}
+
+{% if gallery_images %}
+<div x-show="section === 'gallery'" x-cloak>
+    <section class="pl-guild-section">
+        <h2 class="pl-guild-section__h2">Gallery</h2>
+        {% include "hub/_guild_gallery.html" %}
     </section>
 </div>
 {% endif %}
