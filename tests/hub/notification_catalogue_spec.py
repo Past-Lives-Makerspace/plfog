@@ -137,6 +137,36 @@ def describe_preview_copy():
         assert response.status_code == 200
         assert b"HTML body" in response.content
 
+    def it_provides_the_branded_wrapped_html_for_the_email_channel(client):
+        _admin(client)
+        url = reverse("hub_admin_notification_preview", args=["registration_confirmed", "email"])
+        response = client.post(url, {"subject": "s", "body_text": "t", "body_html": "<p>{{ class_title }}</p>"})
+        wrapped = response.context["wrapped_html"]
+        # The fragment, inside the branded shell (shell-only footer marker).
+        assert "Intro to Lost-Wax Casting" in wrapped
+        assert "Do It Together" in wrapped
+        # Rendered as an iframe panel.
+        assert b"As it arrives (branded)" in response.content
+        assert b"srcdoc=" in response.content
+
+    def it_attribute_escapes_the_iframe_srcdoc_not_marking_it_safe(client):
+        # §4.6 footgun: srcdoc is an attribute, so the document must be attribute-escaped
+        # (no |safe). The escaped doc starts with &lt;!DOCTYPE, never raw <!DOCTYPE.
+        _admin(client)
+        url = reverse("hub_admin_notification_preview", args=["registration_confirmed", "email"])
+        response = client.post(url, {"subject": "s", "body_text": "t", "body_html": "<p>hi</p>"})
+        content = response.content.decode()
+        assert 'srcdoc="&lt;!DOCTYPE' in content
+        assert 'srcdoc="<!DOCTYPE' not in content
+
+    def it_omits_the_branded_iframe_for_a_non_email_channel(client):
+        _admin(client)
+        url = reverse("hub_admin_notification_preview", args=["registration_confirmed", "in_app"])
+        response = client.post(url, {"subject": "s", "body_text": "{{ member_name }}", "body_html": "<p>x</p>"})
+        assert response.context["wrapped_html"] == ""
+        assert b"As it arrives (branded)" not in response.content
+        assert b"srcdoc=" not in response.content
+
 
 def describe_revert_copy():
     def it_reverts_to_a_prior_version(client):

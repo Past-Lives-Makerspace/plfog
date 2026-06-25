@@ -26,6 +26,10 @@ literal is rendered as markup).
     padding: 0.6rem 0.7rem; background: #ffffff; color: #1d1e1e; border: 1px solid var(--hub-border); border-radius: 7px;
   }
   .ntf-pv-html a { color: #2f6fb0; }
+  /* The branded "as it arrives" preview renders a full HTML email document (its own
+     dark page + navy card) inside an iframe so its <body>/table can't bleed into the
+     hub layout. Fixed height with internal scroll keeps the editor panel compact. */
+  .ntf-pv-frame { width: 100%; height: 420px; border: 1px solid var(--hub-border); border-radius: 7px; background: #12121f; }
   .ntf-pv-empty { color: var(--hub-text-muted); font-size: 0.8125rem; font-style: italic; }
 </style>
 {% if rendered %}
@@ -46,6 +50,16 @@ literal is rendered as markup).
       <p class="ntf-pv-empty">No HTML body.</p>
     {% endif %}
   </div>
+  {% if wrapped_html %}
+  <div class="ntf-pv-block">
+    <p class="ntf-pv-label">As it arrives (branded)</p>
+    {# srcdoc is an HTML ATTRIBUTE — it must be attribute-escaped, so use plain
+       {{ wrapped_html }} (NOT |safe). Django's autoescape turns the document's inline
+       style quotes into &quot; so the attribute doesn't terminate early. |safe here
+       would emit raw quotes and render a broken/empty iframe. #}
+    <iframe class="ntf-pv-frame" title="Branded email preview" srcdoc="{{ wrapped_html }}"></iframe>
+  </div>
+  {% endif %}
   {% endif %}
 {% else %}
   <p class="ntf-pv-empty">Start typing — the preview renders here against sample data.</p>

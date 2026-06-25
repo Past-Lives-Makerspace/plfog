@@ -33,6 +33,7 @@ from core.events import copy as copy_module
 from core.events import discord as discord_module
 from core.events.registry import Channel, ChannelDefault, EventType, all_events, get_event
 from core.events.rendering import render_copy
+from core.events.templates import wrap_email_html
 from core.models import DiscordWebhookRoute, NotificationTemplate, NotificationTemplateVersion
 from hub.notification_forms import DiscordRouteForm, NotificationTemplateForm
 from hub.toast import trigger_toast
@@ -229,6 +230,7 @@ def preview_copy(request: HttpRequest, event_key: str, channel: str) -> HttpResp
     merge fields show as ``[missing: …]`` markers and HTML values are autoescaped.
     """
     get_event(event_key)  # validate the key
+    channel_enum = Channel(channel)
     context = copy_module.sample_context_for(event_key)
     rendered = render_copy(
         subject=request.POST.get("subject", ""),
@@ -236,12 +238,21 @@ def preview_copy(request: HttpRequest, event_key: str, channel: str) -> HttpResp
         body_html=request.POST.get("body_html", ""),
         context=context,
     )
+    # For an email channel, also show the fragment wrapped in the branded shell (the
+    # document that actually arrives in the inbox) so the copy team isn't editing
+    # blind to the brand. Rendered into an <iframe srcdoc> by the partial.
+    wrapped_html = (
+        wrap_email_html(rendered.body_html)
+        if rendered.body_html and channel_enum in (Channel.EMAIL, Channel.SCHEDULED_EMAIL)
+        else ""
+    )
     return render(
         request,
         "hub/admin/notifications/_preview.html",
         {
             "rendered": rendered,
-            "channel": Channel(channel),
+            "channel": channel_enum,
+            "wrapped_html": wrapped_html,
         },
     )
 

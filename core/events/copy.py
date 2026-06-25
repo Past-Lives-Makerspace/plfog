@@ -383,8 +383,13 @@ _CURATED: dict[str, EventCopy] = {
                 ),
                 body_html=(
                     "<p>You've been invited to join <strong>Past Lives Makerspace</strong>!</p>"
-                    '<p><a href="{{ signup_url }}">Create your account</a></p>'
-                    "<p>If you didn't expect this invite, you can ignore this email.</p>"
+                    '<div style="text-align:center; margin:24px 0 0;">'
+                    '<a href="{{ signup_url }}" style="display:inline-block; padding:12px 32px; '
+                    "background-color:#EEB44B; color:#092E4C; font-size:14px; font-weight:700; "
+                    'text-decoration:none; border-radius:6px;">Create your account</a>'
+                    "</div>"
+                    '<p style="margin:16px 0 0; font-size:13px; color:#96ACBB;">'
+                    "If you didn't expect this invite, you can ignore this email.</p>"
                 ),
             ),
         },
