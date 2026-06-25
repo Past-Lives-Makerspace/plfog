@@ -703,6 +703,53 @@ class ScheduledNotificationMarker(models.Model):
         return self.key
 
 
+class EventDelivery(models.Model):
+    """Idempotency ledger for the event spine (design §2.5).
+
+    One row records that a given event was delivered to a given target on a given
+    channel within a given period. The unique key
+    ``(event_key, target_ref, channel, period)`` makes
+    :func:`core.events.emit.emit` safe to re-run from schedulers without
+    double-delivering: the emitter ``get_or_create``s the row and skips the
+    channel send when the row already existed.
+
+    Folds in the three legacy dedupe patterns (``ScheduledNotificationMarker``,
+    ``RegistrationReminder``, and the orientation ``is_completed``-as-dedupe) — they
+    migrate onto this one model in a later phase. ``period`` is a free-form bucket:
+    ``""`` for one-shot events (dedupe forever), or a window label like
+    ``"2026-06"`` / ``"2026-06-24"`` for recurring scheduled events.
+    """
+
+    event_key = models.CharField(max_length=60, help_text="The EventType key that was delivered.")
+    target_ref = models.CharField(
+        max_length=120,
+        help_text="Stable string identifying who/what this delivery was for (e.g. 'user:42', 'booking:7').",
+    )
+    channel = models.CharField(max_length=20, help_text="The channel key the event was delivered on.")
+    period = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        help_text="Dedupe window bucket — empty for one-shot, else e.g. '2026-06' for monthly.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["event_key", "target_ref", "channel", "period"],
+                name="uq_eventdelivery_event_target_channel_period",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["event_key", "period"], name="idx_eventdelivery_event_period"),
+        ]
+
+    def __str__(self) -> str:
+        suffix = f"@{self.period}" if self.period else ""
+        return f"{self.event_key}→{self.target_ref}[{self.channel}]{suffix}"
+
+
 class KnownLoginSignature(models.Model):
     """Records (user, signature) pairs already seen, to detect new-device logins."""
 
