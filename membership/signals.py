@@ -88,10 +88,19 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
         return
 
     name = instance.get_full_name() or instance.username
+    member_email = instance.email or ""
+    if not member_email:
+        logger.warning(
+            "Creating Member for user %s (id=%s) with NO email — this account has no "
+            "usable email and will surface in Manage Members → 'Missing email'. "
+            "See the member-email-integrity spec.",
+            instance.username,
+            instance.pk,
+        )
     Member.objects.create(
         user=instance,
         full_legal_name=name,
-        _pre_signup_email=instance.email or "",
+        _pre_signup_email=member_email,
         membership_plan=plan,
         status=Member.Status.ACTIVE,
     )

@@ -2030,19 +2030,28 @@ def admin_voting_dashboard(request: HttpRequest) -> HttpResponse:
 
 @fog_admin_required
 def admin_members(request: HttpRequest) -> HttpResponse:
-    """Admin members management — paginated list with search + status/role/type filters."""
+    """Admin members management — paginated list with search + status/role/type/email filters."""
+    from allauth.account.models import EmailAddress
     from django.core.paginator import Paginator
-    from django.db.models import Count, Q
+    from django.db.models import Count, Prefetch, Q
 
     ctx = _get_hub_context(request)
     status_filter = request.GET.get("status", "active")
     role_filter = request.GET.get("role", "")
     type_filter = request.GET.get("type", "")
+    email_filter = request.GET.get("email", "")
     search = request.GET.get("q", "").strip()
 
     qs = (
         Member.objects.select_related("user", "membership_plan")
         .annotate(class_count=Count("classes", distinct=True))
+        .prefetch_related(
+            Prefetch(
+                "user__emailaddress_set",
+                queryset=EmailAddress.objects.filter(primary=True),
+                to_attr="_primary_emailaddresses",  # the hook Member.primary_email reads
+            )
+        )
         .order_by("full_legal_name")
     )
     if status_filter and status_filter != "all":
@@ -2059,6 +2068,10 @@ def admin_members(request: HttpRequest) -> HttpResponse:
             | Q(discord_handle__icontains=search)
         )
 
+    missing_count = qs.missing_email().count()  # emailless within the current filters
+    if email_filter == "missing":
+        qs = qs.missing_email()  # page rows now carry has_email + email_gap
+
     paginator = Paginator(qs, 50)
     page = paginator.get_page(request.GET.get("page", 1))
     return render(
@@ -2070,6 +2083,8 @@ def admin_members(request: HttpRequest) -> HttpResponse:
             "status_filter": status_filter,
             "role_filter": role_filter,
             "type_filter": type_filter,
+            "email_filter": email_filter,
+            "missing_count": missing_count,
             "search": search,
             "status_choices": Member.Status.choices,
             "role_choices": Member.FogRole.choices,

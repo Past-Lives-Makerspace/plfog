@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import pytest
+from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
 
 from core.models import SiteConfiguration
 from membership.models import Member
+from tests.membership.factories import MemberFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -84,6 +86,103 @@ def describe_admin_members():
         assert response.context["role_filter"] == "admin"
         assert response.context["type_filter"] == "standard"
         assert b"Findable Person" in response.content
+
+    def it_shows_the_primary_email_for_an_unlinked_airtable_member(client):
+        _create_superuser(client)
+        MemberFactory(user=None, _pre_signup_email="airtable@example.com", full_legal_name="Airtable Person")
+        response = client.get(reverse("hub_admin_members"))
+        # Previously this rendered the (empty) user.email mirror as "—".
+        assert b"airtable@example.com" in response.content
+
+    def it_shows_the_emailaddress_not_the_stale_user_mirror(client):
+        _create_superuser(client)
+        MembershipPlanFactory()
+        user = User.objects.create_user(username="linkedreal", email="mirror@example.com")
+        EmailAddress.objects.filter(user=user).update(email="real@example.com")
+        user.email = "stale@example.com"
+        user.save(update_fields=["email"])
+        response = client.get(reverse("hub_admin_members"))
+        content = response.content.decode()
+        assert "real@example.com" in content
+        assert "stale@example.com" not in content
+
+    def it_filters_to_only_emailless_members(client):
+        _create_superuser(client)
+        MemberFactory(user=None, _pre_signup_email="", full_legal_name="Emailless Person")
+        MemberFactory(user=None, _pre_signup_email="has@example.com", full_legal_name="Has Email Person")
+        response = client.get(reverse("hub_admin_members") + "?email=missing&status=all")
+        assert response.status_code == 200
+        assert response.context["email_filter"] == "missing"
+        content = response.content.decode()
+        assert "Emailless Person" in content
+        assert "Has Email Person" not in content
+
+    def it_labels_why_each_emailless_member_has_no_email(client):
+        _create_superuser(client)
+        MembershipPlanFactory()
+        MemberFactory(user=None, _pre_signup_email="")  # no_airtable_email bucket
+        User.objects.create_user(username="noacct", email="")  # no_account_email bucket
+        response = client.get(reverse("hub_admin_members") + "?email=missing&status=all")
+        content = response.content.decode()
+        assert "Never signed up — no email on file from Airtable" in content
+        assert "Signed up, but has no email on their account" in content
+
+    def it_counts_emailless_members_within_the_current_filters(client):
+        _create_superuser(client)
+        MemberFactory(user=None, _pre_signup_email="")
+        MemberFactory(user=None, _pre_signup_email="")
+        MemberFactory(user=None, _pre_signup_email="has@example.com")
+        response = client.get(reverse("hub_admin_members") + "?status=all")
+        assert response.context["missing_count"] == 2
+        assert '<span class="hub-badge">2</span>' in response.content.decode()
+
+    def it_shows_a_friendly_empty_state_when_nobody_is_missing_email(client):
+        _create_superuser(client)
+        MemberFactory(user=None, _pre_signup_email="has@example.com")
+        response = client.get(reverse("hub_admin_members") + "?email=missing&status=all")
+        assert response.context["missing_count"] == 0
+        assert "No members are missing an email — nice." in response.content.decode()
+
+    def it_keeps_the_email_filter_in_the_form_when_active(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_members") + "?email=missing")
+        assert b'name="email" value="missing"' in response.content
+
+    def it_carries_the_email_filter_through_pagination(client):
+        plan = MembershipPlanFactory()
+        _create_superuser(client)
+        MemberFactory.create_batch(51, user=None, _pre_signup_email="", membership_plan=plan)
+        MemberFactory(
+            user=None,
+            _pre_signup_email="present@example.com",
+            full_legal_name="Has Email Control",
+            membership_plan=plan,
+        )
+
+        page1 = client.get(reverse("hub_admin_members") + "?email=missing&status=all")
+        assert b"&email=missing" in page1.content  # pagination links carry the filter
+
+        page2 = client.get(reverse("hub_admin_members") + "?email=missing&status=all&page=2")
+        assert page2.status_code == 200
+        assert page2.context["page"].number == 2
+        assert page2.context["page"].paginator.count == 51  # only the emailless set is paginated
+        assert b"Has Email Control" not in page2.content
+
+    def it_avoids_n_plus_one_queries_for_the_email_column(client, django_assert_max_num_queries):
+        _create_superuser(client)
+        plan = MembershipPlanFactory()
+        User.objects.create_user(username="nqsmall", email="nqsmall@example.com")
+        MemberFactory(user=None, membership_plan=plan)
+        with django_assert_max_num_queries(50) as captured:
+            client.get(reverse("hub_admin_members") + "?status=all")
+        budget = len(captured.captured_queries)
+
+        for i in range(8):
+            User.objects.create_user(username=f"nqbig{i}", email=f"nqbig{i}@example.com")
+        MemberFactory.create_batch(8, user=None, membership_plan=plan)
+        # The prefetch keeps the query count flat — an N+1 here would blow past the small-set budget.
+        with django_assert_max_num_queries(budget):
+            client.get(reverse("hub_admin_members") + "?status=all")
 
 
 def describe_admin_member_invite():

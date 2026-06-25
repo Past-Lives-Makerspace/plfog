@@ -82,6 +82,7 @@
   </form>
 
   <form method="get" class="members-filters">
+    {% if email_filter == 'missing' %}<input type="hidden" name="email" value="missing">{% endif %}
     <input type="search" name="q" value="{{ search }}" placeholder="Search name, email, discord…" autocomplete="off">
 
     <span class="filter-label">Status</span>
@@ -109,51 +110,68 @@
     </select>
 
     <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
-    {% if search or role_filter or type_filter or status_filter != 'active' %}
+    {% if search or role_filter or type_filter or status_filter != 'active' or email_filter == 'missing' %}
     <a href="{% url 'hub_admin_members' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Reset</a>
+    {% endif %}
+
+    {% if email_filter == 'missing' %}
+    <a class="hub-btn hub-btn--sm hub-btn--primary"
+       href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}">
+      Missing email{% if missing_count %} <span class="hub-badge">{{ missing_count }}</span>{% endif %}
+    </a>
+    {% else %}
+    <a class="hub-btn hub-btn--sm hub-btn--ghost"
+       href="?email=missing&q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}">
+      Missing email{% if missing_count %} <span class="hub-badge">{{ missing_count }}</span>{% endif %}
+    </a>
     {% endif %}
   </form>
 
-  <table style="width:100%;border-collapse:collapse;font-size:0.9375rem;">
+  <table class="pl-members-table">
     <thead>
-      <tr style="border-bottom:1px solid var(--hub-border);">
-        <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Name</th>
-        <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Email</th>
-        <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Status</th>
-        <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Role</th>
-        <th style="text-align:right;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Classes</th>
-        <th style="text-align:right;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Edit</th>
+      <tr>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Status</th>
+        <th>Role</th>
+        <th style="text-align:right;">Classes</th>
+        <th style="text-align:right;">Edit</th>
       </tr>
     </thead>
     <tbody>
       {% for member in page %}
-      <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
-        <td style="padding:0.55rem 0.75rem;color:var(--hub-text);">{{ member.full_legal_name|default:"—" }}</td>
-        <td style="padding:0.55rem 0.75rem;color:var(--hub-text-muted);">{{ member.user.email|default:"—" }}</td>
-        <td style="padding:0.55rem 0.75rem;color:var(--hub-text-muted);">{{ member.get_status_display }}</td>
-        <td style="padding:0.55rem 0.75rem;color:var(--hub-text-muted);">{{ member.get_fog_role_display }}</td>
-        <td style="text-align:right;padding:0.55rem 0.75rem;">
+      <tr>
+        <td data-label="Name">{{ member.full_legal_name|default:"—" }}</td>
+        <td data-label="Email">
+          {{ member.primary_email|default:"—" }}
+          {% if email_filter == 'missing' %}<div class="hub-note hub-text-muted">{{ member.email_gap_label }}</div>{% endif %}
+        </td>
+        <td data-label="Status">{{ member.get_status_display }}</td>
+        <td data-label="Role">{{ member.get_fog_role_display }}</td>
+        <td data-label="Classes" style="text-align:right;">
           {% if member.class_count %}
             <a href="{% url 'classes:admin_classes' %}?instructor={{ member.pk }}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false">{{ member.class_count }} →</a>
           {% else %}
-            <span style="color:var(--hub-text-muted);">—</span>
+            <span class="hub-text-muted">—</span>
           {% endif %}
         </td>
-        <td style="text-align:right;padding:0.55rem 0.75rem;">
+        <td data-label="Edit" style="text-align:right;">
           <a href="{% url 'hub_admin_member_edit' member.pk %}" class="hub-btn hub-btn--sm" hx-boost="false">Edit</a>
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" style="padding:1.5rem;text-align:center;color:var(--hub-text-muted);">No members match your filters.</td></tr>
+      <tr><td colspan="6" style="padding:1.5rem;text-align:center;color:var(--hub-text-muted);">
+        {% if email_filter == 'missing' %}No members are missing an email — nice.{% else %}No members match your filters.{% endif %}
+      </td></tr>
       {% endfor %}
     </tbody>
   </table>
 
   {% if page.paginator.num_pages > 1 %}
   <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1rem;align-items:center;">
-    {% if page.has_previous %}<a href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}&page={{ page.previous_page_number }}" class="hub-btn hub-btn--sm">Previous</a>{% endif %}
+    {% if page.has_previous %}<a href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}&page={{ page.previous_page_number }}{% if email_filter == 'missing' %}&email=missing{% endif %}" class="hub-btn hub-btn--sm">Previous</a>{% endif %}
     <span style="color:var(--hub-text-muted);font-size:0.875rem;">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}&page={{ page.next_page_number }}" class="hub-btn hub-btn--sm">Next</a>{% endif %}
+    {% if page.has_next %}<a href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}&page={{ page.next_page_number }}{% if email_filter == 'missing' %}&email=missing{% endif %}" class="hub-btn hub-btn--sm">Next</a>{% endif %}
   </div>
   {% endif %}
 </div>

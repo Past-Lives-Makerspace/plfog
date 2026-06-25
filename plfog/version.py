@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.11"
+VERSION = "0.19.12"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.12",
+        "date": "2026-06-25",
+        "title": "Keeping everyone's email on file",
+        "changes": [
+            "Behind the scenes, the member admin tools now correctly show each member's email — previously "
+            "some people looked like they had no email on file when they actually did. There's also a quick "
+            "way for organizers to spot the handful of accounts genuinely missing an email, so we can reach "
+            "everyone when it matters.",
+        ],
+    },
     {
         "version": "0.19.11",
         "date": "2026-06-25",

@@ -937,6 +937,62 @@ a:hover { color: var(--hub-link-hover); }
 
 
 /* ========================================
+   Members Table (Manage Members)
+   Token-driven; stacks into labelled cards on phones (no horizontal scroll).
+   ======================================== */
+.pl-members-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+}
+.pl-members-table th,
+.pl-members-table td {
+    padding: 0.55rem 0.75rem;
+}
+.pl-members-table th {
+    text-align: left;
+    color: var(--hub-text-muted);
+    font-weight: 500;
+    font-size: 0.875rem;
+}
+.pl-members-table td {
+    color: var(--hub-text-muted);
+}
+.pl-members-table td:first-child {
+    color: var(--hub-text); /* Name column reads as primary text (two-tone rows) */
+}
+.pl-members-table tr {
+    border-bottom: 1px solid var(--hub-border);
+}
+
+@media (max-width: 640px) {
+    .pl-members-table thead {
+        display: none;
+    }
+    .pl-members-table tr {
+        display: block;
+        border: 1px solid var(--hub-border);
+        border-radius: 8px;
+        margin-bottom: 0.75rem;
+        padding: 0.25rem 0.75rem;
+    }
+    .pl-members-table td[data-label] {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        text-align: right;
+        padding: 0.4rem 0;
+    }
+    .pl-members-table td[data-label]::before {
+        content: attr(data-label);
+        color: var(--hub-text-muted);
+        font-weight: 500;
+        text-align: left;
+    }
+}
+
+
+/* ========================================
    Mobile Sidebar Backdrop
    ======================================== */
 .hub-sidebar-backdrop {

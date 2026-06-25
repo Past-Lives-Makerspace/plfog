@@ -9,7 +9,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelatio
 from django.contrib.contenttypes.models import ContentType
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
-from django.db.models import DecimalField, Q, Sum, Value
+from django.db.models import BooleanField, Case, CharField, DecimalField, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -140,10 +140,53 @@ class MemberQuerySet(models.QuerySet):
             ),
         )
 
+    def with_email_status(self) -> MemberQuerySet:
+        """Annotate ``has_email`` and ``email_gap`` for the Missing-email report.
+
+        ``has_email`` mirrors the :attr:`Member.primary_email` property at the DB
+        level so the SQL filter and the Python property can never disagree:
+        unlinked members have an email when ``_pre_signup_email`` is non-blank;
+        linked members have one when a primary ``EmailAddress`` exists *or* the
+        mirror (``user.email``) is non-blank. ``email_gap`` records *why* a member
+        is emailless as a :class:`Member.EmailGap` value.
+
+        ``_has_primary_email`` is annotated first so the second ``annotate()`` can
+        reference it; the ``EmailAddress`` import stays local to avoid a
+        module-level allauth dependency (matching ``primary_email``).
+        """
+        from allauth.account.models import EmailAddress
+
+        has_primary = Exists(EmailAddress.objects.filter(user_id=OuterRef("user_id"), primary=True))
+        return self.annotate(_has_primary_email=has_primary).annotate(
+            has_email=Case(
+                When(Q(user__isnull=True) & ~Q(_pre_signup_email=""), then=Value(True)),
+                When(_has_primary_email=True, then=Value(True)),
+                When(Q(user__isnull=False) & ~Q(user__email=""), then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+            email_gap=Case(
+                When(Q(user__isnull=True) & Q(_pre_signup_email=""), then=Value(Member.EmailGap.NO_AIRTABLE_EMAIL)),
+                When(
+                    Q(user__isnull=False) & Q(_has_primary_email=False) & Q(user__email=""),
+                    then=Value(Member.EmailGap.NO_ACCOUNT_EMAIL),
+                ),
+                default=Value(""),
+                output_field=CharField(),
+            ),
+        )
+
+    def missing_email(self) -> MemberQuerySet:
+        """Only members whose primary_email resolves blank (no usable email)."""
+        return self.with_email_status().filter(has_email=False)
+
 
 class Member(models.Model):
     # Queryset annotation (set by MemberQuerySet.with_lease_totals)
     total_monthly_rent: Decimal
+    # Queryset annotations (set by MemberQuerySet.with_email_status)
+    has_email: bool
+    email_gap: str
 
     class Status(models.TextChoices):
         INVITED = "invited", "Invited"
@@ -174,6 +217,16 @@ class Member(models.Model):
         ZE_HIR = "ze/hir", "ze/hir"
         XE_XEM = "xe/xem", "xe/xem"
         PREFER_NOT = "prefer not to share", "Prefer not to share"
+
+    class EmailGap(models.TextChoices):
+        """Why a member has no usable email (labels only; no field stores this).
+
+        Derived at query time by :meth:`MemberQuerySet.with_email_status` and read
+        via :attr:`Member.email_gap_label` in the Missing-email report.
+        """
+
+        NO_AIRTABLE_EMAIL = "no_airtable_email", "Never signed up — no email on file from Airtable"
+        NO_ACCOUNT_EMAIL = "no_account_email", "Signed up, but has no email on their account"
 
     airtable_record_id = models.CharField(
         max_length=20,
@@ -354,6 +407,17 @@ class Member(models.Model):
         if primary is not None:
             return primary.email
         return (user.email if user else "") or ""
+
+    @property
+    def email_gap_label(self) -> str:
+        """Human reason this member is emailless, or "" when they have an email.
+
+        Requires the ``email_gap`` annotation from
+        :meth:`MemberQuerySet.with_email_status`; it is only rendered in the
+        missing-email view, so accessing it on an un-annotated instance fails
+        loudly (``AttributeError``) rather than hiding a bug.
+        """
+        return self.EmailGap(self.email_gap).label if self.email_gap else ""
 
     @property
     def initials(self) -> str:
