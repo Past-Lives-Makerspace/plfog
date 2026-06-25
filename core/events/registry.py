@@ -193,7 +193,9 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "guild_announcement": Recipients.ALL_ACTIVE_MEMBERS,
     "orientation_requested": Recipients.GUILD_ORIENTERS,
     "orientation_update": Recipients.REGISTRANT,
-    "guild_joined": Recipients.GUILD_LEADERSHIP,
+    # guild_joined notifies the guild LEAD only today (audit-D audience J); the
+    # orientation Decision-7 fan-out fix is scoped to orientation events, not this one.
+    "guild_joined": Recipients.GUILD_LEAD,
     # Billing / tab
     "tab_charged": Recipients.TAB_MEMBER,
     "tab_charge_failed": Recipients.TAB_MEMBER,
@@ -217,17 +219,25 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
 _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     "class_published": "class_published",
     "class_reminder": None,
-    "registration_confirmed": "class_registered",
+    # ``registration_confirmed`` / ``waitlist_confirmed`` / ``class_review_requested`` /
+    # ``instructor_class_approved`` log NO SiteActivity via emit: the classes app writes its
+    # own ``CmsActivity`` row at each of these workflow points, and ``classes.activity.log``
+    # already MIRRORS that CmsActivity into the matching SiteActivity kind
+    # (registration_created→class_registered, waitlist_joined→class_waitlist_joined,
+    # class_submitted, class_approved — see ``classes/activity._SITE_KIND_MAP``). If emit
+    # also logged the SiteActivity here it would write the row twice. Keeping these ``None``
+    # makes the CmsActivity mirror the single source of the SiteActivity, exactly as today.
+    "registration_confirmed": None,
     "class_cancelled": "class_cancelled",
     "class_details_changed": None,
     "waitlist_spot_available": None,
-    "waitlist_confirmed": "class_waitlist_joined",
+    "waitlist_confirmed": None,
     "refund_issued": "refund_issued",
-    "instructor_class_approved": "class_approved",
+    "instructor_class_approved": None,
     "instructor_changes_requested": None,
     "instructor_new_registration": None,
     "instructor_class_at_capacity": None,
-    "class_review_requested": "class_submitted",
+    "class_review_requested": None,
     "class_validation_requested": None,
     "voting_cycle_open": None,
     "voting_closing_soon": None,
@@ -245,7 +255,12 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     "lease_expiring": None,
     "lease_activated": "lease_activated",
     "site_announcement": "site_announcement",
-    "new_login": "login",
+    # new_login logs NO activity via emit: ``core.signals._on_login`` writes the
+    # LOGIN SiteActivity row unconditionally for EVERY login (the new_login event
+    # only fires on a never-seen device signature). If emit also logged LOGIN, a
+    # new-signature login would write the row twice. Keeping this ``None`` makes the
+    # signal's unconditional log the single source of the LOGIN activity.
+    "new_login": None,
 }
 
 

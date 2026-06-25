@@ -275,6 +275,22 @@ def describe_orientation_respond():
         booking.refresh_from_db()
         assert booking.status == OrientationBooking.Status.CONFIRMED
 
+    def it_credits_the_confirming_staffer_as_the_runner(client: Client):
+        # Decision 7: the staffer who confirms is recorded as oriented_by, not the
+        # guild lead. Here the confirmer is an admin distinct from the guild lead.
+        lead_user = _user_with_role("resp_lead", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=lead_user.member)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        confirmer = _user_with_role("resp_runner", fog_role=Member.FogRole.ADMIN)
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
+        client.login(username="resp_runner", password="pass")
+
+        client.post(reverse("hub_orientation_respond", args=[booking.pk]), {"action": "confirm"})
+
+        booking.refresh_from_db()
+        assert booking.oriented_by_id == confirmer.member.pk
+        assert booking.oriented_by_id != lead_user.member.pk
+
     def it_declines_on_post(client: Client):
         _user_with_role("resp_dec", fog_role=Member.FogRole.ADMIN)
         booking = OrientationBookingFactory()

@@ -1,12 +1,16 @@
-"""Email notifications for billing events."""
+"""Email notifications for billing events.
+
+Both senders run on the ``core.events.emit`` spine (Phase 4): one event each, the
+preserved email shell handed in as the EMAIL-channel override while the in-app row
+renders from the explicit title/body. This eliminates the old double-send (a
+dedicated ``core.email.send`` paired with an un-suppressed ``notifications.dispatch``).
+"""
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
-from django.conf import settings
-from django.template.loader import render_to_string
 from django.utils import timezone
 
 if TYPE_CHECKING:
@@ -16,87 +20,87 @@ logger = logging.getLogger(__name__)
 
 
 def send_receipt(charge: TabCharge) -> None:
-    """Send an itemized receipt email to the member after a successful charge."""
+    """Send an itemized receipt email to the member after a successful charge.
+
+    Emits the ``tab_charged`` event: the receipt email (preserved shell) goes to the
+    member's ``primary_email`` via ``email_to`` — a guest/alias-safe explicit address,
+    decoupled from the resolver — while the resolver's in-app row goes to the member's
+    linked user. This collapses the old dedicated send + un-suppressed ``dispatch``
+    into one event, eliminating the double-send the audit found.
+    """
     member = charge.tab.member
     if not member.primary_email:
         logger.warning("Cannot send receipt for charge %s: member has no email.", charge.pk)
         return
 
     entries = charge.entries.all().order_by("created_at")
-    context = {
+    template_context = {
         "member": member,
         "charge": charge,
         "entries": entries,
         "charged_at": charge.charged_at or timezone.now(),
     }
 
-    text_body = render_to_string("billing/email/receipt.txt", context)
-    html_body = render_to_string("billing/email/receipt.html", context)
+    from core.events.senders import emit_with_email_shell
 
-    from core import email as core_email
-
-    email_log = core_email.send(
-        to=member.primary_email,
-        subject=f"Past Lives Makerspace — Receipt for ${charge.amount}",
-        trigger_kind="billing.receipt",
-        text_body=text_body,
-        html_body=html_body,
-    )
-    from core.models import SiteActivity
-
-    SiteActivity.log(
-        SiteActivity.Kind.TAB_CHARGED,
+    emit_with_email_shell(
+        "tab_charged",
         actor=member.user,
         target=charge,
-        email_log=email_log,
+        context={"member": member},
+        subject=f"Past Lives Makerspace — Receipt for ${charge.amount}",
+        text_template="billing/email/receipt.txt",
+        html_template="billing/email/receipt.html",
+        template_context=template_context,
+        in_app_title="Tab charged",
+        in_app_body=f"${charge.amount} was charged to your tab.",
+        url="/tab/",
+        email_to=member.primary_email,
+        email_trigger_kind="billing.receipt",
+        period=f"charge:{charge.pk}",
     )
-
-    if member.user is not None:
-        from core import notifications
-
-        notifications.dispatch(
-            "tab_charged",
-            [member.user],
-            title="Tab charged",
-            body=f"${charge.amount} was charged to your tab.",
-            url="/tab/",
-        )
 
     charge.receipt_sent_at = timezone.now()
     charge.save(update_fields=["receipt_sent_at"])
 
 
 def notify_admin_charge_failed(charge: TabCharge) -> None:
-    """Notify admins when a charge fails."""
+    """Notify admins (email) and the member (in-app) when a charge fails.
+
+    Emits one ``tab_charge_failed`` event covering both audiences: the admin email
+    (preserved shell) goes via ``email_to`` to the FOG_ADMINS-resolved addresses —
+    the Phase-4 consistency change that collapses the old ``BILLING_ADMIN_EMAILS``
+    static list into the role×scope resolver layer — while the resolver's in-app row
+    goes to the member's linked user (the member's own ``tab_charge_failed`` email is
+    opt-in/default-off, so they keep getting only the bell row as before). One emit
+    logs exactly one ``tab_charge_failed`` activity row and eliminates the prior
+    un-suppressed ``dispatch`` double-send.
+    """
+    from core.events import resolvers
+    from core.events.registry import Recipients
+    from core.events.senders import emit_with_email_shell
+
     member = charge.tab.member
-    context = {
+    template_context = {
         "member": member,
         "charge": charge,
     }
 
-    text_body = render_to_string("billing/email/charge_failed_admin.txt", context)
+    admin_emails = [user.email for user, _ in resolvers.resolve(Recipients.FOG_ADMINS, {})]
 
-    admin_emails = getattr(settings, "BILLING_ADMIN_EMAILS", [settings.DEFAULT_FROM_EMAIL])
-
-    from core import email as core_email
-
-    core_email.send(
-        to=admin_emails,
+    emit_with_email_shell(
+        "tab_charge_failed",
+        actor=member.user,
+        target=charge,
+        context={"member": member},
         subject=f"[Billing] Failed charge for {member.display_name} — ${charge.amount}",
-        trigger_kind="billing.charge_failed_admin",
-        text_body=text_body,
+        text_template="billing/email/charge_failed_admin.txt",
+        html_template=None,
+        template_context=template_context,
+        in_app_title="Tab charge failed",
+        in_app_body="A charge to your tab failed — please update your payment method.",
+        url="/tab/",
+        email_to=admin_emails,
+        email_trigger_kind="billing.charge_failed_admin",
+        period=f"charge:{charge.pk}",
     )
-    from core.models import SiteActivity
-
-    SiteActivity.log(SiteActivity.Kind.TAB_CHARGE_FAILED, actor=member.user, target=charge)
-
-    if member.user is not None:
-        from core import notifications
-
-        notifications.dispatch(
-            "tab_charge_failed",
-            [member.user],
-            title="Tab charge failed",
-            body="A charge to your tab failed — please update your payment method.",
-            url="/tab/",
-        )

@@ -46,6 +46,8 @@ if TYPE_CHECKING:
 
     from django.contrib.auth.models import User
 
+    from core.email import Attachment
+
 
 class ChannelNotImplemented(NotImplementedError):
     """Raised when a registered-but-unbuilt channel adapter is invoked (Phase 2)."""
@@ -81,12 +83,17 @@ class ChannelAdapter(Protocol):
     emission** via :meth:`broadcast`, not once per recipient via :meth:`deliver`.
     Per-recipient adapters leave ``is_broadcast`` False and never implement
     ``broadcast``.
+
+    ``attachments`` is the per-recipient channel hook for files that ride along
+    with the message (an orientation ``.ics``); channels that cannot carry files
+    (in-app, push) ignore it. It defaults to ``None`` so every existing caller and
+    adapter is unaffected.
     """
 
     channel: Channel
     is_broadcast: bool
 
-    def deliver(self, user: User, message: Message) -> None: ...
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None: ...
 
 
 class InAppAdapter:
@@ -99,7 +106,8 @@ class InAppAdapter:
     channel = Channel.IN_APP
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+        # In-app rows carry no file attachments — the bell shows title/body/url.
         Notification.objects.create(
             user=user,
             trigger=message.trigger_kind or "",
@@ -120,7 +128,7 @@ class EmailAdapter:
     channel = Channel.EMAIL
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
         if not (user.email or "").strip():
             return
         send_email(
@@ -130,6 +138,7 @@ class EmailAdapter:
             text_body=message.body,
             html_body=message.html_body,
             best_effort=True,
+            attachments=attachments,
         )
 
 
@@ -139,7 +148,8 @@ class PushAdapter:
     channel = Channel.PUSH
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+        # Web push carries no file attachments.
         for sub in PushSubscription.objects.filter(user=user):
             send_web_push(sub, title=message.title, body=message.body, url=message.url)
 
@@ -155,7 +165,7 @@ class _ShellAdapter:
     channel: Channel
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
         raise ChannelNotImplemented(f"The {self.channel.value!r} channel is registered but not implemented.")
 
 
@@ -178,7 +188,7 @@ class ScheduledEmailAdapter:
     channel = Channel.SCHEDULED_EMAIL
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
         if not (user.email or "").strip():
             return
         send_email(
@@ -188,6 +198,7 @@ class ScheduledEmailAdapter:
             text_body=message.body,
             html_body=message.html_body,
             best_effort=True,
+            attachments=attachments,
         )
 
     @staticmethod
@@ -220,7 +231,8 @@ class DigestAdapter:
     channel = Channel.DIGEST
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+        # Buffered digest rows carry no attachments — the later batch is plain text.
         EventDelivery.objects.update_or_create(
             event_key=message.trigger_kind or "",
             target_ref=f"user:{user.pk}",
@@ -296,7 +308,7 @@ class DiscordAdapter:
         webhook = discord_module.webhook_for_event(message.trigger_kind or "")
         return discord_module.post_embed(webhook, message)
 
-    def deliver(self, user: User, message: Message) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
         # Broadcast channel: the recipient is irrelevant. Defer to broadcast so a
         # stray per-recipient call still posts the single event-level embed.
         self.broadcast(message)

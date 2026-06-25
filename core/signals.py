@@ -15,7 +15,7 @@ from core.models import SiteActivity
 def _on_login(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
     import hashlib
 
-    from core import notifications
+    from core.events.emit import emit
     from core.models import KnownLoginSignature
 
     SiteActivity.log(SiteActivity.Kind.LOGIN, actor=user)
@@ -29,9 +29,10 @@ def _on_login(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
             "core/email/new_login.html",
             {"settings_url": request.build_absolute_uri("/settings/")},
         )
-        notifications.dispatch(
+        emit(
             "new_login",
-            [user],
+            actor=user,
+            context={"user": user},
             title="New login detected",
             body="Your account was accessed from a new browser or device.",
             url="/settings/",
@@ -53,16 +54,15 @@ def _on_signup(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
     # its own email setup.
     MemberEmail.objects.migrate_to_user(user)
 
-    SiteActivity.log(SiteActivity.Kind.MEMBER_SIGNUP, actor=user)
+    from core.events.emit import emit
 
-    from django.contrib.auth.models import User
-
-    from core import notifications
-
-    staff = User.objects.filter(is_staff=True)
-    notifications.dispatch(
+    # emit logs the MEMBER_SIGNUP SiteActivity (registry activity_kind="member_signup")
+    # with actor=user, and resolves the admin audience via FOG_ADMINS — the global
+    # admin resolver that replaces the prior is_staff=True scan.
+    emit(
         "new_member_joined",
-        staff,
+        actor=user,
+        context={},
         title="New member joined",
         body=f"{user.get_username()} just signed up.",
         url="/members/",

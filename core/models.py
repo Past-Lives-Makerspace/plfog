@@ -279,21 +279,22 @@ class Invite(models.Model):
         self.accepted_at = timezone.now()
         self.save(update_fields=["accepted_at"])
         member = self.member
-        SiteActivity.log(
-            SiteActivity.Kind.INVITE_ACCEPTED,
+
+        from core.events.emit import emit
+
+        # emit logs the INVITE_ACCEPTED SiteActivity (registry activity_kind=
+        # "invite_accepted") with actor=member.user and target=member, and resolves
+        # the recipient via INVITER → self.invited_by (yielding no recipient, and so
+        # no notification, when invited_by is None).
+        emit(
+            "invite_accepted",
             actor=member.user if member is not None else None,
             target=member,
+            context={"invite": self},
+            title="Your invite was accepted",
+            body="Someone you invited has joined Past Lives.",
+            url="/members/",
         )
-        if self.invited_by is not None:
-            from core import notifications
-
-            notifications.dispatch(
-                "invite_accepted",
-                [self.invited_by],
-                title="Your invite was accepted",
-                body="Someone you invited has joined Past Lives.",
-                url="/members/",
-            )
 
     @classmethod
     def create_and_send(cls, email: str, invited_by: Any) -> Invite:

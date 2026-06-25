@@ -42,25 +42,9 @@ def send_due_class_reminders(window_minutes: int = 15) -> int:
             _, created = RegistrationReminder.objects.get_or_create(registration=registration, session=session)
             if not created:
                 continue
+            # ``send_reminder_email`` emits the single ``class_reminder`` event that fans out
+            # BOTH the dedicated reminder email (to the registrant) and the in-app row (to the
+            # member's linked user) — replacing the old dedicated send + suppressed ``dispatch``.
             send_reminder_email(registration, session)
-            user = (
-                registration.member.user
-                if (registration.member is not None and registration.member.user is not None)
-                else None
-            )
-            if user is not None:
-                from core import notifications
-
-                # ``send_reminder_email`` above is the dedicated class-reminder
-                # email; suppress dispatch's generic email so an opted-in user
-                # receives the in-app row and push only, never two emails.
-                notifications.dispatch(
-                    "class_reminder",
-                    [user],
-                    title="Class reminder",
-                    body=f"{session.class_offering.title} starts soon.",
-                    url="/classes/account/",
-                    suppress_email=True,
-                )
             sent += 1
     return sent

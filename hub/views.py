@@ -789,7 +789,8 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "confirm":
-            orientations.confirm_orientation(booking)
+            # Decision 7: credit the staffer who actually confirmed, not the guild lead.
+            orientations.confirm_orientation(booking, oriented_by=_get_member(request))
             messages.success(request, "Orientation confirmed — the member has been emailed.")
         elif action == "decline":
             orientations.decline_orientation(booking, note=request.POST.get("note", ""))

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from django.contrib.auth.models import User
 
 from core.events.emit import _record_delivery, emit
 from core.events.registry import Channel
+from classes.factories import RegistrationFactory
 from core.models import EventDelivery, Notification, NotificationPreference, SiteActivity, TransactionalEmailLog
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
@@ -17,9 +20,9 @@ def describe_emit():
     def describe_activity_logging():
         def it_writes_an_activity_row_when_the_event_declares_a_kind(linked_member):
             actor = User.objects.create_user(username="actor", email="actor@example.com")
-            member = linked_member()
-            emit("registration_confirmed", actor=actor, context={"member": member}, title="t", body="b")
-            assert SiteActivity.objects.filter(kind="class_registered", actor=actor).exists()
+            linked_member()
+            emit("class_published", actor=actor, context={}, title="t", body="b")
+            assert SiteActivity.objects.filter(kind="class_published", actor=actor).exists()
 
         def it_writes_no_activity_row_when_none_declared(linked_member):
             member = linked_member()
@@ -109,6 +112,92 @@ def describe_emit():
         def it_raises_keyerror_for_an_unregistered_key():
             with pytest.raises(KeyError):
                 emit("not_an_event", context={}, title="t", body="b")
+
+
+def describe_per_channel_overrides():
+    """Phase-4 structural senders pass a pre-rendered Message + attachments per channel."""
+
+    def it_uses_the_email_channel_message_override_verbatim(linked_member):
+        from core.events.channels import Message
+
+        member = linked_member()
+        NotificationPreference.objects.create(user=member.user, trigger="registration_confirmed", email_enabled=True)
+        override = Message(
+            title="Structural subject",
+            body="Line one\nLine two\nSessions: Jul 12, Jul 19",
+            html_body="<p>rich</p>",
+            trigger_kind="registration_confirmed",
+        )
+        emit(
+            "registration_confirmed",
+            context={"member": member},
+            title="Plain in-app title",
+            body="plain",
+            messages={Channel.EMAIL: override},
+        )
+        log = TransactionalEmailLog.objects.get(trigger_kind="registration_confirmed")
+        assert log.subject == "Structural subject"
+        # The in-app row still uses the non-override title (copy/explicit path).
+        note = Notification.objects.get(user=member.user, trigger="registration_confirmed")
+        assert note.title == "Plain in-app title"
+
+    def it_passes_email_attachments_through_to_the_choke_point(linked_member):
+        member = linked_member()
+        NotificationPreference.objects.create(user=member.user, trigger="orientation_update", email_enabled=True)
+        ics = ("orientation.ics", b"BEGIN:VCALENDAR", "text/calendar")
+        with patch("core.events.channels.send_email") as mock_send:
+            emit(
+                "orientation_update",
+                context={"member": member},
+                title="t",
+                body="b",
+                attachments={Channel.EMAIL: [ics]},
+            )
+        _args, kwargs = mock_send.call_args
+        assert kwargs["attachments"] == [ics]
+
+
+def describe_explicit_email_recipient():
+    """A dedicated email can address a raw address while in-app routes to the user."""
+
+    def it_emails_the_explicit_address_not_the_resolved_users_email(linked_member):
+        member = linked_member(email="account@example.com")
+        emit(
+            "registration_confirmed",
+            context={"member": member},
+            title="Registration confirmed",
+            body="Class",
+            email_to="form-entered@example.com",
+        )
+        logs = list(TransactionalEmailLog.objects.filter(trigger_kind="registration_confirmed"))
+        assert len(logs) == 1
+        assert logs[0].to_email == "form-entered@example.com"
+        # In-app still goes to the linked user.
+        assert Notification.objects.filter(user=member.user, trigger="registration_confirmed").exists()
+
+    def it_still_emails_when_no_user_resolves():
+        # A guest registration (member is None) — the explicit email must still go
+        # out, with no in-app recipient. Use a registration whose member is unset.
+        registration = RegistrationFactory(email="guest@example.com")
+        assert registration.member is None
+        emit(
+            "registration_confirmed",
+            context={"registration": registration},
+            title="t",
+            body="b",
+            email_to="guest@example.com",
+        )
+        logs = list(TransactionalEmailLog.objects.filter(trigger_kind="registration_confirmed"))
+        assert len(logs) == 1
+        assert logs[0].to_email == "guest@example.com"
+        assert Notification.objects.count() == 0
+
+    def it_dedupes_the_explicit_email_across_re_emits():
+        registration = RegistrationFactory(email="g@example.com")
+        ctx = {"registration": registration}
+        emit("registration_confirmed", context=ctx, title="t", body="b", email_to="g@example.com")
+        emit("registration_confirmed", context=ctx, title="t", body="b", email_to="g@example.com")
+        assert TransactionalEmailLog.objects.filter(trigger_kind="registration_confirmed").count() == 1
 
 
 def describe_record_delivery():

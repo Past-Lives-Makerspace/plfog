@@ -92,6 +92,11 @@ def describe_guild_leadership():
         with pytest.raises(KeyError):
             resolvers.guild_leadership({})
 
+    def it_resolves_to_nobody_for_an_explicit_none_guild(db):
+        # A lead-less category's review routes to admins by email only — the guild is
+        # explicitly None, so there is no per-user (in-app) audience.
+        assert resolvers.guild_leadership({"guild": None}) == []
+
 
 def describe_guild_lead():
     def it_returns_only_the_lead_not_staff(linked_member):

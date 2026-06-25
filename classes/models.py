@@ -22,7 +22,6 @@ from core.validators import validate_image_size
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
-    from django.db.models import QuerySet
 
     from membership.models import Member
 
@@ -463,25 +462,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         return ClassApproval.objects.create(class_offering=self, role=first_role)
 
     def _notify_first_stage_reviewer(self, row: "ClassApproval") -> None:
-        """Fan out the stage-one notification + email for a freshly opened gate."""
+        """Fan out the stage-one notification + email for a freshly opened gate.
+
+        The guild-lead branch routes through :func:`classes.emails.send_guild_lead_review_request`
+        and the admin branch through :func:`classes.emails.send_admin_review_request`. Each now
+        fires a single ``class_review_requested`` event that owns BOTH the dedicated
+        ``review_request`` email and (for the guild-lead branch) the in-app row to the guild's
+        leadership — so opted-in leadership receive exactly one email and one bell row, never the
+        old dispatch + dedicated-send pair. The admin branch stays email-only, as today.
+        """
         from classes import emails
-        from core import notifications
 
         if row.role == ClassApproval.Role.GUILD_LEAD:
-            guild = self.category.guild if self.category_id else None
-            instructor_name = self.instructor.display_name if self.instructor is not None else "An instructor"
-            guild_name = guild.name if guild is not None else ""
-            reviewer_users = (
-                [m.user for m in guild.leadership_members() if m.user is not None] if guild is not None else []
-            )
-            if reviewer_users:
-                notifications.dispatch(
-                    "class_review_requested",
-                    reviewer_users,
-                    title="A class needs your review",
-                    body=f"{instructor_name} in the {guild_name} Guild requests approval for their upcoming class dates.",
-                    url="/classes/teach/",
-                )
             emails.send_guild_lead_review_request(self, row)
         else:
             emails.send_admin_review_request(self, row)
@@ -552,22 +544,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         from classes import activity
         from classes.emails import send_waitlist_spot_opened
 
+        # ``send_waitlist_spot_opened`` emits the single ``waitlist_spot_available`` event
+        # that fans out BOTH the claim email (to the registrant) and the in-app row (to the
+        # promoted member) — replacing the old dedicated send + the in-app ``dispatch`` that
+        # used to follow it here.
         send_waitlist_spot_opened(next_up)
         activity.log(
             CmsActivity.Kind.WAITLIST_NOTIFIED,
             class_offering=self,
             registration=next_up,
         )
-        from core import notifications
-
-        if next_up.member is not None and next_up.member.user is not None:
-            notifications.dispatch(
-                "waitlist_spot_available",
-                [next_up.member.user],
-                title="A waitlist spot opened up",
-                body=self.title,
-                url="/classes/account/",
-            )
         return next_up
 
     def on_review_decision_recorded(self, row: "ClassApproval") -> None:
@@ -613,19 +599,11 @@ class ClassOffering(HeroCropMixin, models.Model):
                     class_offering=self,
                     actor=row.decided_by,
                 )
-                # Notify the instructor only once their class is fully approved
-                # and live — not at each intermediate gate. The email path
-                # (send_class_review_decision) already reports stage-by-stage
-                # progress, so an in-app "approved" before publication would be
-                # premature and would fire twice in the two-stage flow.
-                if self.instructor is not None and self.instructor.user is not None:
-                    notifications.dispatch(
-                        "instructor_class_approved",
-                        [self.instructor.user],
-                        title="Your class was approved",
-                        body=self.title,
-                        url=f"/classes/{self.slug}/",
-                    )
+                # The instructor's "Your class was approved" bell row + the rich "live!"
+                # email now both fan out from the single ``instructor_class_approved`` event
+                # emitted by ``classes.emails.send_class_review_decision`` (called by the
+                # view right after the publishing decision). Dispatching it here too would
+                # double the bell row, so the decision event owns it.
                 notifications.dispatch(
                     "class_published",
                     notifications.active_member_users(),
@@ -642,14 +620,10 @@ class ClassOffering(HeroCropMixin, models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role, "notes_excerpt": (row.notes or "")[:200]},
             )
-            if self.instructor is not None and self.instructor.user is not None:
-                notifications.dispatch(
-                    "instructor_changes_requested",
-                    [self.instructor.user],
-                    title="Changes requested on your class",
-                    body=self.title,
-                    url=f"/classes/{self.slug}/",
-                )
+            # The instructor's "Changes requested" bell row + the rich changes email now
+            # both fan out from the single ``instructor_changes_requested`` event emitted by
+            # ``classes.emails.send_class_review_decision`` (called by the view right after
+            # the decision). Dispatching it here too would double the bell row.
         elif row.decision == ClassApproval.Decision.DENIED:
             self.status = self.Status.DRAFT
             self.save(update_fields=["status", "updated_at"])
@@ -663,30 +637,14 @@ class ClassOffering(HeroCropMixin, models.Model):
     def _escalate_to_admin(self, admin_row: "ClassApproval", *, guild_lead: "User | None") -> None:
         """Fire the stage-two admin escalation after a Guild Lead approves.
 
-        Notifies staff in-app and emails the configured admin reviewers with a
-        request for executive validation. The Guild Lead is named in the copy
-        so admins know who already vouched for the class.
+        Emits the executive-validation request as one ``class_validation_requested``
+        event (admin email + FOG_ADMINS in-app) via
+        :func:`classes.emails.send_admin_validation_request`. The Guild Lead is named
+        in the copy so admins know who already vouched for the class.
         """
         from classes import emails
-        from core import notifications
 
-        instructor_name = self.instructor.display_name if self.instructor is not None else "An instructor"
-        lead_name = guild_lead.get_username() if guild_lead is not None else "A Guild Lead"
-        notifications.dispatch(
-            "class_validation_requested",
-            self._staff_users(),
-            title="A class needs executive validation",
-            body=f"{lead_name} and {instructor_name} request executive validation to publish this class.",
-            url="/classes/admin/",
-        )
         emails.send_admin_validation_request(self, admin_row)
-
-    @staticmethod
-    def _staff_users() -> "QuerySet[User]":
-        """Staff Users who receive class-validation escalations."""
-        from django.contrib.auth.models import User
-
-        return User.objects.filter(is_staff=True)
 
     def add_gallery_images(self, files: list[UploadedFile]) -> None:
         """Create ClassImage rows from uploaded files, appended after existing ones.
@@ -1423,14 +1381,10 @@ class Registration(models.Model):
                 activity.log(
                     CmsActivity.Kind.WAITLIST_JOINED, class_offering=self.class_offering, registration=self, actor=user
                 )
-                if user is not None:
-                    notifications.dispatch(
-                        "waitlist_confirmed",
-                        [user],
-                        title="Added to the waitlist",
-                        body=self.class_offering.title,
-                        url="/classes/account/",
-                    )
+                # The "Added to the waitlist" in-app row + the dedicated waitlist email now
+                # both fan out from the single ``waitlist_confirmed`` event emitted by
+                # ``classes.emails.send_waitlist_joined_confirmation`` (called by the register
+                # view right after this save). Dispatching it here too would double the bell row.
             else:
                 activity.log(
                     CmsActivity.Kind.REGISTRATION_CREATED,
@@ -1446,14 +1400,11 @@ class Registration(models.Model):
                     registration=self,
                     actor=acting,
                 )
-                if user is not None:
-                    notifications.dispatch(
-                        "registration_confirmed",
-                        [user],
-                        title="Registration confirmed",
-                        body=self.class_offering.title,
-                        url="/classes/account/",
-                    )
+                # The in-app "Registration confirmed" row + the confirmation email now
+                # both fan out from a single ``registration_confirmed`` event emitted by
+                # ``classes.emails.send_registration_confirmation`` (called right after
+                # every CONFIRMED transition — free-class view + paid webhook). Dispatching
+                # the in-app row here too would double the bell row, so the event owns it.
             elif self.status == self.Status.REFUNDED:
                 activity.log(
                     CmsActivity.Kind.REGISTRATION_REFUNDED,

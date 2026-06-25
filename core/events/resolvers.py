@@ -126,9 +126,14 @@ def guild_leadership(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — the guild's lead plus every staff member (deduped).
 
     Used for both email and in-app (fixes the orientation asymmetry, audit-D §3).
-    Reuses :meth:`membership.models.Guild.leadership_members`.
+    Reuses :meth:`membership.models.Guild.leadership_members`. An explicit ``None``
+    guild (a lead-less category whose review routes to admins by email only) resolves
+    to no per-user recipient — the email goes to an explicit ``email_to`` address set —
+    while a missing ``guild`` key still fails loudly (a programming error).
     """
-    guild: Guild = _require(context, "guild")
+    guild: Guild | None = _require(context, "guild")
+    if guild is None:
+        return []
     return _members_to_recipients(guild.leadership_members(), "guild_leadership")
 
 
@@ -183,12 +188,19 @@ def registrant(context: dict[str, Any]) -> list[Recipient]:
 
     Accepts a ``member`` in context, or a ``booking`` / ``registration`` whose
     ``member`` is used. The single per-member target for confirmations & updates.
+
+    A guest registration (``registration.member is None``) yields no per-user
+    recipient — its email is addressed by an explicit ``email_to`` at the call site
+    (the dedicated confirmation always went to ``registration.email``), so the in-app
+    fan-out correctly finds nobody.
     """
     member = _registrant_member(context)
+    if member is None:
+        return []
     return _members_to_recipients([member], "registrant")
 
 
-def _registrant_member(context: dict[str, Any]) -> Member:
+def _registrant_member(context: dict[str, Any]) -> Member | None:
     if "member" in context:
         return context["member"]
     if "booking" in context:

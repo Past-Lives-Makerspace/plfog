@@ -37,6 +37,8 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.db.models import Model
 
+    from core.email import Attachment
+
 
 def emit(
     event_key: str,
@@ -49,6 +51,9 @@ def emit(
     url: str = "",
     html_body: str | None = None,
     period: str = "",
+    messages: dict[Channel, Message] | None = None,
+    attachments: dict[Channel, list[Attachment]] | None = None,
+    email_to: str | list[str] | None = None,
 ) -> EmitResult:
     """Emit one event: log activity, resolve recipients, fan out to channels.
 
@@ -63,6 +68,27 @@ def emit(
             later phase; Phase 1 takes the rendered strings directly so senders can
             migrate incrementally.)
         period: Idempotency window bucket (``""`` = one-shot, else e.g. ``"2026-06"``).
+        messages: Per-channel **pre-rendered** message overrides (Phase 4). A sender
+            whose email body is a rich *structural* template (session lists, a
+            multi-line body) renders that shell itself and passes the result keyed by
+            :class:`~core.events.registry.Channel` — that exact Message goes to that
+            channel, bypassing copy-mode rendering for it. Channels NOT in this dict
+            still render from the DB-editable copy (so the in-app row + Discord embed
+            stay copy-driven while the structural email is preserved byte-for-byte).
+        attachments: Per-channel files to ride along with the message (an orientation
+            ``.ics`` on :data:`Channel.EMAIL`). Channels that cannot carry files
+            ignore their entry.
+        email_to: Explicit EMAIL-channel recipient address(es), decoupled from the
+            resolver (Phase 4). Some dedicated emails address a *raw email* — the
+            form-entered ``registration.email`` (which may be a guest with no linked
+            account, or a verified alias that differs from the account's primary
+            email), an invitee, a found-account address. When given, the EMAIL channel
+            delivers to exactly these addresses (deduped + audited), and the resolver's
+            per-user fan-out covers only the OTHER channels (in-app / push). This keeps
+            the email's recipient byte-identical to today while the in-app row still
+            goes to the linked user the resolver finds. Forced/opt-in preference checks
+            do not gate an ``email_to`` send (it mirrors a dedicated transactional send,
+            which never consulted preferences).
 
     Returns:
         An :class:`EmitResult` describing what was logged and delivered.
@@ -72,6 +98,9 @@ def emit(
     """
     event = get_event(event_key)
     ctx = context or {}
+    channel_messages = messages or {}
+    channel_attachments = attachments or {}
+    explicit_emails = [email_to] if isinstance(email_to, str) else list(email_to or [])
 
     activity: SiteActivity | None = None
     if event.activity_kind is not None:
@@ -83,35 +112,38 @@ def emit(
     # render each channel's message from the DB-backed (or seeded-default) copy
     # against ``ctx``. When the caller DOES pass explicit strings, the Phase-1
     # incremental path is preserved exactly — the same Message goes to every
-    # channel and nothing reads the copy catalogue.
+    # channel and nothing reads the copy catalogue. A per-channel ``messages``
+    # override (Phase 4) wins over both for that channel.
     use_copy = not (title or body)
     fixed_message = (
         None if use_copy else Message(title=title, body=body, url=url, html_body=html_body, trigger_kind=event_key)
     )
 
     def message_for(channel: Channel) -> Message:
+        if channel in channel_messages:
+            return channel_messages[channel]
         if fixed_message is not None:
             return fixed_message
         return templates.rendered_message(event_key, channel, ctx, url=url)
 
     delivered: list[tuple[int, Channel]] = []
     skipped_duplicates: list[tuple[int, Channel]] = []
+    suppress_user_email = bool(explicit_emails)
     for user, _reason in recipients:
-        for channel in preferences.enabled_channels(user, event_key):
-            if not channel_module.is_implemented(channel):
-                # Registered-but-unbuilt channel: record nothing, do nothing — its
-                # real delivery + dedupe arrive with its adapter.
-                continue
-            adapter = channel_module.get_adapter(channel)
-            if adapter.is_broadcast:
-                # Broadcast channels (Discord) post once per event, not per
-                # recipient — handled below, after the per-recipient fan-out.
-                continue
-            if _record_delivery(event_key, user, channel, period):
-                adapter.deliver(user, message_for(channel))
-                delivered.append((user.pk, channel))
-            else:
-                skipped_duplicates.append((user.pk, channel))
+        _per_recipient_fan_out(
+            event_key=event_key,
+            user=user,
+            message_for=message_for,
+            channel_attachments=channel_attachments,
+            period=period,
+            suppress_email=suppress_user_email,
+            delivered=delivered,
+            skipped_duplicates=skipped_duplicates,
+        )
+
+    _explicit_email_fan_out(
+        event_key, explicit_emails, message_for, channel_attachments, period, delivered, skipped_duplicates
+    )
 
     broadcast_channels = _broadcast_fan_out(event, message_for, period, delivered, skipped_duplicates)
 
@@ -156,6 +188,99 @@ def _broadcast_fan_out(
         else:
             skipped_duplicates.append((0, channel))
     return posted
+
+
+def _per_recipient_fan_out(
+    *,
+    event_key: str,
+    user: User,
+    message_for: Callable[[Channel], Message],
+    channel_attachments: dict[Channel, list[Attachment]],
+    period: str,
+    suppress_email: bool,
+    delivered: list[tuple[int, Channel]],
+    skipped_duplicates: list[tuple[int, Channel]],
+) -> None:
+    """Fan one recipient out across their enabled, implemented, non-broadcast channels.
+
+    Each (event, user, channel) delivery is claimed once on the
+    :class:`core.models.EventDelivery` ledger so a re-emit does not double-send. When
+    ``suppress_email`` is set the EMAIL channel is skipped here (the email goes to an
+    explicit ``email_to`` address instead — see :func:`_explicit_email_fan_out`).
+    """
+    for channel in preferences.enabled_channels(user, event_key):
+        if channel is Channel.EMAIL and suppress_email:
+            continue
+        if not channel_module.is_implemented(channel):
+            # Registered-but-unbuilt channel: record nothing, do nothing.
+            continue
+        adapter = channel_module.get_adapter(channel)
+        if adapter.is_broadcast:
+            # Broadcast channels (Discord) post once per event, handled separately.
+            continue
+        if _record_delivery(event_key, user, channel, period):
+            adapter.deliver(user, message_for(channel), attachments=channel_attachments.get(channel))
+            delivered.append((user.pk, channel))
+        else:
+            skipped_duplicates.append((user.pk, channel))
+
+
+def _explicit_email_fan_out(
+    event_key: str,
+    explicit_emails: list[str],
+    message_for: Callable[[Channel], Message],
+    channel_attachments: dict[Channel, list[Attachment]],
+    period: str,
+    delivered: list[tuple[int, Channel]],
+    skipped_duplicates: list[tuple[int, Channel]],
+) -> None:
+    """Send the EMAIL channel to explicit ``email_to`` addresses (Phase 4).
+
+    Mirrors a dedicated transactional send: each address gets the email once, through
+    the choke-point, deduped on the :class:`core.models.EventDelivery` ledger using an
+    ``email:<addr>`` target ref so re-runs don't double-send. Preferences are not
+    consulted (a dedicated email never did). Best-effort: the choke-point swallows the
+    SMTP failure (``best_effort=True`` inside the adapter call below).
+    """
+    if not explicit_emails:
+        return
+    from core.email import send as send_email
+
+    message = message_for(Channel.EMAIL)
+    attachments = channel_attachments.get(Channel.EMAIL)
+    seen: set[str] = set()
+    for raw in explicit_emails:
+        address = (raw or "").strip()
+        if not address or address.lower() in seen:
+            continue
+        seen.add(address.lower())
+        if _record_explicit_email(event_key, address, period):
+            send_email(
+                to=address,
+                subject=message.title,
+                trigger_kind=message.trigger_kind or event_key,
+                text_body=message.body,
+                html_body=message.html_body,
+                best_effort=True,
+                attachments=attachments,
+            )
+            delivered.append((0, Channel.EMAIL))
+        else:
+            skipped_duplicates.append((0, Channel.EMAIL))
+
+
+def _record_explicit_email(event_key: str, address: str, period: str) -> bool:
+    """Claim the (event, explicit-address, email, period) delivery slot (idempotent)."""
+    try:
+        _row, created = EventDelivery.objects.get_or_create(
+            event_key=event_key,
+            target_ref=f"email:{address.lower()}",
+            channel=Channel.EMAIL.value,
+            period=period,
+        )
+    except IntegrityError:
+        return False
+    return created
 
 
 def _record_broadcast(event_key: str, channel: Channel, period: str) -> bool:

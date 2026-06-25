@@ -74,17 +74,22 @@ def describe_class_published_notification():
 
 def describe_instructor_class_approved_notification():
     def it_notifies_instructor_on_approval(db):
+        from classes.emails import send_class_review_decision
+
         instructor_user = UserFactory()
         instructor = InstructorFactory(user=instructor_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING, instructor=instructor)
-        Notification.objects.all().delete()
-
         admin_user = UserFactory()
         approval = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
-        # Use a guild category that ALSO requires a guild lead so approval alone doesn't publish
-        # — simpler: test with a single-role offering so approved fires the published path too;
-        #   the instructor_class_approved notification is always dispatched on any APPROVED decision.
         approval.decide(ClassApproval.Decision.APPROVED, user=admin_user)
+        offering.refresh_from_db()
+        approval.refresh_from_db()
+        Notification.objects.all().delete()
+
+        # The instructor's "approved" bell row now fans out from the single
+        # ``instructor_class_approved`` event emitted by the decision email (the view
+        # calls this right after decide()), not from a separate model dispatch.
+        send_class_review_decision(offering, approval)
 
         assert Notification.objects.filter(
             trigger="instructor_class_approved",
@@ -99,14 +104,21 @@ def describe_instructor_class_approved_notification():
 
 def describe_instructor_changes_requested_notification():
     def it_notifies_instructor_when_changes_requested(db):
+        from classes.emails import send_class_review_decision
+
         instructor_user = UserFactory()
         instructor = InstructorFactory(user=instructor_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING, instructor=instructor)
-        Notification.objects.all().delete()
-
         admin_user = UserFactory()
         approval = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         approval.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=admin_user, notes="please fix the desc")
+        offering.refresh_from_db()
+        approval.refresh_from_db()
+        Notification.objects.all().delete()
+
+        # The "changes requested" bell row now fans out from the single
+        # ``instructor_changes_requested`` event emitted by the decision email.
+        send_class_review_decision(offering, approval)
 
         assert Notification.objects.filter(
             trigger="instructor_changes_requested",
@@ -121,6 +133,8 @@ def describe_instructor_changes_requested_notification():
 
 def describe_registration_confirmed_notification():
     def it_notifies_member_when_registration_is_confirmed(db):
+        from classes.emails import send_registration_confirmation
+
         member_user = UserFactory()
         # The ensure_user_has_member signal auto-creates an ACTIVE Member for member_user.
         member = member_user.member  # type: ignore[attr-defined]
@@ -130,17 +144,50 @@ def describe_registration_confirmed_notification():
             class_offering=offering,
             member=member,
             email=member_user.email,
-            status=Registration.Status.PENDING,
+            status=Registration.Status.CONFIRMED,
         )
         Notification.objects.all().delete()
 
-        reg.status = Registration.Status.CONFIRMED
-        reg.save()
+        # The "Registration confirmed" bell row now fans out from the single
+        # ``registration_confirmed`` event emitted by the confirmation email (called by
+        # the view/webhook right after the CONFIRMED transition), not the model save.
+        send_registration_confirmation(reg)
 
         assert Notification.objects.filter(
             trigger="registration_confirmed",
             user=member_user,
         ).exists()
+
+    def it_sends_exactly_one_confirmation_email_to_an_opted_in_member(db, settings):
+        """Double-send eliminated: the single ``registration_confirmed`` event sends the
+        rich confirmation email once (via email_to) and posts exactly one in-app row, even
+        for a member who opted into the confirmation email."""
+        from django.core import mail
+
+        from classes.emails import send_registration_confirmation
+        from core.models import NotificationPreference
+
+        member_user = UserFactory()
+        member = member_user.member  # type: ignore[attr-defined]
+        offering = ClassOfferingFactory(instructor=InstructorFactory(user=UserFactory()))
+        reg = RegistrationFactory(
+            class_offering=offering,
+            member=member,
+            email=member_user.email,
+            status=Registration.Status.CONFIRMED,
+        )
+        # Opt the member into the confirmation email — the single event still produces
+        # exactly one email (the rich shell via email_to), never a second generic one.
+        NotificationPreference.objects.create(user=member_user, trigger="registration_confirmed", email_enabled=True)
+        Notification.objects.all().delete()
+        mail.outbox.clear()
+
+        send_registration_confirmation(reg)
+
+        assert len(mail.outbox) == 1
+        assert mail.outbox[0].to == [member_user.email]
+        assert offering.title in mail.outbox[0].subject
+        assert Notification.objects.filter(trigger="registration_confirmed", user=member_user).count() == 1
 
 
 # ---------------------------------------------------------------------------
@@ -150,19 +197,24 @@ def describe_registration_confirmed_notification():
 
 def describe_waitlist_confirmed_notification():
     def it_notifies_member_when_added_to_waitlist(db):
+        from classes.emails import send_waitlist_joined_confirmation
+
         member_user = UserFactory()
         # The ensure_user_has_member signal auto-creates an ACTIVE Member for member_user.
         member = member_user.member  # type: ignore[attr-defined]
         offering = ClassOfferingFactory()
-        # Creating a WAITLISTED registration via save() dispatches waitlist_confirmed
-        Notification.objects.all().delete()
-
-        RegistrationFactory(
+        reg = RegistrationFactory(
             class_offering=offering,
             member=member,
             email=member_user.email,
             status=Registration.Status.WAITLISTED,
         )
+        Notification.objects.all().delete()
+
+        # The "Added to the waitlist" bell row now fans out from the single
+        # ``waitlist_confirmed`` event emitted by the waitlist email (called by the
+        # register view right after the WAITLISTED save), not the model save.
+        send_waitlist_joined_confirmation(reg)
 
         assert Notification.objects.filter(
             trigger="waitlist_confirmed",
