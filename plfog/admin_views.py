@@ -22,6 +22,43 @@ from membership.vote_calculator import calculate_results
 
 
 @staff_member_required
+def site_announcement(request: HttpRequest) -> HttpResponse:
+    """Admin view to broadcast a site-wide announcement to all active members.
+
+    On POST it fires the ``site_announcement`` event on the notification spine: an
+    in-app bell row for every active member, an opt-out email, and a single Discord
+    broadcast. The event itself logs the ``site_announcement`` SiteActivity (its
+    registry ``activity_kind``), so no separate ``SiteActivity.log`` is needed here.
+    """
+    from hub.forms import SiteAnnouncementForm
+
+    if request.method == "POST":
+        form = SiteAnnouncementForm(request.POST)
+        if form.is_valid():
+            from core.events.emit import emit
+
+            title = form.cleaned_data["title"]
+            body = form.cleaned_data["body"]
+            result = emit(
+                "site_announcement",
+                actor=request.user if request.user.is_authenticated else None,
+                context={
+                    "member_name": "there",
+                    "announcement_title": title,
+                    "announcement_body": body,
+                    "site_url": "/",
+                },
+                url="/",
+            )
+            messages.success(request, f"Announcement sent to {result.recipient_count} member(s).")
+            return redirect("admin:index")
+    else:
+        form = SiteAnnouncementForm()
+    context = {**admin.site.each_context(request), "form": form}
+    return render(request, "admin/site_announcement.html", context)
+
+
+@staff_member_required
 def invite_member(request: HttpRequest) -> HttpResponse:
     """Admin view to invite a new member by email."""
     if request.method == "POST":

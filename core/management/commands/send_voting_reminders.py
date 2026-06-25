@@ -1,36 +1,37 @@
-"""Notify members 3 days before the monthly funding vote closes. Daily cron; idempotent."""
+"""Fire the ``voting.closing_48h`` reminder 48h before the month-end vote close.
+
+A thin driver over the generalized scheduler (design §2.6): it hands this tick's
+voting occurrence (:func:`membership.voting.closing_48h_occurrences`) to
+:func:`core.events.scheduler.run_sources`, which due-checks it against the 15-minute
+tick window and fires it via ``emit`` — deduped on :class:`core.models.EventDelivery`
+by the ``voting:YYYY-MM`` period so a re-run within the same cycle is a no-op.
+
+Supersedes the previous month-end−3-days, in-app-only reminder (which used a
+``ScheduledNotificationMarker`` + ``notifications.dispatch("voting_closing_soon")``)
+and the dead ``voting_cycle_open`` trigger: there is now ONE voting-reminder path.
+Wired into the 15-minute ``run_scheduled_tasks`` cron exactly as before — the command
+name and its always-run placement are unchanged, only its mechanism moved onto the
+spine.
+"""
 
 from __future__ import annotations
 
-import calendar
 from typing import Any
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core import notifications
-from core.models import ScheduledNotificationMarker
+from core.events.scheduler import run_sources
+from membership.voting import closing_48h_occurrences
 
 
 class Command(BaseCommand):
-    help = "Dispatch the 'voting closing soon' notification when 3 days remain in the cycle."
+    help = "Fire the voting.closing_48h reminder when the cycle close is ~48h away. Safe every 15 min."
 
     def handle(self, *args: Any, **options: Any) -> None:
         now = timezone.now()
-        last_day = calendar.monthrange(now.year, now.month)[1]
-        if now.day != last_day - 3:
-            self.stdout.write("Not in the voting-reminder window; nothing to do.")
-            return
-        key = f"voting_closing:{now:%Y-%m}"
-        _, created = ScheduledNotificationMarker.objects.get_or_create(key=key)
-        if not created:
-            self.stdout.write("Already sent this cycle.")
-            return
-        notifications.dispatch(
-            "voting_closing_soon",
-            notifications.active_member_users(),
-            title="Guild voting closes soon",
-            body="The monthly funding vote closes in 3 days. Cast or update your vote.",
-            url="/guilds/voting/",
-        )
-        self.stdout.write(self.style.SUCCESS("Sent voting-closing reminders."))
+        fired = run_sources([closing_48h_occurrences], now=now)
+        if fired:
+            self.stdout.write(self.style.SUCCESS(f"Fired {fired} voting reminder(s)."))
+        else:
+            self.stdout.write("No voting reminder due this tick.")

@@ -11,6 +11,7 @@ from plfog.admin_views import (
     member_aliases_remove,
     member_aliases_set_primary,
     member_aliases_toggle_verified,
+    site_announcement,
     snapshot_delete,
     snapshot_detail,
     snapshot_draft,
@@ -20,6 +21,7 @@ from plfog.admin_views import (
 # Custom admin URLs must be before admin.site.urls
 admin_custom_urls = [
     path("admin/membership/member/invite/", invite_member, name="admin_invite_member"),
+    path("admin/announcement/", site_announcement, name="admin_site_announcement"),
     path("admin/snapshots/draft/", snapshot_draft, name="admin_snapshot_draft"),
     path("admin/snapshots/take/", snapshot_take, name="admin_snapshot_take"),
     path("admin/snapshots/<int:pk>/", snapshot_detail, name="admin_snapshot_detail"),

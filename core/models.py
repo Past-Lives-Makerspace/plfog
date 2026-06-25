@@ -348,28 +348,36 @@ class Invite(models.Model):
         return invite
 
     def send_invite_email(self) -> None:
-        """Send a plaintext invite email with a signup link."""
+        """Emit the ``member.invited`` event — a forced, DB-editable invite email.
+
+        The invitee has no account yet, so this is an email-only forced send routed to
+        the raw ``self.email`` (the ``member.invited`` event resolves to no per-user
+        recipient and carries the address as ``email_to``). The subject/body come from
+        the DB-editable copy catalogue; only the signup URL is computed here.
+
+        An invite is an explicit, intentional admin action — re-inviting (or re-sending)
+        MUST always send a fresh email, exactly as the old inline sender did. So each
+        send uses a unique idempotency ``period`` (a microsecond timestamp): the
+        EventDelivery ledger never dedupes one invite send against another. (Dedupe on
+        the address would silently swallow a deliberate re-invite.)
+        """
         from urllib.parse import urlencode
 
         from django.contrib.sites.models import Site
+
+        from core.events.emit import emit
 
         current_site = Site.objects.get_current()
         protocol = "https" if not settings.DEBUG else "http"
         query = urlencode({"email": self.email})
         signup_url = f"{protocol}://{current_site.domain}/accounts/signup/?{query}"
 
-        from core import email as core_email
-
-        core_email.send(
-            to=self.email,
-            subject="You're invited to Past Lives Makerspace",
-            trigger_kind="core.invite",
-            text_body=(
-                f"You've been invited to join Past Lives Makerspace!\n\n"
-                f"Click the link below to create your account:\n\n"
-                f"{signup_url}\n\n"
-                f"If you didn't expect this invite, you can ignore this email."
-            ),
+        emit(
+            "member.invited",
+            target=self.member,
+            context={"invitee_email": self.email, "signup_url": signup_url},
+            email_to=self.email,
+            period=f"invite:{timezone.now():%Y%m%d%H%M%S%f}",
         )
 
 

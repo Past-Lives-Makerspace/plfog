@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
-from core.models import HeroCropMixin, SiteActivity
+from core.models import HeroCropMixin
 from core.validators import validate_document, validate_image_size
 from membership.managers import MemberEmailManager
 
@@ -955,9 +955,10 @@ class GuildAnnouncementQuerySet(models.QuerySet):
 class GuildAnnouncement(models.Model):
     """A news post on a guild page.
 
-    Member notification on publish is wired once Plan 2's notifications module
-    (``core.notifications.dispatch``) lands — see DEFERRED.md. Until then,
-    announcements are created/displayed/deleted without firing notifications.
+    Posting an announcement notifies the guild's members via :meth:`notify_members`
+    (the ``guild.announcement`` event on the notification spine): an in-app bell row,
+    an opt-out email, and a Discord broadcast. The view calls ``notify_members`` once,
+    after the row is saved.
     """
 
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="announcements", help_text="Parent guild.")
@@ -990,6 +991,35 @@ class GuildAnnouncement(models.Model):
     def is_active(self) -> bool:
         """Visible on the page — never expires, or the expiry is today or later."""
         return self.expires_at is None or self.expires_at >= timezone.localdate()
+
+    def notify_members(self) -> None:
+        """Emit ``guild.announcement`` to the guild's members (Decision 4).
+
+        Recipients resolve to every active member of this guild (scoped — not
+        site-wide); they receive an in-app bell row (always), an email (opt-out), and
+        a single Discord broadcast. The copy is DB-editable; the merge fields come from
+        this announcement. Called once by the create view after the row is saved.
+
+        The ``period`` is keyed to this announcement's pk so re-saving never double-
+        notifies, while a different announcement (a different pk) still notifies.
+        """
+        from core.events.emit import emit
+
+        emit(
+            "guild_announcement",
+            actor=self.author,
+            target=self,
+            context={
+                "guild": self.guild,
+                "member_name": "there",
+                "guild_name": self.guild.name,
+                "announcement_title": self.title,
+                "announcement_body": self.body,
+                "guild_url": f"/guilds/{self.guild_id}/",
+            },
+            url=f"/guilds/{self.guild_id}/",
+            period=f"announcement:{self.pk}",
+        )
 
 
 class GuildMeetingNote(models.Model):
@@ -1332,18 +1362,44 @@ class FundingSnapshot(models.Model):
             results=calc,
         )
 
-        SiteActivity.log(SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN, target=snapshot)
-
-        from core import notifications
-
-        notifications.dispatch(
-            "funding_results_published",
-            notifications.active_member_users(),
-            title="Funding results published",
-            body=f"Results for {snapshot.cycle_label} are in.",
-            url="/guilds/voting/history/",
-        )
+        snapshot.publish_results()
         return snapshot
+
+    def allocation_summary(self) -> str:
+        """A plain-text per-guild allocation breakdown for the results email.
+
+        One line per guild, funding-descending (the order ``calculate_results``
+        already sorts in): ``"Metal Guild — $600.00 (45.0%)"``. Empty string when the
+        snapshot has no per-guild results (a legacy or vote-less snapshot).
+        """
+        results = (self.results or {}).get("results", [])
+        lines = [f"{row['guild_name']} — ${row['funding']} ({row['share_pct']}%)" for row in results]
+        return "\n".join(lines)
+
+    def publish_results(self) -> None:
+        """Emit ``voting.results_published`` to all voters with the allocation breakdown.
+
+        Logs the FUNDING_SNAPSHOT_TAKEN SiteActivity (the event's registry
+        ``activity_kind``) and fans out an email + in-app row to every voter, carrying
+        the per-guild allocation summary as a merge field. Supersedes the old
+        ``notifications.dispatch("funding_results_published")`` (one vocabulary now:
+        ``voting.results_published``). Deduped on the snapshot pk so re-publishing the
+        same snapshot never double-sends, while a new snapshot (new pk) does notify.
+        """
+        from core.events.emit import emit
+
+        emit(
+            "voting.results_published",
+            target=self,
+            context={
+                "member_name": "there",
+                "cycle_label": self.cycle_label,
+                "allocation_summary": self.allocation_summary(),
+                "voting_url": "/guilds/voting/history/",
+            },
+            url="/guilds/voting/history/",
+            period=f"snapshot:{self.pk}",
+        )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         super().save(*args, **kwargs)

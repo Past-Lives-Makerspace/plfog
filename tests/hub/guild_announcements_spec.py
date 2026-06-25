@@ -1,20 +1,28 @@
-"""Deleting guild announcements.
+"""Guild announcements — create (which now notifies the guild's members), edit, delete.
 
-NOTE: posting/publishing announcements (which fires the ``guild_announcement``
-notification via ``GuildAnnouncement.publish``) is deferred until Plan 2's
-``core.notifications`` lands — see DEFERRED.md. Only the delete endpoint, which
-has no notification dependency, is covered here for now.
+Posting an announcement fires the ``guild.announcement`` event via
+``GuildAnnouncement.notify_members`` (the create view calls it after save): an in-app
+bell row + opt-out email to every guild member, plus a Discord broadcast.
 """
 
 from __future__ import annotations
 
 import pytest
 from django.contrib.auth.models import User
+from django.db.models.signals import post_save
 from django.test import Client
 from django.urls import reverse
+from factory.django import mute_signals
 
+from core.models import Notification
 from membership.models import GuildAnnouncement, Member
-from tests.membership.factories import GuildAnnouncementFactory, GuildFactory, MembershipPlanFactory
+from tests.membership.factories import (
+    GuildAnnouncementFactory,
+    GuildFactory,
+    GuildMembershipFactory,
+    MemberFactory,
+    MembershipPlanFactory,
+)
 
 
 def _editor_user(username: str) -> User:
@@ -77,6 +85,24 @@ def describe_announcement_create():
         resp = client.post(reverse("hub_guild_announcement_create", args=[guild.pk]), {"title": "", "body": ""})
         assert resp.status_code == 302
         assert not GuildAnnouncement.objects.filter(guild=guild).exists()
+
+    def it_notifies_the_guilds_members_on_post(client: Client):
+        _editor_user("ac_notify")
+        client.login(username="ac_notify", password="pw")
+        guild = GuildFactory()
+        # A guild member with a linked, email-bearing user receives the in-app row.
+        member = MemberFactory()
+        with mute_signals(post_save):
+            member_user = User.objects.create_user(username="gm_recipient", email="gm@example.com")
+        member.user = member_user
+        member.save(update_fields=["user"])
+        GuildMembershipFactory(guild=guild, member=member)
+
+        client.post(
+            reverse("hub_guild_announcement_create", args=[guild.pk]),
+            {"title": "Forge night!", "body": "This Friday.", "expires_at": ""},
+        )
+        assert Notification.objects.filter(user=member_user, trigger="guild_announcement").exists()
 
     def it_forbids_non_editors(client: Client):
         MembershipPlanFactory()

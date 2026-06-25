@@ -50,12 +50,13 @@ def describe_emit():
             emit("new_login", context={"user": user}, title="New login", body="b")
             assert TransactionalEmailLog.objects.filter(trigger_kind="new_login", to_email=user.email).exists()
 
-        def it_skips_unimplemented_channels(linked_member):
-            # guild_announcement seeds in_app + email; no live discord adapter is
-            # wired for it, so emit must not raise and must not record discord.
+        def it_does_not_deliver_channels_the_event_does_not_declare(linked_member):
+            # class_published declares in_app + email + push (no discord), so emit must
+            # not post to discord — only declared channels fan out.
             linked_member()
-            result = emit("guild_announcement", context={}, title="t", body="b")
+            result = emit("class_published", context={}, title="t", body="b")
             assert all(channel is not Channel.DISCORD for _pk, channel in result.delivered)
+            assert result.broadcast_channels == []
 
     def describe_scoped_routing():
         def it_routes_class_review_to_guild_leadership_only(linked_member):

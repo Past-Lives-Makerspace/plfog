@@ -107,6 +107,43 @@ def describe_dashboard_callback():
 
 
 @pytest.mark.django_db
+def describe_site_announcement_view():
+    def it_requires_staff(client):
+        resp = client.get("/admin/announcement/")
+        assert resp.status_code == 302
+        assert "/login" in resp.url or "/accounts/" in resp.url
+
+    def it_renders_form_on_get(admin_client):
+        resp = admin_client.get("/admin/announcement/")
+        assert resp.status_code == 200
+        assert "form" in resp.context
+
+    def it_broadcasts_to_active_members_on_post(admin_client):
+        from django.contrib.auth.models import User
+        from django.db.models.signals import post_save
+        from factory.django import mute_signals
+
+        from core.models import Notification
+
+        member = MemberFactory()  # ACTIVE
+        with mute_signals(post_save):
+            recipient = User.objects.create_user(username="sa_recipient", email="sa@example.com")
+        member.user = recipient
+        member.save(update_fields=["user"])
+
+        resp = admin_client.post(
+            "/admin/announcement/",
+            data={"title": "Holiday hours", "body": "Closed July 4th."},
+        )
+        assert resp.status_code == 302
+        assert Notification.objects.filter(user=recipient, trigger="site_announcement").exists()
+
+    def it_re_renders_on_invalid_post(admin_client):
+        resp = admin_client.post("/admin/announcement/", data={"title": "", "body": ""})
+        assert resp.status_code == 200  # re-renders form with errors
+
+
+@pytest.mark.django_db
 def describe_invite_member_view():
     def it_requires_staff(client):
         resp = client.get("/admin/membership/member/invite/")

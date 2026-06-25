@@ -69,6 +69,7 @@ class Recipients(str, Enum):
     FOG_ADMINS = "fog_admins"
     GUILD_LEADERSHIP = "guild_leadership"
     GUILD_LEAD = "guild_lead"
+    GUILD_MEMBERS = "guild_members"
     GUILD_ORIENTERS = "guild_orienters"
     ORIENTATION_RUNNER = "orientation_runner"
     REGISTRANT = "registrant"
@@ -76,10 +77,12 @@ class Recipients(str, Enum):
     NEXT_WAITLISTED = "next_waitlisted"
     TAB_MEMBER = "tab_member"
     INVITER = "inviter"
+    INVITEE = "invitee"
     LEASE_TENANT = "lease_tenant"
     ALL_ACTIVE_MEMBERS = "all_active_members"
     ALL_VOTERS = "all_voters"
     EVERYONE_WITH_LOGIN = "everyone_with_login"
+    RELEASE_AUDIENCE = "release_audience"
     SINGLE_USER = "single_user"
 
 
@@ -289,7 +292,126 @@ def _seed_from_triggers() -> list[EventType]:
     return events
 
 
-EVENTS: list[EventType] = _seed_from_triggers()
+# --- Phase 6: net-new user-facing events on the spine (design §4, Decisions 4-5) -
+#
+# These events are NOT seeded from the legacy trigger catalogue — they are real new
+# broadcasts/emails the redesign adds. Two of them (``guild_announcement`` /
+# ``site_announcement``) re-use the existing seeded keys (already curated in
+# ``copy.py``) but REPLACE the Phase-1 seed entry so they carry the correct
+# role×scope resolver and the Discord broadcast channel. The other four are entirely
+# new keys (dotted, matching the design's vocabulary).
+#
+# Channel-spec shorthands for the new events:
+_DISCORD_ON = ChannelSpec(Channel.DISCORD, ChannelDefault.ON)
+
+# New event keys (single vocabulary — these strings ARE the preference / audit keys).
+MEMBER_INVITED = "member.invited"
+GUILD_ANNOUNCEMENT = "guild_announcement"  # re-uses the seeded key + curated copy
+SITE_ANNOUNCEMENT = "site_announcement"  # re-uses the seeded key + curated copy
+VOTING_CLOSING_48H = "voting.closing_48h"
+VOTING_RESULTS_PUBLISHED = "voting.results_published"
+RELEASE_PUBLISHED = "release.published"
+
+
+_NEW_EVENTS: list[EventType] = [
+    # 1. member.invited — the invitee MUST receive it (forced email). In-app would
+    #    have nowhere to land (the invitee has no account yet), so email only.
+    EventType(
+        key=MEMBER_INVITED,
+        label="You're invited to Past Lives",
+        description="A makerspace invitation was sent to a prospective member.",
+        category="Membership",
+        recipient=Recipients.INVITEE,
+        channels=(_EMAIL_FORCED,),
+        # No activity row from emit: ``Invite.create_and_send`` already logs the
+        # MEMBER_INVITED SiteActivity with the inviting admin as the actor (the
+        # email-sending path doesn't know who that is). Keeping this ``None`` makes
+        # that the single, correctly-attributed source of the activity row.
+        activity_kind=None,
+    ),
+    # 2. guild.announcement — a guild lead/staff posts; the guild's members hear it.
+    #    In-app on, email opt-out, Discord broadcast on. REPLACES the Phase-1 seed
+    #    entry (which routed to ALL_ACTIVE_MEMBERS with no Discord).
+    EventType(
+        key=GUILD_ANNOUNCEMENT,
+        label="Guild announcement",
+        description="A guild you're in posted an announcement.",
+        category="Guilds",
+        recipient=Recipients.GUILD_MEMBERS,
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
+        activity_kind="guild_announcement",
+    ),
+    # 3. site.announcement — an admin broadcasts site-wide to all active members.
+    #    In-app on, email opt-out, Discord broadcast on. REPLACES the Phase-1 seed
+    #    entry (adds the Discord channel).
+    EventType(
+        key=SITE_ANNOUNCEMENT,
+        label="Makerspace-wide announcement",
+        description="Staff posted a site-wide notice.",
+        category="Announcements",
+        recipient=Recipients.ALL_ACTIVE_MEMBERS,
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
+        activity_kind="site_announcement",
+    ),
+    # 4. voting.closing_48h — scheduled 48h before the month-end auto-close.
+    #    Supersedes the dead voting_cycle_open + the old voting_closing_soon (−3d,
+    #    in-app only). Email opt-out, in-app on, Discord broadcast on.
+    EventType(
+        key=VOTING_CLOSING_48H,
+        label="Guild voting closes soon",
+        description="Two days before the monthly funding vote closes.",
+        category="Voting",
+        recipient=Recipients.ALL_VOTERS,
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
+        activity_kind=None,
+    ),
+    # 5. voting.results_published — after the month-end close + allocation. Email +
+    #    in-app to all voters with the allocation breakdown. Supersedes the
+    #    funding_results_published dispatch in FundingSnapshot.take.
+    EventType(
+        key=VOTING_RESULTS_PUBLISHED,
+        label="Guild funding results published",
+        description="This month's votes are counted and the allocation is published.",
+        category="Voting",
+        recipient=Recipients.ALL_VOTERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind="funding_snapshot_taken",
+    ),
+    # 6. release.published — "a new version has been released!" to everyone with a
+    #    login (∪ active members ∪ admins; everyone_with_login already supersets
+    #    these but the union resolver is explicit + robust). Email opt-out, in-app
+    #    on, Discord broadcast on. Mirrors the GitHub-Actions Discord changelog post.
+    EventType(
+        key=RELEASE_PUBLISHED,
+        label="A new version is out",
+        description="A new version of the Past Lives app was released.",
+        category="Announcements",
+        recipient=Recipients.RELEASE_AUDIENCE,
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
+        activity_kind=None,
+    ),
+]
+
+
+def _assemble_events() -> list[EventType]:
+    """Seed from legacy triggers, then apply the Phase-6 net-new events.
+
+    A new event whose key matches a seeded one REPLACES it (so the announcement
+    events carry their role×scope resolver + Discord channel instead of the Phase-1
+    structural copy); a new event with a fresh key is appended. The result keeps the
+    legacy catalogue order, with brand-new keys after it.
+    """
+    events = _seed_from_triggers()
+    by_key = {e.key: i for i, e in enumerate(events)}
+    for new_event in _NEW_EVENTS:
+        if new_event.key in by_key:
+            events[by_key[new_event.key]] = new_event
+        else:
+            events.append(new_event)
+    return events
+
+
+EVENTS: list[EventType] = _assemble_events()
 
 _BY_KEY: dict[str, EventType] = {e.key: e for e in EVENTS}
 

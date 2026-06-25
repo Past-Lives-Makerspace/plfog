@@ -87,6 +87,10 @@ def describe_Invite():
                 Invite.objects.create(email="dup@example.com", invited_by=admin_user)
 
     def describe_send_invite_email():
+        # send_invite_email now emits the ``member.invited`` event: a FORCED email to
+        # the invitee's raw address, with DB-editable copy. It routes through the
+        # choke-point (core.email.send → send_mail), so the underlying send_mail is
+        # still the seam these characterization tests assert on.
         def it_sends_plaintext_email(admin_user):
             invite = Invite.objects.create(email="new@example.com", invited_by=admin_user)
             with patch("core.email.send_mail") as mock_send:
@@ -118,6 +122,14 @@ def describe_Invite():
                 assert "user%2Btag%40example.com" in message
                 assert "user+tag@example.com" not in message.split("?")[1]
 
+        def it_emits_member_invited_as_a_forced_email(admin_user):
+            invite = Invite.objects.create(email="forced@example.com", invited_by=admin_user)
+            invite.send_invite_email()
+            # The email is audited under the member.invited event key (one vocabulary).
+            log = TransactionalEmailLog.objects.filter(trigger_kind="member.invited").first()
+            assert log is not None
+            assert log.to_email == "forced@example.com"
+
     def describe_create_and_send():
         def it_creates_invite_and_member_placeholder(admin_user):
             MembershipPlanFactory()
@@ -144,7 +156,7 @@ def describe_Invite():
             MembershipPlanFactory()
             Invite.create_and_send(email="send@example.com", invited_by=admin_user)
 
-            assert TransactionalEmailLog.objects.filter(trigger_kind="core.invite").exists()
+            assert TransactionalEmailLog.objects.filter(trigger_kind="member.invited").exists()
 
         def it_raises_when_active_member_exists(admin_user):
             from tests.membership.factories import MemberFactory

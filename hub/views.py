@@ -1479,6 +1479,7 @@ def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
         announcement.guild = guild
         announcement.author = request.user
         announcement.save()
+        announcement.notify_members()
         messages.success(request, "Announcement posted.")
     else:
         messages.error(request, "Couldn't post the announcement — add a title and body.")
@@ -1490,8 +1491,9 @@ def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
 def guild_announcement_delete(request: HttpRequest, pk: int, announcement_pk: int) -> HttpResponse:
     """Delete a guild announcement. Editor only.
 
-    The companion *create*/publish endpoint (which fires the ``guild_announcement``
-    notification) is deferred until Plan 2's ``core.notifications`` lands — see DEFERRED.md.
+    The companion *create* endpoint fires the ``guild.announcement`` notification to
+    the guild's members (see :meth:`membership.models.GuildAnnouncement.notify_members`).
+    Deleting does not notify.
     """
     from membership.models import GuildAnnouncement
 

@@ -146,6 +146,30 @@ def guild_lead(context: dict[str, Any]) -> list[Recipient]:
     return _members_to_recipients([lead], "guild_lead")
 
 
+def guild_members(context: dict[str, Any]) -> list[Recipient]:
+    """GUILD-SCOPED — every active member who has joined the guild (Decision 4).
+
+    The audience for a guild announcement: everyone in the guild's roster, addressed
+    via their linked User. Unlike :meth:`membership.models.Guild.roster_members` this
+    is NOT directory-privacy filtered — a directory-hidden member still belongs to the
+    guild and still gets the guild's announcements (privacy governs the public roster,
+    not whether you hear from your own guild). A guild with no members resolves to no
+    recipient.
+    """
+    from membership.models import Member
+
+    guild: Guild = _require(context, "guild")
+    members = list(
+        Member.objects.filter(
+            guild_memberships__guild=guild,
+            status=Member.Status.ACTIVE,
+        )
+        .select_related("user")
+        .distinct()
+    )
+    return _members_to_recipients(members, "guild_member")
+
+
 def guild_orienters(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — the lead plus members holding the ORIENTER staff role.
 
@@ -260,6 +284,19 @@ def inviter(context: dict[str, Any]) -> list[Recipient]:
     return [(user, "inviter")]
 
 
+def invitee(context: dict[str, Any]) -> list[Recipient]:
+    """The person being INVITED — addressed by raw email, not a user (Decision 5).
+
+    An invitee has no account yet (that's the point of the invite), so there is no
+    ``User`` to fan out in-app to: the invite is an email-only, forced send whose
+    recipient is the raw ``invite.email`` carried as the event's ``email_to``. This
+    resolver therefore yields NO per-user recipient — the email rides the explicit
+    ``email_to`` path in :func:`core.events.emit.emit`. Kept as a named resolver so the
+    event is declarative and the audience is documented in the catalogue.
+    """
+    return []
+
+
 def lease_tenant(context: dict[str, Any]) -> list[Recipient]:
     """The member tenant of a lease (lease expiring / activated).
 
@@ -329,6 +366,19 @@ def everyone_with_login(context: dict[str, Any]) -> list[Recipient]:
     return out
 
 
+def release_audience(context: dict[str, Any]) -> list[Recipient]:
+    """Everyone who should hear about a release (Decision 5).
+
+    The design's audience is ``all_active_members ∪ everyone_with_login ∪ admins``.
+    :func:`everyone_with_login` already supersets active members and any admin who can
+    log in, but the union is made explicit + deduped here so the audience is robust
+    even if an admin's account is somehow inactive (an admin still hears about a
+    release). The reason records which membership pulled them in (first wins).
+    """
+    combined = everyone_with_login(context) + all_active_members(context) + fog_admins(context)
+    return _dedupe(combined)  # type: ignore[arg-type]
+
+
 def single_user(context: dict[str, Any]) -> list[Recipient]:
     """A single explicit User passed in context (e.g. security new-login).
 
@@ -346,6 +396,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.FOG_ADMINS: fog_admins,
     Recipients.GUILD_LEADERSHIP: guild_leadership,
     Recipients.GUILD_LEAD: guild_lead,
+    Recipients.GUILD_MEMBERS: guild_members,
     Recipients.GUILD_ORIENTERS: guild_orienters,
     Recipients.ORIENTATION_RUNNER: orientation_runner,
     Recipients.REGISTRANT: registrant,
@@ -353,10 +404,12 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.NEXT_WAITLISTED: next_waitlisted,
     Recipients.TAB_MEMBER: tab_member,
     Recipients.INVITER: inviter,
+    Recipients.INVITEE: invitee,
     Recipients.LEASE_TENANT: lease_tenant,
     Recipients.ALL_ACTIVE_MEMBERS: all_active_members,
     Recipients.ALL_VOTERS: all_voters,
     Recipients.EVERYONE_WITH_LOGIN: everyone_with_login,
+    Recipients.RELEASE_AUDIENCE: release_audience,
     Recipients.SINGLE_USER: single_user,
 }
 

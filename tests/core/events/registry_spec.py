@@ -1,4 +1,4 @@
-"""The event registry — seeded from the legacy trigger catalogue, faithfully."""
+"""The event registry — legacy-trigger seed PLUS the Phase-6 net-new events."""
 
 from __future__ import annotations
 
@@ -8,27 +8,44 @@ from core import triggers
 from core.events import registry
 from core.events.registry import Channel, ChannelDefault, Recipients, get_event
 
+# The Phase-6 net-new event keys, appended to (or replacing) the trigger seed.
+_NEW_KEYS = {e.key for e in registry._NEW_EVENTS}
+# The two announcement events re-use a seeded key (they REPLACE the Phase-1 entry);
+# the other four are brand-new keys not present in the legacy catalogue.
+_BRAND_NEW_KEYS = {"member.invited", "voting.closing_48h", "voting.results_published", "release.published"}
+
 
 def describe_event_registry():
     def describe_seeding():
-        def it_registers_one_event_per_legacy_trigger():
-            assert len(registry.EVENTS) == len(triggers.TRIGGERS)
+        def it_registers_every_legacy_trigger_plus_the_new_events():
+            # Each trigger key still maps to an event; the brand-new keys are extra.
+            assert len(registry.EVENTS) == len(triggers.TRIGGERS) + len(_BRAND_NEW_KEYS)
 
-        def it_shares_keys_with_the_legacy_catalogue():
+        def it_keeps_the_legacy_keys_as_a_subset():
             event_keys = {e.key for e in registry.EVENTS}
             trigger_keys = {t.key for t in triggers.TRIGGERS}
-            assert event_keys == trigger_keys
+            assert trigger_keys <= event_keys
+            assert _BRAND_NEW_KEYS <= event_keys
 
-        def it_copies_label_description_and_category():
+        def it_copies_label_description_and_category_for_unreplaced_triggers():
+            # The announcement events are deliberately replaced (their resolver +
+            # channels change); every OTHER trigger still mirrors the legacy copy.
             for trigger in triggers.TRIGGERS:
+                if trigger.key in _NEW_KEYS:
+                    continue
                 event = get_event(trigger.key)
                 assert event.label == trigger.label
                 assert event.description == trigger.description
                 assert event.category == trigger.category
 
     def describe_channels():
-        def it_always_includes_in_app_on():
+        def it_includes_in_app_on_for_every_per_recipient_event():
+            # member.invited is email-only (the invitee has no account → no in-app),
+            # so the in-app invariant holds for every OTHER event.
             for event in registry.EVENTS:
+                if event.key == "member.invited":
+                    assert event.channel(Channel.IN_APP) is None
+                    continue
                 spec = event.channel(Channel.IN_APP)
                 assert spec is not None
                 assert spec.default is ChannelDefault.ON
@@ -40,6 +57,12 @@ def describe_event_registry():
             assert spec.default is ChannelDefault.FORCED
             assert spec.is_forced
 
+        def it_forces_email_for_the_member_invite():
+            # member.invited is a forced email (the invitee must receive it).
+            spec = get_event("member.invited").channel(Channel.EMAIL)
+            assert spec is not None
+            assert spec.is_forced
+
         def it_defaults_email_off_for_non_default_triggers():
             # class_published has email_default=False in the legacy catalogue.
             spec = get_event("class_published").channel(Channel.EMAIL)
@@ -48,11 +71,19 @@ def describe_event_registry():
             assert not spec.is_forced
 
         def it_maps_push_default_flag_to_push_channel():
-            # No legacy trigger sets push_default=True, so all map to OFF.
+            # Legacy-seeded events all map push to OFF; the net-new events declare no
+            # push channel at all (they're broadcasts / forced emails).
             for event in registry.EVENTS:
                 spec = event.channel(Channel.PUSH)
+                if event.key in _NEW_KEYS:
+                    assert spec is None
+                    continue
                 assert spec is not None
                 assert spec.default is ChannelDefault.OFF
+
+        def it_broadcasts_announcements_and_releases_on_discord():
+            for key in ("guild_announcement", "site_announcement", "release.published"):
+                assert get_event(key).has_channel(Channel.DISCORD)
 
     def describe_resolvers():
         def it_assigns_a_resolver_reference_to_every_event():

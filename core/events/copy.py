@@ -84,6 +84,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.FOG_ADMINS: "All FOG admins (site-wide).",
     Recipients.GUILD_LEADERSHIP: "The guild's lead and all of its staff.",
     Recipients.GUILD_LEAD: "The guild's lead only.",
+    Recipients.GUILD_MEMBERS: "Every active member of the guild.",
     Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orienter role.",
     Recipients.ORIENTATION_RUNNER: "The staffer who claimed/ran the orientation.",
     Recipients.REGISTRANT: "The member the event is about (the registrant).",
@@ -91,10 +92,12 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.NEXT_WAITLISTED: "The next member in line on the waitlist.",
     Recipients.TAB_MEMBER: "The member whose billing tab this concerns.",
     Recipients.INVITER: "The person who sent the invitation.",
+    Recipients.INVITEE: "The person being invited (addressed by email; no account yet).",
     Recipients.LEASE_TENANT: "The member tenant of the lease.",
     Recipients.ALL_ACTIVE_MEMBERS: "Every active member.",
     Recipients.ALL_VOTERS: "Every member eligible to vote.",
     Recipients.EVERYONE_WITH_LOGIN: "Everyone with a login (members and past members).",
+    Recipients.RELEASE_AUDIENCE: "Everyone with a login, plus all active members and admins.",
     Recipients.SINGLE_USER: "A single specific user.",
 }
 
@@ -415,6 +418,126 @@ _CURATED: dict[str, EventCopy] = {
                     "<p>Hi {{ member_name }},</p>"
                     "<p>We noticed a new sign-in from <strong>{{ device }}</strong> {{ login_at }}. "
                     "If this was you, no action is needed.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # --- Phase 6: net-new events (design §4) ---------------------------------
+    "member.invited": EventCopy(
+        placeholders=("invitee_email", "signup_url"),
+        sample_context={
+            "invitee_email": "newcomer@example.com",
+            "signup_url": "https://pastlives.example/accounts/signup/?email=newcomer@example.com",
+        },
+        channels={
+            Channel.EMAIL: ChannelCopy(
+                subject="You're invited to Past Lives Makerspace",
+                body_text=(
+                    "You've been invited to join Past Lives Makerspace!\n\n"
+                    "Click the link below to create your account:\n\n"
+                    "{{ signup_url }}\n\n"
+                    "If you didn't expect this invite, you can ignore this email."
+                ),
+                body_html=(
+                    "<p>You've been invited to join <strong>Past Lives Makerspace</strong>!</p>"
+                    '<p><a href="{{ signup_url }}">Create your account</a></p>'
+                    "<p>If you didn't expect this invite, you can ignore this email.</p>"
+                ),
+            ),
+        },
+    ),
+    "voting.closing_48h": EventCopy(
+        placeholders=("member_name", "cycle_label", "closes_on", "voting_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "cycle_label": "June 2026",
+            "closes_on": "June 30, 2026",
+            "voting_url": "https://pastlives.example/guilds/voting/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Guild voting closes in 2 days",
+                body_text="{{ cycle_label }} guild voting closes {{ closes_on }} — cast or update your vote.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Last call: guild voting closes {{ closes_on }}",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "The {{ cycle_label }} guild funding vote closes on {{ closes_on }} — about two days "
+                    "from now. Make sure your vote is in (it rolls over from last cycle if you don't change "
+                    "it): {{ voting_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>The {{ cycle_label }} guild funding vote closes on <strong>{{ closes_on }}</strong> "
+                    "— about two days from now. Make sure your vote is in.</p>"
+                    '<p><a href="{{ voting_url }}">Cast or update your vote</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "voting.results_published": EventCopy(
+        placeholders=("member_name", "cycle_label", "allocation_summary", "voting_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "cycle_label": "June 2026",
+            "allocation_summary": "Metal Guild — $600.00 (45.0%)\nFiber Guild — $400.00 (30.0%)",
+            "voting_url": "https://pastlives.example/guilds/voting/history/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Funding results are in for {{ cycle_label }}",
+                body_text="This cycle's guild allocations have been published.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ cycle_label }} guild funding results",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "The votes for {{ cycle_label }} are counted. Here's how the funding pool was split:\n\n"
+                    "{{ allocation_summary }}\n\n"
+                    "Full breakdown: {{ voting_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>The votes for {{ cycle_label }} are counted. Here's how the funding pool was split:</p>"
+                    "<pre>{{ allocation_summary }}</pre>"
+                    '<p><a href="{{ voting_url }}">See the full breakdown</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "release.published": EventCopy(
+        placeholders=("member_name", "version", "release_title", "release_notes", "site_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "version": "0.19.9",
+            "release_title": "No more double class-reminder emails",
+            "release_notes": "• You now get a single class-reminder email instead of two.",
+            "site_url": "https://pastlives.example/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="A new version is out: {{ release_title }}",
+                body_text="Past Lives v{{ version }} — {{ release_title }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="What's new at Past Lives: {{ release_title }}",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "We just released a new version of the Past Lives app (v{{ version }}): "
+                    "{{ release_title }}.\n\n"
+                    "{{ release_notes }}\n\n"
+                    "Visit Past Lives: {{ site_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>We just released a new version of the Past Lives app "
+                    "(v{{ version }}): <strong>{{ release_title }}</strong>.</p>"
+                    "<pre>{{ release_notes }}</pre>"
+                    '<p><a href="{{ site_url }}">Visit Past Lives</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
