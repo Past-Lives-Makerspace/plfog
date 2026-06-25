@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.9"
+VERSION = "0.19.10"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.10",
+        "date": "2026-06-25",
+        "title": "All your notifications in one place",
+        "changes": [
+            "Your notification settings are now a single, simple grid. For every kind of update — class "
+            "reminders, class approvals, orientations, waitlist spots, billing receipts, announcements, and "
+            "more — you pick exactly how it reaches you: the in-app bell, email, or a browser push. The "
+            "separate email-preferences page is gone; everything lives in one spot under Settings.",
+            "Behind the scenes we rebuilt how the site sends notifications, so you'll never get the same "
+            "message twice and the choices you make in that grid are always respected.",
+            "New alerts you can opt into: guild and makerspace-wide announcements, a heads-up two days before "
+            "monthly voting closes, and the voting results once they're in.",
+        ],
+    },
     {
         "version": "0.19.9",
         "date": "2026-06-24",

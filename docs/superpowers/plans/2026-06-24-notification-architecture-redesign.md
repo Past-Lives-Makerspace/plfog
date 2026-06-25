@@ -1,6 +1,16 @@
 # Notification & Event Architecture Redesign — Design Plan
 
-**Status:** Design — **decisions resolved (see §1A)**, ready to build pending final go-ahead.
+**Status:** ✅ **SHIPPED (v0.19.10, 2026-06-25)** — built across 8 phases on `release-0.19.x`. Spine
+(`core/events/`: registry, `emit()`, resolvers, channels incl. Discord, `EventDelivery`, DB-editable copy
+catalogue), all event-driven senders migrated onto `emit()` (double-sends gone), the 4 choke-point bypasses
++ `bill_tabs` + the generalized scheduler done, the six new events built, `NotificationPreference` cut over
+to per-(event, channel) rows with a unified settings matrix, and all dead code pruned (`dispatch()`,
+`EmailPreferencesForm`, dead triggers, `ScheduledNotificationMarker`). One deferred item: the
+`announce_release` command exists but is **left as a manual post-deploy command** (not auto-wired into
+`render.yaml`) — auto-emailing every member on each deploy is a product decision for the owner. Original
+design (decisions) below.
+
+**Status (original):** Design — **decisions resolved (see §1A)**, ready to build pending final go-ahead.
 **Date:** 2026-06-24
 **Goal:** Tear out the scattered, one-off email/notification/trigger code and replace it with a single
 **event-driven spine**: the app emits *events*; events resolve *their own recipients*; each recipient
