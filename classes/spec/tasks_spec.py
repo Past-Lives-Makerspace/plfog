@@ -12,7 +12,7 @@ from classes.factories import (
     ClassSessionFactory,
     RegistrationFactory,
 )
-from classes.models import ClassOffering, ClassSettings, Registration, RegistrationReminder
+from classes.models import ClassOffering, ClassSettings, Registration
 from classes.tasks import send_due_class_reminders
 
 
@@ -30,7 +30,16 @@ def describe_send_due_class_reminders():
         assert sent == 1
         assert len(mail.outbox) == 1
         assert registration.email in mail.outbox[0].to
-        assert RegistrationReminder.objects.filter(registration=registration, session=session).exists()
+        # Dedupe now lives on EventDelivery (§2.5) keyed by the per-(registration,
+        # session) period bucket — RegistrationReminder is gone.
+        from core.events.registry import Channel
+        from core.models import EventDelivery
+
+        assert EventDelivery.objects.filter(
+            event_key="class_reminder",
+            period=f"reg:{registration.pk}:reminder:{session.pk}",
+            channel=Channel.EMAIL.value,
+        ).exists()
 
     def it_skips_pending_or_cancelled_registrations(db, settings):
         settings.DEFAULT_FROM_EMAIL = "noreply@pastlives.space"

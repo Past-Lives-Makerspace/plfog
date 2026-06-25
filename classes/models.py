@@ -1223,31 +1223,6 @@ class Waiver(models.Model):
         return f"{self.get_kind_display()} for registration {self.registration_id}"
 
 
-class RegistrationReminder(models.Model):
-    registration = models.ForeignKey(
-        "Registration",
-        on_delete=models.CASCADE,
-        related_name="reminders",
-        help_text="The registration the reminder was sent to.",
-    )
-    session = models.ForeignKey(
-        ClassSession,
-        on_delete=models.CASCADE,
-        related_name="reminders",
-        help_text="The session the reminder referenced.",
-    )
-    sent_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-sent_at"]
-        constraints = [
-            models.UniqueConstraint(fields=["registration", "session"], name="uq_reminder_registration_session"),
-        ]
-
-    def __str__(self) -> str:
-        return f"Reminder for registration {self.registration_id} → session {self.session_id}"
-
-
 class Registration(models.Model):
     # Transient (non-persisted) attribute a view sets before a status-changing
     # save() to attribute a confirm/refund action in the audit feed. Unset on a

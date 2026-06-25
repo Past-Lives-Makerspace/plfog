@@ -13,6 +13,7 @@ from django.utils import timezone
 
 if TYPE_CHECKING:
     from classes.models import ClassApproval, ClassOffering, ClassSession, Registration
+    from core.events.scheduler import ScheduledOccurrence
     from membership.models import Guild, Member
 
 
@@ -580,17 +581,31 @@ def send_waitlist_spot_opened(registration: "Registration") -> None:
     )
 
 
-def send_reminder_email(registration: "Registration", session: "ClassSession") -> None:
-    """Emit a registrant's session reminder: reminder email + one in-app row.
+def build_class_reminder_occurrence(
+    registration: "Registration",
+    session: "ClassSession",
+    *,
+    hours_before: int,
+) -> "ScheduledOccurrence":
+    """Build the scheduled ``class_reminder`` occurrence for one (registration, session).
 
-    One ``class_reminder`` event replaces the old dedicated send + the task's suppressed
-    in-app ``dispatch``: the preserved reminder email goes to ``registration.email`` via
-    ``email_to``, while the ``registrant`` resolver posts the "Class reminder" in-app row
-    to the member's linked user. The dedup ``period`` is keyed per (registration, session)
-    so a session's reminder sends once even if the cron tick overlaps — matching the old
-    ``RegistrationReminder`` guard at the call site.
+    The generalized scheduler (:mod:`core.events.scheduler`) walks these: the
+    occurrence's timing is ``session.starts_at − hours_before`` and its dedupe
+    ``period`` is ``reg:<pk>:reminder:<session_pk>`` — the SAME bucket the immediate
+    send used, so the class reminder fires exactly once per (registration, session)
+    via :class:`core.models.EventDelivery` alone (no separate
+    ``RegistrationReminder`` row needed — design §2.5/§2.6).
+
+    The reminder EMAIL stays a rich structural shell (``reminder.{txt,html}``),
+    rendered into a per-channel ``Channel.EMAIL`` message so the body is byte-for-byte
+    identical to today; the in-app row + push render from copy (``title``/``body``).
     """
-    from core.events.senders import emit_with_email_shell
+    from datetime import timedelta
+
+    from core.events.channels import Message
+    from core.events.registry import Channel
+    from core.events.scheduler import ScheduledOccurrence
+    from core.events.senders import email_shell_message
 
     offering = session.class_offering
     self_serve_path = reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
@@ -601,19 +616,44 @@ def send_reminder_email(registration: "Registration", session: "ClassSession") -
         "offering": offering,
         "self_serve_url": self_serve_url,
     }
-    emit_with_email_shell(
-        "class_reminder",
-        actor=registration.member.user if registration.member is not None else None,
-        target=registration,
-        context={"member": registration.member},
+    email_message: Message = email_shell_message(
+        event_key="class_reminder",
         subject=f"Reminder: {offering.title} — {session.starts_at:%a %b %-d at %-I:%M %p}",
         text_template="classes/emails/reminder.txt",
         html_template="classes/emails/reminder.html",
         template_context=template_context,
-        in_app_title="Class reminder",
-        in_app_body=f"{offering.title} starts soon.",
         url="/classes/account/",
-        email_to=registration.email,
         email_trigger_kind="classes.reminder",
-        period=f"reg:{registration.pk}:reminder:{session.pk}",
     )
+    return ScheduledOccurrence(
+        event_key="class_reminder",
+        anchor=session.starts_at,
+        offset=timedelta(hours=-hours_before),
+        context={"member": registration.member},
+        period=f"reg:{registration.pk}:reminder:{session.pk}",
+        actor=registration.member.user if registration.member is not None else None,
+        target=registration,
+        title="Class reminder",
+        body=f"{offering.title} starts soon.",
+        url="/classes/account/",
+        messages={Channel.EMAIL: email_message},
+        email_to=registration.email,
+    )
+
+
+def send_reminder_email(registration: "Registration", session: "ClassSession") -> None:
+    """Emit a registrant's session reminder NOW: reminder email + one in-app row.
+
+    Thin wrapper that fires :func:`build_class_reminder_occurrence` immediately,
+    bypassing the timing gate (used where the reminder is sent on demand rather than
+    walked by the scheduler). One ``class_reminder`` event replaces the old dedicated
+    send + the task's suppressed in-app ``dispatch``: the preserved reminder email
+    goes to ``registration.email`` via ``email_to`` while the ``registrant`` resolver
+    posts the in-app row. The dedupe ``period`` makes it idempotent per (registration,
+    session) regardless of how it's invoked.
+
+    ``hours_before`` is irrelevant to an immediate send (the occurrence is fired
+    directly, not due-checked), so any value yields the same email/in-app result.
+    """
+    occurrence = build_class_reminder_occurrence(registration, session, hours_before=0)
+    occurrence.fire()

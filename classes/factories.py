@@ -148,11 +148,3 @@ class RegistrationFactory(DjangoModelFactory):
     last_name = "User"
     email = factory.Sequence(lambda n: f"test{n}@example.com")
     amount_paid_cents = 0
-
-
-class RegistrationReminderFactory(DjangoModelFactory):
-    class Meta:
-        model = models.RegistrationReminder
-
-    registration = factory.SubFactory(RegistrationFactory)
-    session = factory.SubFactory(ClassSessionFactory)

@@ -21,6 +21,50 @@ User = get_user_model()
 
 LOGIN_CODE_TEMPLATE = "account/email/login_code"
 
+# Map an allauth template prefix to a stable ``trigger_kind`` audit label for the
+# choke-point (Decision 8). Anything not listed falls back to ``auth.<leaf>``.
+_AUTH_TRIGGER_KINDS: dict[str, str] = {
+    "account/email/login_code": "auth.login_code",
+    "account/email/unknown_account": "auth.unknown_account",
+    "account/email/account_already_exists": "auth.account_already_exists",
+}
+
+
+def _auth_trigger_kind(template_prefix: str) -> str:
+    """Derive a ``TransactionalEmailLog`` trigger label from an allauth template prefix.
+
+    Known auth templates get a curated label; anything else gets ``auth.<leaf>``
+    (the final path segment) so a future allauth email is still audited sensibly
+    without a code change.
+    """
+    if template_prefix in _AUTH_TRIGGER_KINDS:
+        return _AUTH_TRIGGER_KINDS[template_prefix]
+    leaf = template_prefix.rstrip("/").rsplit("/", 1)[-1] or template_prefix
+    return f"auth.{leaf}"
+
+
+def _extract_bodies(msg: object) -> tuple[str, str | None]:
+    """Pull the plaintext + optional HTML body out of an allauth-rendered message.
+
+    allauth's ``render_mail`` returns an ``EmailMultiAlternatives`` whose ``body``
+    is the plaintext and whose ``alternatives`` carry the ``text/html`` part (when
+    a ``*_message.html`` template exists). When only an HTML template exists,
+    ``render_mail`` returns an ``EmailMessage`` with ``content_subtype == "html"``
+    and the HTML in ``body`` — in that case the HTML is both the text and html body
+    (the choke-point still renders the HTML alternative).
+    """
+    body: str = getattr(msg, "body", "") or ""
+    alternatives = list(getattr(msg, "alternatives", None) or [])
+    html_body: str | None = None
+    for content, mimetype in alternatives:
+        if mimetype == "text/html":
+            html_body = content
+            break
+    if html_body is None and getattr(msg, "content_subtype", "") == "html":
+        # HTML-only message: the HTML lives in ``body``.
+        return body, body
+    return body, html_body
+
 
 class AdminRedirectAccountAdapter(DefaultAccountAdapter):
     """Grant admin privileges on login and redirect staff users to /admin/.
@@ -120,6 +164,17 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
     def send_mail(self, template_prefix: str, email: str, context: dict) -> None:
         """Gate login-code emails through the global circuit breaker, then send.
 
+        Routes the actual transport through the ``core.email.send`` choke-point
+        (Decision 8) so every auth email — login codes, unknown-account, and
+        account-already-exists — writes a ``TransactionalEmailLog`` row instead of
+        bypassing the audit log via allauth's own ``msg.send()``. allauth's own
+        templates + subject formatting are preserved (we still render through
+        ``render_mail``); only the final send is re-pointed.
+
+        The abuse/rate-limit circuit breaker and the DEBUG on-screen login-code
+        toast keep working exactly as before — they run before the (now audited)
+        send, and a tripped breaker still suppresses the send entirely.
+
         In DEBUG mode, also stash the login code on the request for display in
         the UI so devs don't have to copy it out of the console.
         """
@@ -142,7 +197,47 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
             request = allauth_context.request
             if request:
                 django_messages.success(request, f"[DEV] Login code: {context['code']}")
-        super().send_mail(template_prefix, email, context)
+
+        self._send_through_choke_point(template_prefix, email, context)
+
+    def _send_through_choke_point(self, template_prefix: str, email: str, context: dict) -> None:
+        """Render the allauth message and deliver it via ``core.email.send``.
+
+        Mirrors allauth's :meth:`DefaultAccountAdapter.send_mail` exactly (same
+        context enrichment, same ``render_mail`` templates/subject), but hands the
+        rendered subject/text/html to the audited choke-point so a
+        ``TransactionalEmailLog`` row is written. The ``trigger_kind`` is derived
+        from the template prefix (``account/email/login_code`` → ``auth.login_code``)
+        so the audit log distinguishes login codes from unknown-account / already-
+        exists mail.
+
+        Best-effort: an SMTP failure is logged (FAILED row) but never raised into
+        the auth flow — a failed login-code email must not 500 the login page.
+        """
+        from allauth.core import context as allauth_context
+
+        from core.email import send as send_email
+
+        request = getattr(allauth_context, "request", None)
+        from django.contrib.sites.shortcuts import get_current_site
+
+        ctx = {
+            "request": request,
+            "email": email,
+            "current_site": get_current_site(request),
+        }
+        ctx.update(context)
+        msg = self.render_mail(template_prefix, email, ctx)
+        text_body, html_body = _extract_bodies(msg)
+        send_email(
+            to=list(msg.to),
+            subject=msg.subject,
+            trigger_kind=_auth_trigger_kind(template_prefix),
+            text_body=text_body,
+            html_body=html_body,
+            from_email=msg.from_email,
+            best_effort=True,
+        )
 
     def _sync_permissions(self, user: object) -> None:
         """Sync is_staff/is_superuser from the user's Member fog_role.

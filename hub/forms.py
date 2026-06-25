@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.conf import settings
-from django.core.mail import send_mail
 from django.utils import timezone
 
 if TYPE_CHECKING:
@@ -259,7 +258,15 @@ class BetaFeedbackForm(forms.Form):
     )
 
     def send(self, *, user: User) -> None:
-        """Send the feedback email to the configured recipients."""
+        """Send the feedback email to the configured recipients.
+
+        Routes through the ``core.email.send`` choke-point (Decision 8) so the
+        send is audited in ``TransactionalEmailLog`` instead of bypassing it via
+        Django's ``send_mail``. Best-effort: a failed feedback email is logged but
+        must not 500 the feedback page.
+        """
+        from core.email import send as send_email
+
         category_label = dict(self.CATEGORY_CHOICES)[self.cleaned_data["category"]]
         subject = f"[Beta {category_label}] {self.cleaned_data['subject']}"
         body = (
@@ -267,11 +274,12 @@ class BetaFeedbackForm(forms.Form):
             f"Category: {category_label}\n\n"
             f"{self.cleaned_data['message']}"
         )
-        send_mail(
+        send_email(
+            to=list(settings.BETA_FEEDBACK_EMAILS),
             subject=subject,
-            message=body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=settings.BETA_FEEDBACK_EMAILS,
+            trigger_kind="hub.beta_feedback",
+            text_body=body,
+            best_effort=True,
         )
 
 

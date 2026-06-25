@@ -833,12 +833,14 @@ class TeachEmailForm(forms.Form):
         """Send the email and record the InstructorMessage + recipient audit rows.
 
         Returns the created InstructorMessage. Caller is responsible for any
-        success/error flash messages. Uses Django's mail backend, so the test
-        suite can assert on ``mail.outbox``.
+        success/error flash messages. Routes through the ``core.email.send``
+        choke-point (Decision 8) so the send is audited in ``TransactionalEmailLog``
+        instead of bypassing it; registrants stay BCC'd (private) and the test suite
+        can still assert on ``mail.outbox``.
         """
-        from django.conf import settings as django_settings
-        from django.core.mail import EmailMessage
         from django.db import transaction
+
+        from core.email import send as send_email
 
         registrations = list(self.cleaned_data["registration_ids"])
         # All selected regs share the same class_offering only if the teaching member
@@ -857,14 +859,13 @@ class TeachEmailForm(forms.Form):
         ):
             bcc_emails.append(teaching_member_email)
 
-        email_message = EmailMessage(
-            subject=self.cleaned_data["subject"],
-            body=self.cleaned_data["body"],
-            from_email=django_settings.DEFAULT_FROM_EMAIL,
+        send_email(
             to=to_addresses,
+            subject=self.cleaned_data["subject"],
+            trigger_kind="classes.instructor_message",
+            text_body=self.cleaned_data["body"],
             bcc=bcc_emails,
         )
-        email_message.send(fail_silently=False)
 
         with transaction.atomic():
             message = InstructorMessage.objects.create(
@@ -912,9 +913,14 @@ class AdminClassEmailForm(forms.Form):
         )
 
     def send(self, *, sender_member: Member | None = None) -> InstructorMessage:
-        from django.conf import settings as django_settings
-        from django.core.mail import EmailMessage
+        """Send the admin class email + record the audit rows.
+
+        Routes through the ``core.email.send`` choke-point (Decision 8) so the send
+        is audited in ``TransactionalEmailLog``; registrants stay BCC'd.
+        """
         from django.db import transaction
+
+        from core.email import send as send_email
 
         registrations = list(self.cleaned_data["registration_ids"])
         bcc_emails = [r.email for r in registrations]
@@ -924,14 +930,13 @@ class AdminClassEmailForm(forms.Form):
         if bcc_self and sender_email and sender_email not in bcc_emails:
             bcc_emails.append(sender_email)
 
-        email_message = EmailMessage(
-            subject=self.cleaned_data["subject"],
-            body=self.cleaned_data["body"],
-            from_email=django_settings.DEFAULT_FROM_EMAIL,
+        send_email(
             to=to_addresses,
+            subject=self.cleaned_data["subject"],
+            trigger_kind="classes.admin_message",
+            text_body=self.cleaned_data["body"],
             bcc=bcc_emails,
         )
-        email_message.send(fail_silently=False)
 
         with transaction.atomic():
             message = InstructorMessage.objects.create(

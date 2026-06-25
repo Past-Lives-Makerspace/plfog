@@ -81,6 +81,13 @@ def describe_beta_feedback_view():
         assert "reporter@example.com" in sent.body
         assert "The submit button does not work" in sent.body
 
+        # Decision 8: the send is now audited through the choke-point.
+        from core.models import TransactionalEmailLog
+
+        log = TransactionalEmailLog.objects.get()
+        assert log.trigger_kind == "hub.beta_feedback"
+        assert log.status == TransactionalEmailLog.Status.SENT
+
     def it_shows_success_message_on_valid_post(client: Client):
         User.objects.create_user(username="msguser", password="pass")
         client.login(username="msguser", password="pass")

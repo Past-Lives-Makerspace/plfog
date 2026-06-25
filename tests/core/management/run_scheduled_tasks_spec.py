@@ -27,3 +27,56 @@ def describe_run_scheduled_tasks():
         called = _tasks_called(hour=13)
         assert "generate_orientation_slots" in called
         assert "sync_all_sources" in called
+
+    def it_dispatches_bill_tabs_every_tick():
+        # Decision 3: bill_tabs is wired into the always-run tuple (no --force) so
+        # receipts + failed-charge retries run automatically. It self-gates inside
+        # the command (advisory lock + _is_billing_time), so an always-run dispatch
+        # is safe even outside the configured billing schedule.
+        called = _tasks_called(hour=9)
+        assert "bill_tabs" in called
+        # And it must NOT be invoked with --force (the dispatcher relies on the
+        # command's own schedule gate, never a forced run).
+        with (
+            patch("core.management.commands.run_scheduled_tasks.call_command") as cc,
+            patch("core.management.commands.run_scheduled_tasks.timezone.now", return_value=datetime(2026, 1, 1, 9, 0)),
+        ):
+            call_command("run_scheduled_tasks")
+        bill_calls = [c for c in cc.call_args_list if c.args[0] == "bill_tabs"]
+        assert len(bill_calls) == 1
+        assert "force" not in bill_calls[0].kwargs
+
+
+def describe_bill_tabs_self_gates_when_dispatched():
+    """End-to-end: a dispatcher-style (no --force) bill_tabs run no-ops outside
+    billing time, even with a tab full of pending charges — the schedule gate
+    inside the command is what protects against an unwanted charge."""
+
+    def it_makes_no_charge_outside_billing_time(db):
+        from datetime import date
+
+        from billing.models import BillingSettings, TabCharge
+        from tests.billing.factories import (
+            BillingSettingsFactory,
+            TabEntryFactory,
+            TabFactory,
+        )
+
+        # MONTHLY billing configured for day 15; "today" is not day 15 for most
+        # of the month, so the command must no-op. Pin via charge_day_of_month to
+        # a day that is guaranteed not to be today (today + offset, wrapped).
+        today = date.today().day
+        not_today = (today % 28) + 1  # 1..28, never equal to `today`
+        BillingSettingsFactory(
+            charge_frequency=BillingSettings.ChargeFrequency.MONTHLY,
+            charge_day_of_month=not_today,
+        )
+        from membership.models import Member
+
+        tab = TabFactory(stripe_customer_id="cus_x", stripe_payment_method_id="pm_x")
+        Member.objects.filter(pk=tab.member.pk).update(status=Member.Status.ACTIVE)
+        TabEntryFactory(tab=tab)
+
+        call_command("bill_tabs")  # no --force, as the dispatcher invokes it
+
+        assert TabCharge.objects.count() == 0

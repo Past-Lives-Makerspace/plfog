@@ -25,11 +25,20 @@ class Command(BaseCommand):
         failed: list[str] = []
 
         # --- Always-run tasks (idempotent, no-op outside their window) ---
+        # ``bill_tabs`` self-gates: it acquires a Postgres advisory lock and exits
+        # unless ``BillingSettings.charge_frequency`` says it's billing time
+        # (``_is_billing_time``), so running it every tick (no ``--force``) is safe —
+        # it no-ops outside the configured schedule and dedupes retries via
+        # ``TabCharge.next_retry_at`` + Stripe idempotency keys. Wiring it here
+        # (Decision 3) is what finally makes receipts + failed-charge retries run
+        # automatically; no ``render.yaml`` change is needed (this dispatcher is the
+        # single 15-min cron service).
         for task in (
             "send_voting_reminders",
             "send_lease_expiry_reminders",
             "auto_complete_orientations",
             "send_class_reminders",
+            "bill_tabs",
         ):
             try:
                 call_command(task, stdout=self.stdout, stderr=self.stderr)
