@@ -90,14 +90,21 @@ def emit(
     for user, _reason in recipients:
         for channel in preferences.enabled_channels(user, event_key):
             if not channel_module.is_implemented(channel):
-                # Registered-but-unbuilt channel (Phase 2): record nothing, do
-                # nothing — its real delivery + dedupe arrive with its adapter.
+                # Registered-but-unbuilt channel: record nothing, do nothing — its
+                # real delivery + dedupe arrive with its adapter.
+                continue
+            adapter = channel_module.get_adapter(channel)
+            if adapter.is_broadcast:
+                # Broadcast channels (Discord) post once per event, not per
+                # recipient — handled below, after the per-recipient fan-out.
                 continue
             if _record_delivery(event_key, user, channel, period):
-                channel_module.get_adapter(channel).deliver(user, message)
+                adapter.deliver(user, message)
                 delivered.append((user.pk, channel))
             else:
                 skipped_duplicates.append((user.pk, channel))
+
+    broadcast_channels = _broadcast_fan_out(event, message, period, delivered, skipped_duplicates)
 
     return EmitResult(
         event_key=event_key,
@@ -105,7 +112,54 @@ def emit(
         recipient_count=len(recipients),
         delivered=delivered,
         skipped_duplicates=skipped_duplicates,
+        broadcast_channels=broadcast_channels,
     )
+
+
+def _broadcast_fan_out(
+    event: Any,
+    message: Message,
+    period: str,
+    delivered: list[tuple[int, Channel]],
+    skipped_duplicates: list[tuple[int, Channel]],
+) -> list[Channel]:
+    """Post each broadcast channel (Discord) ONCE for the event, not per recipient.
+
+    A broadcast channel fires when the event declares it — independent of the
+    per-recipient preferences (it has no per-user target). Deduped on the same
+    :class:`core.models.EventDelivery` ledger using a synthetic ``broadcast`` target
+    ref so a re-run from a scheduler does not double-post. Best-effort: the adapter
+    swallows ordinary failures.
+    """
+    posted: list[Channel] = []
+    for spec in event.channels:
+        channel = spec.channel
+        if not channel_module.is_implemented(channel):
+            continue
+        adapter = channel_module.get_adapter(channel)
+        if not adapter.is_broadcast:
+            continue
+        if _record_broadcast(event.key, channel, period):
+            channel_module.broadcast(adapter, message)
+            delivered.append((0, channel))
+            posted.append(channel)
+        else:
+            skipped_duplicates.append((0, channel))
+    return posted
+
+
+def _record_broadcast(event_key: str, channel: Channel, period: str) -> bool:
+    """Claim the once-per-event broadcast slot for ``channel`` (idempotent)."""
+    try:
+        _row, created = EventDelivery.objects.get_or_create(
+            event_key=event_key,
+            target_ref="broadcast",
+            channel=channel.value,
+            period=period,
+        )
+    except IntegrityError:
+        return False
+    return created
 
 
 def _record_delivery(event_key: str, user: User, channel: Channel, period: str) -> bool:
@@ -145,12 +199,14 @@ class EmitResult:
         recipient_count: int,
         delivered: list[tuple[int, Channel]],
         skipped_duplicates: list[tuple[int, Channel]],
+        broadcast_channels: list[Channel] | None = None,
     ) -> None:
         self.event_key = event_key
         self.activity = activity
         self.recipient_count = recipient_count
         self.delivered = delivered
         self.skipped_duplicates = skipped_duplicates
+        self.broadcast_channels = broadcast_channels or []
 
     @property
     def delivery_count(self) -> int:

@@ -9,7 +9,6 @@ from django.contrib.auth.models import User
 
 from core.events import channels
 from core.events.channels import (
-    ChannelNotImplemented,
     DigestAdapter,
     DiscordAdapter,
     EmailAdapter,
@@ -21,7 +20,7 @@ from core.events.channels import (
     is_implemented,
 )
 from core.events.registry import Channel
-from core.models import Notification, PushSubscription, TransactionalEmailLog
+from core.models import EventDelivery, Notification, PushSubscription, TransactionalEmailLog
 
 pytestmark = pytest.mark.django_db
 
@@ -84,12 +83,92 @@ def describe_push_adapter():
         mock_push.assert_not_called()
 
 
-def describe_shell_adapters():
-    @pytest.mark.parametrize("adapter", [ScheduledEmailAdapter(), DigestAdapter(), DiscordAdapter()])
-    def it_raises_when_invoked_before_phase_2(adapter):
+def describe_scheduled_email_adapter():
+    def it_sends_through_the_choke_point_like_email():
         user = _user()
-        with pytest.raises(ChannelNotImplemented):
-            adapter.deliver(user, _message())
+        ScheduledEmailAdapter().deliver(user, _message())
+        assert TransactionalEmailLog.objects.filter(trigger_kind="class_published").exists()
+
+    def it_skips_users_without_an_email():
+        user = User.objects.create_user(username="noemail2", email="")
+        ScheduledEmailAdapter().deliver(user, _message())
+        assert not TransactionalEmailLog.objects.exists()
+
+    def it_is_not_a_broadcast_channel():
+        assert ScheduledEmailAdapter().is_broadcast is False
+
+    def describe_is_due():
+        def it_is_due_when_fire_time_is_in_the_window():
+            from datetime import timedelta
+
+            from django.utils import timezone
+
+            now = timezone.now()
+            # anchor 48h out, offset -48h → fire_at == now → due this tick.
+            anchor = now + timedelta(hours=48)
+            assert ScheduledEmailAdapter.is_due(anchor, timedelta(hours=-48), now=now) is True
+
+        def it_is_not_due_when_fire_time_is_outside_the_window():
+            from datetime import timedelta
+
+            from django.utils import timezone
+
+            now = timezone.now()
+            anchor = now + timedelta(hours=72)
+            assert ScheduledEmailAdapter.is_due(anchor, timedelta(hours=-48), now=now) is False
+
+
+def describe_digest_adapter():
+    def it_buffers_a_pending_row_instead_of_sending():
+        user = _user()
+        DigestAdapter().deliver(user, _message(title="Hi", body="Body", url="/u/"))
+        assert not TransactionalEmailLog.objects.exists()
+        row = EventDelivery.objects.get(target_ref=f"user:{user.pk}", channel="digest")
+        assert row.status == EventDelivery.Status.PENDING
+        assert row.title == "Hi"
+        assert row.body == "Body"
+        assert row.url == "/u/"
+
+    def it_lists_pending_rows_for_a_user_oldest_first():
+        user = _user()
+        DigestAdapter().deliver(user, _message(trigger_kind="class_published"))
+        DigestAdapter().deliver(user, _message(trigger_kind="class_cancelled"))
+        pending = DigestAdapter.pending_for(user)
+        assert [r.event_key for r in pending] == ["class_published", "class_cancelled"]
+
+    def it_flush_due_groups_per_recipient_and_marks_sent():
+        user = _user()
+        DigestAdapter().deliver(user, _message(trigger_kind="class_published"))
+        DigestAdapter().deliver(user, _message(trigger_kind="class_cancelled"))
+        grouped = DigestAdapter.flush_due()
+        assert set(grouped) == {f"user:{user.pk}"}
+        assert len(grouped[f"user:{user.pk}"]) == 2
+        # All flipped to SENT — nothing pending remains.
+        assert DigestAdapter.pending_for(user) == []
+
+    def it_flush_due_returns_empty_when_nothing_pending():
+        assert DigestAdapter.flush_due() == {}
+
+    def it_is_not_a_broadcast_channel():
+        assert DigestAdapter().is_broadcast is False
+
+
+def describe_discord_adapter():
+    def it_is_a_broadcast_channel():
+        assert DiscordAdapter().is_broadcast is True
+
+    def it_broadcasts_by_posting_an_embed(settings):
+        settings.DISCORD_NOTIFY_WEBHOOK_URL = "https://discord/webhook/abc"
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            result = DiscordAdapter().broadcast(_message())
+        assert result is True
+        mock_post.assert_called_once()
+
+    def it_deliver_defers_to_broadcast():
+        user = _user()
+        with patch.object(DiscordAdapter, "broadcast", return_value=True) as mock_bcast:
+            DiscordAdapter().deliver(user, _message())
+        mock_bcast.assert_called_once()
 
 
 def describe_registry():
@@ -97,15 +176,18 @@ def describe_registry():
         for channel in Channel:
             assert get_adapter(channel).channel is channel
 
-    def it_marks_live_channels_implemented():
-        assert is_implemented(Channel.IN_APP)
-        assert is_implemented(Channel.EMAIL)
-        assert is_implemented(Channel.PUSH)
+    def it_marks_every_channel_implemented():
+        for channel in Channel:
+            assert is_implemented(channel)
 
-    def it_marks_phase_2_channels_unimplemented():
-        assert not is_implemented(Channel.SCHEDULED_EMAIL)
-        assert not is_implemented(Channel.DIGEST)
-        assert not is_implemented(Channel.DISCORD)
+    def it_marks_only_discord_a_broadcast_channel():
+        broadcast = [c for c in Channel if get_adapter(c).is_broadcast]
+        assert broadcast == [Channel.DISCORD]
+
+    def it_routes_broadcast_helper_to_the_adapter():
+        with patch.object(DiscordAdapter, "broadcast") as mock_bcast:
+            channels.broadcast(get_adapter(Channel.DISCORD), _message())
+        mock_bcast.assert_called_once()
 
     def it_raises_for_an_unregistered_channel_lookup():
         with pytest.raises(KeyError):

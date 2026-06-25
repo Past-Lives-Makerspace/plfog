@@ -246,6 +246,13 @@ IMAGE_MAX_LONG_EDGE_PROFILE = int(os.environ.get("IMAGE_MAX_LONG_EDGE_PROFILE", 
 SIMPLYBOOK_API_KEY = os.environ.get("SIMPLYBOOK_API_KEY", "")
 SIMPLYBOOK_COMPANY_LOGIN = os.environ.get("SIMPLYBOOK_COMPANY_LOGIN", "")
 
+# Discord — per-event broadcast channel for the notification spine (design §2.4,
+# Decision 9). The global webhook is the default target for every event; per-event
+# routing overrides are configured in the admin area (Phase 3). The DiscordChannel
+# adapter is a no-op (disabled) when this is blank, mirroring how the other
+# integrations stay dark without credentials.
+DISCORD_NOTIFY_WEBHOOK_URL = os.environ.get("DISCORD_NOTIFY_WEBHOOK_URL", "").strip()
+
 if _R2_READY:
     _default_storage = {
         "BACKEND": "storages.backends.s3.S3Storage",

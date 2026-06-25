@@ -118,3 +118,60 @@ def describe_record_delivery():
         second = _record_delivery("class_published", user, Channel.IN_APP, "")
         assert first is True
         assert second is False
+
+
+def _with_discord(event):
+    """Return a copy of ``event`` with the Discord broadcast channel appended."""
+    import dataclasses
+
+    from core.events.registry import Channel as Ch
+    from core.events.registry import ChannelDefault, ChannelSpec
+
+    extra = ChannelSpec(Ch.DISCORD, ChannelDefault.ON)
+    return dataclasses.replace(event, channels=(*event.channels, extra))
+
+
+def describe_broadcast_fan_out():
+    """Discord is a per-event broadcast: posted ONCE per emit, not per recipient."""
+
+    def it_posts_discord_once_regardless_of_recipient_count(monkeypatch, linked_member):
+        from unittest.mock import patch
+
+        from core.events import registry
+
+        linked_member()
+        linked_member()  # two recipients — discord must still post exactly once
+        event = _with_discord(registry.get_event("site_announcement"))
+        monkeypatch.setitem(registry._BY_KEY, "site_announcement", event)
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            result = emit("site_announcement", context={}, title="Hi all", body="b")
+        assert mock_post.call_count == 1
+        assert Channel.DISCORD in result.broadcast_channels
+
+    def it_dedupes_the_broadcast_across_re_emits(monkeypatch, linked_member):
+        from unittest.mock import patch
+
+        from core.events import registry
+
+        linked_member()
+        event = _with_discord(registry.get_event("site_announcement"))
+        monkeypatch.setitem(registry._BY_KEY, "site_announcement", event)
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            emit("site_announcement", context={}, title="t", body="b")
+            second = emit("site_announcement", context={}, title="t", body="b")
+        assert mock_post.call_count == 1  # second emit deduped via EventDelivery
+        assert second.broadcast_channels == []
+
+    def it_records_a_broadcast_eventdelivery_row(monkeypatch, linked_member):
+        from unittest.mock import patch
+
+        from core.events import registry
+
+        linked_member()
+        event = _with_discord(registry.get_event("site_announcement"))
+        monkeypatch.setitem(registry._BY_KEY, "site_announcement", event)
+        with patch("core.events.discord.post_embed", return_value=True):
+            emit("site_announcement", context={}, title="t", body="b")
+        assert EventDelivery.objects.filter(
+            event_key="site_announcement", target_ref="broadcast", channel="discord"
+        ).exists()

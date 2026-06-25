@@ -718,7 +718,19 @@ class EventDelivery(models.Model):
     migrate onto this one model in a later phase. ``period`` is a free-form bucket:
     ``""`` for one-shot events (dedupe forever), or a window label like
     ``"2026-06"`` / ``"2026-06-24"`` for recurring scheduled events.
+
+    The ``status`` field carries the digest buffer (design §2.4, #9). A row created
+    by the normal fan-out is ``SENT`` (it both deduped and delivered). The
+    :class:`core.events.channels.DigestAdapter` instead writes a ``PENDING`` row
+    carrying the rendered message (``title`` / ``body`` / ``url``); the digest flush
+    (Phase 5 scheduler) reads the pending rows, batches them into one email, and
+    flips them to ``SENT``. The dedupe semantics are unchanged for the existing
+    channels — they never write a ``PENDING`` row.
     """
+
+    class Status(models.TextChoices):
+        SENT = "sent", "Sent"
+        PENDING = "pending", "Pending (buffered for digest)"
 
     event_key = models.CharField(max_length=60, help_text="The EventType key that was delivered.")
     target_ref = models.CharField(
@@ -732,6 +744,25 @@ class EventDelivery(models.Model):
         default="",
         help_text="Dedupe window bucket — empty for one-shot, else e.g. '2026-06' for monthly.",
     )
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.SENT,
+        help_text="SENT once delivered; PENDING while buffered for a later digest flush.",
+    )
+    title = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Buffered message title (digest rows only).",
+    )
+    body = models.TextField(blank=True, default="", help_text="Buffered message body (digest rows only).")
+    url = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Buffered click-through URL (digest rows only).",
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -743,6 +774,11 @@ class EventDelivery(models.Model):
         ]
         indexes = [
             models.Index(fields=["event_key", "period"], name="idx_eventdelivery_event_period"),
+            models.Index(
+                fields=["status", "target_ref"],
+                name="idx_eventdelivery_pending",
+                condition=models.Q(status="pending"),
+            ),
         ]
 
     def __str__(self) -> str:
