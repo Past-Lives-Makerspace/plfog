@@ -116,8 +116,12 @@ def _seed() -> dict[str, object]:
     )
 
     # A spread of registration states populates the registration list pages.
-    RegistrationFactory(class_offering=published, first_name="Avery", last_name="Lim", status=Registration.Status.CONFIRMED)
-    RegistrationFactory(class_offering=published, first_name="Sam", last_name="Cole", status=Registration.Status.CONFIRMED)
+    RegistrationFactory(
+        class_offering=published, first_name="Avery", last_name="Lim", status=Registration.Status.CONFIRMED
+    )
+    RegistrationFactory(
+        class_offering=published, first_name="Sam", last_name="Cole", status=Registration.Status.CONFIRMED
+    )
     waitlisted = RegistrationFactory(
         class_offering=published, first_name="Dana", last_name="Reyes", status=Registration.Status.WAITLISTED
     )
@@ -153,7 +157,10 @@ def _public_pages(d: dict[str, object]) -> list[tuple[str, str]]:
     return [
         ("Public — class catalog", reverse("classes:public_list")),
         ("Public — browse category", reverse("classes:public_category", kwargs={"slug": d["category"].slug})),
-        ("Public — instructor page", reverse("classes:public_instructor", kwargs={"slug": d["instructor"].instructor_slug})),
+        (
+            "Public — instructor page",
+            reverse("classes:public_instructor", kwargs={"slug": d["instructor"].instructor_slug}),
+        ),
         ("Public — class detail", reverse("classes:public_class_detail", kwargs={"slug": pub.slug})),
         ("Public — registration form", reverse("classes:register", kwargs={"slug": pub.slug})),
         ("Account — overview", reverse("account:overview")),
@@ -181,7 +188,10 @@ def _members_pages(d: dict[str, object]) -> list[tuple[str, str]]:
         ("Admin — email class", reverse("classes:admin_class_email", kwargs={"pk": pub_pk})),
         ("Admin — class emails (welcome)", reverse("classes:admin_class_emails", kwargs={"pk": pub_pk})),
         ("Admin — all registrations", reverse("classes:admin_registrations")),
-        ("Admin — registration detail", reverse("classes:admin_registration_detail", kwargs={"pk": d["registration"].pk})),
+        (
+            "Admin — registration detail",
+            reverse("classes:admin_registration_detail", kwargs={"pk": d["registration"].pk}),
+        ),
         ("Admin — categories", reverse("classes:admin_categories")),
         ("Admin — new category", reverse("classes:admin_category_create")),
         ("Admin — edit category", reverse("classes:admin_category_edit", kwargs={"pk": d["category"].pk})),
