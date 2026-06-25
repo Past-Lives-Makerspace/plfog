@@ -1,66 +1,10 @@
 {% extends "hub/base.html" %}
+{% load static %}
 
 {% block title %}Edit copy — {{ event.label }} — Past Lives{% endblock %}
 
 {% block extra_head %}
-<style>
-  .ntf-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; }
-  @media (max-width: 900px) { .ntf-edit-grid { grid-template-columns: 1fr; } }
-  .ntf-meta { color: var(--hub-text-muted); font-size: 0.8125rem; margin: 0 0 1rem; }
-  .ntf-meta strong { color: var(--hub-text); }
-  .ntf-badge {
-    display: inline-block;
-    font-size: 0.7rem;
-    font-weight: 600;
-    padding: 0.15rem 0.5rem;
-    border-radius: 999px;
-    line-height: 1.4;
-  }
-  .ntf-badge--locked { background: rgba(238,180,75,0.15); color: var(--color-tuscan-yellow); }
-  .ntf-fields { display: flex; flex-direction: column; gap: 1rem; }
-  .ntf-placeholders {
-    background: var(--hub-surface);
-    border: 1px solid var(--hub-border);
-    border-radius: 8px;
-    padding: 0.75rem 0.9rem;
-    margin-bottom: 1rem;
-    font-size: 0.8125rem;
-    color: var(--hub-text-muted);
-  }
-  .ntf-placeholders code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    background: var(--hub-card-bg);
-    border: 1px solid var(--hub-border);
-    border-radius: 5px;
-    padding: 0.05rem 0.35rem;
-    color: var(--hub-text);
-    margin-right: 0.25rem;
-  }
-  .ntf-preview-card {
-    position: sticky;
-    top: 1rem;
-    border: 1px solid var(--hub-border);
-    border-radius: 10px;
-    background: var(--hub-surface);
-    padding: 1rem 1.1rem;
-  }
-  .ntf-preview-card h3 { margin: 0 0 0.75rem; font-size: 0.95rem; color: var(--hub-text); }
-  .ntf-history { margin-top: 2rem; }
-  .ntf-history h3 { font-size: 0.95rem; color: var(--hub-text); margin: 0 0 0.75rem; }
-  .ntf-version {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.6rem 0.75rem;
-    border: 1px solid var(--hub-border);
-    border-radius: 8px;
-    margin-bottom: 0.5rem;
-    font-size: 0.8125rem;
-  }
-  .ntf-version__meta { color: var(--hub-text-muted); }
-  .ntf-version__meta strong { color: var(--hub-text); }
-</style>
+<link rel="stylesheet" href="{% static 'css/notifications-edit-copy.css' %}">
 {% endblock %}
 
 {% block content %}
