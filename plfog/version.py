@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.12"
+VERSION = "0.19.13"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.13",
+        "date": "2026-06-25",
+        "title": "Easier invites for new members",
+        "changes": [
+            "Inviting someone to join the hub is now a proper little workflow: organizers can see who's been "
+            "invited, whether they've joined yet, resend an invite that's been sitting unanswered, and cancel "
+            "one that went out by mistake — all from the Manage Members page.",
+        ],
+    },
     {
         "version": "0.19.12",
         "date": "2026-06-25",

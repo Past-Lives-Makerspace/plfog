@@ -246,6 +246,11 @@ IMAGE_MAX_LONG_EDGE_PROFILE = int(os.environ.get("IMAGE_MAX_LONG_EDGE_PROFILE", 
 SIMPLYBOOK_API_KEY = os.environ.get("SIMPLYBOOK_API_KEY", "")
 SIMPLYBOOK_COMPANY_LOGIN = os.environ.get("SIMPLYBOOK_COMPANY_LOGIN", "")
 
+# Member invites — how long (in days) an un-accepted invite stays "Pending" before the
+# Manage Members panel shows it as "Expired". Advisory only: the signup link keeps
+# working; resending an invite resets the clock (see Invite.is_expired / send_invite_email).
+INVITE_EXPIRY_DAYS = int(os.environ.get("INVITE_EXPIRY_DAYS", "14"))
+
 # Discord — per-event broadcast channel for the notification spine (design §2.4,
 # Decision 9). The global webhook is the default target for every event; per-event
 # routing overrides are configured in the admin area (Phase 3). The DiscordChannel

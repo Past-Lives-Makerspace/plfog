@@ -1,0 +1,47 @@
+{% comment %}
+Outstanding-invites list for the Manage Members page. Swappable HTMX region:
+the root #invites-list is replaced (outerHTML) on every send/resend so the new,
+removed, or refreshed row appears. Flex rows (not a table) so it reflows on mobile
+with no horizontal scroll. Status pill + per-row Resend (non-destructive, no modal)
+and Revoke (destructive, confirm_modal) come straight off the Invite model.
+{% endcomment %}
+<div id="invites-list" class="pl-invite-list">
+  {% for invite in invites %}
+  <div class="pl-invite-row">
+    <div class="pl-invite-row__main">
+      <span class="pl-invite-row__email">{{ invite.email }}</span>
+      <span class="pl-invite-row__meta">
+        Sent {{ invite.sent_at|timesince }} ago
+        {% if not invite.is_pending %}<span class="pl-invite-row__joined">· Joined {{ invite.accepted_at|timesince }} ago</span>{% endif %}
+      </span>
+    </div>
+    {% if invite.status == 'accepted' %}
+    <span class="hub-pill hub-pill--ok">{{ invite.status_label }}</span>
+    {% elif invite.status == 'expired' %}
+    <span class="hub-pill hub-pill--danger">{{ invite.status_label }}</span>
+    {% else %}
+    <span class="hub-pill hub-pill--neutral">{{ invite.status_label }}</span>
+    {% endif %}
+    {% if invite.is_pending %}
+    {% with pk_s=invite.pk|stringformat:"s" %}
+    {% url 'hub_admin_invite_revoke' invite.pk as revoke_url %}
+    <div class="pl-invite-row__actions">
+      <button type="button" class="hub-btn hub-btn--sm"
+              hx-post="{% url 'hub_admin_invite_resend' invite.pk %}"
+              hx-target="#invites-list" hx-swap="outerHTML"
+              hx-disabled-elt="this">
+        Resend
+      </button>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+              @click="$dispatch('open-confirm', 'revoke-invite-{{ invite.pk }}')">
+        Revoke
+      </button>
+    </div>
+    {% include "components/confirm_modal.html" with confirm_id="revoke-invite-"|add:pk_s confirm_title="Revoke invite?" confirm_message="Revoke the invite for "|add:invite.email|add:"? Their signup link will stop working and you can re-invite them later." confirm_action_url=revoke_url confirm_button_text="Revoke invite" %}
+    {% endwith %}
+    {% endif %}
+  </div>
+  {% empty %}
+  <p class="pl-invite-empty">No outstanding invites. Use <strong>+ Invite a member</strong> to send one.</p>
+  {% endfor %}
+</div>

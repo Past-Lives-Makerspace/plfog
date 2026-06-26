@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
-from core.models import SiteConfiguration
+from core.models import Invite, SiteConfiguration
 from membership.models import Member
 from tests.membership.factories import MemberFactory, MembershipPlanFactory
 
@@ -67,6 +70,25 @@ def describe_admin_members():
         assert response.status_code == 200
         assert b"Manage Members" in response.content
         assert response.context["status_filter"] == "active"
+
+    def it_renders_the_invites_card(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_members"))
+        assert b"Invites" in response.content
+        assert b'id="invites-list"' in response.content
+        assert "invites" in response.context
+        assert "invite_form" in response.context
+
+    def it_lists_outstanding_invites(client):
+        admin = _create_superuser(client, username="memadmin")
+        Invite.objects.create(email="outstanding@x.com", invited_by=admin)
+        response = client.get(reverse("hub_admin_members"))
+        assert b"outstanding@x.com" in response.content
+
+    def it_shows_the_invites_empty_state_when_none(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_members"))
+        assert b"No outstanding invites" in response.content
 
     def it_filters_by_all_status(client):
         _create_superuser(client)
@@ -201,23 +223,96 @@ def describe_admin_member_invite():
         response = client.get(reverse("hub_admin_member_invite"))
         assert response.status_code == 405
 
-    def it_sends_an_invite_and_redirects(client):
-        from core.models import Invite
-
+    def it_sends_an_invite_and_returns_the_panel(client):
+        MembershipPlanFactory()
         _create_superuser(client, username="invadmin")
         response = client.post(reverse("hub_admin_member_invite"), {"email": "newbie@x.com"})
-        assert response.status_code == 302
-        assert response.url == reverse("hub_admin_members")
+        assert response.status_code == 200
+        assert b"newbie@x.com" in response.content
+        assert "Invite sent" in response["HX-Trigger"]
         assert Invite.objects.filter(email="newbie@x.com").exists()
 
-    def it_shows_an_error_for_an_existing_member(client):
-        from core.models import Invite
-
+    def it_returns_204_and_error_toast_for_an_existing_member(client):
         _create_superuser(client, username="invadmin")
-        _create_member_user(username="taken")  # active member with email taken@x.com
-        response = client.post(reverse("hub_admin_member_invite"), {"email": "taken@x.com"}, follow=True)
-        assert b"already exists" in response.content
+        _create_member_user(username="taken")  # member with email taken@x.com
+        response = client.post(reverse("hub_admin_member_invite"), {"email": "taken@x.com"})
+        assert response.status_code == 204
+        assert "already exists" in response["HX-Trigger"]
         assert not Invite.objects.filter(email="taken@x.com").exists()
+
+    def it_returns_204_and_error_toast_for_an_invalid_email(client):
+        _create_superuser(client, username="invadmin")
+        response = client.post(reverse("hub_admin_member_invite"), {"email": "not-an-email"})
+        assert response.status_code == 204
+        assert "HX-Trigger" in response
+        assert Invite.objects.count() == 0
+
+
+def describe_admin_invite_resend():
+    def it_requires_login(client):
+        admin = User.objects.create_superuser(username="ra", email="ra@x.com", password="p")
+        invite = Invite.objects.create(email="r@x.com", invited_by=admin)
+        response = client.post(reverse("hub_admin_invite_resend", args=[invite.pk]))
+        assert response.status_code == 302
+
+    def it_forbids_plain_members(client):
+        admin = User.objects.create_superuser(username="ra", email="ra@x.com", password="p")
+        invite = Invite.objects.create(email="r@x.com", invited_by=admin)
+        user = _create_member_user(username="mr1")
+        client.login(username=user.username, password="p")
+        response = client.post(reverse("hub_admin_invite_resend", args=[invite.pk]))
+        assert response.status_code == 403
+
+    def it_resends_a_pending_invite_and_moves_last_sent_at_forward(client):
+        admin = _create_superuser(client, username="resadmin")
+        invite = Invite.objects.create(email="resend@x.com", invited_by=admin)
+        five_days_ago = timezone.now() - timedelta(days=5)
+        Invite.objects.filter(pk=invite.pk).update(last_sent_at=five_days_ago)
+        response = client.post(reverse("hub_admin_invite_resend", args=[invite.pk]))
+        assert response.status_code == 200
+        assert b"resend@x.com" in response.content
+        assert "Invite resent" in response["HX-Trigger"]
+        invite.refresh_from_db()
+        assert invite.last_sent_at > five_days_ago
+
+    def it_returns_204_for_an_already_accepted_invite(client):
+        admin = _create_superuser(client, username="resadmin")
+        invite = Invite.objects.create(email="acc@x.com", invited_by=admin)
+        invite.mark_accepted()
+        response = client.post(reverse("hub_admin_invite_resend", args=[invite.pk]))
+        assert response.status_code == 204
+        assert "already accepted" in response["HX-Trigger"]
+
+
+def describe_admin_invite_revoke():
+    def it_requires_login(client):
+        admin = User.objects.create_superuser(username="rva", email="rva@x.com", password="p")
+        invite = Invite.objects.create(email="rv@x.com", invited_by=admin)
+        response = client.post(reverse("hub_admin_invite_revoke", args=[invite.pk]))
+        assert response.status_code == 302
+
+    def it_forbids_plain_members(client):
+        admin = User.objects.create_superuser(username="rva", email="rva@x.com", password="p")
+        invite = Invite.objects.create(email="rv@x.com", invited_by=admin)
+        user = _create_member_user(username="mrv1")
+        client.login(username=user.username, password="p")
+        response = client.post(reverse("hub_admin_invite_revoke", args=[invite.pk]))
+        assert response.status_code == 403
+
+    def it_revokes_a_pending_invite(client):
+        admin = _create_superuser(client, username="rvadmin")
+        invite = Invite.objects.create(email="rev@x.com", invited_by=admin)
+        response = client.post(reverse("hub_admin_invite_revoke", args=[invite.pk]), follow=True)
+        assert not Invite.objects.filter(pk=invite.pk).exists()
+        assert b"Revoked the invite" in response.content
+
+    def it_shows_an_error_for_an_accepted_invite(client):
+        admin = _create_superuser(client, username="rvadmin")
+        invite = Invite.objects.create(email="acc@x.com", invited_by=admin)
+        invite.mark_accepted()
+        response = client.post(reverse("hub_admin_invite_revoke", args=[invite.pk]), follow=True)
+        assert Invite.objects.filter(pk=invite.pk).exists()
+        assert b"already been accepted" in response.content
 
 
 def describe_admin_member_edit_role_dispatch():

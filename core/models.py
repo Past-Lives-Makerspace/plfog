@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 if TYPE_CHECKING:
@@ -240,8 +242,42 @@ class CalendarFeed(models.Model):
         return self.name
 
 
+class InviteManager(models.Manager["Invite"]):
+    """Querysets for the Manage Members invites panel — all date/window math lives here."""
+
+    def _expiry_cutoff(self) -> datetime:
+        """The moment before which an un-accepted invite reads as expired."""
+        return timezone.now() - timedelta(days=settings.INVITE_EXPIRY_DAYS)
+
+    def outstanding(self) -> models.QuerySet[Invite]:
+        """Un-accepted invites (pending + expired), newest first, joins prefetched."""
+        return self.filter(accepted_at__isnull=True).select_related("invited_by", "member")
+
+    def pending(self) -> models.QuerySet[Invite]:
+        """Un-accepted invites last sent inside the expiry window."""
+        sent = Coalesce("last_sent_at", "created_at")
+        return self.outstanding().annotate(_sent=sent).filter(_sent__gte=self._expiry_cutoff())
+
+    def expired(self) -> models.QuerySet[Invite]:
+        """Un-accepted invites whose most-recent send is older than the expiry window."""
+        sent = Coalesce("last_sent_at", "created_at")
+        return self.outstanding().annotate(_sent=sent).filter(_sent__lt=self._expiry_cutoff())
+
+    def for_management_panel(self) -> models.QuerySet[Invite]:
+        """What the Invites card shows: all un-accepted + accepted within the last 30 days."""
+        recent_accept = timezone.now() - timedelta(days=30)
+        return self.filter(
+            models.Q(accepted_at__isnull=True) | models.Q(accepted_at__gte=recent_accept)
+        ).select_related("invited_by", "member")
+
+
 class Invite(models.Model):
     """Tracks email invitations sent by admins for invite-only registration."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        EXPIRED = "expired", "Expired"
 
     email = models.EmailField(unique=True, help_text="Email address of the person being invited.")
     invited_by = models.ForeignKey(
@@ -261,6 +297,13 @@ class Invite(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the invite was created.")
     accepted_at = models.DateTimeField(null=True, blank=True, help_text="When the invite was accepted by signing up.")
+    last_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the invite email was most recently sent. Resending updates this; expiry is measured from it.",
+    )
+
+    objects = InviteManager()
 
     class Meta:
         ordering = ["-created_at"]
@@ -273,6 +316,58 @@ class Invite(models.Model):
     def is_pending(self) -> bool:
         """Return True if the invite has not been accepted yet."""
         return self.accepted_at is None
+
+    @property
+    def sent_at(self) -> datetime:
+        """The timestamp the UI means by 'sent' — most-recent send, else creation."""
+        return self.last_sent_at or self.created_at
+
+    @property
+    def is_expired(self) -> bool:
+        """Un-accepted and last sent longer ago than the expiry window (advisory only)."""
+        if not self.is_pending:
+            return False
+        cutoff = timezone.now() - timedelta(days=settings.INVITE_EXPIRY_DAYS)
+        return self.sent_at < cutoff
+
+    @property
+    def status(self) -> str:
+        """Derived lifecycle state: accepted / expired / pending."""
+        if not self.is_pending:
+            return self.Status.ACCEPTED
+        return self.Status.EXPIRED if self.is_expired else self.Status.PENDING
+
+    @property
+    def status_label(self) -> str:
+        """Human label for the derived status (templates can't call Status(...) with an arg)."""
+        return self.Status(self.status).label
+
+    def revoke(self) -> None:
+        """Cancel an un-accepted invite: remove it and its bare placeholder member.
+
+        Raises:
+            ValueError: if the invite was already accepted (the person is now a real member).
+        """
+        from membership.models import Member
+
+        if not self.is_pending:
+            raise ValueError("Cannot revoke an invite that has already been accepted.")
+        member = self.member
+        email = self.email
+        self.delete()
+        # Clean up ONLY a placeholder this flow created itself: a bare INVITED stub with no
+        # linked user AND no Airtable origin. create_and_send REUSES a pre-existing INVITED
+        # placeholder pulled from Airtable; Members are read-only from Airtable by contract,
+        # so the `not member.airtable_record_id` guard keeps revoke from ever deleting an
+        # imported stub — it just detaches the (now-deleted) invite.
+        if (
+            member is not None
+            and member.user_id is None
+            and member.status == Member.Status.INVITED
+            and not member.airtable_record_id
+        ):
+            member.delete()
+        SiteActivity.log(SiteActivity.Kind.MEMBER_INVITE_REVOKED, payload={"email": email})
 
     def mark_accepted(self) -> None:
         """Mark this invite as accepted with the current timestamp."""
@@ -371,6 +466,11 @@ class Invite(models.Model):
         protocol = "https" if not settings.DEBUG else "http"
         query = urlencode({"email": self.email})
         signup_url = f"{protocol}://{current_site.domain}/accounts/signup/?{query}"
+
+        # Stamp the send so the panel's "sent N ago" and is_expired derive from the
+        # most-recent send — this is what makes Resend reset the badge/age.
+        self.last_sent_at = timezone.now()
+        self.save(update_fields=["last_sent_at"])
 
         emit(
             "member.invited",
@@ -573,6 +673,7 @@ class SiteActivity(models.Model):
         REFUND_ISSUED = "refund_issued", "Refund issued"
         FUNDING_SNAPSHOT_TAKEN = "funding_snapshot_taken", "Funding snapshot taken"
         MEMBER_INVITED = "member_invited", "Member invited"
+        MEMBER_INVITE_REVOKED = "member_invite_revoked", "Member invite revoked"
         INVITE_ACCEPTED = "invite_accepted", "Invite accepted"
         MEMBER_SIGNUP = "member_signup", "Member signed up"
         GUILD_ANNOUNCEMENT = "guild_announcement", "Guild announcement"

@@ -2035,6 +2035,9 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     from django.core.paginator import Paginator
     from django.db.models import Count, Prefetch, Q
 
+    from core.models import Invite
+    from membership.forms import InviteMemberForm
+
     ctx = _get_hub_context(request)
     status_filter = request.GET.get("status", "active")
     role_filter = request.GET.get("role", "")
@@ -2089,6 +2092,8 @@ def admin_members(request: HttpRequest) -> HttpResponse:
             "status_choices": Member.Status.choices,
             "role_choices": Member.FogRole.choices,
             "type_choices": Member.MemberType.choices,
+            "invites": Invite.objects.for_management_panel(),
+            "invite_form": InviteMemberForm(),
         },
     )
 
@@ -2225,22 +2230,80 @@ def admin_member_email_toggle_verified(request: HttpRequest, pk: int, email_pk: 
     return redirect("hub_admin_member_edit", pk=member.pk)
 
 
+def _render_invites_panel(request: HttpRequest) -> HttpResponse:
+    """Render the swappable outstanding-invites panel with a fresh queryset."""
+    from core.models import Invite
+
+    return render(
+        request,
+        "hub/admin/_invites_panel.html",
+        {"invites": Invite.objects.for_management_panel()},
+    )
+
+
 @fog_admin_required
 @require_POST
 def admin_member_invite(request: HttpRequest) -> HttpResponse:
-    """Invite a member to the FOG app by email — reuses the core Invite flow."""
+    """Send a single invite (HTMX) — re-renders the invites panel plus a toast.
+
+    Reuses InviteMemberForm for validation and Invite.create_and_send for the work.
+    On success returns the refreshed panel (200, swaps #invites-list); on a validation
+    error or a create_and_send ValueError returns 204 so HTMX makes no swap and the
+    form stays open, carrying the message as an error toast.
+    """
     from core.models import Invite
     from membership.forms import InviteMemberForm
 
     form = InviteMemberForm(request.POST)
-    if form.is_valid():
-        try:
-            Invite.create_and_send(email=form.cleaned_data["email"], invited_by=request.user)
-            messages.success(request, f"Invite sent to {form.cleaned_data['email']}.")
-        except ValueError as exc:
-            messages.error(request, str(exc))
-    else:
-        messages.error(request, str(form.errors["email"][0]))
+    if not form.is_valid():
+        response = HttpResponse(status=204)
+        trigger_toast(response, str(form.errors["email"][0]), "error")
+        return response
+
+    email = form.cleaned_data["email"]
+    try:
+        Invite.create_and_send(email=email, invited_by=request.user)
+    except ValueError as exc:
+        response = HttpResponse(status=204)
+        trigger_toast(response, str(exc), "error")
+        return response
+
+    response = _render_invites_panel(request)
+    trigger_toast(response, f"Invite sent to {email}.", "success")
+    return response
+
+
+@fog_admin_required
+@require_POST
+def admin_invite_resend(request: HttpRequest, pk: int) -> HttpResponse:
+    """Re-fire the invite email for an un-accepted invite (HTMX) — refreshed panel + toast."""
+    from core.models import Invite
+
+    invite = get_object_or_404(Invite, pk=pk)
+    if not invite.is_pending:
+        response = HttpResponse(status=204)
+        trigger_toast(response, "That invite was already accepted.", "error")
+        return response
+
+    invite.send_invite_email()
+    response = _render_invites_panel(request)
+    trigger_toast(response, f"Invite resent to {invite.email}.", "success")
+    return response
+
+
+@fog_admin_required
+@require_POST
+def admin_invite_revoke(request: HttpRequest, pk: int) -> HttpResponse:
+    """Revoke an un-accepted invite (full-page POST from confirm_modal) — redirect + message."""
+    from core.models import Invite
+
+    invite = get_object_or_404(Invite, pk=pk)
+    email = invite.email
+    try:
+        invite.revoke()
+        messages.success(request, f"Revoked the invite for {email}.")
+    except ValueError as exc:
+        messages.error(request, str(exc))
     return redirect("hub_admin_members")
 
 

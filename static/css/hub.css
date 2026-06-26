@@ -380,6 +380,87 @@ a:hover { color: var(--hub-link-hover); }
 .hub-pill--ok { background: rgba(52, 211, 153, 0.15); color: #6ee7b7; }
 .hub-pill--warn { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
 .hub-pill--primary { background: rgba(238, 180, 75, 0.15); color: var(--color-tuscan-yellow, #EEB44B); }
+/* Invite-status pills (introduced by the Manage Members invites panel). Same shape as
+   the family above; new in-family modifiers, no new prefix/token. */
+.hub-pill--neutral { background: rgba(139, 151, 168, 0.18); color: var(--hub-text-muted); }
+.hub-pill--danger { background: rgba(224, 85, 85, 0.16); color: #f0a0a0; }
+
+/* ========================================
+   Invites panel — Manage Members page
+   #invites-list is the HTMX-swappable region.
+   ======================================== */
+.pl-invite-card__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+.pl-invite-form {
+    margin-bottom: 1.25rem;
+}
+.pl-invite-form__actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+.pl-invite-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-invite-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    padding: 0.75rem 0.85rem;
+    border: 1px solid var(--hub-input-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+.pl-invite-row__main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    flex: 1 1 240px;
+    min-width: 0;
+}
+.pl-invite-row__email {
+    font-weight: 500;
+    color: var(--hub-text);
+    word-break: break-word;
+}
+.pl-invite-row__meta {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-invite-row__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.pl-invite-empty {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    margin: 0;
+    padding: 0.5rem 0;
+}
+/* Light theme (Slate) contrast bumps — SCOPED to the invite list so the shared
+   .hub-pill--ok used on other pages (e.g. user_settings.html) is untouched. */
+[data-theme="light"] .pl-invite-list .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-invite-list .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-invite-list .hub-pill--danger { color: #b03030; }
+@media (max-width: 640px) {
+    .pl-invite-row__actions {
+        width: 100%;
+    }
+    .pl-invite-row__actions .hub-btn {
+        flex: 1 1 auto;
+        text-align: center;
+    }
+}
 
 /* ========================================
    Main Wrapper
