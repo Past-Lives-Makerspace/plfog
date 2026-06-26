@@ -641,6 +641,45 @@ class Member(models.Model):
         self.user.is_superuser = new_super
         self.user.save(update_fields=["is_staff", "is_superuser"])
 
+    def send_login_invite(self) -> None:
+        """Email this member a first-time sign-in link (one intentional email).
+
+        Distinct from :meth:`core.models.Invite.create_and_send`, which rejects
+        people who are already members — every member trips that guard now. This is
+        the path for an existing member who has never signed in.
+
+        It first idempotently provisions a User + verified primary email (so
+        login-by-code works), then emits the branded ``member.login_invite`` email
+        with a link to the login-code page, the member's email pre-filled. Re-sends
+        always go out (a fresh idempotency ``period`` per send, like the invite).
+
+        Raises:
+            ValueError: if the member has no email on file (nothing to send to).
+        """
+        from urllib.parse import urlencode
+
+        from django.contrib.sites.models import Site
+
+        from core.events.emit import emit
+        from membership.services.provisioning import provision_user_for_member
+
+        user = provision_user_for_member(self)
+        if user is None:
+            raise ValueError(f"Cannot send a login invite to member {self.pk}: no email on file.")
+
+        email = self.primary_email
+        current_site = Site.objects.get_current()
+        protocol = "https" if not settings.DEBUG else "http"
+        query = urlencode({"email": email})
+        login_url = f"{protocol}://{current_site.domain}/accounts/login/code/?{query}"
+
+        emit(
+            "member.login_invite",
+            target=self,
+            context={"user": user, "member_name": self.display_name, "login_url": login_url},
+            period=f"login_invite:{timezone.now():%Y%m%d%H%M%S%f}",
+        )
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Member records are otherwise managed in Airtable; this override only
         # cleans up the orphaned profile_photo file when the user replaces it.

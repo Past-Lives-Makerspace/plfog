@@ -452,6 +452,10 @@ a:hover { color: var(--hub-link-hover); }
 [data-theme="light"] .pl-invite-list .hub-pill--ok { color: #1f7a52; }
 [data-theme="light"] .pl-invite-list .hub-pill--neutral { color: #5b6675; }
 [data-theme="light"] .pl-invite-list .hub-pill--danger { color: #b03030; }
+/* Same contrast bumps for the person-status badges in the Manage Members table
+   ("Hasn't signed in yet" / "Non-member user"), Review fix #8. */
+[data-theme="light"] .pl-members-table .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-members-table .hub-pill--danger { color: #b03030; }
 @media (max-width: 640px) {
     .pl-invite-row__actions {
         width: 100%;

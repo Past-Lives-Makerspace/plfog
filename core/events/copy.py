@@ -394,6 +394,40 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    "member.login_invite": EventCopy(
+        placeholders=("member_name", "login_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "login_url": "https://pastlives.example/accounts/login/code/?email=robin@example.com",
+        },
+        channels={
+            Channel.EMAIL: ChannelCopy(
+                subject="Sign in to Past Lives Makerspace",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "Your Past Lives Makerspace account is ready — you just haven't signed in yet.\n\n"
+                    "Use the link below to sign in for the first time. We'll email you a one-time "
+                    "code to finish:\n\n"
+                    "{{ login_url }}\n\n"
+                    "See you at the space!\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>Your <strong>Past Lives Makerspace</strong> account is ready — you just "
+                    "haven't signed in yet.</p>"
+                    "<p>Use the button below to sign in for the first time. We'll email you a "
+                    "one-time code to finish.</p>"
+                    '<div style="text-align:center; margin:24px 0 0;">'
+                    '<a href="{{ login_url }}" style="display:inline-block; padding:12px 32px; '
+                    "background-color:#EEB44B; color:#092E4C; font-size:14px; font-weight:700; "
+                    'text-decoration:none; border-radius:6px;">Sign in for the first time</a>'
+                    "</div>"
+                    '<p style="margin:16px 0 0; font-size:13px; color:#96ACBB;">'
+                    "See you at the space! — Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     "voting.closing_48h": EventCopy(
         placeholders=("member_name", "cycle_label", "closes_on", "voting_url"),
         sample_context={

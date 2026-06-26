@@ -1,0 +1,189 @@
+/* ========================================
+   Member / Person edit page (Manage Members → edit)
+   Tabbed shell (Details | Emails) shared by the member and non-member-user views.
+   Token-driven; legible on both Obsidian (dark) and Slate (light); reflows on phones.
+   ======================================== */
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+.pl-person-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+.pl-person-header__name {
+    margin: 0 0 0.35rem;
+}
+.pl-person-header__meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+}
+.pl-person-header__email {
+    color: var(--hub-text-muted);
+    font-size: 0.9375rem;
+    word-break: break-word;
+}
+
+/* ── Tabs ───────────────────────────────────────────────────────────── */
+.pl-person-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    border-bottom: 1px solid var(--hub-border);
+    margin-bottom: 1.5rem;
+}
+
+/* ── Details tab ────────────────────────────────────────────────────── */
+.pl-person-form {
+    max-width: 680px;
+}
+.pl-person-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+.pl-person-email-line {
+    max-width: 680px;
+    margin: 1.25rem 0 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hub-border);
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+}
+.pl-person-invite {
+    margin-top: 1.25rem;
+}
+.pl-person-invite__hint {
+    font-size: 0.8125rem;
+    margin: 0.5rem 0 0;
+}
+
+/* ── Non-member-user identity ───────────────────────────────────────── */
+.pl-person-identity {
+    max-width: 680px;
+}
+.pl-person-identity__note {
+    font-size: 0.875rem;
+    margin: 0.75rem 0 1.25rem;
+}
+.pl-person-identity__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0;
+}
+.pl-person-identity__list > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 6px;
+}
+.pl-person-identity__list dt {
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+.pl-person-identity__list dd {
+    margin: 0;
+    color: var(--hub-text);
+    font-size: 0.875rem;
+    text-align: right;
+    word-break: break-word;
+}
+
+/* ── Emails tab ─────────────────────────────────────────────────────── */
+.pl-emails-heading {
+    font-size: 1.1rem;
+    margin: 0 0 0.25rem;
+}
+.pl-emails-hint {
+    font-size: 0.8125rem;
+    margin: 0 0 1.25rem;
+    max-width: 680px;
+}
+.pl-emails-empty {
+    font-size: 0.875rem;
+    margin: 0 0 1.25rem;
+}
+.pl-email-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+    max-width: 680px;
+}
+.pl-email-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.55rem 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 6px;
+}
+.pl-email-row__main {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+.pl-email-row__addr {
+    color: var(--hub-text);
+    word-break: break-word;
+}
+.pl-email-row__actions {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+.pl-email-row__actions form {
+    margin: 0;
+}
+.pl-email-add {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    max-width: 680px;
+}
+.pl-email-add__field {
+    flex: 1 1 260px;
+    min-width: 240px;
+}
+/* form_field.html adds its own bottom margin; trim it so the Add button lines up. */
+.pl-email-add__field .pl-form-group {
+    margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+    .pl-email-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .pl-email-row__actions {
+        width: 100%;
+    }
+    .pl-email-add {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+/* Light-theme (Slate) contrast bumps for the status/email pills on this page —
+   the default pill text colours are tuned for the dark theme. */
+[data-theme="light"] .pl-person-header .hub-pill--ok,
+[data-theme="light"] .pl-email-list .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-person-header .hub-pill--neutral,
+[data-theme="light"] .pl-email-list .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-person-header .hub-pill--danger,
+[data-theme="light"] .pl-person-identity .hub-pill--danger { color: #b03030; }

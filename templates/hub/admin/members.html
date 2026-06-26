@@ -61,8 +61,12 @@
 <div class="hub-card">
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem;">
     <h1 class="hub-page-title" style="margin:0;">Manage Members</h1>
-    <span style="color:var(--hub-text-muted);font-size:0.875rem;">{{ page.paginator.count }} member{{ page.paginator.count|pluralize }}</span>
+    <span style="color:var(--hub-text-muted);font-size:0.875rem;">{{ page.paginator.count }} {% if page.paginator.count == 1 %}person{% else %}people{% endif %}</span>
   </div>
+
+  {% if member_only_filter_active %}
+  <p class="hub-text-muted" style="margin:0 0 1rem;font-size:0.8125rem;">These filters apply to members — non-member users are hidden while they're active.</p>
+  {% endif %}
 
   <form method="get" class="members-filters">
     {% if email_filter == 'missing' %}<input type="hidden" name="email" value="missing">{% endif %}
@@ -122,29 +126,33 @@
       </tr>
     </thead>
     <tbody>
-      {% for member in page %}
+      {% for person in page %}
       <tr>
-        <td data-label="Name">{{ member.full_legal_name|default:"—" }}</td>
+        <td data-label="Name">{{ person.name|default:"—" }}</td>
         <td data-label="Email">
-          {{ member.primary_email|default:"—" }}
-          {% if email_filter == 'missing' %}<div class="hub-note hub-text-muted">{{ member.email_gap_label }}</div>{% endif %}
+          {{ person.email|default:"—" }}
+          {% if email_filter == 'missing' and person.email_gap_label %}<div class="hub-note hub-text-muted">{{ person.email_gap_label }}</div>{% endif %}
         </td>
-        <td data-label="Status">{{ member.get_status_display }}</td>
-        <td data-label="Role">{{ member.get_fog_role_display }}</td>
+        <td data-label="Status">
+          {% if person.status_display %}{{ person.status_display }}{% endif %}
+          {% if person.badge_label %}<span class="hub-pill hub-pill--{{ person.badge_modifier }}">{{ person.badge_label }}</span>{% endif %}
+          {% if not person.status_display and not person.badge_label %}—{% endif %}
+        </td>
+        <td data-label="Role">{{ person.role_display|default:"—" }}</td>
         <td data-label="Classes" style="text-align:right;">
-          {% if member.class_count %}
-            <a href="{% url 'classes:admin_classes' %}?instructor={{ member.pk }}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false">{{ member.class_count }} →</a>
+          {% if person.classes_url %}
+            <a href="{{ person.classes_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false">{{ person.class_count }} →</a>
           {% else %}
             <span class="hub-text-muted">—</span>
           {% endif %}
         </td>
         <td data-label="Edit" style="text-align:right;">
-          <a href="{% url 'hub_admin_member_edit' member.pk %}" class="hub-btn hub-btn--sm" hx-boost="false">Edit</a>
+          <a href="{{ person.edit_url }}" class="hub-btn hub-btn--sm" hx-boost="false">Edit</a>
         </td>
       </tr>
       {% empty %}
       <tr><td colspan="6" style="padding:1.5rem;text-align:center;color:var(--hub-text-muted);">
-        {% if email_filter == 'missing' %}No members are missing an email — nice.{% else %}No members match your filters.{% endif %}
+        {% if email_filter == 'missing' %}No members are missing an email — nice.{% else %}No people match your filters.{% endif %}
       </td></tr>
       {% endfor %}
     </tbody>

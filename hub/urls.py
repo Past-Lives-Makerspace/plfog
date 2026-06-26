@@ -164,6 +164,11 @@ urlpatterns = [
     ),
     path("manage/members/<int:pk>/edit/", views.admin_member_edit, name="hub_admin_member_edit"),
     path(
+        "manage/members/<int:pk>/send-login-invite/",
+        views.admin_member_send_login_invite,
+        name="hub_admin_member_send_login_invite",
+    ),
+    path(
         "manage/members/<int:pk>/emails/add/",
         views.admin_member_email_add,
         name="hub_admin_member_email_add",
@@ -182,6 +187,29 @@ urlpatterns = [
         "manage/members/<int:pk>/emails/<int:email_pk>/toggle-verified/",
         views.admin_member_email_toggle_verified,
         name="hub_admin_member_email_toggle_verified",
+    ),
+    # Non-member users (a User with no Member — e.g. a book.* class registrant).
+    # Keyed on user_pk because they have no Member pk (Review fix #5).
+    path("manage/users/<int:user_pk>/edit/", views.admin_user_edit, name="hub_admin_user_edit"),
+    path(
+        "manage/users/<int:user_pk>/emails/add/",
+        views.admin_user_email_add,
+        name="hub_admin_user_email_add",
+    ),
+    path(
+        "manage/users/<int:user_pk>/emails/<int:email_pk>/remove/",
+        views.admin_user_email_remove,
+        name="hub_admin_user_email_remove",
+    ),
+    path(
+        "manage/users/<int:user_pk>/emails/<int:email_pk>/set-primary/",
+        views.admin_user_email_set_primary,
+        name="hub_admin_user_email_set_primary",
+    ),
+    path(
+        "manage/users/<int:user_pk>/emails/<int:email_pk>/toggle-verified/",
+        views.admin_user_email_toggle_verified,
+        name="hub_admin_user_email_toggle_verified",
     ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
     # --- Notification copy catalogue (design §2.3 + §2.4, Decision 6) ---

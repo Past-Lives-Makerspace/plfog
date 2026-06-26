@@ -508,7 +508,9 @@ def describe_admin_search_by_alias():
 
 @pytest.mark.django_db
 def describe_admin_create_user_with_member():
-    def it_creates_member_without_user_by_default(admin_client):
+    def it_provisions_an_active_member_even_without_the_checkbox(admin_client):
+        # The "every member is a user" invariant: an ACTIVE member is auto-provisioned
+        # a linked User by the post_save signal, whether or not the checkbox is ticked.
         plan = MembershipPlanFactory()
         resp = admin_client.post(
             "/admin/membership/member/add/",
@@ -529,6 +531,32 @@ def describe_admin_create_user_with_member():
         )
         assert resp.status_code == 302
         member = Member.objects.get(_pre_signup_email="test@example.com")
+        assert member.user is not None
+        assert member.user.email == "test@example.com"
+
+    def it_leaves_an_invited_member_userless_without_the_checkbox(admin_client):
+        # Non-ACTIVE members are NOT auto-provisioned (Review fix #1), so an invited
+        # placeholder added without the checkbox keeps user=None.
+        plan = MembershipPlanFactory()
+        resp = admin_client.post(
+            "/admin/membership/member/add/",
+            {
+                "full_legal_name": "Invited Person",
+                "_pre_signup_email": "invited-admin@example.com",
+                "membership_plan": plan.pk,
+                "status": "invited",
+                "member_type": "standard",
+                "fog_role": "member",
+                "create_user": "",
+                "emails-TOTAL_FORMS": "1",
+                "emails-INITIAL_FORMS": "0",
+                "emails-MIN_NUM_FORMS": "0",
+                "emails-MAX_NUM_FORMS": "1000",
+                "emails-0-email": "",
+            },
+        )
+        assert resp.status_code == 302
+        member = Member.objects.get(_pre_signup_email="invited-admin@example.com")
         assert member.user is None
 
     def it_creates_member_with_user_when_checked(admin_client):

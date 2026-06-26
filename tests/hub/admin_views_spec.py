@@ -34,6 +34,27 @@ def _create_member_user(*, username: str, fog_role: str = Member.FogRole.MEMBER)
     return user
 
 
+def _create_nonmember_user(*, username: str, email: str) -> User:
+    """A genuine "Non-member user" — a User with no Member but a primary EmailAddress.
+
+    The user signal may auto-create a Member (when a plan exists), so we drop it and
+    re-seed a clean primary EmailAddress so the email column reads the real address.
+    """
+    user = User.objects.create_user(username=username, email=email)
+    Member.objects.filter(user=user).delete()
+    EmailAddress.objects.filter(user=user).delete()
+    EmailAddress.objects.create(user=user, email=email, verified=True, primary=True)
+    return user
+
+
+def _create_bare_nonmember_user(*, username: str, email: str) -> User:
+    """A non-member User with NO allauth EmailAddress (the no-primary-email edge)."""
+    user = User.objects.create_user(username=username, email=email)
+    Member.objects.filter(user=user).delete()
+    EmailAddress.objects.filter(user=user).delete()
+    return user
+
+
 def describe_admin_voting_dashboard():
     def it_requires_login(client):
         response = client.get(reverse("hub_admin_voting_dashboard"))
@@ -189,6 +210,72 @@ def describe_admin_members():
         assert page2.context["page"].number == 2
         assert page2.context["page"].paginator.count == 51  # only the emailless set is paginated
         assert b"Has Email Control" not in page2.content
+
+    def it_lists_non_member_users_badged_and_linked_to_the_user_edit_route(client):
+        _create_superuser(client)
+        MembershipPlanFactory()
+        _create_member_user(username="realmember")
+        nonmember = _create_nonmember_user(username="registrant", email="student@pastlives.demo")
+        response = client.get(reverse("hub_admin_members") + "?status=all")
+        content = response.content.decode()
+        assert "student@pastlives.demo" in content
+        assert "Non-member user" in content
+        assert reverse("hub_admin_user_edit", args=[nonmember.pk]) in content
+
+    def it_excludes_superusers_from_the_non_member_rows(client):
+        # The owner's admin login (a superuser with no Member) must NOT appear as a
+        # class-registrant-style "Non-member user" row (Review fix #7).
+        _create_superuser(client, username="owner")
+        response = client.get(reverse("hub_admin_members") + "?status=all")
+        assert b"Non-member user" not in response.content
+
+    def it_shows_non_member_users_by_default(client):
+        _create_superuser(client)
+        MembershipPlanFactory()
+        _create_nonmember_user(username="reg_default", email="reg-default@pastlives.demo")
+        response = client.get(reverse("hub_admin_members"))
+        assert response.context["member_only_filter_active"] is False
+        assert b"reg-default@pastlives.demo" in response.content
+
+    def it_hides_non_member_users_when_a_member_only_filter_is_active(client):
+        _create_superuser(client)
+        MembershipPlanFactory()
+        _create_nonmember_user(username="reg_hidden", email="reg-hidden@pastlives.demo")
+        response = client.get(reverse("hub_admin_members") + "?status=all&role=admin")
+        assert response.context["member_only_filter_active"] is True
+        assert b"reg-hidden@pastlives.demo" not in response.content
+
+    def it_paginates_over_the_member_and_user_union(client):
+        admin = _create_superuser(client)
+        # Drop the admin's auto-created Member (and it's a superuser) so the count is
+        # exactly the rows we seed below.
+        Member.objects.filter(user=admin).delete()
+        plan = MembershipPlanFactory()
+        MemberFactory.create_batch(49, membership_plan=plan, status=Member.Status.ACTIVE)
+        _create_nonmember_user(username="nmu1", email="aaa-nmu1@x.com")
+        _create_nonmember_user(username="nmu2", email="zzz-nmu2@x.com")
+        page1 = client.get(reverse("hub_admin_members") + "?status=all")
+        assert page1.context["page"].paginator.count == 51  # 49 members + 2 non-member users
+        page2 = client.get(reverse("hub_admin_members") + "?status=all&page=2")
+        assert page2.context["page"].number == 2
+        # Members fill page 1; the last non-member user (by email) lands on page 2.
+        assert b"zzz-nmu2@x.com" in page2.content
+
+    def it_links_a_member_with_classes_to_the_class_admin(client):
+        from classes.factories import ClassOfferingFactory
+
+        _create_superuser(client)
+        target = _create_member_user(username="teacher")
+        ClassOfferingFactory(instructor=target.member)
+        response = client.get(reverse("hub_admin_members") + "?status=all")
+        assert f"?instructor={target.member.pk}" in response.content.decode()
+
+    def it_lists_a_non_member_user_with_no_primary_email(client):
+        _create_superuser(client)
+        user = _create_bare_nonmember_user(username="bare", email="bare@x.com")
+        response = client.get(reverse("hub_admin_members") + "?status=all")
+        # Listed even without a primary EmailAddress; the email column never reads the mirror.
+        assert reverse("hub_admin_user_edit", args=[user.pk]).encode() in response.content
 
     def it_avoids_n_plus_one_queries_for_the_email_column(client, django_assert_max_num_queries):
         _create_superuser(client)
@@ -399,7 +486,7 @@ def describe_admin_member_edit():
         target = _create_member_user(username="target3")
         response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
         assert response.status_code == 200
-        assert b"Edit Member" in response.content
+        assert b"Save member" in response.content
 
     def it_saves_changes_and_redirects(client):
         _create_superuser(client)
@@ -670,15 +757,17 @@ def describe_admin_member_email_panel():
         assert b"edittarget@x.com" in response.content
         assert reverse("hub_admin_member_email_add", args=[target.member.pk]).encode() in response.content
 
-    def it_shows_a_note_for_an_unlinked_member(client):
+    def it_shows_the_add_email_prompt_for_an_unlinked_member(client):
         from tests.membership.factories import MemberFactory
 
         _create_superuser(client)
         member = MemberFactory(user=None, _pre_signup_email="airtable-only@x.com")
         response = client.get(reverse("hub_admin_member_edit", args=[member.pk]))
         assert response.status_code == 200
-        assert response.context["member_emails"] is None
-        assert b"No linked user yet" in response.content
+        content = response.content.decode()
+        # The dead-end "No linked user yet" copy is gone (every member is now a user).
+        assert "No linked user yet" not in content
+        assert "Add an email to enable sign-in" in content
 
 
 def describe_admin_member_email_add():
@@ -802,3 +891,232 @@ def describe_admin_member_email_actions():
         member = MemberFactory(user=None, _pre_signup_email="c@x.com")
         response = client.post(reverse("hub_admin_member_email_toggle_verified", args=[member.pk, 1]))
         assert response.status_code == 302
+
+
+# ---------------------------------------------------------------------------
+# Tabbed member edit page (Details + Emails) and the "Send login invite" path
+# ---------------------------------------------------------------------------
+
+
+def describe_admin_member_edit_page():
+    def it_renders_details_and_emails_tabs(client):
+        _create_superuser(client)
+        target = _create_member_user(username="tabs")
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert ">Details<" in content
+        assert ">Emails<" in content
+
+    def it_header_shows_primary_email_and_not_signed_in_badge(client):
+        _create_superuser(client)
+        target = _target_with_email(username="hdr")
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        content = response.content.decode()
+        assert "hdr@x.com" in content
+        # The apostrophe in "Hasn't" is HTML-escaped in the rendered page.
+        assert "signed in yet" in content
+        assert response.context["status_label"] == "Hasn't signed in yet"
+        assert response.context["primary_email"] == "hdr@x.com"
+
+    def it_header_shows_signed_in_badge_and_hides_invite_when_logged_in(client):
+        _create_superuser(client)
+        target = _target_with_email(username="seen")
+        target.last_login = timezone.now()
+        target.save(update_fields=["last_login"])
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        content = response.content.decode()
+        assert "Signed in" in content
+        assert "Send login invite" not in content
+
+    def it_offers_send_login_invite_when_not_signed_in(client):
+        _create_superuser(client)
+        target = _target_with_email(username="invitee")
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        content = response.content.decode()
+        assert "Send login invite" in content
+        assert reverse("hub_admin_member_send_login_invite", args=[target.member.pk]) in content
+
+    def it_no_longer_shows_the_no_linked_user_string(client):
+        from tests.membership.factories import MemberFactory
+
+        _create_superuser(client)
+        member = MemberFactory(user=None, _pre_signup_email="airtable-only@x.com")
+        response = client.get(reverse("hub_admin_member_edit", args=[member.pk]))
+        assert "No linked user yet" not in response.content.decode()
+
+    def it_renders_a_confirm_modal_for_email_removal(client):
+        _create_superuser(client)
+        target = _target_with_email(username="confmodal")
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        content = response.content.decode()
+        # Remove opens a confirm modal rather than posting directly (repo standard).
+        assert "open-confirm" in content
+        assert "remove-email-" in content
+
+
+def describe_admin_member_send_login_invite():
+    def it_requires_login(client):
+        m = _create_member_user(username="sli1")
+        response = client.post(reverse("hub_admin_member_send_login_invite", args=[m.member.pk]))
+        assert response.status_code == 302
+
+    def it_forbids_plain_members(client):
+        target = _create_member_user(username="sli_t")
+        plain = _create_member_user(username="sli_p")
+        client.login(username=plain.username, password="p")
+        response = client.post(reverse("hub_admin_member_send_login_invite", args=[target.member.pk]))
+        assert response.status_code == 403
+
+    def it_rejects_get(client):
+        _create_superuser(client)
+        target = _create_member_user(username="sli_get")
+        response = client.get(reverse("hub_admin_member_send_login_invite", args=[target.member.pk]))
+        assert response.status_code == 405
+
+    def it_sends_a_login_invite_and_returns_a_toast(client, mailoutbox):
+        from tests.membership.factories import MemberFactory
+
+        _create_superuser(client)
+        member = MemberFactory(_pre_signup_email="firsttime@example.com")
+        response = client.post(reverse("hub_admin_member_send_login_invite", args=[member.pk]))
+        assert response.status_code == 204
+        assert len(mailoutbox) == 1
+        assert mailoutbox[0].to == ["firsttime@example.com"]
+        assert "Login invite sent" in response["HX-Trigger"]
+
+    def it_returns_an_error_toast_when_no_email_on_file(client, mailoutbox):
+        from tests.membership.factories import MemberFactory
+
+        _create_superuser(client)
+        member = MemberFactory(_pre_signup_email="")
+        response = client.post(reverse("hub_admin_member_send_login_invite", args=[member.pk]))
+        assert response.status_code == 204
+        assert "no email on file" in response["HX-Trigger"]
+        assert mailoutbox == []
+
+
+def describe_admin_user_edit():
+    def it_requires_login(client):
+        user = _create_nonmember_user(username="ue1", email="ue1@x.com")
+        response = client.get(reverse("hub_admin_user_edit", args=[user.pk]))
+        assert response.status_code == 302
+
+    def it_forbids_plain_members(client):
+        user = _create_nonmember_user(username="ue2", email="ue2@x.com")
+        plain = _create_member_user(username="ue_plain")
+        client.login(username=plain.username, password="p")
+        response = client.get(reverse("hub_admin_user_edit", args=[user.pk]))
+        assert response.status_code == 403
+
+    def it_renders_in_non_member_user_mode(client):
+        _create_superuser(client)
+        user = _create_nonmember_user(username="ue3", email="ue3@x.com")
+        response = client.get(reverse("hub_admin_user_edit", args=[user.pk]))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Non-member user" in content
+        assert "ue3@x.com" in content
+        assert response.context["is_member"] is False
+        assert "Save member" not in content
+
+    def it_redirects_to_member_edit_when_the_user_has_a_member(client):
+        _create_superuser(client)
+        member_user = _create_member_user(username="ue4")
+        response = client.get(reverse("hub_admin_user_edit", args=[member_user.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_member_edit", args=[member_user.member.pk])
+
+    def it_renders_a_non_member_user_with_no_email(client):
+        _create_superuser(client)
+        user = _create_bare_nonmember_user(username="bareedit", email="bareedit@x.com")
+        response = client.get(reverse("hub_admin_user_edit", args=[user.pk]))
+        assert response.status_code == 200
+        assert response.context["primary_email"] == ""
+
+
+def describe_admin_user_email_actions():
+    def it_adds_an_alias_to_a_non_member_user(client):
+        _create_superuser(client)
+        user = _create_nonmember_user(username="uea", email="uea@x.com")
+        response = client.post(
+            reverse("hub_admin_user_email_add", args=[user.pk]),
+            data={"email": "alt-uea@x.com"},
+        )
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_user_edit", args=[user.pk])
+        assert EmailAddress.objects.filter(user=user, email="alt-uea@x.com").exists()
+
+    def it_removes_an_alias_from_a_non_member_user(client):
+        _create_superuser(client)
+        user = _create_nonmember_user(username="uer", email="uer@x.com")
+        alias = EmailAddress.objects.create(user=user, email="gone-uer@x.com", verified=True, primary=False)
+        response = client.post(reverse("hub_admin_user_email_remove", args=[user.pk, alias.pk]))
+        assert response.status_code == 302
+        assert not EmailAddress.objects.filter(pk=alias.pk).exists()
+
+    def it_sets_a_non_member_users_primary(client):
+        _create_superuser(client)
+        user = _create_nonmember_user(username="ues", email="ues@x.com")
+        alias = EmailAddress.objects.create(user=user, email="next-ues@x.com", verified=True, primary=False)
+        response = client.post(reverse("hub_admin_user_email_set_primary", args=[user.pk, alias.pk]))
+        assert response.status_code == 302
+        alias.refresh_from_db()
+        assert alias.primary is True
+
+    def it_toggles_verified_for_a_non_member_user(client):
+        _create_superuser(client)
+        user = _create_nonmember_user(username="uet", email="uet@x.com")
+        alias = EmailAddress.objects.create(user=user, email="unv-uet@x.com", verified=False, primary=False)
+        response = client.post(reverse("hub_admin_user_email_toggle_verified", args=[user.pk, alias.pk]))
+        assert response.status_code == 302
+        alias.refresh_from_db()
+        assert alias.verified is True
+
+    def it_redirects_add_to_member_edit_when_the_user_has_a_member(client):
+        _create_superuser(client)
+        member_user = _create_member_user(username="uem")
+        response = client.post(
+            reverse("hub_admin_user_email_add", args=[member_user.pk]),
+            data={"email": "x@x.com"},
+        )
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_member_edit", args=[member_user.member.pk])
+
+    def it_redirects_remove_to_member_edit_when_the_user_has_a_member(client):
+        _create_superuser(client)
+        member_user = _create_member_user(username="uem_r")
+        response = client.post(reverse("hub_admin_user_email_remove", args=[member_user.pk, 1]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_member_edit", args=[member_user.member.pk])
+
+    def it_redirects_set_primary_to_member_edit_when_the_user_has_a_member(client):
+        _create_superuser(client)
+        member_user = _create_member_user(username="uem_s")
+        response = client.post(reverse("hub_admin_user_email_set_primary", args=[member_user.pk, 1]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_member_edit", args=[member_user.member.pk])
+
+    def it_redirects_toggle_verified_to_member_edit_when_the_user_has_a_member(client):
+        _create_superuser(client)
+        member_user = _create_member_user(username="uem_t")
+        response = client.post(reverse("hub_admin_user_email_toggle_verified", args=[member_user.pk, 1]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_member_edit", args=[member_user.member.pk])
+
+
+def describe_member_edit_inline_style_lint():
+    def it_is_removed_from_the_inline_style_baseline():
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[2]
+        script = (repo_root / "scripts" / "check_no_inline_style_in_extra_head.py").read_text(encoding="utf-8")
+        assert '"templates/hub/admin/member_edit.html"' not in script
+
+    def it_has_no_inline_style_and_links_external_css():
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[2]
+        template = (repo_root / "templates" / "hub" / "admin" / "member_edit.html").read_text(encoding="utf-8")
+        assert "<style" not in template
+        assert "css/member-edit.css" in template

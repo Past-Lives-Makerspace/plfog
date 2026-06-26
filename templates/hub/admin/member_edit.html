@@ -1,117 +1,134 @@
 {% extends "hub/base.html" %}
+{% load static %}
 
-{% block title %}Edit {{ member.full_legal_name|default:"member" }} — Past Lives{% endblock %}
+{% block title %}Edit {{ person_name|default:"person" }} — Past Lives{% endblock %}
 
 {% block extra_head %}
-<style>
-  .member-edit-form input[type="text"],
-  .member-edit-form input[type="email"],
-  .member-edit-form select,
-  .member-edit-form textarea {
-    background: rgba(255,255,255,0.04);
-    color: var(--hub-text);
-    border: 1px solid var(--hub-border);
-    border-radius: 6px;
-    padding: 0.55rem 0.75rem;
-    font-size: 0.9375rem;
-    width: 100%;
-    box-sizing: border-box;
-    font-family: inherit;
-  }
-  .member-edit-form textarea { min-height: 96px; resize: vertical; }
-  .member-edit-form input:focus, .member-edit-form select:focus, .member-edit-form textarea:focus {
-    outline: none; border-color: #EEB44B; background: rgba(255,255,255,0.06);
-  }
-  .member-edit-form select option {
-    background: #092E4C;
-    color: #F4EFDD;
-  }
-  .member-edit-form input[type="checkbox"] {
-    width: 18px; height: 18px; accent-color: #EEB44B; cursor: pointer;
-  }
-  .member-edit-form .field-row { display: flex; flex-direction: column; gap: 0.35rem; }
-  .member-edit-form .field-checkbox { flex-direction: row; align-items: center; gap: 0.625rem; }
-</style>
+<link rel="stylesheet" href="{% static 'css/member-edit.css' %}">
 {% endblock %}
 
 {% block content %}
-<div class="hub-card">
-  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem;">
-    <div>
-      <h1 class="hub-page-title" style="margin:0 0 0.15rem;">Edit Member</h1>
-      <span style="color:var(--hub-text-muted);font-size:0.875rem;">{{ member.user.email|default:"no linked user" }}</span>
+<div class="hub-card" x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'details' }">
+
+  {# ── Header ─────────────────────────────────────────────────────────── #}
+  <div class="pl-person-header">
+    <div class="pl-person-header__main">
+      <h1 class="hub-page-title pl-person-header__name">{{ person_name }}</h1>
+      <div class="pl-person-header__meta">
+        <span class="pl-person-header__email">{{ primary_email|default:"No email on file" }}</span>
+        <span class="hub-pill hub-pill--{{ status_modifier }}">{{ status_label }}</span>
+      </div>
     </div>
     <a href="{% url 'hub_admin_members' %}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false">← Back to Members</a>
   </div>
 
-  <form method="post" class="member-edit-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:680px;">
-    {% csrf_token %}
-    {% for field in form %}
-    <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
-      {% if field.field.widget.input_type == 'checkbox' %}
-        {{ field }}
-        <label for="{{ field.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ field.label }}</label>
-      {% else %}
-        <label for="{{ field.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ field.label }}</label>
-        {{ field }}
+  {# ── Tabs ───────────────────────────────────────────────────────────── #}
+  <div class="pl-person-tabs">
+    <button type="button" class="vote-tab" :class="section === 'details' ? 'vote-tab--active' : ''" @click="section = 'details'">Details</button>
+    <button type="button" class="vote-tab" :class="section === 'emails' ? 'vote-tab--active' : ''" @click="section = 'emails'">Emails</button>
+  </div>
+
+  {# ── Details tab ────────────────────────────────────────────────────── #}
+  <div x-show="section === 'details'">
+    {% if is_member %}
+      <form method="post" class="pl-person-form">
+        {% csrf_token %}
+        {% for field in form %}
+          {% include "components/form_field.html" with field=field %}
+        {% endfor %}
+        <div class="pl-person-actions">
+          <button type="submit" class="hub-btn hub-btn--primary">Save member</button>
+          <a href="{% url 'hub_admin_members' %}" class="hub-btn hub-btn--ghost" hx-boost="false">Cancel</a>
+        </div>
+      </form>
+
+      <p class="pl-person-email-line">
+        <span class="hub-text-muted">Email:</span> {{ primary_email|default:"—" }}
+        — <a href="#" @click.prevent="section = 'emails'">manage in Emails tab →</a>
+      </p>
+
+      {% if not has_signed_in %}
+      <div class="pl-person-invite">
+        <form hx-post="{{ send_login_invite_url }}" hx-swap="none" hx-disabled-elt="find button">
+          {% csrf_token %}
+          <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send login invite</button>
+        </form>
+        <p class="hub-text-muted pl-person-invite__hint">Emails them a link to sign in for the first time.</p>
+      </div>
       {% endif %}
-      {% if field.help_text %}<small style="color:var(--hub-text-muted);">{{ field.help_text }}</small>{% endif %}
-      {% if field.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ field.errors }}</div>{% endif %}
-    </div>
-    {% endfor %}
-    <div style="display:flex;gap:0.5rem;">
-      <button type="submit" class="hub-btn hub-btn--primary">Save member</button>
-      <a href="{% url 'hub_admin_members' %}" class="hub-btn hub-btn--ghost" hx-boost="false">Cancel</a>
-    </div>
-  </form>
-</div>
+    {% else %}
+      {# Non-member user mode — read-only identity. #}
+      <div class="pl-person-identity">
+        <span class="hub-pill hub-pill--danger">Non-member user</span>
+        <p class="hub-text-muted pl-person-identity__note">
+          This account isn't linked to a makerspace member — it's most likely someone who
+          registered for a class. You can manage their sign-in emails in the Emails tab.
+        </p>
+        <dl class="pl-person-identity__list">
+          <div><dt>Username</dt><dd>{{ target_user.username }}</dd></div>
+          <div><dt>Email</dt><dd>{{ primary_email|default:"—" }}</dd></div>
+          <div><dt>Joined</dt><dd>{{ target_user.date_joined|date:"M j, Y" }}</dd></div>
+          <div><dt>Last signed in</dt><dd>{% if target_user.last_login %}{{ target_user.last_login|date:"M j, Y" }}{% else %}Never{% endif %}</dd></div>
+        </dl>
+      </div>
+    {% endif %}
+  </div>
 
-<div class="hub-card" style="margin-top:1.5rem;max-width:680px;">
-  <h2 class="hub-page-title" style="font-size:1.1rem;margin:0 0 0.2rem;">Email addresses</h2>
-  <p style="color:var(--hub-text-muted);font-size:0.8125rem;margin:0 0 1rem;">
-    Sign-in addresses for this member. Any <strong>verified</strong> address can be used to log in;
-    the <strong>primary</strong> is where account email is sent.
-  </p>
-
-  {% if member_emails is None %}
-    <p style="color:var(--hub-text-muted);font-size:0.875rem;margin:0;">
-      No linked user yet — emails can be managed once this member signs up.
+  {# ── Emails tab ─────────────────────────────────────────────────────── #}
+  <div x-show="section === 'emails'" x-cloak>
+    <h2 class="hub-detail-label pl-emails-heading">Email addresses</h2>
+    <p class="hub-text-muted pl-emails-hint">
+      Sign-in addresses for this person. Any <strong>verified</strong> address can be used to log in;
+      the <strong>primary</strong> is where account email is sent.
     </p>
-  {% else %}
-    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.25rem;">
-      {% for email in member_emails %}
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;padding:0.55rem 0.75rem;background:rgba(255,255,255,0.03);border:1px solid var(--hub-border);border-radius:6px;">
-        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-          <span style="color:var(--hub-text);">{{ email.email }}</span>
-          {% if email.primary %}<span style="font-size:0.7rem;font-weight:600;color:#EEB44B;border:1px solid #EEB44B;border-radius:999px;padding:0.05rem 0.5rem;">★ primary</span>{% endif %}
-          {% if email.verified %}<span style="font-size:0.7rem;font-weight:600;color:#6ee7b7;border:1px solid #6ee7b7;border-radius:999px;padding:0.05rem 0.5rem;">✓ verified</span>{% else %}<span style="font-size:0.7rem;font-weight:600;color:var(--hub-text-muted);border:1px solid var(--hub-border);border-radius:999px;padding:0.05rem 0.5rem;">unverified</span>{% endif %}
-        </div>
-        <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
-          {% if email.verified and not email.primary %}
-          <form method="post" action="{% url 'hub_admin_member_email_set_primary' member.pk email.pk %}">{% csrf_token %}
-            <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Set primary</button>
-          </form>
-          {% endif %}
-          <form method="post" action="{% url 'hub_admin_member_email_toggle_verified' member.pk email.pk %}">{% csrf_token %}
-            <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">{% if email.verified %}Unmark verified{% else %}Mark verified{% endif %}</button>
-          </form>
-          <form method="post" action="{% url 'hub_admin_member_email_remove' member.pk email.pk %}">{% csrf_token %}
-            <button type="submit" class="hub-btn hub-btn--sm hub-btn--danger">Remove</button>
-          </form>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
 
-    <form method="post" action="{% url 'hub_admin_member_email_add' member.pk %}" class="member-edit-form"
-          style="display:flex;gap:0.5rem;align-items:flex-start;flex-wrap:wrap;">
-      {% csrf_token %}
-      <div style="flex:1;min-width:240px;">
-        {{ email_add_form.email }}
-        {% if email_add_form.email.errors %}<div style="color:#f87171;font-size:0.8125rem;margin-top:0.25rem;">{{ email_add_form.email.errors }}</div>{% endif %}
+    {% if not has_user %}
+      <p class="hub-text-muted pl-emails-empty">Add an email to enable sign-in.</p>
+    {% else %}
+      {% if email_rows %}
+      <div class="pl-email-list">
+        {% for row in email_rows %}
+        <div class="pl-email-row">
+          <div class="pl-email-row__main">
+            <span class="pl-email-row__addr">{{ row.obj.email }}</span>
+            {% if row.obj.primary %}<span class="hub-pill hub-pill--primary">★ primary</span>{% endif %}
+            {% if row.obj.verified %}<span class="hub-pill hub-pill--ok">✓ verified</span>{% else %}<span class="hub-pill hub-pill--neutral">unverified</span>{% endif %}
+          </div>
+          <div class="pl-email-row__actions">
+            {% if row.obj.verified and not row.obj.primary %}
+            <form method="post" action="{{ row.set_primary_url }}">{% csrf_token %}
+              <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Set primary</button>
+            </form>
+            {% endif %}
+            <form method="post" action="{{ row.toggle_url }}">{% csrf_token %}
+              <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">{% if row.obj.verified %}Unmark verified{% else %}Mark verified{% endif %}</button>
+            </form>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                    @click="$dispatch('open-confirm', 'remove-email-{{ row.obj.pk }}')">Remove</button>
+          </div>
+        </div>
+        {% endfor %}
       </div>
-      <button type="submit" class="hub-btn hub-btn--primary">Add email</button>
-    </form>
-  {% endif %}
+      {% else %}
+      <p class="hub-text-muted pl-emails-empty">No email addresses on file yet.</p>
+      {% endif %}
+
+      <form method="post" action="{{ email_add_url }}" class="pl-email-add">
+        {% csrf_token %}
+        <div class="pl-email-add__field">
+          {% include "components/form_field.html" with field=email_add_form.email %}
+        </div>
+        <button type="submit" class="hub-btn hub-btn--primary">+ Add email</button>
+      </form>
+    {% endif %}
+  </div>
+
+  {# Confirm modals for each removable email (teleported to <body>). #}
+  {% for row in email_rows %}
+    {% with pks=row.obj.pk|stringformat:"s" %}
+      {% include "components/confirm_modal.html" with confirm_id="remove-email-"|add:pks confirm_title="Remove this email?" confirm_message="This email will no longer work for signing in. You can add it back later." confirm_action_url=row.remove_url confirm_button_text="Remove email" %}
+    {% endwith %}
+  {% endfor %}
+
 </div>
 {% endblock %}

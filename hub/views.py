@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, TypedDict, cast
 
@@ -2028,12 +2029,146 @@ def admin_voting_dashboard(request: HttpRequest) -> HttpResponse:
     return render(request, "hub/admin/voting_dashboard.html", ctx)
 
 
+@dataclass(frozen=True)
+class PersonRow:
+    """A uniform row for the person-centric Manage Members list.
+
+    Both sources — :class:`~membership.models.Member` rows (every one now has a
+    user) and ``User`` rows with no Member ("Non-member user") — collapse into this
+    so the template renders one table without branching on type.
+    """
+
+    name: str
+    email: str
+    status_display: str  # "" for non-member users (they have no member status)
+    role_display: str  # "" for non-member users
+    class_count: int  # 0 for non-member users
+    classes_url: str  # "" when there are no classes
+    edit_url: str
+    is_member: bool
+    badge_label: str  # "" = no pill (a signed-in member)
+    badge_modifier: str  # "neutral" / "danger"
+    email_gap_label: str = ""  # only populated for the Missing-email report
+
+
+def _person_status_badge(*, is_member: bool, has_signed_in: bool) -> tuple[str, str]:
+    """The (label, hub-pill modifier) for a person's sign-in status badge."""
+    if not is_member:
+        return ("Non-member user", "danger")
+    if has_signed_in:
+        return ("Signed in", "ok")
+    return ("Hasn't signed in yet", "neutral")
+
+
+def _user_primary_email(user: User) -> str:
+    """The user's primary allauth EmailAddress — NEVER the User.email mirror.
+
+    Uses the list-view ``_primary_emailaddresses`` prefetch when present (avoids an
+    N+1), else a single targeted query. Returns "" when no primary row exists.
+    """
+    prefetched = getattr(user, "_primary_emailaddresses", None)
+    if prefetched is not None:
+        return prefetched[0].email if prefetched else ""
+    primary = EmailAddress.objects.filter(user_id=user.pk, primary=True).first()
+    return primary.email if primary else ""
+
+
+def _member_person_row(member: Member) -> PersonRow:
+    """Build the uniform list row for a Member (prefetch ``user`` to avoid N+1)."""
+    user = member.user
+    has_signed_in = bool(user and user.last_login)
+    badge_label, badge_modifier = ("", "") if has_signed_in else ("Hasn't signed in yet", "neutral")
+    classes_url = (
+        f"{reverse('classes:admin_classes')}?instructor={member.pk}" if getattr(member, "class_count", 0) else ""
+    )
+    return PersonRow(
+        name=member.full_legal_name or member.display_name or "—",
+        email=member.primary_email or "—",
+        status_display=member.get_status_display(),
+        role_display=member.get_fog_role_display(),
+        class_count=getattr(member, "class_count", 0),
+        classes_url=classes_url,
+        edit_url=reverse("hub_admin_member_edit", args=[member.pk]),
+        is_member=True,
+        badge_label=badge_label,
+        badge_modifier=badge_modifier,
+        email_gap_label=member.email_gap_label if hasattr(member, "email_gap") else "",
+    )
+
+
+def _nonmember_person_row(user: User) -> PersonRow:
+    """Build the uniform list row for a User with no Member ("Non-member user")."""
+    return PersonRow(
+        name=user.get_full_name() or user.username or "—",
+        email=_user_primary_email(user) or "—",
+        status_display="",
+        role_display="",
+        class_count=0,
+        classes_url="",
+        edit_url=reverse("hub_admin_user_edit", args=[user.pk]),
+        is_member=False,
+        badge_label="Non-member user",
+        badge_modifier="danger",
+    )
+
+
+class _PersonRowList:
+    """A sliceable, countable sequence of :class:`PersonRow` for ``Paginator``.
+
+    Members (ordered by name) come first, then non-member users (ordered by email),
+    and ``Paginator`` pages over the union without materializing the whole thing —
+    only the requested slice is turned into rows.
+    """
+
+    def __init__(self, members_qs: Any, nonmembers_qs: Any) -> None:
+        self._members = members_qs
+        self._nonmembers = nonmembers_qs
+        self._member_count = members_qs.count()
+        self._nonmember_count = nonmembers_qs.count()
+
+    def count(self) -> int:
+        return self._member_count + self._nonmember_count
+
+    def __len__(self) -> int:
+        return self.count()
+
+    def __getitem__(self, item: slice) -> list[PersonRow]:
+        start, stop, _step = item.indices(self.count())
+        rows: list[PersonRow] = []
+        if start < self._member_count:
+            member_stop = min(stop, self._member_count)
+            rows.extend(_member_person_row(m) for m in self._members[start:member_stop])
+        nm_start = max(0, start - self._member_count)
+        nm_stop = max(0, stop - self._member_count)
+        if nm_stop > nm_start:
+            rows.extend(_nonmember_person_row(u) for u in self._nonmembers[nm_start:nm_stop])
+        return rows
+
+
+def _primary_email_prefetch(relation: str) -> Prefetch:
+    """A Prefetch of just the primary EmailAddress rows under ``relation``.
+
+    ``to_attr="_primary_emailaddresses"`` is the hook ``Member.primary_email`` and
+    :func:`_user_primary_email` both read, so the email column never hits the DB
+    per-row and never reads the ``User.email`` mirror.
+    """
+    return Prefetch(
+        relation,
+        queryset=EmailAddress.objects.filter(primary=True),
+        to_attr="_primary_emailaddresses",
+    )
+
+
 @fog_admin_required
 def admin_members(request: HttpRequest) -> HttpResponse:
-    """Admin members management — paginated list with search + status/role/type/email filters."""
-    from allauth.account.models import EmailAddress
+    """Person-centric Manage Members list — members + non-member users, unioned.
+
+    Members (every one provisioned → has a user) are listed first, then ``User``
+    rows with no Member ("Non-member user", superusers excluded so the owner's admin
+    login isn't listed). Member-only filters (status/role/type/email) narrow to
+    members and hide non-member users; search matches both.
+    """
     from django.core.paginator import Paginator
-    from django.db.models import Count, Prefetch, Q
 
     from core.models import Invite
     from membership.forms import InviteMemberForm
@@ -2045,37 +2180,51 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     email_filter = request.GET.get("email", "")
     search = request.GET.get("q", "").strip()
 
-    qs = (
+    members = (
         Member.objects.select_related("user", "membership_plan")
         .annotate(class_count=Count("classes", distinct=True))
-        .prefetch_related(
-            Prefetch(
-                "user__emailaddress_set",
-                queryset=EmailAddress.objects.filter(primary=True),
-                to_attr="_primary_emailaddresses",  # the hook Member.primary_email reads
-            )
-        )
+        .prefetch_related(_primary_email_prefetch("user__emailaddress_set"))
         .order_by("full_legal_name")
     )
     if status_filter and status_filter != "all":
-        qs = qs.filter(status=status_filter)
+        members = members.filter(status=status_filter)
     if role_filter:
-        qs = qs.filter(fog_role=role_filter)
+        members = members.filter(fog_role=role_filter)
     if type_filter:
-        qs = qs.filter(member_type=type_filter)
+        members = members.filter(member_type=type_filter)
     if search:
-        qs = qs.filter(
+        members = members.filter(
             Q(full_legal_name__icontains=search)
             | Q(preferred_name__icontains=search)
             | Q(user__email__icontains=search)
             | Q(discord_handle__icontains=search)
         )
 
-    missing_count = qs.missing_email().count()  # emailless within the current filters
+    missing_count = members.missing_email().count()  # emailless within the current filters
     if email_filter == "missing":
-        qs = qs.missing_email()  # page rows now carry has_email + email_gap
+        members = members.missing_email()  # page rows now carry has_email + email_gap
 
-    paginator = Paginator(qs, 50)
+    # Non-member users join the list only when no member-only filter is narrowing it.
+    # The default status ("active") and "all" are non-narrowing so the default view
+    # shows everyone; any other status, or a role/type/missing-email filter, hides
+    # them (they have no such fields). Search still matches their email.
+    member_only_filter_active = bool(
+        role_filter or type_filter or email_filter == "missing" or status_filter not in ("", "all", "active")
+    )
+    nonmembers = User.objects.none()
+    if not member_only_filter_active:
+        nonmembers = (
+            User.objects.filter(member__isnull=True, is_superuser=False)
+            .prefetch_related(_primary_email_prefetch("emailaddress_set"))
+            .order_by("email", "username")
+        )
+        if search:
+            nonmembers = nonmembers.filter(
+                Q(emailaddress__email__icontains=search) | Q(username__icontains=search)
+            ).distinct()
+
+    person_list: Any = _PersonRowList(members, nonmembers)
+    paginator = Paginator(person_list, 50)
     page = paginator.get_page(request.GET.get("page", 1))
     return render(
         request,
@@ -2088,6 +2237,7 @@ def admin_members(request: HttpRequest) -> HttpResponse:
             "type_filter": type_filter,
             "email_filter": email_filter,
             "missing_count": missing_count,
+            "member_only_filter_active": member_only_filter_active,
             "search": search,
             "status_choices": Member.Status.choices,
             "role_choices": Member.FogRole.choices,
@@ -2100,7 +2250,7 @@ def admin_members(request: HttpRequest) -> HttpResponse:
 
 @fog_admin_required
 def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Hub-native edit form for a single Member."""
+    """Hub-native tabbed edit page for a single Member (Details + Emails)."""
     member = get_object_or_404(Member, pk=pk)
 
     if request.method == "POST":
@@ -2109,33 +2259,126 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             obj = form.save(commit=False)
             obj.save()
             obj.apply_admin_role(form.cleaned_data["role"])
-            display = obj.full_legal_name or (obj.user.email if obj.user else f"member #{obj.pk}")
+            display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
             messages.success(request, f"Saved {display}.")
             return redirect("hub_admin_members")
     else:
         form = MemberAdminEditForm(instance=member)
 
+    user = member.user
+    has_signed_in = bool(user and user.last_login)
+    status_label, status_modifier = _person_status_badge(is_member=True, has_signed_in=has_signed_in)
+    email_rows = (
+        _email_rows(
+            user,
+            owner_pk=member.pk,
+            set_primary="hub_admin_member_email_set_primary",
+            toggle="hub_admin_member_email_toggle_verified",
+            remove="hub_admin_member_email_remove",
+        )
+        if user
+        else []
+    )
     ctx = _get_hub_context(request)
     return render(
         request,
         "hub/admin/member_edit.html",
         {
             **ctx,
-            "form": form,
+            "is_member": True,
             "member": member,
-            "member_emails": _member_emails(member),
+            "form": form,
+            "person_name": member.full_legal_name or member.display_name or "Member",
+            "primary_email": member.primary_email,
+            "has_signed_in": has_signed_in,
+            "has_user": member.user_id is not None,
+            "status_label": status_label,
+            "status_modifier": status_modifier,
+            "email_rows": email_rows,
             "email_add_form": _email_add_form(member),
+            "email_add_url": reverse("hub_admin_member_email_add", args=[member.pk]),
+            "send_login_invite_url": reverse("hub_admin_member_send_login_invite", args=[member.pk]),
         },
     )
 
 
-def _member_emails(member: Member) -> Any:
-    """The member's allauth EmailAddress rows (primary first), or None if no linked user."""
-    if member.user_id is None:
-        return None
-    from allauth.account.models import EmailAddress
+@fog_admin_required
+def admin_user_edit(request: HttpRequest, user_pk: int) -> HttpResponse:
+    """Edit page for a non-member User — same tabbed shell, "non-member user" mode.
 
-    return EmailAddress.objects.filter(user=member.user).order_by("-primary", "email")
+    Details is read-only identity (no ``MemberAdminEditForm``); the Emails tab
+    manages the user's allauth ``EmailAddress`` rows via the user-keyed endpoints.
+    A user who actually has a Member is bounced to the member edit page so the two
+    routes never disagree about which page owns a person.
+    """
+    user = get_object_or_404(User, pk=user_pk)
+    member = Member.objects.filter(user=user).first()
+    if member is not None:
+        return redirect("hub_admin_member_edit", pk=member.pk)
+
+    has_signed_in = bool(user.last_login)
+    status_label, status_modifier = _person_status_badge(is_member=False, has_signed_in=has_signed_in)
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/admin/member_edit.html",
+        {
+            **ctx,
+            "is_member": False,
+            "target_user": user,
+            "person_name": user.get_full_name() or user.username,
+            "primary_email": _user_primary_email(user),
+            "has_signed_in": has_signed_in,
+            "has_user": True,
+            "status_label": status_label,
+            "status_modifier": status_modifier,
+            "email_rows": _email_rows(
+                user,
+                owner_pk=user.pk,
+                set_primary="hub_admin_user_email_set_primary",
+                toggle="hub_admin_user_email_toggle_verified",
+                remove="hub_admin_user_email_remove",
+            ),
+            "email_add_form": _user_email_add_form(user),
+            "email_add_url": reverse("hub_admin_user_email_add", args=[user.pk]),
+        },
+    )
+
+
+@fog_admin_required
+@require_POST
+def admin_member_send_login_invite(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only (HTMX) — email a not-signed-in member a first-time sign-in link.
+
+    Calls the Phase-1 ``Member.send_login_invite`` (a distinct path from the
+    "already a member" invite guard). Returns 204 + a toast either way.
+    """
+    member = get_object_or_404(Member, pk=pk)
+    response = HttpResponse(status=204)
+    try:
+        member.send_login_invite()
+    except ValueError as exc:
+        trigger_toast(response, str(exc), "error")
+        return response
+    trigger_toast(response, f"Login invite sent to {member.primary_email}.", "success")
+    return response
+
+
+def _email_rows(user: User, *, owner_pk: int, set_primary: str, toggle: str, remove: str) -> list[dict[str, Any]]:
+    """A user's allauth EmailAddress rows (primary first) with per-row action URLs.
+
+    Shared by the member-keyed and user-keyed edit pages so the Emails tab renders
+    one list regardless of whether the person is a Member or a non-member User.
+    """
+    return [
+        {
+            "obj": ea,
+            "set_primary_url": reverse(set_primary, args=[owner_pk, ea.pk]),
+            "toggle_url": reverse(toggle, args=[owner_pk, ea.pk]),
+            "remove_url": reverse(remove, args=[owner_pk, ea.pk]),
+        }
+        for ea in EmailAddress.objects.filter(user=user).order_by("-primary", "email")
+    ]
 
 
 def _email_add_form(member: Member, data: Any = None) -> Any:
@@ -2145,6 +2388,20 @@ def _email_add_form(member: Member, data: Any = None) -> Any:
     from membership.forms import AddEmailAliasForm
 
     return AddEmailAliasForm(data, user=member.user)
+
+
+def _user_email_add_form(user: User, data: Any = None) -> Any:
+    """AddEmailAliasForm bound to a non-member User."""
+    from membership.forms import AddEmailAliasForm
+
+    return AddEmailAliasForm(data, user=user)
+
+
+def _apply_alias_action(request: HttpRequest, user: User, email_pk: int, action: Any) -> None:
+    """Run an ``email_aliases`` mutation on one of the user's addresses and flash it."""
+    alias = get_object_or_404(EmailAddress, pk=email_pk, user=user)
+    for level, msg in action(alias):
+        getattr(messages, level)(request, msg)
 
 
 def _email_member_or_redirect(pk: int) -> tuple[Member | None, HttpResponse | None]:
@@ -2180,17 +2437,13 @@ def admin_member_email_add(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def admin_member_email_remove(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
     """POST-only — remove an email alias from a member (with the lock-out safety rules)."""
-    from allauth.account.models import EmailAddress
-
     from membership import email_aliases
 
     member, early = _email_member_or_redirect(pk)
     if member is None:
         return cast(HttpResponse, early)
 
-    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
-    for level, msg in email_aliases.remove_alias(alias):
-        getattr(messages, level)(request, msg)
+    _apply_alias_action(request, cast(User, member.user), email_pk, email_aliases.remove_alias)
     return redirect("hub_admin_member_edit", pk=member.pk)
 
 
@@ -2198,17 +2451,13 @@ def admin_member_email_remove(request: HttpRequest, pk: int, email_pk: int) -> H
 @require_POST
 def admin_member_email_set_primary(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
     """POST-only — promote a verified alias to the member's primary email."""
-    from allauth.account.models import EmailAddress
-
     from membership import email_aliases
 
     member, early = _email_member_or_redirect(pk)
     if member is None:
         return cast(HttpResponse, early)
 
-    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
-    for level, msg in email_aliases.set_primary(alias):
-        getattr(messages, level)(request, msg)
+    _apply_alias_action(request, cast(User, member.user), email_pk, email_aliases.set_primary)
     return redirect("hub_admin_member_edit", pk=member.pk)
 
 
@@ -2216,18 +2465,84 @@ def admin_member_email_set_primary(request: HttpRequest, pk: int, email_pk: int)
 @require_POST
 def admin_member_email_toggle_verified(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
     """POST-only — flip the verified flag on a member's email alias."""
-    from allauth.account.models import EmailAddress
-
     from membership import email_aliases
 
     member, early = _email_member_or_redirect(pk)
     if member is None:
         return cast(HttpResponse, early)
 
-    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
-    for level, msg in email_aliases.toggle_verified(alias):
-        getattr(messages, level)(request, msg)
+    _apply_alias_action(request, cast(User, member.user), email_pk, email_aliases.toggle_verified)
     return redirect("hub_admin_member_edit", pk=member.pk)
+
+
+def _email_user_or_redirect(user_pk: int) -> tuple[User | None, HttpResponse | None]:
+    """Fetch the non-member User for an email action; bounce to member edit if linked."""
+    user = get_object_or_404(User, pk=user_pk)
+    member = Member.objects.filter(user=user).first()
+    if member is not None:
+        return None, redirect("hub_admin_member_edit", pk=member.pk)
+    return user, None
+
+
+@fog_admin_required
+@require_POST
+def admin_user_email_add(request: HttpRequest, user_pk: int) -> HttpResponse:
+    """POST-only — add a verified, non-primary alias to a non-member User."""
+    from membership import email_aliases
+
+    user, early = _email_user_or_redirect(user_pk)
+    if user is None:
+        return cast(HttpResponse, early)
+
+    form = _user_email_add_form(user, request.POST)
+    if form.is_valid():
+        for level, msg in email_aliases.add_alias(user, form.cleaned_data["email"]):
+            getattr(messages, level)(request, msg)
+    else:
+        messages.error(request, form.errors["email"][0])
+    return redirect("hub_admin_user_edit", user_pk=user.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_user_email_remove(request: HttpRequest, user_pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — remove an alias from a non-member User (with the lock-out safety rules)."""
+    from membership import email_aliases
+
+    user, early = _email_user_or_redirect(user_pk)
+    if user is None:
+        return cast(HttpResponse, early)
+
+    _apply_alias_action(request, user, email_pk, email_aliases.remove_alias)
+    return redirect("hub_admin_user_edit", user_pk=user.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_user_email_set_primary(request: HttpRequest, user_pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — promote a verified alias to a non-member User's primary email."""
+    from membership import email_aliases
+
+    user, early = _email_user_or_redirect(user_pk)
+    if user is None:
+        return cast(HttpResponse, early)
+
+    _apply_alias_action(request, user, email_pk, email_aliases.set_primary)
+    return redirect("hub_admin_user_edit", user_pk=user.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_user_email_toggle_verified(request: HttpRequest, user_pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — flip the verified flag on a non-member User's email alias."""
+    from membership import email_aliases
+
+    user, early = _email_user_or_redirect(user_pk)
+    if user is None:
+        return cast(HttpResponse, early)
+
+    _apply_alias_action(request, user, email_pk, email_aliases.toggle_verified)
+    return redirect("hub_admin_user_edit", user_pk=user.pk)
 
 
 def _render_invites_panel(request: HttpRequest) -> HttpResponse:

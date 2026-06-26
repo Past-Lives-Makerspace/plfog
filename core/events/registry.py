@@ -308,6 +308,7 @@ _DISCORD_ON = ChannelSpec(Channel.DISCORD, ChannelDefault.ON)
 
 # New event keys (single vocabulary — these strings ARE the preference / audit keys).
 MEMBER_INVITED = "member.invited"
+MEMBER_LOGIN_INVITE = "member.login_invite"
 GUILD_ANNOUNCEMENT = "guild_announcement"  # re-uses the seeded key + curated copy
 SITE_ANNOUNCEMENT = "site_announcement"  # re-uses the seeded key + curated copy
 VOTING_CLOSING_48H = "voting.closing_48h"
@@ -329,6 +330,22 @@ _NEW_EVENTS: list[EventType] = [
         # MEMBER_INVITED SiteActivity with the inviting admin as the actor (the
         # email-sending path doesn't know who that is). Keeping this ``None`` makes
         # that the single, correctly-attributed source of the activity row.
+        activity_kind=None,
+    ),
+    # 1b. member.login_invite — an existing, not-signed-in member is emailed a
+    #    first-time sign-in link (distinct from member.invited, which rejects existing
+    #    members). The member already has an account (provisioned), but the whole point
+    #    is to reach someone who hasn't logged in — an in-app bell they'll never check
+    #    is noise — so this is a forced email only, addressed to the single member.
+    EventType(
+        key=MEMBER_LOGIN_INVITE,
+        label="Sign in to Past Lives for the first time",
+        description="An existing member who hasn't signed in yet was emailed a sign-in link.",
+        category="Membership",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_EMAIL_FORCED,),
+        # No activity row from emit — the hub view that triggers this stamps its own
+        # audit/activity (Phase 2); keeping this None avoids a duplicate.
         activity_kind=None,
     ),
     # 2. guild.announcement — a guild lead/staff posts; the guild's members hear it.

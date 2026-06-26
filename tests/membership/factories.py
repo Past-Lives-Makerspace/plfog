@@ -42,7 +42,13 @@ class MembershipPlanFactory(factory.django.DjangoModelFactory):
     monthly_price = Decimal("150.00")
 
 
+@mute_signals(post_save)
 class MemberFactory(factory.django.DjangoModelFactory):
+    # post_save is muted so the going-forward ``auto_provision_member_user`` signal
+    # does NOT auto-provision a User for every factory-built ACTIVE member — the
+    # default factory member stays unlinked (``user=None``), matching the behaviour
+    # tests have always relied on. Specs that exercise auto-provisioning create the
+    # member without this mute (via ``Member.objects.create``).
     class Meta:
         model = Member
 

@@ -11,8 +11,14 @@ from core.events.registry import Channel, ChannelDefault, Recipients, get_event
 # The Phase-6 net-new event keys, appended to (or replacing) the trigger seed.
 _NEW_KEYS = {e.key for e in registry._NEW_EVENTS}
 # The two announcement events re-use a seeded key (they REPLACE the Phase-1 entry);
-# the other four are brand-new keys not present in the legacy catalogue.
-_BRAND_NEW_KEYS = {"member.invited", "voting.closing_48h", "voting.results_published", "release.published"}
+# the rest are brand-new keys not present in the legacy catalogue.
+_BRAND_NEW_KEYS = {
+    "member.invited",
+    "member.login_invite",
+    "voting.closing_48h",
+    "voting.results_published",
+    "release.published",
+}
 
 
 def describe_event_registry():
@@ -40,10 +46,12 @@ def describe_event_registry():
 
     def describe_channels():
         def it_includes_in_app_on_for_every_per_recipient_event():
-            # member.invited is email-only (the invitee has no account → no in-app),
-            # so the in-app invariant holds for every OTHER event.
+            # The two member-email events are email-only (the invitee has no account;
+            # the login-invite reaches someone who hasn't signed in, so an in-app bell
+            # would never be seen), so the in-app invariant holds for every OTHER event.
+            email_only = {"member.invited", "member.login_invite"}
             for event in registry.EVENTS:
-                if event.key == "member.invited":
+                if event.key in email_only:
                     assert event.channel(Channel.IN_APP) is None
                     continue
                 spec = event.channel(Channel.IN_APP)
