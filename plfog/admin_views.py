@@ -39,6 +39,10 @@ def site_announcement(request: HttpRequest) -> HttpResponse:
 
             title = form.cleaned_data["title"]
             body = form.cleaned_data["body"]
+            # Absolute URL — Discord embeds and email links need a full host, not a
+            # bare "/". The admin is served on the member host, so this resolves to
+            # the hub home.
+            site_url = request.build_absolute_uri("/")
             result = emit(
                 "site_announcement",
                 actor=request.user if request.user.is_authenticated else None,
@@ -46,9 +50,13 @@ def site_announcement(request: HttpRequest) -> HttpResponse:
                     "member_name": "there",
                     "announcement_title": title,
                     "announcement_body": body,
-                    "site_url": "/",
+                    "site_url": site_url,
                 },
-                url="/",
+                url=site_url,
+                # Unique per send — every other emit() caller keys its idempotency
+                # window. Without it all site announcements collapse onto one
+                # EventDelivery slot and only the first ever delivers.
+                period=f"site:{timezone.now():%Y%m%d%H%M%S%f}",
             )
             messages.success(request, f"Announcement sent to {result.recipient_count} member(s).")
             return redirect("admin:index")

@@ -138,6 +138,31 @@ def describe_site_announcement_view():
         assert resp.status_code == 302
         assert Notification.objects.filter(user=recipient, trigger="site_announcement").exists()
 
+    def it_delivers_every_announcement_not_just_the_first(admin_client):
+        # Each announcement carries a unique idempotency period, so a second send
+        # is NOT deduped against the first — both reach the member's bell. (Without
+        # a per-send period they collapse onto one EventDelivery slot and the
+        # second silently delivers nothing.)
+        from django.contrib.auth.models import User
+        from django.db.models.signals import post_save
+        from factory.django import mute_signals
+
+        from core.models import Notification
+
+        member = MemberFactory()  # ACTIVE
+        with mute_signals(post_save):
+            recipient = User.objects.create_user(username="sa_two", email="sa2@example.com")
+        member.user = recipient
+        member.save(update_fields=["user"])
+
+        admin_client.post("/admin/announcement/", data={"title": "First", "body": "One."})
+        admin_client.post("/admin/announcement/", data={"title": "Second", "body": "Two."})
+
+        titles = set(
+            Notification.objects.filter(user=recipient, trigger="site_announcement").values_list("title", flat=True)
+        )
+        assert titles == {"First", "Second"}
+
     def it_re_renders_on_invalid_post(admin_client):
         resp = admin_client.post("/admin/announcement/", data={"title": "", "body": ""})
         assert resp.status_code == 200  # re-renders form with errors

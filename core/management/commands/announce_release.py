@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from plfog.version import CHANGELOG, VERSION
@@ -60,6 +61,10 @@ class Command(BaseCommand):
         entry = _entry_for(version)
         title = str(entry["title"])
 
+        # Absolute URL — the Discord embed + email link need a full host, not "/".
+        # No request here (management command), so use the configured member base.
+        site_url = settings.MEMBER_BASE_URL
+
         result = emit(
             "release.published",
             context={
@@ -67,9 +72,9 @@ class Command(BaseCommand):
                 "version": version,
                 "release_title": title,
                 "release_notes": _release_notes(entry),
-                "site_url": "/",
+                "site_url": site_url,
             },
-            url="/",
+            url=site_url,
             period=f"release:{version}",
         )
         if result.delivery_count:

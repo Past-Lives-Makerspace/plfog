@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.14"
+VERSION = "0.19.15"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.15",
+        "date": "2026-06-25",
+        "title": "Announcements that actually go out",
+        "changes": [
+            "Fixed our new Discord announcements: every site-wide announcement now posts properly to the "
+            "Discord channel and shows up in everyone's notifications — previously only the first one ever sent "
+            "would go through. Announcement links now point to the real site instead of a broken placeholder.",
+        ],
+    },
     {
         "version": "0.19.14",
         "date": "2026-06-25",
