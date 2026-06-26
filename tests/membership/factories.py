@@ -12,6 +12,7 @@ from django.utils import timezone
 from factory.django import mute_signals
 
 from membership.models import (
+    CommunityEvent,
     FundingSnapshot,
     Guild,
     GuildAnnouncement,
@@ -142,6 +143,29 @@ class GuildMeetingNoteAttachmentFactory(factory.django.DjangoModelFactory):
             url="",
             file=factory.LazyFunction(lambda: SimpleUploadedFile("agenda.pdf", b"%PDF-1.4 test", "application/pdf")),
         )
+
+
+class CommunityEventFactory(factory.django.DjangoModelFactory):
+    """A FOG-native community event. Defaults to a guild meeting (guild set).
+
+    Use the ``community`` / ``lead_meeting`` traits for the site-wide variants (which
+    null the guild to satisfy the type↔scope constraint).
+    """
+
+    class Meta:
+        model = CommunityEvent
+
+    guild = factory.SubFactory(GuildFactory)
+    event_type = CommunityEvent.EventType.GUILD_MEETING
+    title = factory.Sequence(lambda n: f"Event {n}")
+    starts_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=7))
+    ends_at = factory.LazyAttribute(lambda o: o.starts_at + timedelta(hours=2))
+    recurrence = CommunityEvent.Recurrence.NONE
+
+    class Params:
+        guild_meeting = factory.Trait(event_type=CommunityEvent.EventType.GUILD_MEETING)
+        community = factory.Trait(event_type=CommunityEvent.EventType.COMMUNITY, guild=None)
+        lead_meeting = factory.Trait(event_type=CommunityEvent.EventType.LEAD_MEETING, guild=None)
 
 
 class GuildMembershipFactory(factory.django.DjangoModelFactory):

@@ -417,7 +417,7 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     upcoming_classes = guild_classes.bookable().select_related("instructor")[:4]
     calendar = _get_calendar_context(request, guild=guild)
     calendar["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
-    guild_cal_filters = ["classes", "orientation"]
+    guild_cal_filters = ["classes", "orientation", "community"]
     if guild.calendar_url:
         guild_cal_filters.append(str(guild.pk))
     calendar["default_filters_json"] = json.dumps(guild_cal_filters).replace('"', '\\"')
@@ -497,6 +497,18 @@ def _require_can_manage_orientations(request: HttpRequest, guild: Guild) -> Http
     booking responses, availability) — not for guild-page or class editing.
     """
     if not _can_manage_orientations(request, guild):
+        return HttpResponse("Forbidden", status=403)
+    return None
+
+
+def _require_admin(request: HttpRequest) -> HttpResponse | None:
+    """Return a 403 response if the user is not viewing as an admin, else None.
+
+    Mirrors the inline ``view_as.is_admin`` gate used by the directory/admin surfaces,
+    so the gate and the template's ``events_can_manage`` flag stay in lock-step.
+    """
+    view_as = getattr(request, "view_as", None)
+    if view_as is None or not view_as.is_admin:
         return HttpResponse("Forbidden", status=403)
     return None
 
@@ -1645,6 +1657,130 @@ def guild_meeting_note_delete(request: HttpRequest, pk: int, note_pk: int) -> Ht
 
 
 @login_required
+def guild_events(request: HttpRequest, pk: int) -> HttpResponse:
+    """Management list of a guild's events (Edit / Delete / + Add). Editor only."""
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    events = guild.events.upcoming().select_related("guild")
+    ctx = _get_hub_context(request)
+    return render(request, "hub/guild_events.html", {**ctx, "guild": guild, "events": events})
+
+
+@login_required
+def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None) -> HttpResponse:
+    """Add (no ``event_pk``) or edit a guild event. Editor only.
+
+    Edit/delete fetch the event **scoped to this guild** so a lead of guild A cannot
+    mutate guild B's event by supplying B's ``event_pk`` with A's ``pk``. Creating a new
+    event announces it once; editing does not re-announce.
+    """
+    from hub.forms import CommunityEventForm
+    from membership.models import CommunityEvent
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    event = get_object_or_404(CommunityEvent, pk=event_pk, guild=guild) if event_pk is not None else CommunityEvent()
+    is_new = event.pk is None
+
+    if request.method == "POST":
+        form = CommunityEventForm(request.POST, instance=event, guild=guild, as_admin=False)
+        if form.is_valid():
+            event = form.save(commit=False)
+            event.guild = guild
+            event.event_type = CommunityEvent.EventType.GUILD_MEETING
+            if is_new:
+                event.created_by = request.user
+            event.save()
+            if is_new:
+                event.announce(actor=request.user)
+            messages.success(request, "Event saved.")
+            return redirect("hub_guild_events", pk=guild.pk)
+    else:
+        form = CommunityEventForm(instance=event, guild=guild, as_admin=False)
+
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/community_event_edit.html",
+        {
+            **ctx,
+            "guild": guild,
+            "event": event,
+            "form": form,
+            "cancel_url": reverse("hub_guild_events", args=[guild.pk]),
+        },
+    )
+
+
+@login_required
+@require_POST
+def guild_event_delete(request: HttpRequest, pk: int, event_pk: int) -> HttpResponse:
+    """Delete a guild event. POST only, editor only, fetched guild-scoped."""
+    from membership.models import CommunityEvent
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    get_object_or_404(CommunityEvent, pk=event_pk, guild=guild).delete()
+    messages.success(request, "Event deleted.")
+    return redirect("hub_guild_events", pk=guild.pk)
+
+
+@login_required
+def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpResponse:
+    """Admin site-wide event authoring (reached from the Community Calendar Events tab)."""
+    from hub.forms import CommunityEventForm
+    from membership.models import CommunityEvent
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    event = get_object_or_404(CommunityEvent, pk=event_pk) if event_pk is not None else CommunityEvent()
+    is_new = event.pk is None
+    cancel_url = reverse("hub_community_calendar") + "?tab=events"
+
+    if request.method == "POST":
+        form = CommunityEventForm(request.POST, instance=event, as_admin=True)
+        if form.is_valid():
+            event = form.save(commit=False)
+            if is_new:
+                event.created_by = request.user
+            event.save()
+            if is_new:
+                event.announce(actor=request.user)
+            messages.success(request, "Event saved.")
+            return redirect(cancel_url)
+    else:
+        form = CommunityEventForm(instance=event, as_admin=True)
+
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/community_event_edit.html",
+        {**ctx, "event": event, "form": form, "cancel_url": cancel_url},
+    )
+
+
+@login_required
+@require_POST
+def event_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
+    """Delete a site-wide event. POST only, admin only."""
+    from membership.models import CommunityEvent
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    get_object_or_404(CommunityEvent, pk=event_pk).delete()
+    messages.success(request, "Event deleted.")
+    return redirect(reverse("hub_community_calendar") + "?tab=events")
+
+
+@login_required
 def beta_feedback(request: HttpRequest) -> HttpResponse:
     """Beta feedback page — users can report bugs, request features, or leave general feedback."""
     ctx = _get_hub_context(request)
@@ -1730,6 +1866,9 @@ def tab_history(request: HttpRequest) -> HttpResponse:
 
 
 _CALENDAR_PAGE_SIZE = 10
+# FOG-native community events render under this source. Reuses the existing --hub-blue
+# brand token (not a new color) so they read distinctly from classes/orientation/guild.
+_COMMUNITY_CALENDAR_COLOR = "#3d8bd4"
 
 
 def _get_calendar_context(
@@ -1779,14 +1918,19 @@ def _get_calendar_context(
     # CalendarEvent rows, optionally merged with synthetic guild entries (classes/orientations)
     # that duck-type CalendarEvent — hence the Any element type.
     all_events: list[Any] = list(events_qs.select_related("guild", "feed").order_by("start_dt"))
-    if guild is not None:
-        # Surface this guild's CMS classes + orientation slots on the calendar — they
-        # aren't CalendarEvent rows, so wrap them as synthetic entries and merge in.
-        from hub.calendar_entries import guild_calendar_entries
+    # Merge FOG-native synthetic entries (they aren't CalendarEvent rows) into BOTH the
+    # community calendar (all events) and a guild calendar (that guild's events), then
+    # re-sort by start so they interleave with the iCal/class/orientation entries.
+    from hub.calendar_entries import community_event_entries, guild_calendar_entries
 
-        all_events = sorted(
-            [*all_events, *guild_calendar_entries(guild, fetch_from, fetch_to)], key=lambda e: e.start_dt
-        )
+    if guild is not None:
+        synthetic = [
+            *guild_calendar_entries(guild, fetch_from, fetch_to),
+            *community_event_entries(fetch_from, fetch_to, guild=guild),
+        ]
+    else:
+        synthetic = community_event_entries(fetch_from, fetch_to)
+    all_events = sorted([*all_events, *synthetic], key=lambda e: e.start_dt)
 
     # Week event list: events whose start date falls within the navigated week
     week_events = [e for e in all_events if week_start <= e.start_dt.date() <= week_end]
@@ -1811,7 +1955,11 @@ def _get_calendar_context(
     classes_enabled = config.sync_classes_enabled
     classes_color = config.classes_calendar_color
 
-    source_colors: dict[str, str] = {"classes": classes_color, "orientation": "#EEB44B"}
+    source_colors: dict[str, str] = {
+        "classes": classes_color,
+        "orientation": "#EEB44B",
+        "community": _COMMUNITY_CALENDAR_COLOR,
+    }
     for feed in calendar_feeds:
         source_colors[f"feed-{feed.pk}"] = feed.color
     for g in guilds_with_calendars:
@@ -1862,6 +2010,7 @@ def _get_calendar_context(
         "calendar_feeds": calendar_feeds,
         "classes_enabled": classes_enabled,
         "classes_color": classes_color,
+        "community_color": _COMMUNITY_CALENDAR_COLOR,
         "source_colors": source_colors,
         "week_days": week_days,
         "week_label": week_label,
@@ -1876,11 +2025,17 @@ def _get_calendar_context(
 
 
 def community_calendar(request: HttpRequest) -> HttpResponse:
-    """Community Calendar page — upcoming events from all guild and general calendars."""
+    """Community Calendar page — a Calendar grid tab + an Events list/authoring tab.
+
+    The Events tab is a member-readable upcoming-events list; admins additionally get
+    ``+ Add`` / Edit / Delete controls (gated by ``events_can_manage``).
+    """
+    from membership.models import CommunityEvent
+
     ctx = _get_hub_context(request)
     cal_ctx = _get_calendar_context(request)
 
-    default_filters = []
+    default_filters = ["community"]
     for feed in cal_ctx["calendar_feeds"]:
         default_filters.append(f"feed-{feed.pk}")
     if cal_ctx["classes_enabled"]:
@@ -1890,6 +2045,10 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
 
     cal_ctx["default_filters_json"] = json.dumps(default_filters).replace('"', '\\"')
     cal_ctx["events_url"] = reverse("hub_community_calendar_events")
+
+    view_as = getattr(request, "view_as", None)
+    cal_ctx["upcoming_events"] = CommunityEvent.objects.upcoming().select_related("guild")
+    cal_ctx["events_can_manage"] = bool(view_as is not None and view_as.is_admin)
     return render(request, "hub/community_calendar.html", {**ctx, **cal_ctx})
 
 
@@ -1939,10 +2098,13 @@ def _ical_escape(value: str) -> str:
     return value
 
 
+_ICAL_WEEKDAYS = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+
+
 @login_required
 def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     """Download a combined iCal file of all upcoming events."""
-    from membership.models import CalendarEvent
+    from membership.models import CalendarEvent, CommunityEvent
 
     now = dj_timezone.now()
     horizon = now + timedelta(days=90)
@@ -1981,6 +2143,27 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
             lines.append(f"DESCRIPTION:{_ical_escape(evt.description[:250])}")
         if evt.location:
             lines.append(f"LOCATION:{evt.location}")
+        lines.append("END:VEVENT")
+
+    # FOG-native events need their own loop — they lack the CalendarEvent attrs the
+    # loop above reads (uid / all_day). A monthly series emits ONE VEVENT carrying an
+    # RRULE so subscribers expand it themselves (no per-occurrence VEVENTs).
+    for ev in CommunityEvent.objects.upcoming().select_related("guild"):
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:community-{ev.pk}@pastlives",
+            f"SUMMARY:{_ical_escape(ev.title)}",
+            f"DTSTART:{ev.starts_at.strftime('%Y%m%dT%H%M%SZ')}",
+            f"DTEND:{ev.ends_at.strftime('%Y%m%dT%H%M%SZ')}",
+        ]
+        if ev.recurrence == CommunityEvent.Recurrence.MONTHLY:
+            local_start = dj_timezone.localtime(ev.starts_at)
+            byday = f"{ev._occurrence_ordinal()}{_ICAL_WEEKDAYS[local_start.weekday()]}"
+            lines.append(f"RRULE:FREQ=MONTHLY;BYDAY={byday}")
+        if ev.description:
+            lines.append(f"DESCRIPTION:{_ical_escape(ev.description[:250])}")
+        if ev.location:
+            lines.append(f"LOCATION:{_ical_escape(ev.location)}")
         lines.append("END:VEVENT")
 
     lines.append("END:VCALENDAR")

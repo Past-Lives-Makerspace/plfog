@@ -335,6 +335,29 @@ def all_active_members(context: dict[str, Any]) -> list[Recipient]:
     return out
 
 
+def all_guild_leads(context: dict[str, Any]) -> list[Recipient]:
+    """CROSS-GUILD — every active guild lead, officer, or staffer site-wide.
+
+    The audience for the Guild Lead Meeting. Unlike :func:`guild_leadership` (per-guild,
+    reads ``context["guild"]``) this is the union across all guilds and takes no guild —
+    that's the whole point of a cross-guild leadership series. Members without a usable
+    account/email are dropped like every other resolver.
+    """
+    from django.db.models import Q
+
+    from membership.models import Member
+
+    leads = (
+        Member.objects.active()
+        .filter(
+            Q(led_guilds__isnull=False) | Q(guild_staff_roles__isnull=False) | Q(fog_role=Member.FogRole.GUILD_OFFICER)
+        )
+        .select_related("user")
+        .distinct()
+    )
+    return _members_to_recipients(list(leads), "all_guild_leads")
+
+
 def all_voters(context: dict[str, Any]) -> list[Recipient]:
     """Every member eligible to vote — paying active members with a usable account.
 
@@ -407,6 +430,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.INVITEE: invitee,
     Recipients.LEASE_TENANT: lease_tenant,
     Recipients.ALL_ACTIVE_MEMBERS: all_active_members,
+    Recipients.ALL_GUILD_LEADS: all_guild_leads,
     Recipients.ALL_VOTERS: all_voters,
     Recipients.EVERYONE_WITH_LOGIN: everyone_with_login,
     Recipients.RELEASE_AUDIENCE: release_audience,

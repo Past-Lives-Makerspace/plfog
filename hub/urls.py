@@ -112,6 +112,18 @@ urlpatterns = [
         views.guild_meeting_note_delete,
         name="hub_guild_meeting_note_delete",
     ),
+    path("guilds/<int:pk>/events/", views.guild_events, name="hub_guild_events"),
+    path("guilds/<int:pk>/events/add/", views.guild_event_edit, name="hub_guild_event_add"),
+    path(
+        "guilds/<int:pk>/events/<int:event_pk>/edit/",
+        views.guild_event_edit,
+        name="hub_guild_event_edit",
+    ),
+    path(
+        "guilds/<int:pk>/events/<int:event_pk>/delete/",
+        views.guild_event_delete,
+        name="hub_guild_event_delete",
+    ),
     path("guilds/<int:pk>/cart/confirm/", views.guild_cart_confirm, name="hub_guild_cart_confirm"),
     path("guilds/<int:pk>/eyop-form/", views.guild_eyop_form, name="hub_guild_eyop_form"),
     path(
@@ -148,6 +160,10 @@ urlpatterns = [
     path("calendar/", views.community_calendar, name="hub_community_calendar"),
     path("calendar/events/", views.calendar_events_partial, name="hub_community_calendar_events"),
     path("calendar/export.ics", views.calendar_export_ics, name="hub_calendar_export_ics"),
+    # Admin site-wide event authoring — the LIST is the Events tab on the calendar.
+    path("events/add/", views.event_edit, name="hub_event_add"),
+    path("events/<int:event_pk>/edit/", views.event_edit, name="hub_event_edit"),
+    path("events/<int:event_pk>/delete/", views.event_delete, name="hub_event_delete"),
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
     path("manage/voting/", views.voting_overview, name="hub_admin_voting_overview"),
     path("manage/voting/history/", views.voting_history, name="hub_admin_voting_history"),

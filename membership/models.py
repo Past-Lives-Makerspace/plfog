@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date as date_type
+from datetime import datetime as datetime_type
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +22,8 @@ from core.validators import validate_document, validate_image_size
 from membership.managers import MemberEmailManager
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import User
+
     from classes.models import ClassOffering
 
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
@@ -1280,6 +1283,231 @@ class GuildMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member} in {self.guild.name}"
+
+
+class CommunityEventQuerySet(models.QuerySet):
+    """Window + scope queries for FOG-authored community events."""
+
+    def upcoming(self) -> CommunityEventQuerySet:
+        """Events still worth showing: a non-recurring event that hasn't ended, or
+        ANY monthly series (it keeps recurring — its concrete future occurrences are
+        computed by :meth:`CommunityEvent.occurrences_in` at render time)."""
+        return self.filter(Q(ends_at__gte=timezone.now()) | ~Q(recurrence=CommunityEvent.Recurrence.NONE))
+
+    def candidates_for_window(self, frm: date_type, to: date_type) -> CommunityEventQuerySet:
+        """Rows that *might* contribute an occurrence to ``[frm, to]``.
+
+        A non-recurring event qualifies when its start-date is in-window; a monthly
+        series qualifies whenever its anchor is on/before ``to`` (its later occurrences
+        are expanded virtually, so a past anchor still counts). The adapter then asks
+        each row's :meth:`CommunityEvent.occurrences_in` which concrete dates land in
+        the window — a plain ``starts_at`` BETWEEN filter would wrongly drop a series.
+        """
+        return self.filter(
+            (Q(recurrence=CommunityEvent.Recurrence.NONE) & Q(starts_at__date__gte=frm, starts_at__date__lte=to))
+            | (~Q(recurrence=CommunityEvent.Recurrence.NONE) & Q(starts_at__date__lte=to))
+        )
+
+    def for_guild(self, guild: Guild) -> CommunityEventQuerySet:
+        return self.filter(guild=guild)
+
+    def site_wide(self) -> CommunityEventQuerySet:
+        return self.filter(guild__isnull=True)
+
+
+class CommunityEvent(models.Model):
+    """A FOG-native event on the Community Calendar (a guild meeting/event, a site-wide
+    community event, or the cross-guild Guild Lead Meeting).
+
+    Unlike :class:`CalendarEvent` (a read-only iCal cache), this is authored inside FOG
+    by a guild lead/staffer (their guild's events) or an admin (site-wide events and the
+    Guild Lead Meeting). Saving a *new* event posts a one-shot Discord/in-app announcement
+    via :meth:`announce`; editing does not re-announce. A monthly event is a single row —
+    its occurrences are expanded virtually in the calendar window and emitted as one
+    ``RRULE`` VEVENT in the ``.ics`` (no materialised rows, no cron).
+    """
+
+    class EventType(models.TextChoices):
+        GUILD_MEETING = "guild_meeting", "Guild meeting / event"
+        LEAD_MEETING = "lead_meeting", "Guild Lead Meeting"
+        COMMUNITY = "community", "Community event"
+
+    class Recurrence(models.TextChoices):
+        NONE = "none", "Does not repeat"
+        MONTHLY = "monthly", "Repeats monthly"
+
+    # Maps an event type to the registry event key its announcement fires.
+    _ANNOUNCE_EVENT: dict[str, str] = {
+        EventType.GUILD_MEETING: "event.guild_published",
+        EventType.LEAD_MEETING: "event.lead_meeting_published",
+        EventType.COMMUNITY: "event.community_published",
+    }
+
+    title = models.CharField(max_length=200, help_text="Event name shown on the calendar — e.g. 'Monthly Potluck'.")
+    event_type = models.CharField(
+        max_length=20,
+        choices=EventType.choices,
+        default=EventType.GUILD_MEETING,
+        help_text="What kind of event this is.",
+    )
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="events",
+        help_text="The guild this belongs to. Leave blank for a site-wide community or leadership event.",
+    )
+    starts_at = models.DateTimeField(help_text="When the event starts.")
+    ends_at = models.DateTimeField(help_text="When the event ends.")
+    location = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Where it happens — a room name, address, or a video link. Optional.",
+    )
+    description = models.TextField(blank=True, default="", help_text="Optional details for members.")
+    recurrence = models.CharField(
+        max_length=12,
+        choices=Recurrence.choices,
+        default=Recurrence.NONE,
+        help_text=(
+            "Whether this event repeats. 'Repeats monthly' recurs on the same "
+            "weekday-of-month as the start (e.g. the 2nd Saturday)."
+        ),
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who created this event.",
+    )
+    google_event_id = models.CharField(
+        max_length=1024,
+        blank=True,
+        default="",
+        help_text="Reserved for a future Google Calendar sync. Not used yet.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = CommunityEventQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["starts_at"]
+        indexes = [models.Index(fields=["starts_at"], name="idx_communityevent_starts")]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(ends_at__gt=models.F("starts_at")),
+                name="ck_communityevent_end_after_start",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (Q(event_type="guild_meeting") & Q(guild__isnull=False))
+                    | (~Q(event_type="guild_meeting") & Q(guild__isnull=True))
+                ),
+                name="ck_communityevent_guild_matches_type",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        where = self.guild.name if self.guild is not None else "Site-wide"
+        return f"{self.title} — {where} ({self.starts_at:%Y-%m-%d %H:%M})"
+
+    # --- Recurrence (virtual expansion, reusing _nth_weekday) -----------------
+
+    def _occurrence_ordinal(self) -> int:
+        """Which weekday-of-month the start falls on: 1–4, or -1 for a 5th (treated as 'last')."""
+        n = (timezone.localtime(self.starts_at).day - 1) // 7 + 1
+        return -1 if n == 5 else n
+
+    def occurrences_in(self, frm: date_type, to: date_type) -> list[datetime_type]:
+        """Start datetimes of every occurrence whose start-date is within ``[frm, to]``.
+
+        ``NONE`` yields ``[starts_at]`` when in window; ``MONTHLY`` walks months from the
+        anchor, projecting the same nth weekday via :func:`_nth_weekday`, preserving the
+        original time-of-day (and therefore the duration). Each occurrence's end is
+        ``occurrence start + (ends_at - starts_at)`` (computed by the caller).
+        """
+        local_start = timezone.localtime(self.starts_at)
+        if self.recurrence == self.Recurrence.NONE:
+            return [self.starts_at] if frm <= local_start.date() <= to else []
+
+        from dateutil.relativedelta import FR, MO, SA, SU, TH, TU, WE, relativedelta
+
+        weekdays = (MO, TU, WE, TH, FR, SA, SU)
+        wd = weekdays[local_start.weekday()]
+        ord_ical = self._occurrence_ordinal()
+        ordinal = 5 if ord_ical == -1 else ord_ical  # _nth_weekday treats ordinal 5 as 'last'
+        anchor_date = local_start.date()
+
+        occurrences: list[datetime_type] = []
+        month_first = max(anchor_date.replace(day=1), frm.replace(day=1))
+        while month_first <= to:
+            occ_date = _nth_weekday(month_first, wd, ordinal)
+            if occ_date >= anchor_date and frm <= occ_date <= to:
+                occurrences.append(local_start.replace(year=occ_date.year, month=occ_date.month, day=occ_date.day))
+            month_first = month_first + relativedelta(months=1)
+        return occurrences
+
+    # --- Properties -----------------------------------------------------------
+
+    @property
+    def is_site_wide(self) -> bool:
+        return self.guild_id is None
+
+    @property
+    def when_display(self) -> str:
+        """'Sat, Jul 12 · 6:00 PM – 8:00 PM' style, for notification copy and tooltips.
+
+        Appends ' · Repeats monthly' for a monthly series so the single launch
+        announcement makes the cadence clear.
+        """
+        local_start = timezone.localtime(self.starts_at)
+        local_end = timezone.localtime(self.ends_at)
+        when = (
+            f"{local_start.strftime('%a, %b %-d')} · "
+            f"{local_start.strftime('%-I:%M %p')} – {local_end.strftime('%-I:%M %p')}"
+        )
+        if self.recurrence == self.Recurrence.MONTHLY:
+            when += " · Repeats monthly"
+        return when
+
+    @property
+    def absolute_url(self) -> str:
+        """Absolute Community-Calendar URL for notifications (no per-event page in v1)."""
+        from django.urls import reverse
+
+        return f"{settings.MEMBER_BASE_URL}{reverse('hub_community_calendar')}"
+
+    # --- Publish --------------------------------------------------------------
+
+    def announce(self, *, actor: User | None = None) -> None:
+        """Post the launch announcement (in-app + Discord). Idempotent via ``period``.
+
+        Called only on create. The ``guild`` rides in context for the guild-members
+        resolver and the per-guild Discord fan-out (sibling routing spec); site-wide
+        events carry ``guild=None`` and route centrally only.
+        """
+        from core.events.emit import emit
+
+        emit(
+            self._ANNOUNCE_EVENT[self.event_type],
+            actor=actor,
+            target=self,
+            context={
+                "guild": self.guild,
+                "guild_name": self.guild.name if self.guild is not None else "",
+                "event_title": self.title,
+                "when": self.when_display,
+                "location": self.location,
+                "event_url": self.absolute_url,
+            },
+            url=self.absolute_url,
+            period=f"event:{self.pk}:published",
+        )
 
 
 class VotePreferenceQuerySet(models.QuerySet):

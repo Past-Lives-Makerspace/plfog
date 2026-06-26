@@ -9,6 +9,17 @@ Context: `cal` = the calendar context dict; `guild` = the Guild.
     x-data="{
         calView: localStorage.getItem('guildCalView') || 'week',
         activeFilters: JSON.parse(localStorage.getItem('guildCalFilters-{{ guild.pk }}') || '{{ cal.default_filters_json }}'),
+        init() {
+            // One-time rollout: turn the new 'community' source ON for members who saved
+            // this guild's filters before it existed. The marker makes it happen once.
+            if (!localStorage.getItem('guildCalCommunityRollout-{{ guild.pk }}')) {
+                if (localStorage.getItem('guildCalFilters-{{ guild.pk }}') && !this.activeFilters.includes('community')) {
+                    this.activeFilters.push('community');
+                    localStorage.setItem('guildCalFilters-{{ guild.pk }}', JSON.stringify(this.activeFilters));
+                }
+                localStorage.setItem('guildCalCommunityRollout-{{ guild.pk }}', '1');
+            }
+        },
         setView(v) { this.calView = v; localStorage.setItem('guildCalView', v); },
         toggleFilter(key) {
             if (this.activeFilters.includes(key)) {
@@ -62,6 +73,10 @@ Context: `cal` = the calendar context dict; `guild` = the Guild.
         <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('orientation') }" @click="toggleFilter('orientation')" style="--filter-color: #EEB44B;">
             <span class="pl-calendar-filter__dot" style="background: #EEB44B;"></span>
             Orientation
+        </button>
+        <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('community') }" @click="toggleFilter('community')" style="--filter-color: {{ cal.community_color|default:'#3d8bd4' }};">
+            <span class="pl-calendar-filter__dot" style="background: {{ cal.community_color|default:'#3d8bd4' }};"></span>
+            Community events
         </button>
         {% if guild.calendar_url %}
         <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('{{ guild.pk }}') }" @click="toggleFilter('{{ guild.pk }}')" style="--filter-color: {{ guild.calendar_color }};">

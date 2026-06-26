@@ -80,6 +80,7 @@ class Recipients(str, Enum):
     INVITEE = "invitee"
     LEASE_TENANT = "lease_tenant"
     ALL_ACTIVE_MEMBERS = "all_active_members"
+    ALL_GUILD_LEADS = "all_guild_leads"
     ALL_VOTERS = "all_voters"
     EVERYONE_WITH_LOGIN = "everyone_with_login"
     RELEASE_AUDIENCE = "release_audience"
@@ -317,6 +318,9 @@ VOTING_VOTE_SOON = "voting.vote_soon"
 VOTING_RESULTS_PUBLISHED = "voting.results_published"
 VOTING_RESULTS_READY = "voting.results_ready"
 RELEASE_PUBLISHED = "release.published"
+EVENT_GUILD_PUBLISHED = "event.guild_published"
+EVENT_COMMUNITY_PUBLISHED = "event.community_published"
+EVENT_LEAD_MEETING_PUBLISHED = "event.lead_meeting_published"
 
 
 _NEW_EVENTS: list[EventType] = [
@@ -450,6 +454,42 @@ _NEW_EVENTS: list[EventType] = [
         category="Announcements",
         recipient=Recipients.RELEASE_AUDIENCE,
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
+        activity_kind=None,
+    ),
+    # 7. event.guild_published — a guild lead/staffer posts their guild's meeting/event.
+    #    Goes to the guild's members; in-app on, email OFF by default (calendar + Discord
+    #    + bell is enough), Discord on. Carries ``guild`` in context, so the routing
+    #    sibling dual-routes it to the central channel AND the guild's own webhook.
+    EventType(
+        key=EVENT_GUILD_PUBLISHED,
+        label="New guild event",
+        description="A guild you're in scheduled a meeting or event.",
+        category="Events",
+        recipient=Recipients.GUILD_MEMBERS,
+        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        activity_kind=None,
+    ),
+    # 8. event.community_published — an admin posts a site-wide community event (One Mic
+    #    Night, Potluck). Every active member; in-app on, email OFF, Discord on (central).
+    EventType(
+        key=EVENT_COMMUNITY_PUBLISHED,
+        label="New community event",
+        description="A makerspace-wide community event was scheduled.",
+        category="Events",
+        recipient=Recipients.ALL_ACTIVE_MEMBERS,
+        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        activity_kind=None,
+    ),
+    # 9. event.lead_meeting_published — an admin posts the cross-guild Guild Lead Meeting.
+    #    Notifies every guild lead/officer/staffer site-wide; in-app on, email OFF, Discord
+    #    on (central). The event still shows on the Community Calendar for all members.
+    EventType(
+        key=EVENT_LEAD_MEETING_PUBLISHED,
+        label="Guild Lead Meeting scheduled",
+        description="A cross-guild leadership meeting was scheduled.",
+        category="Events",
+        recipient=Recipients.ALL_GUILD_LEADS,
+        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
         activity_kind=None,
     ),
 ]

@@ -20,6 +20,9 @@ _BRAND_NEW_KEYS = {
     "voting.results_published",
     "voting.results_ready",
     "release.published",
+    "event.guild_published",
+    "event.community_published",
+    "event.lead_meeting_published",
 }
 
 

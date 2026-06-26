@@ -15,6 +15,8 @@
   <a href="{% url 'hub_guild_meeting_notes' guild.pk %}" class="vote-tab" style="text-decoration:none;">Meeting Notes</a>
   {# Orientations is its own editor (settings, recurring hours, slots) — the tab opens that page. #}
   <a href="{% url 'hub_guild_orientation_edit' guild.pk %}" class="vote-tab" style="text-decoration:none;">Orientations</a>
+  {# Events is its own management page (list + dedicated add/edit) — the tab opens that page. #}
+  <a href="{% url 'hub_guild_events' guild.pk %}" class="vote-tab" style="text-decoration:none;">Events</a>
 </div>
 
 <form method="post" enctype="multipart/form-data" class="hub-form">

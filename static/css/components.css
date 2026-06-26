@@ -369,6 +369,13 @@
     background-size: 1rem;
 }
 
+/* Native <option> popups don't inherit the select's colors — theme them so the
+   dropdown list isn't white-on-white on the dark theme (FRONTEND rule 13). */
+.pl-form-group select option {
+    background: var(--hub-elevated);
+    color: var(--hub-text);
+}
+
 /* Date/time pickers: let the native picker indicator (the clock/calendar glyph)
    and the dropdown follow the dark theme — otherwise the glyph renders black and
    is invisible on the dark input background. */

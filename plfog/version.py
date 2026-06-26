@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.18"
+VERSION = "0.19.19"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.19",
+        "date": "2026-06-26",
+        "title": "Post your guild's events on the Community Calendar",
+        "changes": [
+            "Guild leads can now post their guild's meetings and events, and admins can post community "
+            "events and the Guild Lead Meeting — all on the Community Calendar, with a Discord heads-up "
+            "when they go up. Events can repeat monthly (the same weekday-of-month, like the 2nd Saturday), "
+            "show up on the guild's own calendar too, and are included when you export or subscribe to the "
+            "calendar.",
+        ],
+    },
     {
         "version": "0.19.18",
         "date": "2026-06-26",

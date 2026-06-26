@@ -45,10 +45,31 @@
     {% endif %}
 </div>
 
+<div x-data="{ tab: new URLSearchParams(window.location.search).get('tab') === 'events' ? 'events' : 'calendar' }">
+
+{# ── Calendar | Events tab bar ── #}
+<div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;">
+    <button type="button" class="vote-tab" :class="tab === 'calendar' ? 'vote-tab--active' : ''" @click="tab = 'calendar'">Calendar</button>
+    <button type="button" class="vote-tab" :class="tab === 'events' ? 'vote-tab--active' : ''" @click="tab = 'events'">Events</button>
+</div>
+
 <div
+    x-show="tab === 'calendar'"
     x-data="{
         calView: localStorage.getItem('calView') || 'week',
         activeFilters: JSON.parse(localStorage.getItem('calFilters') || '{{ default_filters_json }}'),
+        init() {
+            // One-time rollout: turn the new 'community' source ON for members who saved
+            // filters before it existed, so guild/community events aren't hidden. The
+            // marker makes it happen once, so a later manual removal of it sticks.
+            if (!localStorage.getItem('calCommunityRollout')) {
+                if (localStorage.getItem('calFilters') && !this.activeFilters.includes('community')) {
+                    this.activeFilters.push('community');
+                    localStorage.setItem('calFilters', JSON.stringify(this.activeFilters));
+                }
+                localStorage.setItem('calCommunityRollout', '1');
+            }
+        },
         setView(v) { this.calView = v; localStorage.setItem('calView', v); },
         toggleFilter(key) {
             if (this.activeFilters.includes(key)) {
@@ -137,6 +158,13 @@
 
     {# ── Filter toggles ── #}
     <div class="pl-calendar-filters">
+        <button class="pl-calendar-filter"
+                :class="{ 'pl-calendar-filter--active': isActive('community') }"
+                @click="toggleFilter('community')"
+                style="--filter-color: {{ community_color }};">
+            <span class="pl-calendar-filter__dot" style="background: {{ community_color }};"></span>
+            Community events
+        </button>
         {% for feed in calendar_feeds %}
         <button class="pl-calendar-filter"
                 :class="{ 'pl-calendar-filter--active': isActive('feed-{{ feed.pk }}') }"
@@ -184,6 +212,49 @@
             {% include "hub/partials/calendar_content.html" %}
         </div>
     </div>
+
+</div>
+
+{# ── Events tab: member-readable upcoming list + admin authoring ── #}
+<div x-show="tab === 'events'" x-cloak>
+    {% if events_can_manage %}
+    <div style="margin-bottom:1.5rem;">
+        <a href="{% url 'hub_event_add' %}" class="pl-btn pl-btn--primary">+ Add event</a>
+    </div>
+    {% endif %}
+
+    <div class="hub-card" style="padding:1.5rem;">
+        {% if upcoming_events %}
+        <div style="display:flex; flex-direction:column; gap:1rem;">
+            {% for event in upcoming_events %}
+            {% with confirm_id=event.pk|stringformat:"s"|add:"-event-delete" %}
+            <div class="hub-card" style="padding:1rem; background:var(--hub-surface); display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+                <div style="flex:1; min-width:220px;">
+                    <div style="font-weight:600;">{{ event.title }}</div>
+                    <div class="hub-text-muted" style="font-size:0.8125rem;">
+                        {{ event.get_event_type_display }} · {{ event.guild.name|default:"Site-wide" }} · {{ event.starts_at|date:"D, M j · g:i A" }}{% if event.recurrence != "none" %} · Repeats monthly{% endif %}
+                    </div>
+                </div>
+                {% if events_can_manage %}
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                    <a href="{% url 'hub_event_edit' event.pk %}" class="hub-btn hub-btn--sm">Edit</a>
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                            @click="$dispatch('open-confirm', '{{ confirm_id }}')">Delete</button>
+                    {% url 'hub_event_delete' event.pk as delete_url %}
+                    {% include "components/confirm_modal.html" with confirm_id=confirm_id confirm_title="Delete this event?" confirm_message="This removes it from the calendar. This can't be undone." confirm_action_url=delete_url confirm_button_text="Delete event" %}
+                </div>
+                {% endif %}
+            </div>
+            {% endwith %}
+            {% endfor %}
+        </div>
+        {% elif events_can_manage %}
+        <p class="hub-text-muted" style="margin:0;">No upcoming events yet — add a community event or a Guild Lead Meeting.</p>
+        {% else %}
+        <p class="hub-text-muted" style="margin:0;">No upcoming events yet.</p>
+        {% endif %}
+    </div>
+</div>
 
 </div>
 {% endblock %}

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from core.models import CalendarFeed, SiteConfiguration
 from membership.models import (
+    CommunityEvent,
     Guild,
     GuildAnnouncement,
     GuildFAQItem,
@@ -640,6 +641,57 @@ class OrientationSlotForm(forms.ModelForm):
             self.add_error("ends_at", "End must be after the start.")
         if starts and starts <= timezone.now():
             self.add_error("starts_at", "Pick a time in the future.")
+        return cleaned
+
+
+class CommunityEventForm(forms.ModelForm):
+    """Add/edit a FOG-native community event.
+
+    One form serves both surfaces: a guild lead (``as_admin=False``) authors their
+    guild's events (``event_type``/``guild`` are implied by context and removed from the
+    form), while an admin (``as_admin=True``) authors site-wide events and picks the
+    type/guild. The datetime widgets are copied from :class:`OrientationSlotForm`.
+    """
+
+    class Meta:
+        model = CommunityEvent
+        fields = ["event_type", "guild", "title", "starts_at", "ends_at", "location", "description", "recurrence"]
+        widgets = {
+            "starts_at": forms.DateTimeInput(
+                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
+            ),
+            "ends_at": forms.DateTimeInput(
+                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
+            ),
+            "description": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args: Any, guild: Guild | None = None, as_admin: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for name in ("starts_at", "ends_at"):
+            cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
+        self._as_admin = as_admin
+        self._fixed_guild = guild
+        if not as_admin:
+            del self.fields["event_type"]
+            del self.fields["guild"]
+        else:
+            self.fields["guild"].required = False
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        starts = cleaned.get("starts_at")
+        ends = cleaned.get("ends_at")
+        if starts and ends and ends <= starts:
+            self.add_error("ends_at", "End time must be after the start.")
+        if self._as_admin:
+            etype = cleaned.get("event_type")
+            guild = cleaned.get("guild")
+            if etype == CommunityEvent.EventType.GUILD_MEETING and guild is None:
+                self.add_error("guild", "Pick a guild for a guild event.")
+            site_wide = {CommunityEvent.EventType.LEAD_MEETING, CommunityEvent.EventType.COMMUNITY}
+            if etype in site_wide and guild is not None:
+                self.add_error("guild", "Leave the guild blank for a site-wide event.")
         return cleaned
 
 

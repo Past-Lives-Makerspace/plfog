@@ -95,6 +95,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.INVITEE: "The person being invited (addressed by email; no account yet).",
     Recipients.LEASE_TENANT: "The member tenant of the lease.",
     Recipients.ALL_ACTIVE_MEMBERS: "Every active member.",
+    Recipients.ALL_GUILD_LEADS: "Every guild lead, officer, and staffer (cross-guild).",
     Recipients.ALL_VOTERS: "Every member eligible to vote.",
     Recipients.EVERYONE_WITH_LOGIN: "Everyone with a login (members and past members).",
     Recipients.RELEASE_AUDIENCE: "Everyone with a login, plus all active members and admins.",
@@ -622,6 +623,94 @@ _CURATED: dict[str, EventCopy] = {
                     "(v{{ version }}): <strong>{{ release_title }}</strong>.</p>"
                     "<pre>{{ release_notes }}</pre>"
                     '<p><a href="{{ site_url }}">Visit Past Lives</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "event.guild_published": EventCopy(
+        placeholders=("guild_name", "event_title", "when", "location", "event_url"),
+        sample_context={
+            "guild_name": "Metal Guild",
+            "event_title": "Forge Night",
+            "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
+            "location": "Main Studio",
+            "event_url": "https://pastlives.example/calendar/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="New {{ guild_name }} event: {{ event_title }}",
+                body_text="{{ event_title }} — {{ when }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="New {{ guild_name }} event: {{ event_title }}",
+                body_text=(
+                    "{{ event_title }}\n{{ when }}\nWhere: {{ location }}\n\n"
+                    "See it on the calendar: {{ event_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<h2>{{ event_title }}</h2>"
+                    "<p>{{ guild_name }} · {{ when }}</p>"
+                    "<p>Where: {{ location }}</p>"
+                    '<p><a href="{{ event_url }}">See it on the Community Calendar</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "event.community_published": EventCopy(
+        placeholders=("event_title", "when", "location", "event_url"),
+        sample_context={
+            "event_title": "Monthly Potluck",
+            "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
+            "location": "Common Area",
+            "event_url": "https://pastlives.example/calendar/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="New community event: {{ event_title }}",
+                body_text="{{ event_title }} — {{ when }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="New community event: {{ event_title }}",
+                body_text=(
+                    "{{ event_title }}\n{{ when }}\nWhere: {{ location }}\n\n"
+                    "See it on the calendar: {{ event_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<h2>{{ event_title }}</h2>"
+                    "<p>{{ when }}</p>"
+                    "<p>Where: {{ location }}</p>"
+                    '<p><a href="{{ event_url }}">See it on the Community Calendar</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "event.lead_meeting_published": EventCopy(
+        placeholders=("event_title", "when", "location", "event_url"),
+        sample_context={
+            "event_title": "Guild Lead Meeting",
+            "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
+            "location": "Classroom",
+            "event_url": "https://pastlives.example/calendar/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Guild Lead Meeting: {{ event_title }}",
+                body_text="{{ event_title }} — {{ when }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Guild Lead Meeting: {{ event_title }}",
+                body_text=(
+                    "{{ event_title }}\n{{ when }}\nWhere: {{ location }}\n\n"
+                    "See it on the calendar: {{ event_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<h2>{{ event_title }}</h2>"
+                    "<p>{{ when }}</p>"
+                    "<p>Where: {{ location }}</p>"
+                    '<p><a href="{{ event_url }}">See it on the Community Calendar</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
