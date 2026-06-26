@@ -608,15 +608,18 @@ class ClassOffering(HeroCropMixin, models.Model):
                 # "a new class is live" in-app fan-out to ALL active members (resolved by the
                 # ``class_published`` event); its EMAIL channel defaults off, matching the old
                 # in-app-only dispatch.
+                from django.urls import reverse
+
+                from classes.emails import _absolute_url
                 from core.events.emit import emit
 
+                class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug}))
                 emit(
                     "class_published",
                     actor=row.decided_by,
                     target=self,
-                    title="New class published",
-                    body=self.title,
-                    url=f"/classes/{self.slug}/",
+                    context={"class_title": self.title, "class_url": class_url},
+                    url=class_url,
                     period=f"offering:{self.pk}:published",
                 )
         elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:

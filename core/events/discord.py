@@ -51,6 +51,30 @@ def global_webhook() -> str:
     return (getattr(settings, "DISCORD_NOTIFY_WEBHOOK_URL", "") or "").strip()
 
 
+def guild_webhook(guild: object) -> str:
+    """The guild's own Discord webhook for the dual-route post (blank = disabled).
+
+    Mirrors :func:`global_webhook`'s "blank is disabled" idiom for the per-guild
+    channel: returns the guild's stripped ``discord_webhook_url`` only when the guild
+    has opted in (``discord_post_enabled``) AND the URL is non-blank; otherwise ``""``
+    (the broadcast fan-out treats a blank result as "no guild post").
+
+    Defensive / duck-typed on purpose: the emit spine passes whatever object the
+    event context carries under ``"guild"``. A context that carries a non-Guild object
+    (or no toggle / no URL attribute) must never raise into the spine, so a missing
+    attribute resolves to ``""`` rather than an exception.
+
+    Args:
+        guild: The guild-like object from the event context (``context["guild"]``).
+
+    Returns:
+        The guild's webhook URL, or ``""`` when disabled, blank, or not a guild.
+    """
+    if not getattr(guild, "discord_post_enabled", False):
+        return ""
+    return (getattr(guild, "discord_webhook_url", "") or "").strip()
+
+
 def webhook_for_event(event_key: str) -> str:
     """Resolve the webhook ``event_key`` should broadcast to.
 

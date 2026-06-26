@@ -63,6 +63,12 @@
         {% include "components/form_field.html" with field=form.calendar_color %}
       </div>
     </div>
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Discord</h2>
+      {% include "components/form_field.html" with field=form.discord_webhook_url %}
+      {% include "components/form_field.html" with field=form.discord_post_enabled %}
+    </div>
   </div>
 
   {# ── Images (Branding + Gallery) ─────────────────────────────────── #}

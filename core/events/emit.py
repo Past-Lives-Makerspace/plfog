@@ -145,7 +145,7 @@ def emit(
         event_key, explicit_emails, message_for, channel_attachments, period, delivered, skipped_duplicates
     )
 
-    broadcast_channels = _broadcast_fan_out(event, message_for, period, delivered, skipped_duplicates)
+    broadcast_channels = _broadcast_fan_out(event, message_for, period, ctx, delivered, skipped_duplicates)
 
     return EmitResult(
         event_key=event_key,
@@ -161,6 +161,7 @@ def _broadcast_fan_out(
     event: Any,
     message_for: Callable[[Channel], Message],
     period: str,
+    ctx: dict[str, Any],
     delivered: list[tuple[int, Channel]],
     skipped_duplicates: list[tuple[int, Channel]],
 ) -> list[Channel]:
@@ -172,6 +173,11 @@ def _broadcast_fan_out(
     ref so a re-run from a scheduler does not double-post. Best-effort: the adapter
     swallows ordinary failures. ``message_for`` renders the per-channel message (so a
     broadcast channel gets its own DB/seeded copy, same as the per-recipient ones).
+
+    For a guild-scoped event (``ctx["guild"]`` set, e.g. ``guild_announcement``), the
+    Discord channel ALSO dual-routes to the guild's own webhook — see
+    :func:`_guild_broadcast`. That second post is purely additive: it claims its own
+    independent ledger slot and never blocks the central post.
     """
     posted: list[Channel] = []
     for spec in event.channels:
@@ -187,7 +193,48 @@ def _broadcast_fan_out(
             posted.append(channel)
         else:
             skipped_duplicates.append((0, channel))
+    # Guild dual-route: a Discord-broadcasting event ALSO posts to the in-context
+    # guild's own webhook. This runs AFTER (and independently of) the central claim
+    # above — a SIBLING, not nested in the central success branch — so a
+    # central-duplicate re-emit can still post the guild side the first time a guild
+    # webhook is added. Discord is the only broadcast channel, so this is the gate.
+    if event.has_channel(Channel.DISCORD):
+        _guild_broadcast(event, Channel.DISCORD, period, ctx, message_for, delivered, skipped_duplicates)
     return posted
+
+
+def _guild_broadcast(
+    event: Any,
+    channel: Channel,
+    period: str,
+    ctx: dict[str, Any],
+    message_for: Callable[[Channel], Message],
+    delivered: list[tuple[int, Channel]],
+    skipped_duplicates: list[tuple[int, Channel]],
+) -> None:
+    """Additionally post the Discord embed to the in-context guild's own webhook.
+
+    A no-op unless the event context carries a ``guild`` whose
+    :func:`core.events.discord.guild_webhook` resolves to a non-blank URL (toggle on
+    AND a webhook set). Claims an independent ``broadcast:guild:<id>`` ledger slot so
+    it dedups separately from the central post, then posts best-effort via
+    ``post_embed`` (which logs and never raises on a bad/blank webhook), so a guild
+    failure can never block the central post that already ran.
+    """
+    from core.events import discord as discord_module
+
+    guild = ctx.get("guild")
+    if guild is None:
+        return
+    webhook = discord_module.guild_webhook(guild)
+    if not webhook:
+        return
+    target_ref = f"broadcast:guild:{guild.pk}"
+    if _record_broadcast(event.key, channel, period, target_ref=target_ref):
+        discord_module.post_embed(webhook, message_for(channel))
+        delivered.append((0, channel))
+    else:
+        skipped_duplicates.append((0, channel))
 
 
 def _per_recipient_fan_out(
@@ -283,12 +330,18 @@ def _record_explicit_email(event_key: str, address: str, period: str) -> bool:
     return created
 
 
-def _record_broadcast(event_key: str, channel: Channel, period: str) -> bool:
-    """Claim the once-per-event broadcast slot for ``channel`` (idempotent)."""
+def _record_broadcast(event_key: str, channel: Channel, period: str, target_ref: str = "broadcast") -> bool:
+    """Claim a once-per-event broadcast slot for ``channel`` (idempotent).
+
+    ``target_ref`` defaults to ``"broadcast"`` (the central post, unchanged). The
+    per-guild dual-route post claims its OWN slot with a distinct
+    ``"broadcast:guild:<id>"`` ref, so the central and guild posts dedup independently
+    on the :class:`core.models.EventDelivery` unique constraint.
+    """
     try:
         _row, created = EventDelivery.objects.get_or_create(
             event_key=event_key,
-            target_ref="broadcast",
+            target_ref=target_ref,
             channel=channel.value,
             period=period,
         )

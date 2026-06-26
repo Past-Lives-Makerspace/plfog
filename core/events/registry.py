@@ -307,6 +307,7 @@ def _seed_from_triggers() -> list[EventType]:
 _DISCORD_ON = ChannelSpec(Channel.DISCORD, ChannelDefault.ON)
 
 # New event keys (single vocabulary — these strings ARE the preference / audit keys).
+CLASS_PUBLISHED = "class_published"  # re-uses the seeded key + ADDS the Discord broadcast channel
 MEMBER_INVITED = "member.invited"
 MEMBER_LOGIN_INVITE = "member.login_invite"
 GUILD_ANNOUNCEMENT = "guild_announcement"  # re-uses the seeded key + curated copy
@@ -319,6 +320,22 @@ RELEASE_PUBLISHED = "release.published"
 
 
 _NEW_EVENTS: list[EventType] = [
+    # 0. class_published — a newly published class/workshop, broadcast site-wide to all
+    #    active members. REPLACES the Phase-1 seed entry to ADD the Discord broadcast
+    #    channel (in-app stays ON, email stays OFF, push stays OFF). It is site-wide, so
+    #    it posts to the central/global webhook only — no guild webhook (its emit carries
+    #    no ``guild`` in context). ``activity_kind`` stays None: the classes app writes the
+    #    CmsActivity and ``classes.activity.log`` MIRRORS it into the matching SiteActivity
+    #    kind (see ``_TRIGGER_ACTIVITY_KINDS`` above), so emit must not log a duplicate.
+    EventType(
+        key=CLASS_PUBLISHED,
+        label="New class published",
+        description="A new class or workshop goes live.",
+        category="Classes",
+        recipient=Recipients.ALL_ACTIVE_MEMBERS,
+        channels=(_IN_APP_ON, _EMAIL_OFF, _PUSH_OFF, _DISCORD_ON),
+        activity_kind=None,
+    ),
     # 1. member.invited — the invitee MUST receive it (forced email). In-app would
     #    have nowhere to land (the invitee has no account yet), so email only.
     EventType(

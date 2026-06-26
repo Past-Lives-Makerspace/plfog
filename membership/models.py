@@ -820,6 +820,22 @@ class Guild(HeroCropMixin, models.Model):
     discord_url = models.URLField(
         blank=True, default="", help_text="Link to the guild's Discord channel, shown as a button on the page."
     )
+    discord_webhook_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text=(
+            "A Discord webhook for THIS guild's own channel. Guild announcements also post here. "
+            "Blank = nothing posts to your channel."
+        ),
+    )
+    discord_post_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            "Also post this guild's announcements to your own Discord channel "
+            "(in addition to the makerspace-wide channel)."
+        ),
+    )
     website_url = models.URLField(
         blank=True, default="", help_text="Link to the guild's external website, shown as a button on the page."
     )
@@ -1107,8 +1123,12 @@ class GuildAnnouncement(models.Model):
         The ``period`` is keyed to this announcement's pk so re-saving never double-
         notifies, while a different announcement (a different pk) still notifies.
         """
-        from core.events.emit import emit
+        from django.urls import reverse
 
+        from core.events.emit import emit
+        from membership.orientations import _absolute_url
+
+        guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild_id]))
         emit(
             "guild_announcement",
             actor=self.author,
@@ -1119,9 +1139,9 @@ class GuildAnnouncement(models.Model):
                 "guild_name": self.guild.name,
                 "announcement_title": self.title,
                 "announcement_body": self.body,
-                "guild_url": f"/guilds/{self.guild_id}/",
+                "guild_url": guild_url,
             },
-            url=f"/guilds/{self.guild_id}/",
+            url=guild_url,
             period=f"announcement:{self.pk}",
         )
 

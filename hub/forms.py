@@ -77,12 +77,15 @@ class GuildEditForm(forms.ModelForm):
             "meeting_schedule",
             "contact_email",
             "discord_url",
+            "discord_webhook_url",
+            "discord_post_enabled",
             "website_url",
             "show_members",
             "featured_class",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Guild name"}),
+            "discord_webhook_url": forms.URLInput(attrs={"placeholder": "https://discord.com/api/webhooks/..."}),
             "about": forms.Textarea(
                 attrs={"rows": 5, "placeholder": "Tell members what this guild is about..."},
             ),
@@ -110,7 +113,9 @@ class GuildEditForm(forms.ModelForm):
             "meeting_is_tba": "No meeting scheduled yet (show TBA)",
             "meeting_schedule": "Meeting notes",
             "contact_email": "Contact email",
-            "discord_url": "Discord channel URL",
+            "discord_url": "Discord channel link (shown to members)",
+            "discord_webhook_url": "Announcement webhook (auto-posts here — keep private)",
+            "discord_post_enabled": "Also post to our Discord",
             "website_url": "Website URL",
             "show_members": "Show members roster",
             "featured_class": "Featured class",
@@ -122,11 +127,40 @@ class GuildEditForm(forms.ModelForm):
                 "Leave blank if you don't use Google Calendar."
             ),
             "calendar_color": "Color used for your guild's events on the Community Calendar.",
+            "discord_url": "The public invite/link to your channel, shown as a button on your guild page.",
+            "discord_webhook_url": (
+                "A private Discord webhook for your channel. Don't paste your public invite link here. "
+                "Blank = nothing posts to your channel."
+            ),
         }
+
+    # Accepted Discord webhook hosts. A mis-pasted public invite link (or any other
+    # URL) is rejected here so a bad webhook surfaces at save time instead of failing
+    # silently later (the broadcast is best-effort — logged, never shown to the lead).
+    _WEBHOOK_PREFIXES = (
+        "https://discord.com/api/webhooks/",
+        "https://discordapp.com/api/webhooks/",
+    )
 
     def clean_meeting_cadence(self) -> str:
         # An omitted/blank cadence means "no regular meeting", not an empty string.
         return self.cleaned_data.get("meeting_cadence") or Guild.MeetingCadence.NONE
+
+    def clean_discord_webhook_url(self) -> str:
+        """Validate the webhook is a Discord webhook URL (or blank).
+
+        Blank is allowed (the guild simply posts nothing to its own channel). A
+        non-blank value must be a Discord webhook — not the public invite link that
+        belongs in the separate ``discord_url`` field — so a lead never publishes a
+        secret webhook on the public guild page or saves a URL that silently fails.
+        """
+        url = (self.cleaned_data.get("discord_webhook_url") or "").strip()
+        if url and not url.startswith(self._WEBHOOK_PREFIXES):
+            raise forms.ValidationError(
+                "That doesn't look like a Discord webhook. Paste the private webhook URL "
+                "(https://discord.com/api/webhooks/...), not your channel's public invite link."
+            )
+        return url
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)

@@ -204,6 +204,31 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    "class_published": EventCopy(
+        placeholders=("class_title", "class_url"),
+        sample_context={
+            "class_title": "Intro to Lost-Wax Casting",
+            "class_url": "https://pastlives.example/classes/intro-to-lost-wax-casting/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="New class: {{ class_title }}",
+                body_text="{{ class_title }} just went live.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="New class: {{ class_title }}",
+                body_text=(
+                    "{{ class_title }} just went live at Past Lives.\n\n"
+                    "See the details and sign up: {{ class_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p><strong>{{ class_title }}</strong> just went live at Past Lives.</p>"
+                    '<p><a href="{{ class_url }}">See the details and sign up</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     "tab_charged": EventCopy(
         placeholders=("member_name", "amount", "tab_url"),
         sample_context={

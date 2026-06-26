@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.17"
+VERSION = "0.19.18"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.18",
+        "date": "2026-06-26",
+        "title": "Discord announcements, all in one place",
+        "changes": [
+            "All of the app's Discord posts — releases, makerspace-wide announcements, voting reminders, "
+            "and now newly published classes — land in one tidy channel, so nothing gets missed.",
+            "Guild leads can now connect their guild's own Discord channel from the guild settings page. "
+            "Flip on 'Also post to our Discord' and a guild announcement shows up both in the makerspace-wide "
+            "channel and in the guild's own channel.",
+            "We fixed some links in guild announcements and voting reminders that pointed to the wrong place — "
+            "they now open the right page.",
+        ],
+    },
     {
         "version": "0.19.17",
         "date": "2026-06-26",

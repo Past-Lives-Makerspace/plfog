@@ -116,13 +116,17 @@ def closing_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
     if not settings.reminders_enabled:
         return
 
+    from django.urls import reverse
+
     from core.events.scheduler import ScheduledOccurrence
+    from membership.orientations import _absolute_url
 
     close = month_end_close(now)
     offset = timedelta(days=-settings.reminder_lead_days)
     label = cycle_label(now)
     closes_on = closes_on_display(now)
     period = cycle_period(now)
+    voting_url = _absolute_url(reverse("hub_guild_voting"))
     voted = (
         Member.objects.active()
         .filter(vote_preference__isnull=False)
@@ -147,10 +151,10 @@ def closing_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
                 "vote_1st": pref.guild_1st.name,
                 "vote_2nd": pref.guild_2nd.name,
                 "vote_3rd": pref.guild_3rd.name,
-                "voting_url": "/guilds/voting/",
+                "voting_url": voting_url,
             },
             period=period,
-            url="/guilds/voting/",
+            url=voting_url,
         )
 
 
@@ -169,13 +173,17 @@ def vote_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
     if not (settings.reminders_enabled and settings.send_vote_soon_enabled):
         return
 
+    from django.urls import reverse
+
     from core.events.scheduler import ScheduledOccurrence
+    from membership.orientations import _absolute_url
 
     close = month_end_close(now)
     offset = timedelta(days=-settings.reminder_lead_days)
     label = cycle_label(now)
     closes_on = closes_on_display(now)
     period = cycle_period(now)
+    voting_url = _absolute_url(reverse("hub_guild_voting"))
     non_voters = (
         Member.objects.paying()
         .active()
@@ -192,8 +200,8 @@ def vote_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
                 "member_name": member.display_name,
                 "cycle_label": label,
                 "closes_on": closes_on,
-                "voting_url": "/guilds/voting/",
+                "voting_url": voting_url,
             },
             period=period,
-            url="/guilds/voting/",
+            url=voting_url,
         )

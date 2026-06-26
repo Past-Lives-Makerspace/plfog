@@ -81,18 +81,19 @@ def describe_event_registry():
             assert not spec.is_forced
 
         def it_maps_push_default_flag_to_push_channel():
-            # Legacy-seeded events all map push to OFF; the net-new events declare no
-            # push channel at all (they're broadcasts / forced emails).
+            # Legacy-seeded events all map push to OFF; the net-new events declare no push
+            # channel at all (they're broadcasts / forced emails) — EXCEPT class_published,
+            # which REPLACES the seeded entry only to add Discord and keeps its push-OFF channel.
             for event in registry.EVENTS:
                 spec = event.channel(Channel.PUSH)
-                if event.key in _NEW_KEYS:
+                if event.key in _NEW_KEYS and event.key != "class_published":
                     assert spec is None
                     continue
                 assert spec is not None
                 assert spec.default is ChannelDefault.OFF
 
         def it_broadcasts_announcements_and_releases_on_discord():
-            for key in ("guild_announcement", "site_announcement", "release.published"):
+            for key in ("class_published", "guild_announcement", "site_announcement", "release.published"):
                 assert get_event(key).has_channel(Channel.DISCORD)
 
     def describe_resolvers():
@@ -145,4 +146,11 @@ def describe_event_registry():
             assert not get_event("new_login").has_channel(Channel.DISCORD)
 
         def it_lists_channels_in_declared_order():
-            assert get_event("class_published").channel_list == [Channel.IN_APP, Channel.EMAIL, Channel.PUSH]
+            # class_published now REPLACES the seed to add the Discord broadcast channel,
+            # appended after the preserved in-app/email/push channels.
+            assert get_event("class_published").channel_list == [
+                Channel.IN_APP,
+                Channel.EMAIL,
+                Channel.PUSH,
+                Channel.DISCORD,
+            ]

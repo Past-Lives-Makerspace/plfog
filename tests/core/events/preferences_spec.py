@@ -66,19 +66,20 @@ def describe_wants():
 
     def describe_undeclared_channel():
         def it_returns_false_when_event_has_no_such_channel():
-            # A seeded legacy event (class_published) declares no discord channel.
-            assert preferences.wants(_user(), "class_published", Channel.DISCORD) is False
+            # A seeded legacy event (class_reminder) declares no discord channel. (class_published
+            # now DOES — it gained the Discord broadcast — so use a still-discord-free event here.)
+            assert preferences.wants(_user(), "class_reminder", Channel.DISCORD) is False
 
 
 def describe_enabled_channels():
     def it_lists_in_app_only_by_default():
-        # class_published: in_app on, email off, push off → only in_app.
-        assert preferences.enabled_channels(_user(), "class_published") == [Channel.IN_APP]
+        # class_reminder: in_app on, email off, push off, no discord → only in_app.
+        assert preferences.enabled_channels(_user(), "class_reminder") == [Channel.IN_APP]
 
     def it_includes_email_when_opted_in():
         user = _user()
-        _pref(user, "class_published", Channel.EMAIL, True)
-        assert preferences.enabled_channels(user, "class_published") == [Channel.IN_APP, Channel.EMAIL]
+        _pref(user, "class_reminder", Channel.EMAIL, True)
+        assert preferences.enabled_channels(user, "class_reminder") == [Channel.IN_APP, Channel.EMAIL]
 
     def it_includes_forced_email_without_a_row():
         # new_login forces email; in_app on too.
