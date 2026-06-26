@@ -346,7 +346,7 @@ def _member_snapshot_rows(member_id: int) -> list[tuple]:
         )
         if match is None:
             continue
-        url = reverse("admin_snapshot_detail", args=[snap.pk])
+        url = reverse("hub_admin_voting_history_detail", args=[snap.pk])
         rows.append(
             (
                 url,
@@ -376,7 +376,7 @@ class FundingSnapshotAdmin(ModelAdmin):
         from django.urls import reverse
         from django.utils.html import format_html
 
-        url = reverse("admin_snapshot_detail", args=[obj.pk])
+        url = reverse("hub_admin_voting_history_detail", args=[obj.pk])
         return format_html('<a href="{}">Open analyzer →</a>', url)
 
 

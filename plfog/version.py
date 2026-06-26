@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.15"
+VERSION = "0.19.16"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.16",
+        "date": "2026-06-26",
+        "title": "Tidier, more transparent guild-funding vote tools",
+        "changes": [
+            "The tools organizers use to run the monthly guild-funding vote now live in one clean place, "
+            "organized into simple tabs: an at-a-glance Overview, the full Funding History of past results, "
+            "and a Snapshots tab for recording each month's tally. Organizers can preview the numbers — and "
+            "filter the breakdown by member type or role — before locking a month in, and review any past "
+            "result in detail, so every funding decision is easy to double-check.",
+        ],
+    },
     {
         "version": "0.19.15",
         "date": "2026-06-25",

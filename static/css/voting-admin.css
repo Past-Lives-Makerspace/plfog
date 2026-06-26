@@ -1,0 +1,337 @@
+/* Voting (admin) — tabbed IA + auditable snapshots.
+ *
+ * Page-scoped styles for the FOG-hub admin Voting surface (Overview / Funding
+ * History / Snapshots / Settings). Theme tokens ONLY — every color resolves to
+ * a hub variable so both Obsidian (dark) and Slate (light) read correctly. No
+ * hardcoded hex, no inline <style>. All new classes carry the pl- prefix. */
+
+/* ----------------------------------------------------------------------------
+   Tab nav (link-style, server-driven active state)
+   The .vote-tab item itself is styled in hub.css; here we only lay out the row
+   and make the anchors un-underlined (the shared rule has no text-decoration).
+   ------------------------------------------------------------------------- */
+.pl-vote-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    border-bottom: 1px solid var(--hub-border);
+    margin-bottom: 1.5rem;
+}
+.pl-vote-tabs .vote-tab {
+    text-decoration: none;
+}
+
+.pl-vote-cycle {
+    color: var(--hub-text-muted);
+    font-size: 0.9375rem;
+    margin: 0 0 1.5rem;
+}
+
+.pl-vote-intro {
+    color: var(--hub-text-muted);
+    margin: 0 0 1.5rem;
+}
+
+/* ----------------------------------------------------------------------------
+   Overview — stat grids + vote leaders
+   ------------------------------------------------------------------------- */
+.pl-vote-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+.pl-vote-stat {
+    background: var(--hub-surface);
+    border-radius: 8px;
+    padding: 1.25rem;
+    text-align: center;
+}
+.pl-vote-stat__value {
+    font-size: 2rem;
+    font-weight: 900;
+    color: var(--color-tuscan-yellow);
+    line-height: 1.2;
+}
+.pl-vote-stat__label {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    margin-top: 0.25rem;
+}
+.pl-vote-stat__note {
+    display: block;
+    font-size: 0.6875rem;
+    color: var(--color-tuscan-yellow);
+    margin-top: 0.15rem;
+}
+
+.pl-vote-leaders {
+    background: var(--hub-surface);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.pl-vote-leaders__title {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+    margin: 0 0 0.75rem;
+}
+.pl-vote-leader {
+    margin-bottom: 0.75rem;
+}
+.pl-vote-leader:last-child {
+    margin-bottom: 0;
+}
+.pl-vote-leader__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.3rem;
+}
+.pl-vote-leader__name {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-weight: 500;
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+}
+.pl-vote-leader__meta {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-vote-leader__breakdown {
+    margin-left: 0.5rem;
+    font-size: 0.75rem;
+}
+.pl-vote-bar {
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 4px;
+    height: 22px;
+    overflow: hidden;
+}
+.pl-vote-bar__fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-tuscan-yellow), var(--color-yellow-hover));
+    border-radius: 4px;
+}
+
+.pl-vote-empty {
+    color: var(--hub-text-muted);
+    font-size: 0.9375rem;
+    margin: 0;
+}
+
+/* ----------------------------------------------------------------------------
+   Tables (allocation + per-member audit + snapshot list)
+   ------------------------------------------------------------------------- */
+.pl-vote-table-scroll {
+    overflow-x: auto;
+}
+.pl-vote-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+}
+.pl-vote-table th,
+.pl-vote-table td {
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid var(--hub-border);
+    text-align: left;
+    white-space: nowrap;
+}
+.pl-vote-table th {
+    color: var(--hub-text-muted);
+    font-weight: 500;
+    font-size: 0.8125rem;
+}
+.pl-vote-table td {
+    color: var(--hub-text);
+}
+.pl-vote-table td.num,
+.pl-vote-table th.num {
+    text-align: right;
+}
+.pl-vote-table__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* ----------------------------------------------------------------------------
+   Summary tiles (analyzer header)
+   ------------------------------------------------------------------------- */
+.pl-vote-summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+.pl-vote-summary__tile {
+    background: var(--hub-surface);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+}
+.pl-vote-summary__label {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.pl-vote-summary__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-tuscan-yellow);
+    margin-top: 0.25rem;
+}
+.pl-vote-summary__hint {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    margin-top: 0.25rem;
+}
+
+/* ----------------------------------------------------------------------------
+   Section heading shared by the analyzer cards
+   ------------------------------------------------------------------------- */
+.pl-vote-section-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+    margin: 0 0 1rem;
+}
+
+/* ----------------------------------------------------------------------------
+   Filters
+   ------------------------------------------------------------------------- */
+.pl-vote-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1.25rem;
+}
+.pl-vote-filters__group-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+    margin: 0 0 0.5rem;
+}
+.pl-vote-filters__row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+}
+.pl-vote-filters__row input {
+    accent-color: var(--color-tuscan-yellow);
+}
+.pl-vote-filters__hint {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    margin: 0.5rem 0 0;
+}
+/* Explicit 8px-grid top margin so the Apply/Clear row never sits flush against
+   the filter controls above it. */
+.pl-vote-filters__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+/* ----------------------------------------------------------------------------
+   Take-snapshot form
+   ------------------------------------------------------------------------- */
+.pl-vote-take .hub-form-group {
+    max-width: 320px;
+}
+/* The submit clears the Minimum-pool input above it. */
+.pl-vote-take button {
+    margin-top: 1rem;
+}
+
+/* ----------------------------------------------------------------------------
+   Detail / list header actions — clears the title block above.
+   ------------------------------------------------------------------------- */
+.pl-vote-detail-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.pl-vote-detail-meta {
+    color: var(--hub-text-muted);
+    font-size: 0.9375rem;
+    margin: 0;
+}
+.pl-vote-detail-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+/* ----------------------------------------------------------------------------
+   Pills / badges
+   ------------------------------------------------------------------------- */
+.pl-vote-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    color: var(--hub-text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.pl-vote-badge--paying {
+    background: var(--color-success-bg);
+    border-color: transparent;
+    color: var(--color-success);
+}
+.pl-vote-badge--manual {
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+}
+
+/* ----------------------------------------------------------------------------
+   Legacy / informational banner
+   ------------------------------------------------------------------------- */
+.pl-vote-banner {
+    padding: 1rem 1.25rem;
+    background: var(--hub-blue-soft);
+    border: 1px solid var(--hub-blue);
+    border-radius: 8px;
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+}
+
+/* ----------------------------------------------------------------------------
+   Responsive — collapse grids on narrow viewports (no horizontal blowout)
+   ------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+    .pl-vote-summary {
+        grid-template-columns: 1fr 1fr;
+    }
+    .pl-vote-filters {
+        grid-template-columns: 1fr;
+    }
+}
+@media (max-width: 640px) {
+    .pl-vote-stats {
+        grid-template-columns: 1fr;
+    }
+    .pl-vote-summary {
+        grid-template-columns: 1fr;
+    }
+}

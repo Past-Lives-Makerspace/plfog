@@ -1391,6 +1391,15 @@ class FundingSnapshot(models.Model):
     def __str__(self) -> str:
         return f"{self.cycle_label} — ${self.funding_pool}"
 
+    @property
+    def source_label(self) -> str:
+        """How this snapshot was created.
+
+        Spec 1 always reports "Manual"; Spec 2 adds a persisted ``is_auto`` field
+        and rewrites this to branch on it ("Automatic" / "Manual").
+        """
+        return "Manual"
+
     @classmethod
     def take(
         cls,
@@ -1427,6 +1436,8 @@ class FundingSnapshot(models.Model):
                 "member_type": pref.member.member_type,
                 "fog_role": pref.member.fog_role,
                 "is_paying": pref.member.is_paying,
+                "is_guild_lead": pref.member.is_guild_lead,
+                "is_guild_staff": pref.member.is_guild_staff,
                 "guild_1st_id": pref.guild_1st_id,
                 "guild_1st_name": pref.guild_1st.name,
                 "guild_2nd_id": pref.guild_2nd_id,
@@ -1510,6 +1521,21 @@ class FundingSnapshot(models.Model):
             from airtable_sync.service import sync_snapshot_to_airtable
 
             sync_snapshot_to_airtable(self)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Hard-delete the snapshot and clean up its Airtable mirror row.
+
+        Mirrors ``VotePreference.delete()`` — capture the Airtable record id
+        before the row is gone, then remove the Airtable row (honoring the
+        ``_skip_airtable_sync`` test flag) so deletions are honest end-to-end.
+        """
+        record_id = self.airtable_record_id
+        result = super().delete(*args, **kwargs)
+        if record_id and not getattr(self, "_skip_airtable_sync", False):
+            from airtable_sync.service import delete_snapshot_from_airtable
+
+            delete_snapshot_from_airtable(record_id)
+        return result
 
 
 # ---------------------------------------------------------------------------

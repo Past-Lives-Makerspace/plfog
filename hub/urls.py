@@ -149,7 +149,17 @@ urlpatterns = [
     path("calendar/events/", views.calendar_events_partial, name="hub_community_calendar_events"),
     path("calendar/export.ics", views.calendar_export_ics, name="hub_calendar_export_ics"),
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
-    path("manage/voting/", views.admin_voting_dashboard, name="hub_admin_voting_dashboard"),
+    path("manage/voting/", views.voting_overview, name="hub_admin_voting_overview"),
+    path("manage/voting/history/", views.voting_history, name="hub_admin_voting_history"),
+    path("manage/voting/history/<int:pk>/", views.voting_history_detail, name="hub_admin_voting_history_detail"),
+    path(
+        "manage/voting/history/<int:pk>/delete/",
+        views.voting_snapshot_delete,
+        name="hub_admin_voting_snapshot_delete",
+    ),
+    path("manage/voting/snapshots/", views.voting_snapshots, name="hub_admin_voting_snapshots"),
+    path("manage/voting/snapshots/take/", views.voting_snapshot_take, name="hub_admin_voting_snapshot_take"),
+    path("manage/voting/settings/", views.voting_settings, name="hub_admin_voting_settings"),
     path("manage/members/", views.admin_members, name="hub_admin_members"),
     path("manage/members/invite/", views.admin_member_invite, name="hub_admin_member_invite"),
     path(

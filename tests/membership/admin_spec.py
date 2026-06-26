@@ -432,7 +432,7 @@ def describe_FundingSnapshotAdmin():
         )
         snap_admin = admin.site._registry[FS]
         html = snap_admin.analyzer_link(snap)
-        assert f"/admin/snapshots/{snap.pk}/" in html
+        assert f"/manage/voting/history/{snap.pk}/" in html
         assert "Open analyzer" in html
 
 

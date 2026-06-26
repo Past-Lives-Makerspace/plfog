@@ -55,23 +55,8 @@ def _create_bare_nonmember_user(*, username: str, email: str) -> User:
     return user
 
 
-def describe_admin_voting_dashboard():
-    def it_requires_login(client):
-        response = client.get(reverse("hub_admin_voting_dashboard"))
-        assert response.status_code == 302
-
-    def it_forbids_plain_members(client):
-        user = _create_member_user(username="plain")
-        client.login(username=user.username, password="p")
-        response = client.get(reverse("hub_admin_voting_dashboard"))
-        assert response.status_code == 403
-
-    def it_renders_for_admin(client):
-        _create_superuser(client)
-        response = client.get(reverse("hub_admin_voting_dashboard"))
-        assert response.status_code == 200
-        assert b"Voting Dashboard" in response.content
-        assert "stats" in response.context
+# The admin Voting surface (overview/history/snapshots/settings + gating) now has
+# its own dedicated spec: tests/hub/voting_admin_spec.py.
 
 
 def describe_admin_members():

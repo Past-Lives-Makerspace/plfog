@@ -1685,3 +1685,9 @@ textarea:focus {
     background-color: #EEB44B;
 }
 
+
+/* Dashboard "last snapshot" link — replaces the inline color the admin index
+   home used on its snapshot link (now points at the hub Funding History detail). */
+.pl-admin-snapshot-link {
+    color: #EEB44B;
+}

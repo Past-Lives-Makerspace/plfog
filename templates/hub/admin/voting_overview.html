@@ -1,0 +1,84 @@
+{% extends "hub/base.html" %}
+{% load static hub_tags %}
+
+{% block title %}Voting — Past Lives{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/voting-admin.css' %}">
+{% endblock %}
+
+{% block content %}
+<h1 class="hub-page-title">Voting</h1>
+
+{# SPEC 2 HOOK: "Results are in — review & send" banner mounts here.
+   Spec 1 renders nothing. Do not build the banner in this spec. #}
+
+{% include "hub/admin/_voting_tabs.html" %}
+
+<div class="hub-card">
+  <p class="pl-vote-cycle">Cycle: {{ current_cycle_label }} &middot; closes {{ cycle_closes_on }}</p>
+
+  <div class="pl-vote-stats">
+    <div class="pl-vote-stat">
+      <div class="pl-vote-stat__value">{{ stats.total_voters }}</div>
+      <div class="pl-vote-stat__label">Members with votes</div>
+    </div>
+    <div class="pl-vote-stat">
+      <div class="pl-vote-stat__value">{{ stats.active_members }}</div>
+      <div class="pl-vote-stat__label">Active members</div>
+    </div>
+    <div class="pl-vote-stat">
+      <div class="pl-vote-stat__value">{{ stats.participation_pct }}%</div>
+      <div class="pl-vote-stat__label">Participation rate</div>
+    </div>
+  </div>
+
+  <div class="pl-vote-stats">
+    <div class="pl-vote-stat">
+      <div class="pl-vote-stat__value">{{ stats.paying_voters }}</div>
+      <div class="pl-vote-stat__label">Paying voters</div>
+    </div>
+    <div class="pl-vote-stat">
+      <div class="pl-vote-stat__value">{{ stats.active_guilds }}</div>
+      <div class="pl-vote-stat__label">Active guilds</div>
+    </div>
+    <div class="pl-vote-stat">
+      <div class="pl-vote-stat__value">${{ stats.projected_pool }}</div>
+      <div class="pl-vote-stat__label">
+        Projected funding pool
+        {% if stats.floor_applied %}<span class="pl-vote-stat__note">(${{ stats.minimum_pool_floor }} floor applied)</span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if stats.top_guilds %}
+  <div class="pl-vote-leaders">
+    <div class="pl-vote-leaders__title">Current vote leaders</div>
+    {% for guild in stats.top_guilds %}
+    <div class="pl-vote-leader">
+      <div class="pl-vote-leader__head">
+        <span class="pl-vote-leader__name">
+          {% if forloop.first %}&#x1f947;{% elif forloop.counter == 2 %}&#x1f948;{% elif forloop.counter == 3 %}&#x1f949;{% endif %}
+          {% with prefix=guild.name|guild_logo_prefix %}
+          {% if prefix %}
+          <img src="{% static 'img/guild_logos/'|add:prefix|add:'_color.svg' %}" width="14" height="14" alt="">
+          {% endif %}
+          {% endwith %}
+          {{ guild.name }}
+        </span>
+        <span class="pl-vote-leader__meta">
+          {{ guild.points }} pts
+          <span class="pl-vote-leader__breakdown">({{ guild.first }}/{{ guild.second }}/{{ guild.third }})</span>
+        </span>
+      </div>
+      <div class="pl-vote-bar">
+        <div class="pl-vote-bar__fill" style="width:{{ guild.bar_pct }}%;"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="pl-vote-empty">No votes cast this cycle yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,61 @@
+{% extends "hub/base.html" %}
+{% load static hub_tags %}
+
+{% block title %}Voting — Past Lives{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/voting-admin.css' %}">
+{% endblock %}
+
+{% block content %}
+<h1 class="hub-page-title">Voting</h1>
+
+{% include "hub/admin/_voting_tabs.html" %}
+
+<div class="hub-card" x-data>
+  {% if snapshots %}
+  <div class="pl-vote-table-scroll">
+    <table class="pl-vote-table">
+      <thead>
+        <tr>
+          <th>Cycle</th>
+          <th>Date</th>
+          <th class="num">Pool</th>
+          <th>Source</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for snapshot in snapshots %}
+        <tr>
+          <td><a href="{% url 'hub_admin_voting_history_detail' snapshot.pk %}">{{ snapshot.cycle_label }}</a></td>
+          <td>{{ snapshot.snapshot_at|date:"N j, Y" }}</td>
+          <td class="num">${{ snapshot.funding_pool }}</td>
+          <td><span class="pl-vote-badge pl-vote-badge--manual">{{ snapshot.source_label }}</span></td>
+          <td>
+            <div class="pl-vote-table__actions">
+              <a href="{% url 'hub_admin_voting_history_detail' snapshot.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">View</a>
+              <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                      @click="$dispatch('open-confirm', 'del-snapshot-{{ snapshot.pk }}')">Delete</button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% for snapshot in snapshots %}
+    {% url 'hub_admin_voting_snapshot_delete' snapshot.pk as snapshot_delete_url %}
+    {% with pks=snapshot.pk|stringformat:"s" %}
+      {% include "components/confirm_modal.html" with confirm_id="del-snapshot-"|add:pks confirm_title="Delete this snapshot?" confirm_message="Delete the snapshot for “"|add:snapshot.cycle_label|add:"”? This also removes its Airtable mirror and cannot be undone." confirm_action_url=snapshot_delete_url confirm_button_text="Delete Snapshot" %}
+    {% endwith %}
+  {% endfor %}
+  {% else %}
+  <p class="pl-vote-empty">
+    No funding snapshots yet. Take your first one from the
+    <a href="{% url 'hub_admin_voting_snapshots' %}">Snapshots</a> tab.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

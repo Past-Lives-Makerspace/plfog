@@ -2020,13 +2020,88 @@ def view_as_set(request: HttpRequest) -> JsonResponse:
 
 
 @fog_admin_required
-def admin_voting_dashboard(request: HttpRequest) -> HttpResponse:
-    """Admin voting dashboard — pool stats, vote leaders, snapshot actions."""
+def voting_overview(request: HttpRequest) -> HttpResponse:
+    """Voting → Overview tab — current-cycle pool stats and live vote leaders (read-only)."""
     from plfog.dashboard import dashboard_callback
 
     ctx = _get_hub_context(request)
     ctx = dashboard_callback(request, ctx)
-    return render(request, "hub/admin/voting_dashboard.html", ctx)
+    ctx.update(get_cycle_context())
+    ctx["active_tab"] = "overview"
+    return render(request, "hub/admin/voting_overview.html", ctx)
+
+
+@fog_admin_required
+def voting_history(request: HttpRequest) -> HttpResponse:
+    """Voting → Funding History tab — the list of past funding snapshots, newest first."""
+    ctx = _get_hub_context(request)
+    ctx["snapshots"] = FundingSnapshot.objects.order_by("-snapshot_at")
+    ctx["active_tab"] = "history"
+    return render(request, "hub/admin/voting_history.html", ctx)
+
+
+@fog_admin_required
+def voting_history_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """Voting → Funding History detail — the immutable per-member audit for one snapshot."""
+    from membership.vote_analyzer import build_analyzer_context
+
+    snapshot = get_object_or_404(FundingSnapshot, pk=pk)
+    ctx = _get_hub_context(request)
+    ctx.update(build_analyzer_context(list(snapshot.raw_votes), snapshot=snapshot, get_params=request.GET))
+    ctx["active_tab"] = "history"
+    return render(request, "hub/admin/voting_history_detail.html", ctx)
+
+
+@fog_admin_required
+def voting_snapshots(request: HttpRequest) -> HttpResponse:
+    """Voting → Snapshots tab — the live (draft) analyzer plus the Take-snapshot form."""
+    from membership.vote_analyzer import build_analyzer_context, serialize_live_votes
+
+    ctx = _get_hub_context(request)
+    ctx.update(build_analyzer_context(serialize_live_votes(), snapshot=None, get_params=request.GET))
+    ctx["active_tab"] = "snapshots"
+    return render(request, "hub/admin/voting_snapshots.html", ctx)
+
+
+@fog_admin_required
+def voting_settings(request: HttpRequest) -> HttpResponse:
+    """Voting → Settings tab — empty shell in Spec 1; Spec 2 fills it."""
+    ctx = _get_hub_context(request)
+    ctx["active_tab"] = "settings"
+    return render(request, "hub/admin/voting_settings.html", ctx)
+
+
+@fog_admin_required
+@require_POST
+def voting_snapshot_take(request: HttpRequest) -> HttpResponse:
+    """Commit a snapshot from the current live vote state, then open the new record.
+
+    Filters on the Snapshots tab are analysis-only — the commit always captures
+    the full unfiltered live state. Only title and minimum_pool carry over.
+    """
+    from membership.vote_analyzer import parse_minimum_pool
+
+    title = request.POST.get("title", "").strip()
+    minimum_pool = parse_minimum_pool(request.POST.get("minimum_pool"))
+
+    snapshot = FundingSnapshot.take(title=title, minimum_pool=minimum_pool)
+    if snapshot is None:
+        messages.warning(request, "No votes yet — nothing to snapshot.")
+        return redirect("hub_admin_voting_snapshots")
+
+    messages.success(request, f"Snapshot '{snapshot.cycle_label}' created — ${snapshot.funding_pool} pool.")
+    return redirect("hub_admin_voting_history_detail", pk=snapshot.pk)
+
+
+@fog_admin_required
+@require_POST
+def voting_snapshot_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Hard-delete a snapshot (and its Airtable mirror) and return to the Funding History list."""
+    snapshot = get_object_or_404(FundingSnapshot, pk=pk)
+    cycle_label = snapshot.cycle_label
+    snapshot.delete()
+    messages.success(request, f"Deleted snapshot '{cycle_label}'.")
+    return redirect("hub_admin_voting_history")
 
 
 @dataclass(frozen=True)

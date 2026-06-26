@@ -1,0 +1,14 @@
+{% comment %}
+Empty-state line for the analyzer tables. Two distinct strings so the admin can
+tell an empty cycle from an over-narrow filter:
+  - filtered-empty  → "No votes match these filters." + a Clear link
+  - unfiltered-empty → "No votes cast this cycle yet — nothing to snapshot."
+{% endcomment %}
+{% if any_filter_active %}
+<p class="pl-vote-empty">
+  No votes match these filters.
+  <a href="{% if mode == 'stored' %}{% url 'hub_admin_voting_history_detail' snapshot.pk %}{% else %}{% url 'hub_admin_voting_snapshots' %}{% endif %}">Clear filters</a>
+</p>
+{% else %}
+<p class="pl-vote-empty">No votes cast this cycle yet — nothing to snapshot.</p>
+{% endif %}

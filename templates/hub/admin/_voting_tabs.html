@@ -1,0 +1,20 @@
+{% comment %}
+Shared tab nav for the admin Voting surface. Server-driven active state via the
+`active_tab` context value ("overview" / "history" / "snapshots" / "settings").
+Link-style anchors (not Alpine x-show) because filters submit via GET and Funding
+History drills into a per-snapshot detail URL — both are full reloads.
+{% endcomment %}
+<nav class="pl-vote-tabs" aria-label="Voting sections">
+  <a href="{% url 'hub_admin_voting_overview' %}"
+     class="vote-tab {% if active_tab == 'overview' %}vote-tab--active{% endif %}"
+     {% if active_tab == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+  <a href="{% url 'hub_admin_voting_history' %}"
+     class="vote-tab {% if active_tab == 'history' %}vote-tab--active{% endif %}"
+     {% if active_tab == 'history' %}aria-current="page"{% endif %}>Funding History</a>
+  <a href="{% url 'hub_admin_voting_snapshots' %}"
+     class="vote-tab {% if active_tab == 'snapshots' %}vote-tab--active{% endif %}"
+     {% if active_tab == 'snapshots' %}aria-current="page"{% endif %}>Snapshots</a>
+  <a href="{% url 'hub_admin_voting_settings' %}"
+     class="vote-tab {% if active_tab == 'settings' %}vote-tab--active{% endif %}"
+     {% if active_tab == 'settings' %}aria-current="page"{% endif %}>Settings</a>
+</nav>

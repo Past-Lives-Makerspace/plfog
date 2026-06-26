@@ -1,0 +1,19 @@
+{% extends "hub/base.html" %}
+{% load static hub_tags %}
+
+{% block title %}Voting — Past Lives{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/voting-admin.css' %}">
+{% endblock %}
+
+{% block content %}
+<h1 class="hub-page-title">Voting</h1>
+
+{% include "hub/admin/_voting_tabs.html" %}
+
+{# SPEC 2 owns this tab's content (cycle cadence, floor defaults, auto-snapshot toggle, email settings). #}
+<div class="hub-card">
+  <p class="pl-vote-empty">Voting settings live here. Configuration is coming soon.</p>
+</div>
+{% endblock %}
