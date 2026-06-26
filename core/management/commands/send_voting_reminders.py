@@ -1,17 +1,15 @@
-"""Fire the ``voting.closing_48h`` reminder 48h before the month-end vote close.
+"""Fire the per-member voting reminders N days before the month-end vote close.
 
 A thin driver over the generalized scheduler (design §2.6): it hands this tick's
-voting occurrence (:func:`membership.voting.closing_48h_occurrences`) to
-:func:`core.events.scheduler.run_sources`, which due-checks it against the 15-minute
-tick window and fires it via ``emit`` — deduped on :class:`core.models.EventDelivery`
-by the ``voting:YYYY-MM`` period so a re-run within the same cycle is a no-op.
+voting sources — :func:`membership.voting.closing_soon_occurrences` (members who
+voted) and :func:`membership.voting.vote_soon_occurrences` (signed-in non-voters) —
+to :func:`core.events.scheduler.run_sources`, which due-checks them against the
+15-minute tick window and fires them via ``emit``. Each source self-gates on the
+``VotingSettings`` master switches and windows its own member query; the
+``voting:YYYY-MM`` period dedupes each member to once per cycle so a re-run is safe.
 
-Supersedes the previous month-end−3-days, in-app-only reminder (the old
-``voting_closing_soon`` path) and the dead ``voting_cycle_open`` trigger — both now
-deleted: there is ONE voting-reminder path.
-Wired into the 15-minute ``run_scheduled_tasks`` cron exactly as before — the command
-name and its always-run placement are unchanged, only its mechanism moved onto the
-spine.
+Wired into the 15-minute ``run_scheduled_tasks`` cron exactly as before — the
+command name and its always-run placement are unchanged.
 """
 
 from __future__ import annotations
@@ -22,15 +20,15 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from core.events.scheduler import run_sources
-from membership.voting import closing_48h_occurrences
+from membership.voting import closing_soon_occurrences, vote_soon_occurrences
 
 
 class Command(BaseCommand):
-    help = "Fire the voting.closing_48h reminder when the cycle close is ~48h away. Safe every 15 min."
+    help = "Fire the per-member voting reminders when the cycle close is the configured lead away."
 
     def handle(self, *args: Any, **options: Any) -> None:
         now = timezone.now()
-        fired = run_sources([closing_48h_occurrences], now=now)
+        fired = run_sources([closing_soon_occurrences, vote_soon_occurrences], now=now)
         if fired:
             self.stdout.write(self.style.SUCCESS(f"Fired {fired} voting reminder(s)."))
         else:

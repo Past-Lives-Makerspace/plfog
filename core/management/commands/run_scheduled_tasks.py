@@ -35,6 +35,7 @@ class Command(BaseCommand):
         # single 15-min cron service).
         for task in (
             "send_voting_reminders",
+            "take_cycle_snapshot",
             "send_lease_expiry_reminders",
             "auto_complete_orientations",
             "send_class_reminders",

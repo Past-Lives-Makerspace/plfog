@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.16"
+VERSION = "0.19.17"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.17",
+        "date": "2026-06-26",
+        "title": "Voting reminders and results, now personal",
+        "changes": [
+            "The monthly guild-funding vote now keeps you in the loop by email. A few days before voting "
+            "closes you'll get a friendly 'polls closing soon' note showing exactly what you're currently "
+            "voting for — so it's easy to change your mind in time — and if you've signed in but haven't "
+            "voted yet, a quick nudge to do so. When the results are in, you'll get the final funding "
+            "breakdown along with a reminder of what we recorded you voting for.",
+            "Organizers get a new Voting → Settings page to set how many days ahead reminders go out and "
+            "the funding-pool floor, can edit the wording of every voting email, and the month's results "
+            "email now waits for an organizer to review the numbers and press send instead of going out "
+            "automatically.",
+        ],
+    },
     {
         "version": "0.19.16",
         "date": "2026-06-26",

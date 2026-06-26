@@ -19,7 +19,7 @@ from factory.django import mute_signals
 from core.events.emit import emit
 from core.events.registry import Channel, get_event
 from core.models import EventDelivery, Notification, NotificationPreference, SiteActivity, TransactionalEmailLog
-from membership.models import GuildAnnouncement, Member
+from membership.models import GuildAnnouncement
 from tests.membership.factories import (
     GuildFactory,
     GuildMembershipFactory,
@@ -141,7 +141,7 @@ def describe_site_announcement():
         assert get_event("site_announcement").has_channel(Channel.DISCORD)
 
 
-# --- 4. voting.closing_48h (scheduled) ---------------------------------------
+# --- 4. voting.closing_soon (scheduled, per-member) --------------------------
 
 
 def _voter(email):
@@ -156,55 +156,54 @@ def _voter(email):
     return member
 
 
-def describe_voting_closing_48h():
-    def it_fires_once_per_cycle_via_the_scheduler():
-        from membership.voting import closing_48h_occurrences
-
-        _voter("v1@example.com")
-        # 48h before the July-1 close = June 29 00:00; tick exactly there.
-        now = timezone.make_aware(datetime(2026, 6, 29, 0, 0))
+def describe_voting_closing_soon():
+    def it_fires_once_per_cycle_per_voter_via_the_scheduler():
         from core.events.scheduler import run_sources
+        from membership.voting import closing_soon_occurrences
 
-        first = run_sources([closing_48h_occurrences], now=now)
-        second = run_sources([closing_48h_occurrences], now=now)
+        g1, g2, g3 = GuildFactory(name="A1"), GuildFactory(name="B1"), GuildFactory(name="C1")
+        member = _voter("v1@example.com")
+        VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3, signed_up=False)
+        # Default lead is 3 days → June close July 1, fire June 28 00:00.
+        now = timezone.make_aware(datetime(2026, 6, 28, 0, 0))
+
+        first = run_sources([closing_soon_occurrences], now=now)
+        second = run_sources([closing_soon_occurrences], now=now)
         assert first == 1
         assert second == 0  # deduped on EventDelivery period voting:2026-06
-        assert Notification.objects.filter(trigger="voting.closing_48h").count() == 1
+        assert Notification.objects.filter(trigger="voting.closing_soon").count() == 1
 
-    def it_targets_paying_active_voters_only():
-        from tests.membership.factories import MemberFactory
-
-        voter = _voter("payer@example.com")
-        # A non-paying member (member_type != STANDARD) is NOT a voter.
-        nonpayer = MemberFactory(member_type=Member.MemberType.WORK_TRADE)
-        with mute_signals(post_save):
-            nonpayer_user = User.objects.create_user(username="np", email="np@example.com")
-        nonpayer.user = nonpayer_user
-        nonpayer.save(update_fields=["user"])
-
-        from membership.voting import closing_48h_occurrences
+    def it_only_targets_members_who_voted():
         from core.events.scheduler import run_sources
+        from membership.voting import closing_soon_occurrences
 
-        now = timezone.make_aware(datetime(2026, 6, 29, 0, 0))
-        run_sources([closing_48h_occurrences], now=now)
-        notified = set(Notification.objects.values_list("user_id", flat=True))
+        g1, g2, g3 = GuildFactory(name="A2"), GuildFactory(name="B2"), GuildFactory(name="C2")
+        voter = _voter("voted@example.com")
+        VotePreferenceFactory(member=voter, guild_1st=g1, guild_2nd=g2, guild_3rd=g3, signed_up=False)
+        novote = _voter("novote@example.com")  # paying + signed in but no vote
+
+        now = timezone.make_aware(datetime(2026, 6, 28, 0, 0))
+        run_sources([closing_soon_occurrences], now=now)
+        notified = set(Notification.objects.filter(trigger="voting.closing_soon").values_list("user_id", flat=True))
         assert voter.user_id in notified
-        assert nonpayer.user_id not in notified
+        assert novote.user_id not in notified
 
     def it_does_not_fire_outside_the_window():
-        from membership.voting import closing_48h_occurrences
         from core.events.scheduler import run_sources
+        from membership.voting import closing_soon_occurrences
 
-        _voter("early@example.com")
+        g1, g2, g3 = GuildFactory(name="A3"), GuildFactory(name="B3"), GuildFactory(name="C3")
+        member = _voter("early@example.com")
+        VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3, signed_up=False)
         now = timezone.make_aware(datetime(2026, 6, 10, 9, 0))
-        assert run_sources([closing_48h_occurrences], now=now) == 0
+        assert run_sources([closing_soon_occurrences], now=now) == 0
 
 
-# --- 5. voting.results_published ---------------------------------------------
+# --- 5. voting.results_published (admin-confirmed send) ----------------------
 
 
 def describe_voting_results_published():
-    def it_emails_voters_the_allocation_breakdown():
+    def it_emails_each_voter_only_on_send_results():
         from membership.models import FundingSnapshot
 
         g1, g2, g3 = GuildFactory(name="A"), GuildFactory(name="B"), GuildFactory(name="C")
@@ -216,12 +215,15 @@ def describe_voting_results_published():
 
         snapshot = FundingSnapshot.take()
         assert snapshot is not None
+        # take() does NOT email members — only the admin-confirmed send_results() does.
+        assert not TransactionalEmailLog.objects.filter(trigger_kind="voting.results_published").exists()
+
+        snapshot.send_results()
         log = TransactionalEmailLog.objects.get(trigger_kind="voting.results_published")
         assert log.to_email == member.user.email
-        # The allocation summary names a guild that received funding.
         assert "$" in snapshot.allocation_summary()
 
-    def it_dedupes_re_publishing_the_same_snapshot():
+    def it_dedupes_the_same_send_but_resends_with_resend():
         from membership.models import FundingSnapshot
 
         g1, g2, g3 = GuildFactory(name="D"), GuildFactory(name="E"), GuildFactory(name="F")
@@ -229,8 +231,10 @@ def describe_voting_results_published():
         VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3, signed_up=False)
         snapshot = FundingSnapshot.take()
         assert snapshot is not None
-        snapshot.publish_results()  # second call — same snapshot pk
-        assert Notification.objects.filter(trigger="voting.results_published", user=member.user).count() == 1
+
+        snapshot.send_results()
+        snapshot.send_results(resend=True)  # fresh period → a second delivery
+        assert Notification.objects.filter(trigger="voting.results_published", user=member.user).count() == 2
 
 
 # --- 6. release.published ----------------------------------------------------

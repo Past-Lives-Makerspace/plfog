@@ -1,9 +1,9 @@
-"""Notification emission at funding snapshot — voting.results_published.
+"""Taking a snapshot no longer auto-emails members (admin-confirmed results model).
 
-FundingSnapshot.take() now emits the ``voting.results_published`` event (one
-vocabulary) to all voters, superseding the old ``notifications.dispatch(
-"funding_results_published")``. The recipient is ``all_voters`` (paying active
-members), not the broad active-member dispatch.
+``FundingSnapshot.take()`` freezes the votes and pings admins via
+``voting.results_ready`` — it does NOT emit ``voting.results_published`` to members.
+That now fires only on the admin's ``send_results()`` click (covered in
+``tests/core/events/new_events_spec.py`` + ``funding_snapshot_results_spec.py``).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def _user_for_member(member):
 
 
 def describe_voting_results_published_emission():
-    def it_notifies_voters_after_snapshot():
+    def it_does_not_notify_members_when_a_snapshot_is_taken():
         g1 = GuildFactory(name="G1")
         g2 = GuildFactory(name="G2")
         g3 = GuildFactory(name="G3")
@@ -39,7 +39,7 @@ def describe_voting_results_published_emission():
 
         FundingSnapshot.take()
 
-        assert Notification.objects.filter(user=user, trigger="voting.results_published").exists()
+        assert not Notification.objects.filter(user=user, trigger="voting.results_published").exists()
 
     def it_does_not_notify_when_no_votes():
         FundingSnapshot.take()

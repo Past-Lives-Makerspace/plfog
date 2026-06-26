@@ -303,6 +303,11 @@
     background: var(--hub-surface);
     color: var(--hub-text-muted);
 }
+.pl-vote-badge--auto {
+    background: var(--hub-surface);
+    border-color: var(--color-tuscan-yellow);
+    color: var(--color-tuscan-yellow);
+}
 
 /* ----------------------------------------------------------------------------
    Legacy / informational banner
@@ -314,6 +319,68 @@
     border-radius: 8px;
     color: var(--hub-text);
     font-size: 0.9375rem;
+}
+
+/* ----------------------------------------------------------------------------
+   "Results are in — review & send" banner + Send/Resend control
+   ------------------------------------------------------------------------- */
+.pl-results-banner {
+    border: 1px solid var(--hub-blue);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+.pl-results-banner__title {
+    margin: 0;
+    font-size: 1.0625rem;
+    color: var(--hub-text);
+}
+.pl-results-banner__meta {
+    margin: 0.25rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+.pl-results-banner__actions,
+.pl-results-send {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+.pl-results-send__status {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+
+/* ----------------------------------------------------------------------------
+   Settings tab — form + email-copy links
+   ------------------------------------------------------------------------- */
+.pl-vote-settings-form__save {
+    margin-top: 1rem;
+}
+.pl-vote-copy-links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.pl-vote-copy-links li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.625rem 0;
+    border-bottom: 1px solid var(--hub-border);
+    color: var(--hub-text);
+}
+.pl-vote-copy-links li:last-child {
+    border-bottom: none;
+}
+.pl-vote-copy-links__who {
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
 }
 
 /* ----------------------------------------------------------------------------

@@ -5,9 +5,15 @@ Parameters (pass via {% include ... with %}):
   confirm_id           — required, unique DOM id
   confirm_title        — optional, heading (default: "Are you sure?")
   confirm_message      — required, body text
-  confirm_action_url   — required, form POST target
+  confirm_action_url   — required (plain-POST mode), form POST target
   confirm_button_text  — optional, button label (default: "Confirm")
   confirm_button_style — optional, "danger" (default) or "primary"
+
+  HTMX mode (optional — when confirm_hx_post is set, the confirm submits via HTMX
+  instead of a full-page POST, so the view can return a toast + swap):
+  confirm_hx_post      — HTMX POST target; switches the form to hx-post.
+  confirm_hx_target    — CSS selector the response swaps (hx-swap=outerHTML).
+  confirm_hx_vals      — optional raw JSON for hx-vals (developer-supplied, e.g. resend).
 {% endcomment %}
 <template x-teleport="body">
 <div x-data="{ open: false }"
@@ -28,12 +34,25 @@ Parameters (pass via {% include ... with %}):
         <div class="pl-modal__body">
             <p style="margin:0 0 1.5rem;">{{ confirm_message }}</p>
             <div class="pl-modal__actions">
+                {% if confirm_hx_post %}
+                <form hx-post="{{ confirm_hx_post }}"
+                      {% if confirm_hx_target %}hx-target="{{ confirm_hx_target }}" hx-swap="outerHTML"{% endif %}
+                      {% if confirm_hx_vals %}hx-vals='{{ confirm_hx_vals|safe }}'{% endif %}
+                      @htmx:after-request="open = false"
+                      style="flex:1;">
+                    {% csrf_token %}
+                    <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;" hx-disabled-elt="this">
+                        {{ confirm_button_text|default:"Confirm" }}
+                    </button>
+                </form>
+                {% else %}
                 <form method="post" action="{{ confirm_action_url }}" style="flex:1;">
                     {% csrf_token %}
                     <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;">
                         {{ confirm_button_text|default:"Confirm" }}
                     </button>
                 </form>
+                {% endif %}
                 <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
             </div>
         </div>

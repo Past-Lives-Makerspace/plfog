@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.core.serializers.json import DjangoJSONEncoder
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import BooleanField, Case, CharField, DecimalField, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
@@ -1335,6 +1336,10 @@ class VotePreference(models.Model):
         return result
 
 
+class ResultsAlreadySentError(Exception):
+    """Raised when a snapshot's member results email is sent twice without an explicit resend."""
+
+
 class FundingSnapshot(models.Model):
     """Immutable historical record of a funding calculation at a point in time."""
 
@@ -1382,6 +1387,19 @@ class FundingSnapshot(models.Model):
         encoder=DjangoJSONEncoder,
         help_text="Full calculation results including per-guild breakdowns. Decimals are serialized as strings.",
     )
+    is_auto = models.BooleanField(
+        default=False,
+        help_text="True when this snapshot was taken automatically at cycle end (vs. by an admin).",
+    )
+    results_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the member results email was sent for this snapshot. Null = pending the admin's review & send.",
+    )
+    results_send_count = models.PositiveIntegerField(
+        default=0,
+        help_text="How many times the results email has been sent (>=1 after the first send; supports resend).",
+    )
 
     class Meta:
         ordering = ["-snapshot_at"]
@@ -1393,30 +1411,59 @@ class FundingSnapshot(models.Model):
 
     @property
     def source_label(self) -> str:
-        """How this snapshot was created.
+        """How this snapshot was created — "Automatic" for cycle-end auto-takes, else "Manual"."""
+        return "Automatic" if self.is_auto else "Manual"
 
-        Spec 1 always reports "Manual"; Spec 2 adds a persisted ``is_auto`` field
-        and rewrites this to branch on it ("Automatic" / "Manual").
+    @property
+    def results_pending(self) -> bool:
+        """Whether real per-guild results exist for this snapshot and haven't been emailed yet.
+
+        A legacy or vote-less snapshot (no allocation) is never "pending" — there is
+        nothing meaningful to send.
         """
-        return "Manual"
+        return self.results_sent_at is None and bool(self.allocation_summary())
+
+    @classmethod
+    def most_recent_pending(cls) -> FundingSnapshot | None:
+        """The newest snapshot whose member results are still pending review & send.
+
+        Drives the Overview "Results are in — review & send" banner. Walks unsent
+        snapshots newest-first and returns the first with a real allocation.
+        """
+        for snapshot in cls.objects.filter(results_sent_at__isnull=True).order_by("-snapshot_at"):
+            if snapshot.results_pending:
+                return snapshot
+        return None
 
     @classmethod
     def take(
         cls,
         *,
         title: str = "",
-        minimum_pool: Decimal | int = 1000,
+        minimum_pool: Decimal | int | None = None,
+        is_auto: bool = False,
+        actor: Any | None = None,
     ) -> FundingSnapshot | None:
-        """Create a snapshot from current vote preferences.
+        """Create a snapshot from current vote preferences (admin-confirmed results model).
+
+        Taking a snapshot freezes the votes and runs the allocation, but does NOT
+        email members — it logs the snapshot-taken activity once and pings admins via
+        ``voting.results_ready`` so they can review the numbers and click Send results.
 
         Args:
             title: Custom label for the snapshot. Defaults to current month/year.
             minimum_pool: Dollar floor applied to the funding pool. Pool is
-                ``max(paying_voters × $10, minimum_pool)``. Defaults to $1,000.
+                ``max(paying_voters × $10, minimum_pool)``. ``None`` (the default)
+                resolves to ``VotingSettings.load().minimum_pool_floor``; an explicit
+                value overrides it.
+            is_auto: True when taken automatically at cycle end (sets the badge flag).
+            actor: The admin who took it, for the activity row. ``None`` for system.
 
         Returns:
             The created FundingSnapshot, or None if no votes exist.
         """
+        from core.events.emit import emit
+        from core.models import SiteActivity
         from membership.vote_calculator import calculate_results
 
         preferences = VotePreference.objects.from_signed_up_members().select_related(
@@ -1458,7 +1505,10 @@ class FundingSnapshot(models.Model):
             for v in raw_votes
         ]
 
-        minimum_pool_value = Decimal(minimum_pool)
+        if minimum_pool is None:
+            minimum_pool_value = VotingSettings.load().minimum_pool_floor
+        else:
+            minimum_pool_value = Decimal(minimum_pool)
         calc = calculate_results(
             votes_for_calc,
             paying_voter_count=paying_count,
@@ -1474,9 +1524,27 @@ class FundingSnapshot(models.Model):
             minimum_pool=minimum_pool_value,
             raw_votes=raw_votes,
             results=calc,
+            is_auto=is_auto,
         )
 
-        snapshot.publish_results()
+        # Log the snapshot-taken activity exactly once here (it no longer rides on the
+        # per-member results emails, which would otherwise write N rows).
+        SiteActivity.log(SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
+
+        # Ping admins to review & send — taking a snapshot never emails members.
+        emit(
+            "voting.results_ready",
+            actor=actor,
+            target=snapshot,
+            context={
+                "cycle_label": snapshot.cycle_label,
+                "funding_pool": f"{snapshot.funding_pool}",
+                "votes_cast": f"{calc['votes_cast']}",
+                "review_url": f"/manage/voting/history/{snapshot.pk}/",
+            },
+            url=f"/manage/voting/history/{snapshot.pk}/",
+            period=f"snapshot_ready:{snapshot.pk}",
+        )
         return snapshot
 
     def allocation_summary(self) -> str:
@@ -1490,30 +1558,66 @@ class FundingSnapshot(models.Model):
         lines = [f"{row['guild_name']} — ${row['funding']} ({row['share_pct']}%)" for row in results]
         return "\n".join(lines)
 
-    def publish_results(self) -> None:
-        """Emit ``voting.results_published`` to all voters with the allocation breakdown.
+    def send_results(self, *, actor: Any | None = None, resend: bool = False) -> int:
+        """Email each member who voted their personalized results — the admin-confirmed send.
 
-        Logs the FUNDING_SNAPSHOT_TAKEN SiteActivity (the event's registry
-        ``activity_kind``) and fans out an email + in-app row to every voter, carrying
-        the per-guild allocation summary as a merge field. Supersedes the old
-        ``funding_results_published`` trigger (now deleted; one vocabulary:
-        ``voting.results_published``). Deduped on the snapshot pk so re-publishing the
-        same snapshot never double-sends, while a new snapshot (new pk) does notify.
+        Loops the snapshot's frozen ``raw_votes`` and emits ``voting.results_published``
+        once per still-active voter, carrying that member's own 1st/2nd/3rd recorded
+        vote so the email can say "here's what we recorded *you* voting for". Stamps
+        ``results_sent_at`` and bumps ``results_send_count`` so the UI can flip to the
+        sent state and idempotency is visible.
+
+        Args:
+            actor: The admin who clicked Send (unused for the per-member emit, kept for
+                symmetry/auditing of the calling view).
+            resend: When True, allows re-sending already-sent results (a fresh ``period``
+                re-delivers); when False a second send raises ``ResultsAlreadySentError``.
+
+        Returns:
+            The number of voters who received a fresh delivery this send.
+
+        Raises:
+            ResultsAlreadySentError: If results were already sent and ``resend`` is False.
         """
         from core.events.emit import emit
 
-        emit(
-            "voting.results_published",
-            target=self,
-            context={
-                "member_name": "there",
-                "cycle_label": self.cycle_label,
-                "allocation_summary": self.allocation_summary(),
-                "voting_url": "/guilds/voting/history/",
-            },
-            url="/guilds/voting/history/",
-            period=f"snapshot:{self.pk}",
-        )
+        if self.results_sent_at is not None and not resend:
+            raise ResultsAlreadySentError(f"Results for '{self.cycle_label}' were already sent.")
+
+        self.results_send_count += 1
+        n = self.results_send_count
+        sent = 0
+        allocation = self.allocation_summary()
+        member_ids = [vote["member_id"] for vote in self.raw_votes]
+        active = {
+            member.pk: member
+            for member in Member.objects.filter(pk__in=member_ids, status=Member.Status.ACTIVE).select_related("user")
+        }
+        for vote in self.raw_votes:
+            member = active.get(vote["member_id"])
+            if member is None:
+                continue  # voter no longer active → skip (audience safety)
+            result = emit(
+                "voting.results_published",
+                target=self,
+                context={
+                    "member": member,  # → registrant resolver (drops no-account/no-email; respects opt-out)
+                    "member_name": member.display_name,
+                    "cycle_label": self.cycle_label,
+                    "allocation_summary": allocation,
+                    "vote_1st": vote["guild_1st_name"],
+                    "vote_2nd": vote["guild_2nd_name"],
+                    "vote_3rd": vote["guild_3rd_name"],
+                    "voting_url": "/guilds/voting/history/",
+                },
+                url="/guilds/voting/history/",
+                period=f"snapshot:{self.pk}:send:{n}",  # fresh per send → resend re-delivers
+            )
+            if result.delivery_count:
+                sent += 1
+        self.results_sent_at = timezone.now()
+        self.save(update_fields=["results_sent_at", "results_send_count"])
+        return sent
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         super().save(*args, **kwargs)
@@ -1536,6 +1640,59 @@ class FundingSnapshot(models.Model):
 
             delete_snapshot_from_airtable(record_id)
         return result
+
+
+class VotingSettings(models.Model):
+    """Admin-configurable knobs for the monthly guild-funding vote (singleton, pk=1).
+
+    Follows the ``SiteConfiguration`` / ``BillingSettings`` / ``ClassSettings`` pattern:
+    one row, loaded via :meth:`load`, saved with ``pk`` forced to 1. Defaults reproduce
+    today's behavior (a $1,000 pool floor, a 3-day reminder lead) with the automation
+    switches on — and since nothing emails members without an admin's Send click,
+    defaults-on is safe.
+    """
+
+    reminder_lead_days = models.PositiveIntegerField(
+        default=3,
+        validators=[MinValueValidator(1)],
+        help_text="How many days before close to send the 'Polls closing soon!' reminder (minimum 1).",
+    )
+    minimum_pool_floor = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("1000.00"),
+        help_text="Dollar floor for the funding pool. The pool is the larger of (paying voters × $10) and this.",
+    )
+    reminders_enabled = models.BooleanField(
+        default=True,
+        help_text="Master switch for the 'Polls closing soon!' reminder to members who have voted.",
+    )
+    send_vote_soon_enabled = models.BooleanField(
+        default=True,
+        help_text="Master switch for the 'Vote soon!' nudge to members who've signed in but never voted.",
+    )
+    auto_snapshot_enabled = models.BooleanField(
+        default=True,
+        help_text="Master switch for the automated cycle-end snapshot (it never auto-emails members).",
+    )
+
+    class Meta:
+        verbose_name = "Voting Settings"
+        verbose_name_plural = "Voting Settings"
+
+    def __str__(self) -> str:
+        return "Voting settings"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Force singleton by always using pk=1."""
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> VotingSettings:
+        """Load the singleton instance, creating it with defaults if needed."""
+        obj, _created = cls.objects.get_or_create(pk=1)
+        return obj
 
 
 # ---------------------------------------------------------------------------

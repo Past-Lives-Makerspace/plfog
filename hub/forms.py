@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import time
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
@@ -24,6 +25,7 @@ from membership.models import (
     Member,
     OrientationAvailability,
     OrientationSlot,
+    VotingSettings,
 )
 
 
@@ -675,3 +677,36 @@ class SiteAnnouncementForm(forms.Form):
 
     title = forms.CharField(max_length=300, label="Title")
     body = forms.CharField(widget=forms.Textarea(attrs={"rows": 4}), label="Message")
+
+
+class VotingSettingsForm(forms.ModelForm):
+    """Admin form for the VotingSettings singleton (the Voting → Settings tab)."""
+
+    class Meta:
+        model = VotingSettings
+        fields = [
+            "reminder_lead_days",
+            "minimum_pool_floor",
+            "reminders_enabled",
+            "send_vote_soon_enabled",
+            "auto_snapshot_enabled",
+        ]
+        labels = {
+            "reminder_lead_days": "Reminder lead time (days)",
+            "minimum_pool_floor": "Minimum pool floor ($)",
+            "reminders_enabled": "Send 'Polls closing soon!' reminders",
+            "send_vote_soon_enabled": "Send 'Vote soon!' nudges",
+            "auto_snapshot_enabled": "Auto-take the cycle-end snapshot",
+        }
+
+    def clean_reminder_lead_days(self) -> int:
+        days = self.cleaned_data["reminder_lead_days"]
+        if days < 1:
+            raise forms.ValidationError("Send the reminder at least 1 day before close.")
+        return days
+
+    def clean_minimum_pool_floor(self) -> Decimal:
+        floor = self.cleaned_data["minimum_pool_floor"]
+        if floor < 0:
+            raise forms.ValidationError("The pool floor can't be negative.")
+        return floor

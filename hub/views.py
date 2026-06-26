@@ -2028,6 +2028,7 @@ def voting_overview(request: HttpRequest) -> HttpResponse:
     ctx = dashboard_callback(request, ctx)
     ctx.update(get_cycle_context())
     ctx["active_tab"] = "overview"
+    ctx["pending_results_snapshot"] = FundingSnapshot.most_recent_pending()
     return render(request, "hub/admin/voting_overview.html", ctx)
 
 
@@ -2065,10 +2066,56 @@ def voting_snapshots(request: HttpRequest) -> HttpResponse:
 
 @fog_admin_required
 def voting_settings(request: HttpRequest) -> HttpResponse:
-    """Voting → Settings tab — empty shell in Spec 1; Spec 2 fills it."""
+    """Voting → Settings tab — edit the VotingSettings singleton (full-page form + messages)."""
+    from hub.forms import VotingSettingsForm
+    from membership.models import VotingSettings
+
+    settings_obj = VotingSettings.load()
+    form = VotingSettingsForm(request.POST or None, instance=settings_obj)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Voting settings saved.")
+        return redirect("hub_admin_voting_settings")
+
     ctx = _get_hub_context(request)
     ctx["active_tab"] = "settings"
+    ctx["form"] = form
     return render(request, "hub/admin/voting_settings.html", ctx)
+
+
+@fog_admin_required
+@require_POST
+def voting_send_results(request: HttpRequest, pk: int) -> HttpResponse:
+    """Email this cycle's results to members who voted (HTMX → toast + re-rendered control).
+
+    The admin-confirmed send: ``snapshot.send_results`` loops the frozen votes and
+    emails each active voter their personalized allocation + recorded vote. Returns the
+    re-rendered Send/Resend control (its new "sent" state) plus an out-of-band swap of
+    the Overview "review & send" banner, and a toast — never a Django-messages redirect.
+    """
+    from membership.models import ResultsAlreadySentError
+
+    snapshot = get_object_or_404(FundingSnapshot, pk=pk)
+    resend = request.POST.get("resend") == "1"
+    try:
+        sent = snapshot.send_results(actor=request.user, resend=resend)
+    except ResultsAlreadySentError:
+        response = _render_results_send_control(request, snapshot)
+        trigger_toast(response, "Those results were already sent.", "error")
+        return response
+
+    response = _render_results_send_control(request, snapshot)
+    trigger_toast(response, f"Results sent to {sent} member{'' if sent == 1 else 's'}.", "success")
+    return response
+
+
+def _render_results_send_control(request: HttpRequest, snapshot: FundingSnapshot) -> HttpResponse:
+    """Render the Send/Resend control + an OOB refresh of the Overview pending banner."""
+    return render(
+        request,
+        "hub/admin/_results_send_control.html",
+        {"snapshot": snapshot, "pending_results_snapshot": FundingSnapshot.most_recent_pending(), "oob": True},
+    )
 
 
 @fog_admin_required

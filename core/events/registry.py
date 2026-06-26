@@ -311,8 +311,10 @@ MEMBER_INVITED = "member.invited"
 MEMBER_LOGIN_INVITE = "member.login_invite"
 GUILD_ANNOUNCEMENT = "guild_announcement"  # re-uses the seeded key + curated copy
 SITE_ANNOUNCEMENT = "site_announcement"  # re-uses the seeded key + curated copy
-VOTING_CLOSING_48H = "voting.closing_48h"
+VOTING_CLOSING_SOON = "voting.closing_soon"
+VOTING_VOTE_SOON = "voting.vote_soon"
 VOTING_RESULTS_PUBLISHED = "voting.results_published"
+VOTING_RESULTS_READY = "voting.results_ready"
 RELEASE_PUBLISHED = "release.published"
 
 
@@ -372,29 +374,53 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
         activity_kind="site_announcement",
     ),
-    # 4. voting.closing_48h — scheduled 48h before the month-end auto-close.
-    #    Supersedes the dead voting_cycle_open + the old voting_closing_soon (−3d,
-    #    in-app only). Email opt-out, in-app on, Discord broadcast on.
+    # 4. voting.closing_soon — scheduled N days (VotingSettings.reminder_lead_days)
+    #    before the month-end close, to each member who has voted, carrying their own
+    #    recorded 1st/2nd/3rd. Per-member (REGISTRANT), so email + in-app only — a
+    #    personalized per-member email is not a broadcast (no Discord).
     EventType(
-        key=VOTING_CLOSING_48H,
-        label="Guild voting closes soon",
-        description="Two days before the monthly funding vote closes.",
+        key=VOTING_CLOSING_SOON,
+        label="Polls closing soon",
+        description="A few days before the monthly funding vote closes, to members who've voted.",
         category="Voting",
-        recipient=Recipients.ALL_VOTERS,
-        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
+        recipient=Recipients.REGISTRANT,
+        channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
-    # 5. voting.results_published — after the month-end close + allocation. Email +
-    #    in-app to all voters with the allocation breakdown. Supersedes the
-    #    funding_results_published dispatch in FundingSnapshot.take.
+    # 4b. voting.vote_soon — the nudge to members who've signed in but never voted.
+    #    Per-member (REGISTRANT), email + in-app.
+    EventType(
+        key=VOTING_VOTE_SOON,
+        label="Vote soon",
+        description="A reminder to members who've signed in but haven't cast a funding vote yet.",
+        category="Voting",
+        recipient=Recipients.REGISTRANT,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 5. voting.results_published — the personalized member results email, sent only on
+    #    the admin's Send results click (FundingSnapshot.send_results loops raw_votes
+    #    and emits once per voter). Per-member (REGISTRANT); the snapshot-taken activity
+    #    is logged once in take(), so this writes no activity row.
     EventType(
         key=VOTING_RESULTS_PUBLISHED,
         label="Guild funding results published",
         description="This month's votes are counted and the allocation is published.",
         category="Voting",
-        recipient=Recipients.ALL_VOTERS,
+        recipient=Recipients.REGISTRANT,
         channels=(_IN_APP_ON, _EMAIL_ON),
-        activity_kind="funding_snapshot_taken",
+        activity_kind=None,
+    ),
+    # 5b. voting.results_ready — the admin-facing "results are in, review & send" ping,
+    #    emitted by take(). Email + in-app to FOG admins; logs no activity (take does).
+    EventType(
+        key=VOTING_RESULTS_READY,
+        label="Funding results ready to send",
+        description="A funding snapshot was taken — review the numbers and send results to members.",
+        category="Voting",
+        recipient=Recipients.FOG_ADMINS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
     ),
     # 6. release.published — "a new version has been released!" to everyone with a
     #    login (∪ active members ∪ admins; everyone_with_login already supersets

@@ -19,8 +19,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--minimum-pool",
             type=Decimal,
-            default=Decimal("1000"),
-            help="Dollar floor applied to the funding pool (default: 1000).",
+            default=None,
+            help="Dollar floor applied to the funding pool (default: the VotingSettings floor).",
         )
         parser.add_argument(
             "--title",
@@ -31,7 +31,7 @@ class Command(BaseCommand):
 
     def handle(self, *args: object, **options: object) -> None:
         """Execute the snapshot command."""
-        minimum_pool: Decimal = options["minimum_pool"]  # type: ignore[assignment]
+        minimum_pool: Decimal | None = options["minimum_pool"]  # type: ignore[assignment]
         title: str = options["title"]  # type: ignore[assignment]
 
         snapshot = FundingSnapshot.take(title=title, minimum_pool=minimum_pool)

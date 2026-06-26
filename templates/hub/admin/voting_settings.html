@@ -12,8 +12,43 @@
 
 {% include "hub/admin/_voting_tabs.html" %}
 
-{# SPEC 2 owns this tab's content (cycle cadence, floor defaults, auto-snapshot toggle, email settings). #}
 <div class="hub-card">
-  <p class="pl-vote-empty">Voting settings live here. Configuration is coming soon.</p>
+  <h2 class="pl-vote-section-title">Voting settings</h2>
+  <p class="pl-vote-intro">
+    Control the reminder timing, the funding-pool floor, and the automated cycle-end snapshot
+    and member nudges. Nothing emails members without your review and a Send-results click.
+  </p>
+  <form method="post" class="pl-vote-settings-form">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=form.reminder_lead_days %}
+    {% include "components/form_field.html" with field=form.minimum_pool_floor %}
+    {% include "components/form_field.html" with field=form.reminders_enabled %}
+    {% include "components/form_field.html" with field=form.send_vote_soon_enabled %}
+    {% include "components/form_field.html" with field=form.auto_snapshot_enabled %}
+    <button type="submit" class="hub-btn hub-btn--primary pl-vote-settings-form__save">Save voting settings</button>
+  </form>
+</div>
+
+<div class="hub-card">
+  <h2 class="pl-vote-section-title">Email wording</h2>
+  <p class="pl-vote-intro">Edit the wording of each voting email (with a live preview and version history).</p>
+  <ul class="pl-vote-copy-links">
+    <li>
+      <span>Polls closing soon! <span class="pl-vote-copy-links__who">members who voted</span></span>
+      <a href="{% url 'hub_admin_notification_edit' 'voting.closing_soon' 'email' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Edit wording</a>
+    </li>
+    <li>
+      <span>Vote soon! <span class="pl-vote-copy-links__who">signed-in non-voters</span></span>
+      <a href="{% url 'hub_admin_notification_edit' 'voting.vote_soon' 'email' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Edit wording</a>
+    </li>
+    <li>
+      <span>Results are in! <span class="pl-vote-copy-links__who">members who voted</span></span>
+      <a href="{% url 'hub_admin_notification_edit' 'voting.results_published' 'email' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Edit wording</a>
+    </li>
+    <li>
+      <span>Results ready <span class="pl-vote-copy-links__who">admins</span></span>
+      <a href="{% url 'hub_admin_notification_edit' 'voting.results_ready' 'email' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Edit wording</a>
+    </li>
+  </ul>
 </div>
 {% endblock %}

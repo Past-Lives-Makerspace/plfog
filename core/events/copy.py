@@ -428,7 +428,42 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
-    "voting.closing_48h": EventCopy(
+    "voting.closing_soon": EventCopy(
+        placeholders=("member_name", "cycle_label", "closes_on", "vote_1st", "vote_2nd", "vote_3rd", "voting_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "cycle_label": "June 2026",
+            "closes_on": "June 30, 2026",
+            "vote_1st": "Metal Guild",
+            "vote_2nd": "Fiber Guild",
+            "vote_3rd": "Wood Guild",
+            "voting_url": "https://pastlives.example/guilds/voting/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Polls closing soon — {{ cycle_label }}",
+                body_text="{{ cycle_label }} guild voting closes {{ closes_on }}. Your current vote: {{ vote_1st }}, {{ vote_2nd }}, {{ vote_3rd }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Polls closing soon: guild voting closes {{ closes_on }}",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "The {{ cycle_label }} guild funding vote closes on {{ closes_on }}. You're currently "
+                    "voting — 1st: {{ vote_1st }}, 2nd: {{ vote_2nd }}, 3rd: {{ vote_3rd }}.\n\n"
+                    "Change it any time before close: {{ voting_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>The {{ cycle_label }} guild funding vote closes on <strong>{{ closes_on }}</strong>.</p>"
+                    "<p>You're currently voting — 1st: <strong>{{ vote_1st }}</strong>, "
+                    "2nd: <strong>{{ vote_2nd }}</strong>, 3rd: <strong>{{ vote_3rd }}</strong>.</p>"
+                    '<p><a href="{{ voting_url }}">Change it any time before close</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "voting.vote_soon": EventCopy(
         placeholders=("member_name", "cycle_label", "closes_on", "voting_url"),
         sample_context={
             "member_name": "Robin Vale",
@@ -438,33 +473,44 @@ _CURATED: dict[str, EventCopy] = {
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="Guild voting closes in 2 days",
-                body_text="{{ cycle_label }} guild voting closes {{ closes_on }} — cast or update your vote.",
+                subject="Vote soon — {{ cycle_label }}",
+                body_text="You haven't cast a {{ cycle_label }} guild funding vote yet — it closes {{ closes_on }}.",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="Last call: guild voting closes {{ closes_on }}",
+                subject="Vote soon: the {{ cycle_label }} guild funding vote closes {{ closes_on }}",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "The {{ cycle_label }} guild funding vote closes on {{ closes_on }} — about two days "
-                    "from now. Make sure your vote is in (it rolls over from last cycle if you don't change "
-                    "it): {{ voting_url }}\n\nPast Lives Makerspace"
+                    "You haven't cast a guild funding vote yet for {{ cycle_label }} — it closes {{ closes_on }}. "
+                    "It takes a minute and decides where the pool goes:\n\n"
+                    "{{ voting_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
-                    "<p>The {{ cycle_label }} guild funding vote closes on <strong>{{ closes_on }}</strong> "
-                    "— about two days from now. Make sure your vote is in.</p>"
-                    '<p><a href="{{ voting_url }}">Cast or update your vote</a></p>'
+                    "<p>You haven't cast a guild funding vote yet for {{ cycle_label }} — it closes "
+                    "<strong>{{ closes_on }}</strong>. It takes a minute and decides where the pool goes.</p>"
+                    '<p><a href="{{ voting_url }}">Cast your vote</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
         },
     ),
     "voting.results_published": EventCopy(
-        placeholders=("member_name", "cycle_label", "allocation_summary", "voting_url"),
+        placeholders=(
+            "member_name",
+            "cycle_label",
+            "allocation_summary",
+            "vote_1st",
+            "vote_2nd",
+            "vote_3rd",
+            "voting_url",
+        ),
         sample_context={
             "member_name": "Robin Vale",
             "cycle_label": "June 2026",
             "allocation_summary": "Metal Guild — $600.00 (45.0%)\nFiber Guild — $400.00 (30.0%)",
+            "vote_1st": "Metal Guild",
+            "vote_2nd": "Fiber Guild",
+            "vote_3rd": "Wood Guild",
             "voting_url": "https://pastlives.example/guilds/voting/history/",
         },
         channels={
@@ -478,13 +524,45 @@ _CURATED: dict[str, EventCopy] = {
                     "Hi {{ member_name }},\n\n"
                     "The votes for {{ cycle_label }} are counted. Here's how the funding pool was split:\n\n"
                     "{{ allocation_summary }}\n\n"
+                    "You were recorded as voting — 1st: {{ vote_1st }}, 2nd: {{ vote_2nd }}, 3rd: {{ vote_3rd }}.\n\n"
                     "Full breakdown: {{ voting_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
                     "<p>The votes for {{ cycle_label }} are counted. Here's how the funding pool was split:</p>"
                     "<pre>{{ allocation_summary }}</pre>"
+                    "<p>You were recorded as voting — 1st: <strong>{{ vote_1st }}</strong>, "
+                    "2nd: <strong>{{ vote_2nd }}</strong>, 3rd: <strong>{{ vote_3rd }}</strong>.</p>"
                     '<p><a href="{{ voting_url }}">See the full breakdown</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "voting.results_ready": EventCopy(
+        placeholders=("cycle_label", "funding_pool", "votes_cast", "review_url"),
+        sample_context={
+            "cycle_label": "June 2026",
+            "funding_pool": "1000.00",
+            "votes_cast": "12",
+            "review_url": "https://pastlives.example/manage/voting/history/7/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Results ready to send — {{ cycle_label }}",
+                body_text="A {{ cycle_label }} funding snapshot was taken (${{ funding_pool }} pool, {{ votes_cast }} votes). Review and send.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Funding results ready to send — {{ cycle_label }}",
+                body_text=(
+                    "A funding snapshot for {{ cycle_label }} was taken (${{ funding_pool }} pool, "
+                    "{{ votes_cast }} votes). Review the numbers and send results to members:\n\n"
+                    "{{ review_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>A funding snapshot for {{ cycle_label }} was taken "
+                    "(${{ funding_pool }} pool, {{ votes_cast }} votes).</p>"
+                    '<p><a href="{{ review_url }}">Review the numbers and send results to members</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

@@ -15,8 +15,10 @@ _NEW_KEYS = {e.key for e in registry._NEW_EVENTS}
 _BRAND_NEW_KEYS = {
     "member.invited",
     "member.login_invite",
-    "voting.closing_48h",
+    "voting.closing_soon",
+    "voting.vote_soon",
     "voting.results_published",
+    "voting.results_ready",
     "release.published",
 }
 

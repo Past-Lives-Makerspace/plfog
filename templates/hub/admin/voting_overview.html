@@ -10,8 +10,9 @@
 {% block content %}
 <h1 class="hub-page-title">Voting</h1>
 
-{# SPEC 2 HOOK: "Results are in — review & send" banner mounts here.
-   Spec 1 renders nothing. Do not build the banner in this spec. #}
+<div id="results-review-region">
+  {% include "hub/admin/_results_review_banner.html" %}
+</div>
 
 {% include "hub/admin/_voting_tabs.html" %}
 

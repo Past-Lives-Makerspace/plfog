@@ -1,0 +1,34 @@
+{% comment %}
+Send / Resend control for one snapshot's member results email. Used in the Overview
+"review & send" banner and on the snapshot detail header.
+
+HTMX: the confirm modal POSTs to hub_admin_voting_send_results, which returns this
+partial re-rendered (its "sent" state) + a toast, plus (when `oob` is set) an
+out-of-band refresh of the Overview banner so the next pending snapshot surfaces.
+
+Params:
+  snapshot — required, the FundingSnapshot this control acts on.
+  oob      — optional, True only on the HTMX response render (adds the banner OOB swap).
+{% endcomment %}
+{% load static %}
+{% url 'hub_admin_voting_send_results' snapshot.pk as send_url %}
+{% with pks=snapshot.pk|stringformat:"s" %}
+<div id="results-send-control-{{ snapshot.pk }}" class="pl-results-send" x-data>
+  {% if snapshot.results_sent_at %}
+    <span class="pl-results-send__status">Results sent {{ snapshot.results_sent_at|date:"M j, g:i a" }}</span>
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
+            @click="$dispatch('open-confirm', 'resend-results-{{ snapshot.pk }}')">Resend</button>
+    {% include "components/confirm_modal.html" with confirm_id="resend-results-"|add:pks confirm_title="Resend these results?" confirm_message="Results for “"|add:snapshot.cycle_label|add:"” were already sent. Resend to every voter? They'll get a fresh email and notification." confirm_button_text="Resend results" confirm_button_style="primary" confirm_hx_post=send_url confirm_hx_target="#results-send-control-"|add:pks confirm_hx_vals='{"resend": "1"}' %}
+  {% else %}
+    <button type="button" class="hub-btn hub-btn--primary"
+            @click="$dispatch('open-confirm', 'send-results-{{ snapshot.pk }}')">Send results</button>
+    {% include "components/confirm_modal.html" with confirm_id="send-results-"|add:pks confirm_title="Email this cycle's results?" confirm_message="This emails all members who voted in “"|add:snapshot.cycle_label|add:"” the allocation and their own recorded vote. In-app notifications go out too." confirm_button_text="Send results" confirm_button_style="primary" confirm_hx_post=send_url confirm_hx_target="#results-send-control-"|add:pks %}
+  {% endif %}
+</div>
+{% endwith %}
+
+{% if oob %}
+<div id="results-review-region" hx-swap-oob="outerHTML">
+  {% include "hub/admin/_results_review_banner.html" %}
+</div>
+{% endif %}

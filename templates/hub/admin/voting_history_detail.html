@@ -24,6 +24,9 @@
       </p>
     </div>
     <div class="pl-vote-detail-actions">
+      {% if snapshot.results_pending or snapshot.results_sent_at %}
+        {% include "hub/admin/_results_send_control.html" with snapshot=snapshot %}
+      {% endif %}
       <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
               @click="$dispatch('open-confirm', 'del-snapshot-{{ snapshot.pk }}')">Delete Snapshot</button>
       <a href="{% url 'hub_admin_voting_history' %}" class="hub-btn hub-btn--ghost">Back to Funding History</a>

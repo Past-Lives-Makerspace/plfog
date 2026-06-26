@@ -103,16 +103,17 @@ def describe_overview():
         assert b"No votes cast this cycle yet." in resp.content
         assert b"Current vote leaders" not in resp.content
 
-    def it_includes_the_spec2_banner_placeholder_comment():
+    def it_mounts_the_results_review_banner_region():
         source = Path(get_template("hub/admin/voting_overview.html").origin.name).read_text(encoding="utf-8")
-        assert "SPEC 2 HOOK" in source
+        assert 'id="results-review-region"' in source
+        assert "_results_review_banner.html" in source
 
 
 def describe_settings():
-    def it_renders_the_shell_for_admin(admin_client):
+    def it_renders_the_settings_form_for_admin(admin_client):
         resp = admin_client.get(reverse("hub_admin_voting_settings"))
         assert resp.status_code == 200
-        assert b"Voting settings live here" in resp.content
+        assert b"Save voting settings" in resp.content
 
 
 def describe_history():
