@@ -1,0 +1,43 @@
+{% load hub_tags %}
+<div id="profile-skills" class="pl-skill-editor">
+    {% if member.skills.all %}
+    <div class="pl-skill-chips">
+        {% for ms in member.skills.all %}
+        <span class="pl-skill-chip">
+            {{ ms.skill.name }}{% if ms.years_experience is not None %}<span class="pl-skill-chip__years">{{ ms.years_experience }}y</span>{% endif %}
+            {% if ms.skill.status == "pending" %}<span class="pl-skill-chip__pending" title="Awaiting admin approval">pending</span>{% endif %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-skill-chip__remove"
+                    hx-post="{% url 'hub_skill_remove' ms.pk %}" hx-target="#profile-skills" hx-swap="outerHTML">
+                Remove
+            </button>
+        </span>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted">No skills yet — add some below.</p>
+    {% endif %}
+
+    <div class="pl-skill-add">
+        <select name="skill" form="skill-add-form" class="pl-filter-control">
+            <option value="">Choose a skill…</option>
+            {% for category in skill_categories %}
+            {% if category.skills.all %}
+            <optgroup label="{{ category.name }}">
+                {% for skill in category.skills.all %}<option value="{{ skill.pk }}">{{ skill.name }}</option>{% endfor %}
+            </optgroup>
+            {% endif %}
+            {% endfor %}
+        </select>
+        <input type="number" name="years_experience" form="skill-add-form" min="0" max="99" placeholder="years (optional)" class="pl-filter-control">
+        <form id="skill-add-form" hx-post="{% url 'hub_skill_add' %}" hx-target="#profile-skills" hx-swap="outerHTML">
+            {% csrf_token %}
+            <button type="submit" class="hub-btn hub-btn--sm">Add skill</button>
+        </form>
+    </div>
+
+    <form class="pl-skill-suggest" hx-post="{% url 'hub_skill_suggest' %}" hx-target="#profile-skills" hx-swap="outerHTML">
+        {% csrf_token %}
+        <input type="text" name="name" maxlength="80" placeholder="Can't find it? Suggest a skill" class="pl-filter-control">
+        <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Suggest</button>
+    </form>
+</div>

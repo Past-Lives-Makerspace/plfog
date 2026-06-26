@@ -184,6 +184,23 @@ class MemberQuerySet(models.QuerySet):
         """Only members whose primary_email resolves blank (no usable email)."""
         return self.with_email_status().filter(has_email=False)
 
+    def with_skill(self, slug: str) -> MemberQuerySet:
+        """Members who list an approved skill with the given slug."""
+        return self.filter(skills__skill__slug=slug, skills__skill__status=Skill.Status.APPROVED)
+
+    def open_for_commissions(self) -> MemberQuerySet:
+        """Members who have flagged themselves open for commissions."""
+        return self.filter(open_for_commissions=True)
+
+    def search_skills(self, text: str) -> MemberQuerySet:
+        """Members whose display name or an approved skill name contains ``text`` (case-insensitive)."""
+        approved = models.Q(skills__skill__status=Skill.Status.APPROVED)
+        return self.filter(
+            models.Q(preferred_name__icontains=text)
+            | models.Q(full_legal_name__icontains=text)
+            | (approved & models.Q(skills__skill__name__icontains=text))
+        ).distinct()
+
 
 class Member(models.Model):
     # Queryset annotation (set by MemberQuerySet.with_lease_totals)
@@ -316,9 +333,18 @@ class Member(models.Model):
         blank=True,
         help_text=(
             "Per-field public/hidden flags for the member directory card. "
-            "Keys: pronouns, phone, email, discord_handle, other_contact_info, about_me, profile_photo. "
+            "Keys: pronouns, phone, email, discord_handle, other_contact_info, about_me, profile_photo, skills. "
             "Missing key means public (default-on)."
         ),
+    )
+    open_for_commissions = models.BooleanField(
+        default=False,
+        help_text="When on, the member shows an 'Open for commissions!' badge and appears in that filter.",
+    )
+    commission_note = models.CharField(
+        max_length=280,
+        blank=True,
+        help_text="Short note on the kind of paid or commissioned work the member welcomes.",
     )
     instructor_slug = models.SlugField(
         max_length=255,
@@ -359,7 +385,10 @@ class Member(models.Model):
         "other_contact_info",
         "about_me",
         "profile_photo",
+        "skills",
     )
+
+    MAX_SKILLS = 15
 
     def __str__(self) -> str:
         return self.display_name
@@ -375,6 +404,11 @@ class Member(models.Model):
         accidentally hidden after this feature ships.
         """
         return bool(self.directory_visibility.get(field_name, True))
+
+    @property
+    def approved_skills(self) -> models.QuerySet[MemberSkill]:
+        """This member's skills whose vocabulary entry is approved, ready for display."""
+        return self.skills.filter(skill__status=Skill.Status.APPROVED).select_related("skill__category")
 
     @property
     def primary_email(self) -> str:
@@ -1283,6 +1317,90 @@ class GuildMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member} in {self.guild.name}"
+
+
+class SkillCategory(models.Model):
+    """A grouping of related skills shown in the skills picker and directory filter."""
+
+    name = models.CharField(max_length=100, unique=True, help_text="Display name of the category.")
+    slug = models.SlugField(max_length=120, unique=True, help_text="URL-safe identifier.")
+    sort_order = models.PositiveSmallIntegerField(default=0, help_text="Lower numbers sort first in pickers.")
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+        verbose_name = "skill category"
+        verbose_name_plural = "skill categories"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Skill(models.Model):
+    """A single skill members can list, drawn from a curated vocabulary."""
+
+    class Status(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        PENDING = "pending", "Pending review"
+
+    name = models.CharField(max_length=80, unique=True, help_text="Canonical skill name shown everywhere.")
+    slug = models.SlugField(max_length=100, unique=True, help_text="URL-safe identifier used for filtering.")
+    category = models.ForeignKey(
+        SkillCategory,
+        on_delete=models.PROTECT,
+        related_name="skills",
+        help_text="The category this skill belongs to.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.APPROVED,
+        help_text="Approved skills appear publicly; pending skills are member suggestions awaiting review.",
+    )
+    suggested_by = models.ForeignKey(
+        "Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="suggested_skills",
+        help_text="Member who proposed this skill, if it came from a suggestion.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the skill entered the vocabulary.")
+
+    class Meta:
+        ordering = ["category__sort_order", "name"]
+        indexes = [
+            models.Index(fields=["status", "name"], name="idx_skill_status_name"),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class MemberSkill(models.Model):
+    """A skill claimed by a member, with optional years of experience."""
+
+    member = models.ForeignKey(
+        "Member", on_delete=models.CASCADE, related_name="skills", help_text="The member who listed this skill."
+    )
+    skill = models.ForeignKey(
+        Skill, on_delete=models.CASCADE, related_name="member_links", help_text="The skill being claimed."
+    )
+    years_experience = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Optional years of experience, shown beside the skill when set.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the member added this skill.")
+
+    class Meta:
+        ordering = ["skill__category__sort_order", "skill__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["member", "skill"], name="uq_memberskill_member_skill"),
+        ]
+
+    def __str__(self) -> str:
+        years = f" ({self.years_experience}y)" if self.years_experience is not None else ""
+        return f"{self.member.display_name} — {self.skill.name}{years}"
 
 
 class CommunityEventQuerySet(models.QuerySet):

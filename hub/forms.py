@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django import forms
 from django.conf import settings
 from django.utils import timezone
+from django.utils.text import slugify
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -24,8 +25,11 @@ from membership.models import (
     GuildMeetingNoteAttachment,
     GuildOrientationSettings,
     Member,
+    MemberSkill,
     OrientationAvailability,
     OrientationSlot,
+    Skill,
+    SkillCategory,
     VotingSettings,
 )
 
@@ -246,6 +250,8 @@ class ProfileSettingsForm(forms.ModelForm):
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "open_for_commissions",
+            "commission_note",
             "instructor_website",
             "instructor_social_handle",
         ]
@@ -255,6 +261,12 @@ class ProfileSettingsForm(forms.ModelForm):
             "discord_handle": forms.TextInput(attrs={"placeholder": "@username"}),
             "other_contact_info": forms.TextInput(attrs={"placeholder": "Instagram, Signal, etc."}),
             "about_me": forms.Textarea(attrs={"rows": 3, "placeholder": "Tell other members a bit about yourself..."}),
+            "commission_note": forms.Textarea(
+                attrs={
+                    "rows": 2,
+                    "placeholder": "e.g. Small custom woodworking, websites, AI consulting — happy to chat!",
+                }
+            ),
             "instructor_social_handle": forms.TextInput(attrs={"placeholder": "@handle"}),
         }
         labels = {
@@ -263,6 +275,8 @@ class ProfileSettingsForm(forms.ModelForm):
             "other_contact_info": "Other contact info",
             "about_me": "About me",
             "profile_photo": "Profile photo",
+            "open_for_commissions": "Open for commissions",
+            "commission_note": "What kind of work do you welcome?",
             "instructor_website": "Website",
             "instructor_social_handle": "Social handle",
         }
@@ -271,6 +285,64 @@ class ProfileSettingsForm(forms.ModelForm):
             "instructor_website": "Shown on your public instructor profile.",
             "instructor_social_handle": "Shown on your public instructor profile.",
         }
+
+
+class MemberSkillForm(forms.Form):
+    """Add a single skill to a member's profile, with optional years of experience."""
+
+    skill = forms.ModelChoiceField(queryset=Skill.objects.none())
+    years_experience = forms.IntegerField(required=False, min_value=0, max_value=99)
+
+    def __init__(self, *args: Any, member: Member, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.member = member
+        self.fields["skill"].queryset = Skill.objects.filter(status=Skill.Status.APPROVED)  # type: ignore[attr-defined]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        skill = cleaned.get("skill")
+        if skill and self.member.skills.filter(skill=skill).exists():
+            raise forms.ValidationError("You've already listed that skill.")
+        if self.member.skills.count() >= Member.MAX_SKILLS:
+            raise forms.ValidationError(f"You can list up to {Member.MAX_SKILLS} skills.")
+        return cleaned
+
+    def save(self) -> MemberSkill:
+        return MemberSkill.objects.create(
+            member=self.member,
+            skill=self.cleaned_data["skill"],
+            years_experience=self.cleaned_data.get("years_experience"),
+        )
+
+
+class SkillSuggestionForm(forms.Form):
+    """Suggest a new skill not yet in the vocabulary; created pending admin approval."""
+
+    name = forms.CharField(max_length=80)
+
+    def __init__(self, *args: Any, member: Member, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.member = member
+
+    def clean_name(self) -> str:
+        name = self.cleaned_data["name"].strip()
+        if Skill.objects.filter(name__iexact=name).exists():
+            raise forms.ValidationError("That skill already exists — pick it from the list instead.")
+        return name
+
+    def save(self) -> MemberSkill:
+        name = self.cleaned_data["name"]
+        category, _ = SkillCategory.objects.get_or_create(
+            slug="suggested", defaults={"name": "Suggested", "sort_order": 999}
+        )
+        skill = Skill.objects.create(
+            name=name,
+            slug=slugify(name),
+            category=category,
+            status=Skill.Status.PENDING,
+            suggested_by=self.member,
+        )
+        return MemberSkill.objects.create(member=self.member, skill=skill)
 
 
 class BetaFeedbackForm(forms.Form):

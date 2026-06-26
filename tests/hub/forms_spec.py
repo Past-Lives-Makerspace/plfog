@@ -49,6 +49,8 @@ def describe_profile_settings_form():
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "open_for_commissions",
+            "commission_note",
             "instructor_website",
             "instructor_social_handle",
             "show_pronouns",
@@ -58,6 +60,7 @@ def describe_profile_settings_form():
             "show_other_contact_info",
             "show_about_me",
             "show_profile_photo",
+            "show_skills",
         ]
 
     def it_writes_visibility_flags_into_directory_visibility_json():
@@ -81,6 +84,7 @@ def describe_profile_settings_form():
             "other_contact_info": False,
             "about_me": False,
             "profile_photo": False,
+            "skills": False,
         }
         assert saved.is_public("phone") is True
         assert saved.is_public("about_me") is False

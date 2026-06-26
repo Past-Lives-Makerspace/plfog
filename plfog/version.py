@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.19"
+VERSION = "0.19.20"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.20",
+        "date": "2026-06-26",
+        "title": "Show off your skills and open up for commissions",
+        "changes": [
+            "Your directory profile can now list the things you make and do — woodworking, welding, "
+            "music production, web design, and lots more — with optional years of experience next to each one.",
+            "Flip on 'Open for commissions!' and add a short note if you're happy to take on custom work, "
+            "contract jobs, or consulting, so other members know they can reach out.",
+            "The member directory is now searchable and filterable by skill, and you can show just the "
+            "members who are open for commissions — handy when you're looking for the right person for a project.",
+            "Can't find your skill in the list? Suggest it, and it'll show on your profile while an admin reviews it.",
+        ],
+    },
     {
         "version": "0.19.19",
         "date": "2026-06-26",

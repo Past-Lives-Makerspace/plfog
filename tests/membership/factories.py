@@ -27,9 +27,12 @@ from membership.models import (
     Member,
     MemberEmail,
     MembershipPlan,
+    MemberSkill,
     OrientationAvailability,
     OrientationBooking,
     OrientationSlot,
+    Skill,
+    SkillCategory,
     Space,
     VotePreference,
 )
@@ -270,6 +273,34 @@ class OrientationBookingFactory(factory.django.DjangoModelFactory):
     slot = factory.SubFactory(OrientationSlotFactory)
     member = factory.SubFactory(MemberFactory)
     # guild is denormalized from the slot in OrientationBooking.save().
+
+
+class SkillCategoryFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = SkillCategory
+        django_get_or_create = ("name",)
+
+    name = factory.Sequence(lambda n: f"Category {n}")
+    slug = factory.Sequence(lambda n: f"category-{n}")
+
+
+class SkillFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = Skill
+        django_get_or_create = ("name",)
+
+    name = factory.Sequence(lambda n: f"Skill {n}")
+    slug = factory.Sequence(lambda n: f"skill-{n}")
+    category = factory.SubFactory(SkillCategoryFactory)
+    status = Skill.Status.APPROVED
+
+
+class MemberSkillFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = MemberSkill
+
+    member = factory.SubFactory(MemberFactory)
+    skill = factory.SubFactory(SkillFactory)
 
 
 class LeaseFactory(factory.django.DjangoModelFactory):

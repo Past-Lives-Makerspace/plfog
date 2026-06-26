@@ -2891,3 +2891,63 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-orient-slots__action { flex: 0 0 7rem; text-align: right; }
 .pl-orient-slots__action .hub-btn { width: 100%; }
 .pl-orient-slots__pager { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; }
+
+/* ============================================================
+   Skills directory — filter bar, chips, commission badge, editor
+   ============================================================ */
+
+/* Member directory filters */
+.pl-directory-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+.pl-filter-field { display: flex; flex-direction: column; gap: 0.25rem; }
+.pl-filter-label { font-size: 0.75rem; color: var(--hub-text-muted); }
+.pl-filter-control {
+    background: var(--hub-input-bg);
+    color: var(--hub-text);
+    border: 1px solid var(--hub-input-border);
+    border-radius: 6px;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.875rem;
+}
+.pl-filter-control option { background: var(--hub-elevated); color: var(--hub-text); }
+.pl-filter-checkbox { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.875rem; color: var(--hub-text); }
+
+/* Skill chips */
+.pl-skill-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; }
+.pl-skill-chip {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    background: var(--hub-surface); color: var(--hub-text);
+    border: 1px solid var(--hub-input-border);
+    border-radius: 12px; padding: 2px 10px; font-size: 0.8125rem;
+}
+.pl-skill-chip__years { color: var(--hub-text-muted); font-size: 0.75rem; }
+.pl-skill-chip__pending {
+    color: var(--hub-text-muted); font-size: 0.7rem; font-style: italic;
+    border: 1px solid var(--hub-input-border); border-radius: 8px; padding: 0 6px;
+}
+
+/* Open for commissions */
+.pl-commission { margin-top: 0.75rem; }
+.pl-commission__badge {
+    display: inline-flex; align-items: center;
+    background: rgba(238, 180, 75, 0.14); color: var(--color-tuscan-yellow);
+    border: 1px solid rgba(238, 180, 75, 0.35);
+    border-radius: 12px; padding: 2px 10px; font-size: 0.8125rem; font-weight: 700;
+}
+.pl-commission__note { margin: 0.4rem 0 0; font-size: 0.85rem; color: var(--hub-text-muted); }
+
+/* Skill editor (profile settings) */
+.pl-skill-editor { display: flex; flex-direction: column; gap: 0.85rem; }
+.pl-skill-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem; }
+.pl-skill-suggest { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem; }
+.pl-skill-chip__remove { margin-left: 0.15rem; }
+
+/* Profile settings — skills & commissions sections */
+.pl-profile-section { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--hub-border); }
+.pl-profile-section__title { font-size: 1rem; font-weight: 700; margin: 0 0 0.5rem; }
+.pl-commission-note { display: block; margin-top: 0.5rem; }

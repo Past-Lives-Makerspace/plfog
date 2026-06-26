@@ -270,10 +270,28 @@
                 </aside>
             </div>
 
+            {# Open for commissions — saved together with the rest of the profile form #}
+            <div class="pl-profile-section" x-data="{ commissions: {% if profile_form.open_for_commissions.value %}true{% else %}false{% endif %} }">
+                <h2 class="pl-profile-section__title">Open for commissions</h2>
+                <div @change="commissions = $event.target.checked">
+                    {% include "components/toggle.html" with field=profile_form.open_for_commissions toggle_label="Open for commissions!" toggle_description="Show a badge letting members know you welcome contract work, custom jobs, or consulting." %}
+                </div>
+                <div class="pl-commission-note" x-show="commissions" x-cloak>
+                    {% include "components/form_field.html" with field=profile_form.commission_note %}
+                </div>
+            </div>
+
             <div class="pl-profile-actionbar">
                 <button type="submit" class="hub-btn hub-btn--primary">Save Profile</button>
             </div>
         </form>
+
+        {# Skills are edited through their own HTMX endpoints, so they live OUTSIDE the profile form (no nested forms). #}
+        <div class="pl-profile-section">
+            <h2 class="pl-profile-section__title">My skills</h2>
+            <p class="hub-text-muted">List what you make and do — members can search the directory by skill.</p>
+            {% include "hub/partials/profile_skills.html" %}
+        </div>
         {% else %}
         <div class="hub-card">
             <p class="hub-text-muted">Your account is not linked to a membership profile. Contact an admin for help.</p>

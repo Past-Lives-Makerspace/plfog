@@ -14,7 +14,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, Prefetch, Q, QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -30,13 +30,15 @@ from hub.forms import (
     CalendarFeedFormSet,
     GuildEditForm,
     MemberAdminEditForm,
+    MemberSkillForm,
     ProfileSettingsForm,
     SiteSettingsForm,
+    SkillSuggestionForm,
     VotePreferenceForm,
 )
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
-from membership.models import FundingSnapshot, Guild, Member, VotePreference
+from membership.models import FundingSnapshot, Guild, Member, Skill, SkillCategory, VotePreference
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
@@ -253,6 +255,15 @@ def member_directory(request: HttpRequest) -> HttpResponse:
     guild_filter = request.GET.get("guild", "")
     if guild_filter.isdigit():
         member_qs = member_qs.filter(guild_memberships__guild_id=int(guild_filter))
+    skill_slug = request.GET.get("skill", "")
+    if skill_slug:
+        member_qs = member_qs.with_skill(skill_slug)
+    commissions_only = request.GET.get("commissions") == "1"
+    if commissions_only:
+        member_qs = member_qs.open_for_commissions()
+    query = request.GET.get("q", "").strip()
+    if query:
+        member_qs = member_qs.search_skills(query)
     members = (
         member_qs.select_related("membership_plan", "user")
         .prefetch_related(
@@ -262,6 +273,7 @@ def member_directory(request: HttpRequest) -> HttpResponse:
                 to_attr="_primary_emailaddresses",
             ),
             "guild_memberships__guild",
+            "skills__skill__category",
         )
         .order_by("full_legal_name")
     )
@@ -275,6 +287,10 @@ def member_directory(request: HttpRequest) -> HttpResponse:
             "is_admin": is_admin,
             "guilds": Guild.objects.filter(is_active=True).order_by("name"),
             "guild_filter": guild_filter,
+            "skill_categories": _skill_categories_with_approved(),
+            "selected_skill": skill_slug,
+            "commissions_only": commissions_only,
+            "query": query,
         },
     )
 
@@ -1284,6 +1300,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             **ctx,
             "member": member,
             "profile_form": profile_form,
+            "skill_categories": _skill_categories_with_approved(),
             "add_email_form": add_email_form,
             "email_addresses": email_addresses,
             "primary_verified_json": primary_verified_json,
@@ -1307,6 +1324,70 @@ def profile_photo_delete(request: HttpRequest) -> HttpResponse:
         member.profile_photo.delete(save=True)
         messages.success(request, "Profile photo removed.")
     return redirect(f"{reverse('hub_user_settings')}?tab=profile")
+
+
+def _skill_categories_with_approved() -> QuerySet[SkillCategory]:
+    """Categories with their approved skills prefetched, for the skill picker."""
+    return SkillCategory.objects.prefetch_related(
+        Prefetch("skills", queryset=Skill.objects.filter(status=Skill.Status.APPROVED).order_by("name"))
+    )
+
+
+def _render_profile_skills(request: HttpRequest, member: Member, message: str, level: str) -> HttpResponse:
+    """Re-render the member's skill editor partial and attach a toast."""
+    response = render(
+        request,
+        "hub/partials/profile_skills.html",
+        {"member": member, "skill_categories": _skill_categories_with_approved()},
+    )
+    trigger_toast(response, message, level)
+    return response
+
+
+def _skills_no_member_response(request: HttpRequest) -> HttpResponse:
+    """Error response for a logged-in account with no linked membership."""
+    response = HttpResponse(status=403)
+    trigger_toast(response, "Your account is not linked to a membership.", "error")
+    return response
+
+
+@login_required
+@require_POST
+def skill_add(request: HttpRequest) -> HttpResponse:
+    """POST-only — add a skill to the logged-in member's profile."""
+    member = _get_member(request)
+    if member is None:
+        return _skills_no_member_response(request)
+    form = MemberSkillForm(member=member, data=request.POST)
+    if form.is_valid():
+        form.save()
+        return _render_profile_skills(request, member, "Skill added.", "success")
+    return _render_profile_skills(request, member, form.errors.as_text(), "error")
+
+
+@login_required
+@require_POST
+def skill_remove(request: HttpRequest, skill_pk: int) -> HttpResponse:
+    """POST-only — remove one of the logged-in member's skills."""
+    member = _get_member(request)
+    if member is None:
+        return _skills_no_member_response(request)
+    member.skills.filter(pk=skill_pk).delete()
+    return _render_profile_skills(request, member, "Skill removed.", "success")
+
+
+@login_required
+@require_POST
+def skill_suggest(request: HttpRequest) -> HttpResponse:
+    """POST-only — suggest a new skill, created pending admin approval."""
+    member = _get_member(request)
+    if member is None:
+        return _skills_no_member_response(request)
+    form = SkillSuggestionForm(member=member, data=request.POST)
+    if form.is_valid():
+        form.save()
+        return _render_profile_skills(request, member, "Thanks! Your skill is pending review.", "success")
+    return _render_profile_skills(request, member, form.errors.as_text(), "error")
 
 
 @login_required

@@ -8,7 +8,7 @@ from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin, TabularInline
 
 from .forms import MemberAdminForm
-from .models import FundingSnapshot, Member, MemberEmail, VotePreference
+from .models import FundingSnapshot, Member, MemberEmail, MemberSkill, Skill, SkillCategory, VotePreference
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +378,37 @@ class FundingSnapshotAdmin(ModelAdmin):
 
         url = reverse("hub_admin_voting_history_detail", args=[obj.pk])
         return format_html('<a href="{}">Open analyzer →</a>', url)
+
+
+# ---------------------------------------------------------------------------
+# SkillAdmin — vocabulary curation + suggestion approval
+# ---------------------------------------------------------------------------
+
+
+@admin.register(Skill)
+class SkillAdmin(ModelAdmin):
+    list_display = ("name", "category", "status", "suggested_by")
+    list_filter = ("status", "category")
+    search_fields = ("name",)
+    actions = ["approve_skills"]
+
+    @admin.action(description="Approve selected skills")
+    def approve_skills(self, request: HttpRequest, queryset: QuerySet[Skill]) -> None:
+        queryset.update(status=Skill.Status.APPROVED)
+
+
+@admin.register(SkillCategory)
+class SkillCategoryAdmin(ModelAdmin):
+    list_display = ("name", "sort_order")
+    search_fields = ("name",)
+
+
+@admin.register(MemberSkill)
+class MemberSkillAdmin(ModelAdmin):
+    list_display = ("member", "skill", "years_experience")
+    list_filter = ("skill__category",)
+    search_fields = ("member__full_legal_name", "skill__name")
+    autocomplete_fields = ("member", "skill")
 
 
 # ---------------------------------------------------------------------------
