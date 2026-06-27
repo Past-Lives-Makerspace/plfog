@@ -810,6 +810,13 @@ class MemberEmail(models.Model):
 # ---------------------------------------------------------------------------
 
 
+class GuildManager(models.Manager["Guild"]):
+    """Default manager that hides soft-deleted guilds from every query."""
+
+    def get_queryset(self) -> models.QuerySet[Guild]:
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
 class Guild(HeroCropMixin, models.Model):
     # Queryset annotation (set by GuildAdmin.get_queryset)
     sublet_count: int
@@ -931,11 +938,19 @@ class Guild(HeroCropMixin, models.Model):
         help_text="A class to spotlight at the top of the guild page.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set when the guild is soft-deleted; hidden from voting, the directory, and every member-facing page.",
+    )
     leases = GenericRelation(
         "Lease",
         content_type_field="content_type",
         object_id_field="object_id",
     )
+
+    objects = GuildManager()
+    all_objects = models.Manager()
 
     class Meta:
         ordering = ["name"]
@@ -958,6 +973,16 @@ class Guild(HeroCropMixin, models.Model):
         delete_orphan_on_replace(self, "banner_image")
         super().save(*args, **kwargs)
 
+    def soft_delete(self) -> None:
+        """Hide the guild everywhere without destroying its data or breaking its relations.
+
+        Sets ``deleted_at`` so the default manager filters it out of voting, the directory,
+        and every member-facing listing. Memberships, leases, classes, and orientation
+        history are preserved, and an admin can restore it by clearing ``deleted_at``.
+        """
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["deleted_at"])
+
     def _unique_slug(self) -> str:
         """A URL slug derived from the guild name, suffixed (``-2``, ``-3``…) to stay unique."""
         from django.utils.text import slugify
@@ -965,7 +990,9 @@ class Guild(HeroCropMixin, models.Model):
         base = slugify(self.name) or "guild"
         slug = base
         n = 2
-        while Guild.objects.exclude(pk=self.pk).filter(slug=slug).exists():
+        # Check against *all* guilds, including soft-deleted ones, since the DB unique
+        # constraint spans every row — the default manager would hide a deleted collision.
+        while Guild.all_objects.exclude(pk=self.pk).filter(slug=slug).exists():
             slug = f"{base}-{n}"
             n += 1
         return slug

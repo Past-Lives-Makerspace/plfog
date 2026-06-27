@@ -13,7 +13,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from billing.models import Product, ProductRevenueSplit
 from hub.forms import GuildEditForm
-from membership.models import GuildFAQItem, GuildImage, GuildLink, Member
+from membership.models import Guild, GuildFAQItem, GuildImage, GuildLink, Member
 from tests.membership.factories import (
     GuildAnnouncementFactory,
     GuildFactory,
@@ -1018,3 +1018,75 @@ def describe_guild_content_tab_template():
         client.login(username="ct_annmodal", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert f'hx-target="#edit-ann-{announcement.pk}-body"'.encode() in response.content
+
+
+@pytest.mark.django_db
+def describe_guild_delete():
+    def it_admin_can_soft_delete_the_guild(client: Client):
+        _user_with_role("del_admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="del_admin", password="pass")
+        response = client.post(reverse("hub_guild_delete", args=[guild.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("home")
+        # Hidden from the default manager, but the row (and its data) is preserved.
+        assert not Guild.objects.filter(pk=guild.pk).exists()
+        restored = Guild.all_objects.get(pk=guild.pk)
+        assert restored.deleted_at is not None
+
+    def it_guild_lead_cannot_delete_their_own_guild(client: Client):
+        user = _user_with_role("del_lead", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="del_lead", password="pass")
+        response = client.post(reverse("hub_guild_delete", args=[guild.pk]))
+        assert response.status_code == 403
+        assert Guild.objects.filter(pk=guild.pk).exists()
+
+    def it_guild_officer_cannot_delete(client: Client):
+        _user_with_role("del_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        guild = GuildFactory()
+        client.login(username="del_officer", password="pass")
+        response = client.post(reverse("hub_guild_delete", args=[guild.pk]))
+        assert response.status_code == 403
+        assert Guild.objects.filter(pk=guild.pk).exists()
+
+    def it_regular_member_cannot_delete(client: Client):
+        _user_with_role("del_member", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory()
+        client.login(username="del_member", password="pass")
+        response = client.post(reverse("hub_guild_delete", args=[guild.pk]))
+        assert response.status_code == 403
+        assert Guild.objects.filter(pk=guild.pk).exists()
+
+    def it_anonymous_user_is_redirected_to_login(client: Client):
+        guild = GuildFactory()
+        response = client.post(reverse("hub_guild_delete", args=[guild.pk]))
+        assert response.status_code == 302
+        assert "/accounts/login" in response.url
+        assert Guild.objects.filter(pk=guild.pk).exists()
+
+    def it_rejects_get_requests(client: Client):
+        _user_with_role("del_get", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="del_get", password="pass")
+        response = client.get(reverse("hub_guild_delete", args=[guild.pk]))
+        assert response.status_code == 405
+        assert Guild.objects.filter(pk=guild.pk).exists()
+
+    def it_shows_the_danger_zone_to_admins(client: Client):
+        _user_with_role("dz_admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="dz_admin", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert b"Danger Zone" in response.content
+        assert reverse("hub_guild_delete", args=[guild.pk]).encode() in response.content
+
+    def it_hides_the_danger_zone_from_a_guild_lead(client: Client):
+        user = _user_with_role("dz_lead", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="dz_lead", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        # The lead can open the edit page, but the delete control is admin-only.
+        assert response.status_code == 200
+        assert b"Danger Zone" not in response.content
+        assert reverse("hub_guild_delete", args=[guild.pk]).encode() not in response.content

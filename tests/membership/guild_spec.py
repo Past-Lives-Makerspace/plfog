@@ -274,3 +274,47 @@ def describe_fixture_loading():
         assert loaded_space_b.sublet_guild is None
         assert loaded_guild_a.sublets.count() == 1
         assert loaded_guild_a.sublets.first() == loaded_space_a
+
+
+def describe_guild_soft_delete():
+    def it_sets_deleted_at():
+        guild = GuildFactory(name="Soft Delete Me")
+        assert guild.deleted_at is None
+        guild.soft_delete()
+        guild.refresh_from_db()
+        assert guild.deleted_at is not None
+
+    def it_hides_the_guild_from_the_default_manager():
+        guild = GuildFactory(name="Hidden Guild")
+        guild.soft_delete()
+        assert not Guild.objects.filter(pk=guild.pk).exists()
+
+    def it_keeps_the_guild_in_all_objects():
+        guild = GuildFactory(name="Recoverable Guild")
+        guild.soft_delete()
+        assert Guild.all_objects.filter(pk=guild.pk).exists()
+
+    def it_preserves_relations_via_the_base_manager():
+        guild = GuildFactory(name="Has A Lease")
+        lease = LeaseFactory(tenant_obj=guild)
+        guild.soft_delete()
+        # The lease's GenericFK still resolves the (now-hidden) guild via the base manager.
+        lease.refresh_from_db()
+        assert lease.tenant == guild
+        assert Guild.all_objects.get(pk=guild.pk) == guild
+
+    def it_can_be_restored_by_clearing_deleted_at():
+        guild = GuildFactory(name="Comes Back")
+        guild.soft_delete()
+        guild.deleted_at = None
+        guild.save(update_fields=["deleted_at"])
+        assert Guild.objects.filter(pk=guild.pk).exists()
+
+    def it_avoids_slug_collision_with_a_soft_deleted_guild():
+        # A new guild whose name slugifies onto a *soft-deleted* guild's slug must still get a
+        # unique slug — _unique_slug checks all_objects, so the DB unique constraint can't blow up.
+        deleted = GuildFactory(name="Glass")
+        assert deleted.slug == "glass"
+        deleted.soft_delete()
+        fresh = GuildFactory(name="Glass!")
+        assert fresh.slug == "glass-2"

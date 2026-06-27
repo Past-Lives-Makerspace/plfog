@@ -12,6 +12,7 @@ urlpatterns = [
     path("guilds/<int:pk>/", views.guild_detail_redirect, name="hub_guild_detail_by_id"),
     path("guilds/<slug:slug>/", views.guild_detail, name="hub_guild_detail"),
     path("guilds/<int:pk>/edit/", views.guild_edit, name="hub_guild_edit"),
+    path("guilds/<int:pk>/delete/", views.guild_delete, name="hub_guild_delete"),
     path("hero-adjust/", views.hub_hero_adjust, name="hub_hero_adjust"),
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
     path("guilds/<int:pk>/orientation/edit/", views.guild_orientation_edit, name="hub_guild_orientation_edit"),

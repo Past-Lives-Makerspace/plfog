@@ -100,6 +100,26 @@
   </div>
 </form>
 
+{% if is_admin %}
+{% comment %}
+Danger Zone (admin only) — soft-delete the guild. Sits outside the main form; the
+confirm modal carries its own POST form, and template content can't nest a form.
+{% endcomment %}
+<div x-show="section === 'basic'" x-cloak class="hub-card" style="padding:1.5rem; margin-top:2.5rem; margin-bottom:1.5rem; border:1px solid #c0392b;">
+  <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem; color:#c0392b;">Danger Zone</h2>
+  <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem; max-width:46rem;">
+    Deleting this guild hides it from voting, the directory, and every member-facing page. Its members,
+    classes, leases, and history are preserved, and an admin can restore it later.
+  </p>
+  {% url 'hub_guild_delete' guild.pk as guild_delete_url %}
+  <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+          @click="$dispatch('open-confirm', 'delete-guild')">Delete this guild</button>
+  {% with del_msg='“'|add:guild.name|add:'” will be hidden from voting, the directory, and every member-facing page. Its data is preserved and an admin can restore it.' %}
+  {% include "components/confirm_modal.html" with confirm_id="delete-guild" confirm_action_url=guild_delete_url confirm_title="Delete this guild?" confirm_message=del_msg confirm_button_text="Delete guild" %}
+  {% endwith %}
+</div>
+{% endif %}
+
 {# ── FAQ & Links (each its own form, outside the main form — you can't nest forms) ──── #}
 <div x-show="section === 'content'" x-cloak>
   <form method="post" action="{% url 'hub_guild_faq_save' guild.pk %}" class="hub-form" enctype="multipart/form-data">

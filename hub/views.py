@@ -525,14 +525,19 @@ def _require_can_manage_orientations(request: HttpRequest, guild: Guild) -> Http
     return None
 
 
+def _viewing_as_admin(request: HttpRequest) -> bool:
+    """True when the request's effective (``view_as``-aware) role is admin."""
+    view_as = getattr(request, "view_as", None)
+    return view_as is not None and view_as.is_admin
+
+
 def _require_admin(request: HttpRequest) -> HttpResponse | None:
     """Return a 403 response if the user is not viewing as an admin, else None.
 
     Mirrors the inline ``view_as.is_admin`` gate used by the directory/admin surfaces,
     so the gate and the template's ``events_can_manage`` flag stay in lock-step.
     """
-    view_as = getattr(request, "view_as", None)
-    if view_as is None or not view_as.is_admin:
+    if not _viewing_as_admin(request):
         return HttpResponse("Forbidden", status=403)
     return None
 
@@ -578,8 +583,22 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "announcement_form": GuildAnnouncementForm(),
             "staff_by_role": guild.staff_by_role(),
             "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild)),
+            "is_admin": _viewing_as_admin(request),
         },
     )
+
+
+@login_required
+@require_POST
+def guild_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Soft-delete a guild (admin only). Hides it everywhere; its data and relations are kept."""
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    guild.soft_delete()
+    messages.success(request, f"“{guild.name}” has been deleted.")
+    return redirect("home")
 
 
 @login_required

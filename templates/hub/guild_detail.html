@@ -13,7 +13,8 @@
 
 {# ── HERO ── #}
 <div class="pl-guild-hero{% if not guild.banner_image %} pl-guild-hero--noimg{% endif %}"
-     {% if guild.banner_image and can_edit_this_guild %}
+     {% comment %} Mount heroPlacement for ANY editor (not only when a banner exists) so isAdjusting is always defined — otherwise the Edit button's x-show errors and the button vanishes on banner-less guilds. Adjust/Save controls stay banner-gated below. {% endcomment %}
+     {% if can_edit_this_guild %}
      x-data="heroPlacement({
          updateUrl: '{% url 'hub_hero_adjust' %}',
          contentTypeId: {{ guild_ct_id }},
