@@ -248,6 +248,21 @@ def describe_broadcast_fan_out():
         assert mock_post.call_count == 1
         assert Channel.DISCORD in result.broadcast_channels
 
+    def it_skips_the_broadcast_when_suppressed(monkeypatch, linked_member):
+        from unittest.mock import patch
+
+        from core.events import registry
+
+        member = linked_member()
+        event = _with_discord(registry.get_event("site_announcement"))
+        monkeypatch.setitem(registry._BY_KEY, "site_announcement", event)
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            result = emit("site_announcement", context={}, title="t", body="b", suppress_broadcast=True)
+        assert mock_post.call_count == 0
+        assert result.broadcast_channels == []
+        # The per-recipient fan-out still runs — only the broadcast is skipped.
+        assert (member.user_id, Channel.IN_APP) in result.delivered
+
     def it_dedupes_the_broadcast_across_re_emits(monkeypatch, linked_member):
         from unittest.mock import patch
 

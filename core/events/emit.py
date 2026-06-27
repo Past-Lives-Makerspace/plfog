@@ -54,6 +54,7 @@ def emit(
     messages: dict[Channel, Message] | None = None,
     attachments: dict[Channel, list[Attachment]] | None = None,
     email_to: str | list[str] | None = None,
+    suppress_broadcast: bool = False,
 ) -> EmitResult:
     """Emit one event: log activity, resolve recipients, fan out to channels.
 
@@ -89,6 +90,11 @@ def emit(
             goes to the linked user the resolver finds. Forced/opt-in preference checks
             do not gate an ``email_to`` send (it mirrors a dedicated transactional send,
             which never consulted preferences).
+        suppress_broadcast: When ``True``, skip every broadcast channel (Discord) for
+            this emit — the per-recipient in-app + email fan-out still runs. Used by
+            the admin "Sitewide Announcement" composer when sending the release notes:
+            the GitHub Action already posts the release to Discord on merge to ``main``,
+            so the email blast must not double-post it.
 
     Returns:
         An :class:`EmitResult` describing what was logged and delivered.
@@ -145,7 +151,9 @@ def emit(
         event_key, explicit_emails, message_for, channel_attachments, period, delivered, skipped_duplicates
     )
 
-    broadcast_channels = _broadcast_fan_out(event, message_for, period, ctx, delivered, skipped_duplicates)
+    broadcast_channels = _broadcast_fan_out(
+        event, message_for, period, ctx, delivered, skipped_duplicates, suppress_broadcast=suppress_broadcast
+    )
 
     return EmitResult(
         event_key=event_key,
@@ -164,6 +172,7 @@ def _broadcast_fan_out(
     ctx: dict[str, Any],
     delivered: list[tuple[int, Channel]],
     skipped_duplicates: list[tuple[int, Channel]],
+    suppress_broadcast: bool = False,
 ) -> list[Channel]:
     """Post each broadcast channel (Discord) ONCE for the event, not per recipient.
 
@@ -179,6 +188,8 @@ def _broadcast_fan_out(
     :func:`_guild_broadcast`. That second post is purely additive: it claims its own
     independent ledger slot and never blocks the central post.
     """
+    if suppress_broadcast:
+        return []
     posted: list[Channel] = []
     for spec in event.channels:
         channel = spec.channel

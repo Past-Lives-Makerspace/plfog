@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.25"
+VERSION = "0.19.9"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.19.25",
+        "version": "0.19.9",
         "date": "2026-06-26",
         "title": "Show off your skills — and open up for commissions",
         "changes": [
@@ -25,7 +25,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.19.24",
+        "version": "0.19.8",
         "date": "2026-06-26",
         "title": "Your notifications and emails, all in one place",
         "changes": [
@@ -51,7 +51,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.19.23",
+        "version": "0.19.7",
         "date": "2026-06-26",
         "title": "The monthly guild-funding vote, leveled up",
         "changes": [
@@ -73,7 +73,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.19.22",
+        "version": "0.19.6",
         "date": "2026-06-26",
         "title": "Guild pages get a leadership team and more to share",
         "changes": [
@@ -93,7 +93,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.19.21",
+        "version": "0.19.5",
         "date": "2026-06-26",
         "title": "Community events and meetings on the calendar",
         "changes": [
@@ -113,7 +113,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.19.20",
+        "version": "0.19.4",
         "date": "2026-06-26",
         "title": "Easier member management and invites",
         "changes": [
@@ -133,7 +133,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.19.19",
+        "version": "0.19.3",
         "date": "2026-06-26",
         "title": "Discord, tidied — one channel, guild channels, and a personal DM line",
         "changes": [
@@ -149,7 +149,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.19.18",
+        "version": "0.19.2",
         "date": "2026-06-26",
         "title": "Book a class, get an account",
         "changes": [
@@ -164,7 +164,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.19.17",
+        "version": "0.19.1",
         "date": "2026-06-26",
         "title": "A few catalog touches",
         "changes": [

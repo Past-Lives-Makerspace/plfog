@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 from django.conf import settings
+from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, UserFactory
 from classes.models import ClassApproval, ClassOffering
@@ -20,8 +21,12 @@ pytestmark = pytest.mark.django_db
 
 
 def _active_member_user():
-    """A User the ensure_user_has_member signal links to a fresh ACTIVE Member."""
-    return UserFactory()
+    """An *activated* User (``last_login`` set) the signal links to a fresh ACTIVE Member.
+
+    Activated so the broadcast resolvers address it — the spine skips members who have
+    never signed in.
+    """
+    return UserFactory(last_login=timezone.now())
 
 
 def _publish(offering: ClassOffering) -> None:

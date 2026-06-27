@@ -547,6 +547,21 @@ def describe_admin_site_settings():
         config = SiteConfiguration.load()
         assert config.registration_mode == SiteConfiguration.RegistrationMode.OPEN
 
+    def it_re_renders_with_errors_on_invalid_settings(client):
+        _create_superuser(client)
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={
+                "registration_mode": "not-a-real-mode",  # invalid choice → form invalid
+                "classes_calendar_color": "#abcdef",
+                "feeds-TOTAL_FORMS": "0",
+                "feeds-INITIAL_FORMS": "0",
+                "feeds-MIN_NUM_FORMS": "0",
+                "feeds-MAX_NUM_FORMS": "1000",
+            },
+        )
+        assert response.status_code == 200  # invalid → re-render with errors, not a redirect
+
     def it_creates_calendar_feed_from_formset(client):
         from core.models import CalendarFeed
 
@@ -682,6 +697,75 @@ def describe_admin_site_settings_legacy_cms():
         assert response.status_code == 200
         rows = response.context["instructor_sync_rows"]
         assert any(row["instructor"].display_name == "Test Instructor" for row in rows)
+
+
+def describe_admin_site_settings_announcements():
+    def it_renders_the_announcements_tab(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=announcements")
+        assert response.status_code == 200
+        assert b"Sitewide announcement" in response.content
+
+    def it_prefills_a_release_draft(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=announcements&draft=release")
+        assert response.status_code == 200
+        # The draft is built from the current release line's changelog.
+        assert b"shipped a big update" in response.content
+
+    def it_previews_without_sending(client, mailoutbox):
+        _create_superuser(client)
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={
+                "action": "announce_preview",
+                # Double blank line → an empty paragraph chunk (exercises the skip path).
+                "title": "Heads up",
+                "body": "Big news.\n\n\n\nMore news.",
+                "post_to_discord": "on",
+            },
+        )
+        assert response.status_code == 200
+        assert b"Email preview" in response.content
+        assert b"<iframe" in response.content
+        assert mailoutbox == []  # a preview never sends
+
+    def it_sends_to_activated_members_only(client, mailoutbox):
+        # Admin created BEFORE the plan exists → no auto-member, so it isn't a recipient.
+        _create_superuser(client)
+        MembershipPlanFactory()
+        User.objects.create_user(username="act", email="act@x.com", password="p", last_login=timezone.now())
+        User.objects.create_user(username="never", email="never@x.com", password="p")  # never signed in
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={"action": "announce_send", "title": "Hello", "body": "Welcome.", "post_to_discord": ""},
+        )
+        assert response.status_code == 302
+        sent_to = {addr for message in mailoutbox for addr in message.to}
+        assert "act@x.com" in sent_to
+        assert "never@x.com" not in sent_to
+
+    def it_posts_to_discord_when_toggled_on(client):
+        from unittest.mock import patch
+
+        MembershipPlanFactory()
+        _create_superuser(client)
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            response = client.post(
+                reverse("hub_admin_site_settings"),
+                data={"action": "announce_send", "title": "Hi", "body": "x", "post_to_discord": "on"},
+            )
+        assert response.status_code == 302
+        assert mock_post.called
+
+    def it_re_renders_with_errors_on_an_invalid_send(client, mailoutbox):
+        _create_superuser(client)
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={"action": "announce_send", "title": "", "body": "", "post_to_discord": "on"},
+        )
+        assert response.status_code == 200
+        assert mailoutbox == []  # invalid form → nothing sent
 
 
 def describe_fog_admin_required():

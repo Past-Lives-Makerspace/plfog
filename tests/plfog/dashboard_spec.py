@@ -121,13 +121,17 @@ def describe_site_announcement_view():
     def it_broadcasts_to_active_members_on_post(admin_client):
         from django.contrib.auth.models import User
         from django.db.models.signals import post_save
+        from django.utils import timezone
         from factory.django import mute_signals
 
         from core.models import Notification
 
         member = MemberFactory()  # ACTIVE
         with mute_signals(post_save):
-            recipient = User.objects.create_user(username="sa_recipient", email="sa@example.com")
+            # last_login set → "activated"; the spine skips never-signed-in members.
+            recipient = User.objects.create_user(
+                username="sa_recipient", email="sa@example.com", last_login=timezone.now()
+            )
         member.user = recipient
         member.save(update_fields=["user"])
 
@@ -145,13 +149,17 @@ def describe_site_announcement_view():
         # second silently delivers nothing.)
         from django.contrib.auth.models import User
         from django.db.models.signals import post_save
+        from django.utils import timezone
         from factory.django import mute_signals
 
         from core.models import Notification
 
         member = MemberFactory()  # ACTIVE
         with mute_signals(post_save):
-            recipient = User.objects.create_user(username="sa_two", email="sa2@example.com")
+            # last_login set → "activated"; the spine skips never-signed-in members.
+            recipient = User.objects.create_user(
+                username="sa_two", email="sa2@example.com", last_login=timezone.now()
+            )
         member.user = recipient
         member.save(update_fields=["user"])
 

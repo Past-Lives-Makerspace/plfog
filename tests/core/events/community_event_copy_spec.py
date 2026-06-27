@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 from core.events.copy import placeholders_for, sample_context_for
 from core.events.registry import Channel, ChannelDefault, get_event
@@ -21,7 +22,10 @@ _EVENT_KEYS = ["event.guild_published", "event.community_published", "event.lead
 
 
 def _signed_up_member(username: str) -> Member:
-    user = User.objects.create_user(username=username, email=f"{username}@example.com", password="x")
+    # last_login set → an "activated" member the broadcast resolvers will address.
+    user = User.objects.create_user(
+        username=username, email=f"{username}@example.com", password="x", last_login=timezone.now()
+    )
     return user.member
 
 
@@ -65,6 +69,13 @@ def describe_all_guild_leads_resolver():
         # A lead whose Member has no linked User (Airtable-only) can't be reached.
         no_account_lead = MemberFactory()
         GuildFactory(guild_lead=no_account_lead)
+        assert all_guild_leads({}) == []
+
+    def it_excludes_a_lead_who_never_logged_in():
+        # Activation gate: a lead with an account who has never signed in is skipped.
+        MembershipPlanFactory()
+        user = User.objects.create_user(username="dormant", email="dormant@example.com", password="x")
+        GuildFactory(guild_lead=user.member)
         assert all_guild_leads({}) == []
 
 

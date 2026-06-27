@@ -318,16 +318,21 @@ def lease_tenant(context: dict[str, Any]) -> list[Recipient]:
 
 
 def all_active_members(context: dict[str, Any]) -> list[Recipient]:
-    """Every active member with a usable account — the default broadcast audience.
+    """Every *activated* active member with a usable account — the default broadcast audience.
 
     Reuses ``core.notifications.active_member_users`` (``member__status="active"``)
-    and keeps only Users carrying an email.
+    and keeps only Users carrying an email AND who have signed in at least once.
+
+    ACTIVATION GATE (``last_login__isnull=False``): provisioning mints a login-capable
+    User for every member, but we never broadcast (site/guild announcements, community
+    events) to an account that has never logged in — logging in is what "activates" a
+    member. Same rule the voting reminders use (``membership/voting.py``).
     """
     from core.notifications import active_member_users
 
     out: list[Recipient] = []
     seen: set[int] = set()
-    for user in active_member_users().iterator():
+    for user in active_member_users().filter(last_login__isnull=False).iterator():
         if user.pk in seen or not (user.email or "").strip():
             continue
         seen.add(user.pk)
@@ -352,6 +357,8 @@ def all_guild_leads(context: dict[str, Any]) -> list[Recipient]:
         .filter(
             Q(led_guilds__isnull=False) | Q(guild_staff_roles__isnull=False) | Q(fog_role=Member.FogRole.GUILD_OFFICER)
         )
+        # ACTIVATION GATE — never broadcast to an account that has never signed in.
+        .filter(user__last_login__isnull=False)
         .select_related("user")
         .distinct()
     )
@@ -366,22 +373,32 @@ def all_voters(context: dict[str, Any]) -> list[Recipient]:
     """
     from membership.models import Member
 
-    voters = Member.objects.paying().filter(status=Member.Status.ACTIVE).select_related("user")
+    # ACTIVATION GATE — a never-signed-in member can't vote and shouldn't be emailed.
+    voters = (
+        Member.objects.paying()
+        .filter(status=Member.Status.ACTIVE, user__last_login__isnull=False)
+        .select_related("user")
+    )
     return _members_to_recipients(list(voters), "voter")
 
 
 def everyone_with_login(context: dict[str, Any]) -> list[Recipient]:
-    """Every User who can log in (active, with a usable email).
+    """Every User who has actually signed in at least once (active, usable email).
 
     Broader than active members: includes anyone with an account regardless of
     membership status. New in this work for the release / changelog email
     (Decision 5).
+
+    ACTIVATION GATE (``last_login__isnull=False``): provisioning mints a login-capable
+    User for every member, but a member is only "activated" once they have actually
+    signed in. We never broadcast to an account that has never logged in — they have no
+    bell to read and didn't ask to hear from us yet. Same rule the voting reminders use.
     """
     from django.contrib.auth.models import User
 
     out: list[Recipient] = []
     seen: set[int] = set()
-    for user in User.objects.filter(is_active=True).iterator():
+    for user in User.objects.filter(is_active=True, last_login__isnull=False).iterator():
         if user.pk in seen or not (user.email or "").strip():
             continue
         seen.add(user.pk)

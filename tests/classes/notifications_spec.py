@@ -29,12 +29,13 @@ pytestmark = pytest.mark.django_db
 
 
 def _active_member_user() -> User:
-    """Create a User — the ensure_user_has_member signal auto-creates an ACTIVE Member.
+    """Create an ACTIVE, *activated* member User.
 
-    We don't need to create a Member manually; the signal handles it.
-    The auto-created member has status=ACTIVE so it qualifies for broadcast dispatches.
+    The ensure_user_has_member signal auto-creates an ACTIVE Member; ``last_login`` is
+    set so the user is "activated" and qualifies for broadcast dispatches (the spine
+    never broadcasts to a member who has never signed in).
     """
-    return UserFactory()
+    return UserFactory(last_login=timezone.now())
 
 
 def _publish_offering(offering: ClassOffering) -> None:

@@ -32,6 +32,7 @@ from hub.forms import (
     MemberAdminEditForm,
     MemberSkillForm,
     ProfileSettingsForm,
+    SiteAnnouncementForm,
     SiteSettingsForm,
     SkillSuggestionForm,
     VotePreferenceForm,
@@ -3040,25 +3041,162 @@ def _legacy_instructor_sync_status() -> tuple[list[dict[str, object]], int]:
     return rows, unmatched
 
 
+def _activated_member_count() -> int:
+    """How many *activated* members a sitewide announcement reaches right now.
+
+    Exactly the ALL_ACTIVE_MEMBERS resolver audience (active members who have signed in
+    and carry a usable email), so the preview's count matches who actually gets it.
+    """
+    from core.events import resolvers
+    from core.events.registry import Recipients
+
+    return len(resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {}))
+
+
+def _announcement_email_html(title: str, body: str) -> str:
+    """Branded announcement email HTML — shared by the preview and the real send.
+
+    The body is plain text (blank line = new paragraph); every value is escaped, then
+    wrapped in the branded shell, which inline-styles the paragraphs for the dark card.
+    """
+    from django.utils.html import escape
+
+    from core.events.templates import wrap_email_html
+
+    paragraphs = "".join(
+        f"<p>{escape(chunk.strip()).replace(chr(10), '<br>')}</p>" for chunk in body.split("\n\n") if chunk.strip()
+    )
+    fragment = f"<h2>{escape(title)}</h2>{paragraphs}"
+    return wrap_email_html(fragment)
+
+
+def _release_announcement_draft() -> tuple[str, str]:
+    """A ready-to-edit (subject, body) drawn from the current release line's changelog.
+
+    Aggregates every changelog entry sharing the live VERSION's MAJOR.MINOR (the whole
+    release line) into one plain-text draft the admin can trim before sending.
+    """
+    from plfog.version import CHANGELOG, VERSION
+
+    minor = ".".join(VERSION.split(".")[:2])
+    entries = [e for e in CHANGELOG if ".".join(str(e["version"]).split(".")[:2]) == minor]
+    # entries[0] always exists — VERSION shares a MAJOR.MINOR with its own changelog line.
+    subject = f"What's new at Past Lives: {entries[0]['title']}"
+    blocks = ["We've just shipped a big update — here's what's new:"]
+    for entry in entries:
+        lines = [str(entry["title"])]
+        lines += [f"• {change}" for change in entry["changes"]]
+        blocks.append("\n".join(lines))
+    return subject, "\n\n".join(blocks)
+
+
+def _send_site_announcement(request: HttpRequest, form: SiteAnnouncementForm) -> int:
+    """Fire ``site_announcement`` to activated members; return the recipient count.
+
+    The rich branded email is built here and handed to ``emit`` as a per-channel EMAIL
+    override (the bell + Discord still render from the plain seeded copy). Discord is
+    suppressed unless the admin ticked "Also post to Discord" — for the release send the
+    GitHub Action already posts it on merge to main, so it stays off to avoid a double.
+    """
+    from core.events.channels import Channel, Message
+    from core.events.emit import emit
+
+    title = form.cleaned_data["title"]
+    body = form.cleaned_data["body"]
+    post_to_discord = form.cleaned_data["post_to_discord"]
+    site_url = request.build_absolute_uri("/")
+    email = Message(
+        title=title,
+        body=f"{title}\n\n{body}\n\n{site_url}",
+        url=site_url,
+        html_body=_announcement_email_html(title, body),
+        trigger_kind="site_announcement",
+    )
+    result = emit(
+        "site_announcement",
+        actor=request.user,  # always set — the view is @fog_admin_required (authenticated staff)
+        context={
+            "member_name": "there",
+            "announcement_title": title,
+            "announcement_body": body,
+            "site_url": site_url,
+        },
+        url=site_url,
+        period=f"site:{dj_timezone.now():%Y%m%d%H%M%S%f}",
+        messages={Channel.EMAIL: email},
+        suppress_broadcast=not post_to_discord,
+    )
+    return result.recipient_count
+
+
+def _handle_announcement_action(
+    request: HttpRequest, action: str
+) -> tuple[HttpResponse | None, SiteAnnouncementForm, dict[str, object] | None]:
+    """Process an Announcements-tab POST. Returns ``(redirect_or_none, form, preview)``.
+
+    ``announce_send`` (valid) returns a redirect; ``announce_preview`` (valid) returns a
+    preview dict; an invalid form returns the bound form so the tab re-renders with errors.
+    """
+    form = SiteAnnouncementForm(request.POST)
+    if not form.is_valid():
+        return None, form, None
+    if action == "announce_send":
+        count = _send_site_announcement(request, form)
+        messages.success(request, f"Announcement sent to {count} member(s).")
+        return redirect(f"{reverse('hub_admin_site_settings')}?tab=announcements"), form, None
+    preview: dict[str, object] = {
+        "html": _announcement_email_html(form.cleaned_data["title"], form.cleaned_data["body"]),
+        "count": _activated_member_count(),
+        "post_to_discord": form.cleaned_data["post_to_discord"],
+    }
+    return None, form, preview
+
+
+def _save_site_settings(
+    request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
+) -> tuple[HttpResponse | None, SiteSettingsForm, Any]:
+    """Bind + save the settings form and calendar formset. Returns ``(redirect_or_none, form, formset)``."""
+    form = SiteSettingsForm(request.POST, instance=config)
+    feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
+    if form.is_valid() and feed_formset.is_valid():
+        form.save()
+        instances = feed_formset.save(commit=False)
+        for obj in feed_formset.deleted_objects:
+            obj.delete()
+        for inst in instances:
+            # Skip blank "+ Add" rows the user never filled in.
+            if not inst.name and not inst.ical_url:
+                continue
+            inst.save()
+        messages.success(request, "Site settings saved.")
+        target_tab = request.POST.get("submitted_tab", active_tab)
+        return redirect(f"{reverse('hub_admin_site_settings')}?tab={target_tab}"), form, feed_formset
+    return None, form, feed_formset
+
+
 @fog_admin_required
 def admin_site_settings(request: HttpRequest) -> HttpResponse:
     """Admin site settings — edit the SiteConfiguration singleton and its calendar feeds.
 
-    The page exposes three tabs (``general``, ``calendar``, and ``legacy-cms``). The Calendar tab
-    owns a ``CalendarFeedFormSet`` so admins can add/remove iCal feeds inline.
+    Tabs: ``general``, ``calendar``, ``legacy-cms``, and ``announcements`` (a sitewide
+    announcement composer with a preview-then-send step). The Calendar tab owns a
+    ``CalendarFeedFormSet`` so admins can add/remove iCal feeds inline.
     """
     from core.models import CalendarFeed, SiteConfiguration
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
-    if active_tab not in {"general", "calendar", "legacy-cms"}:
+    if active_tab not in {"general", "calendar", "legacy-cms", "announcements"}:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()
+    announce_form = SiteAnnouncementForm()
+    announce_preview: dict[str, object] | None = None
 
     if request.method == "POST":
+        action = request.POST.get("action")
         # Handle "Sync Now" action — separate from the settings form
-        if request.POST.get("action") == "sync_now":
+        if action == "sync_now":
             from classes.import_service import sync_legacy_cms
 
             try:
@@ -3069,25 +3207,27 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             url = reverse("hub_admin_site_settings")
             return redirect(f"{url}?tab=legacy-cms")
 
-        form = SiteSettingsForm(request.POST, instance=config)
-        feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
-        if form.is_valid() and feed_formset.is_valid():
-            form.save()
-            instances = feed_formset.save(commit=False)
-            for obj in feed_formset.deleted_objects:
-                obj.delete()
-            for inst in instances:
-                # Skip blank "+ Add" rows the user never filled in.
-                if not inst.name and not inst.ical_url:
-                    continue
-                inst.save()
-            messages.success(request, "Site settings saved.")
-            target_tab = request.POST.get("submitted_tab", active_tab)
-            url = reverse("hub_admin_site_settings")
-            return redirect(f"{url}?tab={target_tab}")
+        # Announcements tab — preview-then-send, separate from the settings form.
+        if action in ("announce_preview", "announce_send"):
+            active_tab = "announcements"
+            form = SiteSettingsForm(instance=config)
+            feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
+            response, announce_form, announce_preview = _handle_announcement_action(request, action)
+            if response is not None:
+                return response
+            # else fall through to render (preview, or send with validation errors)
+        else:
+            response, form, feed_formset = _save_site_settings(request, config, feed_queryset, active_tab)
+            if response is not None:
+                return response
     else:
         form = SiteSettingsForm(instance=config)
         feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
+        # "Draft from latest release" — pre-fill the composer from the changelog.
+        if request.GET.get("draft") == "release":
+            subject, body = _release_announcement_draft()
+            announce_form = SiteAnnouncementForm(initial={"title": subject, "body": body, "post_to_discord": False})
+            active_tab = "announcements"
 
     instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
     ctx = _get_hub_context(request)
@@ -3105,5 +3245,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "instructor_sync_rows": instructor_sync_rows,
             "legacy_cms_unmatched": legacy_cms_unmatched,
             "config": config,
+            "announce_form": announce_form,
+            "announce_preview": announce_preview,
         },
     )

@@ -10,6 +10,7 @@ Env vars live in the **Render dashboard** (not `.env.prod`, which is only DB + M
 - **`DISCORD_NOTIFY_WEBHOOK_URL`** set in Render — or zero Discord announcements post. Not in `.env.example`, easy to miss.
 - **Discord DM channel (v0.19.25)** — set `DISCORD_BOT_TOKEN` / `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` with **fresh prod creds** (rotate, don't reuse dev), and **register the prod OAuth redirect URI** in the Discord developer portal.
 - `seed_notification_templates` is now **automatic** — wired into the Render build (§1), so it's no longer a manual step.
+- **The release email is a manual admin send** (not auto-fired on deploy). After `provision_member_users`, send it from **Site Settings → Announcements** → "Draft from latest release" → preview → Send (§6b). It reaches **only members who have logged in** (activated accounts); never-signed-in members are skipped. Leave **"Also post to Discord" off** — the release already auto-posts to Discord on merge to `main`.
 
 ---
 
@@ -70,12 +71,19 @@ The existing `run-scheduled-tasks` cron (every 15 min, already in `render.yaml`)
 - [ ] Render deploy succeeded; `migrate` step clean in logs.
 - [ ] `seed_notification_templates` run; an admin opens `/manage/notifications/` and a sample email preview looks branded (not "[missing: …]").
 - [ ] `provision_member_users` run; spot-check a previously-userless member now has an account, and the Manage Members page shows sign-in status.
-- [ ] Post a test site-wide announcement → it lands in the Discord channel + members' bells + email.
+- [ ] **Site Settings → Announcements** loads; "Draft from latest release" pre-fills the changelog; the **preview** renders the branded email and shows the activated-member count.
 - [ ] A test class reminder / voting reminder email arrives branded, with the gold "Past Lives Federation of Guilds" footer + working unsubscribe link.
-- [ ] The Discord release-announcement workflow fired on merge with the **consolidated** changelog (see the changelog grouping — pending).
+- [ ] The Discord release-announcement workflow fired on merge with the **consolidated** changelog (9 grouped entries, `0.19.1`–`0.19.9`).
+
+## 6b. Announce the release to members (manual — do this last)
+The marquee step. With `provision_member_users` already run and the smoke checks green:
+1. Open **Site Settings → Announcements**.
+2. Click **Draft from latest release** (pre-fills subject + the 9 features from the changelog). Trim/reword freely.
+3. Leave **"Also post to Discord" OFF** — the GitHub Action already posted the release to Discord on merge to `main`. (Tick it only for non-release announcements.)
+4. Click **Preview** — confirm the branded email looks right and the "reaches N activated member(s)" count is sane.
+5. Click **Send**. It emails + bells **only members who have logged in at least once**; never-signed-in accounts are intentionally skipped (they "activate" by logging in).
 
 ---
 
 ## 7. Still open (tracked elsewhere)
-- The **changelog consolidation** (9 grouped entries) is staged, waiting on the parallel session to stop bumping `version.py`.
-- Decision: wire `seed_notification_templates` into the Render deploy (recommended) vs. keep manual.
+- Nothing release-blocking. (Changelog consolidation and the manual-release-email composer are done.)

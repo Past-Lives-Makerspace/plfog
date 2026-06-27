@@ -862,10 +862,25 @@ class GuildAnnouncementForm(forms.ModelForm):
 
 
 class SiteAnnouncementForm(forms.Form):
-    """Admin form to broadcast a site-wide announcement to all members."""
+    """Admin form to broadcast a site-wide announcement to activated members.
 
-    title = forms.CharField(max_length=300, label="Title")
-    body = forms.CharField(widget=forms.Textarea(attrs={"rows": 4}), label="Message")
+    Drives the Site Settings → Announcements composer (preview-then-send). ``body``
+    accepts simple HTML (paragraphs / links) — it rides into the branded email shell.
+    """
+
+    title = forms.CharField(max_length=300, label="Subject")
+    body = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 10}),
+        label="Message",
+        help_text="Plain text or simple HTML (paragraphs, <a href> links). Shows in the bell, email, and Discord.",
+    )
+    post_to_discord = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Also post to Discord",
+        help_text="Leave on for normal announcements. Turn OFF when sending the release notes — "
+        "the release is already posted to Discord automatically when the code goes live.",
+    )
 
 
 class VotingSettingsForm(forms.ModelForm):

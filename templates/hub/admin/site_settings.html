@@ -103,6 +103,12 @@
             class="vote-tab">
       Legacy CMS
     </button>
+    <button type="button"
+            @click="tab = 'announcements'"
+            :class="{ 'vote-tab--active': tab === 'announcements' }"
+            class="vote-tab">
+      Announcements
+    </button>
   </div>
 
   <form method="post" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
@@ -328,10 +334,67 @@
 
     </div>
 
-    <div>
+    <div x-show="tab !== 'announcements'">
       <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
     </div>
   </form>
+
+  {# -------- Announcements tab (own form — compose, preview, then send) -------- #}
+  <div x-show="tab === 'announcements'" x-cloak style="max-width:760px;display:flex;flex-direction:column;gap:1.25rem;">
+    <div>
+      <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Sitewide announcement</h2>
+      <p style="color:var(--hub-text-muted);margin:0;">
+        Compose a message, preview the exact email, then send it to every <strong>activated</strong> member —
+        anyone who has signed in at least once. It lands in their notification bell and inbox. Members who've never
+        logged in are skipped.
+      </p>
+    </div>
+
+    <div>
+      <a href="?tab=announcements&amp;draft=release" class="hub-btn hub-btn--sm">Draft from latest release</a>
+      <small style="color:var(--hub-text-muted);margin-left:0.5rem;">Pre-fills the subject &amp; notes from this release's changelog (Discord left off — it auto-posts on deploy).</small>
+    </div>
+
+    <form method="post" style="display:flex;flex-direction:column;gap:1.25rem;">
+      {% csrf_token %}
+      <div class="field-row">
+        <label for="{{ announce_form.title.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ announce_form.title.label }}</label>
+        {{ announce_form.title }}
+        {% if announce_form.title.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ announce_form.title.errors }}</div>{% endif %}
+      </div>
+      <div class="field-row">
+        <label for="{{ announce_form.body.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ announce_form.body.label }}</label>
+        {{ announce_form.body }}
+        {% if announce_form.body.help_text %}<small style="color:var(--hub-text-muted);">{{ announce_form.body.help_text }}</small>{% endif %}
+        {% if announce_form.body.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ announce_form.body.errors }}</div>{% endif %}
+      </div>
+      <div class="field-row field-checkbox">
+        {{ announce_form.post_to_discord }}
+        <label for="{{ announce_form.post_to_discord.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ announce_form.post_to_discord.label }}</label>
+        {% if announce_form.post_to_discord.help_text %}<small style="color:var(--hub-text-muted);display:block;">{{ announce_form.post_to_discord.help_text }}</small>{% endif %}
+      </div>
+      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+        <button type="submit" name="action" value="announce_preview" class="hub-btn hub-btn--primary">Preview email</button>
+        {% if announce_preview %}
+        <button type="submit" name="action" value="announce_send" class="hub-btn hub-btn--primary"
+                onclick="return confirm('Send this announcement to {{ announce_preview.count }} member{{ announce_preview.count|pluralize }}? This cannot be undone.')">
+          Send to {{ announce_preview.count }} member{{ announce_preview.count|pluralize }}
+        </button>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if announce_preview %}
+    <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
+      <h3 style="margin:0 0 0.25rem;font-size:0.95rem;color:var(--hub-text);">Email preview</h3>
+      <p style="color:var(--hub-text-muted);margin:0 0 0.75rem;">
+        Exactly what lands in their inbox. Reaches <strong>{{ announce_preview.count }}</strong> activated member{{ announce_preview.count|pluralize }}{% if announce_preview.post_to_discord %}, and posts to Discord.{% else %} (Discord off).{% endif %}
+      </p>
+      <iframe srcdoc="{{ announce_preview.html }}" title="Email preview"
+              style="width:100%;height:540px;border:1px solid var(--hub-border);border-radius:8px;background:#fff;"></iframe>
+    </div>
+    {% endif %}
+  </div>
 </div>
 
 {# Sync Now loading state: spinner + estimated progress bar (estimate = last run's duration). #}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 from core.events import resolvers
 from core.events.registry import Recipients
@@ -204,6 +205,13 @@ def describe_all_active_members():
         recipients = resolvers.all_active_members({})
         assert inactive.user_id not in _user_pks(recipients)
 
+    def it_excludes_members_who_never_logged_in(linked_member):
+        # Provisioning mints a login for every member, but we never broadcast to one
+        # who has never signed in — logging in is what "activates" them.
+        never = linked_member(status=Member.Status.ACTIVE, last_login=None)
+        recipients = resolvers.all_active_members({})
+        assert never.user_id not in _user_pks(recipients)
+
 
 def describe_all_voters():
     def it_returns_paying_active_members(linked_member):
@@ -211,15 +219,27 @@ def describe_all_voters():
         recipients = resolvers.all_voters({})
         assert voter.user_id in _user_pks(recipients)
 
+    def it_excludes_voters_who_never_logged_in(linked_member):
+        never = linked_member(member_type=Member.MemberType.STANDARD, status=Member.Status.ACTIVE, last_login=None)
+        recipients = resolvers.all_voters({})
+        assert never.user_id not in _user_pks(recipients)
+
 
 def describe_everyone_with_login():
-    def it_returns_any_active_user_with_email():
-        user = User.objects.create_user(username="anyone", email="anyone@example.com", is_active=True)
+    def it_returns_any_active_user_who_has_signed_in():
+        user = User.objects.create_user(
+            username="anyone", email="anyone@example.com", is_active=True, last_login=timezone.now()
+        )
         recipients = resolvers.everyone_with_login({})
         assert user.pk in _user_pks(recipients)
 
     def it_excludes_inactive_users():
         user = User.objects.create_user(username="off", email="off@example.com", is_active=False)
+        recipients = resolvers.everyone_with_login({})
+        assert user.pk not in _user_pks(recipients)
+
+    def it_excludes_users_who_never_logged_in():
+        user = User.objects.create_user(username="never", email="never@example.com", is_active=True)
         recipients = resolvers.everyone_with_login({})
         assert user.pk not in _user_pks(recipients)
 
