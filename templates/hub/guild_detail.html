@@ -314,7 +314,19 @@
         {% for item in faq_items %}
         <div x-data="{ open: false }">
             <div class="pl-guild-faq__q" @click="open = !open">{{ item.question }}</div>
-            <div class="pl-guild-faq__a" x-show="open" x-cloak>{{ item.answer|linebreaksbr }}</div>
+            <div class="pl-guild-faq__a" x-show="open" x-cloak>
+                {{ item.answer|linebreaksbr }}
+                {% if item.video_url %}{% with vid=item.video_url|youtube_embed_id %}{% if vid %}
+                <div class="pl-guild-video" style="margin-top:0.75rem;">
+                    <iframe src="https://www.youtube-nocookie.com/embed/{{ vid }}" title="{{ item.question }}" allowfullscreen></iframe>
+                </div>
+                {% endif %}{% endwith %}{% endif %}
+                {% if item.has_document %}
+                <div style="margin-top:0.75rem;">
+                    <a href="{{ item.document_href }}" class="hub-btn hub-btn--sm"{% if item.document %} download{% else %} target="_blank" rel="noopener nofollow noreferrer"{% endif %}>{% if item.document %}📄{% else %}🔗{% endif %} {{ item.document_display_name }}</a>
+                </div>
+                {% endif %}
+            </div>
         </div>
         {% endfor %}
     </section>

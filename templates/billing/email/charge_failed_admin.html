@@ -1,0 +1,68 @@
+{% load i18n %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #12121f; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #12121f; padding: 40px 20px;">
+<tr>
+<td align="center">
+<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width: 480px; width: 100%;">
+    <!-- Header -->
+    <tr>
+    <td style="text-align: center; padding-bottom: 32px;">
+        <a href="https://members.pastlives.space" style="font-size: 22px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em; text-decoration:none;">Past Lives</a>
+    </td>
+    </tr>
+    <!-- Card -->
+    <tr>
+    <td style="background-color: #092E4C; border-radius: 12px; padding: 40px 32px;">
+        <p style="margin: 0 0 8px; font-size: 12px; color: #EEB44B; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;">Billing alert</p>
+        <p style="margin: 0 0 24px; font-size: 18px; font-weight: 700; color: #F4EFDD;">A tab charge failed</p>
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+            <td style="padding: 10px 0; border-top: 1px solid rgba(244, 239, 221, 0.1);">
+                <span style="font-size: 12px; color: #96ACBB; text-transform: uppercase; letter-spacing: 0.08em;">Member</span><br>
+                <span style="font-size: 14px; color: #F4EFDD;">{{ member.display_name }} ({{ member.primary_email }})</span>
+            </td>
+            </tr>
+            <tr>
+            <td style="padding: 10px 0; border-top: 1px solid rgba(244, 239, 221, 0.1);">
+                <span style="font-size: 12px; color: #96ACBB; text-transform: uppercase; letter-spacing: 0.08em;">Amount</span><br>
+                <span style="font-size: 14px; color: #F4EFDD;">${{ charge.amount }}</span>
+            </td>
+            </tr>
+            <tr>
+            <td style="padding: 10px 0; border-top: 1px solid rgba(244, 239, 221, 0.1);">
+                <span style="font-size: 12px; color: #96ACBB; text-transform: uppercase; letter-spacing: 0.08em;">Failure reason</span><br>
+                <span style="font-size: 14px; color: #F4EFDD;">{{ charge.failure_reason|default:"Unknown" }}</span>
+            </td>
+            </tr>
+            <tr>
+            <td style="padding: 10px 0; border-top: 1px solid rgba(244, 239, 221, 0.1);">
+                <span style="font-size: 12px; color: #96ACBB; text-transform: uppercase; letter-spacing: 0.08em;">Retry count</span><br>
+                <span style="font-size: 14px; color: #F4EFDD;">{{ charge.retry_count }}</span>
+            </td>
+            </tr>
+        </table>
+
+        <p style="margin: 20px 0 0; font-size: 14px; color: #F4EFDD; line-height: 1.5;">{% if charge.is_retriable %}The system will automatically retry this charge.{% else %}All retries exhausted — the member's tab has been locked.{% endif %}</p>
+
+        {% if dashboard_url %}
+        <!-- CTA -->
+        <div style="text-align: center; margin: 24px 0 0;">
+            <a href="{{ dashboard_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Review in the billing dashboard</a>
+        </div>
+        {% endif %}
+    </td>
+    </tr>
+    <!-- Footer -->
+    {% include "membership/emails/_footer.html" %}
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>

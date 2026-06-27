@@ -19,6 +19,7 @@ works), so wiring this in changes no existing behavior.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 from django.template.loader import render_to_string
@@ -83,7 +84,34 @@ def wrap_email_html(fragment: str) -> str:
     makes ``{{ wrapped_html }}`` attribute-escape it correctly; the email send path is
     unaffected by the ``str`` / ``SafeString`` distinction.
     """
-    return "" + render_to_string("membership/emails/notification_shell.html", {"body_html": fragment})
+    return "" + render_to_string(
+        "membership/emails/notification_shell.html", {"body_html": _style_copy_fragment(fragment)}
+    )
+
+
+def _style_copy_fragment(fragment: str) -> str:
+    """Inline-style the unbranded copy fragment so it's readable on the dark card.
+
+    Copy bodies are authored as bare ``<p>`` / ``<a>`` / ``<strong>`` with no color.
+    On the dark ``#092E4C`` card a bare ``<p>`` falls back to near-black text and an
+    ``<a>`` to the client's default link color (color does not inherit into anchors),
+    so the body comes out invisible / unbranded. We inject inline styles — which every
+    mail client honors, unlike a ``<style>`` block — for exactly the tags the copy uses.
+    Tags the author already styled (``<p style=...>``) don't match and are left as-is.
+    Text color is carried by the shell's wrapper ``<div>`` (inherited into ``<p>`` /
+    ``<strong>``); the only thing that genuinely can't inherit is an ``<a>`` color, so
+    the per-paragraph spacing and the link color are the two things injected here.
+    """
+    fragment = fragment.replace("<p>", '<p style="margin:0 0 16px;color:#F4EFDD;font-size:15px;line-height:1.6;">')
+    # Only colorize links that DON'T already carry an inline ``style`` — a bare copy
+    # link gets gold text, while an already-styled link (e.g. the seeded invite's gold
+    # button) is left intact. Prepending a second ``style`` attribute would win over and
+    # clobber the original, which silently broke that button.
+    return re.sub(
+        r"<a (?![^>]*\bstyle=)",
+        '<a style="color:#EEB44B;text-decoration:none;font-weight:600;" ',
+        fragment,
+    )
 
 
 def rendered_message(event_key: str, channel: Channel, context: dict[str, Any], *, url: str = "") -> "Message":

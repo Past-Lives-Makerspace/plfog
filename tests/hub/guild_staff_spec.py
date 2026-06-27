@@ -188,7 +188,7 @@ def describe_staff_gain_full_guild_lead_access():
         staff = _member_user("p_staff")
         GuildStaffMembershipFactory(guild=guild, member=staff.member, role=Role.TREASURER)
         client.login(username="p_staff", password="pass")
-        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert response.status_code == 200
         assert b"Treasurer" in response.content
         assert staff.member.display_name.encode() in response.content

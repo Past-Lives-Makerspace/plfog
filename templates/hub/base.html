@@ -238,7 +238,7 @@
                 <div class="hub-sidebar__collapsible" :class="{ 'open': open }">
                     <div class="hub-sidebar__collapsible-inner">
                         {% for guild in guilds %}
-                        <a href="{% url 'hub_guild_detail' guild.pk %}" class="hub-sidebar__link {% active_nav 'hub_guild_detail' guild.pk %}">
+                        <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-sidebar__link {% active_nav 'hub_guild_detail' guild.slug %}">
                             {% if guild.logo_prefix %}
                             <img src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_color.svg' %}" width="16" height="16" alt="" style="flex-shrink:0;">
                             {% else %}
@@ -408,7 +408,7 @@
         <header class="pl-public-topbar">
             <a href="{% url 'classes:public_list' %}" class="pl-public-topbar__brand">
                 <img src="{% static 'img/favicon.png' %}" alt="" width="22" height="22">
-                <span>Past Lives Makerspace</span>
+                <span>Past Lives Federation of Guilds</span>
             </a>
             <nav class="pl-public-topbar__nav" aria-label="Public navigation">
                 <a href="{% url 'classes:public_list' %}" class="pl-public-topbar__link">Classes</a>

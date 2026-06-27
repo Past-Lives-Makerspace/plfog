@@ -258,6 +258,15 @@ INVITE_EXPIRY_DAYS = int(os.environ.get("INVITE_EXPIRY_DAYS", "14"))
 # integrations stay dark without credentials.
 DISCORD_NOTIFY_WEBHOOK_URL = os.environ.get("DISCORD_NOTIFY_WEBHOOK_URL", "").strip()
 
+# Discord bot + OAuth credentials for the per-member Discord DM channel. The bot
+# ("FOG Bot") DMs a member who has linked their Discord account; OAuth (identify
+# scope) is how a member links it. Each is blank by default so the app and tests run
+# without real credentials — a blank bot token makes the DM channel a no-op and blank
+# client credentials disable the account-linking flow (the "disabled when blank" idiom).
+DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+DISCORD_CLIENT_ID = os.environ.get("DISCORD_CLIENT_ID", "").strip()
+DISCORD_CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET", "").strip()
+
 if _R2_READY:
     _default_storage = {
         "BACKEND": "storages.backends.s3.S3Storage",

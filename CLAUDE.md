@@ -35,11 +35,14 @@ All configuration via environment variables. See `plfog/settings.py` for availab
 
 ## Versioning & Changelog
 
-Every PR must bump the version in `plfog/version.py` and add a changelog entry. The changelog is the source of truth for Discord release announcements.
+Every PR bumps `VERSION` in `plfog/version.py`. The `CHANGELOG` is the **member-facing release notes** for the Discord announcement — curate it by *feature*, NOT one entry per PR.
 
-- Version lives in `plfog/version.py` as `VERSION` and `CHANGELOG`
-- Changelog entries should be written in **plain, member-friendly language** — no technical jargon, PR numbers, or commit hashes. These get posted to the Discord channel as release announcements visible to all makerspace members.
-- The GitHub Actions workflow (`.github/workflows/discord-notify.yml`) reads the latest `CHANGELOG` entry on merge to main and posts it to Discord automatically.
+- **Group by net-new feature, not per-change.** Within an unreleased release line (the current `MAJOR.MINOR`, not yet on production) there should be ONE changelog entry per member-facing feature. If your change refines, polishes, or fixes a feature that already has an entry in the current line, **edit that entry** — update its bullets, bump its `version`/`date` to your new `VERSION`, and move it to the top. Do **NOT** add a second entry. The Discord workflow concatenates *every* entry sharing the current `MAJOR.MINOR` into one announcement, so a pile of per-fix entries spams members with fixes to things they never saw.
+- **Drop intra-cycle fixes to unshipped work entirely.** A dark-mode tweak, a "now it actually sends," a "no more double email" on a feature introduced *earlier in the same unreleased line* is invisible to members — give it no changelog entry at all (the git commit is the record).
+- **A fix to something already live on production IS member-facing** (they lived with the bug) — that gets its own plain-language entry.
+- Always keep one entry whose `version == VERSION` (so `announce_release` resolves) — that's the feature entry you just edited and re-stamped.
+- Entries are **plain, member-friendly language** — no jargon, PR numbers, or commit hashes.
+- The GitHub Actions workflow (`.github/workflows/discord-notify.yml`) aggregates every `CHANGELOG` entry whose version shares the current `MAJOR.MINOR` and posts them as one announcement, newest entry's title as the headline. Git history is the granular per-PR trail; the changelog is the curated highlights.
 
 ## Discord Notifications
 

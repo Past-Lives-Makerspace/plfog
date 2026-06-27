@@ -14,7 +14,7 @@
         {% else %}Declined
         {% endif %}
       </div>
-      <h1 style="font-family:'Lato',sans-serif;font-size:26px;font-weight:800;margin:8px 0 4px;color:#F4EFDD;">{{ offering.title }}</h1>
+      <h1 style="font-family:'Lato',sans-serif;font-size:26px;font-weight:800;margin:8px 0 4px;color:#F4EFDD;">{% if public_url %}<a href="{{ public_url }}" style="color:#F4EFDD;text-decoration:none;">{{ offering.title }}</a>{% else %}{{ offering.title }}{% endif %}</h1>
     </td></tr>
     <tr><td style="padding:14px 28px;">
       {% if fully_approved %}
@@ -56,6 +56,7 @@
       </p>
       {% endif %}
     </td></tr>
+    {% include "membership/emails/_footer.html" %}
   </table>
 </body>
 </html>

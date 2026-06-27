@@ -226,6 +226,12 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
             "email": email,
             "current_site": get_current_site(request),
         }
+        # Absolute self-serve links for the auth email templates (relative {% url %}
+        # dead-ends in a mail client). Only built when there's a request to anchor the
+        # host on; the templates guard each link with {% if %} so a missing one is a no-op.
+        if request is not None:
+            ctx["login_url"] = request.build_absolute_uri(reverse("account_request_login_code"))
+            ctx["find_account_url"] = request.build_absolute_uri(reverse("find_account"))
         ctx.update(context)
         msg = self.render_mail(template_prefix, email, ctx)
         text_body, html_body = _extract_bodies(msg)

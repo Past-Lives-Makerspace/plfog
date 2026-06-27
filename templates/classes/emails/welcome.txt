@@ -7,8 +7,11 @@ A note from your instructor — welcome to "{{ offering.title }}"!
 Schedule:
 {% for session in upcoming_sessions %}- {{ session.starts_at|date:"l, F j, Y" }} at {{ session.starts_at|time:"g:i A" }}
 {% endfor %}{% endif %}
-Class details:
+Full class details:
+{{ class_url }}
+
+Manage your registration:
 {{ self_serve_url }}
 
 See you soon!
-— Past Lives Makerspace
+{% include "membership/emails/_footer.txt" %}

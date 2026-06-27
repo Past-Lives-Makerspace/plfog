@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from core.email import send as send_email
 from core.events import discord as discord_module
+from core.events import discord_dm as discord_dm_module
 from core.events.registry import Channel
 from core.models import EventDelivery, Notification, PushSubscription
 from core.push import send_web_push
@@ -314,6 +315,35 @@ class DiscordAdapter:
         self.broadcast(message)
 
 
+class DiscordDMAdapter:
+    """Per-recipient DM to a member's linked Discord account (opt-in, Decision 9 sibling).
+
+    The mirror image of :class:`DiscordAdapter`: where that posts ONE webhook embed per
+    event, this DMs each opted-in recipient through the FOG bot. It is per-recipient
+    (``is_broadcast`` False), so the spine invokes :meth:`deliver` once per recipient.
+
+    It is a no-op (never raises) when:
+
+    * the recipient hasn't linked their Discord account (``discord_user_id`` blank), or
+    * the bot token is blank (the channel is disabled).
+
+    Otherwise it opens the DM channel and posts via :mod:`core.events.discord_dm`, which
+    is best-effort — it logs and swallows any Discord failure so the fan-out continues.
+    """
+
+    channel = Channel.DISCORD_DM
+    is_broadcast = False
+
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+        # Discord DMs carry no file attachments — the message is title/body/url text.
+        if not discord_dm_module.bot_token():
+            return
+        discord_user_id = discord_dm_module.discord_user_id_for(user)
+        if not discord_user_id:
+            return
+        discord_dm_module.post_dm(discord_user_id, message)
+
+
 # --- Registry ----------------------------------------------------------------
 
 _ADAPTERS: dict[Channel, ChannelAdapter] = {
@@ -323,6 +353,7 @@ _ADAPTERS: dict[Channel, ChannelAdapter] = {
     Channel.SCHEDULED_EMAIL: ScheduledEmailAdapter(),
     Channel.DIGEST: DigestAdapter(),
     Channel.DISCORD: DiscordAdapter(),
+    Channel.DISCORD_DM: DiscordDMAdapter(),
 }
 
 

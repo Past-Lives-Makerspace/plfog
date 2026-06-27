@@ -12,8 +12,7 @@
     <!-- Header -->
     <tr>
     <td style="text-align: center; padding-bottom: 32px;">
-        <span style="font-size: 22px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em;">Past Lives</span>
-        <span style="display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 8px; border-radius: 10px; background-color: rgba(238, 180, 75, 0.15); color: #EEB44B;">BETA</span>
+        <a href="https://members.pastlives.space" style="font-size: 22px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em; text-decoration:none;">Past Lives</a>
     </td>
     </tr>
     <!-- Card -->
@@ -59,16 +58,11 @@
         <div style="text-align: center; margin: 24px 0 0;">
             <a href="{{ charge.stripe_receipt_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View Stripe Receipt</a>
         </div>{% endif %}
+        {% if billing_history_url %}<p style="margin: 20px 0 0; font-size: 12px; color: #96ACBB; text-align: center;">See every charge and payment in your <a href="{{ billing_history_url }}" style="color: #EEB44B; text-decoration: none;">billing history</a>.</p>{% endif %}
     </td>
     </tr>
     <!-- Footer -->
-    <tr>
-    <td style="text-align: center; padding-top: 32px;">
-        <p style="margin: 0 0 4px; font-size: 13px; color: #F4EFDD;">Thank you for being a member!</p>
-        <p style="margin: 16px 0 0; font-size: 13px; color: #F4EFDD; font-weight: 600;">Past Lives Makerspace</p>
-        <p style="margin: 2px 0 0; font-size: 12px; color: #96ACBB; font-style: italic;">Do It Together</p>
-    </td>
-    </tr>
+    {% include "membership/emails/_footer.html" %}
 </table>
 </td>
 </tr>

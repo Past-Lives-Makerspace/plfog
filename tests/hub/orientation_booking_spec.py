@@ -109,13 +109,13 @@ def describe_guild_orientation_section():
     def it_shows_a_booking_prompt_when_slots_are_open(client: Client):
         _user, guild = _setup(client, "sec1")
         OrientationSlotFactory(guild=guild, enabled_settings=False)
-        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Get oriented for" in response.content
 
     def it_gates_booking_behind_a_confirmation_and_paginates(client: Client):
         _user, guild = _setup(client, "sec_confirm")
         OrientationSlotFactory(guild=guild, enabled_settings=False)
-        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         # Request opens a confirm modal instead of posting straight to the book endpoint.
         assert b"open-confirm" in response.content
         assert b"Send request" in response.content
@@ -125,20 +125,20 @@ def describe_guild_orientation_section():
     def it_shows_oriented_when_the_member_is_oriented(client: Client):
         user, guild = _setup(client, "sec2")
         OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=user.member).mark_completed()
-        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"You&#x27;re oriented for" in response.content or b"You're oriented for" in response.content
 
     def it_shows_status_when_the_member_has_a_live_booking(client: Client):
         user, guild = _setup(client, "sec3")
         OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=user.member)
-        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"awaiting confirmation" in response.content
 
     def it_hides_the_section_when_orientation_is_disabled(client: Client):
         _user_with_role("sec4")
         guild = GuildFactory()
         client.login(username="sec4", password="pass")
-        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b'aria-label="Orientation"' not in response.content
 
     def it_shows_the_section_to_a_logged_in_non_member(client: Client):
@@ -149,18 +149,18 @@ def describe_guild_orientation_section():
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
         OrientationSlotFactory(guild=guild, enabled_settings=False)
         client.login(username="sec_unlinked", password="pass")
-        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Get oriented for" in response.content
 
     def it_shows_a_join_an_orientation_button_when_not_oriented(client: Client):
         _user, guild = _setup(client, "join1")
-        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Join an Orientation" in response.content
 
     def it_hides_join_an_orientation_once_oriented(client: Client):
         user, guild = _setup(client, "join2")
         OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=user.member).mark_completed()
-        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Join an Orientation" not in response.content
 
 

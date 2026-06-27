@@ -6,4 +6,4 @@ Welcome to {{ guild.name }}!
 
 Guild page: {{ guild_url }}
 
-— Past Lives Makerspace
+{% include "membership/emails/_footer.txt" %}

@@ -83,6 +83,7 @@ def guild_voting(request: HttpRequest) -> HttpResponse:
     """Guild voting page — members submit or update their persistent guild preferences."""
     member = _get_member(request)
     ctx = _get_hub_context(request)
+    ctx["active_tab"] = "overview"  # the everyone-facing first tab of the Voting surface
     cycle_ctx = get_cycle_context()
 
     preference: VotePreference | None = None
@@ -387,14 +388,20 @@ def _guild_pulse(guild: "Guild", limit: int = 6) -> list[dict[str, Any]]:
     return items[:limit]
 
 
-def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
+def guild_detail_redirect(request: HttpRequest, pk: int) -> HttpResponse:
+    """301 an old numeric guild URL (/guilds/<id>/) to its slug URL — keeps shared links alive."""
+    guild = get_object_or_404(Guild, pk=pk)
+    return redirect("hub_guild_detail", slug=guild.slug, permanent=True)
+
+
+def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """Guild detail page — shows about text, active products, and cart interface."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm, build_product_split_formset
     from billing.models import Product
 
     guild = get_object_or_404(
         Guild.objects.select_related("featured_class__instructor").prefetch_related("products__splits__guild"),
-        pk=pk,
+        slug=slug,
     )
     ctx = _get_hub_context(request)
     products = guild.products.order_by("name").prefetch_related("splits__guild")
@@ -551,7 +558,7 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             messages.success(request, "Guild page updated.")
             if request.POST.get("after") == "edit":
                 return redirect("hub_guild_edit", pk=guild.pk)
-            return redirect("hub_guild_detail", pk=guild.pk)
+            return redirect("hub_guild_detail", slug=guild.slug)
     else:
         form = GuildEditForm(instance=guild)
     faq_formset = GuildFAQItemFormSet(instance=guild, prefix="faq")
@@ -734,7 +741,7 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to book an orientation.")
-        return redirect("hub_guild_detail", pk=slot.guild_id)
+        return redirect("hub_guild_detail", slug=slot.guild.slug)
     try:
         orientations.request_orientation(slot, member, note=request.POST.get("note", ""))
         messages.success(
@@ -743,7 +750,7 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
         )
     except OrientationError as exc:
         messages.error(request, str(exc))
-    return redirect("hub_guild_detail", pk=slot.guild_id)
+    return redirect("hub_guild_detail", slug=slot.guild.slug)
 
 
 @login_required
@@ -761,15 +768,15 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to request an orientation.")
-        return redirect("hub_guild_detail", pk=guild.pk)
+        return redirect("hub_guild_detail", slug=guild.slug)
     settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
     if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
         messages.error(request, "This guild isn't taking custom orientation requests right now.")
-        return redirect("hub_guild_detail", pk=guild.pk)
+        return redirect("hub_guild_detail", slug=guild.slug)
     form = OrientationCustomRequestForm(request.POST)
     if not form.is_valid():
         messages.error(request, "Pick a valid future time for your orientation.")
-        return redirect("hub_guild_detail", pk=guild.pk)
+        return redirect("hub_guild_detail", slug=guild.slug)
     starts = form.cleaned_data["starts_at"]
     slot = OrientationSlot.objects.create(
         guild=guild,
@@ -784,9 +791,9 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
     except OrientationError as exc:
         slot.delete()
         messages.error(request, str(exc))
-        return redirect("hub_guild_detail", pk=guild.pk)
+        return redirect("hub_guild_detail", slug=guild.slug)
     messages.success(request, "Your orientation request was sent — the guild lead will confirm a time.")
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -858,7 +865,7 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
         return HttpResponse("Forbidden", status=403)
     orientations.cancel_orientation(booking, actor_label=member.display_name)
     messages.success(request, "Your orientation was cancelled.")
-    return redirect("hub_guild_detail", pk=booking.guild_id)
+    return redirect("hub_guild_detail", slug=booking.guild.slug)
 
 
 def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
@@ -1072,7 +1079,7 @@ def guild_product_create(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         _surface_product_errors(request, form, formset)
 
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1109,7 +1116,7 @@ def guild_product_update(request: HttpRequest, pk: int, product_pk: int) -> Http
     else:
         _surface_product_errors(request, form, formset)
 
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1127,7 +1134,7 @@ def guild_product_delete(request: HttpRequest, pk: int, product_pk: int) -> Http
     name = product.name
     product.delete()
     messages.success(request, f"Deleted product '{name}'.")
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1288,7 +1295,9 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     from core.events import settings_matrix
 
     notif_matrix = settings_matrix.build_matrix(user)
-    notif_channels = [(channel, settings_matrix.CHANNEL_LABELS[channel]) for channel in settings_matrix.USER_CHANNELS]
+    notif_channels = [
+        (channel, settings_matrix.CHANNEL_LABELS[channel]) for channel in settings_matrix.visible_channels(user)
+    ]
     # Channel labels keyed by channel value, so each matrix cell can build its own
     # screen-reader name (event × channel) via the get_item template filter.
     notif_channel_labels = {channel.value: label for channel, label in notif_channels}
@@ -1401,7 +1410,7 @@ def guild_banner_delete(request: HttpRequest, pk: int) -> HttpResponse:
     if guild.banner_image:
         guild.banner_image.delete(save=True)
         messages.success(request, "Banner removed.")
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1418,7 +1427,7 @@ def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
         if created:
             orientations.member_joined_guild(guild, member)
         messages.success(request, f"You joined {guild.name}.")
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1432,7 +1441,7 @@ def guild_leave(request: HttpRequest, pk: int) -> HttpResponse:
     if member is not None:
         GuildMembership.objects.filter(guild=guild, member=member).delete()
         messages.success(request, f"You left {guild.name}.")
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1597,7 +1606,7 @@ def guild_faq_save(request: HttpRequest, pk: int) -> HttpResponse:
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
-    formset = GuildFAQItemFormSet(request.POST, instance=guild, prefix="faq")
+    formset = GuildFAQItemFormSet(request.POST, request.FILES, instance=guild, prefix="faq")
     if formset.is_valid():
         formset.save()
         messages.success(request, "FAQ saved.")
@@ -2179,9 +2188,6 @@ def _ical_escape(value: str) -> str:
     return value
 
 
-_ICAL_WEEKDAYS = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
-
-
 @login_required
 def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     """Download a combined iCal file of all upcoming events."""
@@ -2227,7 +2233,7 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
         lines.append("END:VEVENT")
 
     # FOG-native events need their own loop — they lack the CalendarEvent attrs the
-    # loop above reads (uid / all_day). A monthly series emits ONE VEVENT carrying an
+    # loop above reads (uid / all_day). A recurring series emits ONE VEVENT carrying an
     # RRULE so subscribers expand it themselves (no per-occurrence VEVENTs).
     for ev in CommunityEvent.objects.upcoming().select_related("guild"):
         lines += [
@@ -2237,10 +2243,9 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
             f"DTSTART:{ev.starts_at.strftime('%Y%m%dT%H%M%SZ')}",
             f"DTEND:{ev.ends_at.strftime('%Y%m%dT%H%M%SZ')}",
         ]
-        if ev.recurrence == CommunityEvent.Recurrence.MONTHLY:
-            local_start = dj_timezone.localtime(ev.starts_at)
-            byday = f"{ev._occurrence_ordinal()}{_ICAL_WEEKDAYS[local_start.weekday()]}"
-            lines.append(f"RRULE:FREQ=MONTHLY;BYDAY={byday}")
+        rrule = ev.ical_rrule()
+        if rrule:
+            lines.append(f"RRULE:{rrule}")
         if ev.description:
             lines.append(f"DESCRIPTION:{_ical_escape(ev.description[:250])}")
         if ev.location:
@@ -2291,7 +2296,7 @@ def voting_overview(request: HttpRequest) -> HttpResponse:
     ctx = _get_hub_context(request)
     ctx = dashboard_callback(request, ctx)
     ctx.update(get_cycle_context())
-    ctx["active_tab"] = "overview"
+    ctx["active_tab"] = "atglance"
     ctx["pending_results_snapshot"] = FundingSnapshot.most_recent_pending()
     return render(request, "hub/admin/voting_overview.html", ctx)
 

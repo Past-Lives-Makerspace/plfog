@@ -121,7 +121,7 @@ def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
         "slot": booking.slot,
         "guild": booking.guild,
         "greeting_name": member.display_name,
-        "guild_url": _absolute_url(reverse("hub_guild_detail", args=[booking.guild_id])),
+        "guild_url": _absolute_url(reverse("hub_guild_detail", args=[booking.guild.slug])),
         "cancel_url": _action_url(booking, "cancel"),
         **extra,
     }
@@ -166,7 +166,7 @@ def _emit_member_email(
         template_context=ctx,
         in_app_title=in_app_title,
         in_app_body=in_app_body,
-        url=reverse("hub_guild_detail", args=[booking.guild_id]),
+        url=reverse("hub_guild_detail", args=[booking.guild.slug]),
         attachments=[ics] if ics is not None else None,
         email_to=booking.member.primary_email,
         period=f"booking:{booking.pk}:{action}",
@@ -401,7 +401,7 @@ def member_joined_guild(guild: Guild, member: Member) -> None:
         "guild": guild,
         "greeting_name": member.display_name,
         "body": welcome_settings.join_email_body if welcome_settings is not None else "",
-        "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.pk])),
+        "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.slug])),
     }
     emit_with_email_shell(
         "guild_joined",
@@ -414,7 +414,7 @@ def member_joined_guild(guild: Guild, member: Member) -> None:
         template_context=template_context,
         in_app_title="New guild member",
         in_app_body=f"{member.display_name} joined {guild.name}.",
-        url=reverse("hub_guild_detail", args=[guild.pk]),
+        url=reverse("hub_guild_detail", args=[guild.slug]),
         email_to=member.primary_email if welcome_ready else None,
         period=f"guild:{guild.pk}:join:{member.pk}",
     )

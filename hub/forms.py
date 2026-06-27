@@ -519,15 +519,46 @@ class VotePreferenceForm(forms.Form):
 
 
 class GuildFAQItemForm(forms.ModelForm):
-    """A single FAQ question/answer row on the guild edit page."""
+    """A single FAQ question/answer row on the guild edit page.
+
+    Beyond the text answer, a row may add a YouTube embed and at most one document
+    (an uploaded file OR a link). The XOR guard mirrors ``GuildMeetingNoteAttachmentForm``.
+    """
 
     class Meta:
         model = GuildFAQItem
-        fields = ["question", "answer", "sort_order"]
+        fields = ["question", "answer", "video_url", "document", "document_url", "sort_order"]
         widgets = {
             "answer": forms.Textarea(attrs={"rows": 3}),
+            "video_url": forms.URLInput(attrs={"placeholder": "https://youtube.com/watch?v=…"}),
+            "document_url": forms.URLInput(attrs={"placeholder": "https://docs.google.com/…"}),
             "sort_order": forms.HiddenInput(),
         }
+        labels = {
+            "video_url": "Video (YouTube)",
+            "document": "Document (upload)",
+            "document_url": "…or document link",
+        }
+
+    def clean_video_url(self) -> str:
+        """Accept only a YouTube URL (or blank) so the answer can embed it."""
+        from classes.templatetags.classes_tags import youtube_embed_id
+
+        url = (self.cleaned_data.get("video_url") or "").strip()
+        if url and not youtube_embed_id(url):
+            raise forms.ValidationError(
+                "Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…"
+            )
+        return url
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        # Rows flagged for deletion skip the check — mirrors the meeting-note form.
+        if cleaned.get("DELETE"):
+            return cleaned
+        if cleaned.get("document") and cleaned.get("document_url"):
+            raise forms.ValidationError("Add a document OR a link for this answer, not both.")
+        return cleaned
 
 
 GuildFAQItemFormSet = forms.inlineformset_factory(Guild, GuildFAQItem, form=GuildFAQItemForm, extra=0, can_delete=True)

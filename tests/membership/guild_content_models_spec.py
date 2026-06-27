@@ -43,6 +43,43 @@ def describe_GuildFAQItem():
         q1 = GuildFAQItem.objects.create(guild=guild, question="First?", answer="A", sort_order=1)
         assert list(guild.faq_items.all()) == [q1, q2]
 
+    def describe_document():
+        def it_has_no_document_when_both_blank():
+            faq = GuildFAQItem.objects.create(guild=GuildFactory(), question="Q?", answer="A")
+            assert faq.has_document is False
+            assert faq.document_display_name == ""
+
+        def it_reports_an_uploaded_file():
+            faq = GuildFAQItem.objects.create(
+                guild=GuildFactory(),
+                question="Q?",
+                answer="A",
+                document=SimpleUploadedFile("agenda.pdf", b"%PDF-1.4"),
+            )
+            assert faq.has_document is True
+            assert faq.document_display_name.endswith(".pdf")
+            assert faq.document_href == faq.document.url
+
+        def it_reports_an_external_link():
+            faq = GuildFAQItem.objects.create(
+                guild=GuildFactory(), question="Q?", answer="A", document_url="https://docs.example/x"
+            )
+            assert faq.has_document is True
+            assert faq.document_display_name == "https://docs.example/x"
+            assert faq.document_href == "https://docs.example/x"
+
+        def it_rejects_both_a_file_and_a_link():
+            from django.db import IntegrityError, transaction
+
+            with pytest.raises(IntegrityError), transaction.atomic():
+                GuildFAQItem.objects.create(
+                    guild=GuildFactory(),
+                    question="Q?",
+                    answer="A",
+                    document=SimpleUploadedFile("a.pdf", b"%PDF-1.4"),
+                    document_url="https://docs.example/x",
+                )
+
 
 def describe_GuildLink():
     def it_orders_by_sort_order():

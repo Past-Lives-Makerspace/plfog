@@ -173,6 +173,73 @@ def describe_CommunityEvent():
                 assert local.hour == 18  # time-of-day preserved
             assert [timezone.localtime(d).month for d in occ] == [8, 9, 10]
 
+        def it_occurrences_in_expands_every_2_months_on_the_interval_grid(db):
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.EVERY_2_MONTHS,
+                starts_at=_aware(2026, 7, 11, 18),  # 2nd Saturday of July
+                ends_at=_aware(2026, 7, 11, 20),
+            )
+            occ = event.occurrences_in(date(2026, 7, 1), date(2026, 12, 31))
+            # July anchor, then Sep, then Nov — every other month, never August/October.
+            assert [timezone.localtime(d).month for d in occ] == [7, 9, 11]
+
+        def it_occurrences_in_expands_yearly_same_month_and_weekday(db):
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.YEARLY,
+                starts_at=_aware(2026, 7, 11, 18),
+                ends_at=_aware(2026, 7, 11, 20),
+            )
+            occ = event.occurrences_in(date(2026, 1, 1), date(2028, 12, 31))
+            assert [timezone.localtime(d).year for d in occ] == [2026, 2027, 2028]
+            assert all(timezone.localtime(d).month == 7 for d in occ)
+
+        def it_occurrences_in_expands_semi_monthly_to_two_per_month(db):
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.SEMI_MONTHLY,
+                starts_at=_aware(2026, 7, 11, 18),  # 2nd Saturday → also the 4th Saturday
+                ends_at=_aware(2026, 7, 11, 20),
+            )
+            occ = event.occurrences_in(date(2026, 7, 1), date(2026, 7, 31))
+            days = [timezone.localtime(d).day for d in occ]
+            assert days == [11, 25]  # 2nd and 4th Saturday
+
+        def describe_ical_rrule():
+            def it_is_blank_for_a_nonrecurring_event(db):
+                event = CommunityEventFactory(starts_at=_aware(2026, 7, 11, 18), ends_at=_aware(2026, 7, 11, 20))
+                assert event.ical_rrule() == ""
+
+            def it_emits_monthly_byday(db):
+                event = CommunityEventFactory(
+                    recurrence=CommunityEvent.Recurrence.MONTHLY,
+                    starts_at=_aware(2026, 7, 11, 18),
+                    ends_at=_aware(2026, 7, 11, 20),
+                )
+                assert event.ical_rrule() == "FREQ=MONTHLY;BYDAY=2SA"
+
+            def it_emits_an_interval_for_every_n_months(db):
+                event = CommunityEventFactory(
+                    recurrence=CommunityEvent.Recurrence.EVERY_3_MONTHS,
+                    starts_at=_aware(2026, 7, 11, 18),
+                    ends_at=_aware(2026, 7, 11, 20),
+                )
+                assert event.ical_rrule() == "FREQ=MONTHLY;INTERVAL=3;BYDAY=2SA"
+
+            def it_emits_a_yearly_rule_pinned_to_the_month(db):
+                event = CommunityEventFactory(
+                    recurrence=CommunityEvent.Recurrence.YEARLY,
+                    starts_at=_aware(2026, 7, 11, 18),
+                    ends_at=_aware(2026, 7, 11, 20),
+                )
+                assert event.ical_rrule() == "FREQ=YEARLY;BYMONTH=7;BYDAY=2SA"
+
+            def it_lists_both_weeks_for_twice_a_month(db):
+                event = CommunityEventFactory(
+                    recurrence=CommunityEvent.Recurrence.SEMI_MONTHLY,
+                    starts_at=_aware(2026, 7, 11, 18),
+                    ends_at=_aware(2026, 7, 11, 20),
+                )
+                assert event.ical_rrule() == "FREQ=MONTHLY;BYDAY=2SA,4SA"
+
     def describe_display():
         def it_absolute_url_is_prefixed_with_member_base_url(db, settings):
             settings.MEMBER_BASE_URL = "https://members.test"
@@ -185,13 +252,13 @@ def describe_CommunityEvent():
             assert "–" in text
             assert "Repeats monthly" not in text
 
-        def it_when_display_appends_repeats_monthly(db):
+        def it_when_display_appends_the_recurrence_label(db):
             event = CommunityEventFactory(
-                recurrence=CommunityEvent.Recurrence.MONTHLY,
+                recurrence=CommunityEvent.Recurrence.EVERY_3_MONTHS,
                 starts_at=_aware(2026, 7, 11, 18),
                 ends_at=_aware(2026, 7, 11, 20),
             )
-            assert "Repeats monthly" in event.when_display
+            assert "Every 3 months" in event.when_display
 
     def describe_announce():
         def it_picks_guild_published_for_a_guild_event(db):

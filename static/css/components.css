@@ -192,6 +192,18 @@
     transform: translateX(16px);
 }
 
+/* Unavailable toggle: an opt-in channel the member can't use yet (the Discord DM
+   channel before they link Discord). Reads as inert + dimmed, distinct from the
+   locked-ON forced style — there's no lock glyph and it doesn't force the knob on. */
+.pl-toggle--disabled {
+    cursor: default;
+}
+
+.pl-toggle--disabled .pl-toggle__slider {
+    cursor: default;
+    opacity: 0.4;
+}
+
 /* A small lock glyph sits in the knob to read as "always on, not interactive". */
 .pl-toggle__lock {
     position: absolute;
@@ -223,9 +235,10 @@
        count) so the grid always matches the template and never hardcodes a number. */
     --pl-notif-cols: 5;
     display: grid;
-    /* The event column flexes; the fixed 64px channel columns set an intrinsic floor,
-       so when they don't fit, the __scroll wrapper takes over rather than crushing them. */
-    grid-template-columns: minmax(200px, 1fr) repeat(var(--pl-notif-cols), 64px);
+    /* The event column flexes; the fixed channel columns set an intrinsic floor,
+       so when they don't fit, the __scroll wrapper takes over rather than crushing them.
+       Width fits the two-word labels — "Push (Browser)" wraps to "PUSH / (BROWSER)". */
+    grid-template-columns: minmax(200px, 1fr) repeat(var(--pl-notif-cols), 84px);
     align-items: stretch;
 }
 
@@ -242,7 +255,13 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    padding: 0.5rem 0.5rem;
+    padding: 0.5rem 0.25rem;
+    /* Center and allow a long label to wrap rather than clip inside the fixed
+       64px column (this is what cut "Scheduled" down to "SCHEDUL"). */
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.15;
     border-bottom: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
 }
 
@@ -292,7 +311,7 @@
 @media (max-width: 640px) {
     .pl-notif-matrix {
         /* Tighter on phones; the __scroll wrapper carries the horizontal overflow. */
-        grid-template-columns: minmax(150px, 1fr) repeat(var(--pl-notif-cols), 52px);
+        grid-template-columns: minmax(150px, 1fr) repeat(var(--pl-notif-cols), 68px);
     }
 }
 
@@ -308,8 +327,98 @@
     font-size: 0.85rem;
 }
 
+/* Discord account-linking control on the Notifications tab: a themed banner with the
+   linked status on the left and the Connect/Disconnect action on the right. Uses the
+   hub surface/border/text tokens so it adapts to both Obsidian (dark) and Slate
+   (light) themes, like the matrix below it. */
+.pl-discord-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    background: var(--hub-surface, rgba(255, 255, 255, 0.04));
+}
+
+.pl-discord-link__status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--hub-text, #F4EFDD);
+}
+
+.pl-discord-link__icon {
+    flex: none;
+    color: #5865F2; /* Discord blurple */
+}
+
+.pl-discord-link__form {
+    margin: 0;
+}
+
 .pl-notif-category {
+    margin: 0;
+}
+
+/* Category header row: title on the left, the per-section All on/off control on
+   the right. */
+.pl-notif-category-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
     margin: 1.25rem 0 0.5rem;
+}
+
+.pl-notif-section + .pl-notif-section {
+    margin-top: 0.5rem;
+}
+
+/* Bulk on/off controls (the top "Everything" row and each section's). */
+.pl-notif-bulk {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pl-notif-bulk--all {
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
+}
+
+.pl-notif-bulk__label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--hub-text-muted, #8b97a8);
+    margin-right: 0.25rem;
+}
+
+.pl-notif-bulk__btn {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--color-tuscan-yellow, #eeb44b);
+}
+
+.pl-notif-bulk__btn:hover {
+    text-decoration: underline;
+}
+
+.pl-notif-bulk__sep {
+    color: var(--hub-text-muted, #8b97a8);
+    opacity: 0.5;
 }
 
 .pl-notif-actions {

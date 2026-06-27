@@ -11,12 +11,19 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from django.conf import settings
+from django.urls import reverse
 from django.utils import timezone
 
 if TYPE_CHECKING:
     from billing.models import TabCharge
 
 logger = logging.getLogger(__name__)
+
+
+def _member_url(path: str) -> str:
+    """Turn a relative hub path into an absolute URL using the member-site base."""
+    return f"{settings.MEMBER_BASE_URL.rstrip('/')}{path}"
 
 
 def send_receipt(charge: TabCharge) -> None:
@@ -39,6 +46,7 @@ def send_receipt(charge: TabCharge) -> None:
         "charge": charge,
         "entries": entries,
         "charged_at": charge.charged_at or timezone.now(),
+        "billing_history_url": _member_url(reverse("hub_tab_history")),
     }
 
     from core.events.senders import emit_with_email_shell
@@ -83,6 +91,7 @@ def notify_admin_charge_failed(charge: TabCharge) -> None:
     template_context = {
         "member": member,
         "charge": charge,
+        "dashboard_url": _member_url(reverse("billing_admin_dashboard")),
     }
 
     admin_emails = [user.email for user, _ in resolvers.resolve(Recipients.FOG_ADMINS, {})]
@@ -94,7 +103,7 @@ def notify_admin_charge_failed(charge: TabCharge) -> None:
         context={"member": member},
         subject=f"[Billing] Failed charge for {member.display_name} — ${charge.amount}",
         text_template="billing/email/charge_failed_admin.txt",
-        html_template=None,
+        html_template="billing/email/charge_failed_admin.html",
         template_context=template_context,
         in_app_title="Tab charge failed",
         in_app_body="A charge to your tab failed — please update your payment method.",

@@ -51,7 +51,7 @@ def describe_featured_class():
         )
         guild.featured_class = offering
         guild.save(update_fields=["featured_class"])
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Featured Forge" in resp.content
         assert b"Featured" in resp.content
         assert reverse("classes:register", args=["featured-forge"]).encode() in resp.content

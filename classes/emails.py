@@ -62,6 +62,23 @@ def _absolute_url(path: str) -> str:
     return f"{base}{path}"
 
 
+def _flat_text_email_html(text: str) -> str:
+    """Wrap a plain-text notice body in the branded email shell.
+
+    The instructor/admin new-registration notices assemble their bodies as plain text.
+    Values are HTML-escaped, blank-line-separated blocks become paragraphs and single
+    newlines become ``<br>``, so the result is the same dark branded card the rest of
+    our emails use instead of a bare plain-text message.
+    """
+    from django.utils.html import escape
+
+    from core.events.templates import wrap_email_html
+
+    blocks = [block for block in text.split("\n\n") if block.strip()]
+    fragment = "".join("<p>" + escape(block).replace("\n", "<br>") + "</p>" for block in blocks)
+    return wrap_email_html(fragment)
+
+
 def send_registration_confirmation(registration: "Registration") -> None:
     """Emit a registrant's confirmation: the rich confirmation email + one in-app row.
 
@@ -83,11 +100,13 @@ def send_registration_confirmation(registration: "Registration") -> None:
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
     self_serve_path = reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
     self_serve_url = _absolute_url(self_serve_path)
+    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
     template_context = {
         "registration": registration,
         "offering": offering,
         "upcoming_sessions": upcoming_sessions,
         "self_serve_url": self_serve_url,
+        "class_url": class_url,
         "amount_paid_cents": registration.amount_paid_cents,
         "amount_paid_dollars": f"{registration.amount_paid_cents / 100:.2f}",
         "footer": settings_obj.confirmation_email_footer,
@@ -115,11 +134,13 @@ def send_registration_confirmation(registration: "Registration") -> None:
 def _welcome_email_bodies(offering: "ClassOffering", *, greeting_name: str, self_serve_url: str) -> tuple[str, str]:
     """Render the (text, html) bodies for an instructor's welcome email."""
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
     context = {
         "offering": offering,
         "greeting_name": greeting_name,
         "upcoming_sessions": upcoming_sessions,
         "self_serve_url": self_serve_url,
+        "class_url": class_url,
         "body": offering.welcome_email_body,
     }
     text_body = render_to_string("classes/emails/welcome.txt", context)
@@ -184,26 +205,30 @@ def emit_instructor_new_registration(registration: "Registration") -> None:
     if instructor is None:
         return
     subject = f"New registration: {registration.first_name} {registration.last_name} for {offering.title}"
-    body = (
-        f"{registration.first_name} {registration.last_name} ({registration.email}) "
-        f'just registered for your class "{offering.title}".\n\n'
-        f"Status: {registration.get_status_display()}\n"
-        f"Paid: ${registration.amount_paid_cents / 100:.2f}\n\n"
-        f"You now have {offering.registrations.count()}/{offering.capacity} spots filled."
-    )
+    manage_url = _absolute_url(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
+    template_context = {
+        "registration": registration,
+        "offering": offering,
+        "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
+        "manage_url": manage_url,
+        "amount_paid": f"{registration.amount_paid_cents / 100:.2f}",
+        "spots_filled": offering.registrations.count(),
+        "capacity": offering.capacity,
+    }
     # No trigger_kind → emit labels the audit row with the event key
     # (instructor_new_registration), one vocabulary so the log joins to the event + prefs.
     email_message = Message(
         title=subject,
-        body=body,
-        url="/classes/teach/",
+        body=render_to_string("classes/emails/instructor_new_registration.txt", template_context),
+        url=manage_url,
+        html_body=render_to_string("classes/emails/instructor_new_registration.html", template_context),
     )
     emit(
         "instructor_new_registration",
         context={"offering": offering},
         title="New registration",
         body=offering.title,
-        url="/classes/teach/",
+        url=manage_url,
         messages={Channel.EMAIL: email_message},
         email_to=instructor.primary_email or None,
         period=f"reg:{registration.pk}:instructor_notice",
@@ -230,16 +255,18 @@ def send_admin_registration_notification(registration: "Registration") -> None:
     from core.events.registry import Channel
 
     offering = registration.class_offering
+    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
     subject = f"[Classes] New registration: {registration.first_name} {registration.last_name} — {offering.title}"
     body = (
         f"{registration.first_name} {registration.last_name} ({registration.email}) "
         f'registered for "{offering.title}" (instructor: {offering.instructor.display_name if offering.instructor else "N/A"}).\n\n'
         f"Status: {registration.get_status_display()}\n"
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
-        f"Capacity: {offering.registrations.count()}/{offering.capacity}"
+        f"Capacity: {offering.registrations.count()}/{offering.capacity}\n\n"
+        f"View the class: {class_url}"
     )
     # No trigger_kind → emit labels the audit row with the event key (one vocabulary).
-    email_message = Message(title=subject, body=body)
+    email_message = Message(title=subject, body=body, html_body=_flat_text_email_html(body))
     emit(
         "instructor_new_registration",
         target=registration,
@@ -512,11 +539,13 @@ def send_waitlist_joined_confirmation(registration: "Registration") -> None:
 
     offering = registration.class_offering
     self_serve_url = _absolute_url(reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}))
+    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
     template_context = {
         "registration": registration,
         "offering": offering,
         "position": registration.waitlist_position,
         "self_serve_url": self_serve_url,
+        "class_url": class_url,
     }
     emit_with_email_shell(
         "waitlist_confirmed",
@@ -552,11 +581,13 @@ def send_waitlist_spot_opened(registration: "Registration") -> None:
     register_url = _absolute_url(
         reverse("classes:register", kwargs={"slug": offering.slug}) + f"?waitlist_token={registration.self_serve_token}"
     )
+    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
     settings_obj = ClassSettings.load()
     template_context = {
         "registration": registration,
         "offering": offering,
         "register_url": register_url,
+        "class_url": class_url,
         "claim_window_hours": settings_obj.waitlist_claim_window_hours,
     }
     emit_with_email_shell(
@@ -605,11 +636,13 @@ def build_class_reminder_occurrence(
     offering = session.class_offering
     self_serve_path = reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
     self_serve_url = _absolute_url(self_serve_path)
+    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
     template_context = {
         "registration": registration,
         "session": session,
         "offering": offering,
         "self_serve_url": self_serve_url,
+        "class_url": class_url,
     }
     email_message: Message = email_shell_message(
         event_key="class_reminder",

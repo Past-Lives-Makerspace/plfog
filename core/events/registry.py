@@ -40,6 +40,10 @@ class Channel(str, Enum):
     SCHEDULED_EMAIL = "scheduled_email"
     DIGEST = "digest"
     DISCORD = "discord"
+    # DISCORD_DM is a per-RECIPIENT channel (the bot DMs each opted-in, linked member),
+    # distinct from DISCORD which is a per-event broadcast to a webhook. Default OFF —
+    # a member opts in on the settings page and links their Discord account first.
+    DISCORD_DM = "discord_dm"
 
 
 class ChannelDefault(str, Enum):
@@ -146,6 +150,7 @@ _EMAIL_ON = ChannelSpec(Channel.EMAIL, ChannelDefault.ON)
 _EMAIL_OFF = ChannelSpec(Channel.EMAIL, ChannelDefault.OFF)
 _EMAIL_FORCED = ChannelSpec(Channel.EMAIL, ChannelDefault.FORCED)
 _PUSH_OFF = ChannelSpec(Channel.PUSH, ChannelDefault.OFF)
+_DISCORD_DM_OFF = ChannelSpec(Channel.DISCORD_DM, ChannelDefault.OFF)
 
 
 def _channels_from_trigger(trigger: triggers.Trigger) -> tuple[ChannelSpec, ...]:
@@ -158,6 +163,8 @@ def _channels_from_trigger(trigger: triggers.Trigger) -> tuple[ChannelSpec, ...]
     * Email is ``FORCED`` for ``force_email`` triggers, else default from
       ``email_default`` (on/off).
     * Push default from ``push_default`` (on/off).
+    * Discord DM is always offered, default OFF — every member may opt into a
+      personal DM for any of these events once they've linked their Discord account.
     """
     specs: list[ChannelSpec] = [_IN_APP_ON]
     if trigger.force_email:
@@ -165,6 +172,7 @@ def _channels_from_trigger(trigger: triggers.Trigger) -> tuple[ChannelSpec, ...]
     else:
         specs.append(_EMAIL_ON if trigger.email_default else _EMAIL_OFF)
     specs.append(ChannelSpec(Channel.PUSH, ChannelDefault.ON if trigger.push_default else ChannelDefault.OFF))
+    specs.append(_DISCORD_DM_OFF)
     return tuple(specs)
 
 

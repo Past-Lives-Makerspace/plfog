@@ -89,6 +89,14 @@
             setTimeout(() => target.classList.remove('pl-calendar-list__item--flash'), 1800);
             return true;
         },
+        hoverEvent(pk) {
+            document.querySelectorAll('.pl-calendar-list__item[data-event-pk=\'' + pk + '\']')
+                .forEach(el => el.classList.add('pl-calendar-list__item--highlight'));
+        },
+        unhoverEvent(pk) {
+            document.querySelectorAll('.pl-calendar-list__item[data-event-pk=\'' + pk + '\']')
+                .forEach(el => el.classList.remove('pl-calendar-list__item--highlight'));
+        },
         focusEvent(pk) {
             const stateEl = document.getElementById('pl-cal-state');
             const state = stateEl ? JSON.parse(stateEl.textContent) : null;

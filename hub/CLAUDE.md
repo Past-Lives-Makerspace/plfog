@@ -9,7 +9,7 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `guild_voting` | `hub_guild_voting` | `/guilds/voting/` |
 | `snapshot_history` | `hub_snapshot_history` | `/guilds/voting/history/` |
 | `snapshot_detail` | `hub_snapshot_detail` | `/guilds/voting/history/<pk>/` |
-| `guild_detail` | `hub_guild_detail` | `/guilds/<pk>/` |
+| `guild_detail` | `hub_guild_detail` | `/guilds/<slug>/` (old `/guilds/<pk>/` 301-redirects via `hub_guild_detail_by_id`) |
 | `member_directory` | `hub_member_directory` | `/members/` |
 | `profile_settings` | `hub_profile_settings` | `/settings/profile/` |
 | `email_preferences` | `hub_email_preferences` | `/settings/emails/` |

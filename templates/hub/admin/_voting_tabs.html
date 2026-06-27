@@ -1,13 +1,20 @@
 {% comment %}
-Shared tab nav for the admin Voting surface. Server-driven active state via the
-`active_tab` context value ("overview" / "history" / "snapshots" / "settings").
+Shared tab nav for the Voting surface. Server-driven active state via the
+`active_tab` context value ("overview" / "atglance" / "history" / "snapshots" /
+"settings"). "Overview" is the everyone-facing member voting page; the remaining
+admin tabs render only when `is_admin`. The whole nav is hidden for non-admins —
+a plain member just sees their voting page with no tab chrome.
 Link-style anchors (not Alpine x-show) because filters submit via GET and Funding
 History drills into a per-snapshot detail URL — both are full reloads.
 {% endcomment %}
+{% if request.view_as.is_admin %}
 <nav class="pl-vote-tabs" aria-label="Voting sections">
-  <a href="{% url 'hub_admin_voting_overview' %}"
+  <a href="{% url 'hub_guild_voting' %}"
      class="vote-tab {% if active_tab == 'overview' %}vote-tab--active{% endif %}"
      {% if active_tab == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+  <a href="{% url 'hub_admin_voting_overview' %}"
+     class="vote-tab {% if active_tab == 'atglance' %}vote-tab--active{% endif %}"
+     {% if active_tab == 'atglance' %}aria-current="page"{% endif %}>At A Glance</a>
   <a href="{% url 'hub_admin_voting_history' %}"
      class="vote-tab {% if active_tab == 'history' %}vote-tab--active{% endif %}"
      {% if active_tab == 'history' %}aria-current="page"{% endif %}>Funding History</a>
@@ -18,3 +25,4 @@ History drills into a per-snapshot detail URL — both are full reloads.
      class="vote-tab {% if active_tab == 'settings' %}vote-tab--active{% endif %}"
      {% if active_tab == 'settings' %}aria-current="page"{% endif %}>Settings</a>
 </nav>
+{% endif %}

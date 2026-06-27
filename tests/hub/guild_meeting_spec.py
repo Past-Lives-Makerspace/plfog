@@ -58,7 +58,7 @@ def describe_meeting_config():
             meeting_week_of_month=3,
             meeting_location="Studio B",
         )
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Next Meeting" in resp.content
         assert b"Studio B" in resp.content
 
@@ -66,7 +66,7 @@ def describe_meeting_config():
         _editor("mtg2")
         client.login(username="mtg2", password="pw")
         guild = GuildFactory(meeting_is_tba=True)
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Next Meeting" in resp.content
         assert b"TBA" in resp.content
 

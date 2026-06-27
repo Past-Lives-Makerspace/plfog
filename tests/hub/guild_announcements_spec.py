@@ -229,7 +229,7 @@ def describe_announcement_display():
         client.login(username="disp", password="pw")
         guild = GuildFactory()
         GuildAnnouncementFactory(guild=guild, title="LiveAnnounce")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"LiveAnnounce" in resp.content
 
     def it_hides_expired_announcements_on_the_guild_page(client: Client):
@@ -241,5 +241,5 @@ def describe_announcement_display():
         client.login(username="disp2", password="pw")
         guild = GuildFactory()
         GuildAnnouncementFactory(guild=guild, title="GoneAnnounce", expires_at=timezone.localdate() - timedelta(days=1))
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"GoneAnnounce" not in resp.content

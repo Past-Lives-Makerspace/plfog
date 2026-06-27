@@ -355,7 +355,7 @@ def describe_guild_edit():
         url = reverse("hub_guild_edit", args=[guild.pk])
         response = client.post(url, data={"name": "Keep", "about": "", **_empty_guild_formsets()})
         assert response.status_code == 302
-        assert response["Location"] == reverse("hub_guild_detail", args=[guild.pk])
+        assert response["Location"] == reverse("hub_guild_detail", args=[guild.slug])
 
     def it_deletes_a_link_via_its_own_save_view_and_returns_to_the_content_tab(client: Client):
         # Link deletion moved OUT of the main edit form into guild_links_save, which posts to its
@@ -445,7 +445,7 @@ def describe_guild_detail_edit_buttons():
         _user_with_role("admin_btn", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="admin_btn", password="pass")
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
         assert response.status_code == 200
         assert b'@click="openProductCreateModal()"' in response.content
         # The edit modal is now a full page — the hero links to it.
@@ -455,7 +455,7 @@ def describe_guild_detail_edit_buttons():
         user = _user_with_role("lead_btn", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="lead_btn", password="pass")
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
         assert b'@click="openProductCreateModal()"' in response.content
         assert f"/guilds/{guild.pk}/edit/".encode() in response.content
 
@@ -463,7 +463,7 @@ def describe_guild_detail_edit_buttons():
         _user_with_role("reg_btn", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory()
         client.login(username="reg_btn", password="pass")
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
         # Check the Alpine dispatch string for Add Product and the edit-page
         # link — the literal button labels ("Edit Guild Page" / "Add Product")
         # also appear in the changelog modal on every page, so those aren't
@@ -527,7 +527,7 @@ def describe_guild_banner_delete():
         response = client.post(reverse("hub_guild_banner_delete", args=[guild.pk]))
 
         assert response.status_code == 302
-        assert response.url == f"/guilds/{guild.pk}/"
+        assert response.url == f"/guilds/{guild.slug}/"
         guild.refresh_from_db()
         assert not guild.banner_image
 
@@ -539,7 +539,7 @@ def describe_guild_banner_delete():
         response = client.post(reverse("hub_guild_banner_delete", args=[guild.pk]))
 
         assert response.status_code == 302
-        assert response.url == f"/guilds/{guild.pk}/"
+        assert response.url == f"/guilds/{guild.slug}/"
 
 
 @pytest.mark.django_db
@@ -704,6 +704,67 @@ def describe_guild_faq_save():
         assert GuildFAQItem.objects.filter(guild=guild, question="What should I bring?").exists()
         msgs = [str(m) for m in response.context["messages"]]
         assert "FAQ saved." in msgs
+
+    def _faq_post(question: str = "Q?", answer: str = "A", **extra: str) -> dict[str, str]:
+        """One unsaved FAQ row's POST payload (management form + the row fields)."""
+        data = {
+            "faq-TOTAL_FORMS": "1",
+            "faq-INITIAL_FORMS": "0",
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+            "faq-0-question": question,
+            "faq-0-answer": answer,
+            "faq-0-sort_order": "0",
+        }
+        data.update(extra)
+        return data
+
+    def it_saves_a_youtube_video_on_an_answer(client: Client):
+        _user_with_role("faq_vid", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="faq_vid", password="pass")
+        data = _faq_post(**{"faq-0-video_url": "https://youtu.be/dQw4w9WgXcQ"})
+        client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data)
+        faq = GuildFAQItem.objects.get(guild=guild)
+        assert faq.video_url == "https://youtu.be/dQw4w9WgXcQ"
+
+    def it_rejects_a_non_youtube_video(client: Client):
+        _user_with_role("faq_vidbad", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="faq_vidbad", password="pass")
+        data = _faq_post(**{"faq-0-video_url": "https://vimeo.com/123"})
+        response = client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data, follow=True)
+        assert any("Couldn't save the FAQ" in str(m) for m in response.context["messages"])
+        assert not GuildFAQItem.objects.filter(guild=guild).exists()
+
+    def it_saves_a_document_link(client: Client):
+        _user_with_role("faq_link", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="faq_link", password="pass")
+        data = _faq_post(**{"faq-0-document_url": "https://docs.example/guide"})
+        client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data)
+        faq = GuildFAQItem.objects.get(guild=guild)
+        assert faq.document_url == "https://docs.example/guide"
+
+    def it_uploads_a_document_file(client: Client):
+        _user_with_role("faq_file", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="faq_file", password="pass")
+        data = _faq_post()
+        data["faq-0-document"] = SimpleUploadedFile("handbook.pdf", b"%PDF-1.4 test", content_type="application/pdf")
+        client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data)
+        faq = GuildFAQItem.objects.get(guild=guild)
+        assert faq.document.name.endswith(".pdf")
+
+    def it_rejects_a_file_and_a_link_together(client: Client):
+        _user_with_role("faq_both", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="faq_both", password="pass")
+        data = _faq_post(**{"faq-0-document_url": "https://docs.example/guide"})
+        data["faq-0-document"] = SimpleUploadedFile("dup.pdf", b"%PDF-1.4 test", content_type="application/pdf")
+        response = client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data, follow=True)
+        assert any("Couldn't save the FAQ" in str(m) for m in response.context["messages"])
+        assert not GuildFAQItem.objects.filter(guild=guild).exists()
 
     def it_edits_an_existing_faq_rows_text(client: Client):
         _user_with_role("faq_edit", fog_role=Member.FogRole.ADMIN)

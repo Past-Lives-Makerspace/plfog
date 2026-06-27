@@ -7,5 +7,5 @@
 {% else %}
 <p class="hub-text-muted">No orientation details have been posted yet.</p>
 {% endif %}
-<p style="margin-top:1rem;"><a href="{% url 'hub_guild_detail' guild.pk %}">← Back to {{ guild.name }}</a></p>
+<p style="margin-top:1rem;"><a href="{% url 'hub_guild_detail' guild.slug %}">← Back to {{ guild.name }}</a></p>
 {% endblock %}

@@ -56,3 +56,32 @@ def describe_new_login_detection():
         user_logged_in.send(sender=User, request=request, user=user)
         user_logged_in.send(sender=User, request=request, user=user)  # same signature
         assert Notification.objects.filter(trigger="new_login", user=user).count() == 1
+
+    def it_does_not_notify_when_only_the_ip_changes():
+        # Same browser, new IP (mobile data, dynamic ISP, VPN) is NOT a new device.
+        from allauth.account.signals import user_logged_in
+
+        from core.models import Notification
+
+        user = User.objects.create_user(username="nl3", email="nl3@example.com")
+        user_logged_in.send(
+            sender=User, request=RequestFactory().get("/", HTTP_USER_AGENT="Firefox", REMOTE_ADDR="1.2.3.4"), user=user
+        )
+        user_logged_in.send(
+            sender=User, request=RequestFactory().get("/", HTTP_USER_AGENT="Firefox", REMOTE_ADDR="9.9.9.9"), user=user
+        )
+        assert Notification.objects.filter(trigger="new_login", user=user).count() == 1
+
+    def it_notifies_again_from_a_different_browser():
+        from allauth.account.signals import user_logged_in
+
+        from core.models import Notification
+
+        user = User.objects.create_user(username="nl4", email="nl4@example.com")
+        user_logged_in.send(
+            sender=User, request=RequestFactory().get("/", HTTP_USER_AGENT="Firefox", REMOTE_ADDR="1.2.3.4"), user=user
+        )
+        user_logged_in.send(
+            sender=User, request=RequestFactory().get("/", HTTP_USER_AGENT="Chrome", REMOTE_ADDR="1.2.3.4"), user=user
+        )
+        assert Notification.objects.filter(trigger="new_login", user=user).count() == 2

@@ -19,7 +19,7 @@ def describe_home_page():
 
     def it_contains_past_lives_text(client):
         response = client.get("/")
-        assert b"Past Lives Makerspace" in response.content
+        assert b"Past Lives Federation of Guilds" in response.content
 
 
 def describe_home_page_hero():

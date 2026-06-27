@@ -2,9 +2,52 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.20"
+VERSION = "0.19.25"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.25",
+        "date": "2026-06-26",
+        "title": "Get your notifications as a Discord DM",
+        "changes": [
+            "Connect your Discord account and get your Past Lives notifications as a direct message "
+            "from our bot — alongside the in-app bell, email, and browser push you already have. Head "
+            "to Settings → Notifications, click Connect Discord, then flip on the new Discord column for "
+            "whichever notices you'd like sent straight to your DMs. You can disconnect anytime.",
+        ],
+    },
+    {
+        "version": "0.19.24",
+        "date": "2026-06-26",
+        "title": "Richer guild FAQ answers",
+        "changes": [
+            "Guild leads can now make their FAQ answers more helpful — each answer can embed a YouTube "
+            "video and attach a document (upload a PDF, Word doc, or slides, or just paste a link), "
+            "right alongside the written answer.",
+        ],
+    },
+    {
+        "version": "0.19.22",
+        "date": "2026-06-26",
+        "title": "Fewer false 'new login' emails",
+        "changes": [
+            "The 'New login detected' email now recognizes the browsers and devices you've already "
+            "used, so it stops emailing you every time your internet connection or IP address changes. "
+            "You'll still get an alert the first time you sign in from a genuinely new browser or device.",
+        ],
+    },
+    {
+        "version": "0.19.21",
+        "date": "2026-06-26",
+        "title": "Bigger, easier-to-read calendars",
+        "changes": [
+            "The text on the Community Calendar and each guild's calendar is now larger and easier "
+            "to read at a glance — event names, times, and day numbers no longer feel cramped, and "
+            "longer event names wrap onto a second line instead of getting cut off.",
+            "On the Community Calendar, hovering an event in the grid now highlights its full details "
+            "card in the list below, so it's easy to see which event is which.",
+        ],
+    },
     {
         "version": "0.19.20",
         "date": "2026-06-26",
@@ -26,7 +69,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "changes": [
             "Guild leads can now post their guild's meetings and events, and admins can post community "
             "events and the Guild Lead Meeting — all on the Community Calendar, with a Discord heads-up "
-            "when they go up. Events can repeat monthly (the same weekday-of-month, like the 2nd Saturday), "
+            "when they go up. Events can repeat on the schedule you choose — twice a month, monthly, every "
+            "2, 3, or 6 months, or yearly — always on the same weekday-of-month (like the 2nd Saturday), "
             "show up on the guild's own calendar too, and are included when you export or subscribe to the "
             "calendar.",
         ],

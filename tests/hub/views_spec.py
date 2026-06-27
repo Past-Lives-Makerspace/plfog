@@ -172,7 +172,7 @@ def describe_member_directory():
 def describe_guild_detail():
     def it_is_accessible_to_anonymous_guests(client: Client):
         guild = GuildFactory()
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
         assert response.status_code == 200
 
     def it_renders_guild_detail(client: Client):
@@ -180,7 +180,7 @@ def describe_guild_detail():
         guild = GuildFactory(name="Ceramics")
         client.login(username="viewer", password="pass")
 
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
 
         assert response.status_code == 200
         assert response.context["guild"] == guild

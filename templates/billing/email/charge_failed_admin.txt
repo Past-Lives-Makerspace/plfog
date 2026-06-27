@@ -6,5 +6,6 @@ Failure Reason: {{ charge.failure_reason|default:"Unknown" }}
 Retry Count: {{ charge.retry_count }}
 
 {% if charge.is_retriable %}The system will automatically retry this charge.{% else %}All retries exhausted. The member's tab has been locked.{% endif %}
-
-Please review in the admin panel.
+{% if dashboard_url %}
+Review in the billing dashboard: {{ dashboard_url }}{% endif %}
+{% include "membership/emails/_footer.txt" %}

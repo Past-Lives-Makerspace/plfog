@@ -219,13 +219,11 @@ _CURATED: dict[str, EventCopy] = {
             Channel.EMAIL: ChannelCopy(
                 subject="New class: {{ class_title }}",
                 body_text=(
-                    "{{ class_title }} just went live at Past Lives.\n\n"
-                    "See the details and sign up: {{ class_url }}\n\nPast Lives Makerspace"
+                    "{{ class_title }} just went live at Past Lives.\n\nSee the details and sign up: {{ class_url }}"
                 ),
                 body_html=(
                     "<p><strong>{{ class_title }}</strong> just went live at Past Lives.</p>"
                     '<p><a href="{{ class_url }}">See the details and sign up</a></p>'
-                    "<p>Past Lives Makerspace</p>"
                 ),
             ),
         },

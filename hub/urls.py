@@ -1,14 +1,16 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import notification_views, views
+from . import discord_views, notification_views, views
 
 urlpatterns = [
     path("guilds/voting/", views.guild_voting, name="hub_guild_voting"),
     path("guilds/voting/history/", views.snapshot_history, name="hub_snapshot_history"),
     path("guilds/voting/history/<int:pk>/", views.snapshot_detail, name="hub_snapshot_detail"),
     path("members/", views.member_directory, name="hub_member_directory"),
-    path("guilds/<int:pk>/", views.guild_detail, name="hub_guild_detail"),
+    # Old numeric guild URLs (already shared in Discord/emails) 301 → the slug URL.
+    path("guilds/<int:pk>/", views.guild_detail_redirect, name="hub_guild_detail_by_id"),
+    path("guilds/<slug:slug>/", views.guild_detail, name="hub_guild_detail"),
     path("guilds/<int:pk>/edit/", views.guild_edit, name="hub_guild_edit"),
     path("hero-adjust/", views.hub_hero_adjust, name="hub_hero_adjust"),
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
@@ -150,6 +152,10 @@ urlpatterns = [
     path("settings/skills/add/", views.skill_add, name="hub_skill_add"),
     path("settings/skills/<int:skill_pk>/remove/", views.skill_remove, name="hub_skill_remove"),
     path("settings/skills/suggest/", views.skill_suggest, name="hub_skill_suggest"),
+    # Discord account-linking for the per-member Discord DM notification channel.
+    path("settings/discord/connect/", discord_views.discord_connect, name="hub_discord_connect"),
+    path("settings/discord/callback/", discord_views.discord_callback, name="hub_discord_callback"),
+    path("settings/discord/disconnect/", discord_views.discord_disconnect, name="hub_discord_disconnect"),
     # Old settings routes redirect to the tabbed User Settings page.
     path(
         "settings/profile/",

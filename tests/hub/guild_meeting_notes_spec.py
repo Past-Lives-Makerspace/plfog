@@ -84,7 +84,7 @@ def describe_read_tab():
         _user_with_role("r1")
         guild = GuildFactory()
         client.login(username="r1", password="pass")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         # Target the tab button's unique Alpine directive, not the bare phrase
         # "Meeting Notes" — that phrase also appears in the release-notes/changelog
         # copy rendered elsewhere on the hub page, which would false-positive here.
@@ -94,7 +94,7 @@ def describe_read_tab():
         user = _user_with_role("r2")
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="r2", password="pass")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"section = 'notes'" in resp.content
         assert b"Post your first agenda" in resp.content
 
@@ -103,7 +103,7 @@ def describe_read_tab():
         guild = GuildFactory()
         GuildMeetingNoteFactory(guild=guild, title="June recap")
         client.login(username="r3", password="pass")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"section = 'notes'" in resp.content
         assert b"June recap" in resp.content
 
@@ -113,7 +113,7 @@ def describe_read_tab():
         note = GuildMeetingNoteFactory(guild=guild)
         GuildMeetingNoteAttachmentFactory(note=note, label="Agenda", url="https://docs.example.com/x")
         client.login(username="r4", password="pass")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b'rel="noopener nofollow noreferrer"' in resp.content
         assert b"Agenda" in resp.content
 
@@ -123,7 +123,7 @@ def describe_read_tab():
         note = GuildMeetingNoteFactory(guild=guild)
         GuildMeetingNoteAttachmentFactory(note=note, file_doc=True, label="Slides")
         client.login(username="r5", password="pass")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"download" in resp.content
         assert b"Slides" in resp.content
 

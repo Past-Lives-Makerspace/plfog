@@ -7,4 +7,4 @@ Your orientation for {{ guild.name }} has been cancelled.
 You can request a new orientation any time on the guild page:
 {{ guild_url }}
 
-— Past Lives Makerspace
+{% include "membership/emails/_footer.txt" %}

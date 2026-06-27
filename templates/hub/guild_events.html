@@ -3,7 +3,7 @@
 {% block content %}
 <div x-data="{}">
   <p style="margin-bottom:0.75rem;">
-    <a href="{% url 'hub_guild_detail' guild.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to {{ guild.name }}</a>
+    <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to {{ guild.name }}</a>
   </p>
   <h1 class="hub-page-title">Events · {{ guild.name }}</h1>
   <p class="hub-text-muted" style="margin-bottom:1.5rem;">

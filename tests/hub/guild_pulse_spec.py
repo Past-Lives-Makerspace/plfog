@@ -36,7 +36,7 @@ def describe_guild_pulse():
         offering.published_at = timezone.now()
         offering.save(update_fields=["published_at"])
 
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Recent Activity" in resp.content
         assert b"joined the guild" in resp.content
         assert b"Forge night" in resp.content

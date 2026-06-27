@@ -904,7 +904,7 @@ class KnownLoginSignature(models.Model):
     """Records (user, signature) pairs already seen, to detect new-device logins."""
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="login_signatures")
-    signature = models.CharField(max_length=64, help_text="Hash of (user-agent, IP).")
+    signature = models.CharField(max_length=64, help_text="Hash of the browser/device user-agent.")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

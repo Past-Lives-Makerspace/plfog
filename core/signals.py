@@ -20,9 +20,12 @@ def _on_login(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
 
     SiteActivity.log(SiteActivity.Kind.LOGIN, actor=user)
 
+    # Key the device signature on the browser/user-agent only — NOT the IP. IPs
+    # rotate constantly (mobile data, dynamic home ISPs, VPNs, the host's proxy
+    # fleet), so including the IP fired a "new login" email on every address change
+    # and never actually remembered the device. User-agent stays stable per browser.
     ua = request.META.get("HTTP_USER_AGENT", "")
-    ip = request.META.get("REMOTE_ADDR", "")
-    signature = hashlib.sha256(f"{ua}|{ip}".encode()).hexdigest()
+    signature = hashlib.sha256(ua.encode()).hexdigest()
     _, created = KnownLoginSignature.objects.get_or_create(user=user, signature=signature)
     if created:
         html_body = render_to_string(
@@ -34,6 +37,10 @@ def _on_login(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
             actor=user,
             context={"user": user},
             title="New login detected",
+            # Scope the idempotency bucket to THIS device so each genuinely new
+            # device alerts. With the default one-shot period ("") the delivery
+            # ledger would record new_login once and suppress every later device.
+            period=signature[:32],
             body="Your account was accessed from a new browser or device.",
             url="/settings/",
             html_body=html_body,

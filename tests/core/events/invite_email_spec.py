@@ -101,7 +101,12 @@ def describe_invite_gold_cta_on_a_seeded_row():
 
         _invite().send_invite_email()
         html = mail.outbox[0].alternatives[0][0]
-        # Branded by the shell...
+        # Branded by the shell (footer + tagline)...
         assert "Do It Together" in html
-        # ...but no gold button reached the overridden row.
-        assert "#EEB44B" not in html
+        # ...and the admin's own body is preserved verbatim.
+        assert "Create your account" in html
+        # ...but no gold CTA *button* reached the overridden row — only the seeded copy
+        # carries the button. (The bare link is made readable as gold text, and the
+        # footer brand is gold text too, so we assert on the button background, not any
+        # use of the accent color.)
+        assert "background-color:#EEB44B" not in html

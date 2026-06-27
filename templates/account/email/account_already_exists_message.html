@@ -12,8 +12,7 @@
     <!-- Header -->
     <tr>
     <td style="text-align: center; padding-bottom: 32px;">
-        <span style="font-size: 22px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em;">Past Lives</span>
-        <span style="display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 8px; border-radius: 10px; background-color: rgba(238, 180, 75, 0.15); color: #EEB44B;">BETA</span>
+        <a href="https://members.pastlives.space" style="font-size: 22px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em; text-decoration:none;">Past Lives</a>
     </td>
     </tr>
     <!-- Card -->
@@ -22,16 +21,18 @@
         <p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #F4EFDD;">Account Already Exists</p>
         <p style="margin: 0 0 8px; font-size: 14px; color: #96ACBB; line-height: 1.6;">Someone tried to create a new account with this email address (<span style="color: #F4EFDD;">{{ email }}</span>), but you already have one.</p>
         <p style="margin: 16px 0 0; font-size: 14px; color: #96ACBB; line-height: 1.6;">To sign in, just visit the login page and enter your email — we'll send you a code.</p>
+        {% if login_url %}<div style="margin: 24px 0 0;">
+            <a href="{{ login_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Sign In</a>
+        </div>{% endif %}
     </td>
     </tr>
     <!-- Footer -->
     <tr>
     <td style="text-align: center; padding-top: 32px;">
-        <p style="margin: 0 0 4px; font-size: 12px; color: #96ACBB;">If you didn't try to sign up, you can safely ignore this email.</p>
-        <p style="margin: 16px 0 0; font-size: 13px; color: #F4EFDD; font-weight: 600;">Past Lives Makerspace</p>
-        <p style="margin: 2px 0 0; font-size: 12px; color: #96ACBB; font-style: italic;">Do It Together</p>
+        <p style="margin: 0; font-size: 12px; color: #96ACBB;">If you didn't try to sign up, you can safely ignore this email.</p>
     </td>
     </tr>
+    {% include "membership/emails/_footer.html" %}
 </table>
 </td>
 </tr>

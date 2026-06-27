@@ -33,22 +33,29 @@ if TYPE_CHECKING:
 # The per-recipient channels a user can hold a preference on, in display order.
 # DISCORD is a per-event BROADCAST channel (event→webhook, not per-user) and is
 # deliberately excluded — a member cannot opt into/out of a site-wide broadcast.
+# DISCORD_DM, by contrast, IS per-user (the bot DMs the individual member), so it is
+# included; its column appears once at least one event declares it (visible_channels).
 USER_CHANNELS: tuple[Channel, ...] = (
     Channel.IN_APP,
     Channel.EMAIL,
     Channel.PUSH,
+    Channel.DISCORD_DM,
     Channel.SCHEDULED_EMAIL,
     Channel.DIGEST,
 )
 
 # Human labels for the matrix column headers.
 CHANNEL_LABELS: dict[Channel, str] = {
-    Channel.IN_APP: "Bell",
+    Channel.IN_APP: "In-app (Bell)",
     Channel.EMAIL: "Email",
-    Channel.PUSH: "Push",
+    Channel.PUSH: "Push (Browser)",
+    Channel.DISCORD_DM: "Discord",
     Channel.SCHEDULED_EMAIL: "Scheduled",
     Channel.DIGEST: "Digest",
 }
+
+# Shown on a disabled DISCORD_DM toggle when the member hasn't linked Discord yet.
+_DISCORD_LINK_HINT = "Connect your Discord account first to receive DMs."
 
 # Stable category display order; any category not listed falls to the end, alpha.
 CATEGORY_ORDER: tuple[str, ...] = (
@@ -71,7 +78,10 @@ class Cell:
     ``name`` is the form field name (``pref__<event_key>__<channel>``) the POST reads.
     ``enabled`` is the current checked state; ``forced`` renders it locked-on
     (always-on, the user can't change it); ``present`` is True when the event declares
-    this channel at all (an absent channel renders as an empty cell).
+    this channel at all (an absent channel renders as an empty cell). ``available`` is
+    False when the user can't use this channel yet (the Discord DM channel before they
+    link Discord) — the box renders disabled with ``hint`` as its tooltip, distinct
+    from the locked-on ``forced`` state.
     """
 
     name: str
@@ -79,6 +89,8 @@ class Cell:
     enabled: bool
     forced: bool
     present: bool
+    available: bool = True
+    hint: str = ""
 
 
 @dataclass(frozen=True)
@@ -118,6 +130,43 @@ def _ordered_categories(categories: set[str]) -> list[str]:
     return ranked + rest
 
 
+def _member_discord_linked(user: User) -> bool:
+    """Whether ``user``'s member has a verified Discord account linked for DMs.
+
+    ``Member`` is imported lazily to avoid a model-layer import at module load. A user
+    with no linked member is treated as not linked (the column renders disabled).
+    """
+    from membership.models import Member
+
+    member = Member.objects.filter(user=user).only("discord_user_id").first()
+    return bool(member and member.discord_user_id)
+
+
+def channel_availability(user: User, channel: Channel, *, discord_linked: bool) -> tuple[bool, str]:
+    """Whether ``user`` can use ``channel`` right now, and a hint to show when not.
+
+    Every channel is available except the per-member Discord DM channel, which needs the
+    member to have linked their Discord account first; until then its cells render
+    disabled with a hint. ``discord_linked`` is passed in (computed once per page) so the
+    matrix doesn't re-query the member for every cell.
+    """
+    if channel is Channel.DISCORD_DM and not discord_linked:
+        return False, _DISCORD_LINK_HINT
+    return True, ""
+
+
+def visible_channels(user: User) -> list[Channel]:
+    """The user channels at least one visible event actually offers, in display order.
+
+    A channel no event declares (today: the unbuilt Scheduled-email and Digest shells)
+    would render as an entire column of empty '—' cells — dead, confusing UI. We drop
+    such columns until something uses them; the column reappears automatically the day
+    an event starts declaring that channel.
+    """
+    events = _visible_events(user)
+    return [channel for channel in USER_CHANNELS if any(event.channel(channel) is not None for event in events)]
+
+
 def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
     """Assemble the matrix for ``user`` — a list of ``(category, [Row, ...])``.
 
@@ -126,10 +175,15 @@ def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
     event's channel default). Categories are returned in :data:`CATEGORY_ORDER`.
     """
     events = _visible_events(user)
+    channels = visible_channels(user)
+    # Compute per-channel availability once (the Discord-linked lookup is a single
+    # query) rather than re-deriving it for every cell.
+    discord_linked = _member_discord_linked(user)
+    availability = {channel: channel_availability(user, channel, discord_linked=discord_linked) for channel in channels}
     by_category: dict[str, list[Row]] = {}
     for event in events:
         cells: list[Cell] = []
-        for channel in USER_CHANNELS:
+        for channel in channels:
             spec = event.channel(channel)
             if spec is None:
                 cells.append(Cell(name="", channel=channel, enabled=False, forced=False, present=False))
@@ -138,6 +192,7 @@ def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
             # IN_APP is always-on; show it locked-on like a forced channel.
             locked = forced or channel is Channel.IN_APP
             enabled = preferences.wants(user, event.key, channel)
+            available, hint = availability[channel]
             cells.append(
                 Cell(
                     name=field_name(event.key, channel),
@@ -145,6 +200,8 @@ def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
                     enabled=enabled,
                     forced=locked,
                     present=True,
+                    available=available,
+                    hint=hint,
                 )
             )
         row = Row(event_key=event.key, label=event.label, description=event.description, cells=cells)
@@ -160,12 +217,21 @@ def save_matrix(user: User, posted: dict[str, str]) -> None:
     checkbox. FORCED and IN_APP cells are skipped — they are always-on and have no
     user-controlled state to store, so we never write a row that pretends otherwise.
     A checked box is ``enabled=True``; an absent box (HTML omits unchecked checkboxes)
-    is ``enabled=False``.
+    is ``enabled=False``. A channel the user can't use yet (the Discord DM channel
+    before they link Discord) is skipped — its box renders disabled, so the browser
+    omits it, and writing ``enabled=False`` would silently wipe a preference they set
+    while linked. Skipping preserves their choice across an unlink/relink.
     """
+    discord_linked = _member_discord_linked(user)
+    availability = {
+        channel: channel_availability(user, channel, discord_linked=discord_linked) for channel in USER_CHANNELS
+    }
     for event in _visible_events(user):
         for channel in USER_CHANNELS:
             spec = event.channel(channel)
             if spec is None or spec.is_forced or channel is Channel.IN_APP:
+                continue
+            if not availability[channel][0]:
                 continue
             NotificationPreference.objects.update_or_create(
                 user=user,

@@ -8,3 +8,7 @@ next person on the waitlist.
 
 Claim my spot:
 {{ register_url }}
+
+Full class details (what to bring, parking, and more):
+{{ class_url }}
+{% include "membership/emails/_footer.txt" %}

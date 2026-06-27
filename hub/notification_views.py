@@ -62,6 +62,7 @@ _CHANNEL_LABELS: dict[Channel, str] = {
     Channel.SCHEDULED_EMAIL: "Scheduled email",
     Channel.DIGEST: "Digest",
     Channel.DISCORD: "Discord",
+    Channel.DISCORD_DM: "Discord DM",
 }
 
 _LOCK_LABELS: dict[ChannelDefault, str] = {

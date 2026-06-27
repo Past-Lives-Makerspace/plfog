@@ -280,6 +280,21 @@ class Member(models.Model):
     discord_handle = models.CharField(
         max_length=100, blank=True, help_text="Discord username (e.g. user#1234 or @user)."
     )
+    discord_user_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "The member's VERIFIED numeric Discord account id (snowflake), set when they link Discord via "
+            "OAuth. Used to DM them notifications through the FOG bot. Distinct from the unverified, "
+            "free-text discord_handle — never use that for delivery."
+        ),
+    )
+    discord_linked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the member linked their Discord account for DM notifications (null = not linked).",
+    )
     other_contact_info = models.CharField(
         max_length=255, blank=True, help_text="Other ways to reach this member (Instagram, Signal, etc.)."
     )
@@ -396,6 +411,28 @@ class Member(models.Model):
     @property
     def display_name(self) -> str:
         return self.preferred_name if self.preferred_name else self.full_legal_name
+
+    @property
+    def discord_is_linked(self) -> bool:
+        """Whether this member has a verified Discord account linked for DM notifications."""
+        return bool(self.discord_user_id)
+
+    def link_discord(self, discord_user_id: str) -> None:
+        """Record a verified Discord account id for DM notifications.
+
+        Stores the snowflake and stamps :attr:`discord_linked_at`. Called by the OAuth
+        linking service (:func:`core.events.discord_oauth.link_member_from_code`) after
+        the member authorizes the FOG bot.
+        """
+        self.discord_user_id = discord_user_id.strip()
+        self.discord_linked_at = timezone.now()
+        self.save(update_fields=["discord_user_id", "discord_linked_at"])
+
+    def unlink_discord(self) -> None:
+        """Clear the linked Discord account (the member opts out of DMs entirely)."""
+        self.discord_user_id = ""
+        self.discord_linked_at = None
+        self.save(update_fields=["discord_user_id", "discord_linked_at"])
 
     def is_public(self, field_name: str) -> bool:
         """Return True if a directory-toggleable field should appear on this member's card.
@@ -778,6 +815,12 @@ class Guild(HeroCropMixin, models.Model):
     sublet_count: int
 
     name = models.CharField(max_length=255, unique=True)
+    slug = models.SlugField(
+        max_length=120,
+        unique=True,
+        blank=True,
+        help_text="URL slug for the guild's public page, auto-generated from the name (stable across renames).",
+    )
     is_active = models.BooleanField(default=True, help_text="Whether this guild is eligible for voting and display.")
     guild_lead = models.ForeignKey(
         Member,
@@ -910,8 +953,22 @@ class Guild(HeroCropMixin, models.Model):
         return logo_prefix_for(self.name)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self.slug:
+            self.slug = self._unique_slug()
         delete_orphan_on_replace(self, "banner_image")
         super().save(*args, **kwargs)
+
+    def _unique_slug(self) -> str:
+        """A URL slug derived from the guild name, suffixed (``-2``, ``-3``…) to stay unique."""
+        from django.utils.text import slugify
+
+        base = slugify(self.name) or "guild"
+        slug = base
+        n = 2
+        while Guild.objects.exclude(pk=self.pk).filter(slug=slug).exists():
+            slug = f"{base}-{n}"
+            n += 1
+        return slug
 
     def add_gallery_images(self, files: list[Any]) -> None:
         """Create GuildImage rows from uploaded files, appending after existing ones."""
@@ -1074,18 +1131,66 @@ class GuildImage(models.Model):
 
 
 class GuildFAQItem(models.Model):
-    """A question/answer pair shown in the guild page FAQ section."""
+    """A question/answer pair shown in the guild page FAQ section.
+
+    An answer may also carry a YouTube embed and/or one attached document — either an
+    uploaded file or a link to an external doc (at most one of the two).
+    """
 
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="faq_items", help_text="Parent guild.")
     question = models.CharField(max_length=500, help_text="The question.")
     answer = models.TextField(help_text="The answer.")
+    video_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional YouTube link shown with this answer (watch, youtu.be, embed, or shorts URL).",
+    )
+    document = models.FileField(
+        upload_to="guilds/faq/",
+        blank=True,
+        validators=[validate_document],
+        help_text="Optional document (PDF, Word, slides, spreadsheet…) shown with this answer. "
+        "Leave blank to link an external doc instead.",
+    )
+    document_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional link to an external doc for this answer. Leave blank if you uploaded a file.",
+    )
     sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
 
     class Meta:
         ordering = ["sort_order"]
+        constraints = [
+            # A document is optional, but it can't be BOTH an upload and a link.
+            models.CheckConstraint(
+                condition=Q(document="") | Q(document_url=""),
+                name="ck_guildfaqitem_doc_not_both",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.question
+
+    @property
+    def has_document(self) -> bool:
+        return bool(self.document) or bool(self.document_url)
+
+    @property
+    def document_display_name(self) -> str:
+        """The uploaded file's base name, else the link URL, else ``""``."""
+        if self.document and self.document.name:
+            return self.document.name.rsplit("/", 1)[-1]
+        return self.document_url
+
+    @property
+    def document_href(self) -> str:
+        """Where the document link points — the uploaded file's URL or the external link."""
+        return self.document.url if self.document else self.document_url
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "document")
+        super().save(*args, **kwargs)
 
 
 class GuildLink(models.Model):
@@ -1165,7 +1270,7 @@ class GuildAnnouncement(models.Model):
         from core.events.emit import emit
         from membership.orientations import _absolute_url
 
-        guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild_id]))
+        guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
         emit(
             "guild_announcement",
             actor=self.author,
@@ -1452,7 +1557,23 @@ class CommunityEvent(models.Model):
 
     class Recurrence(models.TextChoices):
         NONE = "none", "Does not repeat"
-        MONTHLY = "monthly", "Repeats monthly"
+        SEMI_MONTHLY = "semi_monthly", "Twice a month"
+        MONTHLY = "monthly", "Every month"
+        EVERY_2_MONTHS = "every_2_months", "Every 2 months"
+        EVERY_3_MONTHS = "every_3_months", "Every 3 months"
+        EVERY_6_MONTHS = "every_6_months", "Every 6 months"
+        YEARLY = "yearly", "Every year"
+
+    # Months between occurrences for each recurring choice (semi-monthly walks
+    # monthly but emits two dates per month — see ``occurrences_in``).
+    _MONTH_INTERVALS: dict[str, int] = {
+        Recurrence.SEMI_MONTHLY.value: 1,
+        Recurrence.MONTHLY.value: 1,
+        Recurrence.EVERY_2_MONTHS.value: 2,
+        Recurrence.EVERY_3_MONTHS.value: 3,
+        Recurrence.EVERY_6_MONTHS.value: 6,
+        Recurrence.YEARLY.value: 12,
+    }
 
     # Maps an event type to the registry event key its announcement fires.
     _ANNOUNCE_EVENT: dict[str, str] = {
@@ -1486,12 +1607,13 @@ class CommunityEvent(models.Model):
     )
     description = models.TextField(blank=True, default="", help_text="Optional details for members.")
     recurrence = models.CharField(
-        max_length=12,
+        max_length=20,
         choices=Recurrence.choices,
         default=Recurrence.NONE,
         help_text=(
-            "Whether this event repeats. 'Repeats monthly' recurs on the same "
-            "weekday-of-month as the start (e.g. the 2nd Saturday)."
+            "Whether and how often this event repeats. Every repeating option recurs on the "
+            "same weekday-of-month as the start (e.g. the 2nd Saturday); 'Twice a month' adds "
+            "the same weekday two weeks later."
         ),
     )
     created_by = models.ForeignKey(
@@ -1560,15 +1682,47 @@ class CommunityEvent(models.Model):
         ord_ical = self._occurrence_ordinal()
         ordinal = 5 if ord_ical == -1 else ord_ical  # _nth_weekday treats ordinal 5 as 'last'
         anchor_date = local_start.date()
+        interval = self._MONTH_INTERVALS[self.recurrence]
+        is_semi_monthly = self.recurrence == self.Recurrence.SEMI_MONTHLY
+
+        # Align the first iterated month to the interval grid relative to the anchor, so a
+        # far-future window doesn't walk month-by-month from a long-past anchor.
+        months_to_window = (frm.year - anchor_date.year) * 12 + (frm.month - anchor_date.month)
+        steps = max(0, -(-months_to_window // interval))  # ceil division, clamped at 0
+        month_cursor = anchor_date.replace(day=1) + relativedelta(months=steps * interval)
 
         occurrences: list[datetime_type] = []
-        month_first = max(anchor_date.replace(day=1), frm.replace(day=1))
-        while month_first <= to:
-            occ_date = _nth_weekday(month_first, wd, ordinal)
-            if occ_date >= anchor_date and frm <= occ_date <= to:
-                occurrences.append(local_start.replace(year=occ_date.year, month=occ_date.month, day=occ_date.day))
-            month_first = month_first + relativedelta(months=1)
+        while month_cursor <= to:
+            occ_date = _nth_weekday(month_cursor, wd, ordinal)
+            candidates = [occ_date, occ_date + relativedelta(weeks=2)] if is_semi_monthly else [occ_date]
+            for occ in candidates:
+                if occ >= anchor_date and frm <= occ <= to:
+                    occurrences.append(local_start.replace(year=occ.year, month=occ.month, day=occ.day))
+            month_cursor = month_cursor + relativedelta(months=interval)
         return occurrences
+
+    def ical_rrule(self) -> str:
+        """The iCal ``RRULE`` body (no ``RRULE:`` prefix) for this event, or ``""`` for none.
+
+        Subscribed calendars expand this themselves, so the export emits one VEVENT per
+        series instead of a row per occurrence. The monthly family recurs on the same nth
+        weekday (with an ``INTERVAL`` for every-N-months); yearly pins the month too;
+        twice-a-month lists the nth and nth+2 weekday when both fit in a month.
+        """
+        if self.recurrence == self.Recurrence.NONE:
+            return ""
+        local_start = timezone.localtime(self.starts_at)
+        weekday = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")[local_start.weekday()]
+        ordinal = self._occurrence_ordinal()
+        if self.recurrence == self.Recurrence.YEARLY:
+            return f"FREQ=YEARLY;BYMONTH={local_start.month};BYDAY={ordinal}{weekday}"
+        if self.recurrence == self.Recurrence.SEMI_MONTHLY:
+            second = ordinal + 2
+            byday = f"{ordinal}{weekday},{second}{weekday}" if 1 <= ordinal <= 3 else f"{ordinal}{weekday}"
+            return f"FREQ=MONTHLY;BYDAY={byday}"
+        interval = self._MONTH_INTERVALS[self.recurrence]
+        interval_part = "" if interval == 1 else f"INTERVAL={interval};"
+        return f"FREQ=MONTHLY;{interval_part}BYDAY={ordinal}{weekday}"
 
     # --- Properties -----------------------------------------------------------
 
@@ -1589,8 +1743,8 @@ class CommunityEvent(models.Model):
             f"{local_start.strftime('%a, %b %-d')} · "
             f"{local_start.strftime('%-I:%M %p')} – {local_end.strftime('%-I:%M %p')}"
         )
-        if self.recurrence == self.Recurrence.MONTHLY:
-            when += " · Repeats monthly"
+        if self.recurrence != self.Recurrence.NONE:
+            when += f" · {self.get_recurrence_display()}"
         return when
 
     @property

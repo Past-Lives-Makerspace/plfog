@@ -13,4 +13,4 @@ it's confirmed.
 Manage your request: {{ guild_url }}
 Need to cancel? {{ cancel_url }}
 
-— Past Lives Makerspace
+{% include "membership/emails/_footer.txt" %}

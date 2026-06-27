@@ -301,3 +301,27 @@ def describe_delete():
         snap = _stored(admin_client)
         assert admin_client.get(reverse("hub_admin_voting_snapshot_delete", args=[snap.pk])).status_code == 405
         assert admin_client.get(reverse("hub_admin_voting_snapshot_take")).status_code == 405
+
+
+def describe_voting_tabs():
+    def it_offers_an_overview_tab_linking_to_the_member_page_for_admins(admin_client):
+        content = admin_client.get(reverse("hub_admin_voting_overview")).content.decode()
+        assert reverse("hub_guild_voting") in content  # the new everyone-facing Overview tab
+        assert "At A Glance" in content
+        assert "Funding History" in content
+
+    def it_marks_at_a_glance_active_on_the_admin_overview(admin_client):
+        resp = admin_client.get(reverse("hub_admin_voting_overview"))
+        assert resp.context["active_tab"] == "atglance"
+
+    def it_renders_the_full_tab_nav_on_the_member_page_for_admins(admin_client):
+        resp = admin_client.get(reverse("hub_guild_voting"))
+        content = resp.content.decode()
+        assert resp.context["active_tab"] == "overview"
+        assert "At A Glance" in content
+        assert reverse("hub_admin_voting_settings") in content
+
+    def it_hides_the_tab_nav_from_plain_members(member_client):
+        content = member_client.get(reverse("hub_guild_voting")).content.decode()
+        assert "At A Glance" not in content
+        assert reverse("hub_admin_voting_settings") not in content

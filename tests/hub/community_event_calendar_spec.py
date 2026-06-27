@@ -103,7 +103,7 @@ def describe_visibility_wiring():
     def it_wires_the_community_source_on_a_guild_calendar(client: Client):
         _login(client, "vis2")
         guild = GuildFactory()
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Community events" in resp.content
 
 
