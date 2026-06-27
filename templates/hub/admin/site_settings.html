@@ -125,7 +125,7 @@
     </button>
   </div>
 
-  <form method="post" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
+  <form method="post" id="site-settings-form" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
     {% csrf_token %}
     <input type="hidden" name="submitted_tab" :value="tab">
 
@@ -290,14 +290,15 @@
         {% endif %}
       </div>
 
-      {# Sync Now button — separate form so it doesn't require the full settings form to be valid #}
+      {% comment %}Sync Now submits the MAIN settings form with action=sync_now. The view runs
+      the sync (and redirects) before the settings form is validated, so it never needs a valid
+      form. This must NOT be its own form element — a nested form is invalid HTML and closes the
+      main form early, orphaning the Save button below it.{% endcomment %}
       <div>
-        <form method="post" id="sync-now-form"
-              data-estimate="{{ config.legacy_cms_last_sync_duration|default_if_none:'' }}"
-              style="display:flex;flex-direction:column;gap:0.6rem;align-items:flex-start;max-width:320px;">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="sync_now">
-          <button type="submit" id="sync-now-btn" class="hub-btn hub-btn--sm hub-btn--primary">
+        <div id="sync-now-wrap"
+             data-estimate="{{ config.legacy_cms_last_sync_duration|default_if_none:'' }}"
+             style="display:flex;flex-direction:column;gap:0.6rem;align-items:flex-start;max-width:320px;">
+          <button type="submit" name="action" value="sync_now" id="sync-now-btn" class="hub-btn hub-btn--sm hub-btn--primary">
             <span class="sync-spinner" aria-hidden="true"></span>
             <span class="sync-now-label">Sync Now</span>
           </button>
@@ -305,7 +306,7 @@
             <div class="sync-progress__fill"></div>
           </div>
           <small class="sync-status" style="color:var(--hub-text-muted);" hidden></small>
-        </form>
+        </div>
         {% if config.legacy_cms_last_sync_duration %}
           <small style="color:var(--hub-text-muted);">Typically takes about {{ config.legacy_cms_last_sync_duration|floatformat:0 }}s.</small>
         {% endif %}
@@ -435,38 +436,42 @@
   #sync-now-btn.is-syncing .sync-spinner { display: inline-block; }
   #sync-now-btn[disabled] { opacity: 0.85; cursor: progress; }
   @keyframes sync-spin { to { transform: rotate(360deg); } }
-  #sync-now-form .sync-progress {
+  #sync-now-wrap .sync-progress {
     width: 100%; height: 6px; border-radius: 3px; overflow: hidden;
     background: var(--hub-border, #e5e7eb);
   }
-  #sync-now-form .sync-progress__fill {
+  #sync-now-wrap .sync-progress__fill {
     height: 100%; width: 0; border-radius: 3px;
     background: linear-gradient(90deg, #60a5fa, #34d399); transition: width 0.25s linear;
   }
-  #sync-now-form .sync-progress__fill.is-indeterminate {
+  #sync-now-wrap .sync-progress__fill.is-indeterminate {
     width: 35% !important; animation: sync-indet 1.1s ease-in-out infinite;
   }
   @keyframes sync-indet { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 </style>
 <script>
   (function () {
-    var form = document.getElementById('sync-now-form');
-    if (!form) return;
-    form.addEventListener('submit', function () {
+    var form = document.getElementById('site-settings-form');
+    var wrap = document.getElementById('sync-now-wrap');
+    if (!form || !wrap) return;
+    form.addEventListener('submit', function (event) {
+      // Sync Now and Save settings share this form — only react to the Sync Now submitter.
+      if (!event.submitter || event.submitter.id !== 'sync-now-btn') return;
       var btn = document.getElementById('sync-now-btn');
       if (btn.disabled) return;
-      var label = form.querySelector('.sync-now-label');
-      var prog = form.querySelector('.sync-progress');
-      var fill = form.querySelector('.sync-progress__fill');
-      var status = form.querySelector('.sync-status');
+      var label = wrap.querySelector('.sync-now-label');
+      var prog = wrap.querySelector('.sync-progress');
+      var fill = wrap.querySelector('.sync-progress__fill');
+      var status = wrap.querySelector('.sync-status');
 
       btn.classList.add('is-syncing');
-      btn.disabled = true;
+      // Defer disabling so the button's name=value is still serialized into this submission.
+      setTimeout(function () { btn.disabled = true; }, 0);
       if (label) label.textContent = 'Syncing…';
       prog.hidden = false;
       status.hidden = false;
 
-      var estimate = parseFloat(form.getAttribute('data-estimate'));
+      var estimate = parseFloat(wrap.getAttribute('data-estimate'));
       var t0 = Date.now();
       function tick() {
         var s = Math.round((Date.now() - t0) / 1000);

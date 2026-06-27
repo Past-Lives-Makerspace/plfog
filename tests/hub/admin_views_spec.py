@@ -547,6 +547,21 @@ def describe_admin_site_settings():
         config = SiteConfiguration.load()
         assert config.registration_mode == SiteConfiguration.RegistrationMode.OPEN
 
+    def it_keeps_the_save_button_inside_the_settings_form(client):
+        # Regression: the Sync Now control used to be its own nested <form>, which is invalid
+        # HTML — the browser closed the main settings form at the nested </form>, orphaning the
+        # Save button so every save silently did nothing. (Test-client POSTs don't parse HTML, so
+        # the bug was invisible to the other specs.) Assert no nested form and the Save button +
+        # Sync Now control live inside the settings form.
+        _create_superuser(client)
+        html = client.get(reverse("hub_admin_site_settings")).content.decode()
+        start = html.index('<form method="post" id="site-settings-form"')
+        main_form = html[start : html.index("</form>", start)]
+        assert "<form" not in main_form[1:], "no nested <form> inside the settings form"
+        assert "Save settings" in main_form, "Save button must be inside the settings form"
+        assert 'name="action" value="sync_now"' in main_form, "Sync Now submits the main form"
+        assert 'id="sync-now-form"' not in html, "the old nested Sync Now form must be gone"
+
     def it_re_renders_with_errors_on_invalid_settings(client):
         _create_superuser(client)
         response = client.post(
