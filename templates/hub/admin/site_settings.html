@@ -38,6 +38,13 @@
     accent-color: #EEB44B;
     cursor: pointer;
   }
+  /* The Features tab renders boolean fields as pl-toggle switches (components/form_field.html).
+     The rule above would otherwise force the toggle's visually-hidden checkbox back to 18px —
+     keep it collapsed so only the themed slider shows. */
+  .site-settings-form .pl-toggle input[type="checkbox"] {
+    width: 0;
+    height: 0;
+  }
   .site-settings-form .field-row { display: flex; flex-direction: column; gap: 0.35rem; }
   .site-settings-form .field-checkbox { flex-direction: row; align-items: center; gap: 0.625rem; }
 
@@ -350,26 +357,9 @@
         </p>
       </div>
 
-      <div class="field-row field-checkbox">
-        {{ form.tab_payments_enabled }}
-        <label for="{{ form.tab_payments_enabled.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ form.tab_payments_enabled.label }}</label>
-      </div>
-      {% if form.tab_payments_enabled.help_text %}<small style="color:var(--hub-text-muted);margin-top:-1rem;">{{ form.tab_payments_enabled.help_text }}</small>{% endif %}
-      {% if form.tab_payments_enabled.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ form.tab_payments_enabled.errors }}</div>{% endif %}
-
-      <div class="field-row field-checkbox">
-        {{ form.class_registration_enabled }}
-        <label for="{{ form.class_registration_enabled.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ form.class_registration_enabled.label }}</label>
-      </div>
-      {% if form.class_registration_enabled.help_text %}<small style="color:var(--hub-text-muted);margin-top:-1rem;">{{ form.class_registration_enabled.help_text }}</small>{% endif %}
-      {% if form.class_registration_enabled.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ form.class_registration_enabled.errors }}</div>{% endif %}
-
-      <div class="field-row">
-        <label for="{{ form.class_registration_disabled_note.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ form.class_registration_disabled_note.label }}</label>
-        {{ form.class_registration_disabled_note }}
-        {% if form.class_registration_disabled_note.help_text %}<small style="color:var(--hub-text-muted);">{{ form.class_registration_disabled_note.help_text }}</small>{% endif %}
-        {% if form.class_registration_disabled_note.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ form.class_registration_disabled_note.errors }}</div>{% endif %}
-      </div>
+      {% include "components/form_field.html" with field=form.tab_payments_enabled %}
+      {% include "components/form_field.html" with field=form.class_registration_enabled %}
+      {% include "components/form_field.html" with field=form.class_registration_disabled_note %}
     </div>
 
     <div x-show="tab !== 'announcements'">
