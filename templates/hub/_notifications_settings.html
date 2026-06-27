@@ -24,7 +24,7 @@
           <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Disconnect</button>
         </form>
       {% else %}
-        <a href="{% url 'hub_discord_connect' %}" class="hub-btn hub-btn--sm hub-btn--primary">Connect Discord</a>
+        <a href="{% url 'hub_discord_connect' %}" class="hub-btn hub-btn--sm hub-btn--primary" hx-boost="false">Connect Discord</a>
       {% endif %}
     </div>
   {% endif %}
