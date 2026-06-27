@@ -699,6 +699,76 @@ def describe_admin_site_settings_legacy_cms():
         assert any(row["instructor"].display_name == "Test Instructor" for row in rows)
 
 
+def describe_admin_site_settings_features():
+    def it_renders_the_features_tab_when_requested(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
+        assert response.status_code == 200
+        assert response.context["active_tab"] == "features"
+        assert b"Enable My Tab &amp; Payments" in response.content
+        assert b"Allow class registration" in response.content
+
+    def it_renders_the_feature_fields_only_once(client):
+        # Excluded from the General loop — each control renders only in the Features panel.
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings"))
+        assert response.content.count(b'id="id_tab_payments_enabled"') == 1
+        assert response.content.count(b'id="id_class_registration_enabled"') == 1
+        assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
+
+    def it_saves_the_feature_switches(client):
+        _create_superuser(client)
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={
+                "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "sync_classes_enabled": "",
+                "classes_calendar_color": "#abcdef",
+                "mailchimp_api_key": "",
+                "mailchimp_list_id": "",
+                "google_analytics_measurement_id": "",
+                # Both switches omitted → unchecked → False.
+                "class_registration_disabled_note": "We'll be back soon.",
+                "submitted_tab": "features",
+                "feeds-TOTAL_FORMS": "0",
+                "feeds-INITIAL_FORMS": "0",
+                "feeds-MIN_NUM_FORMS": "0",
+                "feeds-MAX_NUM_FORMS": "1000",
+            },
+        )
+        assert response.status_code == 302
+        assert "tab=features" in response["Location"]
+        config = SiteConfiguration.load()
+        assert config.tab_payments_enabled is False
+        assert config.class_registration_enabled is False
+        assert config.class_registration_disabled_note == "We'll be back soon."
+
+    def it_keeps_the_switches_on_when_checked(client):
+        _create_superuser(client)
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={
+                "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "sync_classes_enabled": "",
+                "classes_calendar_color": "#abcdef",
+                "mailchimp_api_key": "",
+                "mailchimp_list_id": "",
+                "google_analytics_measurement_id": "",
+                "tab_payments_enabled": "on",
+                "class_registration_enabled": "on",
+                "class_registration_disabled_note": "",
+                "feeds-TOTAL_FORMS": "0",
+                "feeds-INITIAL_FORMS": "0",
+                "feeds-MIN_NUM_FORMS": "0",
+                "feeds-MAX_NUM_FORMS": "1000",
+            },
+        )
+        assert response.status_code == 302
+        config = SiteConfiguration.load()
+        assert config.tab_payments_enabled is True
+        assert config.class_registration_enabled is True
+
+
 def describe_admin_site_settings_announcements():
     def it_renders_the_announcements_tab(client):
         _create_superuser(client)

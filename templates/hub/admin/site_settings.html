@@ -105,6 +105,12 @@
       Legacy CMS
     </button>
     <button type="button"
+            @click="tab = 'features'"
+            :class="{ 'vote-tab--active': tab === 'features' }"
+            class="vote-tab">
+      Features
+    </button>
+    <button type="button"
             @click="tab = 'announcements'"
             :class="{ 'vote-tab--active': tab === 'announcements' }"
             class="vote-tab">
@@ -119,7 +125,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -333,6 +339,37 @@
         </table>
       </div>
 
+    </div>
+
+    {# -------- Features tab -------- #}
+    <div x-show="tab === 'features'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
+      <div>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Feature switches</h2>
+        <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+          Soft-launch toggles. Leave these on for normal operation; turn one off to hide a feature that isn't ready yet.
+        </p>
+      </div>
+
+      <div class="field-row field-checkbox">
+        {{ form.tab_payments_enabled }}
+        <label for="{{ form.tab_payments_enabled.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ form.tab_payments_enabled.label }}</label>
+      </div>
+      {% if form.tab_payments_enabled.help_text %}<small style="color:var(--hub-text-muted);margin-top:-1rem;">{{ form.tab_payments_enabled.help_text }}</small>{% endif %}
+      {% if form.tab_payments_enabled.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ form.tab_payments_enabled.errors }}</div>{% endif %}
+
+      <div class="field-row field-checkbox">
+        {{ form.class_registration_enabled }}
+        <label for="{{ form.class_registration_enabled.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ form.class_registration_enabled.label }}</label>
+      </div>
+      {% if form.class_registration_enabled.help_text %}<small style="color:var(--hub-text-muted);margin-top:-1rem;">{{ form.class_registration_enabled.help_text }}</small>{% endif %}
+      {% if form.class_registration_enabled.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ form.class_registration_enabled.errors }}</div>{% endif %}
+
+      <div class="field-row">
+        <label for="{{ form.class_registration_disabled_note.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ form.class_registration_disabled_note.label }}</label>
+        {{ form.class_registration_disabled_note }}
+        {% if form.class_registration_disabled_note.help_text %}<small style="color:var(--hub-text-muted);">{{ form.class_registration_disabled_note.help_text }}</small>{% endif %}
+        {% if form.class_registration_disabled_note.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ form.class_registration_disabled_note.errors }}</div>{% endif %}
+      </div>
     </div>
 
     <div x-show="tab !== 'announcements'">

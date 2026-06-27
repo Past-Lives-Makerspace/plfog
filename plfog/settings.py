@@ -144,6 +144,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "core.context_processors.registration_mode",
                 "core.context_processors.app_version",
+                "core.context_processors.feature_flags",
                 "core.context_processors.google_analytics",
                 "core.context_processors.surface",
                 "core.context_processors.persona",

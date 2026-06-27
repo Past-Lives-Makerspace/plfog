@@ -39,6 +39,12 @@ _WEBHOOK_HANDLERS = {
 @login_required
 def setup_payment_method(request: HttpRequest) -> HttpResponse:
     """Page with Stripe Elements for adding/replacing a payment method."""
+    from core.models import SiteConfiguration
+
+    if not SiteConfiguration.load().tab_payments_enabled:
+        django_messages.info(request, "My Tab isn't available right now.")
+        return redirect("home")
+
     from membership.models import Member
 
     member: Member | None = getattr(request.user, "member", None)

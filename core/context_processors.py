@@ -23,6 +23,18 @@ def app_version(request: HttpRequest) -> dict[str, Any]:
     return {"app_version": VERSION, "changelog": CHANGELOG}
 
 
+def feature_flags(request: HttpRequest) -> dict[str, Any]:
+    """Expose the Site Settings → Features toggles site-wide (members + public)."""
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.load()
+    return {
+        "tab_payments_enabled": config.tab_payments_enabled,
+        "class_registration_enabled": config.class_registration_enabled,
+        "class_registration_disabled_note": config.class_registration_disabled_note,
+    }
+
+
 def surface(request: HttpRequest) -> dict[str, str | bool]:
     """Expose which surface the request arrived on so templates can branch chrome.
 

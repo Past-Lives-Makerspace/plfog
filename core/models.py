@@ -183,6 +183,24 @@ class SiteConfiguration(models.Model):
         verbose_name="Google Analytics measurement ID",
         help_text="GA4 measurement ID (e.g. G-XXXXXXX) — injected site-wide (excludes the Django admin). Leave blank to disable.",
     )
+    tab_payments_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Enable My Tab & Payments",
+        help_text="When off, hides My Tab, the balance pill, the Buyables tab on guild pages, "
+        "and the admin Payments/Reports nav. Members visiting the Tab pages are redirected.",
+    )
+    class_registration_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Allow class registration",
+        help_text="When off, the public Register button is disabled (with the note below) and "
+        "the registration form refuses sign-ups.",
+    )
+    class_registration_disabled_note = models.TextField(
+        blank=True,
+        default="Online registration is paused right now. Email info@pastlives.space and we'll help you sign up.",
+        verbose_name="Registration-off message",
+        help_text="Shown under the disabled Register button when class registration is off.",
+    )
 
     class Meta:
         verbose_name = "Site Settings"

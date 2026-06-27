@@ -374,6 +374,10 @@
         {% if not is_bookable %}
           <div class="cp-detail__spots cp-detail__spots--full">Registration closed</div>
           <div class="cp-detail__waitlist-hint">This {% if offering.is_series %}series{% else %}class{% endif %} has already started — sign-ups are closed.</div>
+        {% elif not class_registration_enabled %}
+          <div class="cp-detail__spots cp-detail__spots--full">Registration unavailable</div>
+          <span class="cp-detail__cta cp-detail__cta--disabled" aria-disabled="true" role="button">Registration unavailable</span>
+          <div class="cp-detail__waitlist-hint">{{ class_registration_disabled_note }}</div>
         {% else %}
           <div class="cp-detail__spots cp-detail__spots--{{ spots_remaining|spots_class }}">
             {% if spots_remaining == 0 %}

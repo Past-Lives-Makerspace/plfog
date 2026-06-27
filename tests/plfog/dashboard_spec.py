@@ -157,9 +157,7 @@ def describe_site_announcement_view():
         member = MemberFactory()  # ACTIVE
         with mute_signals(post_save):
             # last_login set → "activated"; the spine skips never-signed-in members.
-            recipient = User.objects.create_user(
-                username="sa_two", email="sa2@example.com", last_login=timezone.now()
-            )
+            recipient = User.objects.create_user(username="sa_two", email="sa2@example.com", last_login=timezone.now())
         member.user = recipient
         member.save(update_fields=["user"])
 

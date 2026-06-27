@@ -411,6 +411,23 @@ def describe_public_class_detail():
         assert response.status_code == 200
         assert b"Sold out" in response.content
 
+    def it_shows_the_disabled_cta_and_note_when_class_registration_off(published_class, client):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.class_registration_enabled = False
+        config.class_registration_disabled_note = "Email the studio to reserve a seat."
+        config.save()
+
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+        assert response.status_code == 200
+        assert b"cp-detail__cta--disabled" in response.content
+        assert b"Registration unavailable" in response.content
+        assert b"Email the studio to reserve a seat." in response.content
+        # The live Register link must not be offered.
+        assert b"Register now" not in response.content
+        assert reverse("classes:register", kwargs={"slug": published_class.slug}).encode() not in response.content
+
     def it_renders_a_unique_seo_title_and_meta_description(published_class, client):
         from django.utils.html import escape
 

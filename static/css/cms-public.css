@@ -1002,6 +1002,25 @@ a.cp-detail__cta--waitlist:hover {
   background: rgba(238,180,75,0.08);
   color: var(--gold);
 }
+.cp-detail__cta--disabled {
+  display: block;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  background: var(--bg4);
+  color: var(--text2);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+  text-decoration: none;
+  min-height: 44px;
+  box-shadow: none;
+  cursor: default;
+  pointer-events: none;
+}
 .cp-detail__waitlist-hint {
   margin-top: 10px;
   font-size: 13px;

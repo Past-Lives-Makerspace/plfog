@@ -82,6 +82,20 @@ def describe_setup_payment_method():
         # Renders without error regardless of member state
         assert response.status_code in (200, 302)
 
+    def it_redirects_to_the_dashboard_when_tab_payments_disabled(client: Client):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.tab_payments_enabled = False
+        config.save()
+        User.objects.create_user(username="pm_off", password="pass")
+        client.login(username="pm_off", password="pass")
+
+        response = client.get("/billing/payment-method/setup/")
+
+        assert response.status_code == 302
+        assert response.url == "/"
+
 
 def describe_create_setup_intent_api():
     def it_requires_login(client: Client):

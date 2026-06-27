@@ -47,6 +47,21 @@ def describe_guild_tabs():
         assert b">Products<" in body
         assert body.index(panel) < body.index(b">Products<")
 
+    def it_hides_the_buyables_tab_when_tab_payments_disabled(client: Client):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.tab_payments_enabled = False
+        config.save()
+        _member("t_off")
+        client.login(username="t_off", password="pw")
+        guild = GuildFactory()
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
+        assert b"section === 'buyables'" not in body
+        assert b">Products<" not in body
+        # The other tabs still render.
+        assert b"section === 'overview'" in body
+
     def it_loads_the_calendar_stylesheet(client: Client):
         # The pl-calendar-* grid styles live in calendar.css; without the link
         # the Calendar tab renders as an unstyled stack of day names.

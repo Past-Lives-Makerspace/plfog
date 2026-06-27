@@ -501,6 +501,18 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         messages.info(request, "Registration has closed for this class — it has already started.")
         return redirect("classes:public_class_detail", slug=offering.slug)
 
+    # Site-wide kill switch (Site Settings → Features). When class registration is
+    # off, refuse sign-ups regardless of the hidden button (defense in depth).
+    from core.models import SiteConfiguration
+
+    site_config = SiteConfiguration.load()
+    if not site_config.class_registration_enabled:
+        messages.info(
+            request,
+            site_config.class_registration_disabled_note or "Online registration is currently unavailable.",
+        )
+        return redirect("classes:public_class_detail", slug=offering.slug)
+
     # Waitlist intent: ?waitlist=1 (offered when the class is sold out) routes
     # to the no-charge waitlist branch below. Forced on automatically when the
     # class has no spots left so we never hide the option from a registrant

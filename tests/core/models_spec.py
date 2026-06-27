@@ -44,6 +44,21 @@ def describe_SiteConfiguration():
         config = SiteConfiguration.load()
         assert str(config) == "Site Settings"
 
+    def describe_feature_switches():
+        def it_defaults_tab_payments_enabled_to_true():
+            config = SiteConfiguration.load()
+            assert config.tab_payments_enabled is True
+
+        def it_defaults_class_registration_enabled_to_true():
+            config = SiteConfiguration.load()
+            assert config.class_registration_enabled is True
+
+        def it_sets_the_registration_off_note_default_on_a_fresh_singleton():
+            config = SiteConfiguration.load()
+            assert config.class_registration_disabled_note == (
+                "Online registration is paused right now. Email info@pastlives.space and we'll help you sign up."
+            )
+
 
 def describe_Invite():
     @pytest.fixture()

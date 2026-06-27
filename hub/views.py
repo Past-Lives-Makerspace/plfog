@@ -23,7 +23,7 @@ from django.views.decorators.http import require_POST, require_http_methods
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
 from classes.models import Category, ClassOffering
-from core.models import HeroCropMixin
+from core.models import HeroCropMixin, SiteConfiguration
 from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
@@ -1894,6 +1894,10 @@ def beta_feedback(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET"])
 def tab_detail(request: HttpRequest) -> HttpResponse:
     """My Tab page — shows current balance, pending entries, and saved payment method."""
+    if not SiteConfiguration.load().tab_payments_enabled:
+        messages.info(request, "My Tab isn't available right now.")
+        return redirect("home")
+
     member = _get_member(request)
     ctx = _get_hub_context(request)
 
@@ -1943,6 +1947,10 @@ def void_tab_entry(request: HttpRequest, entry_pk: int) -> HttpResponse:
 @login_required
 def tab_history(request: HttpRequest) -> HttpResponse:
     """Tab History page — shows past billing charges with expandable details."""
+    if not SiteConfiguration.load().tab_payments_enabled:
+        messages.info(request, "My Tab isn't available right now.")
+        return redirect("home")
+
     member = _get_member(request)
     ctx = _get_hub_context(request)
 
@@ -3180,15 +3188,16 @@ def _save_site_settings(
 def admin_site_settings(request: HttpRequest) -> HttpResponse:
     """Admin site settings — edit the SiteConfiguration singleton and its calendar feeds.
 
-    Tabs: ``general``, ``calendar``, ``legacy-cms``, and ``announcements`` (a sitewide
-    announcement composer with a preview-then-send step). The Calendar tab owns a
-    ``CalendarFeedFormSet`` so admins can add/remove iCal feeds inline.
+    Tabs: ``general``, ``calendar``, ``legacy-cms``, ``features`` (the My Tab/Payments
+    and class-registration kill switches), and ``announcements`` (a sitewide announcement
+    composer with a preview-then-send step). The Calendar tab owns a ``CalendarFeedFormSet``
+    so admins can add/remove iCal feeds inline.
     """
     from core.models import CalendarFeed, SiteConfiguration
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
-    if active_tab not in {"general", "calendar", "legacy-cms", "announcements"}:
+    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features"}:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()

@@ -10,6 +10,7 @@ from django.test import RequestFactory
 
 from billing.context_processors import tab_context
 from billing.models import Tab
+from core.models import SiteConfiguration
 from membership.models import Member
 from tests.billing.factories import TabEntryFactory, TabFactory
 
@@ -49,6 +50,19 @@ def describe_tab_context():
         assert result["tab_balance"] == Decimal("0.00")
         assert result["tab_is_locked"] is False
         assert result["tab_has_payment_method"] is False
+
+    def it_returns_empty_dict_when_tab_payments_disabled(rf: RequestFactory):
+        config = SiteConfiguration.load()
+        config.tab_payments_enabled = False
+        config.save()
+        user = User.objects.create_user(username="payments_off", password="pass")
+        TabFactory(member=user.member)
+        request = rf.get("/")
+        request.user = user
+
+        result = tab_context(request)
+
+        assert result == {}
 
     def it_returns_correct_balance(rf: RequestFactory):
         user = User.objects.create_user(username="has_tab", password="pass")

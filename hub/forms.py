@@ -459,9 +459,13 @@ class SiteSettingsForm(forms.ModelForm):
             "mailchimp_api_key",
             "mailchimp_list_id",
             "google_analytics_measurement_id",
+            "tab_payments_enabled",
+            "class_registration_enabled",
+            "class_registration_disabled_note",
         ]
         widgets = {
             "classes_calendar_color": forms.TextInput(attrs={"type": "color"}),
+            "class_registration_disabled_note": forms.Textarea(attrs={"rows": 3}),
         }
 
 
