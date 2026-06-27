@@ -97,6 +97,16 @@ class ChannelAdapter(Protocol):
     def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None: ...
 
 
+def _fit(value: str, limit: int) -> str:
+    """Clip a value to a CharField's ``max_length``.
+
+    Bell rows are one-liners (``title`` 200, ``body`` 500). A long announcement body
+    or subject would otherwise overflow the column and crash the whole ``emit()`` — so
+    every in-app write is clipped here (the full content still rides the email).
+    """
+    return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
+
+
 class InAppAdapter:
     """Writes one in-app bell :class:`core.models.Notification` row.
 
@@ -112,8 +122,8 @@ class InAppAdapter:
         Notification.objects.create(
             user=user,
             trigger=message.trigger_kind or "",
-            title=message.title,
-            body=message.body,
+            title=_fit(message.title, 200),
+            body=_fit(message.body, 500),
             url=message.url,
         )
 

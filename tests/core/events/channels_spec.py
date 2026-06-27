@@ -45,6 +45,16 @@ def describe_in_app_adapter():
         assert note.body == "B"
         assert note.url == "/x/"
 
+    def it_clips_an_over_length_title_and_body_to_the_column_limits():
+        # A long sitewide announcement must not overflow Notification.title (200) /
+        # body (500) — that would crash the whole emit() mid-fan-out.
+        user = _user()
+        InAppAdapter().deliver(user, _message(title="T" * 300, body="B" * 900))
+        note = Notification.objects.get(user=user)
+        assert len(note.title) == 200
+        assert len(note.body) == 500
+        assert note.body.endswith("…")
+
 
 def describe_email_adapter():
     def it_sends_through_the_choke_point_and_logs():
