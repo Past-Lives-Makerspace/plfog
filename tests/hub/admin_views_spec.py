@@ -767,6 +767,43 @@ def describe_admin_site_settings_announcements():
         assert response.status_code == 200
         assert mailoutbox == []  # invalid form → nothing sent
 
+    def it_sanitizes_and_styles_the_preview(client):
+        _create_superuser(client)
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={
+                "action": "announce_preview",
+                "title": "Heads up",
+                "body": "<h2>Big</h2><p>news</p><script>evil()</script>",
+                "post_to_discord": "on",
+            },
+        )
+        assert response.status_code == 200
+        html = response.context["announce_preview"]["html"]
+        assert "<script" not in html  # editor HTML sanitized
+        assert "margin:24px" in html  # heading inline-styled for the dark card
+
+    def it_flattens_the_rich_body_for_the_in_app_bell(client):
+        from core.models import Notification
+
+        MembershipPlanFactory()
+        User.objects.create_user(username="bell", email="bell@x.com", password="p", last_login=timezone.now())
+        _create_superuser(client)
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={
+                "action": "announce_send",
+                "title": "Hi",
+                "body": "<h2>Big</h2><p>real <strong>news</strong></p>",
+                "post_to_discord": "",
+            },
+        )
+        assert response.status_code == 302
+        note = Notification.objects.filter(user__username="bell").first()
+        assert note is not None
+        assert "<" not in note.body  # bell row is flattened plain text, not HTML
+        assert "news" in note.body
+
 
 def describe_fog_admin_required():
     def it_redirects_anonymous_users_to_login(rf):

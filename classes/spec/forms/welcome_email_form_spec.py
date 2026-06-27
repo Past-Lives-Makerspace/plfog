@@ -49,3 +49,28 @@ def describe_TeachWelcomeEmailForm():
             instance=offering,
         )
         assert form.is_valid(), form.errors
+
+    def it_sanitizes_the_body_and_strips_script():
+        offering = ClassOfferingFactory(slug="wf-clean")
+        form = TeachWelcomeEmailForm(
+            {
+                "welcome_email_enabled": True,
+                "welcome_email_subject": "Hi",
+                "welcome_email_body": "<p>Bring tools</p><script>evil()</script>",
+            },
+            instance=offering,
+        )
+        assert form.is_valid(), form.errors
+        saved = form.save()
+        saved.refresh_from_db()
+        assert "<script" not in saved.welcome_email_body
+        assert "Bring tools" in saved.welcome_email_body
+
+    def it_treats_an_empty_quill_doc_as_a_missing_body():
+        offering = ClassOfferingFactory(slug="wf-blank")
+        form = TeachWelcomeEmailForm(
+            {"welcome_email_enabled": True, "welcome_email_subject": "Hi", "welcome_email_body": "<p><br></p>"},
+            instance=offering,
+        )
+        assert not form.is_valid()
+        assert "welcome_email_body" in form.errors

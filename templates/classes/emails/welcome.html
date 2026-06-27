@@ -1,4 +1,4 @@
-{% load i18n %}<!DOCTYPE html>
+{% load i18n rich_text %}<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -23,7 +23,7 @@
         <p style="margin: 0 0 24px; font-size: 18px; font-weight: 700; color: #F4EFDD;">Welcome to "<a href="{{ class_url }}" style="color: #EEB44B; text-decoration: none;">{{ offering.title }}</a>"</p>
 
         <!-- Instructor's message -->
-        <div style="font-size: 14px; color: #F4EFDD; line-height: 1.7;">{{ body|linebreaks }}</div>
+        <div style="font-size: 14px; color: #F4EFDD; line-height: 1.7;">{{ body|rich_email_body }}</div>
 
         {% if upcoming_sessions %}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 24px;">
             <tr>

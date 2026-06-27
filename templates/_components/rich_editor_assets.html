@@ -1,0 +1,8 @@
+{% load static %}
+{% comment %}Vendored Quill 2.0.3 + dark-mode theming for RichTextEditorWidget.
+Include ONCE on any page that renders a rich-text field, near the top of the content
+(or in extra_head). Body-level works under hx-boost head-support; the widget's own init
+script assumes Quill is already loaded above it.{% endcomment %}
+<link rel="stylesheet" href="{% static 'css/quill.snow.css' %}">
+<link rel="stylesheet" href="{% static 'css/rich-editor.css' %}">
+<script src="{% static 'js/quill.min.js' %}"></script>

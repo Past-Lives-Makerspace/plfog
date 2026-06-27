@@ -1,8 +1,8 @@
-Hi {{ greeting_name }},
+{% load rich_text %}Hi {{ greeting_name }},
 
 A note from your instructor — welcome to "{{ offering.title }}"!
 
-{{ body }}
+{{ body|rich_email_text }}
 {% if upcoming_sessions %}
 Schedule:
 {% for session in upcoming_sessions %}- {{ session.starts_at|date:"l, F j, Y" }} at {{ session.starts_at|time:"g:i A" }}

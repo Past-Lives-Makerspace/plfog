@@ -14,7 +14,9 @@ from django.utils.text import slugify
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
+from core.html_sanitize import sanitize_rich_html
 from core.models import CalendarFeed, SiteConfiguration
+from core.widgets import RichTextEditorWidget
 from membership.models import (
     CommunityEvent,
     Guild,
@@ -645,8 +647,8 @@ class GuildOrientationSettingsForm(forms.ModelForm):
         widgets = {
             "info": forms.Textarea(attrs={"rows": 4}),
             "closed_message": forms.TextInput(attrs={"placeholder": "On vacation till Sept 8"}),
-            "thankyou_email_body": forms.Textarea(attrs={"rows": 6}),
-            "join_email_body": forms.Textarea(attrs={"rows": 6}),
+            "thankyou_email_body": RichTextEditorWidget(attrs={"rows": 6}),
+            "join_email_body": RichTextEditorWidget(attrs={"rows": 6}),
         }
         labels = {
             "is_enabled": "Offer orientation booking on this guild's page",
@@ -664,6 +666,12 @@ class GuildOrientationSettingsForm(forms.ModelForm):
             "join_email_subject": "Welcome subject",
             "join_email_body": "Welcome message",
         }
+
+    def clean_thankyou_email_body(self) -> str:
+        return sanitize_rich_html(self.cleaned_data.get("thankyou_email_body") or "")
+
+    def clean_join_email_body(self) -> str:
+        return sanitize_rich_html(self.cleaned_data.get("join_email_body") or "")
 
     def _require_subject_and_body(self, cleaned: dict[str, Any], prefix: str, label: str) -> None:
         if cleaned.get(f"{prefix}_enabled"):
@@ -870,9 +878,10 @@ class SiteAnnouncementForm(forms.Form):
 
     title = forms.CharField(max_length=300, label="Subject")
     body = forms.CharField(
-        widget=forms.Textarea(attrs={"rows": 10}),
+        widget=RichTextEditorWidget(attrs={"rows": 10}),
         label="Message",
-        help_text="Plain text or simple HTML (paragraphs, <a href> links). Shows in the bell, email, and Discord.",
+        help_text="Use the toolbar to format — bold, headings, lists, and links. The formatted version "
+        "goes out by email; the bell and Discord get a plain-text version.",
     )
     post_to_discord = forms.BooleanField(
         required=False,
@@ -881,6 +890,12 @@ class SiteAnnouncementForm(forms.Form):
         help_text="Leave on for normal announcements. Turn OFF when sending the release notes — "
         "the release is already posted to Discord automatically when the code goes live.",
     )
+
+    def clean_body(self) -> str:
+        body = sanitize_rich_html(self.cleaned_data["body"])
+        if not body:
+            raise forms.ValidationError("Add a message before sending.")
+        return body
 
 
 class VotingSettingsForm(forms.ModelForm):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from hub.forms import ProfileSettingsForm
+from hub.forms import ProfileSettingsForm, SiteAnnouncementForm
 from tests.membership.factories import MemberFactory
 
 
@@ -101,3 +101,18 @@ def describe_profile_settings_form():
         assert form.fields["show_email"].initial is True
         # Unset key defaults to True (public):
         assert form.fields["show_pronouns"].initial is True
+
+
+def describe_site_announcement_form():
+    def it_sanitizes_the_body_and_strips_script():
+        form = SiteAnnouncementForm(
+            {"title": "Hi", "body": "<p>Hello there</p><script>evil()</script>", "post_to_discord": ""}
+        )
+        assert form.is_valid(), form.errors
+        assert "<script" not in form.cleaned_data["body"]
+        assert "Hello there" in form.cleaned_data["body"]
+
+    def it_rejects_an_empty_quill_doc_as_a_missing_message():
+        form = SiteAnnouncementForm({"title": "Hi", "body": "<p><br></p>", "post_to_discord": ""})
+        assert not form.is_valid()
+        assert "body" in form.errors

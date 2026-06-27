@@ -1,6 +1,7 @@
 {% extends "hub/base.html" %}
 {% block title %}Orientations · {{ guild.name }}{% endblock %}
 {% block content %}
+{% include "_components/rich_editor_assets.html" %}
 <div x-data="{}">
   <p style="margin-bottom:0.75rem;">
     <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to {{ guild.name }}</a>

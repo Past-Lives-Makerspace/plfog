@@ -3,6 +3,7 @@
 {% block title %}Site Settings — Past Lives{% endblock %}
 
 {% block extra_head %}
+{% include "_components/rich_editor_assets.html" %}
 <style>
   .site-settings-form input[type="text"],
   .site-settings-form input[type="url"],
@@ -355,7 +356,7 @@
       <small style="color:var(--hub-text-muted);margin-left:0.5rem;">Pre-fills the subject &amp; notes from this release's changelog (Discord left off — it auto-posts on deploy).</small>
     </div>
 
-    <form method="post" style="display:flex;flex-direction:column;gap:1.25rem;">
+    <form method="post" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;">
       {% csrf_token %}
       <div class="field-row">
         <label for="{{ announce_form.title.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ announce_form.title.label }}</label>

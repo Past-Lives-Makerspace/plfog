@@ -12,6 +12,9 @@ from django.forms import inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
 
+from core.html_sanitize import sanitize_rich_html
+from core.widgets import RichTextEditorWidget
+
 from classes.models import (
     Category,
     ClassImage,
@@ -998,20 +1001,16 @@ class TeachWelcomeEmailForm(forms.ModelForm):
                     "border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.9rem;",
                 }
             ),
-            "welcome_email_body": forms.Textarea(
-                attrs={
-                    "rows": 12,
-                    "style": "width:100%; padding:0.6rem 0.75rem; border:1px solid var(--hub-border); "
-                    "border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.9rem; "
-                    "line-height:1.6;",
-                }
-            ),
+            "welcome_email_body": RichTextEditorWidget(attrs={"rows": 12}),
         }
         labels = {
             "welcome_email_enabled": "Active",
             "welcome_email_subject": "Subject",
             "welcome_email_body": "Message",
         }
+
+    def clean_welcome_email_body(self) -> str:
+        return sanitize_rich_html(self.cleaned_data.get("welcome_email_body") or "")
 
     def clean(self) -> dict[str, object]:
         cleaned = super().clean()

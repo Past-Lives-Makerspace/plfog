@@ -1,0 +1,136 @@
+/* Rich-text editor theming for RichTextEditorWidget.
+   Vendored Quill pinned at 2.0.3 (static/js/quill.min.js + static/css/quill.snow.css).
+   Quill's "snow" theme is light by default; these rules re-skin it to the hub's dark
+   ("Obsidian") input look, with a [data-theme="light"] ("Slate") reset. Everything is
+   scoped under .pl-rte-wrap so it never leaks into other markup. */
+
+.pl-rte-source {
+    display: none;
+}
+
+.pl-rte-wrap {
+    --pl-rte-bg: var(--hub-input-bg, #13151d);
+    --pl-rte-border: var(--hub-input-border, #2a2f3a);
+    --pl-rte-text: var(--hub-text, #f4efdd);
+    --pl-rte-muted: var(--hub-text-muted, #8b97a8);
+    --pl-rte-elevated: var(--hub-elevated, #20242f);
+    --pl-rte-accent: #eeb44b;
+}
+
+/* Toolbar bar */
+.pl-rte-wrap .ql-toolbar.ql-snow {
+    border: 1px solid var(--pl-rte-border);
+    border-bottom: 0;
+    border-radius: 8px 8px 0 0;
+    background: var(--pl-rte-bg);
+}
+
+/* Editor surface */
+.pl-rte-wrap .ql-container.ql-snow {
+    border: 1px solid var(--pl-rte-border);
+    border-radius: 0 0 8px 8px;
+    background: var(--pl-rte-bg);
+    color: var(--pl-rte-text);
+    font-family: inherit;
+    font-size: 0.9rem;
+}
+
+.pl-rte-wrap .ql-editor {
+    min-height: 160px;
+    line-height: 1.6;
+}
+
+.pl-rte-wrap .ql-editor.ql-blank::before {
+    color: var(--pl-rte-muted);
+    font-style: normal;
+}
+
+/* Toolbar icons + picker labels — muted at rest */
+.pl-rte-wrap .ql-snow .ql-stroke {
+    stroke: var(--pl-rte-muted);
+}
+
+.pl-rte-wrap .ql-snow .ql-fill,
+.pl-rte-wrap .ql-snow .ql-stroke.ql-fill {
+    fill: var(--pl-rte-muted);
+}
+
+.pl-rte-wrap .ql-snow .ql-picker {
+    color: var(--pl-rte-muted);
+}
+
+/* Hover, focus, and active states — gold accent */
+.pl-rte-wrap .ql-snow.ql-toolbar button:hover,
+.pl-rte-wrap .ql-snow.ql-toolbar button:focus,
+.pl-rte-wrap .ql-snow.ql-toolbar button.ql-active,
+.pl-rte-wrap .ql-snow .ql-picker-label:hover,
+.pl-rte-wrap .ql-snow .ql-picker-label.ql-active,
+.pl-rte-wrap .ql-snow .ql-picker-item:hover,
+.pl-rte-wrap .ql-snow .ql-picker-item.ql-selected {
+    color: var(--pl-rte-accent);
+}
+
+.pl-rte-wrap .ql-snow.ql-toolbar button:hover .ql-stroke,
+.pl-rte-wrap .ql-snow.ql-toolbar button:focus .ql-stroke,
+.pl-rte-wrap .ql-snow.ql-toolbar button.ql-active .ql-stroke,
+.pl-rte-wrap .ql-snow .ql-picker-label:hover .ql-stroke,
+.pl-rte-wrap .ql-snow .ql-picker-label.ql-active .ql-stroke {
+    stroke: var(--pl-rte-accent);
+}
+
+.pl-rte-wrap .ql-snow.ql-toolbar button:hover .ql-fill,
+.pl-rte-wrap .ql-snow.ql-toolbar button.ql-active .ql-fill {
+    fill: var(--pl-rte-accent);
+}
+
+/* Header picker dropdown panel */
+.pl-rte-wrap .ql-snow .ql-picker-options {
+    background: var(--pl-rte-elevated);
+    border: 1px solid var(--pl-rte-border);
+}
+
+/* Link tooltip */
+.pl-rte-wrap .ql-snow .ql-tooltip {
+    background: var(--pl-rte-elevated);
+    border: 1px solid var(--pl-rte-border);
+    color: var(--pl-rte-text);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.pl-rte-wrap .ql-snow .ql-tooltip input[type="text"] {
+    background: var(--pl-rte-bg);
+    border: 1px solid var(--pl-rte-border);
+    color: var(--pl-rte-text);
+}
+
+.pl-rte-wrap .ql-snow .ql-tooltip a.ql-action,
+.pl-rte-wrap .ql-snow .ql-tooltip a.ql-remove {
+    color: var(--pl-rte-accent);
+}
+
+/* Links typed into the editor */
+.pl-rte-wrap .ql-editor a {
+    color: var(--pl-rte-accent);
+}
+
+/* Light theme ("Slate") — restore readable surfaces and default-dark icons */
+[data-theme="light"] .pl-rte-wrap .ql-toolbar.ql-snow,
+[data-theme="light"] .pl-rte-wrap .ql-container.ql-snow {
+    background: var(--hub-input-bg, #ffffff);
+}
+
+[data-theme="light"] .pl-rte-wrap .ql-editor {
+    color: var(--hub-text, #1d1e1e);
+}
+
+[data-theme="light"] .pl-rte-wrap .ql-snow .ql-stroke {
+    stroke: #5b6675;
+}
+
+[data-theme="light"] .pl-rte-wrap .ql-snow .ql-fill {
+    fill: #5b6675;
+}
+
+[data-theme="light"] .pl-rte-wrap .ql-snow .ql-picker {
+    color: #5b6675;
+}

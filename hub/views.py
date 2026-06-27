@@ -3056,17 +3056,17 @@ def _activated_member_count() -> int:
 def _announcement_email_html(title: str, body: str) -> str:
     """Branded announcement email HTML — shared by the preview and the real send.
 
-    The body is plain text (blank line = new paragraph); every value is escaped, then
-    wrapped in the branded shell, which inline-styles the paragraphs for the dark card.
+    ``body`` is the rich-text editor's sanitized HTML (or, for an unedited release
+    draft, legacy plain text); ``render_rich_email_body`` inline-styles it for the dark
+    card, the escaped title rides above it as an ``<h2>``, and the branded shell wraps
+    the whole fragment.
     """
     from django.utils.html import escape
 
     from core.events.templates import wrap_email_html
+    from core.html_sanitize import render_rich_email_body
 
-    paragraphs = "".join(
-        f"<p>{escape(chunk.strip()).replace(chr(10), '<br>')}</p>" for chunk in body.split("\n\n") if chunk.strip()
-    )
-    fragment = f"<h2>{escape(title)}</h2>{paragraphs}"
+    fragment = f"<h2>{escape(title)}</h2>{render_rich_email_body(body)}"
     return wrap_email_html(fragment)
 
 
@@ -3100,14 +3100,16 @@ def _send_site_announcement(request: HttpRequest, form: SiteAnnouncementForm) ->
     """
     from core.events.channels import Channel, Message
     from core.events.emit import emit
+    from core.html_sanitize import rich_html_to_text
 
     title = form.cleaned_data["title"]
-    body = form.cleaned_data["body"]
+    body = form.cleaned_data["body"]  # sanitized rich HTML (SiteAnnouncementForm.clean_body)
+    body_text = rich_html_to_text(body)  # bell + Discord (and the email text part) get plain text
     post_to_discord = form.cleaned_data["post_to_discord"]
     site_url = request.build_absolute_uri("/")
     email = Message(
         title=title,
-        body=f"{title}\n\n{body}\n\n{site_url}",
+        body=f"{title}\n\n{body_text}\n\n{site_url}",
         url=site_url,
         html_body=_announcement_email_html(title, body),
         trigger_kind="site_announcement",
@@ -3118,7 +3120,7 @@ def _send_site_announcement(request: HttpRequest, form: SiteAnnouncementForm) ->
         context={
             "member_name": "there",
             "announcement_title": title,
-            "announcement_body": body,
+            "announcement_body": body_text,
             "site_url": site_url,
         },
         url=site_url,

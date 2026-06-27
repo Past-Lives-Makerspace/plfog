@@ -114,6 +114,40 @@ def _style_copy_fragment(fragment: str) -> str:
     )
 
 
+# Inline styles for the richer rich-text-editor tag set, keyed by tag. The shell's
+# wrapper <div> carries the cream text color (inherited into <p>/<strong>); these add
+# the margins, sizes, list indentation, and the blockquote rule that mail clients won't
+# supply from a stripped <style> block. Link gold is handled by _style_copy_fragment.
+_RICH_TAG_STYLES = {
+    "h2": "margin:24px 0 12px;color:#F4EFDD;font-size:20px;line-height:1.3;font-weight:700;",
+    "h3": "margin:20px 0 10px;color:#F4EFDD;font-size:17px;line-height:1.35;font-weight:700;",
+    "ul": "margin:0 0 16px;padding-left:24px;color:#F4EFDD;font-size:15px;line-height:1.6;",
+    "ol": "margin:0 0 16px;padding-left:24px;color:#F4EFDD;font-size:15px;line-height:1.6;",
+    "li": "margin:0 0 6px;",
+    "blockquote": "margin:0 0 16px;padding:4px 0 4px 16px;border-left:3px solid #EEB44B;color:#F4EFDD;font-style:italic;",
+    "strong": "color:#F4EFDD;font-weight:700;",
+}
+
+
+def style_rich_email_fragment(fragment: str) -> str:
+    """Inline-style the richer editor tag set so a stored body reads well on the dark card.
+
+    Extends :func:`_style_copy_fragment` (which styles ``<p>``/``<a>``) to also cover
+    ``h2``/``h3``/``ul``/``ol``/``li``/``blockquote``/``strong``. A tag the sanitizer
+    already gave an inline ``style=`` is left untouched, so re-running this is idempotent
+    (the announcement path runs the fragment through ``_style_copy_fragment`` again when
+    it wraps it in the branded shell).
+    """
+    fragment = _style_copy_fragment(fragment)
+    for tag, style in _RICH_TAG_STYLES.items():
+        fragment = re.sub(
+            rf"<{tag}(?![^>]*\bstyle=)((?:\s[^>]*)?)>",
+            rf'<{tag}\1 style="{style}">',
+            fragment,
+        )
+    return fragment
+
+
 def rendered_message(event_key: str, channel: Channel, context: dict[str, Any], *, url: str = "") -> "Message":
     """Build a :class:`core.events.channels.Message` from DB/seeded copy + context.
 

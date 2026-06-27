@@ -1,6 +1,6 @@
-Hi {{ greeting_name }},
+{% load rich_text %}Hi {{ greeting_name }},
 
-{{ body }}
+{{ body|rich_email_text }}
 
 Guild page: {{ guild_url }}
 

@@ -2,31 +2,12 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.9"
+VERSION = "0.19.10"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.19.9",
-        "date": "2026-06-26",
-        "title": "Show off your skills — and open up for commissions",
-        "changes": [
-            (
-                "Your member directory profile can now list the things you make and do — woodworking, welding, music "
-                "production, web design, and lots more — with optional years of experience next to each one."
-            ),
-            (
-                "Flip on 'Open for commissions!' and add a short note if you're happy to take on custom work, "
-                "contract jobs, or consulting, so other members know they can reach out."
-            ),
-            (
-                "The member directory is now searchable and filterable by skill, and you can show just the members "
-                "who are open for commissions — handy when you're looking for the right person for a project."
-            ),
-        ],
-    },
-    {
-        "version": "0.19.8",
-        "date": "2026-06-26",
+        "version": "0.19.10",
+        "date": "2026-06-27",
         "title": "Your notifications and emails, all in one place",
         "changes": [
             (
@@ -47,6 +28,30 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             (
                 "New things you can opt into: makerspace-wide and guild announcements, a heads-up before monthly "
                 "voting closes, and the voting results once they're in."
+            ),
+            (
+                "When you write an email or announcement — a class welcome note, a guild's thank-you, a makerspace-wide "
+                "post — you now get a simple formatting toolbar: bold, italic, headings, and bulleted or numbered "
+                "lists, so what you send arrives looking polished."
+            ),
+        ],
+    },
+    {
+        "version": "0.19.9",
+        "date": "2026-06-26",
+        "title": "Show off your skills — and open up for commissions",
+        "changes": [
+            (
+                "Your member directory profile can now list the things you make and do — woodworking, welding, music "
+                "production, web design, and lots more — with optional years of experience next to each one."
+            ),
+            (
+                "Flip on 'Open for commissions!' and add a short note if you're happy to take on custom work, "
+                "contract jobs, or consulting, so other members know they can reach out."
+            ),
+            (
+                "The member directory is now searchable and filterable by skill, and you can show just the members "
+                "who are open for commissions — handy when you're looking for the right person for a project."
             ),
         ],
     },
