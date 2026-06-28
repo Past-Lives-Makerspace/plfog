@@ -548,6 +548,7 @@ def _guild_edit_context(
     *,
     form: GuildEditForm | None = None,
     orientation_form: Any = None,
+    emails_form: Any = None,
     rule_formset: Any = None,
 ) -> dict[str, Any]:
     """Build the full render context for the guild edit page (all nine in-page tabs).
@@ -560,6 +561,7 @@ def _guild_edit_context(
     """
     from hub.forms import (
         GuildAnnouncementForm,
+        GuildEmailsForm,
         GuildFAQItemFormSet,
         GuildLinkFormSet,
         GuildOrientationSettingsForm,
@@ -585,6 +587,7 @@ def _guild_edit_context(
         "orientation_form": (
             orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
         ),
+        "emails_form": emails_form if emails_form is not None else GuildEmailsForm(instance=settings_obj),
         "rule_formset": (
             rule_formset if rule_formset is not None else OrientationAvailabilityFormSet(instance=guild, prefix="rules")
         ),
@@ -1642,6 +1645,38 @@ def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @login_required
+def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the guild's two follow-up emails from the Announcements/Emails tab. Editor only.
+
+    The editors are an in-page section of the Announcements/Emails tab on ``guild_edit``,
+    so a GET just sends the viewer there. A POST validates and saves the six email fields
+    (enable-requires-subject+body, stamping each email's ``*_updated_at``), then redirects
+    back to the tab; an invalid POST re-renders the full guild edit page with the email
+    form's errors.
+    """
+    from hub.forms import GuildEmailsForm
+    from membership.models import GuildOrientationSettings
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    announcements_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements"
+    if request.method != "POST":
+        return redirect(announcements_tab)
+
+    settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
+    form = GuildEmailsForm(request.POST, instance=settings_obj)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Guild emails saved.")
+        return redirect(announcements_tab)
+
+    ctx = _guild_edit_context(request, guild, emails_form=form)
+    return render(request, "hub/guild_edit.html", ctx)
+
+
+@login_required
 @require_POST
 def guild_announcement_delete(request: HttpRequest, pk: int, announcement_pk: int) -> HttpResponse:
     """Delete a guild announcement. Editor only.
@@ -1724,7 +1759,11 @@ def guild_announcement_edit(request: HttpRequest, pk: int, announcement_pk: int)
     if request.method == "POST":
         form = GuildAnnouncementForm(request.POST, instance=announcement)
         if form.is_valid():
-            form.save()
+            # Editing never re-sends, so persist only the editable copy. The post-time
+            # send_email / post_to_discord switches aren't on the edit form, so a blank
+            # checkbox there must not clobber the originally-chosen values to False.
+            form.save(commit=False)
+            announcement.save(update_fields=["title", "body", "expires_at"])
             response = render(
                 request,
                 "hub/partials/_guild_announcement_row.html",

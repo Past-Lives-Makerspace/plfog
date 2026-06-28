@@ -1303,6 +1303,14 @@ class GuildAnnouncement(models.Model):
         blank=True,
         help_text="Last day this announcement shows on the guild page. Blank = never expires.",
     )
+    send_email = models.BooleanField(
+        default=True,
+        help_text="Also email this announcement to members who joined the guild.",
+    )
+    post_to_discord = models.BooleanField(
+        default=True,
+        help_text="Also post this announcement to the guild's own Discord channel.",
+    )
 
     objects = GuildAnnouncementQuerySet.as_manager()
 
@@ -1324,6 +1332,11 @@ class GuildAnnouncement(models.Model):
         site-wide); they receive an in-app bell row (always), an email (opt-out), and
         a single Discord broadcast. The copy is DB-editable; the merge fields come from
         this announcement. Called once by the create view after the row is saved.
+
+        The author's two opt-out switches are honored here: when ``send_email`` is off
+        the per-recipient email channel is suppressed (the in-app bell still fires), and
+        when ``post_to_discord`` is off the guild's *own* Discord webhook is skipped —
+        the makerspace-wide post still goes out, by design.
 
         The ``period`` is keyed to this announcement's pk so re-saving never double-
         notifies, while a different announcement (a different pk) still notifies.
@@ -1348,6 +1361,8 @@ class GuildAnnouncement(models.Model):
             },
             url=guild_url,
             period=f"announcement:{self.pk}",
+            suppress_email=not self.send_email,
+            suppress_guild_broadcast=not self.post_to_discord,
         )
 
 

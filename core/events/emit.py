@@ -55,6 +55,8 @@ def emit(
     attachments: dict[Channel, list[Attachment]] | None = None,
     email_to: str | list[str] | None = None,
     suppress_broadcast: bool = False,
+    suppress_email: bool = False,
+    suppress_guild_broadcast: bool = False,
 ) -> EmitResult:
     """Emit one event: log activity, resolve recipients, fan out to channels.
 
@@ -95,6 +97,15 @@ def emit(
             the admin "Sitewide Announcement" composer when sending the release notes:
             the GitHub Action already posts the release to Discord on merge to ``main``,
             so the email blast must not double-post it.
+        suppress_email: When ``True``, skip the per-recipient EMAIL channel for this
+            emit (the in-app + push fan-out still runs). Used by a guild announcement
+            whose author turned "Also send email" off: members still get the in-app
+            bell, just no email.
+        suppress_guild_broadcast: When ``True``, skip ONLY the in-context guild's own
+            Discord webhook (the dual-route post in :func:`_guild_broadcast`); the
+            central/makerspace-wide broadcast still posts. Used by a guild announcement
+            whose author turned "Also post to Discord" off — that switch governs the
+            guild's own channel, not the site-wide post.
 
     Returns:
         An :class:`EmitResult` describing what was logged and delivered.
@@ -134,7 +145,7 @@ def emit(
 
     delivered: list[tuple[int, Channel]] = []
     skipped_duplicates: list[tuple[int, Channel]] = []
-    suppress_user_email = bool(explicit_emails)
+    suppress_user_email = bool(explicit_emails) or suppress_email
     for user, _reason in recipients:
         _per_recipient_fan_out(
             event_key=event_key,
@@ -152,7 +163,14 @@ def emit(
     )
 
     broadcast_channels = _broadcast_fan_out(
-        event, message_for, period, ctx, delivered, skipped_duplicates, suppress_broadcast=suppress_broadcast
+        event,
+        message_for,
+        period,
+        ctx,
+        delivered,
+        skipped_duplicates,
+        suppress_broadcast=suppress_broadcast,
+        suppress_guild_broadcast=suppress_guild_broadcast,
     )
 
     return EmitResult(
@@ -173,6 +191,7 @@ def _broadcast_fan_out(
     delivered: list[tuple[int, Channel]],
     skipped_duplicates: list[tuple[int, Channel]],
     suppress_broadcast: bool = False,
+    suppress_guild_broadcast: bool = False,
 ) -> list[Channel]:
     """Post each broadcast channel (Discord) ONCE for the event, not per recipient.
 
@@ -209,7 +228,7 @@ def _broadcast_fan_out(
     # above — a SIBLING, not nested in the central success branch — so a
     # central-duplicate re-emit can still post the guild side the first time a guild
     # webhook is added. Discord is the only broadcast channel, so this is the gate.
-    if event.has_channel(Channel.DISCORD):
+    if event.has_channel(Channel.DISCORD) and not suppress_guild_broadcast:
         _guild_broadcast(event, Channel.DISCORD, period, ctx, message_for, delivered, skipped_duplicates)
     return posted
 

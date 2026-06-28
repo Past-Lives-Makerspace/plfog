@@ -102,6 +102,7 @@ urlpatterns = [
         views.guild_announcement_edit,
         name="hub_guild_announcement_edit",
     ),
+    path("guilds/<int:pk>/emails/save/", views.guild_emails_save, name="hub_guild_emails_save"),
     path("guilds/<int:pk>/faq/save/", views.guild_faq_save, name="hub_guild_faq_save"),
     path("guilds/<int:pk>/links/save/", views.guild_links_save, name="hub_guild_links_save"),
     path("guilds/<int:pk>/meeting-notes/", views.guild_meeting_notes, name="hub_guild_meeting_notes"),

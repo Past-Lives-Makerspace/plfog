@@ -290,3 +290,49 @@ def describe_broadcast_fan_out():
         assert EventDelivery.objects.filter(
             event_key="site_announcement", target_ref="broadcast", channel="discord"
         ).exists()
+
+
+def describe_per_announcement_suppression():
+    """A guild announcement can opt out of the email channel and its OWN Discord post."""
+
+    def it_skips_the_email_channel_when_suppress_email_is_set(linked_member):
+        from tests.membership.factories import GuildMembershipFactory
+
+        guild = GuildFactory()
+        member = linked_member()
+        GuildMembershipFactory(guild=guild, member=member)
+        result = emit("guild_announcement", context={"guild": guild}, title="t", body="b", suppress_email=True)
+        # No email despite the channel being opt-out (default ON) for guild announcements.
+        assert not TransactionalEmailLog.objects.filter(trigger_kind="guild_announcement").exists()
+        # The in-app bell still fires for the guild member.
+        assert (member.user_id, Channel.IN_APP) in result.delivered
+        assert all(channel is not Channel.EMAIL for _pk, channel in result.delivered)
+
+    def it_still_emails_the_guild_member_by_default(linked_member):
+        from tests.membership.factories import GuildMembershipFactory
+
+        guild = GuildFactory()
+        member = linked_member()
+        GuildMembershipFactory(guild=guild, member=member)
+        emit("guild_announcement", context={"guild": guild}, title="t", body="b")
+        assert TransactionalEmailLog.objects.filter(trigger_kind="guild_announcement").count() == 1
+
+    def it_skips_the_guild_webhook_but_keeps_the_central_post_when_guild_broadcast_suppressed():
+        from unittest.mock import patch
+
+        guild = GuildFactory(discord_post_enabled=True, discord_webhook_url="https://discord.com/api/webhooks/guild")
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            emit("guild_announcement", context={"guild": guild}, title="t", body="b", suppress_guild_broadcast=True)
+        posted = [call.args[0] for call in mock_post.call_args_list]
+        assert "https://discord.com/api/webhooks/guild" not in posted
+        # The central makerspace-wide broadcast still fired (its own ledger slot).
+        assert mock_post.call_count >= 1
+
+    def it_posts_to_the_guild_webhook_when_not_suppressed():
+        from unittest.mock import patch
+
+        guild = GuildFactory(discord_post_enabled=True, discord_webhook_url="https://discord.com/api/webhooks/guild")
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            emit("guild_announcement", context={"guild": guild}, title="t", body="b")
+        posted = [call.args[0] for call in mock_post.call_args_list]
+        assert "https://discord.com/api/webhooks/guild" in posted

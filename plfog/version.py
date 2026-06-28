@@ -14,6 +14,11 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "Editing a guild page is smoother — Orientations, Meeting Notes, and Events are now tabs right inside "
                 "the editor instead of separate pages, so you stay in one place while you set everything up."
             ),
+            (
+                "When you post a guild announcement you can now choose whether to also email everyone who's joined and "
+                "whether to also post it to your guild's Discord channel — and your guild's welcome and thank-you "
+                "emails now live on the new Announcements/Emails tab."
+            ),
         ],
     },
     {

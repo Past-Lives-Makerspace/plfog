@@ -41,3 +41,31 @@ def describe_notify_members_url():
 
         _args, kwargs = mock_emit.call_args
         assert kwargs["context"]["guild"] == guild
+
+
+def describe_notify_members_broadcast_choices():
+    """The author's two opt-out switches ride into ``emit`` as suppression flags."""
+
+    def it_defaults_to_sending_both_channels():
+        guild = GuildFactory()
+        announcement = GuildAnnouncement.objects.create(guild=guild, title="T", body="B")
+
+        with patch("core.events.emit.emit") as mock_emit:
+            announcement.notify_members()
+
+        _args, kwargs = mock_emit.call_args
+        assert kwargs["suppress_email"] is False
+        assert kwargs["suppress_guild_broadcast"] is False
+
+    def it_passes_through_the_authors_off_choices():
+        guild = GuildFactory()
+        announcement = GuildAnnouncement.objects.create(
+            guild=guild, title="T", body="B", send_email=False, post_to_discord=False
+        )
+
+        with patch("core.events.emit.emit") as mock_emit:
+            announcement.notify_members()
+
+        _args, kwargs = mock_emit.call_args
+        assert kwargs["suppress_email"] is True
+        assert kwargs["suppress_guild_broadcast"] is True

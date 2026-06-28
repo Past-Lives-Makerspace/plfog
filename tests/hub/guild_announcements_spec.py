@@ -113,6 +113,37 @@ def describe_announcement_create():
         assert resp.status_code == 403
         assert not GuildAnnouncement.objects.filter(guild=guild).exists()
 
+    def it_persists_send_options_off_when_the_toggles_are_unchecked(client: Client):
+        # An unchecked toggle is simply absent from the POST → stored as False.
+        _editor_user("ac_off")
+        client.login(username="ac_off", password="pw")
+        guild = GuildFactory()
+        client.post(
+            reverse("hub_guild_announcement_create", args=[guild.pk]),
+            {"title": "Quiet post", "body": "No email, no Discord.", "expires_at": ""},
+        )
+        announcement = GuildAnnouncement.objects.get(guild=guild, title="Quiet post")
+        assert announcement.send_email is False
+        assert announcement.post_to_discord is False
+
+    def it_persists_send_options_on_when_the_toggles_are_checked(client: Client):
+        _editor_user("ac_on")
+        client.login(username="ac_on", password="pw")
+        guild = GuildFactory()
+        client.post(
+            reverse("hub_guild_announcement_create", args=[guild.pk]),
+            {
+                "title": "Loud post",
+                "body": "Email + Discord.",
+                "expires_at": "",
+                "send_email": "on",
+                "post_to_discord": "on",
+            },
+        )
+        announcement = GuildAnnouncement.objects.get(guild=guild, title="Loud post")
+        assert announcement.send_email is True
+        assert announcement.post_to_discord is True
+
 
 @pytest.mark.django_db
 def describe_announcement_edit():
@@ -177,6 +208,21 @@ def describe_announcement_edit():
         # ... and the close-modal event that actually dismisses the modal.
         settle = json.loads(resp["HX-Trigger-After-Settle"])
         assert settle["close-modal"] == f"edit-ann-{announcement.pk}"
+
+    def it_does_not_clobber_the_send_options_on_edit(client: Client):
+        # Editing never re-sends, and the toggles aren't on the edit form — a blank
+        # checkbox there must not flip the originally-chosen send options to False.
+        _editor_user("ae_noclobber")
+        client.login(username="ae_noclobber", password="pw")
+        guild = GuildFactory()
+        announcement = GuildAnnouncementFactory(guild=guild, send_email=True, post_to_discord=True)
+        client.post(
+            reverse("hub_guild_announcement_edit", args=[guild.pk, announcement.pk]),
+            {"title": "Edited", "body": "Edited body", "expires_at": ""},
+        )
+        announcement.refresh_from_db()
+        assert announcement.send_email is True
+        assert announcement.post_to_discord is True
 
     def it_re_renders_with_errors_and_no_close_trigger_on_invalid(client: Client):
         _editor_user("ae_inv")
@@ -243,3 +289,12 @@ def describe_announcement_display():
         GuildAnnouncementFactory(guild=guild, title="GoneAnnounce", expires_at=timezone.localdate() - timedelta(days=1))
         resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"GoneAnnounce" not in resp.content
+
+
+def describe_announcement_form_send_options():
+    def it_defaults_both_switches_to_on():
+        from hub.forms import GuildAnnouncementForm
+
+        form = GuildAnnouncementForm()
+        assert form["send_email"].value() is True
+        assert form["post_to_discord"].value() is True

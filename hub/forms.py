@@ -624,10 +624,10 @@ GuildMeetingNoteAttachmentFormSet = forms.inlineformset_factory(
 
 
 class GuildOrientationSettingsForm(forms.ModelForm):
-    """Edit a guild's orientation config plus its two lead-authored follow-up emails.
+    """Edit a guild's orientation booking configuration.
 
-    Enabling either follow-up email requires a subject and a body, mirroring the
-    instructor welcome-email form. Saving stamps each email's ``*_updated_at``.
+    The two lead-authored follow-up emails (thank-you + welcome) live on their own
+    :class:`GuildEmailsForm` (Announcements/Emails tab); only the booking config is here.
     """
 
     class Meta:
@@ -641,18 +641,10 @@ class GuildOrientationSettingsForm(forms.ModelForm):
             "default_duration_minutes",
             "is_closed",
             "closed_message",
-            "thankyou_email_enabled",
-            "thankyou_email_subject",
-            "thankyou_email_body",
-            "join_email_enabled",
-            "join_email_subject",
-            "join_email_body",
         ]
         widgets = {
             "info": forms.Textarea(attrs={"rows": 4}),
             "closed_message": forms.TextInput(attrs={"placeholder": "On vacation till Sept 8"}),
-            "thankyou_email_body": RichTextEditorWidget(attrs={"rows": 6}),
-            "join_email_body": RichTextEditorWidget(attrs={"rows": 6}),
         }
         labels = {
             "is_enabled": "Offer orientation booking on this guild's page",
@@ -663,6 +655,33 @@ class GuildOrientationSettingsForm(forms.ModelForm):
             "default_duration_minutes": "Default length (minutes)",
             "is_closed": "Temporarily closed for orientations",
             "closed_message": "Closed message",
+        }
+
+
+class GuildEmailsForm(forms.ModelForm):
+    """Edit a guild's two lead-authored follow-up emails (thank-you + welcome).
+
+    These live on the Announcements/Emails tab of the guild editor. The email *data*
+    stays on :class:`~membership.models.GuildOrientationSettings`; only the editing UI
+    moved here. Enabling either email requires a subject and a body, mirroring the
+    instructor welcome-email form. Saving stamps each email's ``*_updated_at``.
+    """
+
+    class Meta:
+        model = GuildOrientationSettings
+        fields = [
+            "thankyou_email_enabled",
+            "thankyou_email_subject",
+            "thankyou_email_body",
+            "join_email_enabled",
+            "join_email_subject",
+            "join_email_body",
+        ]
+        widgets = {
+            "thankyou_email_body": RichTextEditorWidget(attrs={"rows": 6}),
+            "join_email_body": RichTextEditorWidget(attrs={"rows": 6}),
+        }
+        labels = {
             "thankyou_email_enabled": "Send a thank-you / next-steps email after orientation",
             "thankyou_email_subject": "Thank-you subject",
             "thankyou_email_body": "Thank-you message",
@@ -901,16 +920,26 @@ class GuildStaffAddForm(forms.Form):
 
 
 class GuildAnnouncementForm(forms.ModelForm):
-    """Post a news announcement on a guild page."""
+    """Post a news announcement on a guild page.
+
+    Two opt-out switches (both default ON) let the author choose whether to also email
+    the guild's joined members and whether to also post to the guild's own Discord
+    channel. ``GuildAnnouncement.notify_members`` reads the saved values and suppresses
+    the matching channel; the in-app bell always fires.
+    """
 
     class Meta:
         model = GuildAnnouncement
-        fields = ["title", "body", "expires_at"]
+        fields = ["title", "body", "expires_at", "send_email", "post_to_discord"]
         widgets = {
             "body": forms.Textarea(attrs={"rows": 4}),
             "expires_at": forms.DateInput(attrs={"type": "date"}),
         }
-        labels = {"expires_at": "Hide after (optional)"}
+        labels = {
+            "expires_at": "Hide after (optional)",
+            "send_email": "Also send email",
+            "post_to_discord": "Also post to your guild's Discord channel",
+        }
         help_texts = {"expires_at": "Leave blank to keep it up indefinitely."}
 
 

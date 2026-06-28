@@ -13,7 +13,7 @@
   <button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>
   <button type="button" class="vote-tab" :class="section === 'images' ? 'vote-tab--active' : ''" @click="section = 'images'">Images</button>
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ &amp; Links</button>
-  <button type="button" class="vote-tab" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements</button>
+  <button type="button" class="vote-tab" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements/Emails</button>
   <button type="button" class="vote-tab" :class="section === 'staff' ? 'vote-tab--active' : ''" @click="section = 'staff'">Staff</button>
 </div>
 
@@ -216,22 +216,6 @@ confirm modal carries its own POST form, and template content can't nest a form.
       <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Pause bookings without losing your settings — e.g. while you're away.</p>
       {% include "components/form_field.html" with field=orientation_form.is_closed %}
       {% include "components/form_field.html" with field=orientation_form.closed_message %}
-    </div>
-
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Thank-you email</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to the member once their orientation is marked complete.</p>
-      {% include "components/form_field.html" with field=orientation_form.thankyou_email_enabled %}
-      {% include "components/form_field.html" with field=orientation_form.thankyou_email_subject %}
-      {% include "components/form_field.html" with field=orientation_form.thankyou_email_body %}
-    </div>
-
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Welcome email</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent when a member joins this guild.</p>
-      {% include "components/form_field.html" with field=orientation_form.join_email_enabled %}
-      {% include "components/form_field.html" with field=orientation_form.join_email_subject %}
-      {% include "components/form_field.html" with field=orientation_form.join_email_body %}
     </div>
 
     {# Who runs orientations — sits above the Save button with clear margin (orienters are guild staff). #}
@@ -450,7 +434,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
   </form>
 </div>
 
-{# ── Announcements (separate form, lives outside the main form) ─────── #}
+{# ── Announcements/Emails (separate forms, live outside the main form) ── #}
 <div x-show="section === 'announcements'" x-cloak>
   <div class="hub-card" style="padding:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Post an Announcement</h2>
@@ -459,6 +443,9 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% include "components/form_field.html" with field=announcement_form.title %}
       {% include "components/form_field.html" with field=announcement_form.body %}
       {% include "components/form_field.html" with field=announcement_form.expires_at %}
+      {% include "components/form_field.html" with field=announcement_form.send_email field_label="Also send email" %}
+      {% include "components/form_field.html" with field=announcement_form.post_to_discord field_label="Also post to "|add:guild.name|add:"’s Discord channel" field_hint="Only does something if this guild has a Discord announcement webhook set on the Meetings tab — otherwise it posts nothing." %}
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.75rem 0 1rem;">Everyone who has <strong>Joined</strong> this guild will receive this announcement by email (when “Also send email” is on), plus an in-app notification.</p>
       <button type="submit" class="pl-btn pl-btn--primary">Post Announcement</button>
     </form>
   </div>
@@ -473,6 +460,28 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% endfor %}
     </div>
   </div>
+
+  {# Guild follow-up emails — moved here from Orientations; own form/endpoint. #}
+  <form method="post" action="{% url 'hub_guild_emails_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+    <div class="hub-card" style="margin-top:1.5rem; padding:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Thank-you email</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to the member once their orientation is marked complete.</p>
+      {% include "components/form_field.html" with field=emails_form.thankyou_email_enabled %}
+      {% include "components/form_field.html" with field=emails_form.thankyou_email_subject %}
+      {% include "components/form_field.html" with field=emails_form.thankyou_email_body %}
+    </div>
+
+    <div class="hub-card" style="margin-top:1.5rem; padding:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Welcome email</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent when a member joins this guild.</p>
+      {% include "components/form_field.html" with field=emails_form.join_email_enabled %}
+      {% include "components/form_field.html" with field=emails_form.join_email_subject %}
+      {% include "components/form_field.html" with field=emails_form.join_email_body %}
+    </div>
+
+    <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Save emails</button>
+  </form>
 </div>
 
 {% for a in guild.announcements.all %}
