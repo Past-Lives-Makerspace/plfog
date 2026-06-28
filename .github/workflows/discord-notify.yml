@@ -1,9 +1,12 @@
 name: Discord Notifications
 
+# Manual-only on purpose. This used to fire on every push to main, which re-posted the
+# WHOLE current release-line changelog on every routine hotfix merge — a duplicate
+# announcement to members each time. A release announcement is a deliberate act, so it is
+# now triggered by hand when a release actually ships:
+#   gh workflow run discord-notify.yml        (or the "Run workflow" button in the Actions UI)
 on:
-  push:
-    branches: [main]
-  workflow_dispatch: # allow manual re-posting (e.g. if a release post failed) without a redeploy
+  workflow_dispatch:
 
 jobs:
   notify:
