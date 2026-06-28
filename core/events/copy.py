@@ -521,6 +521,9 @@ _CURATED: dict[str, EventCopy] = {
     "voting.results_published": EventCopy(
         placeholders=(
             "member_name",
+            # Optional organizer note shown at the top of the email (blank for a normal
+            # automated send; used for a one-off, e.g. a late "sorry this is overdue").
+            "intro_note",
             "cycle_label",
             "allocation_summary",
             "vote_1st",
@@ -530,6 +533,7 @@ _CURATED: dict[str, EventCopy] = {
         ),
         sample_context={
             "member_name": "Robin Vale",
+            "intro_note": "Heads-up: this one's a little late — going forward results are automated.",
             "cycle_label": "June 2026",
             "allocation_summary": "Metal Guild — $600.00 (45.0%)\nFiber Guild — $400.00 (30.0%)",
             "vote_1st": "Metal Guild",
@@ -546,6 +550,7 @@ _CURATED: dict[str, EventCopy] = {
                 subject="{{ cycle_label }} guild funding results",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
+                    "{{ intro_note }}\n\n"
                     "The votes for {{ cycle_label }} are counted. Here's how the funding pool was split:\n\n"
                     "{{ allocation_summary }}\n\n"
                     "You were recorded as voting — 1st: {{ vote_1st }}, 2nd: {{ vote_2nd }}, 3rd: {{ vote_3rd }}.\n\n"
@@ -553,6 +558,7 @@ _CURATED: dict[str, EventCopy] = {
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
+                    "<p>{{ intro_note }}</p>"
                     "<p>The votes for {{ cycle_label }} are counted. Here's how the funding pool was split:</p>"
                     "<pre>{{ allocation_summary }}</pre>"
                     "<p>You were recorded as voting — 1st: <strong>{{ vote_1st }}</strong>, "
