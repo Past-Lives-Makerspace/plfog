@@ -339,7 +339,7 @@
     <section class="pl-guild-section">
         {% if can_edit_this_guild %}
         <div style="margin-bottom:1rem;">
-            <a href="{% url 'hub_guild_meeting_notes' guild.pk %}" class="hub-btn hub-btn--sm">Manage meeting notes</a>
+            <a href="{% url 'hub_guild_edit' guild.pk %}?tab=meeting_notes" class="hub-btn hub-btn--sm">Manage meeting notes</a>
         </div>
         {% endif %}
         {% for note in meeting_notes %}

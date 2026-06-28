@@ -642,15 +642,28 @@ def describe_guild_edit_tabs():
         assert response.status_code == 200
         # Alpine tab state reads ?tab= from the URL, defaulting to Basic Information.
         assert b"new URLSearchParams(window.location.search).get('tab') || 'basic'" in response.content
-        # Each requested tab is a switchable button.
-        for tab in (b"basic", b"meetings", b"images", b"content", b"announcements", b"staff"):
+        # Every tab — including the formerly-standalone Meeting Notes / Events / Orientations — is now
+        # a switchable in-page button driven by the same Alpine `section` state.
+        for tab in (
+            b"basic",
+            b"meetings",
+            b"meeting_notes",
+            b"events",
+            b"orientations",
+            b"images",
+            b"content",
+            b"announcements",
+            b"staff",
+        ):
             assert b"section = '" + tab + b"'" in response.content
         # Calendar Integration and FAQ/Links live under tabs (using discretion).
         assert b"Calendar Integration" in response.content
         assert b"FAQ &amp; Links" in response.content
-        # Orientations is a tab in the same row (a link to its own editor page).
-        orientation_url = reverse("hub_guild_orientation_edit", args=[guild.pk]).encode()
-        assert b'<a href="' + orientation_url + b'" class="vote-tab"' in response.content
+        # The formerly-standalone sections now render inline on the same page.
+        assert b"+ Add meeting notes" in response.content
+        assert b"+ Add event" in response.content
+        assert b"Recurring hours" in response.content
+        assert b"Save orientation settings" in response.content
 
     def it_lays_short_inputs_out_in_two_columns(client: Client):
         _user_with_role("admin_grid", fog_role=Member.FogRole.ADMIN)
@@ -996,11 +1009,13 @@ def describe_guild_content_tab_template():
         assert b"this.form.after" not in response.content
 
     def it_hides_the_page_wide_save_on_the_content_tab(client: Client):
+        # The main form's Save only shows on the tabs it covers (Basic / Meetings / Images),
+        # so it's hidden on the content tab (and on the other own-form tabs).
         _user_with_role("ct_save", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="ct_save", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
-        assert b"section !== 'content'" in response.content
+        assert b"section === 'basic' || section === 'meetings' || section === 'images'" in response.content
 
     def it_shows_empty_states_when_there_are_no_rows(client: Client):
         _user_with_role("ct_empty", fog_role=Member.FogRole.ADMIN)

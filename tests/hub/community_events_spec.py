@@ -92,18 +92,23 @@ def describe_lead_gating():
         client.login(username="m3", password="pass")
         assert client.post(reverse("hub_guild_event_delete", args=[guild.pk, event.pk])).status_code == 403
 
-    def it_lets_the_guild_lead_open_the_list(client: Client):
+    def it_redirects_the_guild_lead_to_the_events_tab(client: Client):
+        # The list is now an in-page tab on the guild editor; the old list URL redirects there.
         user = _user_with_role("lead1")
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="lead1", password="pass")
-        assert client.get(reverse("hub_guild_events", args=[guild.pk])).status_code == 200
+        resp = client.get(reverse("hub_guild_events", args=[guild.pk]))
+        assert resp.status_code == 302
+        assert resp["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events"
 
-    def it_lets_a_staff_member_open_the_list(client: Client):
+    def it_redirects_a_staff_member_to_the_events_tab(client: Client):
         user = _user_with_role("staff1")
         guild = GuildFactory()
         GuildStaffMembership.objects.create(guild=guild, member=user.member, role=GuildStaffMembership.Role.SECRETARY)
         client.login(username="staff1", password="pass")
-        assert client.get(reverse("hub_guild_events", args=[guild.pk])).status_code == 200
+        resp = client.get(reverse("hub_guild_events", args=[guild.pk]))
+        assert resp.status_code == 302
+        assert resp["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events"
 
 
 @pytest.mark.django_db

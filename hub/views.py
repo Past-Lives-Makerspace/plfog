@@ -542,50 +542,80 @@ def _require_admin(request: HttpRequest) -> HttpResponse | None:
     return None
 
 
+def _guild_edit_context(
+    request: HttpRequest,
+    guild: Guild,
+    *,
+    form: GuildEditForm | None = None,
+    orientation_form: Any = None,
+    rule_formset: Any = None,
+) -> dict[str, Any]:
+    """Build the full render context for the guild edit page (all nine in-page tabs).
+
+    Shared by ``guild_edit`` (GET + invalid-POST re-render) and ``guild_orientation_edit``'s
+    invalid-POST re-render, so the inlined Orientations / Meeting Notes / Events tabs always
+    have their data. Pass a bound ``form`` / ``orientation_form`` / ``rule_formset`` to surface
+    validation errors; unbound defaults are built otherwise. Orientation, FAQ, and Links each
+    save via their own endpoint (the FAQ/Links idiom), so their formsets are unbound here.
+    """
+    from hub.forms import (
+        GuildAnnouncementForm,
+        GuildFAQItemFormSet,
+        GuildLinkFormSet,
+        GuildOrientationSettingsForm,
+        GuildStaffAddForm,
+        OrientationAvailabilityFormSet,
+    )
+    from membership.models import GuildOrientationSettings
+
+    settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
+    ctx = _get_hub_context(request)
+    return {
+        **ctx,
+        "guild": guild,
+        "form": form if form is not None else GuildEditForm(instance=guild),
+        "faq_formset": GuildFAQItemFormSet(instance=guild, prefix="faq"),
+        "link_formset": GuildLinkFormSet(instance=guild, prefix="links"),
+        "announcement_form": GuildAnnouncementForm(),
+        "staff_by_role": guild.staff_by_role(),
+        "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
+        "is_admin": _viewing_as_admin(request),
+        "notes": guild.meeting_notes.prefetch_related("attachments"),
+        "events": guild.events.upcoming().select_related("guild"),
+        "orientation_form": (
+            orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
+        ),
+        "rule_formset": (
+            rule_formset if rule_formset is not None else OrientationAvailabilityFormSet(instance=guild, prefix="rules")
+        ),
+    }
+
+
 @login_required
 def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead/staff only."""
-    from hub.forms import GuildAnnouncementForm, GuildFAQItemFormSet, GuildLinkFormSet, GuildStaffAddForm
+    """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead/staff only.
 
+    Orientations, Meeting Notes, and Events are in-page tabs here (see ``_guild_edit_context``),
+    not separate pages. Each non-Basic/Meetings/Images section saves via its own endpoint, so the
+    main form below only covers Basic/Meetings/Images.
+    """
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
 
-    # FAQ and Links now save themselves via guild_faq_save / guild_links_save (their own
-    # forms on the FAQ & Links tab). The main form here only covers Basic/Meetings/Images
-    # — but it still instantiates both formsets for the GET render so the tab can draw rows.
     if request.method == "POST":
         form = GuildEditForm(request.POST, request.FILES, instance=guild)
         if form.is_valid():
             form.save()
             guild.add_gallery_images(request.FILES.getlist("gallery_images"))
-
             messages.success(request, "Guild page updated.")
             if request.POST.get("after") == "edit":
                 return redirect("hub_guild_edit", pk=guild.pk)
             return redirect("hub_guild_detail", slug=guild.slug)
-    else:
-        form = GuildEditForm(instance=guild)
-    faq_formset = GuildFAQItemFormSet(instance=guild, prefix="faq")
-    link_formset = GuildLinkFormSet(instance=guild, prefix="links")
+        return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild, form=form))
 
-    ctx = _get_hub_context(request)
-    return render(
-        request,
-        "hub/guild_edit.html",
-        {
-            **ctx,
-            "guild": guild,
-            "form": form,
-            "faq_formset": faq_formset,
-            "link_formset": link_formset,
-            "announcement_form": GuildAnnouncementForm(),
-            "staff_by_role": guild.staff_by_role(),
-            "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
-            "is_admin": _viewing_as_admin(request),
-        },
-    )
+    return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild))
 
 
 @login_required
@@ -603,11 +633,12 @@ def guild_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Config editor: orientation settings + recurring availability rules.
+    """Save handler for the Orientations tab (settings + recurring availability rules).
 
-    Open to anyone who may manage the guild's orientations (lead, admin, or staff).
-    Who *runs* orientations — the guild's staff — is now managed on the guild's Staff
-    tab, not here, so this page is purely the booking + availability configuration.
+    The editor itself is now an in-page tab on ``guild_edit``, so a GET just sends the viewer
+    there. A POST validates, saves, materializes slots, and redirects back to the tab; an invalid
+    POST re-renders the full guild edit page with the orientation form's errors. Open to anyone
+    who may manage the guild's orientations (lead, admin, or staff).
     """
     from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet
     from membership.models import GuildOrientationSettings
@@ -616,37 +647,26 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
     forbidden = _require_can_manage_orientations(request, guild)
     if forbidden is not None:
         return forbidden
+    orientations_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+    if request.method != "POST":
+        return redirect(orientations_tab)
+
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
+    form = GuildOrientationSettingsForm(request.POST, instance=settings_obj)
+    rule_formset = OrientationAvailabilityFormSet(request.POST, instance=guild, prefix="rules")
+    if form.is_valid() and rule_formset.is_valid():
+        form.save()
+        rule_formset.save()
+        # Materialize bookable slots now so recurring hours show up immediately —
+        # don't make the editor wait for the nightly generation cron.
+        from membership import orientations
 
-    if request.method == "POST":
-        form = GuildOrientationSettingsForm(request.POST, instance=settings_obj)
-        rule_formset = OrientationAvailabilityFormSet(request.POST, instance=guild, prefix="rules")
-        if form.is_valid() and rule_formset.is_valid():
-            form.save()
-            rule_formset.save()
-            # Materialize bookable slots now so recurring hours show up immediately —
-            # don't make the editor wait for the nightly generation cron.
-            from membership import orientations
+        orientations.generate_slots(guild=guild)
+        messages.success(request, "Orientation settings updated.")
+        return redirect(orientations_tab)
 
-            orientations.generate_slots(guild=guild)
-            messages.success(request, "Orientation settings updated.")
-            return redirect("hub_guild_orientation_edit", pk=guild.pk)
-    else:
-        form = GuildOrientationSettingsForm(instance=settings_obj)
-        rule_formset = OrientationAvailabilityFormSet(instance=guild, prefix="rules")
-
-    ctx = _get_hub_context(request)
-    return render(
-        request,
-        "hub/orientation_settings.html",
-        {
-            **ctx,
-            "guild": guild,
-            "form": form,
-            "rule_formset": rule_formset,
-            "can_edit_guild": _can_edit_guild(request, guild),
-        },
-    )
+    ctx = _guild_edit_context(request, guild, orientation_form=form, rule_formset=rule_formset)
+    return render(request, "hub/guild_edit.html", ctx)
 
 
 def _staff_candidates(guild: Guild) -> Any:
@@ -728,7 +748,7 @@ def guild_orientation_slot_add(request: HttpRequest, pk: int) -> HttpResponse:
         for field, errors in form.errors.items():
             for error in errors:
                 messages.error(request, f"{field}: {error}")
-    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
 
 
 @login_required
@@ -745,7 +765,7 @@ def guild_orientation_slot_cancel(request: HttpRequest, pk: int, slot_pk: int) -
     slot = get_object_or_404(guild.orientation_slots, pk=slot_pk)
     orientations.cancel_slot(slot, reason=request.POST.get("reason", ""))
     messages.success(request, "Orientation slot cancelled.")
-    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
 
 
 @login_required
@@ -1702,14 +1722,15 @@ def guild_announcement_edit(request: HttpRequest, pk: int, announcement_pk: int)
 
 @login_required
 def guild_meeting_notes(request: HttpRequest, pk: int) -> HttpResponse:
-    """Management list of a guild's meeting notes (Edit / Delete). Editor only."""
+    """Legacy list URL — the meeting-notes list is now an in-page tab on the guild editor.
+
+    Keeps the editor-only gate (so non-staff still get a 403) and then redirects to the tab.
+    """
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
-    notes = guild.meeting_notes.prefetch_related("attachments")
-    ctx = _get_hub_context(request)
-    return render(request, "hub/guild_meeting_notes.html", {**ctx, "guild": guild, "notes": notes})
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meeting_notes")
 
 
 @login_required
@@ -1736,7 +1757,7 @@ def guild_meeting_note_edit(request: HttpRequest, pk: int, note_pk: int | None =
             formset.instance = note
             formset.save()
             messages.success(request, "Meeting notes saved.")
-            return redirect("hub_guild_meeting_notes", pk=guild.pk)
+            return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meeting_notes")
     else:
         form = GuildMeetingNoteForm(instance=note)
         formset = GuildMeetingNoteAttachmentFormSet(instance=note, prefix="att")
@@ -1761,19 +1782,20 @@ def guild_meeting_note_delete(request: HttpRequest, pk: int, note_pk: int) -> Ht
         return forbidden
     get_object_or_404(GuildMeetingNote, pk=note_pk, guild=guild).delete()
     messages.success(request, "Meeting notes deleted.")
-    return redirect("hub_guild_meeting_notes", pk=guild.pk)
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meeting_notes")
 
 
 @login_required
 def guild_events(request: HttpRequest, pk: int) -> HttpResponse:
-    """Management list of a guild's events (Edit / Delete / + Add). Editor only."""
+    """Legacy list URL — the events list is now an in-page tab on the guild editor.
+
+    Keeps the editor-only gate (so non-staff still get a 403) and then redirects to the tab.
+    """
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
-    events = guild.events.upcoming().select_related("guild")
-    ctx = _get_hub_context(request)
-    return render(request, "hub/guild_events.html", {**ctx, "guild": guild, "events": events})
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
 
 
 @login_required
@@ -1806,7 +1828,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             if is_new:
                 event.announce(actor=request.user)
             messages.success(request, "Event saved.")
-            return redirect("hub_guild_events", pk=guild.pk)
+            return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
     else:
         form = CommunityEventForm(instance=event, guild=guild, as_admin=False)
 
@@ -1819,7 +1841,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             "guild": guild,
             "event": event,
             "form": form,
-            "cancel_url": reverse("hub_guild_events", args=[guild.pk]),
+            "cancel_url": f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events",
         },
     )
 
@@ -1836,7 +1858,7 @@ def guild_event_delete(request: HttpRequest, pk: int, event_pk: int) -> HttpResp
         return forbidden
     get_object_or_404(CommunityEvent, pk=event_pk, guild=guild).delete()
     messages.success(request, "Event deleted.")
-    return redirect("hub_guild_events", pk=guild.pk)
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
 
 
 @login_required

@@ -51,20 +51,30 @@ def _future(hours: int) -> str:
 
 
 def describe_guild_orientation_edit():
-    def it_renders_the_editor_for_an_editor(client: Client):
+    def it_renders_the_editor_inside_the_orientations_tab(client: Client):
+        # The editor is now an in-page tab on the guild edit page, not a standalone page.
         _user_with_role("ed_admin", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="ed_admin", password="pass")
-        response = client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]))
+        response = client.get(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
         assert response.status_code == 200
         assert b"Recurring hours" in response.content
+        assert b"Save orientation settings" in response.content
 
-    def it_creates_settings_on_first_view(client: Client):
+    def it_redirects_a_get_to_the_orientations_tab(client: Client):
+        _user_with_role("ed_get", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="ed_get", password="pass")
+        response = client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]))
+        assert response.status_code == 302
+        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+
+    def it_creates_settings_when_the_tab_is_opened(client: Client):
         _user_with_role("ed_create", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="ed_create", password="pass")
         assert GuildOrientationSettings.objects.filter(guild=guild).count() == 0
-        client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]))
+        client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert GuildOrientationSettings.objects.filter(guild=guild).count() == 1
 
     def it_forbids_a_regular_member(client: Client):
@@ -89,6 +99,7 @@ def describe_guild_orientation_edit():
             _settings_payload(is_enabled="on", default_location="Front desk"),
         )
         assert response.status_code == 302
+        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
         settings_obj = GuildOrientationSettings.objects.get(guild=guild)
         assert settings_obj.is_enabled is True
         assert settings_obj.default_location == "Front desk"
@@ -161,7 +172,7 @@ def describe_guild_orientation_edit():
             _settings_payload(thankyou_email_enabled="on", thankyou_email_body="Thanks!"),
         )
         assert response.status_code == 200
-        assert "thankyou_email_subject" in response.context["form"].errors
+        assert "thankyou_email_subject" in response.context["orientation_form"].errors
         assert GuildOrientationSettings.objects.get(guild=guild).thankyou_email_enabled is False
 
     def it_rejects_a_welcome_email_with_no_body(client: Client):
@@ -173,7 +184,7 @@ def describe_guild_orientation_edit():
             _settings_payload(join_email_enabled="on", join_email_subject="Welcome!"),
         )
         assert response.status_code == 200
-        assert "join_email_body" in response.context["form"].errors
+        assert "join_email_body" in response.context["orientation_form"].errors
 
     def it_rejects_a_rule_whose_end_is_before_its_start(client: Client):
         _user_with_role("ed_badrule", fog_role=Member.FogRole.ADMIN)

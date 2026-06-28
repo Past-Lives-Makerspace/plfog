@@ -10,9 +10,10 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "date": "2026-06-28",
         "title": "Guild pages: more polish and clearer announcements",
         "changes": [
-            # WIP — refined as the 0.20.x guild-page work lands (multiple title badges,
-            # Orientations/Announcements UX, tab conformity). Curated before the PR is ready to merge.
-            "Guild page improvements (in progress).",
+            (
+                "Editing a guild page is smoother — Orientations, Meeting Notes, and Events are now tabs right inside "
+                "the editor instead of separate pages, so you stay in one place while you set everything up."
+            ),
         ],
     },
     {
