@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, TypedDict, cast
 
@@ -13,7 +14,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, Prefetch, Q, QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -22,21 +23,23 @@ from django.views.decorators.http import require_POST, require_http_methods
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
 from classes.models import Category, ClassOffering
-from core.models import HeroCropMixin
+from core.models import HeroCropMixin, SiteConfiguration
 from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
     CalendarFeedFormSet,
-    EmailPreferencesForm,
     GuildEditForm,
     MemberAdminEditForm,
+    MemberSkillForm,
     ProfileSettingsForm,
+    SiteAnnouncementForm,
     SiteSettingsForm,
+    SkillSuggestionForm,
     VotePreferenceForm,
 )
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
-from membership.models import FundingSnapshot, Guild, Member, VotePreference
+from membership.models import FundingSnapshot, Guild, Member, Skill, SkillCategory, VotePreference
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
@@ -81,6 +84,7 @@ def guild_voting(request: HttpRequest) -> HttpResponse:
     """Guild voting page — members submit or update their persistent guild preferences."""
     member = _get_member(request)
     ctx = _get_hub_context(request)
+    ctx["active_tab"] = "overview"  # the everyone-facing first tab of the Voting surface
     cycle_ctx = get_cycle_context()
 
     preference: VotePreference | None = None
@@ -253,6 +257,15 @@ def member_directory(request: HttpRequest) -> HttpResponse:
     guild_filter = request.GET.get("guild", "")
     if guild_filter.isdigit():
         member_qs = member_qs.filter(guild_memberships__guild_id=int(guild_filter))
+    skill_slug = request.GET.get("skill", "")
+    if skill_slug:
+        member_qs = member_qs.with_skill(skill_slug)
+    commissions_only = request.GET.get("commissions") == "1"
+    if commissions_only:
+        member_qs = member_qs.open_for_commissions()
+    query = request.GET.get("q", "").strip()
+    if query:
+        member_qs = member_qs.search_skills(query)
     members = (
         member_qs.select_related("membership_plan", "user")
         .prefetch_related(
@@ -262,6 +275,7 @@ def member_directory(request: HttpRequest) -> HttpResponse:
                 to_attr="_primary_emailaddresses",
             ),
             "guild_memberships__guild",
+            "skills__skill__category",
         )
         .order_by("full_legal_name")
     )
@@ -275,6 +289,10 @@ def member_directory(request: HttpRequest) -> HttpResponse:
             "is_admin": is_admin,
             "guilds": Guild.objects.filter(is_active=True).order_by("name"),
             "guild_filter": guild_filter,
+            "skill_categories": _skill_categories_with_approved(),
+            "selected_skill": skill_slug,
+            "commissions_only": commissions_only,
+            "query": query,
         },
     )
 
@@ -371,14 +389,20 @@ def _guild_pulse(guild: "Guild", limit: int = 6) -> list[dict[str, Any]]:
     return items[:limit]
 
 
-def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
+def guild_detail_redirect(request: HttpRequest, pk: int) -> HttpResponse:
+    """301 an old numeric guild URL (/guilds/<id>/) to its slug URL — keeps shared links alive."""
+    guild = get_object_or_404(Guild, pk=pk)
+    return redirect("hub_guild_detail", slug=guild.slug, permanent=True)
+
+
+def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """Guild detail page — shows about text, active products, and cart interface."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm, build_product_split_formset
     from billing.models import Product
 
     guild = get_object_or_404(
         Guild.objects.select_related("featured_class__instructor").prefetch_related("products__splits__guild"),
-        pk=pk,
+        slug=slug,
     )
     ctx = _get_hub_context(request)
     products = guild.products.order_by("name").prefetch_related("splits__guild")
@@ -405,6 +429,7 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     faq_items = guild.faq_items.all()
     links = guild.links.all()
     announcements = guild.announcements.active()[:5]
+    meeting_notes = guild.meeting_notes.prefetch_related("attachments")
     roster = guild.roster_members() if guild.show_members else None
     is_member_of_guild = member is not None and guild.memberships.filter(member=member).exists()
 
@@ -414,14 +439,9 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
     member_count = guild.memberships.count()
     class_count = guild_classes.filter(status=ClassOffering.Status.PUBLISHED).count()
     upcoming_classes = guild_classes.bookable().select_related("instructor")[:4]
-    published_classes = (
-        guild_classes.filter(status=ClassOffering.Status.PUBLISHED)
-        .select_related("instructor", "category")
-        .order_by("title")
-    )
     calendar = _get_calendar_context(request, guild=guild)
     calendar["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
-    guild_cal_filters = ["classes", "orientation"]
+    guild_cal_filters = ["classes", "orientation", "community"]
     if guild.calendar_url:
         guild_cal_filters.append(str(guild.pk))
     calendar["default_filters_json"] = json.dumps(guild_cal_filters).replace('"', '\\"')
@@ -467,13 +487,13 @@ def guild_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "faq_items": faq_items,
             "links": links,
             "announcements": announcements,
+            "meeting_notes": meeting_notes,
             "roster": roster,
             "member": member,
             "is_member_of_guild": is_member_of_guild,
             "member_count": member_count,
             "class_count": class_count,
             "upcoming_classes": upcoming_classes,
-            "published_classes": published_classes,
             "calendar": calendar,
             "pulse": pulse,
             "orientation": orientation,
@@ -505,34 +525,50 @@ def _require_can_manage_orientations(request: HttpRequest, guild: Guild) -> Http
     return None
 
 
+def _viewing_as_admin(request: HttpRequest) -> bool:
+    """True when the request's effective (``view_as``-aware) role is admin."""
+    view_as = getattr(request, "view_as", None)
+    return view_as is not None and view_as.is_admin
+
+
+def _require_admin(request: HttpRequest) -> HttpResponse | None:
+    """Return a 403 response if the user is not viewing as an admin, else None.
+
+    Mirrors the inline ``view_as.is_admin`` gate used by the directory/admin surfaces,
+    so the gate and the template's ``events_can_manage`` flag stay in lock-step.
+    """
+    if not _viewing_as_admin(request):
+        return HttpResponse("Forbidden", status=403)
+    return None
+
+
 @login_required
 def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead only."""
-    from hub.forms import GuildAnnouncementForm, GuildFAQItemFormSet, GuildLinkFormSet
+    """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead/staff only."""
+    from hub.forms import GuildAnnouncementForm, GuildFAQItemFormSet, GuildLinkFormSet, GuildStaffAddForm
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
 
+    # FAQ and Links now save themselves via guild_faq_save / guild_links_save (their own
+    # forms on the FAQ & Links tab). The main form here only covers Basic/Meetings/Images
+    # — but it still instantiates both formsets for the GET render so the tab can draw rows.
     if request.method == "POST":
         form = GuildEditForm(request.POST, request.FILES, instance=guild)
-        faq_formset = GuildFAQItemFormSet(request.POST, instance=guild, prefix="faq")
-        link_formset = GuildLinkFormSet(request.POST, instance=guild, prefix="links")
-        if form.is_valid() and faq_formset.is_valid() and link_formset.is_valid():
+        if form.is_valid():
             form.save()
-            faq_formset.save()
-            link_formset.save()
             guild.add_gallery_images(request.FILES.getlist("gallery_images"))
 
             messages.success(request, "Guild page updated.")
             if request.POST.get("after") == "edit":
                 return redirect("hub_guild_edit", pk=guild.pk)
-            return redirect("hub_guild_detail", pk=guild.pk)
+            return redirect("hub_guild_detail", slug=guild.slug)
     else:
         form = GuildEditForm(instance=guild)
-        faq_formset = GuildFAQItemFormSet(instance=guild, prefix="faq")
-        link_formset = GuildLinkFormSet(instance=guild, prefix="links")
+    faq_formset = GuildFAQItemFormSet(instance=guild, prefix="faq")
+    link_formset = GuildLinkFormSet(instance=guild, prefix="links")
 
     ctx = _get_hub_context(request)
     return render(
@@ -545,20 +581,35 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "faq_formset": faq_formset,
             "link_formset": link_formset,
             "announcement_form": GuildAnnouncementForm(),
+            "staff_by_role": guild.staff_by_role(),
+            "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild)),
+            "is_admin": _viewing_as_admin(request),
         },
     )
+
+
+@login_required
+@require_POST
+def guild_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Soft-delete a guild (admin only). Hides it everywhere; its data and relations are kept."""
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    guild.soft_delete()
+    messages.success(request, f"“{guild.name}” has been deleted.")
+    return redirect("home")
 
 
 @login_required
 def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
     """Config editor: orientation settings + recurring availability rules.
 
-    Open to anyone who may manage the guild's orientations (lead, admin, or a
-    designated orienter). The Orienters roster, however, is only shown to — and
-    only editable by — full guild editors (lead/admin), guarding against an
-    orienter minting more orienters.
+    Open to anyone who may manage the guild's orientations (lead, admin, or staff).
+    Who *runs* orientations — the guild's staff — is now managed on the guild's Staff
+    tab, not here, so this page is purely the booking + availability configuration.
     """
-    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet, OrientationOrienterAddForm
+    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet
     from membership.models import GuildOrientationSettings
 
     guild = get_object_or_404(Guild, pk=pk)
@@ -585,7 +636,6 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
         rule_formset = OrientationAvailabilityFormSet(instance=guild, prefix="rules")
 
     ctx = _get_hub_context(request)
-    can_manage_orienters = _can_edit_guild(request, guild)
     return render(
         request,
         "hub/orientation_settings.html",
@@ -594,20 +644,16 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "guild": guild,
             "form": form,
             "rule_formset": rule_formset,
-            "can_manage_orienters": can_manage_orienters,
-            "orienters": guild.orienters.order_by("full_legal_name") if can_manage_orienters else [],
-            "orienter_add_form": OrientationOrienterAddForm(member_queryset=_orienter_candidates(guild))
-            if can_manage_orienters
-            else None,
+            "can_edit_guild": _can_edit_guild(request, guild),
         },
     )
 
 
-def _orienter_candidates(guild: Guild) -> Any:
-    """Active members who could be added as orienters — excludes current orienters and the lead."""
+def _staff_candidates(guild: Guild) -> Any:
+    """Active members who can be added as guild staff — excludes the guild's lead."""
     from membership.models import Member
 
-    qs = Member.objects.filter(status=Member.Status.ACTIVE).exclude(orienting_guilds=guild)
+    qs = Member.objects.filter(status=Member.Status.ACTIVE)
     if guild.guild_lead_id is not None:
         qs = qs.exclude(pk=guild.guild_lead_id)
     return qs.order_by("full_legal_name")
@@ -615,40 +661,50 @@ def _orienter_candidates(guild: Guild) -> Any:
 
 @login_required
 @require_POST
-def guild_orientation_orienter_add(request: HttpRequest, pk: int) -> HttpResponse:
-    """POST-only — a lead/admin designates a member as an orienter for this guild."""
-    from hub.forms import OrientationOrienterAddForm
+def guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — a lead/admin/staff member assigns another member a guild staff role."""
+    from hub.forms import GuildStaffAddForm
+    from membership.models import GuildStaffMembership
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
 
-    form = OrientationOrienterAddForm(request.POST, member_queryset=_orienter_candidates(guild))
+    form = GuildStaffAddForm(request.POST, member_queryset=_staff_candidates(guild))
     if form.is_valid():
         member = form.cleaned_data["member"]
-        guild.orienters.add(member)
-        messages.success(request, f"{member.display_name} can now run {guild.name} orientations.")
+        role = form.cleaned_data["role"]
+        _, created = GuildStaffMembership.objects.get_or_create(guild=guild, member=member, role=role)
+        if created:
+            messages.success(
+                request,
+                f"{member.display_name} is now {GuildStaffMembership.Role(role).label} of {guild.name}.",
+            )
+        else:
+            messages.info(request, f"{member.display_name} already holds that role.")
     else:
-        messages.error(request, "Pick an active member who isn't already an orienter.")
-    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+        messages.error(request, "Pick an active member and a staff role.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
 
 
 @login_required
 @require_POST
-def guild_orientation_orienter_remove(request: HttpRequest, pk: int, member_pk: int) -> HttpResponse:
-    """POST-only — a lead/admin removes an orienter from this guild."""
-    from membership.models import Member
+def guild_staff_remove(request: HttpRequest, pk: int, staff_pk: int) -> HttpResponse:
+    """POST-only — a lead/admin/staff member removes a staff role from this guild."""
+    from membership.models import GuildStaffMembership
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
 
-    member = get_object_or_404(Member, pk=member_pk)
-    guild.orienters.remove(member)
-    messages.success(request, f"{member.display_name} is no longer an orienter for {guild.name}.")
-    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+    staff = get_object_or_404(GuildStaffMembership, pk=staff_pk, guild=guild)
+    member_name = staff.member.display_name
+    role_label = staff.get_role_display()
+    staff.delete()
+    messages.success(request, f"{member_name} is no longer {role_label} of {guild.name}.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
 
 
 @login_required
@@ -705,7 +761,7 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to book an orientation.")
-        return redirect("hub_guild_detail", pk=slot.guild_id)
+        return redirect("hub_guild_detail", slug=slot.guild.slug)
     try:
         orientations.request_orientation(slot, member, note=request.POST.get("note", ""))
         messages.success(
@@ -714,7 +770,7 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
         )
     except OrientationError as exc:
         messages.error(request, str(exc))
-    return redirect("hub_guild_detail", pk=slot.guild_id)
+    return redirect("hub_guild_detail", slug=slot.guild.slug)
 
 
 @login_required
@@ -732,15 +788,15 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to request an orientation.")
-        return redirect("hub_guild_detail", pk=guild.pk)
+        return redirect("hub_guild_detail", slug=guild.slug)
     settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
     if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
         messages.error(request, "This guild isn't taking custom orientation requests right now.")
-        return redirect("hub_guild_detail", pk=guild.pk)
+        return redirect("hub_guild_detail", slug=guild.slug)
     form = OrientationCustomRequestForm(request.POST)
     if not form.is_valid():
         messages.error(request, "Pick a valid future time for your orientation.")
-        return redirect("hub_guild_detail", pk=guild.pk)
+        return redirect("hub_guild_detail", slug=guild.slug)
     starts = form.cleaned_data["starts_at"]
     slot = OrientationSlot.objects.create(
         guild=guild,
@@ -755,9 +811,9 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
     except OrientationError as exc:
         slot.delete()
         messages.error(request, str(exc))
-        return redirect("hub_guild_detail", pk=guild.pk)
+        return redirect("hub_guild_detail", slug=guild.slug)
     messages.success(request, "Your orientation request was sent — the guild lead will confirm a time.")
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -788,7 +844,8 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "confirm":
-            orientations.confirm_orientation(booking)
+            # Decision 7: credit the staffer who actually confirmed, not the guild lead.
+            orientations.confirm_orientation(booking, oriented_by=_get_member(request))
             messages.success(request, "Orientation confirmed — the member has been emailed.")
         elif action == "decline":
             orientations.decline_orientation(booking, note=request.POST.get("note", ""))
@@ -828,7 +885,7 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
         return HttpResponse("Forbidden", status=403)
     orientations.cancel_orientation(booking, actor_label=member.display_name)
     messages.success(request, "Your orientation was cancelled.")
-    return redirect("hub_guild_detail", pk=booking.guild_id)
+    return redirect("hub_guild_detail", slug=booking.guild.slug)
 
 
 def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
@@ -852,16 +909,16 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
 
 
 def _can_access_orientations(request: HttpRequest) -> bool:
-    """True for admins, any guild lead, and any designated orienter — they may view the dashboard."""
+    """True for admins, any guild lead, and any guild staff member — they may view the dashboard."""
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.has_actual("admin"):
         return True
     member = _get_member(request)
-    return member is not None and (member.is_guild_lead or member.is_orienter)
+    return member is not None and (member.is_guild_lead or member.is_guild_staff)
 
 
 def _manageable_slots(request: HttpRequest) -> Any:
-    """Upcoming slots this request may add members to: all for admins, own-guild for leads."""
+    """Upcoming slots this request may add members to: all for admins, own-guild for leads/staff."""
     from membership.models import OrientationSlot
 
     qs = OrientationSlot.objects.upcoming().select_related("guild")
@@ -871,7 +928,7 @@ def _manageable_slots(request: HttpRequest) -> Any:
     member = _get_member(request)
     if member is None:
         return OrientationSlot.objects.none()
-    return qs.filter(Q(guild__guild_lead=member) | Q(guild__orienters=member)).distinct()
+    return qs.filter(Q(guild__guild_lead=member) | Q(guild__staff_memberships__member=member)).distinct()
 
 
 def _filter_orientations(request: HttpRequest, bookings: Any) -> Any:
@@ -881,7 +938,7 @@ def _filter_orientations(request: HttpRequest, bookings: Any) -> Any:
     if guild_filter.isdigit():
         bookings = bookings.filter(guild_id=int(guild_filter))
     if request.GET.get("scope") == "mine" and member is not None:
-        bookings = bookings.filter(Q(guild__guild_lead=member) | Q(guild__orienters=member)).distinct()
+        bookings = bookings.filter(Q(guild__guild_lead=member) | Q(guild__staff_memberships__member=member)).distinct()
     status_filter = request.GET.get("status", "")
     if status_filter:
         bookings = bookings.filter(status=status_filter)
@@ -1042,7 +1099,7 @@ def guild_product_create(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         _surface_product_errors(request, form, formset)
 
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1079,7 +1136,7 @@ def guild_product_update(request: HttpRequest, pk: int, product_pk: int) -> Http
     else:
         _surface_product_errors(request, form, formset)
 
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1097,7 +1154,7 @@ def guild_product_delete(request: HttpRequest, pk: int, product_pk: int) -> Http
     name = product.name
     product.delete()
     messages.success(request, f"Deleted product '{name}'.")
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1201,13 +1258,14 @@ def guild_eyop_form(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 def user_settings(request: HttpRequest) -> HttpResponse:
-    """Tabbed user settings page — Profile + Emails (manage addresses + preferences).
+    """Tabbed user settings page — Profile + Emails + Notifications.
 
-    Two forms POST to this endpoint, disambiguated by the ``form_id`` hidden field:
-    ``profile`` (member info) and ``email_prefs`` (notification toggles). Email
-    address management (add, primary, verify, remove) POSTs to allauth's
-    ``account_email`` URL, which is overridden in ``plfog.urls`` to redirect back
-    here after each action.
+    Three concerns POST to this endpoint, disambiguated by the ``form_id`` hidden
+    field: ``profile`` (member info) and ``notifications`` (the event × channel
+    preference matrix). Email address management (add, primary, verify, remove) POSTs
+    to allauth's ``account_email`` URL, which is overridden in ``plfog.urls`` to
+    redirect back here after each action. The Notifications tab is the unified
+    preferences matrix (design §2.7) sourced from the event registry.
     """
     from allauth.account.forms import AddEmailForm
     from allauth.account.models import EmailAddress
@@ -1233,30 +1291,11 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     else:
         profile_form = None
 
-    prefs_form: EmailPreferencesForm
-    if request.method == "POST" and request.POST.get("form_id") == "email_prefs":
-        prefs_form = EmailPreferencesForm(request.POST)
-        if prefs_form.is_valid():
-            messages.success(request, "Email preferences updated.")
-            return redirect(f"{request.path}?tab=emails")
-    else:
-        prefs_form = EmailPreferencesForm(initial={"voting_results": True})
-
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
     if request.method == "POST" and request.POST.get("form_id") == "notifications":
-        from core import triggers
-        from core.models import NotificationPreference
+        from core.events import settings_matrix
 
-        is_instructor = bool(member and member.is_instructor)
-        for t in triggers.for_member(is_instructor=is_instructor, is_staff=user.is_staff):
-            NotificationPreference.objects.update_or_create(
-                user=user,
-                trigger=t.key,
-                defaults={
-                    "push_enabled": request.POST.get(f"push_{t.key}") == "on",
-                    "email_enabled": request.POST.get(f"email_{t.key}") == "on",
-                },
-            )
+        settings_matrix.save_matrix(user, request.POST)
         messages.success(request, "Notification preferences updated.")
         return redirect(f"{request.path}?tab=notifications")
 
@@ -1273,11 +1312,15 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     if member is None and request.method == "GET" and not request.GET.get("tab"):
         messages.info(request, "Your account is not linked to a membership.")
 
-    from core import triggers as _triggers
-    from core.models import NotificationPreference as _NP
+    from core.events import settings_matrix
 
-    notif_groups = _triggers.by_category(is_instructor=bool(member and member.is_instructor), is_staff=user.is_staff)
-    notif_prefs = {p.trigger: p for p in _NP.objects.filter(user=user)}
+    notif_matrix = settings_matrix.build_matrix(user)
+    notif_channels = [
+        (channel, settings_matrix.CHANNEL_LABELS[channel]) for channel in settings_matrix.visible_channels(user)
+    ]
+    # Channel labels keyed by channel value, so each matrix cell can build its own
+    # screen-reader name (event × channel) via the get_item template filter.
+    notif_channel_labels = {channel.value: label for channel, label in notif_channels}
 
     return render(
         request,
@@ -1286,13 +1329,14 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             **ctx,
             "member": member,
             "profile_form": profile_form,
-            "prefs_form": prefs_form,
+            "skill_categories": _skill_categories_with_approved(),
             "add_email_form": add_email_form,
             "email_addresses": email_addresses,
             "primary_verified_json": primary_verified_json,
             "active_tab": active_tab,
-            "notif_groups": notif_groups,
-            "notif_prefs": notif_prefs,
+            "notif_matrix": notif_matrix,
+            "notif_channels": notif_channels,
+            "notif_channel_labels": notif_channel_labels,
         },
     )
 
@@ -1311,6 +1355,70 @@ def profile_photo_delete(request: HttpRequest) -> HttpResponse:
     return redirect(f"{reverse('hub_user_settings')}?tab=profile")
 
 
+def _skill_categories_with_approved() -> QuerySet[SkillCategory]:
+    """Categories with their approved skills prefetched, for the skill picker."""
+    return SkillCategory.objects.prefetch_related(
+        Prefetch("skills", queryset=Skill.objects.filter(status=Skill.Status.APPROVED).order_by("name"))
+    )
+
+
+def _render_profile_skills(request: HttpRequest, member: Member, message: str, level: str) -> HttpResponse:
+    """Re-render the member's skill editor partial and attach a toast."""
+    response = render(
+        request,
+        "hub/partials/profile_skills.html",
+        {"member": member, "skill_categories": _skill_categories_with_approved()},
+    )
+    trigger_toast(response, message, level)
+    return response
+
+
+def _skills_no_member_response(request: HttpRequest) -> HttpResponse:
+    """Error response for a logged-in account with no linked membership."""
+    response = HttpResponse(status=403)
+    trigger_toast(response, "Your account is not linked to a membership.", "error")
+    return response
+
+
+@login_required
+@require_POST
+def skill_add(request: HttpRequest) -> HttpResponse:
+    """POST-only — add a skill to the logged-in member's profile."""
+    member = _get_member(request)
+    if member is None:
+        return _skills_no_member_response(request)
+    form = MemberSkillForm(member=member, data=request.POST)
+    if form.is_valid():
+        form.save()
+        return _render_profile_skills(request, member, "Skill added.", "success")
+    return _render_profile_skills(request, member, form.errors.as_text(), "error")
+
+
+@login_required
+@require_POST
+def skill_remove(request: HttpRequest, skill_pk: int) -> HttpResponse:
+    """POST-only — remove one of the logged-in member's skills."""
+    member = _get_member(request)
+    if member is None:
+        return _skills_no_member_response(request)
+    member.skills.filter(pk=skill_pk).delete()
+    return _render_profile_skills(request, member, "Skill removed.", "success")
+
+
+@login_required
+@require_POST
+def skill_suggest(request: HttpRequest) -> HttpResponse:
+    """POST-only — suggest a new skill, created pending admin approval."""
+    member = _get_member(request)
+    if member is None:
+        return _skills_no_member_response(request)
+    form = SkillSuggestionForm(member=member, data=request.POST)
+    if form.is_valid():
+        form.save()
+        return _render_profile_skills(request, member, "Thanks! Your skill is pending review.", "success")
+    return _render_profile_skills(request, member, form.errors.as_text(), "error")
+
+
 @login_required
 @require_POST
 def guild_banner_delete(request: HttpRequest, pk: int) -> HttpResponse:
@@ -1322,7 +1430,7 @@ def guild_banner_delete(request: HttpRequest, pk: int) -> HttpResponse:
     if guild.banner_image:
         guild.banner_image.delete(save=True)
         messages.success(request, "Banner removed.")
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1339,7 +1447,7 @@ def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
         if created:
             orientations.member_joined_guild(guild, member)
         messages.success(request, f"You joined {guild.name}.")
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1353,7 +1461,7 @@ def guild_leave(request: HttpRequest, pk: int) -> HttpResponse:
     if member is not None:
         GuildMembership.objects.filter(guild=guild, member=member).delete()
         messages.success(request, f"You left {guild.name}.")
-    return redirect("hub_guild_detail", pk=guild.pk)
+    return redirect("hub_guild_detail", slug=guild.slug)
 
 
 @login_required
@@ -1477,6 +1585,7 @@ def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
         announcement.guild = guild
         announcement.author = request.user
         announcement.save()
+        announcement.notify_members()
         messages.success(request, "Announcement posted.")
     else:
         messages.error(request, "Couldn't post the announcement — add a title and body.")
@@ -1488,8 +1597,9 @@ def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
 def guild_announcement_delete(request: HttpRequest, pk: int, announcement_pk: int) -> HttpResponse:
     """Delete a guild announcement. Editor only.
 
-    The companion *create*/publish endpoint (which fires the ``guild_announcement``
-    notification) is deferred until Plan 2's ``core.notifications`` lands — see DEFERRED.md.
+    The companion *create* endpoint fires the ``guild.announcement`` notification to
+    the guild's members (see :meth:`membership.models.GuildAnnouncement.notify_members`).
+    Deleting does not notify.
     """
     from membership.models import GuildAnnouncement
 
@@ -1500,6 +1610,284 @@ def guild_announcement_delete(request: HttpRequest, pk: int, announcement_pk: in
     get_object_or_404(GuildAnnouncement, pk=announcement_pk, guild=guild).delete()
     messages.success(request, "Announcement deleted.")
     return redirect("hub_guild_edit", pk=guild.pk)
+
+
+@login_required
+@require_POST
+def guild_faq_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the guild's FAQ rows from their own form on the FAQ & Links tab. Editor only.
+
+    The FAQ section is its own ``<form>`` (it can't be nested in the main edit form), so it
+    persists here independently and redirects back to the same tab with a Django message.
+    """
+    from hub.forms import GuildFAQItemFormSet
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    formset = GuildFAQItemFormSet(request.POST, request.FILES, instance=guild, prefix="faq")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "FAQ saved.")
+    else:
+        messages.error(request, "Couldn't save the FAQ — check the highlighted fields.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=content")
+
+
+@login_required
+@require_POST
+def guild_links_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the guild's Links rows from their own form on the FAQ & Links tab. Editor only."""
+    from hub.forms import GuildLinkFormSet
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    formset = GuildLinkFormSet(request.POST, instance=guild, prefix="links")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Links saved.")
+    else:
+        messages.error(request, "Couldn't save the links — check the highlighted fields.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=content")
+
+
+@login_required
+def guild_announcement_edit(request: HttpRequest, pk: int, announcement_pk: int) -> HttpResponse:
+    """Edit an existing announcement from a modal on the Announcements tab. Editor only.
+
+    GET (HTMX) renders the prefilled form into the modal body. POST validates and, on success,
+    swaps the updated row back in (``hx-swap-oob``), fires a success toast, and tells the shared
+    modal to close (it has no auto-close on ``htmx:after-request`` — the close must be driven
+    from the server). ``published_at`` and ``author`` are never touched on edit.
+    """
+    from hub.forms import GuildAnnouncementForm
+    from membership.models import GuildAnnouncement
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    announcement = get_object_or_404(GuildAnnouncement, pk=announcement_pk, guild=guild)
+
+    if request.method == "POST":
+        form = GuildAnnouncementForm(request.POST, instance=announcement)
+        if form.is_valid():
+            form.save()
+            response = render(
+                request,
+                "hub/partials/_guild_announcement_row.html",
+                {"guild": guild, "a": announcement, "oob": True},
+            )
+            # One response carries three things: the OOB row swap (body), the success toast
+            # (HX-Trigger), and the modal-close event. trigger_toast owns HX-Trigger, so the
+            # close-modal event rides HX-Trigger-After-Settle to avoid clobbering the toast.
+            trigger_toast(response, "Announcement updated.", "success")
+            response["HX-Trigger-After-Settle"] = json.dumps({"close-modal": f"edit-ann-{announcement.pk}"})
+            return response
+        # Invalid: re-render the modal form with field errors, modal stays open (no close trigger).
+        return render(
+            request,
+            "hub/partials/guild_announcement_edit_form.html",
+            {"guild": guild, "announcement": announcement, "form": form},
+        )
+
+    form = GuildAnnouncementForm(instance=announcement)
+    return render(
+        request,
+        "hub/partials/guild_announcement_edit_form.html",
+        {"guild": guild, "announcement": announcement, "form": form},
+    )
+
+
+@login_required
+def guild_meeting_notes(request: HttpRequest, pk: int) -> HttpResponse:
+    """Management list of a guild's meeting notes (Edit / Delete). Editor only."""
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    notes = guild.meeting_notes.prefetch_related("attachments")
+    ctx = _get_hub_context(request)
+    return render(request, "hub/guild_meeting_notes.html", {**ctx, "guild": guild, "notes": notes})
+
+
+@login_required
+def guild_meeting_note_edit(request: HttpRequest, pk: int, note_pk: int | None = None) -> HttpResponse:
+    """Add (no ``note_pk``) or edit a meeting note plus its attachment formset. Editor only."""
+    from hub.forms import GuildMeetingNoteAttachmentFormSet, GuildMeetingNoteForm
+    from membership.models import GuildMeetingNote
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    note = get_object_or_404(GuildMeetingNote, pk=note_pk, guild=guild) if note_pk is not None else GuildMeetingNote()
+
+    if request.method == "POST":
+        form = GuildMeetingNoteForm(request.POST, instance=note)
+        formset = GuildMeetingNoteAttachmentFormSet(request.POST, request.FILES, instance=note, prefix="att")
+        if form.is_valid() and formset.is_valid():
+            note = form.save(commit=False)
+            note.guild = guild
+            if note.created_by_id is None:
+                note.created_by = request.user
+            note.save()
+            formset.instance = note
+            formset.save()
+            messages.success(request, "Meeting notes saved.")
+            return redirect("hub_guild_meeting_notes", pk=guild.pk)
+    else:
+        form = GuildMeetingNoteForm(instance=note)
+        formset = GuildMeetingNoteAttachmentFormSet(instance=note, prefix="att")
+
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/guild_meeting_note_edit.html",
+        {**ctx, "guild": guild, "note": note, "form": form, "attachment_formset": formset},
+    )
+
+
+@login_required
+@require_POST
+def guild_meeting_note_delete(request: HttpRequest, pk: int, note_pk: int) -> HttpResponse:
+    """Delete a meeting note (attachments cascade). POST only, editor only."""
+    from membership.models import GuildMeetingNote
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    get_object_or_404(GuildMeetingNote, pk=note_pk, guild=guild).delete()
+    messages.success(request, "Meeting notes deleted.")
+    return redirect("hub_guild_meeting_notes", pk=guild.pk)
+
+
+@login_required
+def guild_events(request: HttpRequest, pk: int) -> HttpResponse:
+    """Management list of a guild's events (Edit / Delete / + Add). Editor only."""
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    events = guild.events.upcoming().select_related("guild")
+    ctx = _get_hub_context(request)
+    return render(request, "hub/guild_events.html", {**ctx, "guild": guild, "events": events})
+
+
+@login_required
+def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None) -> HttpResponse:
+    """Add (no ``event_pk``) or edit a guild event. Editor only.
+
+    Edit/delete fetch the event **scoped to this guild** so a lead of guild A cannot
+    mutate guild B's event by supplying B's ``event_pk`` with A's ``pk``. Creating a new
+    event announces it once; editing does not re-announce.
+    """
+    from hub.forms import CommunityEventForm
+    from membership.models import CommunityEvent
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    event = get_object_or_404(CommunityEvent, pk=event_pk, guild=guild) if event_pk is not None else CommunityEvent()
+    is_new = event.pk is None
+
+    if request.method == "POST":
+        form = CommunityEventForm(request.POST, instance=event, guild=guild, as_admin=False)
+        if form.is_valid():
+            event = form.save(commit=False)
+            event.guild = guild
+            event.event_type = CommunityEvent.EventType.GUILD_MEETING
+            if is_new:
+                event.created_by = request.user
+            event.save()
+            if is_new:
+                event.announce(actor=request.user)
+            messages.success(request, "Event saved.")
+            return redirect("hub_guild_events", pk=guild.pk)
+    else:
+        form = CommunityEventForm(instance=event, guild=guild, as_admin=False)
+
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/community_event_edit.html",
+        {
+            **ctx,
+            "guild": guild,
+            "event": event,
+            "form": form,
+            "cancel_url": reverse("hub_guild_events", args=[guild.pk]),
+        },
+    )
+
+
+@login_required
+@require_POST
+def guild_event_delete(request: HttpRequest, pk: int, event_pk: int) -> HttpResponse:
+    """Delete a guild event. POST only, editor only, fetched guild-scoped."""
+    from membership.models import CommunityEvent
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    get_object_or_404(CommunityEvent, pk=event_pk, guild=guild).delete()
+    messages.success(request, "Event deleted.")
+    return redirect("hub_guild_events", pk=guild.pk)
+
+
+@login_required
+def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpResponse:
+    """Admin site-wide event authoring (reached from the Community Calendar Events tab)."""
+    from hub.forms import CommunityEventForm
+    from membership.models import CommunityEvent
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    event = get_object_or_404(CommunityEvent, pk=event_pk) if event_pk is not None else CommunityEvent()
+    is_new = event.pk is None
+    cancel_url = reverse("hub_community_calendar") + "?tab=events"
+
+    if request.method == "POST":
+        form = CommunityEventForm(request.POST, instance=event, as_admin=True)
+        if form.is_valid():
+            event = form.save(commit=False)
+            if is_new:
+                event.created_by = request.user
+            event.save()
+            if is_new:
+                event.announce(actor=request.user)
+            messages.success(request, "Event saved.")
+            return redirect(cancel_url)
+    else:
+        form = CommunityEventForm(instance=event, as_admin=True)
+
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/community_event_edit.html",
+        {**ctx, "event": event, "form": form, "cancel_url": cancel_url},
+    )
+
+
+@login_required
+@require_POST
+def event_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
+    """Delete a site-wide event. POST only, admin only."""
+    from membership.models import CommunityEvent
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    get_object_or_404(CommunityEvent, pk=event_pk).delete()
+    messages.success(request, "Event deleted.")
+    return redirect(reverse("hub_community_calendar") + "?tab=events")
 
 
 @login_required
@@ -1525,6 +1913,10 @@ def beta_feedback(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET"])
 def tab_detail(request: HttpRequest) -> HttpResponse:
     """My Tab page — shows current balance, pending entries, and saved payment method."""
+    if not SiteConfiguration.load().tab_payments_enabled:
+        messages.info(request, "My Tab isn't available right now.")
+        return redirect("home")
+
     member = _get_member(request)
     ctx = _get_hub_context(request)
 
@@ -1574,6 +1966,10 @@ def void_tab_entry(request: HttpRequest, entry_pk: int) -> HttpResponse:
 @login_required
 def tab_history(request: HttpRequest) -> HttpResponse:
     """Tab History page — shows past billing charges with expandable details."""
+    if not SiteConfiguration.load().tab_payments_enabled:
+        messages.info(request, "My Tab isn't available right now.")
+        return redirect("home")
+
     member = _get_member(request)
     ctx = _get_hub_context(request)
 
@@ -1588,6 +1984,9 @@ def tab_history(request: HttpRequest) -> HttpResponse:
 
 
 _CALENDAR_PAGE_SIZE = 10
+# FOG-native community events render under this source. Reuses the existing --hub-blue
+# brand token (not a new color) so they read distinctly from classes/orientation/guild.
+_COMMUNITY_CALENDAR_COLOR = "#3d8bd4"
 
 
 def _get_calendar_context(
@@ -1637,14 +2036,19 @@ def _get_calendar_context(
     # CalendarEvent rows, optionally merged with synthetic guild entries (classes/orientations)
     # that duck-type CalendarEvent — hence the Any element type.
     all_events: list[Any] = list(events_qs.select_related("guild", "feed").order_by("start_dt"))
-    if guild is not None:
-        # Surface this guild's CMS classes + orientation slots on the calendar — they
-        # aren't CalendarEvent rows, so wrap them as synthetic entries and merge in.
-        from hub.calendar_entries import guild_calendar_entries
+    # Merge FOG-native synthetic entries (they aren't CalendarEvent rows) into BOTH the
+    # community calendar (all events) and a guild calendar (that guild's events), then
+    # re-sort by start so they interleave with the iCal/class/orientation entries.
+    from hub.calendar_entries import community_event_entries, guild_calendar_entries
 
-        all_events = sorted(
-            [*all_events, *guild_calendar_entries(guild, fetch_from, fetch_to)], key=lambda e: e.start_dt
-        )
+    if guild is not None:
+        synthetic = [
+            *guild_calendar_entries(guild, fetch_from, fetch_to),
+            *community_event_entries(fetch_from, fetch_to, guild=guild),
+        ]
+    else:
+        synthetic = community_event_entries(fetch_from, fetch_to)
+    all_events = sorted([*all_events, *synthetic], key=lambda e: e.start_dt)
 
     # Week event list: events whose start date falls within the navigated week
     week_events = [e for e in all_events if week_start <= e.start_dt.date() <= week_end]
@@ -1669,7 +2073,11 @@ def _get_calendar_context(
     classes_enabled = config.sync_classes_enabled
     classes_color = config.classes_calendar_color
 
-    source_colors: dict[str, str] = {"classes": classes_color, "orientation": "#EEB44B"}
+    source_colors: dict[str, str] = {
+        "classes": classes_color,
+        "orientation": "#EEB44B",
+        "community": _COMMUNITY_CALENDAR_COLOR,
+    }
     for feed in calendar_feeds:
         source_colors[f"feed-{feed.pk}"] = feed.color
     for g in guilds_with_calendars:
@@ -1720,6 +2128,7 @@ def _get_calendar_context(
         "calendar_feeds": calendar_feeds,
         "classes_enabled": classes_enabled,
         "classes_color": classes_color,
+        "community_color": _COMMUNITY_CALENDAR_COLOR,
         "source_colors": source_colors,
         "week_days": week_days,
         "week_label": week_label,
@@ -1734,11 +2143,17 @@ def _get_calendar_context(
 
 
 def community_calendar(request: HttpRequest) -> HttpResponse:
-    """Community Calendar page — upcoming events from all guild and general calendars."""
+    """Community Calendar page — a Calendar grid tab + an Events list/authoring tab.
+
+    The Events tab is a member-readable upcoming-events list; admins additionally get
+    ``+ Add`` / Edit / Delete controls (gated by ``events_can_manage``).
+    """
+    from membership.models import CommunityEvent
+
     ctx = _get_hub_context(request)
     cal_ctx = _get_calendar_context(request)
 
-    default_filters = []
+    default_filters = ["community"]
     for feed in cal_ctx["calendar_feeds"]:
         default_filters.append(f"feed-{feed.pk}")
     if cal_ctx["classes_enabled"]:
@@ -1748,6 +2163,10 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
 
     cal_ctx["default_filters_json"] = json.dumps(default_filters).replace('"', '\\"')
     cal_ctx["events_url"] = reverse("hub_community_calendar_events")
+
+    view_as = getattr(request, "view_as", None)
+    cal_ctx["upcoming_events"] = CommunityEvent.objects.upcoming().select_related("guild")
+    cal_ctx["events_can_manage"] = bool(view_as is not None and view_as.is_admin)
     return render(request, "hub/community_calendar.html", {**ctx, **cal_ctx})
 
 
@@ -1800,7 +2219,7 @@ def _ical_escape(value: str) -> str:
 @login_required
 def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     """Download a combined iCal file of all upcoming events."""
-    from membership.models import CalendarEvent
+    from membership.models import CalendarEvent, CommunityEvent
 
     now = dj_timezone.now()
     horizon = now + timedelta(days=90)
@@ -1841,6 +2260,26 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
             lines.append(f"LOCATION:{evt.location}")
         lines.append("END:VEVENT")
 
+    # FOG-native events need their own loop — they lack the CalendarEvent attrs the
+    # loop above reads (uid / all_day). A recurring series emits ONE VEVENT carrying an
+    # RRULE so subscribers expand it themselves (no per-occurrence VEVENTs).
+    for ev in CommunityEvent.objects.upcoming().select_related("guild"):
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:community-{ev.pk}@pastlives",
+            f"SUMMARY:{_ical_escape(ev.title)}",
+            f"DTSTART:{ev.starts_at.strftime('%Y%m%dT%H%M%SZ')}",
+            f"DTEND:{ev.ends_at.strftime('%Y%m%dT%H%M%SZ')}",
+        ]
+        rrule = ev.ical_rrule()
+        if rrule:
+            lines.append(f"RRULE:{rrule}")
+        if ev.description:
+            lines.append(f"DESCRIPTION:{_ical_escape(ev.description[:250])}")
+        if ev.location:
+            lines.append(f"LOCATION:{_ical_escape(ev.location)}")
+        lines.append("END:VEVENT")
+
     lines.append("END:VCALENDAR")
     ical_content = "\r\n".join(lines) + "\r\n"
 
@@ -1878,47 +2317,333 @@ def view_as_set(request: HttpRequest) -> JsonResponse:
 
 
 @fog_admin_required
-def admin_voting_dashboard(request: HttpRequest) -> HttpResponse:
-    """Admin voting dashboard — pool stats, vote leaders, snapshot actions."""
+def voting_overview(request: HttpRequest) -> HttpResponse:
+    """Voting → Overview tab — current-cycle pool stats and live vote leaders (read-only)."""
     from plfog.dashboard import dashboard_callback
 
     ctx = _get_hub_context(request)
     ctx = dashboard_callback(request, ctx)
-    return render(request, "hub/admin/voting_dashboard.html", ctx)
+    ctx.update(get_cycle_context())
+    ctx["active_tab"] = "atglance"
+    ctx["pending_results_snapshot"] = FundingSnapshot.most_recent_pending()
+    return render(request, "hub/admin/voting_overview.html", ctx)
+
+
+@fog_admin_required
+def voting_history(request: HttpRequest) -> HttpResponse:
+    """Voting → Funding History tab — the list of past funding snapshots, newest first."""
+    ctx = _get_hub_context(request)
+    ctx["snapshots"] = FundingSnapshot.objects.order_by("-snapshot_at")
+    ctx["active_tab"] = "history"
+    return render(request, "hub/admin/voting_history.html", ctx)
+
+
+@fog_admin_required
+def voting_history_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """Voting → Funding History detail — the immutable per-member audit for one snapshot."""
+    from membership.vote_analyzer import build_analyzer_context
+
+    snapshot = get_object_or_404(FundingSnapshot, pk=pk)
+    ctx = _get_hub_context(request)
+    ctx.update(build_analyzer_context(list(snapshot.raw_votes), snapshot=snapshot, get_params=request.GET))
+    ctx["active_tab"] = "history"
+    return render(request, "hub/admin/voting_history_detail.html", ctx)
+
+
+@fog_admin_required
+def voting_snapshots(request: HttpRequest) -> HttpResponse:
+    """Voting → Snapshots tab — the live (draft) analyzer plus the Take-snapshot form."""
+    from membership.vote_analyzer import build_analyzer_context, serialize_live_votes
+
+    ctx = _get_hub_context(request)
+    ctx.update(build_analyzer_context(serialize_live_votes(), snapshot=None, get_params=request.GET))
+    ctx["active_tab"] = "snapshots"
+    return render(request, "hub/admin/voting_snapshots.html", ctx)
+
+
+@fog_admin_required
+def voting_settings(request: HttpRequest) -> HttpResponse:
+    """Voting → Settings tab — edit the VotingSettings singleton (full-page form + messages)."""
+    from hub.forms import VotingSettingsForm
+    from membership.models import VotingSettings
+
+    settings_obj = VotingSettings.load()
+    form = VotingSettingsForm(request.POST or None, instance=settings_obj)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Voting settings saved.")
+        return redirect("hub_admin_voting_settings")
+
+    ctx = _get_hub_context(request)
+    ctx["active_tab"] = "settings"
+    ctx["form"] = form
+    return render(request, "hub/admin/voting_settings.html", ctx)
+
+
+@fog_admin_required
+@require_POST
+def voting_send_results(request: HttpRequest, pk: int) -> HttpResponse:
+    """Email this cycle's results to members who voted (HTMX → toast + re-rendered control).
+
+    The admin-confirmed send: ``snapshot.send_results`` loops the frozen votes and
+    emails each active voter their personalized allocation + recorded vote. Returns the
+    re-rendered Send/Resend control (its new "sent" state) plus an out-of-band swap of
+    the Overview "review & send" banner, and a toast — never a Django-messages redirect.
+    """
+    from membership.models import ResultsAlreadySentError
+
+    snapshot = get_object_or_404(FundingSnapshot, pk=pk)
+    resend = request.POST.get("resend") == "1"
+    try:
+        sent = snapshot.send_results(actor=request.user, resend=resend)
+    except ResultsAlreadySentError:
+        response = _render_results_send_control(request, snapshot)
+        trigger_toast(response, "Those results were already sent.", "error")
+        return response
+
+    response = _render_results_send_control(request, snapshot)
+    trigger_toast(response, f"Results sent to {sent} member{'' if sent == 1 else 's'}.", "success")
+    return response
+
+
+def _render_results_send_control(request: HttpRequest, snapshot: FundingSnapshot) -> HttpResponse:
+    """Render the Send/Resend control + an OOB refresh of the Overview pending banner."""
+    return render(
+        request,
+        "hub/admin/_results_send_control.html",
+        {"snapshot": snapshot, "pending_results_snapshot": FundingSnapshot.most_recent_pending(), "oob": True},
+    )
+
+
+@fog_admin_required
+@require_POST
+def voting_snapshot_take(request: HttpRequest) -> HttpResponse:
+    """Commit a snapshot from the current live vote state, then open the new record.
+
+    Filters on the Snapshots tab are analysis-only — the commit always captures
+    the full unfiltered live state. Only title and minimum_pool carry over.
+    """
+    from membership.vote_analyzer import parse_minimum_pool
+
+    title = request.POST.get("title", "").strip()
+    minimum_pool = parse_minimum_pool(request.POST.get("minimum_pool"))
+
+    snapshot = FundingSnapshot.take(title=title, minimum_pool=minimum_pool)
+    if snapshot is None:
+        messages.warning(request, "No votes yet — nothing to snapshot.")
+        return redirect("hub_admin_voting_snapshots")
+
+    messages.success(request, f"Snapshot '{snapshot.cycle_label}' created — ${snapshot.funding_pool} pool.")
+    return redirect("hub_admin_voting_history_detail", pk=snapshot.pk)
+
+
+@fog_admin_required
+@require_POST
+def voting_snapshot_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Hard-delete a snapshot (and its Airtable mirror) and return to the Funding History list."""
+    snapshot = get_object_or_404(FundingSnapshot, pk=pk)
+    cycle_label = snapshot.cycle_label
+    snapshot.delete()
+    messages.success(request, f"Deleted snapshot '{cycle_label}'.")
+    return redirect("hub_admin_voting_history")
+
+
+@dataclass(frozen=True)
+class PersonRow:
+    """A uniform row for the person-centric Manage Members list.
+
+    Both sources — :class:`~membership.models.Member` rows (every one now has a
+    user) and ``User`` rows with no Member ("Non-member user") — collapse into this
+    so the template renders one table without branching on type.
+    """
+
+    name: str
+    email: str
+    status_display: str  # "" for non-member users (they have no member status)
+    role_display: str  # "" for non-member users
+    class_count: int  # 0 for non-member users
+    classes_url: str  # "" when there are no classes
+    edit_url: str
+    is_member: bool
+    badge_label: str  # "" = no pill (a signed-in member)
+    badge_modifier: str  # "neutral" / "danger"
+    email_gap_label: str = ""  # only populated for the Missing-email report
+
+
+def _person_status_badge(*, is_member: bool, has_signed_in: bool) -> tuple[str, str]:
+    """The (label, hub-pill modifier) for a person's sign-in status badge."""
+    if not is_member:
+        return ("Non-member user", "danger")
+    if has_signed_in:
+        return ("Signed in", "ok")
+    return ("Hasn't signed in yet", "neutral")
+
+
+def _user_primary_email(user: User) -> str:
+    """The user's primary allauth EmailAddress — NEVER the User.email mirror.
+
+    Uses the list-view ``_primary_emailaddresses`` prefetch when present (avoids an
+    N+1), else a single targeted query. Returns "" when no primary row exists.
+    """
+    prefetched = getattr(user, "_primary_emailaddresses", None)
+    if prefetched is not None:
+        return prefetched[0].email if prefetched else ""
+    primary = EmailAddress.objects.filter(user_id=user.pk, primary=True).first()
+    return primary.email if primary else ""
+
+
+def _member_person_row(member: Member) -> PersonRow:
+    """Build the uniform list row for a Member (prefetch ``user`` to avoid N+1)."""
+    user = member.user
+    has_signed_in = bool(user and user.last_login)
+    badge_label, badge_modifier = ("", "") if has_signed_in else ("Hasn't signed in yet", "neutral")
+    classes_url = (
+        f"{reverse('classes:admin_classes')}?instructor={member.pk}" if getattr(member, "class_count", 0) else ""
+    )
+    return PersonRow(
+        name=member.full_legal_name or member.display_name or "—",
+        email=member.primary_email or "—",
+        status_display=member.get_status_display(),
+        role_display=member.get_fog_role_display(),
+        class_count=getattr(member, "class_count", 0),
+        classes_url=classes_url,
+        edit_url=reverse("hub_admin_member_edit", args=[member.pk]),
+        is_member=True,
+        badge_label=badge_label,
+        badge_modifier=badge_modifier,
+        email_gap_label=member.email_gap_label if hasattr(member, "email_gap") else "",
+    )
+
+
+def _nonmember_person_row(user: User) -> PersonRow:
+    """Build the uniform list row for a User with no Member ("Non-member user")."""
+    return PersonRow(
+        name=user.get_full_name() or user.username or "—",
+        email=_user_primary_email(user) or "—",
+        status_display="",
+        role_display="",
+        class_count=0,
+        classes_url="",
+        edit_url=reverse("hub_admin_user_edit", args=[user.pk]),
+        is_member=False,
+        badge_label="Non-member user",
+        badge_modifier="danger",
+    )
+
+
+class _PersonRowList:
+    """A sliceable, countable sequence of :class:`PersonRow` for ``Paginator``.
+
+    Members (ordered by name) come first, then non-member users (ordered by email),
+    and ``Paginator`` pages over the union without materializing the whole thing —
+    only the requested slice is turned into rows.
+    """
+
+    def __init__(self, members_qs: Any, nonmembers_qs: Any) -> None:
+        self._members = members_qs
+        self._nonmembers = nonmembers_qs
+        self._member_count = members_qs.count()
+        self._nonmember_count = nonmembers_qs.count()
+
+    def count(self) -> int:
+        return self._member_count + self._nonmember_count
+
+    def __len__(self) -> int:
+        return self.count()
+
+    def __getitem__(self, item: slice) -> list[PersonRow]:
+        start, stop, _step = item.indices(self.count())
+        rows: list[PersonRow] = []
+        if start < self._member_count:
+            member_stop = min(stop, self._member_count)
+            rows.extend(_member_person_row(m) for m in self._members[start:member_stop])
+        nm_start = max(0, start - self._member_count)
+        nm_stop = max(0, stop - self._member_count)
+        if nm_stop > nm_start:
+            rows.extend(_nonmember_person_row(u) for u in self._nonmembers[nm_start:nm_stop])
+        return rows
+
+
+def _primary_email_prefetch(relation: str) -> Prefetch:
+    """A Prefetch of just the primary EmailAddress rows under ``relation``.
+
+    ``to_attr="_primary_emailaddresses"`` is the hook ``Member.primary_email`` and
+    :func:`_user_primary_email` both read, so the email column never hits the DB
+    per-row and never reads the ``User.email`` mirror.
+    """
+    return Prefetch(
+        relation,
+        queryset=EmailAddress.objects.filter(primary=True),
+        to_attr="_primary_emailaddresses",
+    )
 
 
 @fog_admin_required
 def admin_members(request: HttpRequest) -> HttpResponse:
-    """Admin members management — paginated list with search + status/role/type filters."""
+    """Person-centric Manage Members list — members + non-member users, unioned.
+
+    Members (every one provisioned → has a user) are listed first, then ``User``
+    rows with no Member ("Non-member user", superusers excluded so the owner's admin
+    login isn't listed). Member-only filters (status/role/type/email) narrow to
+    members and hide non-member users; search matches both.
+    """
     from django.core.paginator import Paginator
-    from django.db.models import Count, Q
+
+    from core.models import Invite
+    from membership.forms import InviteMemberForm
 
     ctx = _get_hub_context(request)
     status_filter = request.GET.get("status", "active")
     role_filter = request.GET.get("role", "")
     type_filter = request.GET.get("type", "")
+    email_filter = request.GET.get("email", "")
     search = request.GET.get("q", "").strip()
 
-    qs = (
+    members = (
         Member.objects.select_related("user", "membership_plan")
         .annotate(class_count=Count("classes", distinct=True))
+        .prefetch_related(_primary_email_prefetch("user__emailaddress_set"))
         .order_by("full_legal_name")
     )
     if status_filter and status_filter != "all":
-        qs = qs.filter(status=status_filter)
+        members = members.filter(status=status_filter)
     if role_filter:
-        qs = qs.filter(fog_role=role_filter)
+        members = members.filter(fog_role=role_filter)
     if type_filter:
-        qs = qs.filter(member_type=type_filter)
+        members = members.filter(member_type=type_filter)
     if search:
-        qs = qs.filter(
+        members = members.filter(
             Q(full_legal_name__icontains=search)
             | Q(preferred_name__icontains=search)
             | Q(user__email__icontains=search)
             | Q(discord_handle__icontains=search)
         )
 
-    paginator = Paginator(qs, 50)
+    missing_count = members.missing_email().count()  # emailless within the current filters
+    if email_filter == "missing":
+        members = members.missing_email()  # page rows now carry has_email + email_gap
+
+    # Non-member users join the list only when no member-only filter is narrowing it.
+    # The default status ("active") and "all" are non-narrowing so the default view
+    # shows everyone; any other status, or a role/type/missing-email filter, hides
+    # them (they have no such fields). Search still matches their email.
+    member_only_filter_active = bool(
+        role_filter or type_filter or email_filter == "missing" or status_filter not in ("", "all", "active")
+    )
+    nonmembers = User.objects.none()
+    if not member_only_filter_active:
+        nonmembers = (
+            User.objects.filter(member__isnull=True, is_superuser=False)
+            .prefetch_related(_primary_email_prefetch("emailaddress_set"))
+            .order_by("email", "username")
+        )
+        if search:
+            nonmembers = nonmembers.filter(
+                Q(emailaddress__email__icontains=search) | Q(username__icontains=search)
+            ).distinct()
+
+    person_list: Any = _PersonRowList(members, nonmembers)
+    paginator = Paginator(person_list, 50)
     page = paginator.get_page(request.GET.get("page", 1))
     return render(
         request,
@@ -1929,17 +2654,22 @@ def admin_members(request: HttpRequest) -> HttpResponse:
             "status_filter": status_filter,
             "role_filter": role_filter,
             "type_filter": type_filter,
+            "email_filter": email_filter,
+            "missing_count": missing_count,
+            "member_only_filter_active": member_only_filter_active,
             "search": search,
             "status_choices": Member.Status.choices,
             "role_choices": Member.FogRole.choices,
             "type_choices": Member.MemberType.choices,
+            "invites": Invite.objects.for_management_panel(),
+            "invite_form": InviteMemberForm(),
         },
     )
 
 
 @fog_admin_required
 def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Hub-native edit form for a single Member."""
+    """Hub-native tabbed edit page for a single Member (Details + Emails)."""
     member = get_object_or_404(Member, pk=pk)
 
     if request.method == "POST":
@@ -1948,33 +2678,126 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             obj = form.save(commit=False)
             obj.save()
             obj.apply_admin_role(form.cleaned_data["role"])
-            display = obj.full_legal_name or (obj.user.email if obj.user else f"member #{obj.pk}")
+            display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
             messages.success(request, f"Saved {display}.")
             return redirect("hub_admin_members")
     else:
         form = MemberAdminEditForm(instance=member)
 
+    user = member.user
+    has_signed_in = bool(user and user.last_login)
+    status_label, status_modifier = _person_status_badge(is_member=True, has_signed_in=has_signed_in)
+    email_rows = (
+        _email_rows(
+            user,
+            owner_pk=member.pk,
+            set_primary="hub_admin_member_email_set_primary",
+            toggle="hub_admin_member_email_toggle_verified",
+            remove="hub_admin_member_email_remove",
+        )
+        if user
+        else []
+    )
     ctx = _get_hub_context(request)
     return render(
         request,
         "hub/admin/member_edit.html",
         {
             **ctx,
-            "form": form,
+            "is_member": True,
             "member": member,
-            "member_emails": _member_emails(member),
+            "form": form,
+            "person_name": member.full_legal_name or member.display_name or "Member",
+            "primary_email": member.primary_email,
+            "has_signed_in": has_signed_in,
+            "has_user": member.user_id is not None,
+            "status_label": status_label,
+            "status_modifier": status_modifier,
+            "email_rows": email_rows,
             "email_add_form": _email_add_form(member),
+            "email_add_url": reverse("hub_admin_member_email_add", args=[member.pk]),
+            "send_login_invite_url": reverse("hub_admin_member_send_login_invite", args=[member.pk]),
         },
     )
 
 
-def _member_emails(member: Member) -> Any:
-    """The member's allauth EmailAddress rows (primary first), or None if no linked user."""
-    if member.user_id is None:
-        return None
-    from allauth.account.models import EmailAddress
+@fog_admin_required
+def admin_user_edit(request: HttpRequest, user_pk: int) -> HttpResponse:
+    """Edit page for a non-member User — same tabbed shell, "non-member user" mode.
 
-    return EmailAddress.objects.filter(user=member.user).order_by("-primary", "email")
+    Details is read-only identity (no ``MemberAdminEditForm``); the Emails tab
+    manages the user's allauth ``EmailAddress`` rows via the user-keyed endpoints.
+    A user who actually has a Member is bounced to the member edit page so the two
+    routes never disagree about which page owns a person.
+    """
+    user = get_object_or_404(User, pk=user_pk)
+    member = Member.objects.filter(user=user).first()
+    if member is not None:
+        return redirect("hub_admin_member_edit", pk=member.pk)
+
+    has_signed_in = bool(user.last_login)
+    status_label, status_modifier = _person_status_badge(is_member=False, has_signed_in=has_signed_in)
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/admin/member_edit.html",
+        {
+            **ctx,
+            "is_member": False,
+            "target_user": user,
+            "person_name": user.get_full_name() or user.username,
+            "primary_email": _user_primary_email(user),
+            "has_signed_in": has_signed_in,
+            "has_user": True,
+            "status_label": status_label,
+            "status_modifier": status_modifier,
+            "email_rows": _email_rows(
+                user,
+                owner_pk=user.pk,
+                set_primary="hub_admin_user_email_set_primary",
+                toggle="hub_admin_user_email_toggle_verified",
+                remove="hub_admin_user_email_remove",
+            ),
+            "email_add_form": _user_email_add_form(user),
+            "email_add_url": reverse("hub_admin_user_email_add", args=[user.pk]),
+        },
+    )
+
+
+@fog_admin_required
+@require_POST
+def admin_member_send_login_invite(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only (HTMX) — email a not-signed-in member a first-time sign-in link.
+
+    Calls the Phase-1 ``Member.send_login_invite`` (a distinct path from the
+    "already a member" invite guard). Returns 204 + a toast either way.
+    """
+    member = get_object_or_404(Member, pk=pk)
+    response = HttpResponse(status=204)
+    try:
+        member.send_login_invite()
+    except ValueError as exc:
+        trigger_toast(response, str(exc), "error")
+        return response
+    trigger_toast(response, f"Login invite sent to {member.primary_email}.", "success")
+    return response
+
+
+def _email_rows(user: User, *, owner_pk: int, set_primary: str, toggle: str, remove: str) -> list[dict[str, Any]]:
+    """A user's allauth EmailAddress rows (primary first) with per-row action URLs.
+
+    Shared by the member-keyed and user-keyed edit pages so the Emails tab renders
+    one list regardless of whether the person is a Member or a non-member User.
+    """
+    return [
+        {
+            "obj": ea,
+            "set_primary_url": reverse(set_primary, args=[owner_pk, ea.pk]),
+            "toggle_url": reverse(toggle, args=[owner_pk, ea.pk]),
+            "remove_url": reverse(remove, args=[owner_pk, ea.pk]),
+        }
+        for ea in EmailAddress.objects.filter(user=user).order_by("-primary", "email")
+    ]
 
 
 def _email_add_form(member: Member, data: Any = None) -> Any:
@@ -1984,6 +2807,20 @@ def _email_add_form(member: Member, data: Any = None) -> Any:
     from membership.forms import AddEmailAliasForm
 
     return AddEmailAliasForm(data, user=member.user)
+
+
+def _user_email_add_form(user: User, data: Any = None) -> Any:
+    """AddEmailAliasForm bound to a non-member User."""
+    from membership.forms import AddEmailAliasForm
+
+    return AddEmailAliasForm(data, user=user)
+
+
+def _apply_alias_action(request: HttpRequest, user: User, email_pk: int, action: Any) -> None:
+    """Run an ``email_aliases`` mutation on one of the user's addresses and flash it."""
+    alias = get_object_or_404(EmailAddress, pk=email_pk, user=user)
+    for level, msg in action(alias):
+        getattr(messages, level)(request, msg)
 
 
 def _email_member_or_redirect(pk: int) -> tuple[Member | None, HttpResponse | None]:
@@ -2019,17 +2856,13 @@ def admin_member_email_add(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def admin_member_email_remove(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
     """POST-only — remove an email alias from a member (with the lock-out safety rules)."""
-    from allauth.account.models import EmailAddress
-
     from membership import email_aliases
 
     member, early = _email_member_or_redirect(pk)
     if member is None:
         return cast(HttpResponse, early)
 
-    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
-    for level, msg in email_aliases.remove_alias(alias):
-        getattr(messages, level)(request, msg)
+    _apply_alias_action(request, cast(User, member.user), email_pk, email_aliases.remove_alias)
     return redirect("hub_admin_member_edit", pk=member.pk)
 
 
@@ -2037,17 +2870,13 @@ def admin_member_email_remove(request: HttpRequest, pk: int, email_pk: int) -> H
 @require_POST
 def admin_member_email_set_primary(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
     """POST-only — promote a verified alias to the member's primary email."""
-    from allauth.account.models import EmailAddress
-
     from membership import email_aliases
 
     member, early = _email_member_or_redirect(pk)
     if member is None:
         return cast(HttpResponse, early)
 
-    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
-    for level, msg in email_aliases.set_primary(alias):
-        getattr(messages, level)(request, msg)
+    _apply_alias_action(request, cast(User, member.user), email_pk, email_aliases.set_primary)
     return redirect("hub_admin_member_edit", pk=member.pk)
 
 
@@ -2055,36 +2884,160 @@ def admin_member_email_set_primary(request: HttpRequest, pk: int, email_pk: int)
 @require_POST
 def admin_member_email_toggle_verified(request: HttpRequest, pk: int, email_pk: int) -> HttpResponse:
     """POST-only — flip the verified flag on a member's email alias."""
-    from allauth.account.models import EmailAddress
-
     from membership import email_aliases
 
     member, early = _email_member_or_redirect(pk)
     if member is None:
         return cast(HttpResponse, early)
 
-    alias = get_object_or_404(EmailAddress, pk=email_pk, user=member.user)
-    for level, msg in email_aliases.toggle_verified(alias):
-        getattr(messages, level)(request, msg)
+    _apply_alias_action(request, cast(User, member.user), email_pk, email_aliases.toggle_verified)
     return redirect("hub_admin_member_edit", pk=member.pk)
+
+
+def _email_user_or_redirect(user_pk: int) -> tuple[User | None, HttpResponse | None]:
+    """Fetch the non-member User for an email action; bounce to member edit if linked."""
+    user = get_object_or_404(User, pk=user_pk)
+    member = Member.objects.filter(user=user).first()
+    if member is not None:
+        return None, redirect("hub_admin_member_edit", pk=member.pk)
+    return user, None
+
+
+@fog_admin_required
+@require_POST
+def admin_user_email_add(request: HttpRequest, user_pk: int) -> HttpResponse:
+    """POST-only — add a verified, non-primary alias to a non-member User."""
+    from membership import email_aliases
+
+    user, early = _email_user_or_redirect(user_pk)
+    if user is None:
+        return cast(HttpResponse, early)
+
+    form = _user_email_add_form(user, request.POST)
+    if form.is_valid():
+        for level, msg in email_aliases.add_alias(user, form.cleaned_data["email"]):
+            getattr(messages, level)(request, msg)
+    else:
+        messages.error(request, form.errors["email"][0])
+    return redirect("hub_admin_user_edit", user_pk=user.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_user_email_remove(request: HttpRequest, user_pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — remove an alias from a non-member User (with the lock-out safety rules)."""
+    from membership import email_aliases
+
+    user, early = _email_user_or_redirect(user_pk)
+    if user is None:
+        return cast(HttpResponse, early)
+
+    _apply_alias_action(request, user, email_pk, email_aliases.remove_alias)
+    return redirect("hub_admin_user_edit", user_pk=user.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_user_email_set_primary(request: HttpRequest, user_pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — promote a verified alias to a non-member User's primary email."""
+    from membership import email_aliases
+
+    user, early = _email_user_or_redirect(user_pk)
+    if user is None:
+        return cast(HttpResponse, early)
+
+    _apply_alias_action(request, user, email_pk, email_aliases.set_primary)
+    return redirect("hub_admin_user_edit", user_pk=user.pk)
+
+
+@fog_admin_required
+@require_POST
+def admin_user_email_toggle_verified(request: HttpRequest, user_pk: int, email_pk: int) -> HttpResponse:
+    """POST-only — flip the verified flag on a non-member User's email alias."""
+    from membership import email_aliases
+
+    user, early = _email_user_or_redirect(user_pk)
+    if user is None:
+        return cast(HttpResponse, early)
+
+    _apply_alias_action(request, user, email_pk, email_aliases.toggle_verified)
+    return redirect("hub_admin_user_edit", user_pk=user.pk)
+
+
+def _render_invites_panel(request: HttpRequest) -> HttpResponse:
+    """Render the swappable outstanding-invites panel with a fresh queryset."""
+    from core.models import Invite
+
+    return render(
+        request,
+        "hub/admin/_invites_panel.html",
+        {"invites": Invite.objects.for_management_panel()},
+    )
 
 
 @fog_admin_required
 @require_POST
 def admin_member_invite(request: HttpRequest) -> HttpResponse:
-    """Invite a member to the FOG app by email — reuses the core Invite flow."""
+    """Send a single invite (HTMX) — re-renders the invites panel plus a toast.
+
+    Reuses InviteMemberForm for validation and Invite.create_and_send for the work.
+    On success returns the refreshed panel (200, swaps #invites-list); on a validation
+    error or a create_and_send ValueError returns 204 so HTMX makes no swap and the
+    form stays open, carrying the message as an error toast.
+    """
     from core.models import Invite
     from membership.forms import InviteMemberForm
 
     form = InviteMemberForm(request.POST)
-    if form.is_valid():
-        try:
-            Invite.create_and_send(email=form.cleaned_data["email"], invited_by=request.user)
-            messages.success(request, f"Invite sent to {form.cleaned_data['email']}.")
-        except ValueError as exc:
-            messages.error(request, str(exc))
-    else:
-        messages.error(request, str(form.errors["email"][0]))
+    if not form.is_valid():
+        response = HttpResponse(status=204)
+        trigger_toast(response, str(form.errors["email"][0]), "error")
+        return response
+
+    email = form.cleaned_data["email"]
+    try:
+        Invite.create_and_send(email=email, invited_by=request.user)
+    except ValueError as exc:
+        response = HttpResponse(status=204)
+        trigger_toast(response, str(exc), "error")
+        return response
+
+    response = _render_invites_panel(request)
+    trigger_toast(response, f"Invite sent to {email}.", "success")
+    return response
+
+
+@fog_admin_required
+@require_POST
+def admin_invite_resend(request: HttpRequest, pk: int) -> HttpResponse:
+    """Re-fire the invite email for an un-accepted invite (HTMX) — refreshed panel + toast."""
+    from core.models import Invite
+
+    invite = get_object_or_404(Invite, pk=pk)
+    if not invite.is_pending:
+        response = HttpResponse(status=204)
+        trigger_toast(response, "That invite was already accepted.", "error")
+        return response
+
+    invite.send_invite_email()
+    response = _render_invites_panel(request)
+    trigger_toast(response, f"Invite resent to {invite.email}.", "success")
+    return response
+
+
+@fog_admin_required
+@require_POST
+def admin_invite_revoke(request: HttpRequest, pk: int) -> HttpResponse:
+    """Revoke an un-accepted invite (full-page POST from confirm_modal) — redirect + message."""
+    from core.models import Invite
+
+    invite = get_object_or_404(Invite, pk=pk)
+    email = invite.email
+    try:
+        invite.revoke()
+        messages.success(request, f"Revoked the invite for {email}.")
+    except ValueError as exc:
+        messages.error(request, str(exc))
     return redirect("hub_admin_members")
 
 
@@ -2115,25 +3068,167 @@ def _legacy_instructor_sync_status() -> tuple[list[dict[str, object]], int]:
     return rows, unmatched
 
 
+def _activated_member_count() -> int:
+    """How many *activated* members a sitewide announcement reaches right now.
+
+    Exactly the ALL_ACTIVE_MEMBERS resolver audience (active members who have signed in
+    and carry a usable email), so the preview's count matches who actually gets it.
+    """
+    from core.events import resolvers
+    from core.events.registry import Recipients
+
+    return len(resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {}))
+
+
+def _announcement_email_html(title: str, body: str) -> str:
+    """Branded announcement email HTML — shared by the preview and the real send.
+
+    ``body`` is the rich-text editor's sanitized HTML (or, for an unedited release
+    draft, legacy plain text); ``render_rich_email_body`` inline-styles it for the dark
+    card, the escaped title rides above it as an ``<h2>``, and the branded shell wraps
+    the whole fragment.
+    """
+    from django.utils.html import escape
+
+    from core.events.templates import wrap_email_html
+    from core.html_sanitize import render_rich_email_body
+
+    fragment = f"<h2>{escape(title)}</h2>{render_rich_email_body(body)}"
+    return wrap_email_html(fragment)
+
+
+def _release_announcement_draft() -> tuple[str, str]:
+    """A ready-to-edit (subject, body) drawn from the current release line's changelog.
+
+    Aggregates every changelog entry sharing the live VERSION's MAJOR.MINOR (the whole
+    release line) into one plain-text draft the admin can trim before sending.
+    """
+    from plfog.version import CHANGELOG, VERSION
+
+    minor = ".".join(VERSION.split(".")[:2])
+    entries = [e for e in CHANGELOG if ".".join(str(e["version"]).split(".")[:2]) == minor]
+    # entries[0] always exists — VERSION shares a MAJOR.MINOR with its own changelog line.
+    subject = f"What's new at Past Lives: {entries[0]['title']}"
+    blocks = ["We've just shipped a big update — here's what's new:"]
+    for entry in entries:
+        lines = [str(entry["title"])]
+        lines += [f"• {change}" for change in entry["changes"]]
+        blocks.append("\n".join(lines))
+    return subject, "\n\n".join(blocks)
+
+
+def _send_site_announcement(request: HttpRequest, form: SiteAnnouncementForm) -> int:
+    """Fire ``site_announcement`` to activated members; return the recipient count.
+
+    The rich branded email is built here and handed to ``emit`` as a per-channel EMAIL
+    override (the bell + Discord still render from the plain seeded copy). Discord is
+    suppressed unless the admin ticked "Also post to Discord" — for the release send the
+    GitHub Action already posts it on merge to main, so it stays off to avoid a double.
+    """
+    from core.events.channels import Channel, Message
+    from core.events.emit import emit
+    from core.html_sanitize import rich_html_to_text
+
+    title = form.cleaned_data["title"]
+    body = form.cleaned_data["body"]  # sanitized rich HTML (SiteAnnouncementForm.clean_body)
+    body_text = rich_html_to_text(body)  # bell + Discord (and the email text part) get plain text
+    post_to_discord = form.cleaned_data["post_to_discord"]
+    site_url = request.build_absolute_uri("/")
+    email = Message(
+        title=title,
+        body=f"{title}\n\n{body_text}\n\n{site_url}",
+        url=site_url,
+        html_body=_announcement_email_html(title, body),
+        trigger_kind="site_announcement",
+    )
+    result = emit(
+        "site_announcement",
+        # Always authenticated — the view is @fog_admin_required (the else-branch never
+        # runs); the guard just narrows User | AnonymousUser to a Model for emit().
+        actor=request.user if request.user.is_authenticated else None,
+        context={
+            "member_name": "there",
+            "announcement_title": title,
+            "announcement_body": body_text,
+            "site_url": site_url,
+        },
+        url=site_url,
+        period=f"site:{dj_timezone.now():%Y%m%d%H%M%S%f}",
+        messages={Channel.EMAIL: email},
+        suppress_broadcast=not post_to_discord,
+    )
+    return result.recipient_count
+
+
+def _handle_announcement_action(
+    request: HttpRequest, action: str
+) -> tuple[HttpResponse | None, SiteAnnouncementForm, dict[str, object] | None]:
+    """Process an Announcements-tab POST. Returns ``(redirect_or_none, form, preview)``.
+
+    ``announce_send`` (valid) returns a redirect; ``announce_preview`` (valid) returns a
+    preview dict; an invalid form returns the bound form so the tab re-renders with errors.
+    """
+    form = SiteAnnouncementForm(request.POST)
+    if not form.is_valid():
+        return None, form, None
+    if action == "announce_send":
+        count = _send_site_announcement(request, form)
+        messages.success(request, f"Announcement sent to {count} member(s).")
+        return redirect(f"{reverse('hub_admin_site_settings')}?tab=announcements"), form, None
+    preview: dict[str, object] = {
+        "html": _announcement_email_html(form.cleaned_data["title"], form.cleaned_data["body"]),
+        "count": _activated_member_count(),
+        "post_to_discord": form.cleaned_data["post_to_discord"],
+    }
+    return None, form, preview
+
+
+def _save_site_settings(
+    request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
+) -> tuple[HttpResponse | None, SiteSettingsForm, Any]:
+    """Bind + save the settings form and calendar formset. Returns ``(redirect_or_none, form, formset)``."""
+    form = SiteSettingsForm(request.POST, instance=config)
+    feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
+    if form.is_valid() and feed_formset.is_valid():
+        form.save()
+        instances = feed_formset.save(commit=False)
+        for obj in feed_formset.deleted_objects:
+            obj.delete()
+        for inst in instances:
+            # Skip blank "+ Add" rows the user never filled in.
+            if not inst.name and not inst.ical_url:
+                continue
+            inst.save()
+        messages.success(request, "Site settings saved.")
+        target_tab = request.POST.get("submitted_tab", active_tab)
+        return redirect(f"{reverse('hub_admin_site_settings')}?tab={target_tab}"), form, feed_formset
+    return None, form, feed_formset
+
+
 @fog_admin_required
 def admin_site_settings(request: HttpRequest) -> HttpResponse:
     """Admin site settings — edit the SiteConfiguration singleton and its calendar feeds.
 
-    The page exposes three tabs (``general``, ``calendar``, and ``legacy-cms``). The Calendar tab
-    owns a ``CalendarFeedFormSet`` so admins can add/remove iCal feeds inline.
+    Tabs: ``general``, ``calendar``, ``legacy-cms``, ``features`` (the My Tab/Payments
+    and class-registration kill switches), and ``announcements`` (a sitewide announcement
+    composer with a preview-then-send step). The Calendar tab owns a ``CalendarFeedFormSet``
+    so admins can add/remove iCal feeds inline.
     """
     from core.models import CalendarFeed, SiteConfiguration
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
-    if active_tab not in {"general", "calendar", "legacy-cms"}:
+    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features"}:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()
+    announce_form = SiteAnnouncementForm()
+    announce_preview: dict[str, object] | None = None
 
     if request.method == "POST":
+        action = request.POST.get("action")
         # Handle "Sync Now" action — separate from the settings form
-        if request.POST.get("action") == "sync_now":
+        if action == "sync_now":
             from classes.import_service import sync_legacy_cms
 
             try:
@@ -2144,25 +3239,27 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             url = reverse("hub_admin_site_settings")
             return redirect(f"{url}?tab=legacy-cms")
 
-        form = SiteSettingsForm(request.POST, instance=config)
-        feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
-        if form.is_valid() and feed_formset.is_valid():
-            form.save()
-            instances = feed_formset.save(commit=False)
-            for obj in feed_formset.deleted_objects:
-                obj.delete()
-            for inst in instances:
-                # Skip blank "+ Add" rows the user never filled in.
-                if not inst.name and not inst.ical_url:
-                    continue
-                inst.save()
-            messages.success(request, "Site settings saved.")
-            target_tab = request.POST.get("submitted_tab", active_tab)
-            url = reverse("hub_admin_site_settings")
-            return redirect(f"{url}?tab={target_tab}")
+        # Announcements tab — preview-then-send, separate from the settings form.
+        if action in ("announce_preview", "announce_send"):
+            active_tab = "announcements"
+            form = SiteSettingsForm(instance=config)
+            feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
+            response, announce_form, announce_preview = _handle_announcement_action(request, action)
+            if response is not None:
+                return response
+            # else fall through to render (preview, or send with validation errors)
+        else:
+            response, form, feed_formset = _save_site_settings(request, config, feed_queryset, active_tab)
+            if response is not None:
+                return response
     else:
         form = SiteSettingsForm(instance=config)
         feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
+        # "Draft from latest release" — pre-fill the composer from the changelog.
+        if request.GET.get("draft") == "release":
+            subject, body = _release_announcement_draft()
+            announce_form = SiteAnnouncementForm(initial={"title": subject, "body": body, "post_to_discord": False})
+            active_tab = "announcements"
 
     instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
     ctx = _get_hub_context(request)
@@ -2180,5 +3277,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "instructor_sync_rows": instructor_sync_rows,
             "legacy_cms_unmatched": legacy_cms_unmatched,
             "config": config,
+            "announce_form": announce_form,
+            "announce_preview": announce_preview,
         },
     )

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 if TYPE_CHECKING:
@@ -181,6 +183,24 @@ class SiteConfiguration(models.Model):
         verbose_name="Google Analytics measurement ID",
         help_text="GA4 measurement ID (e.g. G-XXXXXXX) — injected site-wide (excludes the Django admin). Leave blank to disable.",
     )
+    tab_payments_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Enable My Tab & Payments",
+        help_text="When off, hides My Tab, the balance pill, the Buyables tab on guild pages, "
+        "and the admin Payments/Reports nav. Members visiting the Tab pages are redirected.",
+    )
+    class_registration_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Allow class registration",
+        help_text="When off, the public Register button is disabled (with the note below) and "
+        "the registration form refuses sign-ups.",
+    )
+    class_registration_disabled_note = models.TextField(
+        blank=True,
+        default="Online registration is paused right now. Email info@pastlives.space and we'll help you sign up.",
+        verbose_name="Registration-off message",
+        help_text="Shown under the disabled Register button when class registration is off.",
+    )
 
     class Meta:
         verbose_name = "Site Settings"
@@ -240,8 +260,42 @@ class CalendarFeed(models.Model):
         return self.name
 
 
+class InviteManager(models.Manager["Invite"]):
+    """Querysets for the Manage Members invites panel — all date/window math lives here."""
+
+    def _expiry_cutoff(self) -> datetime:
+        """The moment before which an un-accepted invite reads as expired."""
+        return timezone.now() - timedelta(days=settings.INVITE_EXPIRY_DAYS)
+
+    def outstanding(self) -> models.QuerySet[Invite]:
+        """Un-accepted invites (pending + expired), newest first, joins prefetched."""
+        return self.filter(accepted_at__isnull=True).select_related("invited_by", "member")
+
+    def pending(self) -> models.QuerySet[Invite]:
+        """Un-accepted invites last sent inside the expiry window."""
+        sent = Coalesce("last_sent_at", "created_at")
+        return self.outstanding().annotate(_sent=sent).filter(_sent__gte=self._expiry_cutoff())
+
+    def expired(self) -> models.QuerySet[Invite]:
+        """Un-accepted invites whose most-recent send is older than the expiry window."""
+        sent = Coalesce("last_sent_at", "created_at")
+        return self.outstanding().annotate(_sent=sent).filter(_sent__lt=self._expiry_cutoff())
+
+    def for_management_panel(self) -> models.QuerySet[Invite]:
+        """What the Invites card shows: all un-accepted + accepted within the last 30 days."""
+        recent_accept = timezone.now() - timedelta(days=30)
+        return self.filter(
+            models.Q(accepted_at__isnull=True) | models.Q(accepted_at__gte=recent_accept)
+        ).select_related("invited_by", "member")
+
+
 class Invite(models.Model):
     """Tracks email invitations sent by admins for invite-only registration."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        EXPIRED = "expired", "Expired"
 
     email = models.EmailField(unique=True, help_text="Email address of the person being invited.")
     invited_by = models.ForeignKey(
@@ -261,6 +315,13 @@ class Invite(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the invite was created.")
     accepted_at = models.DateTimeField(null=True, blank=True, help_text="When the invite was accepted by signing up.")
+    last_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the invite email was most recently sent. Resending updates this; expiry is measured from it.",
+    )
+
+    objects = InviteManager()
 
     class Meta:
         ordering = ["-created_at"]
@@ -274,26 +335,79 @@ class Invite(models.Model):
         """Return True if the invite has not been accepted yet."""
         return self.accepted_at is None
 
+    @property
+    def sent_at(self) -> datetime:
+        """The timestamp the UI means by 'sent' — most-recent send, else creation."""
+        return self.last_sent_at or self.created_at
+
+    @property
+    def is_expired(self) -> bool:
+        """Un-accepted and last sent longer ago than the expiry window (advisory only)."""
+        if not self.is_pending:
+            return False
+        cutoff = timezone.now() - timedelta(days=settings.INVITE_EXPIRY_DAYS)
+        return self.sent_at < cutoff
+
+    @property
+    def status(self) -> str:
+        """Derived lifecycle state: accepted / expired / pending."""
+        if not self.is_pending:
+            return self.Status.ACCEPTED
+        return self.Status.EXPIRED if self.is_expired else self.Status.PENDING
+
+    @property
+    def status_label(self) -> str:
+        """Human label for the derived status (templates can't call Status(...) with an arg)."""
+        return self.Status(self.status).label
+
+    def revoke(self) -> None:
+        """Cancel an un-accepted invite: remove it and its bare placeholder member.
+
+        Raises:
+            ValueError: if the invite was already accepted (the person is now a real member).
+        """
+        from membership.models import Member
+
+        if not self.is_pending:
+            raise ValueError("Cannot revoke an invite that has already been accepted.")
+        member = self.member
+        email = self.email
+        self.delete()
+        # Clean up ONLY a placeholder this flow created itself: a bare INVITED stub with no
+        # linked user AND no Airtable origin. create_and_send REUSES a pre-existing INVITED
+        # placeholder pulled from Airtable; Members are read-only from Airtable by contract,
+        # so the `not member.airtable_record_id` guard keeps revoke from ever deleting an
+        # imported stub — it just detaches the (now-deleted) invite.
+        if (
+            member is not None
+            and member.user_id is None
+            and member.status == Member.Status.INVITED
+            and not member.airtable_record_id
+        ):
+            member.delete()
+        SiteActivity.log(SiteActivity.Kind.MEMBER_INVITE_REVOKED, payload={"email": email})
+
     def mark_accepted(self) -> None:
         """Mark this invite as accepted with the current timestamp."""
         self.accepted_at = timezone.now()
         self.save(update_fields=["accepted_at"])
         member = self.member
-        SiteActivity.log(
-            SiteActivity.Kind.INVITE_ACCEPTED,
+
+        from core.events.emit import emit
+
+        # emit logs the INVITE_ACCEPTED SiteActivity (registry activity_kind=
+        # "invite_accepted") with actor=member.user and target=member, and resolves
+        # the recipient via INVITER → self.invited_by (yielding no recipient, and so
+        # no notification, when invited_by is None).
+        emit(
+            "invite_accepted",
             actor=member.user if member is not None else None,
             target=member,
+            context={"invite": self},
+            title="Your invite was accepted",
+            body="Someone you invited has joined Past Lives.",
+            url="/members/",
         )
-        if self.invited_by is not None:
-            from core import notifications
-
-            notifications.dispatch(
-                "invite_accepted",
-                [self.invited_by],
-                title="Your invite was accepted",
-                body="Someone you invited has joined Past Lives.",
-                url="/members/",
-            )
 
     @classmethod
     def create_and_send(cls, email: str, invited_by: Any) -> Invite:
@@ -347,28 +461,41 @@ class Invite(models.Model):
         return invite
 
     def send_invite_email(self) -> None:
-        """Send a plaintext invite email with a signup link."""
+        """Emit the ``member.invited`` event — a forced, DB-editable invite email.
+
+        The invitee has no account yet, so this is an email-only forced send routed to
+        the raw ``self.email`` (the ``member.invited`` event resolves to no per-user
+        recipient and carries the address as ``email_to``). The subject/body come from
+        the DB-editable copy catalogue; only the signup URL is computed here.
+
+        An invite is an explicit, intentional admin action — re-inviting (or re-sending)
+        MUST always send a fresh email, exactly as the old inline sender did. So each
+        send uses a unique idempotency ``period`` (a microsecond timestamp): the
+        EventDelivery ledger never dedupes one invite send against another. (Dedupe on
+        the address would silently swallow a deliberate re-invite.)
+        """
         from urllib.parse import urlencode
 
         from django.contrib.sites.models import Site
+
+        from core.events.emit import emit
 
         current_site = Site.objects.get_current()
         protocol = "https" if not settings.DEBUG else "http"
         query = urlencode({"email": self.email})
         signup_url = f"{protocol}://{current_site.domain}/accounts/signup/?{query}"
 
-        from core import email as core_email
+        # Stamp the send so the panel's "sent N ago" and is_expired derive from the
+        # most-recent send — this is what makes Resend reset the badge/age.
+        self.last_sent_at = timezone.now()
+        self.save(update_fields=["last_sent_at"])
 
-        core_email.send(
-            to=self.email,
-            subject="You're invited to Past Lives Makerspace",
-            trigger_kind="core.invite",
-            text_body=(
-                f"You've been invited to join Past Lives Makerspace!\n\n"
-                f"Click the link below to create your account:\n\n"
-                f"{signup_url}\n\n"
-                f"If you didn't expect this invite, you can ignore this email."
-            ),
+        emit(
+            "member.invited",
+            target=self.member,
+            context={"invitee_email": self.email, "signup_url": signup_url},
+            email_to=self.email,
+            period=f"invite:{timezone.now():%Y%m%d%H%M%S%f}",
         )
 
 
@@ -564,6 +691,7 @@ class SiteActivity(models.Model):
         REFUND_ISSUED = "refund_issued", "Refund issued"
         FUNDING_SNAPSHOT_TAKEN = "funding_snapshot_taken", "Funding snapshot taken"
         MEMBER_INVITED = "member_invited", "Member invited"
+        MEMBER_INVITE_REVOKED = "member_invite_revoked", "Member invite revoked"
         INVITE_ACCEPTED = "invite_accepted", "Invite accepted"
         MEMBER_SIGNUP = "member_signup", "Member signed up"
         GUILD_ANNOUNCEMENT = "guild_announcement", "Guild announcement"
@@ -672,45 +800,375 @@ class Notification(models.Model):
 
 
 class NotificationPreference(models.Model):
-    """Per-user, per-trigger push/email opt-in. Absent row → trigger defaults apply."""
+    """Per-user, per-(event, channel) opt-in/out. Absent row → the event's channel default applies.
+
+    The design's unified per-channel preference shape (§2.7): one row per
+    ``(user, event_key, channel)``. This generalizes the old two-boolean
+    ``push_enabled`` / ``email_enabled`` columns so new channels (scheduled email,
+    digest, Discord) are first-class — a preference is now just *"does this user want
+    this event on this channel?"*. The data migration that introduced this shape
+    fanned each old row into one EMAIL + one PUSH row, preserving every opt-in/out.
+
+    ``enabled`` records the user's explicit choice. A FORCED channel ignores it (the
+    event is always delivered); for a non-forced channel an absent row means the
+    event's channel default decides (``ON`` → opt-in, ``OFF`` → opted out).
+    """
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notification_prefs")
-    trigger = models.CharField(max_length=40, help_text="Trigger key from core.triggers.")
-    push_enabled = models.BooleanField(default=False, help_text="Send browser push for this trigger.")
-    email_enabled = models.BooleanField(default=False, help_text="Send email for this trigger.")
+    event_key = models.CharField(max_length=60, help_text="Event key from core.events.registry.")
+    channel = models.CharField(max_length=20, help_text="Channel key from core.events.registry.Channel.")
+    enabled = models.BooleanField(default=False, help_text="Whether this user receives this event on this channel.")
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["user", "trigger"], name="uq_notificationpreference_user_trigger"),
+            models.UniqueConstraint(
+                fields=["user", "event_key", "channel"],
+                name="uq_notificationpreference_user_event_channel",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["user", "event_key"], name="idx_notifpref_user_event"),
         ]
 
     def __str__(self) -> str:
-        return f"{self.user.email}:{self.trigger} (push={self.push_enabled}, email={self.email_enabled})"
+        state = "on" if self.enabled else "off"
+        return f"{self.user.email}:{self.event_key}/{self.channel}={state}"
 
 
-class ScheduledNotificationMarker(models.Model):
-    """Idempotency guard for time-based notification jobs.
+class EventDelivery(models.Model):
+    """Idempotency ledger for the event spine (design §2.5).
 
-    A unique ``key`` records that a given scheduled notification already fired,
-    e.g. "voting_closing:2026-06" or "lease_expiring:42". Jobs get_or_create
-    the key and skip when it already exists.
+    One row records that a given event was delivered to a given target on a given
+    channel within a given period. The unique key
+    ``(event_key, target_ref, channel, period)`` makes
+    :func:`core.events.emit.emit` safe to re-run from schedulers without
+    double-delivering: the emitter ``get_or_create``s the row and skips the
+    channel send when the row already existed.
+
+    Folds in the three legacy dedupe patterns (``ScheduledNotificationMarker``,
+    ``RegistrationReminder``, and the orientation ``is_completed``-as-dedupe) — they
+    migrate onto this one model in a later phase. ``period`` is a free-form bucket:
+    ``""`` for one-shot events (dedupe forever), or a window label like
+    ``"2026-06"`` / ``"2026-06-24"`` for recurring scheduled events.
+
+    The ``status`` field carries the digest buffer (design §2.4, #9). A row created
+    by the normal fan-out is ``SENT`` (it both deduped and delivered). The
+    :class:`core.events.channels.DigestAdapter` instead writes a ``PENDING`` row
+    carrying the rendered message (``title`` / ``body`` / ``url``); the digest flush
+    (Phase 5 scheduler) reads the pending rows, batches them into one email, and
+    flips them to ``SENT``. The dedupe semantics are unchanged for the existing
+    channels — they never write a ``PENDING`` row.
     """
 
-    key = models.CharField(max_length=120, unique=True, help_text="Stable per-notification idempotency key.")
-    created_at = models.DateTimeField(auto_now_add=True)
+    class Status(models.TextChoices):
+        SENT = "sent", "Sent"
+        PENDING = "pending", "Pending (buffered for digest)"
+
+    event_key = models.CharField(max_length=60, help_text="The EventType key that was delivered.")
+    target_ref = models.CharField(
+        max_length=120,
+        help_text="Stable string identifying who/what this delivery was for (e.g. 'user:42', 'booking:7').",
+    )
+    channel = models.CharField(max_length=20, help_text="The channel key the event was delivered on.")
+    period = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        help_text="Dedupe window bucket — empty for one-shot, else e.g. '2026-06' for monthly.",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.SENT,
+        help_text="SENT once delivered; PENDING while buffered for a later digest flush.",
+    )
+    title = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Buffered message title (digest rows only).",
+    )
+    body = models.TextField(blank=True, default="", help_text="Buffered message body (digest rows only).")
+    url = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Buffered click-through URL (digest rows only).",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["event_key", "target_ref", "channel", "period"],
+                name="uq_eventdelivery_event_target_channel_period",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["event_key", "period"], name="idx_eventdelivery_event_period"),
+            models.Index(
+                fields=["status", "target_ref"],
+                name="idx_eventdelivery_pending",
+                condition=models.Q(status="pending"),
+            ),
+        ]
 
     def __str__(self) -> str:
-        return self.key
+        suffix = f"@{self.period}" if self.period else ""
+        return f"{self.event_key}→{self.target_ref}[{self.channel}]{suffix}"
 
 
 class KnownLoginSignature(models.Model):
     """Records (user, signature) pairs already seen, to detect new-device logins."""
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="login_signatures")
-    signature = models.CharField(max_length=64, help_text="Hash of (user-agent, IP).")
+    signature = models.CharField(max_length=64, help_text="Hash of the browser/device user-agent.")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["user", "signature"], name="uq_loginsignature_user_signature"),
         ]
+
+
+class NotificationTemplate(models.Model):
+    """Admin-editable authored copy for one ``(event, channel)`` pair (design §2.3).
+
+    Phase 3 (Decision 6): all subject/body copy lives in the DB so the copy team
+    edits everything in an admin catalogue — code only **seeds** initial values
+    (see :mod:`core.events.copy` + the ``seed_notification_templates`` command).
+    One row per ``(event_key, channel)`` that needs authored copy.
+
+    Rendering is a constrained merge-field substitution over a documented per-event
+    context (:mod:`core.events.rendering`), never raw Django template execution from
+    the DB. ``is_overridden`` is set when the copy team edits a row; the seed command
+    preserves overridden rows so re-seeding never clobbers authored copy.
+    """
+
+    event_key = models.CharField(max_length=60, help_text="The EventType key this copy belongs to.")
+    channel = models.CharField(max_length=20, help_text="The channel key this copy is rendered for (email, in_app, …).")
+    subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The subject / title line, with {{ merge_field }} placeholders.",
+    )
+    body_text = models.TextField(
+        blank=True,
+        default="",
+        help_text="The plain-text body, with {{ merge_field }} placeholders.",
+    )
+    body_html = models.TextField(
+        blank=True,
+        default="",
+        help_text="The HTML body, with {{ merge_field }} placeholders (autoescaped on render).",
+    )
+    is_overridden = models.BooleanField(
+        default=False,
+        help_text="True once the copy team has edited this row; the seed command then preserves it.",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="edited_notification_templates",
+        help_text="The user who last edited this copy (null for seeded rows).",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this copy was last written.")
+
+    class Meta:
+        ordering = ["event_key", "channel"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["event_key", "channel"],
+                name="uq_notificationtemplate_event_channel",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        flag = " (overridden)" if self.is_overridden else ""
+        return f"{self.event_key}[{self.channel}]{flag}"
+
+    def snapshot_version(self) -> "NotificationTemplateVersion":
+        """Append a :class:`NotificationTemplateVersion` capturing the CURRENT copy.
+
+        Call this *before* mutating the row so the prior copy is preserved for the
+        history + revert UI. Returns the created version row.
+        """
+        return NotificationTemplateVersion.objects.create(
+            template=self,
+            subject=self.subject,
+            body_text=self.body_text,
+            body_html=self.body_html,
+            edited_by=self.updated_by,
+        )
+
+    def apply_edit(self, *, subject: str, body_text: str, body_html: str, editor: Any | None) -> None:
+        """Snapshot the prior copy, then write the new copy as an admin override.
+
+        Versioning is automatic: every edit snapshots the row's current copy into a
+        :class:`NotificationTemplateVersion` first, so the history + revert surface
+        always has the prior state. Marks the row ``is_overridden`` so the seed
+        command will not clobber it.
+        """
+        self.snapshot_version()
+        self.subject = subject
+        self.body_text = body_text
+        self.body_html = body_html
+        self.is_overridden = True
+        self.updated_by = editor if (editor is not None and getattr(editor, "pk", None)) else None
+        self.save(update_fields=["subject", "body_text", "body_html", "is_overridden", "updated_by", "updated_at"])
+
+    def revert_to(self, version: "NotificationTemplateVersion", *, editor: Any | None) -> None:
+        """Restore the copy captured in ``version`` (snapshotting current first).
+
+        Reverting is itself an edit: the current copy is snapshotted before the
+        older copy is restored, so a revert is undoable in turn. The row stays
+        ``is_overridden`` (a revert is a deliberate copy-team action).
+
+        Raises:
+            ValueError: If ``version`` belongs to a different template.
+        """
+        if version.template_id != self.pk:
+            raise ValueError("Cannot revert to a version that belongs to a different template.")
+        self.apply_edit(
+            subject=version.subject,
+            body_text=version.body_text,
+            body_html=version.body_html,
+            editor=editor,
+        )
+
+
+class NotificationTemplateVersion(models.Model):
+    """One immutable snapshot of a :class:`NotificationTemplate`'s copy (design §2.3).
+
+    Every edit snapshots the prior copy here so the admin catalogue can show history
+    and revert. ``django-simple-history`` is not in the project (checked), so this is
+    a hand-rolled, append-only version table — simpler and dependency-free.
+    """
+
+    template = models.ForeignKey(
+        NotificationTemplate,
+        on_delete=models.CASCADE,
+        related_name="versions",
+        help_text="The template this snapshot belongs to.",
+    )
+    subject = models.CharField(max_length=255, blank=True, default="", help_text="Subject as it was at snapshot time.")
+    body_text = models.TextField(blank=True, default="", help_text="Text body as it was at snapshot time.")
+    body_html = models.TextField(blank=True, default="", help_text="HTML body as it was at snapshot time.")
+    edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="notification_template_versions",
+        help_text="The user whose edit this snapshot captures (null for seeded copy).",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["template", "-created_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.template.event_key}[{self.template.channel}] @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class DiscordWebhookRoute(models.Model):
+    """DB-backed Discord event→webhook routing override (design §2.4, Decision 9).
+
+    Phase 2 left ``core.events.discord.EVENT_WEBHOOK_OVERRIDES`` as an in-code seam;
+    Phase 3 makes it DB-backed + admin-editable. One row maps an ``event_key`` to a
+    specific webhook URL; :func:`core.events.discord.webhook_for_event` reads these
+    rows first and falls back to the global webhook when none matches (or when the
+    row is disabled). A blank ``webhook_url`` disables Discord for that event even
+    when a global webhook is configured.
+    """
+
+    event_key = models.CharField(
+        max_length=60,
+        unique=True,
+        help_text="The EventType key this route applies to (one route per event).",
+    )
+    webhook_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="The Discord webhook this event posts to. Blank = Discord disabled for this event.",
+    )
+    is_enabled = models.BooleanField(
+        default=True,
+        help_text="When off, this route is ignored and the event falls back to the global webhook.",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="edited_discord_routes",
+        help_text="The user who last edited this route.",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this route was last written.")
+
+    class Meta:
+        ordering = ["event_key"]
+
+    def __str__(self) -> str:
+        state = "on" if self.is_enabled else "off"
+        return f"{self.event_key} → discord ({state})"
+
+    @property
+    def effective_webhook(self) -> str:
+        """The webhook this route contributes, or ``""`` when it should not apply.
+
+        An enabled route with a non-blank URL overrides the global webhook. A
+        disabled route contributes nothing (the caller falls back to global). An
+        enabled-but-blank route is a deliberate *disable* and is handled by the
+        caller via :meth:`overrides_global`.
+        """
+        if not self.is_enabled:
+            return ""
+        return (self.webhook_url or "").strip()
+
+    @property
+    def overrides_global(self) -> bool:
+        """Whether this row should override the global webhook (incl. a blank disable).
+
+        An enabled route always overrides the global default — a non-blank URL
+        redirects the post; a blank URL deliberately silences Discord for the event.
+        A disabled route does not override (fall back to global).
+        """
+        return self.is_enabled
+
+    @classmethod
+    def save_routing(
+        cls, *, event_key: str, submitted_url: str, is_enabled: bool, editor: Any | None
+    ) -> DiscordWebhookRoute:
+        """Create or update the routing row for ``event_key`` (blank URL keeps the stored one).
+
+        The webhook URL field is write-only and blank-on-load on the edit form, so a
+        blank ``submitted_url`` means "keep the existing URL" — toggling ``is_enabled``
+        must never wipe a configured webhook — while a non-blank value replaces it.
+
+        Args:
+            event_key: The EventType key this route applies to.
+            submitted_url: The URL from the form; blank keeps the stored one.
+            is_enabled: Whether the route is active.
+            editor: The user who made the change, recorded as ``updated_by`` (dropped
+                when it has no pk, e.g. an anonymous or system caller).
+
+        Returns:
+            The created or updated route.
+        """
+        existing = cls.objects.filter(event_key=event_key).first()
+        new_url = submitted_url if submitted_url else (existing.webhook_url if existing is not None else "")
+        route, _ = cls.objects.update_or_create(
+            event_key=event_key,
+            defaults={
+                "webhook_url": new_url,
+                "is_enabled": is_enabled,
+                "updated_by": editor if (editor is not None and getattr(editor, "pk", None)) else None,
+            },
+        )
+        return route

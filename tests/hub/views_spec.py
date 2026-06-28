@@ -172,7 +172,7 @@ def describe_member_directory():
 def describe_guild_detail():
     def it_is_accessible_to_anonymous_guests(client: Client):
         guild = GuildFactory()
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
         assert response.status_code == 200
 
     def it_renders_guild_detail(client: Client):
@@ -180,7 +180,7 @@ def describe_guild_detail():
         guild = GuildFactory(name="Ceramics")
         client.login(username="viewer", password="pass")
 
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
 
         assert response.status_code == 200
         assert response.context["guild"] == guild
@@ -200,7 +200,7 @@ def describe_user_settings():
         response = client.get("/settings/")
         assert response.status_code == 302
 
-    def it_renders_both_profile_and_email_prefs_forms(client: Client):
+    def it_renders_profile_form_and_notification_matrix(client: Client):
         user = User.objects.create_user(username="withmember", password="pass")
         client.login(username="withmember", password="pass")
 
@@ -209,7 +209,8 @@ def describe_user_settings():
         assert response.status_code == 200
         assert response.context["member"] == user.member
         assert response.context["profile_form"] is not None
-        assert response.context["prefs_form"] is not None
+        assert response.context["notif_matrix"] is not None
+        assert response.context["notif_channels"] is not None
         assert "add_email_form" in response.context
         assert "email_addresses" in response.context
 
@@ -357,40 +358,20 @@ def describe_user_settings():
         assert response.status_code == 200
         assert any("not linked" in str(m) for m in response.context["messages"])
 
-    def it_re_renders_email_prefs_form_on_validation_error(client: Client, monkeypatch: pytest.MonkeyPatch):
-        User.objects.create_user(username="emailinvalid2", password="pass")
-        client.login(username="emailinvalid2", password="pass")
+    def it_handles_notifications_post_and_redirects_to_notifications_tab(client: Client):
+        User.objects.create_user(username="notifposter", password="pass")
+        client.login(username="notifposter", password="pass")
 
-        from hub import forms
-
-        original_init = forms.EmailPreferencesForm.__init__
-
-        def patched_init(self, *args, **kwargs):
-            original_init(self, *args, **kwargs)
-            if args:
-                self._errors = {"voting_results": ["Forced error"]}
-
-        monkeypatch.setattr(forms.EmailPreferencesForm, "__init__", patched_init)
-
-        response = client.post("/settings/", {"form_id": "email_prefs"})
-
-        assert response.status_code == 200
-        assert response.context["prefs_form"].errors
-
-    def it_handles_email_prefs_post_and_redirects_to_emails_tab(client: Client):
-        User.objects.create_user(username="emailposter", password="pass")
-        client.login(username="emailposter", password="pass")
-
-        response = client.post("/settings/", {"form_id": "email_prefs"})
+        response = client.post("/settings/", {"form_id": "notifications"})
 
         assert response.status_code == 302
-        assert "tab=emails" in response.url
+        assert "tab=notifications" in response.url
 
-    def it_shows_success_message_on_email_prefs_post(client: Client):
-        User.objects.create_user(username="emailmsg", password="pass")
-        client.login(username="emailmsg", password="pass")
+    def it_shows_success_message_on_notifications_post(client: Client):
+        User.objects.create_user(username="notifmsg", password="pass")
+        client.login(username="notifmsg", password="pass")
 
-        response = client.post("/settings/", {"form_id": "email_prefs"}, follow=True)
+        response = client.post("/settings/", {"form_id": "notifications"}, follow=True)
 
         assert any("preferences updated" in str(m).lower() for m in response.context["messages"])
 
@@ -444,15 +425,6 @@ def describe_legacy_settings_redirects():
 
         assert response.status_code == 302
         assert response.url == "/settings/"
-
-    def it_redirects_old_emails_path_to_emails_tab(client: Client):
-        User.objects.create_user(username="legacyemails", password="pass")
-        client.login(username="legacyemails", password="pass")
-
-        response = client.get("/settings/emails/")
-
-        assert response.status_code == 302
-        assert response.url == "/settings/?tab=emails"
 
     def it_redirects_allauth_account_email_get_to_emails_tab(client: Client):
         User.objects.create_user(username="legacyallauth", password="pass")

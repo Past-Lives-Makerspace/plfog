@@ -9,4 +9,4 @@ A note from the guild lead:
 You're welcome to pick another time on the guild page:
 {{ guild_url }}
 
-— Past Lives Makerspace
+{% include "membership/emails/_footer.txt" %}

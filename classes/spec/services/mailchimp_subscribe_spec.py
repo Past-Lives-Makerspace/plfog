@@ -217,3 +217,185 @@ def describe_derive_tags():
             reg = RegistrationFactory(email="mixed@example.com")
             tags = derive_tags(reg)
             assert "first-time-student" not in tags
+
+    def describe_answer_tags():
+        def _question(db, **kwargs):
+            from classes.models import RegistrationQuestion
+
+            defaults = {"prompt": "Experience level?"}
+            defaults.update(kwargs)
+            return RegistrationQuestion.objects.create(**defaults)
+
+        def _answer(reg, question, text):
+            from classes.models import RegistrationAnswer
+
+            return RegistrationAnswer.objects.create(registration=reg, question=question, answer_text=text)
+
+        def it_tags_a_single_choice_answer(db):
+            from classes.models import RegistrationQuestion
+
+            reg = RegistrationFactory()
+            q = _question(
+                db,
+                question_type=RegistrationQuestion.QuestionType.SINGLE_CHOICE,
+                choices_json=["Beginner", "Advanced"],
+            )
+            _answer(reg, q, "Beginner")
+            tags = derive_tags(reg)
+            assert "q-experience-level-beginner" in tags
+
+        def it_uses_admin_set_mailchimp_tag_prefix(db):
+            from classes.models import RegistrationQuestion
+
+            reg = RegistrationFactory()
+            q = _question(
+                db,
+                question_type=RegistrationQuestion.QuestionType.SINGLE_CHOICE,
+                choices_json=["Beginner"],
+                mailchimp_tag="skill",
+            )
+            _answer(reg, q, "Beginner")
+            tags = derive_tags(reg)
+            assert "skill-beginner" in tags
+
+        def it_tags_a_yes_no_yes(db):
+            from classes.models import RegistrationQuestion
+
+            reg = RegistrationFactory()
+            q = _question(
+                db,
+                prompt="Wants tool orientation?",
+                question_type=RegistrationQuestion.QuestionType.YES_NO,
+                mailchimp_tag="wants-tool-orientation",
+            )
+            _answer(reg, q, "yes")
+            tags = derive_tags(reg)
+            assert "wants-tool-orientation" in tags
+
+        def it_omits_a_yes_no_no(db):
+            from classes.models import RegistrationQuestion
+
+            reg = RegistrationFactory()
+            q = _question(
+                db,
+                prompt="Wants tool orientation?",
+                question_type=RegistrationQuestion.QuestionType.YES_NO,
+                mailchimp_tag="wants-tool-orientation",
+            )
+            _answer(reg, q, "no")
+            tags = derive_tags(reg)
+            assert "wants-tool-orientation" not in tags
+
+        def it_does_not_tag_free_text_answers(db):
+            from classes.models import RegistrationQuestion
+
+            reg = RegistrationFactory()
+            short_q = _question(db, prompt="Allergies?", question_type=RegistrationQuestion.QuestionType.SHORT_TEXT)
+            long_q = _question(db, prompt="Goals?", question_type=RegistrationQuestion.QuestionType.LONG_TEXT)
+            _answer(reg, short_q, "Peanuts")
+            _answer(reg, long_q, "I want to learn to throw a pot.")
+            tags = derive_tags(reg)
+            assert not any(t.startswith("q-allergies") or t.startswith("q-goals") for t in tags)
+
+        def it_skips_answers_that_produce_no_tag(db):
+            from classes.models import RegistrationQuestion
+
+            reg = RegistrationFactory()
+            no_q = _question(
+                db,
+                prompt="Wants orientation?",
+                question_type=RegistrationQuestion.QuestionType.YES_NO,
+                mailchimp_tag="wants-orientation",
+            )
+            yes_q = _question(
+                db,
+                prompt="Wants newsletter recap?",
+                question_type=RegistrationQuestion.QuestionType.YES_NO,
+                mailchimp_tag="wants-recap",
+            )
+            _answer(reg, no_q, "no")  # yields no tag
+            _answer(reg, yes_q, "yes")  # yields a tag
+            tags = derive_tags(reg)
+            assert "wants-orientation" not in tags
+            assert "wants-recap" in tags
+
+        def it_deduplicates_repeated_answer_tags(db):
+            from classes.models import RegistrationQuestion
+
+            reg = RegistrationFactory()
+            # Two yes/no questions that share a tag prefix and both answered yes
+            # would emit the same tag — it should appear only once.
+            q1 = _question(
+                db,
+                prompt="First check?",
+                question_type=RegistrationQuestion.QuestionType.YES_NO,
+                mailchimp_tag="opted-in",
+            )
+            q2 = _question(
+                db,
+                prompt="Second check?",
+                question_type=RegistrationQuestion.QuestionType.YES_NO,
+                mailchimp_tag="opted-in",
+            )
+            _answer(reg, q1, "yes")
+            _answer(reg, q2, "yes")
+            tags = derive_tags(reg)
+            assert tags.count("opted-in") == 1
+
+        def it_passes_answer_tags_through_to_subscribe(site_with_mailchimp):
+            from classes.models import RegistrationQuestion
+
+            reg = RegistrationFactory(wants_newsletter=True)
+            q = _question(
+                None,
+                prompt="Wants tool orientation?",
+                question_type=RegistrationQuestion.QuestionType.YES_NO,
+                mailchimp_tag="wants-tool-orientation",
+            )
+            _answer(reg, q, "yes")
+            with patch(
+                "core.integrations.mailchimp.MailchimpClient.subscribe",
+                return_value=True,
+            ) as spy:
+                subscribe_registration(reg)
+            assert "wants-tool-orientation" in spy.call_args.kwargs["tags"]
+
+
+def describe_RegistrationQuestion_tag_for():
+    def it_returns_none_for_short_text(db):
+        from classes.models import RegistrationQuestion
+
+        q = RegistrationQuestion(prompt="Allergies?", question_type=RegistrationQuestion.QuestionType.SHORT_TEXT)
+        assert q.tag_for("Peanuts") is None
+
+    def it_returns_none_for_a_blank_answer(db):
+        from classes.models import RegistrationQuestion
+
+        q = RegistrationQuestion(prompt="Level?", question_type=RegistrationQuestion.QuestionType.SINGLE_CHOICE)
+        assert q.tag_for("   ") is None
+
+    def it_auto_derives_a_prefix_from_the_prompt(db):
+        from classes.models import RegistrationQuestion
+
+        q = RegistrationQuestion(prompt="Skill level", question_type=RegistrationQuestion.QuestionType.SINGLE_CHOICE)
+        assert q.tag_for("Advanced Beginner") == "q-skill-level-advanced-beginner"
+
+    def it_returns_only_the_prefix_for_a_yes(db):
+        from classes.models import RegistrationQuestion
+
+        q = RegistrationQuestion(
+            prompt="Bring kids?",
+            question_type=RegistrationQuestion.QuestionType.YES_NO,
+            mailchimp_tag="bringing-kids",
+        )
+        assert q.tag_for("Yes") == "bringing-kids"
+
+    def it_returns_none_for_a_no(db):
+        from classes.models import RegistrationQuestion
+
+        q = RegistrationQuestion(
+            prompt="Bring kids?",
+            question_type=RegistrationQuestion.QuestionType.YES_NO,
+            mailchimp_tag="bringing-kids",
+        )
+        assert q.tag_for("No") is None

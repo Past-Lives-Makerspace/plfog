@@ -39,6 +39,7 @@
                     class="pl-calendar-grid__chip{% if event.is_in_progress %} pl-calendar-grid__chip--live{% endif %}"
                     x-show="isActive('{{ src }}')"
                     @click="focusEvent({{ event.pk }})"
+                    @mouseenter="hoverEvent({{ event.pk }})" @mouseleave="unhoverEvent({{ event.pk }})"
                     style="--chip-color: {{ source_colors|get_item:src|default:'#888888' }};"
                     title="{{ event.title|strip_date_suffix }}{% if event.is_in_progress %} (in progress){% endif %}">
                 {% if not event.all_day %}<span class="pl-calendar-grid__chip-time">{{ event.start_dt|date:"g:ia" }}</span>{% endif %}
@@ -90,6 +91,7 @@
                     class="pl-calendar-grid__chip{% if event.is_in_progress %} pl-calendar-grid__chip--live{% endif %}"
                     x-show="isActive('{{ src }}')"
                     @click="focusEvent({{ event.pk }})"
+                    @mouseenter="hoverEvent({{ event.pk }})" @mouseleave="unhoverEvent({{ event.pk }})"
                     style="--chip-color: {{ source_colors|get_item:src|default:'#888888' }};"
                     title="{{ event.title|strip_date_suffix }}{% if event.is_in_progress %} (in progress){% endif %}">
                 <span class="pl-calendar-grid__chip-title">{{ event.title|strip_date_suffix }}</span>

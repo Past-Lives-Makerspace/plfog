@@ -1,0 +1,46 @@
+{% comment %}Quill rich-text editor over a hidden textarea (core.widgets.RichTextEditorWidget).
+Include "_components/rich_editor_assets.html" once on the page so window.Quill is loaded above this.
+The init binds to this field's own id — never a global selector — so multiple editors coexist.{% endcomment %}
+<textarea name="{{ widget.name }}" id="{{ widget.attrs.id }}" class="pl-rte-source"{% if widget.attrs.required %} required{% endif %}>{% if widget.value %}{{ widget.value }}{% endif %}</textarea>
+<div class="pl-rte-wrap">
+    <div class="pl-rte" id="pl-rte-mount-{{ widget.attrs.id }}" data-rte-for="{{ widget.attrs.id }}"></div>
+</div>
+<script>
+(function () {
+    var sourceId = "{{ widget.attrs.id }}";
+    var mountId = "pl-rte-mount-{{ widget.attrs.id }}";
+    function init() {
+        if (!window.Quill) return;
+        var ta = document.getElementById(sourceId);
+        var mount = document.getElementById(mountId);
+        if (!ta || !mount || mount.dataset.rteReady) return;
+        mount.dataset.rteReady = "1";
+        mount.innerHTML = ta.value;
+        var quill = new Quill(mount, {
+            theme: "snow",
+            modules: {
+                toolbar: [
+                    ["bold", "italic", "underline"],
+                    [{ header: 2 }, { header: 3 }],
+                    [{ list: "bullet" }, { list: "ordered" }],
+                    ["link"],
+                    ["clean"]
+                ]
+            }
+        });
+        // Seed the textarea with Quill's normalized HTML so an unedited submit still
+        // carries clean markup; then keep it in sync on every edit.
+        ta.value = quill.root.innerHTML;
+        quill.on("text-change", function () {
+            ta.value = quill.root.innerHTML;
+        });
+    }
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+    } else {
+        init();
+    }
+    // hx-boost swaps the body without firing DOMContentLoaded — re-init after a settle.
+    document.addEventListener("htmx:afterSettle", init);
+})();
+</script>

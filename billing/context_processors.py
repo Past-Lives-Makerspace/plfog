@@ -12,6 +12,11 @@ def tab_context(request: HttpRequest) -> dict[str, Any]:
     if not request.user.is_authenticated:
         return {}
 
+    from core.models import SiteConfiguration
+
+    if not SiteConfiguration.load().tab_payments_enabled:
+        return {}
+
     from membership.models import Member
 
     member: Member | None = getattr(request.user, "member", None)

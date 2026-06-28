@@ -1,27 +1,26 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import views
+from . import discord_views, notification_views, views
 
 urlpatterns = [
     path("guilds/voting/", views.guild_voting, name="hub_guild_voting"),
     path("guilds/voting/history/", views.snapshot_history, name="hub_snapshot_history"),
     path("guilds/voting/history/<int:pk>/", views.snapshot_detail, name="hub_snapshot_detail"),
     path("members/", views.member_directory, name="hub_member_directory"),
-    path("guilds/<int:pk>/", views.guild_detail, name="hub_guild_detail"),
+    # Old numeric guild URLs (already shared in Discord/emails) 301 → the slug URL.
+    path("guilds/<int:pk>/", views.guild_detail_redirect, name="hub_guild_detail_by_id"),
+    path("guilds/<slug:slug>/", views.guild_detail, name="hub_guild_detail"),
     path("guilds/<int:pk>/edit/", views.guild_edit, name="hub_guild_edit"),
+    path("guilds/<int:pk>/delete/", views.guild_delete, name="hub_guild_delete"),
     path("hero-adjust/", views.hub_hero_adjust, name="hub_hero_adjust"),
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
     path("guilds/<int:pk>/orientation/edit/", views.guild_orientation_edit, name="hub_guild_orientation_edit"),
+    path("guilds/<int:pk>/staff/add/", views.guild_staff_add, name="hub_guild_staff_add"),
     path(
-        "guilds/<int:pk>/orientation/orienters/add/",
-        views.guild_orientation_orienter_add,
-        name="hub_guild_orientation_orienter_add",
-    ),
-    path(
-        "guilds/<int:pk>/orientation/orienters/<int:member_pk>/remove/",
-        views.guild_orientation_orienter_remove,
-        name="hub_guild_orientation_orienter_remove",
+        "guilds/<int:pk>/staff/<int:staff_pk>/remove/",
+        views.guild_staff_remove,
+        name="hub_guild_staff_remove",
     ),
     path(
         "guilds/<int:pk>/orientation/slots/add/",
@@ -93,6 +92,41 @@ urlpatterns = [
         views.guild_announcement_delete,
         name="hub_guild_announcement_delete",
     ),
+    path(
+        "guilds/<int:pk>/announcements/<int:announcement_pk>/edit/",
+        views.guild_announcement_edit,
+        name="hub_guild_announcement_edit",
+    ),
+    path("guilds/<int:pk>/faq/save/", views.guild_faq_save, name="hub_guild_faq_save"),
+    path("guilds/<int:pk>/links/save/", views.guild_links_save, name="hub_guild_links_save"),
+    path("guilds/<int:pk>/meeting-notes/", views.guild_meeting_notes, name="hub_guild_meeting_notes"),
+    path(
+        "guilds/<int:pk>/meeting-notes/add/",
+        views.guild_meeting_note_edit,
+        name="hub_guild_meeting_note_add",
+    ),
+    path(
+        "guilds/<int:pk>/meeting-notes/<int:note_pk>/edit/",
+        views.guild_meeting_note_edit,
+        name="hub_guild_meeting_note_edit",
+    ),
+    path(
+        "guilds/<int:pk>/meeting-notes/<int:note_pk>/delete/",
+        views.guild_meeting_note_delete,
+        name="hub_guild_meeting_note_delete",
+    ),
+    path("guilds/<int:pk>/events/", views.guild_events, name="hub_guild_events"),
+    path("guilds/<int:pk>/events/add/", views.guild_event_edit, name="hub_guild_event_add"),
+    path(
+        "guilds/<int:pk>/events/<int:event_pk>/edit/",
+        views.guild_event_edit,
+        name="hub_guild_event_edit",
+    ),
+    path(
+        "guilds/<int:pk>/events/<int:event_pk>/delete/",
+        views.guild_event_delete,
+        name="hub_guild_event_delete",
+    ),
     path("guilds/<int:pk>/cart/confirm/", views.guild_cart_confirm, name="hub_guild_cart_confirm"),
     path("guilds/<int:pk>/eyop-form/", views.guild_eyop_form, name="hub_guild_eyop_form"),
     path(
@@ -116,16 +150,18 @@ urlpatterns = [
         views.profile_photo_delete,
         name="hub_profile_photo_delete",
     ),
+    path("settings/skills/add/", views.skill_add, name="hub_skill_add"),
+    path("settings/skills/<int:skill_pk>/remove/", views.skill_remove, name="hub_skill_remove"),
+    path("settings/skills/suggest/", views.skill_suggest, name="hub_skill_suggest"),
+    # Discord account-linking for the per-member Discord DM notification channel.
+    path("settings/discord/connect/", discord_views.discord_connect, name="hub_discord_connect"),
+    path("settings/discord/callback/", discord_views.discord_callback, name="hub_discord_callback"),
+    path("settings/discord/disconnect/", discord_views.discord_disconnect, name="hub_discord_disconnect"),
     # Old settings routes redirect to the tabbed User Settings page.
     path(
         "settings/profile/",
         RedirectView.as_view(pattern_name="hub_user_settings", query_string=False, permanent=False),
         name="hub_profile_settings",
-    ),
-    path(
-        "settings/emails/",
-        RedirectView.as_view(url="/settings/?tab=emails", permanent=False),
-        name="hub_email_preferences",
     ),
     path("feedback/", views.beta_feedback, name="hub_beta_feedback"),
     path("tab/", views.tab_detail, name="hub_tab_detail"),
@@ -134,11 +170,45 @@ urlpatterns = [
     path("calendar/", views.community_calendar, name="hub_community_calendar"),
     path("calendar/events/", views.calendar_events_partial, name="hub_community_calendar_events"),
     path("calendar/export.ics", views.calendar_export_ics, name="hub_calendar_export_ics"),
+    # Admin site-wide event authoring — the LIST is the Events tab on the calendar.
+    path("events/add/", views.event_edit, name="hub_event_add"),
+    path("events/<int:event_pk>/edit/", views.event_edit, name="hub_event_edit"),
+    path("events/<int:event_pk>/delete/", views.event_delete, name="hub_event_delete"),
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
-    path("manage/voting/", views.admin_voting_dashboard, name="hub_admin_voting_dashboard"),
+    path("manage/voting/", views.voting_overview, name="hub_admin_voting_overview"),
+    path("manage/voting/history/", views.voting_history, name="hub_admin_voting_history"),
+    path("manage/voting/history/<int:pk>/", views.voting_history_detail, name="hub_admin_voting_history_detail"),
+    path(
+        "manage/voting/history/<int:pk>/delete/",
+        views.voting_snapshot_delete,
+        name="hub_admin_voting_snapshot_delete",
+    ),
+    path("manage/voting/snapshots/", views.voting_snapshots, name="hub_admin_voting_snapshots"),
+    path("manage/voting/snapshots/take/", views.voting_snapshot_take, name="hub_admin_voting_snapshot_take"),
+    path(
+        "manage/voting/history/<int:pk>/send-results/",
+        views.voting_send_results,
+        name="hub_admin_voting_send_results",
+    ),
+    path("manage/voting/settings/", views.voting_settings, name="hub_admin_voting_settings"),
     path("manage/members/", views.admin_members, name="hub_admin_members"),
     path("manage/members/invite/", views.admin_member_invite, name="hub_admin_member_invite"),
+    path(
+        "manage/members/invites/<int:pk>/resend/",
+        views.admin_invite_resend,
+        name="hub_admin_invite_resend",
+    ),
+    path(
+        "manage/members/invites/<int:pk>/revoke/",
+        views.admin_invite_revoke,
+        name="hub_admin_invite_revoke",
+    ),
     path("manage/members/<int:pk>/edit/", views.admin_member_edit, name="hub_admin_member_edit"),
+    path(
+        "manage/members/<int:pk>/send-login-invite/",
+        views.admin_member_send_login_invite,
+        name="hub_admin_member_send_login_invite",
+    ),
     path(
         "manage/members/<int:pk>/emails/add/",
         views.admin_member_email_add,
@@ -159,5 +229,50 @@ urlpatterns = [
         views.admin_member_email_toggle_verified,
         name="hub_admin_member_email_toggle_verified",
     ),
+    # Non-member users (a User with no Member — e.g. a book.* class registrant).
+    # Keyed on user_pk because they have no Member pk (Review fix #5).
+    path("manage/users/<int:user_pk>/edit/", views.admin_user_edit, name="hub_admin_user_edit"),
+    path(
+        "manage/users/<int:user_pk>/emails/add/",
+        views.admin_user_email_add,
+        name="hub_admin_user_email_add",
+    ),
+    path(
+        "manage/users/<int:user_pk>/emails/<int:email_pk>/remove/",
+        views.admin_user_email_remove,
+        name="hub_admin_user_email_remove",
+    ),
+    path(
+        "manage/users/<int:user_pk>/emails/<int:email_pk>/set-primary/",
+        views.admin_user_email_set_primary,
+        name="hub_admin_user_email_set_primary",
+    ),
+    path(
+        "manage/users/<int:user_pk>/emails/<int:email_pk>/toggle-verified/",
+        views.admin_user_email_toggle_verified,
+        name="hub_admin_user_email_toggle_verified",
+    ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
+    # --- Notification copy catalogue (design §2.3 + §2.4, Decision 6) ---
+    path("manage/notifications/", notification_views.catalogue, name="hub_admin_notifications"),
+    path(
+        "manage/notifications/<str:event_key>/<str:channel>/edit/",
+        notification_views.edit_copy,
+        name="hub_admin_notification_edit",
+    ),
+    path(
+        "manage/notifications/<str:event_key>/<str:channel>/preview/",
+        notification_views.preview_copy,
+        name="hub_admin_notification_preview",
+    ),
+    path(
+        "manage/notifications/<str:event_key>/<str:channel>/revert/<int:version_id>/",
+        notification_views.revert_copy,
+        name="hub_admin_notification_revert",
+    ),
+    path(
+        "manage/notifications/<str:event_key>/discord/",
+        notification_views.edit_discord_route,
+        name="hub_admin_notification_discord",
+    ),
 ]

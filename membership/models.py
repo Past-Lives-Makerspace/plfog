@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date as date_type
+from datetime import datetime as datetime_type
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -8,18 +9,21 @@ from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.core.serializers.json import DjangoJSONEncoder
+from django.core.validators import MinValueValidator
 from django.db import models
-from django.db.models import DecimalField, Q, Sum, Value
+from django.db.models import BooleanField, Case, CharField, DecimalField, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
-from core.models import HeroCropMixin, SiteActivity
-from core.validators import validate_image_size
+from core.models import HeroCropMixin
+from core.validators import validate_document, validate_image_size
 from membership.managers import MemberEmailManager
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import User
+
     from classes.models import ClassOffering
 
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
@@ -140,10 +144,70 @@ class MemberQuerySet(models.QuerySet):
             ),
         )
 
+    def with_email_status(self) -> MemberQuerySet:
+        """Annotate ``has_email`` and ``email_gap`` for the Missing-email report.
+
+        ``has_email`` mirrors the :attr:`Member.primary_email` property at the DB
+        level so the SQL filter and the Python property can never disagree:
+        unlinked members have an email when ``_pre_signup_email`` is non-blank;
+        linked members have one when a primary ``EmailAddress`` exists *or* the
+        mirror (``user.email``) is non-blank. ``email_gap`` records *why* a member
+        is emailless as a :class:`Member.EmailGap` value.
+
+        ``_has_primary_email`` is annotated first so the second ``annotate()`` can
+        reference it; the ``EmailAddress`` import stays local to avoid a
+        module-level allauth dependency (matching ``primary_email``).
+        """
+        from allauth.account.models import EmailAddress
+
+        has_primary = Exists(EmailAddress.objects.filter(user_id=OuterRef("user_id"), primary=True))
+        return self.annotate(_has_primary_email=has_primary).annotate(
+            has_email=Case(
+                When(Q(user__isnull=True) & ~Q(_pre_signup_email=""), then=Value(True)),
+                When(_has_primary_email=True, then=Value(True)),
+                When(Q(user__isnull=False) & ~Q(user__email=""), then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+            email_gap=Case(
+                When(Q(user__isnull=True) & Q(_pre_signup_email=""), then=Value(Member.EmailGap.NO_AIRTABLE_EMAIL)),
+                When(
+                    Q(user__isnull=False) & Q(_has_primary_email=False) & Q(user__email=""),
+                    then=Value(Member.EmailGap.NO_ACCOUNT_EMAIL),
+                ),
+                default=Value(""),
+                output_field=CharField(),
+            ),
+        )
+
+    def missing_email(self) -> MemberQuerySet:
+        """Only members whose primary_email resolves blank (no usable email)."""
+        return self.with_email_status().filter(has_email=False)
+
+    def with_skill(self, slug: str) -> MemberQuerySet:
+        """Members who list an approved skill with the given slug."""
+        return self.filter(skills__skill__slug=slug, skills__skill__status=Skill.Status.APPROVED)
+
+    def open_for_commissions(self) -> MemberQuerySet:
+        """Members who have flagged themselves open for commissions."""
+        return self.filter(open_for_commissions=True)
+
+    def search_skills(self, text: str) -> MemberQuerySet:
+        """Members whose display name or an approved skill name contains ``text`` (case-insensitive)."""
+        approved = models.Q(skills__skill__status=Skill.Status.APPROVED)
+        return self.filter(
+            models.Q(preferred_name__icontains=text)
+            | models.Q(full_legal_name__icontains=text)
+            | (approved & models.Q(skills__skill__name__icontains=text))
+        ).distinct()
+
 
 class Member(models.Model):
     # Queryset annotation (set by MemberQuerySet.with_lease_totals)
     total_monthly_rent: Decimal
+    # Queryset annotations (set by MemberQuerySet.with_email_status)
+    has_email: bool
+    email_gap: str
 
     class Status(models.TextChoices):
         INVITED = "invited", "Invited"
@@ -175,6 +239,16 @@ class Member(models.Model):
         XE_XEM = "xe/xem", "xe/xem"
         PREFER_NOT = "prefer not to share", "Prefer not to share"
 
+    class EmailGap(models.TextChoices):
+        """Why a member has no usable email (labels only; no field stores this).
+
+        Derived at query time by :meth:`MemberQuerySet.with_email_status` and read
+        via :attr:`Member.email_gap_label` in the Missing-email report.
+        """
+
+        NO_AIRTABLE_EMAIL = "no_airtable_email", "Never signed up — no email on file from Airtable"
+        NO_ACCOUNT_EMAIL = "no_account_email", "Signed up, but has no email on their account"
+
     airtable_record_id = models.CharField(
         max_length=20,
         blank=True,
@@ -205,6 +279,21 @@ class Member(models.Model):
     phone = models.CharField(max_length=20, blank=True)
     discord_handle = models.CharField(
         max_length=100, blank=True, help_text="Discord username (e.g. user#1234 or @user)."
+    )
+    discord_user_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "The member's VERIFIED numeric Discord account id (snowflake), set when they link Discord via "
+            "OAuth. Used to DM them notifications through the FOG bot. Distinct from the unverified, "
+            "free-text discord_handle — never use that for delivery."
+        ),
+    )
+    discord_linked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the member linked their Discord account for DM notifications (null = not linked).",
     )
     other_contact_info = models.CharField(
         max_length=255, blank=True, help_text="Other ways to reach this member (Instagram, Signal, etc.)."
@@ -259,9 +348,18 @@ class Member(models.Model):
         blank=True,
         help_text=(
             "Per-field public/hidden flags for the member directory card. "
-            "Keys: pronouns, phone, email, discord_handle, other_contact_info, about_me, profile_photo. "
+            "Keys: pronouns, phone, email, discord_handle, other_contact_info, about_me, profile_photo, skills. "
             "Missing key means public (default-on)."
         ),
+    )
+    open_for_commissions = models.BooleanField(
+        default=False,
+        help_text="When on, the member shows an 'Open for commissions!' badge and appears in that filter.",
+    )
+    commission_note = models.CharField(
+        max_length=280,
+        blank=True,
+        help_text="Short note on the kind of paid or commissioned work the member welcomes.",
     )
     instructor_slug = models.SlugField(
         max_length=255,
@@ -302,7 +400,10 @@ class Member(models.Model):
         "other_contact_info",
         "about_me",
         "profile_photo",
+        "skills",
     )
+
+    MAX_SKILLS = 15
 
     def __str__(self) -> str:
         return self.display_name
@@ -311,6 +412,28 @@ class Member(models.Model):
     def display_name(self) -> str:
         return self.preferred_name if self.preferred_name else self.full_legal_name
 
+    @property
+    def discord_is_linked(self) -> bool:
+        """Whether this member has a verified Discord account linked for DM notifications."""
+        return bool(self.discord_user_id)
+
+    def link_discord(self, discord_user_id: str) -> None:
+        """Record a verified Discord account id for DM notifications.
+
+        Stores the snowflake and stamps :attr:`discord_linked_at`. Called by the OAuth
+        linking service (:func:`core.events.discord_oauth.link_member_from_code`) after
+        the member authorizes the FOG bot.
+        """
+        self.discord_user_id = discord_user_id.strip()
+        self.discord_linked_at = timezone.now()
+        self.save(update_fields=["discord_user_id", "discord_linked_at"])
+
+    def unlink_discord(self) -> None:
+        """Clear the linked Discord account (the member opts out of DMs entirely)."""
+        self.discord_user_id = ""
+        self.discord_linked_at = None
+        self.save(update_fields=["discord_user_id", "discord_linked_at"])
+
     def is_public(self, field_name: str) -> bool:
         """Return True if a directory-toggleable field should appear on this member's card.
 
@@ -318,6 +441,11 @@ class Member(models.Model):
         accidentally hidden after this feature ships.
         """
         return bool(self.directory_visibility.get(field_name, True))
+
+    @property
+    def approved_skills(self) -> models.QuerySet[MemberSkill]:
+        """This member's skills whose vocabulary entry is approved, ready for display."""
+        return self.skills.filter(skill__status=Skill.Status.APPROVED).select_related("skill__category")
 
     @property
     def primary_email(self) -> str:
@@ -354,6 +482,17 @@ class Member(models.Model):
         if primary is not None:
             return primary.email
         return (user.email if user else "") or ""
+
+    @property
+    def email_gap_label(self) -> str:
+        """Human reason this member is emailless, or "" when they have an email.
+
+        Requires the ``email_gap`` annotation from
+        :meth:`MemberQuerySet.with_email_status`; it is only rendered in the
+        missing-email view, so accessing it on an un-annotated instance fails
+        loudly (``AttributeError``) rather than hiding a bug.
+        """
+        return self.EmailGap(self.email_gap).label if self.email_gap else ""
 
     @property
     def initials(self) -> str:
@@ -413,30 +552,36 @@ class Member(models.Model):
         return self.fog_role == self.FogRole.GUILD_OFFICER
 
     def can_edit_guild(self, guild: Guild) -> bool:
-        """True when this member may edit the given guild (admin, officer, or that guild's lead)."""
-        return self.is_fog_admin or self.is_guild_officer or guild.guild_lead_id == self.pk
+        """True when this member may edit the given guild.
+
+        Editors are admins, officers, the guild's lead (the ``Guild.guild_lead`` FK),
+        and anyone holding a staff role on the guild — every staff role carries the
+        same edit authority as the lead.
+        """
+        return self.is_fog_admin or self.is_guild_officer or guild.guild_lead_id == self.pk or guild.is_staffed_by(self)
 
     def can_manage_orientations(self, guild: Guild) -> bool:
         """True when this member may run the guild's orientations.
 
-        Editors (admin / officer / lead) always can; so can a member the guild has
-        designated as an orienter. Role-based — use ``membership.permissions.
-        can_manage_orientations`` in views to honor ``view_as`` preview mode.
+        Anyone who can edit the guild can run its orientations — that now includes
+        every staff member (orienters are a staff role). Role-based — use
+        ``membership.permissions.can_manage_orientations`` in views to honor
+        ``view_as`` preview mode.
         """
-        return self.can_edit_guild(guild) or guild.orienters.filter(pk=self.pk).exists()
+        return self.can_edit_guild(guild)
 
     def can_edit_class(self, offering: ClassOffering) -> bool:
         """True when this member may edit the class offering.
 
-        Editors are admins/officers, the lead of the class's category's guild
-        (purely from the ``Guild.guild_lead`` FK), or the class's own instructor.
-        Role-based — use ``membership.permissions.can_edit_class`` in views to
-        honor ``view_as`` preview mode.
+        Editors are admins/officers, the lead or any staff member of the class's
+        category's guild, or the class's own instructor. Role-based — use
+        ``membership.permissions.can_edit_class`` in views to honor ``view_as``
+        preview mode.
         """
         if self.is_fog_admin or self.is_guild_officer:
             return True
         guild = offering.category.guild
-        if guild is not None and guild.guild_lead_id == self.pk:
+        if guild is not None and (guild.guild_lead_id == self.pk or guild.is_staffed_by(self)):
             return True
         return offering.instructor_id == self.pk
 
@@ -446,9 +591,18 @@ class Member(models.Model):
         return Guild.objects.filter(guild_lead=self).exists()
 
     @property
-    def is_orienter(self) -> bool:
-        """True when this member is a designated orienter for at least one guild."""
-        return self.orienting_guilds.exists()
+    def is_guild_staff(self) -> bool:
+        """True when this member holds a staff role on at least one guild.
+
+        Staff (co-leads, secretaries, treasurers, orienters) all carry full
+        guild-lead permissions on the guilds where they hold a role.
+        """
+        return self.guild_staff_roles.exists()
+
+    @property
+    def staffed_guilds(self) -> models.QuerySet[Guild]:
+        """Guilds this member leads or holds any staff role on (i.e. has lead authority)."""
+        return Guild.objects.filter(models.Q(guild_lead=self) | models.Q(staff_memberships__member=self)).distinct()
 
     @property
     def is_instructor(self) -> bool:
@@ -562,6 +716,45 @@ class Member(models.Model):
         self.user.is_superuser = new_super
         self.user.save(update_fields=["is_staff", "is_superuser"])
 
+    def send_login_invite(self) -> None:
+        """Email this member a first-time sign-in link (one intentional email).
+
+        Distinct from :meth:`core.models.Invite.create_and_send`, which rejects
+        people who are already members — every member trips that guard now. This is
+        the path for an existing member who has never signed in.
+
+        It first idempotently provisions a User + verified primary email (so
+        login-by-code works), then emits the branded ``member.login_invite`` email
+        with a link to the login-code page, the member's email pre-filled. Re-sends
+        always go out (a fresh idempotency ``period`` per send, like the invite).
+
+        Raises:
+            ValueError: if the member has no email on file (nothing to send to).
+        """
+        from urllib.parse import urlencode
+
+        from django.contrib.sites.models import Site
+
+        from core.events.emit import emit
+        from membership.services.provisioning import provision_user_for_member
+
+        user = provision_user_for_member(self)
+        if user is None:
+            raise ValueError(f"Cannot send a login invite to member {self.pk}: no email on file.")
+
+        email = self.primary_email
+        current_site = Site.objects.get_current()
+        protocol = "https" if not settings.DEBUG else "http"
+        query = urlencode({"email": email})
+        login_url = f"{protocol}://{current_site.domain}/accounts/login/code/?{query}"
+
+        emit(
+            "member.login_invite",
+            target=self,
+            context={"user": user, "member_name": self.display_name, "login_url": login_url},
+            period=f"login_invite:{timezone.now():%Y%m%d%H%M%S%f}",
+        )
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Member records are otherwise managed in Airtable; this override only
         # cleans up the orphaned profile_photo file when the user replaces it.
@@ -617,11 +810,24 @@ class MemberEmail(models.Model):
 # ---------------------------------------------------------------------------
 
 
+class GuildManager(models.Manager["Guild"]):
+    """Default manager that hides soft-deleted guilds from every query."""
+
+    def get_queryset(self) -> models.QuerySet[Guild]:
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
 class Guild(HeroCropMixin, models.Model):
     # Queryset annotation (set by GuildAdmin.get_queryset)
     sublet_count: int
 
     name = models.CharField(max_length=255, unique=True)
+    slug = models.SlugField(
+        max_length=120,
+        unique=True,
+        blank=True,
+        help_text="URL slug for the guild's public page, auto-generated from the name (stable across renames).",
+    )
     is_active = models.BooleanField(default=True, help_text="Whether this guild is eligible for voting and display.")
     guild_lead = models.ForeignKey(
         Member,
@@ -629,16 +835,6 @@ class Guild(HeroCropMixin, models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="led_guilds",
-    )
-    orienters = models.ManyToManyField(
-        Member,
-        blank=True,
-        related_name="orienting_guilds",
-        help_text=(
-            "Members trusted to run this guild's orientations — confirm bookings, sign members off, "
-            "and manage availability. They cannot edit the guild page, manage classes, or add other "
-            "orienters; only the guild lead or an admin can."
-        ),
     )
     notes = models.TextField(blank=True)
     about = models.TextField(
@@ -711,6 +907,22 @@ class Guild(HeroCropMixin, models.Model):
     discord_url = models.URLField(
         blank=True, default="", help_text="Link to the guild's Discord channel, shown as a button on the page."
     )
+    discord_webhook_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text=(
+            "A Discord webhook for THIS guild's own channel. Guild announcements also post here. "
+            "Blank = nothing posts to your channel."
+        ),
+    )
+    discord_post_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            "Also post this guild's announcements to your own Discord channel "
+            "(in addition to the makerspace-wide channel)."
+        ),
+    )
     website_url = models.URLField(
         blank=True, default="", help_text="Link to the guild's external website, shown as a button on the page."
     )
@@ -726,11 +938,19 @@ class Guild(HeroCropMixin, models.Model):
         help_text="A class to spotlight at the top of the guild page.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set when the guild is soft-deleted; hidden from voting, the directory, and every member-facing page.",
+    )
     leases = GenericRelation(
         "Lease",
         content_type_field="content_type",
         object_id_field="object_id",
     )
+
+    objects = GuildManager()
+    all_objects = models.Manager()
 
     class Meta:
         ordering = ["name"]
@@ -748,8 +968,34 @@ class Guild(HeroCropMixin, models.Model):
         return logo_prefix_for(self.name)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self.slug:
+            self.slug = self._unique_slug()
         delete_orphan_on_replace(self, "banner_image")
         super().save(*args, **kwargs)
+
+    def soft_delete(self) -> None:
+        """Hide the guild everywhere without destroying its data or breaking its relations.
+
+        Sets ``deleted_at`` so the default manager filters it out of voting, the directory,
+        and every member-facing listing. Memberships, leases, classes, and orientation
+        history are preserved, and an admin can restore it by clearing ``deleted_at``.
+        """
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["deleted_at"])
+
+    def _unique_slug(self) -> str:
+        """A URL slug derived from the guild name, suffixed (``-2``, ``-3``…) to stay unique."""
+        from django.utils.text import slugify
+
+        base = slugify(self.name) or "guild"
+        slug = base
+        n = 2
+        # Check against *all* guilds, including soft-deleted ones, since the DB unique
+        # constraint spans every row — the default manager would hide a deleted collision.
+        while Guild.all_objects.exclude(pk=self.pk).filter(slug=slug).exists():
+            slug = f"{base}-{n}"
+            n += 1
+        return slug
 
     def add_gallery_images(self, files: list[Any]) -> None:
         """Create GuildImage rows from uploaded files, appending after existing ones."""
@@ -802,6 +1048,91 @@ class Guild(HeroCropMixin, models.Model):
         )["total"]
         return total
 
+    def is_staffed_by(self, member: Member) -> bool:
+        """True when ``member`` holds any staff role on this guild (separate from the lead FK)."""
+        return self.staff_memberships.filter(member=member).exists()
+
+    def staff_by_role(self) -> list[tuple[str, list[GuildStaffMembership]]]:
+        """Staff memberships grouped by role label, in role-declaration order, for display.
+
+        Returns ``(role_label, [memberships])`` pairs, omitting roles that have no members.
+        Each membership carries its ``member`` and ``pk`` for display and removal.
+        """
+        by_role: dict[str, list[GuildStaffMembership]] = {}
+        for staff in self.staff_memberships.select_related("member"):
+            by_role.setdefault(staff.role, []).append(staff)
+        grouped: list[tuple[str, list[GuildStaffMembership]]] = []
+        for role in GuildStaffMembership.Role:
+            rows = by_role.get(role.value)
+            if rows:
+                rows.sort(key=lambda s: (s.member.full_legal_name or "").lower())
+                grouped.append((role.label, rows))
+        return grouped
+
+    def leadership_members(self) -> list[Member]:
+        """The guild lead plus every staff member, de-duplicated — all who hold lead authority.
+
+        Fans out the emails and notifications that previously went to the lead alone.
+        """
+        members: list[Member] = []
+        seen: set[int] = set()
+        if self.guild_lead_id is not None and self.guild_lead is not None:
+            members.append(self.guild_lead)
+            seen.add(self.guild_lead_id)
+        for staff in self.staff_memberships.select_related("member"):
+            if staff.member_id not in seen:
+                members.append(staff.member)
+                seen.add(staff.member_id)
+        return members
+
+
+class GuildStaffMembership(models.Model):
+    """A member's leadership role on a guild, beyond the single ``Guild.guild_lead`` FK.
+
+    Every staff role grants the **same** authority as the guild lead: staff may edit
+    the guild page, manage and approve its classes, run its orientations, and receive
+    every email the lead does (class-review and orientation requests). The role is a
+    label for display and organization — it is not a permission tier. The primary
+    ``Guild.guild_lead`` stays an admin-assigned FK and is never managed here.
+    """
+
+    class Role(models.TextChoices):
+        CO_LEAD = "co_lead", "Co-Guild Lead"
+        SECRETARY = "secretary", "Secretary"
+        TREASURER = "treasurer", "Treasurer"
+        ORIENTER = "orienter", "Orienter"
+
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="staff_memberships",
+        help_text="The guild this staff role applies to.",
+    )
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="guild_staff_roles",
+        help_text="The member holding the staff role.",
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        help_text="The staff role held — every role carries full guild-lead permissions.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this role was assigned.")
+
+    class Meta:
+        ordering = ["role", "member__full_legal_name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["guild", "member", "role"],
+                name="uq_guildstaff_guild_member_role",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name} — {self.get_role_display()} of {self.guild.name}"
+
 
 class GuildImage(models.Model):
     """Gallery image for a guild page. Up to 10, enforced in the form."""
@@ -827,18 +1158,66 @@ class GuildImage(models.Model):
 
 
 class GuildFAQItem(models.Model):
-    """A question/answer pair shown in the guild page FAQ section."""
+    """A question/answer pair shown in the guild page FAQ section.
+
+    An answer may also carry a YouTube embed and/or one attached document — either an
+    uploaded file or a link to an external doc (at most one of the two).
+    """
 
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="faq_items", help_text="Parent guild.")
     question = models.CharField(max_length=500, help_text="The question.")
     answer = models.TextField(help_text="The answer.")
+    video_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional YouTube link shown with this answer (watch, youtu.be, embed, or shorts URL).",
+    )
+    document = models.FileField(
+        upload_to="guilds/faq/",
+        blank=True,
+        validators=[validate_document],
+        help_text="Optional document (PDF, Word, slides, spreadsheet…) shown with this answer. "
+        "Leave blank to link an external doc instead.",
+    )
+    document_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional link to an external doc for this answer. Leave blank if you uploaded a file.",
+    )
     sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
 
     class Meta:
         ordering = ["sort_order"]
+        constraints = [
+            # A document is optional, but it can't be BOTH an upload and a link.
+            models.CheckConstraint(
+                condition=Q(document="") | Q(document_url=""),
+                name="ck_guildfaqitem_doc_not_both",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.question
+
+    @property
+    def has_document(self) -> bool:
+        return bool(self.document) or bool(self.document_url)
+
+    @property
+    def document_display_name(self) -> str:
+        """The uploaded file's base name, else the link URL, else ``""``."""
+        if self.document and self.document.name:
+            return self.document.name.rsplit("/", 1)[-1]
+        return self.document_url
+
+    @property
+    def document_href(self) -> str:
+        """Where the document link points — the uploaded file's URL or the external link."""
+        return self.document.url if self.document else self.document_url
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "document")
+        super().save(*args, **kwargs)
 
 
 class GuildLink(models.Model):
@@ -865,9 +1244,10 @@ class GuildAnnouncementQuerySet(models.QuerySet):
 class GuildAnnouncement(models.Model):
     """A news post on a guild page.
 
-    Member notification on publish is wired once Plan 2's notifications module
-    (``core.notifications.dispatch``) lands — see DEFERRED.md. Until then,
-    announcements are created/displayed/deleted without firing notifications.
+    Posting an announcement notifies the guild's members via :meth:`notify_members`
+    (the ``guild.announcement`` event on the notification spine): an in-app bell row,
+    an opt-out email, and a Discord broadcast. The view calls ``notify_members`` once,
+    after the row is saved.
     """
 
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="announcements", help_text="Parent guild.")
@@ -901,6 +1281,157 @@ class GuildAnnouncement(models.Model):
         """Visible on the page — never expires, or the expiry is today or later."""
         return self.expires_at is None or self.expires_at >= timezone.localdate()
 
+    def notify_members(self) -> None:
+        """Emit ``guild.announcement`` to the guild's members (Decision 4).
+
+        Recipients resolve to every active member of this guild (scoped — not
+        site-wide); they receive an in-app bell row (always), an email (opt-out), and
+        a single Discord broadcast. The copy is DB-editable; the merge fields come from
+        this announcement. Called once by the create view after the row is saved.
+
+        The ``period`` is keyed to this announcement's pk so re-saving never double-
+        notifies, while a different announcement (a different pk) still notifies.
+        """
+        from django.urls import reverse
+
+        from core.events.emit import emit
+        from membership.orientations import _absolute_url
+
+        guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
+        emit(
+            "guild_announcement",
+            actor=self.author,
+            target=self,
+            context={
+                "guild": self.guild,
+                "member_name": "there",
+                "guild_name": self.guild.name,
+                "announcement_title": self.title,
+                "announcement_body": self.body,
+                "guild_url": guild_url,
+            },
+            url=guild_url,
+            period=f"announcement:{self.pk}",
+        )
+
+
+class GuildMeetingNote(models.Model):
+    """One meeting's notes / agenda on a guild page.
+
+    A bundle per meeting: a date, a title, an optional Markdown body, and any
+    number of child attachments (each a file OR a link). Members who can view the
+    guild page can read these; staff/leads add, edit, and delete them. Meeting
+    notes never expire, so there is no ``active()`` queryset — the default related
+    manager plus ``Meta.ordering`` covers the page query.
+    """
+
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="meeting_notes",
+        help_text="Parent guild.",
+    )
+    meeting_date = models.DateField(help_text="The date this meeting took place (or is scheduled for).")
+    title = models.CharField(max_length=300, help_text="Short headline, e.g. 'June general meeting'.")
+    body = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional written notes. Supports Markdown — bold, lists, links.",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who posted these notes.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-meeting_date", "-created_at"]  # newest meeting first; tie-break newest post
+
+    def __str__(self) -> str:
+        return f"{self.title} — {self.guild.name} ({self.meeting_date:%Y-%m-%d})"
+
+    @property
+    def body_html(self) -> str:
+        """Body Markdown rendered to sanitized HTML (safe to mark_safe in templates)."""
+        from membership.markdown import render_markdown
+
+        return render_markdown(self.body)
+
+
+class GuildMeetingNoteAttachment(models.Model):
+    """A file OR a link attached to a meeting note, repeated per note.
+
+    Mirrors ``GuildImage`` for upload mechanics (``upload_to``, ``sort_order``,
+    ``created_at``, ``save()`` orphan cleanup) but stores a document (not an image)
+    and runs no image normalization. Exactly one of ``file`` / ``url`` is set —
+    the friendly per-row guard lives on the form (``GuildMeetingNoteAttachmentForm``);
+    the ``CheckConstraint`` here is the DB integrity backstop.
+    """
+
+    note = models.ForeignKey(
+        GuildMeetingNote,
+        on_delete=models.CASCADE,
+        related_name="attachments",
+        help_text="Parent meeting note.",
+    )
+    label = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="What to call this — e.g. 'Agenda PDF'. Defaults to the file name or link.",
+    )
+    file = models.FileField(
+        upload_to="guilds/meeting_notes/",
+        blank=True,
+        validators=[validate_document],
+        help_text="Upload a document (PDF, Word, slides, spreadsheet…). Leave blank if you're adding a link instead.",
+    )
+    url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Link to an external doc (e.g. a Google Doc). Leave blank if you uploaded a file instead.",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=((Q(file="") & ~Q(url="")) | (~Q(file="") & Q(url=""))),
+                name="ck_meetingnoteattachment_file_xor_url",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Attachment #{self.pk} for {self.note.title}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "file")  # mirror GuildImage; no image normalization
+        super().save(*args, **kwargs)
+
+    @property
+    def is_file(self) -> bool:
+        return bool(self.file)
+
+    @property
+    def is_link(self) -> bool:
+        return bool(self.url)
+
+    @property
+    def display_name(self) -> str:
+        """Label if set, else the file's base name, else the URL."""
+        if self.label:
+            return self.label
+        if self.file and self.file.name:
+            return self.file.name.rsplit("/", 1)[-1]
+        return self.url
+
 
 class GuildMembership(models.Model):
     """Explicit opt-in affiliation between a Member and a Guild."""
@@ -920,6 +1451,358 @@ class GuildMembership(models.Model):
         return f"{self.member} in {self.guild.name}"
 
 
+class SkillCategory(models.Model):
+    """A grouping of related skills shown in the skills picker and directory filter."""
+
+    name = models.CharField(max_length=100, unique=True, help_text="Display name of the category.")
+    slug = models.SlugField(max_length=120, unique=True, help_text="URL-safe identifier.")
+    sort_order = models.PositiveSmallIntegerField(default=0, help_text="Lower numbers sort first in pickers.")
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+        verbose_name = "skill category"
+        verbose_name_plural = "skill categories"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Skill(models.Model):
+    """A single skill members can list, drawn from a curated vocabulary."""
+
+    class Status(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        PENDING = "pending", "Pending review"
+
+    name = models.CharField(max_length=80, unique=True, help_text="Canonical skill name shown everywhere.")
+    slug = models.SlugField(max_length=100, unique=True, help_text="URL-safe identifier used for filtering.")
+    category = models.ForeignKey(
+        SkillCategory,
+        on_delete=models.PROTECT,
+        related_name="skills",
+        help_text="The category this skill belongs to.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.APPROVED,
+        help_text="Approved skills appear publicly; pending skills are member suggestions awaiting review.",
+    )
+    suggested_by = models.ForeignKey(
+        "Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="suggested_skills",
+        help_text="Member who proposed this skill, if it came from a suggestion.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the skill entered the vocabulary.")
+
+    class Meta:
+        ordering = ["category__sort_order", "name"]
+        indexes = [
+            models.Index(fields=["status", "name"], name="idx_skill_status_name"),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class MemberSkill(models.Model):
+    """A skill claimed by a member, with optional years of experience."""
+
+    member = models.ForeignKey(
+        "Member", on_delete=models.CASCADE, related_name="skills", help_text="The member who listed this skill."
+    )
+    skill = models.ForeignKey(
+        Skill, on_delete=models.CASCADE, related_name="member_links", help_text="The skill being claimed."
+    )
+    years_experience = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Optional years of experience, shown beside the skill when set.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the member added this skill.")
+
+    class Meta:
+        ordering = ["skill__category__sort_order", "skill__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["member", "skill"], name="uq_memberskill_member_skill"),
+        ]
+
+    def __str__(self) -> str:
+        years = f" ({self.years_experience}y)" if self.years_experience is not None else ""
+        return f"{self.member.display_name} — {self.skill.name}{years}"
+
+
+class CommunityEventQuerySet(models.QuerySet):
+    """Window + scope queries for FOG-authored community events."""
+
+    def upcoming(self) -> CommunityEventQuerySet:
+        """Events still worth showing: a non-recurring event that hasn't ended, or
+        ANY monthly series (it keeps recurring — its concrete future occurrences are
+        computed by :meth:`CommunityEvent.occurrences_in` at render time)."""
+        return self.filter(Q(ends_at__gte=timezone.now()) | ~Q(recurrence=CommunityEvent.Recurrence.NONE))
+
+    def candidates_for_window(self, frm: date_type, to: date_type) -> CommunityEventQuerySet:
+        """Rows that *might* contribute an occurrence to ``[frm, to]``.
+
+        A non-recurring event qualifies when its start-date is in-window; a monthly
+        series qualifies whenever its anchor is on/before ``to`` (its later occurrences
+        are expanded virtually, so a past anchor still counts). The adapter then asks
+        each row's :meth:`CommunityEvent.occurrences_in` which concrete dates land in
+        the window — a plain ``starts_at`` BETWEEN filter would wrongly drop a series.
+        """
+        return self.filter(
+            (Q(recurrence=CommunityEvent.Recurrence.NONE) & Q(starts_at__date__gte=frm, starts_at__date__lte=to))
+            | (~Q(recurrence=CommunityEvent.Recurrence.NONE) & Q(starts_at__date__lte=to))
+        )
+
+    def for_guild(self, guild: Guild) -> CommunityEventQuerySet:
+        return self.filter(guild=guild)
+
+    def site_wide(self) -> CommunityEventQuerySet:
+        return self.filter(guild__isnull=True)
+
+
+class CommunityEvent(models.Model):
+    """A FOG-native event on the Community Calendar (a guild meeting/event, a site-wide
+    community event, or the cross-guild Guild Lead Meeting).
+
+    Unlike :class:`CalendarEvent` (a read-only iCal cache), this is authored inside FOG
+    by a guild lead/staffer (their guild's events) or an admin (site-wide events and the
+    Guild Lead Meeting). Saving a *new* event posts a one-shot Discord/in-app announcement
+    via :meth:`announce`; editing does not re-announce. A monthly event is a single row —
+    its occurrences are expanded virtually in the calendar window and emitted as one
+    ``RRULE`` VEVENT in the ``.ics`` (no materialised rows, no cron).
+    """
+
+    class EventType(models.TextChoices):
+        GUILD_MEETING = "guild_meeting", "Guild meeting / event"
+        LEAD_MEETING = "lead_meeting", "Guild Lead Meeting"
+        COMMUNITY = "community", "Community event"
+
+    class Recurrence(models.TextChoices):
+        NONE = "none", "Does not repeat"
+        SEMI_MONTHLY = "semi_monthly", "Twice a month"
+        MONTHLY = "monthly", "Every month"
+        EVERY_2_MONTHS = "every_2_months", "Every 2 months"
+        EVERY_3_MONTHS = "every_3_months", "Every 3 months"
+        EVERY_6_MONTHS = "every_6_months", "Every 6 months"
+        YEARLY = "yearly", "Every year"
+
+    # Months between occurrences for each recurring choice (semi-monthly walks
+    # monthly but emits two dates per month — see ``occurrences_in``).
+    _MONTH_INTERVALS: dict[str, int] = {
+        Recurrence.SEMI_MONTHLY.value: 1,
+        Recurrence.MONTHLY.value: 1,
+        Recurrence.EVERY_2_MONTHS.value: 2,
+        Recurrence.EVERY_3_MONTHS.value: 3,
+        Recurrence.EVERY_6_MONTHS.value: 6,
+        Recurrence.YEARLY.value: 12,
+    }
+
+    # Maps an event type to the registry event key its announcement fires.
+    _ANNOUNCE_EVENT: dict[str, str] = {
+        EventType.GUILD_MEETING: "event.guild_published",
+        EventType.LEAD_MEETING: "event.lead_meeting_published",
+        EventType.COMMUNITY: "event.community_published",
+    }
+
+    title = models.CharField(max_length=200, help_text="Event name shown on the calendar — e.g. 'Monthly Potluck'.")
+    event_type = models.CharField(
+        max_length=20,
+        choices=EventType.choices,
+        default=EventType.GUILD_MEETING,
+        help_text="What kind of event this is.",
+    )
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="events",
+        help_text="The guild this belongs to. Leave blank for a site-wide community or leadership event.",
+    )
+    starts_at = models.DateTimeField(help_text="When the event starts.")
+    ends_at = models.DateTimeField(help_text="When the event ends.")
+    location = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Where it happens — a room name, address, or a video link. Optional.",
+    )
+    description = models.TextField(blank=True, default="", help_text="Optional details for members.")
+    recurrence = models.CharField(
+        max_length=20,
+        choices=Recurrence.choices,
+        default=Recurrence.NONE,
+        help_text=(
+            "Whether and how often this event repeats. Every repeating option recurs on the "
+            "same weekday-of-month as the start (e.g. the 2nd Saturday); 'Twice a month' adds "
+            "the same weekday two weeks later."
+        ),
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who created this event.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = CommunityEventQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["starts_at"]
+        indexes = [models.Index(fields=["starts_at"], name="idx_communityevent_starts")]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(ends_at__gt=models.F("starts_at")),
+                name="ck_communityevent_end_after_start",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (Q(event_type="guild_meeting") & Q(guild__isnull=False))
+                    | (~Q(event_type="guild_meeting") & Q(guild__isnull=True))
+                ),
+                name="ck_communityevent_guild_matches_type",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        where = self.guild.name if self.guild is not None else "Site-wide"
+        return f"{self.title} — {where} ({self.starts_at:%Y-%m-%d %H:%M})"
+
+    # --- Recurrence (virtual expansion, reusing _nth_weekday) -----------------
+
+    def _occurrence_ordinal(self) -> int:
+        """Which weekday-of-month the start falls on: 1–4, or -1 for a 5th (treated as 'last')."""
+        n = (timezone.localtime(self.starts_at).day - 1) // 7 + 1
+        return -1 if n == 5 else n
+
+    def occurrences_in(self, frm: date_type, to: date_type) -> list[datetime_type]:
+        """Start datetimes of every occurrence whose start-date is within ``[frm, to]``.
+
+        ``NONE`` yields ``[starts_at]`` when in window; ``MONTHLY`` walks months from the
+        anchor, projecting the same nth weekday via :func:`_nth_weekday`, preserving the
+        original time-of-day (and therefore the duration). Each occurrence's end is
+        ``occurrence start + (ends_at - starts_at)`` (computed by the caller).
+        """
+        local_start = timezone.localtime(self.starts_at)
+        if self.recurrence == self.Recurrence.NONE:
+            return [self.starts_at] if frm <= local_start.date() <= to else []
+
+        from dateutil.relativedelta import FR, MO, SA, SU, TH, TU, WE, relativedelta
+
+        weekdays = (MO, TU, WE, TH, FR, SA, SU)
+        wd = weekdays[local_start.weekday()]
+        ord_ical = self._occurrence_ordinal()
+        ordinal = 5 if ord_ical == -1 else ord_ical  # _nth_weekday treats ordinal 5 as 'last'
+        anchor_date = local_start.date()
+        interval = self._MONTH_INTERVALS[self.recurrence]
+        is_semi_monthly = self.recurrence == self.Recurrence.SEMI_MONTHLY
+
+        # Align the first iterated month to the interval grid relative to the anchor, so a
+        # far-future window doesn't walk month-by-month from a long-past anchor.
+        months_to_window = (frm.year - anchor_date.year) * 12 + (frm.month - anchor_date.month)
+        steps = max(0, -(-months_to_window // interval))  # ceil division, clamped at 0
+        month_cursor = anchor_date.replace(day=1) + relativedelta(months=steps * interval)
+
+        occurrences: list[datetime_type] = []
+        while month_cursor <= to:
+            occ_date = _nth_weekday(month_cursor, wd, ordinal)
+            candidates = [occ_date, occ_date + relativedelta(weeks=2)] if is_semi_monthly else [occ_date]
+            for occ in candidates:
+                if occ >= anchor_date and frm <= occ <= to:
+                    occurrences.append(local_start.replace(year=occ.year, month=occ.month, day=occ.day))
+            month_cursor = month_cursor + relativedelta(months=interval)
+        return occurrences
+
+    def ical_rrule(self) -> str:
+        """The iCal ``RRULE`` body (no ``RRULE:`` prefix) for this event, or ``""`` for none.
+
+        Subscribed calendars expand this themselves, so the export emits one VEVENT per
+        series instead of a row per occurrence. The monthly family recurs on the same nth
+        weekday (with an ``INTERVAL`` for every-N-months); yearly pins the month too;
+        twice-a-month lists the nth and nth+2 weekday when both fit in a month.
+        """
+        if self.recurrence == self.Recurrence.NONE:
+            return ""
+        local_start = timezone.localtime(self.starts_at)
+        weekday = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")[local_start.weekday()]
+        ordinal = self._occurrence_ordinal()
+        if self.recurrence == self.Recurrence.YEARLY:
+            return f"FREQ=YEARLY;BYMONTH={local_start.month};BYDAY={ordinal}{weekday}"
+        if self.recurrence == self.Recurrence.SEMI_MONTHLY:
+            second = ordinal + 2
+            byday = f"{ordinal}{weekday},{second}{weekday}" if 1 <= ordinal <= 3 else f"{ordinal}{weekday}"
+            return f"FREQ=MONTHLY;BYDAY={byday}"
+        interval = self._MONTH_INTERVALS[self.recurrence]
+        interval_part = "" if interval == 1 else f"INTERVAL={interval};"
+        return f"FREQ=MONTHLY;{interval_part}BYDAY={ordinal}{weekday}"
+
+    # --- Properties -----------------------------------------------------------
+
+    @property
+    def is_site_wide(self) -> bool:
+        return self.guild_id is None
+
+    @property
+    def when_display(self) -> str:
+        """'Sat, Jul 12 · 6:00 PM – 8:00 PM' style, for notification copy and tooltips.
+
+        Appends ' · Repeats monthly' for a monthly series so the single launch
+        announcement makes the cadence clear.
+        """
+        local_start = timezone.localtime(self.starts_at)
+        local_end = timezone.localtime(self.ends_at)
+        when = (
+            f"{local_start.strftime('%a, %b %-d')} · "
+            f"{local_start.strftime('%-I:%M %p')} – {local_end.strftime('%-I:%M %p')}"
+        )
+        if self.recurrence != self.Recurrence.NONE:
+            when += f" · {self.get_recurrence_display()}"
+        return when
+
+    @property
+    def absolute_url(self) -> str:
+        """Absolute Community-Calendar URL for notifications (no per-event page in v1)."""
+        from django.urls import reverse
+
+        return f"{settings.MEMBER_BASE_URL}{reverse('hub_community_calendar')}"
+
+    # --- Publish --------------------------------------------------------------
+
+    def announce(self, *, actor: User | None = None) -> None:
+        """Post the launch announcement (in-app + Discord). Idempotent via ``period``.
+
+        Called only on create. The ``guild`` rides in context for the guild-members
+        resolver and the per-guild Discord fan-out (sibling routing spec); site-wide
+        events carry ``guild=None`` and route centrally only.
+        """
+        from core.events.emit import emit
+
+        emit(
+            self._ANNOUNCE_EVENT[self.event_type],
+            actor=actor,
+            target=self,
+            context={
+                "guild": self.guild,
+                "guild_name": self.guild.name if self.guild is not None else "",
+                "event_title": self.title,
+                "when": self.when_display,
+                "location": self.location,
+                "event_url": self.absolute_url,
+            },
+            url=self.absolute_url,
+            period=f"event:{self.pk}:published",
+        )
+
+
 class VotePreferenceQuerySet(models.QuerySet):
     def from_signed_up_members(self) -> VotePreferenceQuerySet:
         """Votes cast by members who have a linked User account.
@@ -929,6 +1812,20 @@ class VotePreferenceQuerySet(models.QuerySet):
         signed-up members should influence live standings or snapshots.
         """
         return self.filter(member__user__isnull=False)
+
+    def with_role_flags(self) -> VotePreferenceQuerySet:
+        """Annotate each vote with the voter's guild-lead / guild-staff status.
+
+        Mirrors ``Member.is_guild_lead`` / ``Member.is_guild_staff`` as ``Exists``
+        subqueries, so a caller serializing many votes reads ``member_is_guild_lead`` /
+        ``member_is_guild_staff`` straight off the row instead of firing one EXISTS
+        query per voter (the N+1 the raw-votes builders used to hit). The same managers
+        the properties use keep the booleans byte-for-byte identical.
+        """
+        return self.annotate(
+            member_is_guild_lead=Exists(Guild.objects.filter(guild_lead_id=OuterRef("member_id"))),
+            member_is_guild_staff=Exists(GuildStaffMembership.objects.filter(member_id=OuterRef("member_id"))),
+        )
 
 
 class VotePreference(models.Model):
@@ -994,6 +1891,10 @@ class VotePreference(models.Model):
         return result
 
 
+class ResultsAlreadySentError(Exception):
+    """Raised when a snapshot's member results email is sent twice without an explicit resend."""
+
+
 class FundingSnapshot(models.Model):
     """Immutable historical record of a funding calculation at a point in time."""
 
@@ -1041,6 +1942,19 @@ class FundingSnapshot(models.Model):
         encoder=DjangoJSONEncoder,
         help_text="Full calculation results including per-guild breakdowns. Decimals are serialized as strings.",
     )
+    is_auto = models.BooleanField(
+        default=False,
+        help_text="True when this snapshot was taken automatically at cycle end (vs. by an admin).",
+    )
+    results_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the member results email was sent for this snapshot. Null = pending the admin's review & send.",
+    )
+    results_send_count = models.PositiveIntegerField(
+        default=0,
+        help_text="How many times the results email has been sent (>=1 after the first send; supports resend).",
+    )
 
     class Meta:
         ordering = ["-snapshot_at"]
@@ -1050,30 +1964,73 @@ class FundingSnapshot(models.Model):
     def __str__(self) -> str:
         return f"{self.cycle_label} — ${self.funding_pool}"
 
+    @property
+    def source_label(self) -> str:
+        """How this snapshot was created — "Automatic" for cycle-end auto-takes, else "Manual"."""
+        return "Automatic" if self.is_auto else "Manual"
+
+    @property
+    def results_pending(self) -> bool:
+        """Whether real per-guild results exist for this snapshot and haven't been emailed yet.
+
+        A legacy or vote-less snapshot (no allocation) is never "pending" — there is
+        nothing meaningful to send.
+        """
+        return self.results_sent_at is None and bool(self.allocation_summary())
+
+    @classmethod
+    def most_recent_pending(cls) -> FundingSnapshot | None:
+        """The newest snapshot whose member results are still pending review & send.
+
+        Drives the Overview "Results are in — review & send" banner. Walks unsent
+        snapshots newest-first and returns the first with a real allocation.
+        """
+        for snapshot in cls.objects.filter(results_sent_at__isnull=True).order_by("-snapshot_at"):
+            if snapshot.results_pending:
+                return snapshot
+        return None
+
     @classmethod
     def take(
         cls,
         *,
         title: str = "",
-        minimum_pool: Decimal | int = 1000,
+        minimum_pool: Decimal | int | None = None,
+        is_auto: bool = False,
+        actor: Any | None = None,
     ) -> FundingSnapshot | None:
-        """Create a snapshot from current vote preferences.
+        """Create a snapshot from current vote preferences (admin-confirmed results model).
+
+        Taking a snapshot freezes the votes and runs the allocation, but does NOT
+        email members — it logs the snapshot-taken activity once and pings admins via
+        ``voting.results_ready`` so they can review the numbers and click Send results.
 
         Args:
             title: Custom label for the snapshot. Defaults to current month/year.
             minimum_pool: Dollar floor applied to the funding pool. Pool is
-                ``max(paying_voters × $10, minimum_pool)``. Defaults to $1,000.
+                ``max(paying_voters × $10, minimum_pool)``. ``None`` (the default)
+                resolves to ``VotingSettings.load().minimum_pool_floor``; an explicit
+                value overrides it.
+            is_auto: True when taken automatically at cycle end (sets the badge flag).
+            actor: The admin who took it, for the activity row. ``None`` for system.
 
         Returns:
             The created FundingSnapshot, or None if no votes exist.
         """
+        from core.events.emit import emit
+        from core.models import SiteActivity
+        from membership.orientations import _absolute_url
         from membership.vote_calculator import calculate_results
 
-        preferences = VotePreference.objects.from_signed_up_members().select_related(
-            "member",
-            "guild_1st",
-            "guild_2nd",
-            "guild_3rd",
+        preferences = (
+            VotePreference.objects.from_signed_up_members()
+            .with_role_flags()
+            .select_related(
+                "member",
+                "guild_1st",
+                "guild_2nd",
+                "guild_3rd",
+            )
         )
 
         if not preferences.exists():
@@ -1086,6 +2043,8 @@ class FundingSnapshot(models.Model):
                 "member_type": pref.member.member_type,
                 "fog_role": pref.member.fog_role,
                 "is_paying": pref.member.is_paying,
+                "is_guild_lead": pref.member_is_guild_lead,
+                "is_guild_staff": pref.member_is_guild_staff,
                 "guild_1st_id": pref.guild_1st_id,
                 "guild_1st_name": pref.guild_1st.name,
                 "guild_2nd_id": pref.guild_2nd_id,
@@ -1106,7 +2065,10 @@ class FundingSnapshot(models.Model):
             for v in raw_votes
         ]
 
-        minimum_pool_value = Decimal(minimum_pool)
+        if minimum_pool is None:
+            minimum_pool_value = VotingSettings.load().minimum_pool_floor
+        else:
+            minimum_pool_value = Decimal(minimum_pool)
         calc = calculate_results(
             votes_for_calc,
             paying_voter_count=paying_count,
@@ -1122,20 +2084,107 @@ class FundingSnapshot(models.Model):
             minimum_pool=minimum_pool_value,
             raw_votes=raw_votes,
             results=calc,
+            is_auto=is_auto,
         )
 
-        SiteActivity.log(SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN, target=snapshot)
+        # Log the snapshot-taken activity exactly once here (it no longer rides on the
+        # per-member results emails, which would otherwise write N rows).
+        SiteActivity.log(SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
 
-        from core import notifications
-
-        notifications.dispatch(
-            "funding_results_published",
-            notifications.active_member_users(),
-            title="Funding results published",
-            body=f"Results for {snapshot.cycle_label} are in.",
-            url="/guilds/voting/history/",
+        # Ping admins to review & send — taking a snapshot never emails members.
+        # The spine never absolutizes URLs, so the email/Discord link must already
+        # carry the full host (a bare "/manage/..." path is a dead link in an inbox).
+        review_url = _absolute_url(f"/manage/voting/history/{snapshot.pk}/")
+        emit(
+            "voting.results_ready",
+            actor=actor,
+            target=snapshot,
+            context={
+                "cycle_label": snapshot.cycle_label,
+                "funding_pool": f"{snapshot.funding_pool}",
+                "votes_cast": f"{calc['votes_cast']}",
+                "review_url": review_url,
+            },
+            url=review_url,
+            period=f"snapshot_ready:{snapshot.pk}",
         )
         return snapshot
+
+    def allocation_summary(self) -> str:
+        """A plain-text per-guild allocation breakdown for the results email.
+
+        One line per guild, funding-descending (the order ``calculate_results``
+        already sorts in): ``"Metal Guild — $600.00 (45.0%)"``. Empty string when the
+        snapshot has no per-guild results (a legacy or vote-less snapshot).
+        """
+        results = (self.results or {}).get("results", [])
+        lines = [f"{row['guild_name']} — ${row['funding']} ({row['share_pct']}%)" for row in results]
+        return "\n".join(lines)
+
+    def send_results(self, *, actor: Any | None = None, resend: bool = False) -> int:
+        """Email each member who voted their personalized results — the admin-confirmed send.
+
+        Loops the snapshot's frozen ``raw_votes`` and emits ``voting.results_published``
+        once per still-active voter, carrying that member's own 1st/2nd/3rd recorded
+        vote so the email can say "here's what we recorded *you* voting for". Stamps
+        ``results_sent_at`` and bumps ``results_send_count`` so the UI can flip to the
+        sent state and idempotency is visible.
+
+        Args:
+            actor: The admin who clicked Send (unused for the per-member emit, kept for
+                symmetry/auditing of the calling view).
+            resend: When True, allows re-sending already-sent results (a fresh ``period``
+                re-delivers); when False a second send raises ``ResultsAlreadySentError``.
+
+        Returns:
+            The number of voters who received a fresh delivery this send.
+
+        Raises:
+            ResultsAlreadySentError: If results were already sent and ``resend`` is False.
+        """
+        from core.events.emit import emit
+        from membership.orientations import _absolute_url
+
+        if self.results_sent_at is not None and not resend:
+            raise ResultsAlreadySentError(f"Results for '{self.cycle_label}' were already sent.")
+
+        self.results_send_count += 1
+        n = self.results_send_count
+        sent = 0
+        allocation = self.allocation_summary()
+        # The spine never absolutizes URLs — the results email's "See the full
+        # breakdown" link must carry the full host or it's a dead link in an inbox.
+        voting_url = _absolute_url("/guilds/voting/history/")
+        member_ids = [vote["member_id"] for vote in self.raw_votes]
+        active = {
+            member.pk: member
+            for member in Member.objects.filter(pk__in=member_ids, status=Member.Status.ACTIVE).select_related("user")
+        }
+        for vote in self.raw_votes:
+            member = active.get(vote["member_id"])
+            if member is None:
+                continue  # voter no longer active → skip (audience safety)
+            result = emit(
+                "voting.results_published",
+                target=self,
+                context={
+                    "member": member,  # → registrant resolver (drops no-account/no-email; respects opt-out)
+                    "member_name": member.display_name,
+                    "cycle_label": self.cycle_label,
+                    "allocation_summary": allocation,
+                    "vote_1st": vote["guild_1st_name"],
+                    "vote_2nd": vote["guild_2nd_name"],
+                    "vote_3rd": vote["guild_3rd_name"],
+                    "voting_url": voting_url,
+                },
+                url=voting_url,
+                period=f"snapshot:{self.pk}:send:{n}",  # fresh per send → resend re-delivers
+            )
+            if result.delivery_count:
+                sent += 1
+        self.results_sent_at = timezone.now()
+        self.save(update_fields=["results_sent_at", "results_send_count"])
+        return sent
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         super().save(*args, **kwargs)
@@ -1143,6 +2192,74 @@ class FundingSnapshot(models.Model):
             from airtable_sync.service import sync_snapshot_to_airtable
 
             sync_snapshot_to_airtable(self)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Hard-delete the snapshot and clean up its Airtable mirror row.
+
+        Mirrors ``VotePreference.delete()`` — capture the Airtable record id
+        before the row is gone, then remove the Airtable row (honoring the
+        ``_skip_airtable_sync`` test flag) so deletions are honest end-to-end.
+        """
+        record_id = self.airtable_record_id
+        result = super().delete(*args, **kwargs)
+        if record_id and not getattr(self, "_skip_airtable_sync", False):
+            from airtable_sync.service import delete_snapshot_from_airtable
+
+            delete_snapshot_from_airtable(record_id)
+        return result
+
+
+class VotingSettings(models.Model):
+    """Admin-configurable knobs for the monthly guild-funding vote (singleton, pk=1).
+
+    Follows the ``SiteConfiguration`` / ``BillingSettings`` / ``ClassSettings`` pattern:
+    one row, loaded via :meth:`load`, saved with ``pk`` forced to 1. Defaults reproduce
+    today's behavior (a $1,000 pool floor, a 3-day reminder lead) with the automation
+    switches on — and since nothing emails members without an admin's Send click,
+    defaults-on is safe.
+    """
+
+    reminder_lead_days = models.PositiveIntegerField(
+        default=3,
+        validators=[MinValueValidator(1)],
+        help_text="How many days before close to send the 'Polls closing soon!' reminder (minimum 1).",
+    )
+    minimum_pool_floor = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("1000.00"),
+        help_text="Dollar floor for the funding pool. The pool is the larger of (paying voters × $10) and this.",
+    )
+    reminders_enabled = models.BooleanField(
+        default=True,
+        help_text="Master switch for the 'Polls closing soon!' reminder to members who have voted.",
+    )
+    send_vote_soon_enabled = models.BooleanField(
+        default=True,
+        help_text="Master switch for the 'Vote soon!' nudge to members who've signed in but never voted.",
+    )
+    auto_snapshot_enabled = models.BooleanField(
+        default=True,
+        help_text="Master switch for the automated cycle-end snapshot (it never auto-emails members).",
+    )
+
+    class Meta:
+        verbose_name = "Voting Settings"
+        verbose_name_plural = "Voting Settings"
+
+    def __str__(self) -> str:
+        return "Voting settings"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Force singleton by always using pk=1."""
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> VotingSettings:
+        """Load the singleton instance, creating it with defaults if needed."""
+        obj, _created = cls.objects.get_or_create(pk=1)
+        return obj
 
 
 # ---------------------------------------------------------------------------

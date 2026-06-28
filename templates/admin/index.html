@@ -219,7 +219,7 @@
 
     {# --- Actions --- #}
     <div class="pl-actions">
-        <a href="{% url 'admin_snapshot_draft' %}" class="pl-btn pl-btn--primary">
+        <a href="{% url 'hub_admin_voting_snapshots' %}" class="pl-btn pl-btn--primary">
             Take Snapshot
         </a>
         <a href="{% url 'hub_snapshot_history' %}" class="pl-btn pl-btn--secondary">
@@ -233,7 +233,7 @@
     {% if stats.last_snapshot %}
     <p class="pl-meta">
         Last snapshot:
-        <a href="{% url 'admin_snapshot_detail' stats.last_snapshot.pk %}" style="color:#EEB44B;">{{ stats.last_snapshot.cycle_label }}</a>
+        <a href="{% url 'hub_admin_voting_history_detail' stats.last_snapshot.pk %}" class="pl-admin-snapshot-link">{{ stats.last_snapshot.cycle_label }}</a>
         &mdash; ${{ stats.last_snapshot.funding_pool }} &mdash;
         {{ stats.last_snapshot.snapshot_at|date:"N j, Y g:i a" }}
     </p>

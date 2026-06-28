@@ -3,7 +3,9 @@
 
 {% block content %}{% autoescape off %}Someone tried to sign in to Past Lives Makerspace with this email address ({{ email }}), but we don't have an account on file for it.
 
-If that was you, you may have signed up with a different email — try the "Find Your Account" link on the login page to look up your name.
+If that was you, you may have signed up with a different email — look up your name with Find Your Account{% if find_account_url %}:
+
+{{ find_account_url }}{% else %} on the login page{% endif %}.
 
 If you'd like to create a new account instead, you can sign up here:
 

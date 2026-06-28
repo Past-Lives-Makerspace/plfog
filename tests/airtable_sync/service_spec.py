@@ -19,6 +19,7 @@ from tests.membership.factories import (
 from airtable_sync.service import (
     delete_lease_from_airtable,
     delete_member_from_airtable,
+    delete_snapshot_from_airtable,
     delete_space_from_airtable,
     delete_vote_from_airtable,
     sync_lease_to_airtable,
@@ -203,6 +204,19 @@ def describe_delete_vote_from_airtable():
 # ---------------------------------------------------------------------------
 # FundingSnapshot (pushes to Airtable on model save)
 # ---------------------------------------------------------------------------
+
+
+def describe_delete_snapshot_from_airtable():
+    def it_short_circuits_when_disabled():
+        delete_snapshot_from_airtable("recSNAP123")
+
+    def it_deletes_the_record(enable_airtable_sync, mock_airtable_table):
+        delete_snapshot_from_airtable("recSNAP123")
+        mock_airtable_table.delete.assert_called_once_with("recSNAP123")
+
+    def it_logs_on_error(enable_airtable_sync, mock_airtable_table):
+        mock_airtable_table.delete.side_effect = Exception("API error")
+        delete_snapshot_from_airtable("recSNAP123")
 
 
 def describe_sync_snapshot_to_airtable():

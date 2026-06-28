@@ -6,8 +6,9 @@ from datetime import timedelta
 
 import factory
 from django.contrib.auth import get_user_model
+from django.db.models.signals import post_save
 from django.utils import timezone
-from factory.django import DjangoModelFactory
+from factory.django import DjangoModelFactory, mute_signals
 
 from classes import models
 from membership.models import Member, MembershipPlan
@@ -40,12 +41,17 @@ class UserFactory(DjangoModelFactory):
     email = factory.LazyAttribute(lambda o: o.username)
 
 
+@mute_signals(post_save)
 class InstructorFactory(DjangoModelFactory):
     """Creates a Member configured as an instructor (instructor_slug set).
 
     When ``user=`` is supplied the signal will have already auto-created a
     Member for that user. In that case we find and update it so the test isn't
     left with two conflicting records.
+
+    ``post_save`` is muted so the ``auto_provision_member_user`` signal does not
+    auto-provision a User for a default (``user=None``) instructor — instructors
+    stay unlinked unless a test supplies a user, matching prior behaviour.
     """
 
     class Meta:
@@ -148,11 +154,3 @@ class RegistrationFactory(DjangoModelFactory):
     last_name = "User"
     email = factory.Sequence(lambda n: f"test{n}@example.com")
     amount_paid_cents = 0
-
-
-class RegistrationReminderFactory(DjangoModelFactory):
-    class Meta:
-        model = models.RegistrationReminder
-
-    registration = factory.SubFactory(RegistrationFactory)
-    session = factory.SubFactory(ClassSessionFactory)

@@ -11,7 +11,7 @@
         <span class="pl-calendar-list__time-hour">All day</span>
         {% else %}
         <span class="pl-calendar-list__time-day">{{ event.start_dt|date:"D, M j" }}</span>
-        <span class="pl-calendar-list__time-hour">{{ event.start_dt|date:"g:i A" }}{% if event.source == "orientation" %} – {{ event.end_dt|date:"g:i A" }}{% endif %}</span>
+        <span class="pl-calendar-list__time-hour">{{ event.start_dt|date:"g:i A" }}{% if event.source == "orientation" or event.source == "community" %} – {{ event.end_dt|date:"g:i A" }}{% endif %}</span>
         {% endif %}
     </div>
     <div class="pl-calendar-list__body">

@@ -1,0 +1,40 @@
+{% extends "hub/base.html" %}
+{% load static hub_tags %}
+
+{% block title %}Voting — Past Lives{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/voting-admin.css' %}">
+{% endblock %}
+
+{% block content %}
+<h1 class="hub-page-title">Voting</h1>
+
+{% include "hub/admin/_voting_tabs.html" %}
+
+<div class="hub-card">
+  <h2 class="pl-vote-section-title">Take a snapshot</h2>
+  <p class="pl-vote-intro">
+    Commit the current live vote state as an immutable funding snapshot. The filters below are for
+    analysis only — the snapshot always captures every live vote.
+  </p>
+  {% if has_raw_votes %}
+  <form method="post" action="{% url 'hub_admin_voting_snapshot_take' %}" class="pl-vote-take">
+    {% csrf_token %}
+    <div class="hub-form-group">
+      <label for="snap-title">Title</label>
+      <input type="text" id="snap-title" name="title" value="{{ title_default }}">
+    </div>
+    <div class="hub-form-group">
+      <label for="snap-min">Minimum pool $</label>
+      <input type="number" id="snap-min" name="minimum_pool" value="{{ minimum_pool|floatformat:'0' }}" min="0" step="1">
+    </div>
+    <button type="submit" class="hub-btn hub-btn--primary">Take Snapshot</button>
+  </form>
+  {% else %}
+  <p class="pl-vote-empty">No votes cast this cycle yet — nothing to snapshot.</p>
+  {% endif %}
+</div>
+
+{% include "hub/admin/_voting_analyzer.html" %}
+{% endblock %}

@@ -38,6 +38,6 @@
   <p class="hub-text-muted">This request was {{ booking.get_status_display|lower }}.</p>
   {% endif %}
 
-  <p><a href="{% url 'hub_guild_detail' booking.guild.pk %}">← Back to {{ booking.guild.name }}</a></p>
+  <p><a href="{% url 'hub_guild_detail' booking.guild.slug %}">← Back to {{ booking.guild.name }}</a></p>
 </div>
 {% endblock %}

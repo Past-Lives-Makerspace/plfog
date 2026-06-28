@@ -37,13 +37,11 @@
   {% else %}
     <form method="post" style="margin-bottom:1.5rem;">
       {% csrf_token %}
-      {% for field in form %}
-        {% if field.errors %}
-          <ul class="pl-field-errors" style="margin-bottom:0.5rem;">
-            {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
-          </ul>
-        {% endif %}
-      {% endfor %}
+      {% if form.decision.errors %}
+        <ul class="pl-field-errors" style="margin-bottom:0.5rem;">
+          {% for error in form.decision.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+        </ul>
+      {% endif %}
       <fieldset style="border:none;padding:0;margin:0 0 1rem;">
         <legend style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--hub-text-muted);margin-bottom:8px;">Decision</legend>
         <div style="display:flex;flex-direction:column;gap:8px;">
@@ -55,12 +53,7 @@
           {% endfor %}
         </div>
       </fieldset>
-      <div style="margin-bottom:1rem;">
-        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--hub-text-muted);margin-bottom:6px;display:block;">
-          {{ form.notes.label }}
-        </label>
-        {{ form.notes }}
-      </div>
+      {% include "components/form_field.html" with field=form.notes %}
       <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
         <button class="hub-btn hub-btn--primary" type="submit">Submit decision</button>
         <a class="hub-btn hub-btn--ghost" href="{% if is_tokenized %}{% url 'classes:public_class_detail' slug=offering.slug %}{% else %}{% url 'classes:admin_class_detail' pk=offering.pk %}{% endif %}">Cancel</a>

@@ -38,7 +38,7 @@ def describe_guild_overview():
         _member("ov1")
         client.login(username="ov1", password="pw")
         guild = GuildFactory()
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert resp.status_code == 200
         # The "Meetings TBA" chip is gone — no chip when there's nothing scheduled.
         assert b"Meetings TBA" not in resp.content
@@ -50,7 +50,7 @@ def describe_guild_overview():
         guild = GuildFactory()
         _published_class(guild, title="Forge Intro", slug="forge-intro")
         _published_class(GuildFactory(), title="Other Guild Class", slug="other-gc")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Forge Intro" in resp.content
         assert b"Other Guild Class" not in resp.content
         assert reverse("classes:register", args=["forge-intro"]).encode() in resp.content
@@ -59,6 +59,6 @@ def describe_guild_overview():
         _member("ov3")
         client.login(username="ov3", password="pw")
         guild = GuildFactory()
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Get Involved" in resp.content
         assert reverse("classes:teach_class_create").encode() in resp.content

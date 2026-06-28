@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth.models import User
+from django.core import mail
 from django.test import RequestFactory, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -685,7 +686,7 @@ def describe_AdminRedirectAccountAdapter():
             context = {"code": "123456"}
 
             with patch.object(allauth_context, "request", request):
-                with patch.object(AdminRedirectAccountAdapter.__bases__[0], "send_mail"):
+                with patch.object(AdminRedirectAccountAdapter, "_send_through_choke_point"):
                     adapter.send_mail("account/email/login_code", "user@example.com", context)
 
             all_messages = [str(m) for m in get_messages(request)]
@@ -699,7 +700,7 @@ def describe_AdminRedirectAccountAdapter():
             request = rf.get("/")
             context = {"request": request, "code": "123456"}
 
-            with patch.object(AdminRedirectAccountAdapter.__bases__[0], "send_mail"):
+            with patch.object(AdminRedirectAccountAdapter, "_send_through_choke_point"):
                 adapter.send_mail("account/email/login_code", "user@example.com", context)
 
             assert not hasattr(request, "_dev_login_code")
@@ -712,7 +713,7 @@ def describe_AdminRedirectAccountAdapter():
             request = rf.get("/")
             context = {"request": request, "code": "123456"}
 
-            with patch.object(AdminRedirectAccountAdapter.__bases__[0], "send_mail"):
+            with patch.object(AdminRedirectAccountAdapter, "_send_through_choke_point"):
                 adapter.send_mail("account/email/password_reset", "user@example.com", context)
 
             assert not hasattr(request, "_dev_login_code")
@@ -724,7 +725,7 @@ def describe_AdminRedirectAccountAdapter():
             adapter = AdminRedirectAccountAdapter()
             context = {"code": "123456"}  # no "request" key
 
-            with patch.object(AdminRedirectAccountAdapter.__bases__[0], "send_mail"):
+            with patch.object(AdminRedirectAccountAdapter, "_send_through_choke_point"):
                 adapter.send_mail("account/email/login_code", "user@example.com", context)
             # Should not raise — just doesn't stash anything
 
@@ -895,10 +896,10 @@ def describe_login_code_circuit_breaker():
         adapter = AdminRedirectAccountAdapter()
         context = {"request": rf.get("/"), "code": "123456"}
 
-        with patch.object(AdminRedirectAccountAdapter.__bases__[0], "send_mail") as super_send:
+        with patch.object(AdminRedirectAccountAdapter, "_send_through_choke_point") as choke_send:
             adapter.send_mail("account/email/login_code", "user@example.com", context)
 
-        super_send.assert_called_once()
+        choke_send.assert_called_once()
 
     def it_suppresses_login_code_when_hourly_cap_exceeded(rf, settings, caplog):
         import logging
@@ -914,13 +915,13 @@ def describe_login_code_circuit_breaker():
         adapter = AdminRedirectAccountAdapter()
         context = {"request": rf.get("/"), "code": "123456"}
 
-        with patch.object(AdminRedirectAccountAdapter.__bases__[0], "send_mail") as super_send:
+        with patch.object(AdminRedirectAccountAdapter, "_send_through_choke_point") as choke_send:
             adapter.send_mail("account/email/login_code", "a@example.com", context)
             adapter.send_mail("account/email/login_code", "b@example.com", context)
             with caplog.at_level(logging.ERROR, logger="plfog.adapters"):
                 adapter.send_mail("account/email/login_code", "c@example.com", context)
 
-        assert super_send.call_count == 2
+        assert choke_send.call_count == 2
         assert "circuit breaker tripped" in caplog.text
         assert "hourly" in caplog.text
 
@@ -936,12 +937,70 @@ def describe_login_code_circuit_breaker():
         adapter = AdminRedirectAccountAdapter()
         context = {"request": rf.get("/")}
 
-        with patch.object(AdminRedirectAccountAdapter.__bases__[0], "send_mail") as super_send:
+        with patch.object(AdminRedirectAccountAdapter, "_send_through_choke_point") as choke_send:
             adapter.send_mail("account/email/password_reset", "user@example.com", context)
             adapter.send_mail("account/email/password_reset", "user@example.com", context)
             adapter.send_mail("account/email/password_reset", "user@example.com", context)
 
-        assert super_send.call_count == 3
+        assert choke_send.call_count == 3
+
+
+def describe_auth_email_through_choke_point():
+    """Decision 8: every auth email now writes a TransactionalEmailLog row.
+
+    The render+send is re-pointed onto ``core.email.send`` so login-code,
+    unknown-account, and account-already-exists mail is audited instead of
+    bypassing the log via allauth's own ``msg.send()``.
+    """
+
+    def it_logs_a_login_code_send_with_an_auth_trigger_kind(db, rf, settings):
+        from allauth.core import context as allauth_context
+
+        from core.models import TransactionalEmailLog
+        from plfog.adapters import AdminRedirectAccountAdapter
+
+        from django.contrib.auth.models import AnonymousUser
+
+        settings.DEBUG = False
+        adapter = AdminRedirectAccountAdapter()
+        request = rf.get("/")
+        request.user = AnonymousUser()
+
+        with patch.object(allauth_context, "request", request):
+            adapter.send_mail("account/email/login_code", "user@example.com", {"code": "123456", "request": request})
+
+        log = TransactionalEmailLog.objects.get()
+        assert log.to_email == "user@example.com"
+        assert log.trigger_kind == "auth.login_code"
+        assert log.status == TransactionalEmailLog.Status.SENT
+        assert "123456" in mail.outbox[0].body
+
+    def it_does_not_log_when_the_circuit_breaker_trips(db, rf, settings):
+        from allauth.core import context as allauth_context
+
+        from core import abuse_limits
+        from core.models import TransactionalEmailLog
+        from plfog.adapters import AdminRedirectAccountAdapter
+
+        abuse_limits.reset()
+        settings.DEBUG = False
+        settings.LOGIN_CODE_HOURLY_LIMIT = 0
+        settings.LOGIN_CODE_DAILY_LIMIT = 0
+        adapter = AdminRedirectAccountAdapter()
+        request = rf.get("/")
+
+        with patch.object(allauth_context, "request", request):
+            adapter.send_mail("account/email/login_code", "user@example.com", {"code": "123456", "request": request})
+
+        assert TransactionalEmailLog.objects.count() == 0
+        assert mail.outbox == []
+
+    def it_derives_auth_trigger_kind_from_the_template_prefix():
+        from plfog.adapters import _auth_trigger_kind
+
+        assert _auth_trigger_kind("account/email/login_code") == "auth.login_code"
+        assert _auth_trigger_kind("account/email/unknown_account") == "auth.unknown_account"
+        assert _auth_trigger_kind("account/email/password_reset_key") == "auth.password_reset_key"
 
 
 def describe_unknown_account_email_suppression():

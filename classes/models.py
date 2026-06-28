@@ -22,7 +22,6 @@ from core.validators import validate_image_size
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
-    from django.db.models import QuerySet
 
     from membership.models import Member
 
@@ -68,8 +67,8 @@ class Category(HeroCropMixin, models.Model):
     icon_svg = models.TextField(
         blank=True,
         help_text=(
-            "Inline SVG markup shown next to the category name on public pages. "
-            "Tint via currentColor. Defaults to a Lucide icon seeded for known categories."
+            "Inline SVG markup shown next to the guild name on public pages. "
+            "Tint via currentColor. Defaults to a Lucide icon seeded for known guilds."
         ),
     )
     guild = models.ForeignKey(
@@ -78,7 +77,7 @@ class Category(HeroCropMixin, models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="categories",
-        help_text="Optional link to the makerspace Guild that owns this category. Used for Mailchimp tagging.",
+        help_text="Optional link to the membership Guild that owns this grouping. Used for Mailchimp tagging.",
     )
 
     @property
@@ -100,7 +99,8 @@ class Category(HeroCropMixin, models.Model):
 
     class Meta:
         ordering = ["sort_order", "name"]
-        verbose_name_plural = "Categories"
+        verbose_name = "Guild"
+        verbose_name_plural = "Guilds"
 
     def __str__(self) -> str:
         return self.name
@@ -145,12 +145,13 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def awaiting_guild_lead(self, member: "Member") -> "ClassOfferingQuerySet":
         """Pending classes whose undecided guild-lead gate this member can act on.
 
-        A class qualifies when it is PENDING, its category's guild is one this
-        member leads, and it has an undecided ``GUILD_LEAD`` approval row.
+        A class qualifies when it is PENDING, its category's guild is one this member
+        leads or holds a staff role on, and it has an undecided ``GUILD_LEAD`` approval
+        row.
         """
         return self.filter(
             status="pending",
-            category__guild__in=member.led_guilds.all(),
+            category__guild__in=member.staffed_guilds,
             approvals__role="guild_lead",
             approvals__decision="",
         ).distinct()
@@ -162,12 +163,16 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         """Offerings this member may edit.
 
         Admins and guild officers may edit any class. Everyone else may edit the
-        classes they instruct plus any class whose category belongs to a guild
-        they lead (purely from the ``Guild.guild_lead`` FK — no role required).
+        classes they instruct plus any class whose category belongs to a guild they
+        lead or hold a staff role on.
         """
         if member.is_fog_admin or member.is_guild_officer:
             return self
-        return self.filter(Q(instructor=member) | Q(category__guild__guild_lead=member)).distinct()
+        return self.filter(
+            Q(instructor=member)
+            | Q(category__guild__guild_lead=member)
+            | Q(category__guild__staff_memberships__member=member)
+        ).distinct()
 
     def spots_remaining_map(self) -> dict[int, int]:
         """Map of ``{offering_pk: spots_remaining}`` for this queryset in one query.
@@ -204,7 +209,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     title = models.CharField(max_length=255, help_text="Public class title.")
     slug = models.SlugField(max_length=255, unique=True, help_text="URL slug.")
     category = models.ForeignKey(
-        Category, on_delete=models.PROTECT, related_name="classes", help_text="Category grouping."
+        Category, on_delete=models.PROTECT, related_name="classes", help_text="Guild grouping."
     )
     instructor = models.ForeignKey(
         "membership.Member",
@@ -457,23 +462,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         return ClassApproval.objects.create(class_offering=self, role=first_role)
 
     def _notify_first_stage_reviewer(self, row: "ClassApproval") -> None:
-        """Fan out the stage-one notification + email for a freshly opened gate."""
+        """Fan out the stage-one notification + email for a freshly opened gate.
+
+        The guild-lead branch routes through :func:`classes.emails.send_guild_lead_review_request`
+        and the admin branch through :func:`classes.emails.send_admin_review_request`. Each now
+        fires a single ``class_review_requested`` event that owns BOTH the dedicated
+        ``review_request`` email and (for the guild-lead branch) the in-app row to the guild's
+        leadership — so opted-in leadership receive exactly one email and one bell row, never the
+        old dispatch + dedicated-send pair. The admin branch stays email-only, as today.
+        """
         from classes import emails
-        from core import notifications
 
         if row.role == ClassApproval.Role.GUILD_LEAD:
-            guild = self.category.guild if self.category_id else None
-            lead = guild.guild_lead if guild else None
-            instructor_name = self.instructor.display_name if self.instructor is not None else "An instructor"
-            guild_name = guild.name if guild is not None else ""
-            if lead is not None and lead.user is not None:
-                notifications.dispatch(
-                    "class_review_requested",
-                    [lead.user],
-                    title="A class needs your review",
-                    body=f"{instructor_name} in the {guild_name} Guild requests approval for their upcoming class dates.",
-                    url="/classes/teach/",
-                )
             emails.send_guild_lead_review_request(self, row)
         else:
             emails.send_admin_review_request(self, row)
@@ -502,15 +502,19 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.status = self.Status.ARCHIVED
         self.save(update_fields=["status", "updated_at"])
         from classes import activity
-        from core import notifications
+        from core.events.emit import emit
 
         activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=self)
-        notifications.dispatch(
+        # In-app broadcast to all active members (the ``class_cancelled`` event resolves
+        # ALL_ACTIVE_MEMBERS; its EMAIL channel defaults off, so this matches the old
+        # in-app-only dispatch — email only to a member who has opted in).
+        emit(
             "class_cancelled",
-            notifications.active_member_users(),
+            target=self,
             title="A class was cancelled",
             body=self.title,
             url="/classes/",
+            period=f"offering:{self.pk}:archived",
         )
 
     def promote_next_from_waitlist(self) -> "Registration | None":
@@ -544,22 +548,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         from classes import activity
         from classes.emails import send_waitlist_spot_opened
 
+        # ``send_waitlist_spot_opened`` emits the single ``waitlist_spot_available`` event
+        # that fans out BOTH the claim email (to the registrant) and the in-app row (to the
+        # promoted member) — replacing the old dedicated send + the in-app ``dispatch`` that
+        # used to follow it here.
         send_waitlist_spot_opened(next_up)
         activity.log(
             CmsActivity.Kind.WAITLIST_NOTIFIED,
             class_offering=self,
             registration=next_up,
         )
-        from core import notifications
-
-        if next_up.member is not None and next_up.member.user is not None:
-            notifications.dispatch(
-                "waitlist_spot_available",
-                [next_up.member.user],
-                title="A waitlist spot opened up",
-                body=self.title,
-                url="/classes/account/",
-            )
         return next_up
 
     def on_review_decision_recorded(self, row: "ClassApproval") -> None:
@@ -572,8 +570,6 @@ class ClassOffering(HeroCropMixin, models.Model):
         archival; admin-level archival is a separate explicit action.
         """
         from classes import activity
-
-        from core import notifications
 
         if row.decision == ClassApproval.Decision.APPROVED:
             activity.log(
@@ -605,25 +601,26 @@ class ClassOffering(HeroCropMixin, models.Model):
                     class_offering=self,
                     actor=row.decided_by,
                 )
-                # Notify the instructor only once their class is fully approved
-                # and live — not at each intermediate gate. The email path
-                # (send_class_review_decision) already reports stage-by-stage
-                # progress, so an in-app "approved" before publication would be
-                # premature and would fire twice in the two-stage flow.
-                if self.instructor is not None and self.instructor.user is not None:
-                    notifications.dispatch(
-                        "instructor_class_approved",
-                        [self.instructor.user],
-                        title="Your class was approved",
-                        body=self.title,
-                        url=f"/classes/{self.slug}/",
-                    )
-                notifications.dispatch(
+                # The instructor's "Your class was approved" bell row + the rich "live!"
+                # email now both fan out from the single ``instructor_class_approved`` event
+                # emitted by ``classes.emails.send_class_review_decision`` (called by the
+                # view right after the publishing decision). This separate broadcast is the
+                # "a new class is live" in-app fan-out to ALL active members (resolved by the
+                # ``class_published`` event); its EMAIL channel defaults off, matching the old
+                # in-app-only dispatch.
+                from django.urls import reverse
+
+                from classes.emails import _absolute_url
+                from core.events.emit import emit
+
+                class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug}))
+                emit(
                     "class_published",
-                    notifications.active_member_users(),
-                    title="New class published",
-                    body=self.title,
-                    url=f"/classes/{self.slug}/",
+                    actor=row.decided_by,
+                    target=self,
+                    context={"class_title": self.title, "class_url": class_url},
+                    url=class_url,
+                    period=f"offering:{self.pk}:published",
                 )
         elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
             self.status = self.Status.DRAFT
@@ -634,14 +631,10 @@ class ClassOffering(HeroCropMixin, models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role, "notes_excerpt": (row.notes or "")[:200]},
             )
-            if self.instructor is not None and self.instructor.user is not None:
-                notifications.dispatch(
-                    "instructor_changes_requested",
-                    [self.instructor.user],
-                    title="Changes requested on your class",
-                    body=self.title,
-                    url=f"/classes/{self.slug}/",
-                )
+            # The instructor's "Changes requested" bell row + the rich changes email now
+            # both fan out from the single ``instructor_changes_requested`` event emitted by
+            # ``classes.emails.send_class_review_decision`` (called by the view right after
+            # the decision). Dispatching it here too would double the bell row.
         elif row.decision == ClassApproval.Decision.DENIED:
             self.status = self.Status.DRAFT
             self.save(update_fields=["status", "updated_at"])
@@ -655,30 +648,14 @@ class ClassOffering(HeroCropMixin, models.Model):
     def _escalate_to_admin(self, admin_row: "ClassApproval", *, guild_lead: "User | None") -> None:
         """Fire the stage-two admin escalation after a Guild Lead approves.
 
-        Notifies staff in-app and emails the configured admin reviewers with a
-        request for executive validation. The Guild Lead is named in the copy
-        so admins know who already vouched for the class.
+        Emits the executive-validation request as one ``class_validation_requested``
+        event (admin email + FOG_ADMINS in-app) via
+        :func:`classes.emails.send_admin_validation_request`. The Guild Lead is named
+        in the copy so admins know who already vouched for the class.
         """
         from classes import emails
-        from core import notifications
 
-        instructor_name = self.instructor.display_name if self.instructor is not None else "An instructor"
-        lead_name = guild_lead.get_username() if guild_lead is not None else "A Guild Lead"
-        notifications.dispatch(
-            "class_validation_requested",
-            self._staff_users(),
-            title="A class needs executive validation",
-            body=f"{lead_name} and {instructor_name} request executive validation to publish this class.",
-            url="/classes/admin/",
-        )
         emails.send_admin_validation_request(self, admin_row)
-
-    @staticmethod
-    def _staff_users() -> "QuerySet[User]":
-        """Staff Users who receive class-validation escalations."""
-        from django.contrib.auth.models import User
-
-        return User.objects.filter(is_staff=True)
 
     def add_gallery_images(self, files: list[UploadedFile]) -> None:
         """Create ClassImage rows from uploaded files, appended after existing ones.
@@ -1073,6 +1050,26 @@ class ClassImage(models.Model):
         super().save(*args, **kwargs)
 
 
+class ClassSessionQuerySet(models.QuerySet["ClassSession"]):
+    def upcoming_public(self) -> "ClassSessionQuerySet":
+        """Future sessions whose offering is publicly visible (published + non-private).
+
+        Mirrors ``ClassOfferingQuerySet.public()`` across the FK (``status="published"``,
+        ``is_private=False``) rather than ``bookable()``: a part-started series is no
+        longer *bookable* as a whole, but its still-future sessions remain real,
+        dated, purchasable inventory and should be counted.
+        """
+        return self.filter(
+            starts_at__gte=timezone.now(),
+            class_offering__status="published",
+            class_offering__is_private=False,
+        )
+
+    def upcoming_public_count(self) -> int:
+        """How many purchasable, dated sessions are live in the public catalog."""
+        return self.upcoming_public().count()
+
+
 class ClassSession(models.Model):
     class_offering = models.ForeignKey(
         ClassOffering,
@@ -1083,6 +1080,8 @@ class ClassSession(models.Model):
     starts_at = models.DateTimeField(help_text="Start (timezone-aware).")
     ends_at = models.DateTimeField(help_text="End (timezone-aware).")
     sort_order = models.PositiveIntegerField(default=0, help_text="Display order within a class.")
+
+    objects = ClassSessionQuerySet.as_manager()
 
     class Meta:
         ordering = ["starts_at"]
@@ -1235,31 +1234,6 @@ class Waiver(models.Model):
         return f"{self.get_kind_display()} for registration {self.registration_id}"
 
 
-class RegistrationReminder(models.Model):
-    registration = models.ForeignKey(
-        "Registration",
-        on_delete=models.CASCADE,
-        related_name="reminders",
-        help_text="The registration the reminder was sent to.",
-    )
-    session = models.ForeignKey(
-        ClassSession,
-        on_delete=models.CASCADE,
-        related_name="reminders",
-        help_text="The session the reminder referenced.",
-    )
-    sent_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-sent_at"]
-        constraints = [
-            models.UniqueConstraint(fields=["registration", "session"], name="uq_reminder_registration_session"),
-        ]
-
-    def __str__(self) -> str:
-        return f"Reminder for registration {self.registration_id} → session {self.session_id}"
-
-
 class Registration(models.Model):
     # Transient (non-persisted) attribute a view sets before a status-changing
     # save() to attribute a confirm/refund action in the audit feed. Unset on a
@@ -1341,6 +1315,13 @@ class Registration(models.Model):
         default=False,
         help_text="Did the registrant tick the newsletter opt-in box at signup?",
     )
+    create_account = models.BooleanField(
+        default=False,
+        help_text=(
+            "Did an anonymous registrant opt into having a passwordless Past Lives account created once their "
+            "booking is confirmed? Always False for already-logged-in registrants."
+        ),
+    )
     subscribed_to_mailchimp = models.BooleanField(default=False, help_text="Whether MailChimp subscribe succeeded.")
     cancellation_reason = models.TextField(blank=True, help_text="Internal reason recorded when an admin cancels.")
     registered_at = models.DateTimeField(auto_now_add=True, help_text="When this registration was created.")
@@ -1374,7 +1355,6 @@ class Registration(models.Model):
     def _dispatch_status_notification(self, creating: bool, prior_status: str | None) -> None:
         """Dispatch in-app notifications triggered by registration status transitions."""
         from classes import activity
-        from core import notifications
 
         user = self.member.user if (self.member is not None and self.member.user is not None) else None
         # ``_acting_user`` is a transient (non-persisted) attribute a view sets
@@ -1386,14 +1366,10 @@ class Registration(models.Model):
                 activity.log(
                     CmsActivity.Kind.WAITLIST_JOINED, class_offering=self.class_offering, registration=self, actor=user
                 )
-                if user is not None:
-                    notifications.dispatch(
-                        "waitlist_confirmed",
-                        [user],
-                        title="Added to the waitlist",
-                        body=self.class_offering.title,
-                        url="/classes/account/",
-                    )
+                # The "Added to the waitlist" in-app row + the dedicated waitlist email now
+                # both fan out from the single ``waitlist_confirmed`` event emitted by
+                # ``classes.emails.send_waitlist_joined_confirmation`` (called by the register
+                # view right after this save). Dispatching it here too would double the bell row.
             else:
                 activity.log(
                     CmsActivity.Kind.REGISTRATION_CREATED,
@@ -1409,14 +1385,11 @@ class Registration(models.Model):
                     registration=self,
                     actor=acting,
                 )
-                if user is not None:
-                    notifications.dispatch(
-                        "registration_confirmed",
-                        [user],
-                        title="Registration confirmed",
-                        body=self.class_offering.title,
-                        url="/classes/account/",
-                    )
+                # The in-app "Registration confirmed" row + the confirmation email now
+                # both fan out from a single ``registration_confirmed`` event emitted by
+                # ``classes.emails.send_registration_confirmation`` (called right after
+                # every CONFIRMED transition — free-class view + paid webhook). Dispatching
+                # the in-app row here too would double the bell row, so the event owns it.
             elif self.status == self.Status.REFUNDED:
                 activity.log(
                     CmsActivity.Kind.REGISTRATION_REFUNDED,
@@ -1424,13 +1397,21 @@ class Registration(models.Model):
                     registration=self,
                     actor=acting,
                 )
-                if user is not None:
-                    notifications.dispatch(
+                if self.member is not None:
+                    # In-app row (+ email only if the member opted into refund email) to the
+                    # member the refund concerns. The ``refund_issued`` event resolves the
+                    # REGISTRANT; its EMAIL channel defaults off, matching the old dispatch.
+                    from core.events.emit import emit
+
+                    emit(
                         "refund_issued",
-                        [user],
+                        actor=acting,
+                        target=self,
+                        context={"member": self.member},
                         title="Refund issued",
                         body=self.class_offering.title,
                         url="/classes/account/",
+                        period=f"reg:{self.pk}:refund",
                     )
 
     @staticmethod
@@ -1580,6 +1561,15 @@ class RegistrationQuestion(models.Model):
         default=True, help_text="Uncheck to retire a question without deleting historical answers."
     )
     sort_order = models.PositiveIntegerField(default=0, help_text="Ascending sort; lower shows first.")
+    mailchimp_tag = models.CharField(
+        max_length=80,
+        blank=True,
+        default="",
+        help_text=(
+            "Optional Mailchimp tag prefix for this question's answers. Leave blank to auto-derive a tag "
+            "from the prompt. Only Yes/No and Single Choice answers are pushed to Mailchimp as tags."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -1587,6 +1577,44 @@ class RegistrationQuestion(models.Model):
 
     def __str__(self) -> str:
         return self.prompt[:80]
+
+    @property
+    def is_taggable(self) -> bool:
+        """Whether this question's answers should be pushed to Mailchimp as tags.
+
+        Only Yes/No and Single Choice answers segment cleanly. Free-text
+        (short/long) answers make poor tags, so they're recorded on the
+        registration but never sent to Mailchimp.
+        """
+        return self.question_type in (self.QuestionType.YES_NO, self.QuestionType.SINGLE_CHOICE)
+
+    def tag_for(self, answer_text: str) -> str | None:
+        """Build the Mailchimp tag for this question's given answer, or None.
+
+        Returns None for non-taggable question types, blank answers, and a
+        Yes/No "no" (we only tag the affirmative so segments key on opt-in).
+        The tag prefix is the admin-set ``mailchimp_tag`` when present, else a
+        slug of the prompt. Single-choice answers append the answer slug; a
+        Yes/No "yes" uses the prefix alone.
+        """
+        from django.utils.text import slugify
+
+        if not self.is_taggable:
+            return None
+        value = (answer_text or "").strip()
+        if not value:
+            return None
+        prefix = slugify(self.mailchimp_tag) if self.mailchimp_tag else f"q-{slugify(self.prompt)[:40]}"
+        if not prefix:
+            return None
+        if self.question_type == self.QuestionType.YES_NO:
+            if value.strip().lower() not in ("yes", "true", "on", "1"):
+                return None
+            return prefix
+        answer_slug = slugify(value)[:40]
+        if not answer_slug:
+            return None
+        return f"{prefix}-{answer_slug}"
 
 
 class RegistrationAnswer(models.Model):

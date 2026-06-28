@@ -14,7 +14,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import RequestFactory
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, UserFactory
-from membership.models import Member
+from membership.models import GuildStaffMembership, Member
 from membership.permissions import (
     can_edit_category,
     can_edit_class,
@@ -22,7 +22,7 @@ from membership.permissions import (
     can_manage_orientations,
     is_effective_staff,
 )
-from tests.membership.factories import GuildFactory, MemberFactory
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -52,6 +52,13 @@ def describe_member_can_edit_class():
         offering = ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory()))
         assert lead.can_edit_class(offering) is False
 
+    def it_allows_a_staff_member_of_the_categorys_guild():
+        staff = MemberFactory()
+        guild = GuildFactory()
+        GuildStaffMembershipFactory(guild=guild, member=staff, role=GuildStaffMembership.Role.CO_LEAD)
+        offering = ClassOfferingFactory(category=CategoryFactory(guild=guild))
+        assert staff.can_edit_class(offering) is True
+
     def it_denies_a_plain_member_even_when_the_category_has_no_guild():
         plain = MemberFactory()
         offering = ClassOfferingFactory(category=CategoryFactory(guild=None))
@@ -66,22 +73,48 @@ def describe_member_can_manage_orientations():
         assert admin.can_manage_orientations(guild) is True
         assert lead.can_manage_orientations(guild) is True
 
-    def it_allows_a_designated_orienter():
+    def it_allows_a_staff_orienter():
         orienter = MemberFactory()
         guild = GuildFactory()
-        guild.orienters.add(orienter)
+        GuildStaffMembershipFactory(guild=guild, member=orienter, role=GuildStaffMembership.Role.ORIENTER)
         assert orienter.can_manage_orientations(guild) is True
+
+    def it_allows_any_staff_role_not_just_orienters():
+        secretary = MemberFactory()
+        guild = GuildFactory()
+        GuildStaffMembershipFactory(guild=guild, member=secretary, role=GuildStaffMembership.Role.SECRETARY)
+        assert secretary.can_manage_orientations(guild) is True
 
     def it_denies_an_unrelated_member():
         stranger = MemberFactory()
         guild = GuildFactory()
         assert stranger.can_manage_orientations(guild) is False
 
-    def it_reports_orienter_membership_via_is_orienter():
+    def it_reports_staff_membership_via_is_guild_staff():
         member = MemberFactory()
-        assert member.is_orienter is False
-        GuildFactory().orienters.add(member)
-        assert member.is_orienter is True
+        assert member.is_guild_staff is False
+        GuildStaffMembershipFactory(member=member)
+        assert member.is_guild_staff is True
+
+
+def describe_member_can_edit_guild_via_staff():
+    def it_allows_a_staff_member_to_edit_the_guild():
+        staff = MemberFactory()
+        guild = GuildFactory()
+        GuildStaffMembershipFactory(guild=guild, member=staff, role=GuildStaffMembership.Role.SECRETARY)
+        assert staff.can_edit_guild(guild) is True
+        assert guild.is_staffed_by(staff) is True
+
+    def it_lists_led_and_staffed_guilds_in_staffed_guilds():
+        member = MemberFactory()
+        led = GuildFactory(guild_lead=member)
+        staffed = GuildFactory()
+        GuildStaffMembershipFactory(guild=staffed, member=member, role=GuildStaffMembership.Role.TREASURER)
+        unrelated = GuildFactory()
+        ids = set(member.staffed_guilds.values_list("pk", flat=True))
+        assert led.pk in ids
+        assert staffed.pk in ids
+        assert unrelated.pk not in ids
 
 
 def describe_request_helpers_without_view_as():

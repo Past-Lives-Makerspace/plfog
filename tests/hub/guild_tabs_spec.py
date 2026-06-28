@@ -27,7 +27,7 @@ def describe_guild_tabs():
         _member("t1")
         client.login(username="t1", password="pw")
         guild = GuildFactory()
-        body = client.get(reverse("hub_guild_detail", args=[guild.pk])).content
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
         assert b"section === 'overview'" in body
         assert b"section === 'schedule'" in body
         assert b"section === 'buyables'" in body
@@ -39,7 +39,7 @@ def describe_guild_tabs():
         _member("t4")
         client.login(username="t4", password="pw")
         guild = GuildFactory()
-        body = client.get(reverse("hub_guild_detail", args=[guild.pk])).content
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
         # The Products heading must live within the Buyables tab panel, i.e. it
         # is rendered after the panel opens — not loose below every tab.
         panel = b"section === 'buyables'"
@@ -47,13 +47,28 @@ def describe_guild_tabs():
         assert b">Products<" in body
         assert body.index(panel) < body.index(b">Products<")
 
+    def it_hides_the_buyables_tab_when_tab_payments_disabled(client: Client):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.tab_payments_enabled = False
+        config.save()
+        _member("t_off")
+        client.login(username="t_off", password="pw")
+        guild = GuildFactory()
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
+        assert b"section === 'buyables'" not in body
+        assert b">Products<" not in body
+        # The other tabs still render.
+        assert b"section === 'overview'" in body
+
     def it_loads_the_calendar_stylesheet(client: Client):
         # The pl-calendar-* grid styles live in calendar.css; without the link
         # the Calendar tab renders as an unstyled stack of day names.
         _member("t6")
         client.login(username="t6", password="pw")
         guild = GuildFactory()
-        body = client.get(reverse("hub_guild_detail", args=[guild.pk])).content
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
         assert b"calendar.css" in body
 
     def it_does_not_emit_the_calendar_comment_as_text(client: Client):
@@ -62,7 +77,7 @@ def describe_guild_tabs():
         _member("t5")
         client.login(username="t5", password="pw")
         guild = GuildFactory()
-        body = client.get(reverse("hub_guild_detail", args=[guild.pk])).content
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
         assert b"Self-contained, read-only guild calendar" not in body
 
     def it_shows_published_class_sessions_on_the_guild_calendar(client: Client):
@@ -82,7 +97,7 @@ def describe_guild_tabs():
             title="Secret Draft",
             slug="secret-draft",
         )
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Anvil Basics" in resp.content
         assert b"Secret Draft" not in resp.content
         assert reverse("classes:register", args=["anvil-basics"]).encode() in resp.content
@@ -110,7 +125,7 @@ def describe_guild_tabs():
             end_dt=when + timedelta(hours=2),
             fetched_at=now,
         )
-        resp = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Forge Open Studio" in resp.content
         assert b"Other Guild Event" not in resp.content
 
@@ -149,3 +164,49 @@ def describe_guild_tabs():
 
         assert resp.status_code == 200
         assert b"Orientation" in resp.content
+
+
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+    b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+@pytest.mark.django_db
+def describe_guild_gallery_tab():
+    def it_shows_a_gallery_tab_and_panel_when_images_exist(client: Client):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from membership.models import GuildImage
+
+        _member("g1")
+        client.login(username="g1", password="pw")
+        guild = GuildFactory()
+        GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("g.png", _PNG))
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
+        # The tab button and its own panel are both present.
+        assert b">Gallery</button>" in body
+        assert b"section === 'gallery'" in body
+
+    def it_omits_the_gallery_tab_and_panel_when_no_images(client: Client):
+        _member("g2")
+        client.login(username="g2", password="pw")
+        guild = GuildFactory()
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
+        assert b">Gallery</button>" not in body
+        assert b"section === 'gallery'" not in body
+
+    def it_does_not_render_the_gallery_inside_the_overview_panel(client: Client):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from membership.models import GuildImage
+
+        _member("g3")
+        client.login(username="g3", password="pw")
+        guild = GuildFactory()
+        GuildImage.objects.create(guild=guild, image=SimpleUploadedFile("g.png", _PNG))
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
+        # The Gallery heading now lives only in the gallery panel, which sits after the
+        # overview panel closes — so the gallery section must come after the gallery x-show.
+        assert body.index(b"section === 'gallery'") < body.index(b'pl-guild-section__h2">Gallery')

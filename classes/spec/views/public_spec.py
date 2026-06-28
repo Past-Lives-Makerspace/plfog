@@ -63,6 +63,63 @@ def describe_public_list():
         assert b"Intro to Wheel Throwing" in response.content
         assert b"Deenie" in response.content
 
+    def it_renders_the_upcoming_session_count_in_the_hero(published_class, client):
+        # published_class seeds exactly one future session.
+        response = client.get(reverse("classes:public_list"))
+        body = response.content.decode()
+        assert "Upcoming Session" in body
+        # The hero tile no longer carries the old "Classes" stat label.
+        assert '<div class="hs-l">Classes</div>' not in body
+        assert '<div class="hs-n">1</div><div class="hs-l">Upcoming Session</div>' in body
+
+    def it_labels_the_grouping_as_guilds_not_categories(published_class, client):
+        # The "Categories → Guilds" relabel: hero stat label and filter copy read "Guild(s)".
+        response = client.get(reverse("classes:public_list"))
+        body = response.content.decode()
+        assert '<div class="hs-l">Guilds</div>' in body
+        assert "All guilds" in body
+        assert '<div class="hs-l">Categories</div>' not in body
+        assert "All categories" not in body
+
+    def it_counts_sessions_not_cards(db, client):
+        # One series offered on three future dates collapses to ONE catalog card,
+        # but contributes THREE upcoming sessions.
+        offering = ClassOfferingFactory(
+            title="Three Week Forge",
+            slug="three-week-forge",
+            scheduling_type=ClassOffering.SchedulingType.SERIES_PACKAGE,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        for week in range(3):
+            start = timezone.now() + timedelta(days=7 * (week + 1))
+            ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        response = client.get(reverse("classes:public_list"))
+        body = response.content.decode()
+        # Hero headline counts sessions: 3.
+        assert '<div class="hs-n">3</div><div class="hs-l">Upcoming Session' in body
+        # Results summary still counts cards: 1 class.
+        assert "of <strong>1</strong> class" in body
+
+    def it_shows_zero_gracefully_when_no_upcoming_sessions(db, client):
+        # A published class whose only session is in the past, plus a flexible
+        # (session-less) class — neither contributes an upcoming session.
+        past_offering = ClassOfferingFactory(
+            title="Yesterday's Class",
+            slug="yesterdays-class",
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        past = timezone.now() - timedelta(days=3)
+        ClassSessionFactory(class_offering=past_offering, starts_at=past, ends_at=past + timedelta(hours=2))
+        ClassOfferingFactory(
+            title="Arrange Anytime",
+            slug="arrange-anytime",
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        response = client.get(reverse("classes:public_list"))
+        body = response.content.decode()
+        assert '<div class="hs-n">0</div><div class="hs-l">Upcoming Sessions</div>' in body
+
     def it_hides_draft_and_pending_classes(published_class, client):
         ClassOfferingFactory(
             title="Secret Draft",
@@ -353,6 +410,23 @@ def describe_public_class_detail():
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
         assert response.status_code == 200
         assert b"Sold out" in response.content
+
+    def it_shows_the_disabled_cta_and_note_when_class_registration_off(published_class, client):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.class_registration_enabled = False
+        config.class_registration_disabled_note = "Email the studio to reserve a seat."
+        config.save()
+
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+        assert response.status_code == 200
+        assert b"cp-detail__cta--disabled" in response.content
+        assert b"Registration unavailable" in response.content
+        assert b"Email the studio to reserve a seat." in response.content
+        # The live Register link must not be offered.
+        assert b"Register now" not in response.content
+        assert reverse("classes:register", kwargs={"slug": published_class.slug}).encode() not in response.content
 
     def it_renders_a_unique_seo_title_and_meta_description(published_class, client):
         from django.utils.html import escape

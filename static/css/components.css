@@ -159,6 +159,272 @@
     box-shadow: 0 0 0 3px rgba(238, 180, 75, 0.3);
 }
 
+/* Compact toggle for dense grids (the notification matrix). */
+.pl-toggle--sm {
+    width: 36px;
+    height: 20px;
+}
+
+.pl-toggle--sm .pl-toggle__slider::before {
+    height: 14px;
+    width: 14px;
+    left: 3px;
+    bottom: 3px;
+}
+
+.pl-toggle--sm input:checked + .pl-toggle__slider::before {
+    transform: translateX(16px);
+}
+
+/* Locked-on toggle: a forced / always-on channel the user can't change. Reads as on
+   but visibly inert (no pointer, dimmed) so it's clearly not interactive. */
+.pl-toggle--locked {
+    cursor: default;
+}
+
+.pl-toggle--locked .pl-toggle__slider {
+    cursor: default;
+    opacity: 0.55;
+    background-color: var(--color-tuscan-yellow, #EEB44B);
+}
+
+.pl-toggle--locked .pl-toggle__slider::before {
+    transform: translateX(16px);
+}
+
+/* Unavailable toggle: an opt-in channel the member can't use yet (the Discord DM
+   channel before they link Discord). Reads as inert + dimmed, distinct from the
+   locked-ON forced style — there's no lock glyph and it doesn't force the knob on. */
+.pl-toggle--disabled {
+    cursor: default;
+}
+
+.pl-toggle--disabled .pl-toggle__slider {
+    cursor: default;
+    opacity: 0.4;
+}
+
+/* A small lock glyph sits in the knob to read as "always on, not interactive". */
+.pl-toggle__lock {
+    position: absolute;
+    top: 50%;
+    left: 3px;
+    transform: translate(1px, -50%);
+    color: var(--color-navy, #092E4C);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.pl-toggle--sm .pl-toggle__lock {
+    transform: translate(18px, -50%);
+}
+
+/* ========================================
+   Notification preference matrix (event × channel)
+   ======================================== */
+/* Horizontal-scroll wrapper: on narrow screens the matrix scrolls as a unit
+   rather than crushing its columns (matches the .admin-table-wrap pattern). */
+.pl-notif-matrix__scroll {
+    border: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.pl-notif-matrix {
+    /* Column count is set per-instance via --pl-notif-cols (the rendered channel
+       count) so the grid always matches the template and never hardcodes a number. */
+    --pl-notif-cols: 5;
+    display: grid;
+    /* The event column flexes; the fixed channel columns set an intrinsic floor,
+       so when they don't fit, the __scroll wrapper takes over rather than crushing them.
+       Width fits the two-word labels — "Push (Browser)" wraps to "PUSH / (BROWSER)". */
+    grid-template-columns: minmax(200px, 1fr) repeat(var(--pl-notif-cols), 84px);
+    align-items: stretch;
+}
+
+.pl-notif-matrix__head,
+.pl-notif-matrix__row {
+    display: contents;
+}
+
+.pl-notif-matrix__event-head,
+.pl-notif-matrix__chan-head {
+    background: var(--hub-surface, rgba(255, 255, 255, 0.04));
+    color: var(--hub-text-muted, #8b97a8);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.5rem 0.25rem;
+    /* Center and allow a long label to wrap rather than clip inside the fixed
+       64px column (this is what cut "Scheduled" down to "SCHEDUL"). */
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.15;
+    border-bottom: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
+}
+
+.pl-notif-matrix__event-head {
+    text-align: left;
+}
+
+.pl-notif-matrix__chan-head {
+    text-align: center;
+}
+
+.pl-notif-matrix__event,
+.pl-notif-matrix__cell {
+    padding: 0.6rem 0.5rem;
+    border-bottom: 1px solid var(--hub-border, rgba(255, 255, 255, 0.08));
+}
+
+/* Drop the last row's bottom border (the container's border closes it). */
+.pl-notif-matrix__row:last-child .pl-notif-matrix__event,
+.pl-notif-matrix__row:last-child .pl-notif-matrix__cell {
+    border-bottom: none;
+}
+
+.pl-notif-matrix__event-label {
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--hub-text, #F4EFDD);
+}
+
+.pl-notif-matrix__event-desc {
+    font-size: 0.72rem;
+    margin-top: 0.1rem;
+}
+
+.pl-notif-matrix__cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pl-notif-matrix__na {
+    color: var(--hub-text-muted, #8b97a8);
+    opacity: 0.4;
+    font-size: 0.85rem;
+}
+
+@media (max-width: 640px) {
+    .pl-notif-matrix {
+        /* Tighter on phones; the __scroll wrapper carries the horizontal overflow. */
+        grid-template-columns: minmax(150px, 1fr) repeat(var(--pl-notif-cols), 68px);
+    }
+}
+
+/* Notifications tab chrome — replaces one-off inline styles. */
+.pl-notif-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.25rem;
+}
+
+.pl-notif-intro {
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
+/* Discord account-linking control on the Notifications tab: a themed banner with the
+   linked status on the left and the Connect/Disconnect action on the right. Uses the
+   hub surface/border/text tokens so it adapts to both Obsidian (dark) and Slate
+   (light) themes, like the matrix below it. */
+.pl-discord-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    background: var(--hub-surface, rgba(255, 255, 255, 0.04));
+}
+
+.pl-discord-link__status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--hub-text, #F4EFDD);
+}
+
+.pl-discord-link__icon {
+    flex: none;
+    color: #5865F2; /* Discord blurple */
+}
+
+.pl-discord-link__form {
+    margin: 0;
+}
+
+.pl-notif-category {
+    margin: 0;
+}
+
+/* Category header row: title on the left, the per-section All on/off control on
+   the right. */
+.pl-notif-category-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin: 1.25rem 0 0.5rem;
+}
+
+.pl-notif-section + .pl-notif-section {
+    margin-top: 0.5rem;
+}
+
+/* Bulk on/off controls (the top "Everything" row and each section's). */
+.pl-notif-bulk {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pl-notif-bulk--all {
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
+}
+
+.pl-notif-bulk__label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--hub-text-muted, #8b97a8);
+    margin-right: 0.25rem;
+}
+
+.pl-notif-bulk__btn {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--color-tuscan-yellow, #eeb44b);
+}
+
+.pl-notif-bulk__btn:hover {
+    text-decoration: underline;
+}
+
+.pl-notif-bulk__sep {
+    color: var(--hub-text-muted, #8b97a8);
+    opacity: 0.5;
+}
+
+.pl-notif-actions {
+    margin-top: 1.5rem;
+}
+
 /* ========================================
    Form Field
    ======================================== */
@@ -212,6 +478,13 @@
     background-size: 1rem;
 }
 
+/* Native <option> popups don't inherit the select's colors — theme them so the
+   dropdown list isn't white-on-white on the dark theme (FRONTEND rule 13). */
+.pl-form-group select option {
+    background: var(--hub-elevated);
+    color: var(--hub-text);
+}
+
 /* Date/time pickers: let the native picker indicator (the clock/calendar glyph)
    and the dropdown follow the dark theme — otherwise the glyph renders black and
    is invisible on the dark input background. */
@@ -219,6 +492,19 @@
 .pl-form-group input[type="date"],
 .pl-form-group input[type="datetime-local"] {
     color-scheme: dark;
+}
+
+/* File input: theme the native ::file-selector-button — otherwise it renders as an
+   OS-default light button on the dark theme. No CSS file styled it before this. */
+.pl-form-group input[type="file"]::file-selector-button {
+    background: var(--hub-input-bg, rgba(255, 255, 255, 0.06));
+    color: var(--hub-text, #F4EFDD);
+    border: 1px solid var(--hub-input-border, rgba(255, 255, 255, 0.12));
+    border-radius: 6px;
+    padding: 0.35rem 0.75rem;
+    margin-right: 0.75rem;
+    font-size: 0.8125rem;
+    cursor: pointer;
 }
 
 /* Two-column field layout for long edit forms. Column gap only — each
@@ -663,6 +949,12 @@
 [data-theme="light"] .pl-form-group input[type="date"],
 [data-theme="light"] .pl-form-group input[type="datetime-local"] {
     color-scheme: light;
+}
+
+[data-theme="light"] .pl-form-group input[type="file"]::file-selector-button {
+    background: #f3f4f6;
+    color: #1f2937;
+    border-color: #d1d5db;
 }
 
 [data-theme="light"] .pl-field-hint {

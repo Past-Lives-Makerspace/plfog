@@ -1,0 +1,66 @@
+{% comment %}
+Live-preview partial for one (event, channel) copy row.
+
+Rendered against the event's sample context through the SAME constrained, safe
+substitution the send path uses (core.events.rendering.render_copy): unknown merge
+fields show as a visible [missing: name] marker, and HTML-body values are autoescaped
+(the {{ rendered.body_html }} block below is therefore safe to mark |safe — the
+substituted values were already escaped server-side; only the admin-authored template
+literal is rendered as markup).
+{% endcomment %}
+<style>
+  .ntf-pv-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--hub-text-muted); margin: 0 0 0.25rem; }
+  .ntf-pv-block { margin-bottom: 1rem; }
+  .ntf-pv-subject {
+    font-weight: 700; color: var(--hub-text); font-size: 0.95rem;
+    padding: 0.5rem 0.7rem; background: var(--hub-card-bg); border: 1px solid var(--hub-border); border-radius: 7px;
+  }
+  .ntf-pv-text {
+    white-space: pre-wrap; color: var(--hub-text); font-size: 0.875rem; line-height: 1.55;
+    padding: 0.6rem 0.7rem; background: var(--hub-card-bg); border: 1px solid var(--hub-border); border-radius: 7px;
+  }
+  /* The HTML email body is shown on a white "email client" canvas regardless of
+     the site theme, so its colors are intentionally fixed (not theme tokens). */
+  .ntf-pv-html {
+    font-size: 0.875rem; line-height: 1.55;
+    padding: 0.6rem 0.7rem; background: #ffffff; color: #1d1e1e; border: 1px solid var(--hub-border); border-radius: 7px;
+  }
+  .ntf-pv-html a { color: #2f6fb0; }
+  /* The branded "as it arrives" preview renders a full HTML email document (its own
+     dark page + navy card) inside an iframe so its <body>/table can't bleed into the
+     hub layout. Fixed height with internal scroll keeps the editor panel compact. */
+  .ntf-pv-frame { width: 100%; height: 420px; border: 1px solid var(--hub-border); border-radius: 7px; background: #12121f; }
+  .ntf-pv-empty { color: var(--hub-text-muted); font-size: 0.8125rem; font-style: italic; }
+</style>
+{% if rendered %}
+  <div class="ntf-pv-block">
+    <p class="ntf-pv-label">Subject / title</p>
+    <div class="ntf-pv-subject">{{ rendered.subject|default:"(empty)" }}</div>
+  </div>
+  <div class="ntf-pv-block">
+    <p class="ntf-pv-label">Text body</p>
+    <div class="ntf-pv-text">{{ rendered.body_text|default:"(empty)" }}</div>
+  </div>
+  {% if channel.value == 'email' %}
+  <div class="ntf-pv-block">
+    <p class="ntf-pv-label">HTML body (rendered)</p>
+    {% if rendered.body_html %}
+      <div class="ntf-pv-html">{{ rendered.body_html|safe }}</div>
+    {% else %}
+      <p class="ntf-pv-empty">No HTML body.</p>
+    {% endif %}
+  </div>
+  {% if wrapped_html %}
+  <div class="ntf-pv-block">
+    <p class="ntf-pv-label">As it arrives (branded)</p>
+    {# srcdoc is an HTML ATTRIBUTE — it must be attribute-escaped, so use plain
+       {{ wrapped_html }} (NOT |safe). Django's autoescape turns the document's inline
+       style quotes into &quot; so the attribute doesn't terminate early. |safe here
+       would emit raw quotes and render a broken/empty iframe. #}
+    <iframe class="ntf-pv-frame" title="Branded email preview" srcdoc="{{ wrapped_html }}"></iframe>
+  </div>
+  {% endif %}
+  {% endif %}
+{% else %}
+  <p class="ntf-pv-empty">Start typing — the preview renders here against sample data.</p>
+{% endif %}

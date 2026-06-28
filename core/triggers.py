@@ -37,7 +37,6 @@ TRIGGERS: list[Trigger] = [
     Trigger("class_reminder", "Class reminder", "24 hours before a session you're registered for.", "Classes"),
     Trigger("registration_confirmed", "Registration confirmed", "Your registration and payment cleared.", "Classes"),
     Trigger("class_cancelled", "Class cancelled", "A class you're registered for was cancelled.", "Classes"),
-    Trigger("class_details_changed", "Class details changed", "Time, date, or location changed.", "Classes"),
     Trigger(
         "waitlist_spot_available", "Waitlist spot available", "A spot opened in a class you waitlisted.", "Classes"
     ),
@@ -66,13 +65,6 @@ TRIGGERS: list[Trigger] = [
         Audience.INSTRUCTORS_ONLY,
     ),
     Trigger(
-        "instructor_class_at_capacity",
-        "Your class filled up",
-        "The last spot was taken.",
-        "Teaching",
-        Audience.INSTRUCTORS_ONLY,
-    ),
-    Trigger(
         "class_review_requested",
         "Class needs your review",
         "An instructor submitted a class in a guild you lead — review it.",
@@ -85,10 +77,6 @@ TRIGGERS: list[Trigger] = [
         "Teaching",
         Audience.STAFF_ONLY,
     ),
-    # Guild voting
-    Trigger("voting_cycle_open", "Voting cycle open", "A new monthly voting cycle started.", "Voting"),
-    Trigger("voting_closing_soon", "Voting closing soon", "3 days before the monthly vote closes.", "Voting"),
-    Trigger("funding_results_published", "Funding results published", "Guild allocations were finalized.", "Voting"),
     # Guild activity
     Trigger("guild_announcement", "Guild announcement", "A guild you're in posted an announcement.", "Guilds"),
     Trigger(
@@ -119,7 +107,6 @@ TRIGGERS: list[Trigger] = [
     Trigger("new_member_joined", "New member joined", "A new member signed up.", "Membership", Audience.STAFF_ONLY),
     # Spaces / leases
     Trigger("lease_expiring", "Lease expiring soon", "Your space lease ends within 30 days.", "Spaces"),
-    Trigger("lease_activated", "New lease activated", "A new space lease started for you.", "Spaces"),
     # Admin broadcasts
     Trigger("site_announcement", "Makerspace-wide announcement", "Staff posted a site-wide notice.", "Announcements"),
     # Security — forced, no toggle

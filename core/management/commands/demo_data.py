@@ -186,8 +186,8 @@ class Command(BaseCommand):
 
     def _ensure_category(self) -> Category:
         category, _ = Category.objects.get_or_create(
-            slug=f"{DEMO_SLUG_PREFIX}glassblowing",
-            defaults={"name": "[DEMO] Glassblowing", "sort_order": 999},
+            slug=f"{DEMO_SLUG_PREFIX}lamp-working",
+            defaults={"name": "[DEMO] Lamp Working", "sort_order": 999},
         )
         return category
 
@@ -296,7 +296,7 @@ class Command(BaseCommand):
 
         past = self._upsert_class(
             slug=f"{DEMO_SLUG_PREFIX}past-fundamentals",
-            title="[DEMO] Glassblowing Fundamentals (Past)",
+            title="[DEMO] Lamp Working Fundamentals (Past)",
             category=category,
             instructor=instructor,
             price_cents=8000,

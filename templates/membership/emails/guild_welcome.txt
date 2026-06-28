@@ -1,9 +1,9 @@
-Hi {{ greeting_name }},
+{% load rich_text %}Hi {{ greeting_name }},
 
 Welcome to {{ guild.name }}!
 
-{{ body }}
+{{ body|rich_email_text }}
 
 Guild page: {{ guild_url }}
 
-— Past Lives Makerspace
+{% include "membership/emails/_footer.txt" %}

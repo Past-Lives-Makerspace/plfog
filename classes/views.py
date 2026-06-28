@@ -28,11 +28,11 @@ if TYPE_CHECKING:
     from membership.models import Member
 
 from classes.emails import (
+    emit_instructor_new_registration,
     send_admin_registration_notification,
     send_class_review_decision,
     send_class_welcome_email,
     send_class_welcome_email_test,
-    send_instructor_registration_notification,
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
 )
@@ -56,6 +56,7 @@ from classes.models import (
     ClassApproval,
     ClassImage,
     ClassOffering,
+    ClassSession,
     ClassSettings,
     CmsActivity,
     DiscountCode,
@@ -257,7 +258,7 @@ def public_list(request: HttpRequest) -> HttpResponse:
         "page_obj": page_obj,
         "paginator": paginator,
         "filter_querystring": filter_querystring,
-        "total_classes": paginator.count,
+        "upcoming_session_count": ClassSession.objects.upcoming_public_count(),
         "total_instructors": classes_qs.values("instructor_id").exclude(instructor_id__isnull=True).distinct().count(),
         "total_categories": len(categories),
     }
@@ -500,6 +501,18 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         messages.info(request, "Registration has closed for this class — it has already started.")
         return redirect("classes:public_class_detail", slug=offering.slug)
 
+    # Site-wide kill switch (Site Settings → Features). When class registration is
+    # off, refuse sign-ups regardless of the hidden button (defense in depth).
+    from core.models import SiteConfiguration
+
+    site_config = SiteConfiguration.load()
+    if not site_config.class_registration_enabled:
+        messages.info(
+            request,
+            site_config.class_registration_disabled_note or "Online registration is currently unavailable.",
+        )
+        return redirect("classes:public_class_detail", slug=offering.slug)
+
     # Waitlist intent: ?waitlist=1 (offered when the class is sold out) routes
     # to the no-charge waitlist branch below. Forced on automatically when the
     # class has no spots left so we never hide the option from a registrant
@@ -558,22 +571,14 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
                 _log_discount_redeemed(registration)
             send_registration_confirmation(registration)
             send_class_welcome_email(registration)
-            send_instructor_registration_notification(registration)
-            _instructor = registration.class_offering.instructor
-            if _instructor is not None and _instructor.user is not None:
-                from core import notifications
-
-                notifications.dispatch(
-                    "instructor_new_registration",
-                    [_instructor.user],
-                    title="New registration",
-                    body=registration.class_offering.title,
-                    url="/classes/teach/",
-                )
+            emit_instructor_new_registration(registration)
             send_admin_registration_notification(registration)
             from classes.services.mailchimp_subscribe import subscribe_registration
 
             subscribe_registration(registration)
+            from core.services.guest_account import ensure_account_for_registration
+
+            ensure_account_for_registration(registration)
             return redirect("classes:register_success", slug=offering.slug)
 
         # Paid class — kick off Stripe Checkout.

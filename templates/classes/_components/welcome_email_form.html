@@ -1,5 +1,7 @@
 {% comment %}Welcome-email authoring form, shared by the teach and admin class workspaces.
 Expects `form` (TeachWelcomeEmailForm) and `offering` in context. Posts to the current URL.{% endcomment %}
+{% load rich_text %}
+{% include "_components/rich_editor_assets.html" %}
 <div style="max-width:640px;">
     <p style="margin:0 0 0.25rem; font-size:1.05rem; font-weight:600;">Welcome email</p>
     <p style="margin:0 0 1.25rem; color:var(--hub-text-muted); font-size:0.9rem;">
@@ -25,7 +27,7 @@ Expects `form` (TeachWelcomeEmailForm) and `offering` in context. Posts to the c
         <div style="margin-bottom:1rem;">
             <label style="display:block; font-weight:600; font-size:0.85rem; color:var(--hub-text-muted); margin-bottom:0.35rem;">{{ form.welcome_email_body.label }}</label>
             {{ form.welcome_email_body }}
-            <p style="margin:0.35rem 0 0; color:var(--hub-text-muted); font-size:0.8rem;">Plain text — line breaks are kept.</p>
+            <p style="margin:0.35rem 0 0; color:var(--hub-text-muted); font-size:0.8rem;">Use the toolbar to format — bold, italic, headings, and bulleted or numbered lists.</p>
             {% for error in form.welcome_email_body.errors %}<p style="color:var(--hub-danger,#e57373); font-size:0.85rem; margin:0.35rem 0 0;">{{ error }}</p>{% endfor %}
         </div>
 
@@ -37,10 +39,12 @@ Expects `form` (TeachWelcomeEmailForm) and `offering` in context. Posts to the c
     </form>
 
     {% if offering.welcome_email_body %}
-    <div style="margin-top:1.5rem; padding:1rem; border:1px solid var(--hub-border); border-radius:8px;">
+    <div style="margin-top:1.5rem;">
         <p style="margin:0 0 0.5rem; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--hub-text-muted);">Preview</p>
-        <p style="margin:0 0 0.5rem; font-weight:600;">{{ offering.welcome_email_subject|default:"(no subject yet)" }}</p>
-        <div style="font-size:0.9rem; line-height:1.6;">{{ offering.welcome_email_body|linebreaks }}</div>
+        <div style="background:#092E4C; border-radius:8px; padding:1.25rem 1.5rem;">
+            <p style="margin:0 0 0.75rem; font-weight:700; font-size:1rem; color:#F4EFDD;">{{ offering.welcome_email_subject|default:"(no subject yet)" }}</p>
+            <div style="font-size:0.9rem; line-height:1.6; color:#F4EFDD;">{{ offering.welcome_email_body|rich_email_body }}</div>
+        </div>
     </div>
     {% endif %}
 </div>

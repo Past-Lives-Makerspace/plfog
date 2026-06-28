@@ -106,6 +106,16 @@ def describe_instructor_email_composer():
         assert message.instructor == instructor
         assert InstructorMessageRecipient.objects.filter(message=message).count() == 2
 
+        # Decision 8: the send is now audited through the choke-point, with the
+        # BCC'd registrants recorded in the log's recipient list.
+        from core.models import TransactionalEmailLog
+
+        log = TransactionalEmailLog.objects.get()
+        assert log.trigger_kind == "classes.instructor_message"
+        assert log.status == TransactionalEmailLog.Status.SENT
+        assert "alice@example.com" in log.to_email
+        assert "bob@example.com" in log.to_email
+
     def it_omits_self_from_bcc_when_unchecked(instructor, client):
         client.force_login(instructor.user)
         offering = ClassOfferingFactory(instructor=instructor)

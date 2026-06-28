@@ -144,6 +144,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "core.context_processors.registration_mode",
                 "core.context_processors.app_version",
+                "core.context_processors.feature_flags",
                 "core.context_processors.google_analytics",
                 "core.context_processors.surface",
                 "core.context_processors.persona",
@@ -233,6 +234,9 @@ _R2_READY = all([R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCE
 # Maximum upload size for ImageField uploads (members, guilds, classes).
 MAX_UPLOAD_IMAGE_BYTES = int(os.environ.get("MAX_UPLOAD_IMAGE_BYTES", str(3 * 1024 * 1024)))  # 3 MB
 
+# Maximum upload size for document FileField uploads (guild meeting-note attachments).
+MAX_UPLOAD_DOCUMENT_BYTES = int(os.environ.get("MAX_UPLOAD_DOCUMENT_BYTES", str(25 * 1024 * 1024)))  # 25 MB
+
 # Auto-resize ceilings (longest edge in pixels) applied by core.images.normalize_image
 # on save. Hero/banner images get a higher cap; gallery/profile images sit lower.
 IMAGE_MAX_LONG_EDGE_HERO = int(os.environ.get("IMAGE_MAX_LONG_EDGE_HERO", "2400"))
@@ -242,6 +246,27 @@ IMAGE_MAX_LONG_EDGE_PROFILE = int(os.environ.get("IMAGE_MAX_LONG_EDGE_PROFILE", 
 # Simplybook (https://simplybook.me) — tour status lookups. Disabled when blank.
 SIMPLYBOOK_API_KEY = os.environ.get("SIMPLYBOOK_API_KEY", "")
 SIMPLYBOOK_COMPANY_LOGIN = os.environ.get("SIMPLYBOOK_COMPANY_LOGIN", "")
+
+# Member invites — how long (in days) an un-accepted invite stays "Pending" before the
+# Manage Members panel shows it as "Expired". Advisory only: the signup link keeps
+# working; resending an invite resets the clock (see Invite.is_expired / send_invite_email).
+INVITE_EXPIRY_DAYS = int(os.environ.get("INVITE_EXPIRY_DAYS", "14"))
+
+# Discord — per-event broadcast channel for the notification spine (design §2.4,
+# Decision 9). The global webhook is the default target for every event; per-event
+# routing overrides are configured in the admin area (Phase 3). The DiscordChannel
+# adapter is a no-op (disabled) when this is blank, mirroring how the other
+# integrations stay dark without credentials.
+DISCORD_NOTIFY_WEBHOOK_URL = os.environ.get("DISCORD_NOTIFY_WEBHOOK_URL", "").strip()
+
+# Discord bot + OAuth credentials for the per-member Discord DM channel. The bot
+# ("FOG Bot") DMs a member who has linked their Discord account; OAuth (identify
+# scope) is how a member links it. Each is blank by default so the app and tests run
+# without real credentials — a blank bot token makes the DM channel a no-op and blank
+# client credentials disable the account-linking flow (the "disabled when blank" idiom).
+DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+DISCORD_CLIENT_ID = os.environ.get("DISCORD_CLIENT_ID", "").strip()
+DISCORD_CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET", "").strip()
 
 if _R2_READY:
     _default_storage = {

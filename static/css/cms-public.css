@@ -533,7 +533,8 @@ body.classes-portal {
   .cp-page #hero{padding:32px 20px}
   .cp-page #hero h1{font-size:24px}
   .cp-page #hero p{font-size:12px}
-  .cp-page #hero-stats{gap:24px}
+  .cp-page #hero-stats{gap:24px;flex-wrap:wrap;row-gap:16px}
+  .cp-page .hs-l{white-space:nowrap}
   .cp-page .hs-n{font-size:22px}
   .cp-page #hero img{max-width:360px}
   .cp-page #hero-cta a{padding:8px 20px;font-size:12px}
@@ -1000,6 +1001,25 @@ a.cp-detail__cta--waitlist {
 a.cp-detail__cta--waitlist:hover {
   background: rgba(238,180,75,0.08);
   color: var(--gold);
+}
+.cp-detail__cta--disabled {
+  display: block;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  background: var(--bg4);
+  color: var(--text2);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+  text-decoration: none;
+  min-height: 44px;
+  box-shadow: none;
+  cursor: default;
+  pointer-events: none;
 }
 .cp-detail__waitlist-hint {
   margin-top: 10px;

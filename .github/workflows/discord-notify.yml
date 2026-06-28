@@ -20,16 +20,20 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          # Read the latest changelog entry from version.py
+          # Aggregate every changelog entry in the current release line (MAJOR.MINOR)
+          # into one announcement, so a release branch (e.g. 0.19.x) that accumulated
+          # several patch entries posts all of its changes at once. Newest patch first.
           RELEASE_INFO=$(python3 -c "
           import sys
           sys.path.insert(0, '.')
           from plfog.version import VERSION, CHANGELOG
 
-          entry = CHANGELOG[0]
-          title = entry['title']
-          changes = entry['changes']
-          bullets = '\n'.join(f'• {c}' for c in changes)
+          minor = '.'.join(VERSION.split('.')[:2])
+          entries = [e for e in CHANGELOG if '.'.join(str(e['version']).split('.')[:2]) == minor]
+          if not entries:
+              entries = [CHANGELOG[0]]
+          bullets = '\n'.join(f'• {c}' for e in entries for c in e['changes'])
+          title = entries[0]['title']
           print(f'VERSION={VERSION}')
           print(f'TITLE={title}')
           print(f'BULLETS={bullets}')

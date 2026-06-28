@@ -18,24 +18,31 @@ def active_nav(context: dict[str, Any], *args: str | int) -> str:
 
     Examples:
         {% active_nav 'hub_guild_voting' %}
-        {% active_nav 'hub_guild_detail' guild.pk %}
+        {% active_nav 'hub_guild_detail' guild.slug %}
         {% active_nav 'hub_tab_detail' 'hub_tab_history' %}
     """
     request = context.get("request")
     if request is None:
         return ""
-    from django.urls import reverse
+    from django.urls import NoReverseMatch, get_resolver, reverse
 
+    # Args are a mix of URL *names* and reverse *args* (a pk or a slug). Type can't tell
+    # a name from a slug — both are strings — so ask the resolver: a registered pattern
+    # name is a name; anything else (e.g. "ceramics-guild") is a reverse arg.
+    reverse_dict = get_resolver().reverse_dict
     url_names: list[str] = []
-    pk: int | None = None
+    reverse_args: list[Any] = []
     for arg in args:
-        if isinstance(arg, int):
-            pk = arg
-        else:
+        if isinstance(arg, str) and arg in reverse_dict:
             url_names.append(arg)
+        else:
+            reverse_args.append(arg)
 
     for name in url_names:
-        target = reverse(name, args=[pk] if pk is not None else [])
+        try:
+            target = reverse(name, args=reverse_args)
+        except NoReverseMatch:
+            continue
         if request.path == target:
             return "active"
     return ""
@@ -67,7 +74,7 @@ def has_active_guild(context: dict[str, Any], guilds: QuerySet[Guild]) -> bool:
     from django.urls import reverse
 
     for guild in guilds:
-        if request.path == reverse("hub_guild_detail", args=[guild.pk]):
+        if request.path == reverse("hub_guild_detail", args=[guild.slug]):
             return True
     return False
 

@@ -11,10 +11,11 @@ from django.utils import timezone
 
 from core.models import Notification, SiteActivity
 from membership import orientations
-from membership.models import OrientationBooking, OrientationSlot
+from membership.models import GuildStaffMembership, OrientationBooking, OrientationSlot
 from tests.membership.factories import (
     GuildFactory,
     GuildOrientationSettingsFactory,
+    GuildStaffMembershipFactory,
     MemberFactory,
     MembershipPlanFactory,
     OrientationAvailabilityFactory,
@@ -79,6 +80,18 @@ def describe_request_orientation():
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_REQUESTED).exists()
         assert Notification.objects.filter(user=lead.user, trigger="orientation_requested").exists()
 
+    def it_also_emails_and_notifies_guild_staff():
+        guild, lead = _enabled_guild_with_lead("svc_lead_staff")
+        staff = _member_with_user("svc_staff")
+        GuildStaffMembershipFactory(guild=guild, member=staff, role=GuildStaffMembership.Role.CO_LEAD)
+        member = _member_with_user("svc_member_staff")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+
+        orientations.request_orientation(slot, member, note="hi")
+
+        recipients = {addr for m in mail.outbox for addr in m.to}
+        assert {member.primary_email, lead.primary_email, staff.primary_email} <= recipients
+
     def it_skips_the_lead_email_when_the_guild_has_no_lead():
         guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
@@ -88,6 +101,35 @@ def describe_request_orientation():
         orientations.request_orientation(slot, member)
 
         assert [m.to for m in mail.outbox] == [[member.primary_email]]
+
+    def it_fans_the_in_app_request_out_to_all_orienters_not_just_the_lead():
+        # Decision 7: the in-app "needs a runner" ping reaches every orienter, fixing
+        # the old lead-only asymmetry (email→all, in-app→lead only).
+        guild, lead = _enabled_guild_with_lead("o7_lead")
+        orienter = _member_with_user("o7_orienter")
+        GuildStaffMembershipFactory(guild=guild, member=orienter, role=GuildStaffMembership.Role.ORIENTER)
+        member = _member_with_user("o7_member")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+
+        orientations.request_orientation(slot, member)
+
+        notified = set(Notification.objects.filter(trigger="orientation_requested").values_list("user_id", flat=True))
+        assert lead.user_id in notified
+        assert orienter.user_id in notified  # the orienter now gets the in-app ping too
+
+    def it_credits_the_actual_runner_who_confirms_not_the_lead():
+        # Decision 7: confirm passes the acting staffer as oriented_by; the booking is
+        # credited to them, not defaulted to the guild lead.
+        guild, _lead = _enabled_guild_with_lead("o7c_lead")
+        orienter = _member_with_user("o7c_orienter")
+        GuildStaffMembershipFactory(guild=guild, member=orienter, role=GuildStaffMembership.Role.ORIENTER)
+        member = _member_with_user("o7c_member")
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=member)
+
+        orientations.confirm_orientation(booking, oriented_by=orienter)
+
+        booking.refresh_from_db()
+        assert booking.oriented_by_id == orienter.pk
 
     def it_emails_a_lead_without_a_user_but_skips_their_in_app_notification():
         lead = MemberFactory()  # no linked user → can't receive an in-app notification

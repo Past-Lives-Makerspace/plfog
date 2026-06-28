@@ -8,8 +8,8 @@
   <h1>Classes <span>&amp;</span> Workshops Catalog</h1>
   <p>Learn blacksmithing, lampworking, ceramics, framing, and more from working artists in Portland's largest makerspace.</p>
   <div id="hero-stats">
-    <div><div class="hs-n">{{ total_classes }}</div><div class="hs-l">Classes</div></div>
-    <div><div class="hs-n">{{ total_categories }}</div><div class="hs-l">Categories</div></div>
+    <div><div class="hs-n">{{ upcoming_session_count }}</div><div class="hs-l">Upcoming Session{{ upcoming_session_count|pluralize }}</div></div>
+    <div><div class="hs-n">{{ total_categories }}</div><div class="hs-l">Guilds</div></div>
     <div><div class="hs-n">{{ total_instructors }}</div><div class="hs-l">Instructors</div></div>
   </div>
   <div id="hero-cta">
@@ -38,9 +38,9 @@
       x-data="{ open: false }">
   <div class="cp-filter__row">
     <label class="cp-filter__field cp-filter__field--select">
-      <span class="cp-filter__field-label">Category</span>
+      <span class="cp-filter__field-label">Guild</span>
       <select name="category" class="cp-filter__select">
-        <option value="">All categories</option>
+        <option value="">All guilds</option>
         {% for cat in categories %}
           <option value="{{ cat.slug }}" {% if selected_category_slug == cat.slug %}selected{% endif %}>{{ cat.name }} ({{ cat.class_count }})</option>
         {% endfor %}

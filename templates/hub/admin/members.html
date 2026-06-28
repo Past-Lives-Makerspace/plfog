@@ -26,62 +26,50 @@
     outline: none; border-color: #EEB44B; background: rgba(255,255,255,0.06);
   }
   .members-filters select option { background: #092E4C; color: #F4EFDD; }
-  .members-filters .filter-label,
-  .members-invite .filter-label {
+  .members-filters .filter-label {
     font-size: 0.75rem;
     color: var(--hub-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     margin-right: 0.25rem;
   }
-  .members-invite {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 1.25rem;
-    padding: 0.85rem;
-    border: 1px solid var(--hub-border);
-    border-radius: 8px;
-    background: rgba(255,255,255,0.02);
-  }
-  .members-invite input[type="email"] {
-    background: rgba(255,255,255,0.04);
-    color: var(--hub-text);
-    border: 1px solid var(--hub-border);
-    border-radius: 6px;
-    padding: 0.4rem 0.65rem;
-    font-size: 0.875rem;
-    font-family: inherit;
-    min-width: 240px;
-    flex: 1 1 240px;
-    max-width: 360px;
-  }
-  .members-invite input[type="email"]:focus {
-    outline: none; border-color: #EEB44B; background: rgba(255,255,255,0.06);
-  }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="hub-card" x-data="{ showInvite: false }">
-  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem;">
-    <h1 class="hub-page-title" style="margin:0;">Manage Members</h1>
-    <div style="display:flex;align-items:center;gap:0.75rem;">
-      <span style="color:var(--hub-text-muted);font-size:0.875rem;">{{ page.paginator.count }} member{{ page.paginator.count|pluralize }}</span>
-      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="showInvite = !showInvite">+ Invite a member</button>
-    </div>
+  <div class="pl-invite-card__header">
+    <h2 class="hub-detail-label" style="margin:0;">Invites</h2>
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="showInvite = !showInvite">+ Invite a member</button>
   </div>
 
-  <form method="post" action="{% url 'hub_admin_member_invite' %}" class="members-invite" x-show="showInvite" x-cloak hx-boost="false">
+  <form class="pl-invite-form" x-show="showInvite" x-cloak
+        hx-post="{% url 'hub_admin_member_invite' %}"
+        hx-target="#invites-list" hx-swap="outerHTML"
+        @htmx:after-request="if (event.detail.successful && event.detail.xhr.status === 200) { showInvite = false; $el.reset() }">
     {% csrf_token %}
-    <label class="filter-label" for="invite-email">Invite by email</label>
-    <input type="email" id="invite-email" name="email" placeholder="name@example.com" required autocomplete="off">
-    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send invite</button>
-    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showInvite = false">Cancel</button>
+    {% include "components/form_field.html" with field=invite_form.email field_label="Invite by email" %}
+    <div class="pl-invite-form__actions">
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" hx-disabled-elt="this">Send invite</button>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showInvite = false">Cancel</button>
+    </div>
   </form>
 
+  {% include "hub/admin/_invites_panel.html" %}
+</div>
+
+<div class="hub-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem;">
+    <h1 class="hub-page-title" style="margin:0;">Manage Members</h1>
+    <span style="color:var(--hub-text-muted);font-size:0.875rem;">{{ page.paginator.count }} {% if page.paginator.count == 1 %}person{% else %}people{% endif %}</span>
+  </div>
+
+  {% if member_only_filter_active %}
+  <p class="hub-text-muted" style="margin:0 0 1rem;font-size:0.8125rem;">These filters apply to members — non-member users are hidden while they're active.</p>
+  {% endif %}
+
   <form method="get" class="members-filters">
+    {% if email_filter == 'missing' %}<input type="hidden" name="email" value="missing">{% endif %}
     <input type="search" name="q" value="{{ search }}" placeholder="Search name, email, discord…" autocomplete="off">
 
     <span class="filter-label">Status</span>
@@ -109,51 +97,72 @@
     </select>
 
     <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
-    {% if search or role_filter or type_filter or status_filter != 'active' %}
+    {% if search or role_filter or type_filter or status_filter != 'active' or email_filter == 'missing' %}
     <a href="{% url 'hub_admin_members' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Reset</a>
+    {% endif %}
+
+    {% if email_filter == 'missing' %}
+    <a class="hub-btn hub-btn--sm hub-btn--primary"
+       href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}">
+      Missing email{% if missing_count %} <span class="hub-badge">{{ missing_count }}</span>{% endif %}
+    </a>
+    {% else %}
+    <a class="hub-btn hub-btn--sm hub-btn--ghost"
+       href="?email=missing&q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}">
+      Missing email{% if missing_count %} <span class="hub-badge">{{ missing_count }}</span>{% endif %}
+    </a>
     {% endif %}
   </form>
 
-  <table style="width:100%;border-collapse:collapse;font-size:0.9375rem;">
+  <table class="pl-members-table">
     <thead>
-      <tr style="border-bottom:1px solid var(--hub-border);">
-        <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Name</th>
-        <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Email</th>
-        <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Status</th>
-        <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Role</th>
-        <th style="text-align:right;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Classes</th>
-        <th style="text-align:right;padding:0.5rem 0.75rem;color:var(--hub-text-muted);font-weight:500;font-size:0.875rem;">Edit</th>
+      <tr>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Status</th>
+        <th>Role</th>
+        <th style="text-align:right;">Classes</th>
+        <th style="text-align:right;">Edit</th>
       </tr>
     </thead>
     <tbody>
-      {% for member in page %}
-      <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
-        <td style="padding:0.55rem 0.75rem;color:var(--hub-text);">{{ member.full_legal_name|default:"—" }}</td>
-        <td style="padding:0.55rem 0.75rem;color:var(--hub-text-muted);">{{ member.user.email|default:"—" }}</td>
-        <td style="padding:0.55rem 0.75rem;color:var(--hub-text-muted);">{{ member.get_status_display }}</td>
-        <td style="padding:0.55rem 0.75rem;color:var(--hub-text-muted);">{{ member.get_fog_role_display }}</td>
-        <td style="text-align:right;padding:0.55rem 0.75rem;">
-          {% if member.class_count %}
-            <a href="{% url 'classes:admin_classes' %}?instructor={{ member.pk }}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false">{{ member.class_count }} →</a>
+      {% for person in page %}
+      <tr>
+        <td data-label="Name">{{ person.name|default:"—" }}</td>
+        <td data-label="Email">
+          {{ person.email|default:"—" }}
+          {% if email_filter == 'missing' and person.email_gap_label %}<div class="hub-note hub-text-muted">{{ person.email_gap_label }}</div>{% endif %}
+        </td>
+        <td data-label="Status">
+          {% if person.status_display %}{{ person.status_display }}{% endif %}
+          {% if person.badge_label %}<span class="hub-pill hub-pill--{{ person.badge_modifier }}">{{ person.badge_label }}</span>{% endif %}
+          {% if not person.status_display and not person.badge_label %}—{% endif %}
+        </td>
+        <td data-label="Role">{{ person.role_display|default:"—" }}</td>
+        <td data-label="Classes" style="text-align:right;">
+          {% if person.classes_url %}
+            <a href="{{ person.classes_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false">{{ person.class_count }} →</a>
           {% else %}
-            <span style="color:var(--hub-text-muted);">—</span>
+            <span class="hub-text-muted">—</span>
           {% endif %}
         </td>
-        <td style="text-align:right;padding:0.55rem 0.75rem;">
-          <a href="{% url 'hub_admin_member_edit' member.pk %}" class="hub-btn hub-btn--sm" hx-boost="false">Edit</a>
+        <td data-label="Edit" style="text-align:right;">
+          <a href="{{ person.edit_url }}" class="hub-btn hub-btn--sm" hx-boost="false">Edit</a>
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" style="padding:1.5rem;text-align:center;color:var(--hub-text-muted);">No members match your filters.</td></tr>
+      <tr><td colspan="6" style="padding:1.5rem;text-align:center;color:var(--hub-text-muted);">
+        {% if email_filter == 'missing' %}No members are missing an email — nice.{% else %}No people match your filters.{% endif %}
+      </td></tr>
       {% endfor %}
     </tbody>
   </table>
 
   {% if page.paginator.num_pages > 1 %}
   <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1rem;align-items:center;">
-    {% if page.has_previous %}<a href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}&page={{ page.previous_page_number }}" class="hub-btn hub-btn--sm">Previous</a>{% endif %}
+    {% if page.has_previous %}<a href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}&page={{ page.previous_page_number }}{% if email_filter == 'missing' %}&email=missing{% endif %}" class="hub-btn hub-btn--sm">Previous</a>{% endif %}
     <span style="color:var(--hub-text-muted);font-size:0.875rem;">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}&page={{ page.next_page_number }}" class="hub-btn hub-btn--sm">Next</a>{% endif %}
+    {% if page.has_next %}<a href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}&page={{ page.next_page_number }}{% if email_filter == 'missing' %}&email=missing{% endif %}" class="hub-btn hub-btn--sm">Next</a>{% endif %}
   </div>
   {% endif %}
 </div>

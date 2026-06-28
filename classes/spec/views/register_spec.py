@@ -222,6 +222,50 @@ def describe_register_view():
         spy.assert_not_called()
 
 
+def describe_register_view_when_class_registration_disabled():
+    def _disable_registration(note="Online registration is paused right now."):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.class_registration_enabled = False
+        config.class_registration_disabled_note = note
+        config.save()
+
+    def it_redirects_a_get_to_the_detail_page_with_the_note(free_offering, client):
+        _disable_registration(note="Call the studio to sign up.")
+        response = client.get(reverse("classes:register", kwargs={"slug": free_offering.slug}))
+        assert response.status_code == 302
+        assert response.url == reverse("classes:public_class_detail", kwargs={"slug": free_offering.slug})
+
+        from django.contrib.messages import get_messages
+
+        messages = [str(m) for m in get_messages(response.wsgi_request)]
+        assert "Call the studio to sign up." in messages
+
+    def it_refuses_a_post_and_creates_no_registration(free_offering, client):
+        _disable_registration()
+        response = client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=_post_data())
+        assert response.status_code == 302
+        assert response.url == reverse("classes:public_class_detail", kwargs={"slug": free_offering.slug})
+        assert not Registration.objects.filter(class_offering=free_offering).exists()
+
+    def it_falls_back_to_a_generic_message_when_the_note_is_blank(free_offering, client):
+        _disable_registration(note="")
+        response = client.get(reverse("classes:register", kwargs={"slug": free_offering.slug}))
+
+        from django.contrib.messages import get_messages
+
+        messages = [str(m) for m in get_messages(response.wsgi_request)]
+        assert "Online registration is currently unavailable." in messages
+
+    def it_allows_registration_when_the_switch_is_on(free_offering, client):
+        # Default is enabled — the free class still confirms normally.
+        response = client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=_post_data())
+        assert response.status_code == 302
+        assert response.url == reverse("classes:register_success", kwargs={"slug": free_offering.slug})
+        assert Registration.objects.filter(class_offering=free_offering).exists()
+
+
 def describe_register_success_view():
     def it_renders_a_thanks_page(paid_offering, client):
         response = client.get(reverse("classes:register_success", kwargs={"slug": paid_offering.slug}))

@@ -12,6 +12,8 @@ Items:
 {% endfor %}
 Total Charged: ${{ charge.amount }}
 
-{% if charge.stripe_receipt_url %}View your Stripe receipt: {{ charge.stripe_receipt_url }}{% endif %}
-
-Thank you for being a member of Past Lives Makerspace!
+{% if charge.stripe_receipt_url %}View your Stripe receipt: {{ charge.stripe_receipt_url }}
+{% endif %}{% if billing_history_url %}See every charge and payment in your billing history: {{ billing_history_url }}
+{% endif %}
+Thank you for being a member!
+{% include "membership/emails/_footer.txt" %}

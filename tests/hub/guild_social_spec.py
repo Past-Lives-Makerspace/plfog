@@ -70,7 +70,7 @@ def describe_guild_social_buttons():
             guild_lead=lead, discord_url="https://discord.gg/example", website_url="https://example.com"
         )
         client.login(username="gs1", password="pass")
-        response = client.get(reverse("hub_guild_detail", args=[guild.pk]))
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Email Guild Lead" in response.content
         assert b"Discord channel" in response.content
         assert b"Website" in response.content

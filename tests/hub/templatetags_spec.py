@@ -39,6 +39,19 @@ def describe_active_nav():
 
         assert result == "active"
 
+    def it_handles_url_with_slug_argument(rf: RequestFactory):
+        # The real sidebar usage: a string slug must be treated as a reverse arg, not a url name.
+        from tests.membership.factories import GuildFactory
+
+        guild = GuildFactory()
+        request = rf.get(f"/guilds/{guild.slug}/")
+        template = Template("{% load hub_tags %}{% active_nav 'hub_guild_detail' guild.slug %}")
+        context = Context({"request": request, "guild": guild})
+
+        result = template.render(context)
+
+        assert result == "active"
+
     def it_returns_empty_for_pk_url_when_path_does_not_match(rf: RequestFactory):
         from tests.membership.factories import GuildFactory
 
@@ -68,7 +81,7 @@ def describe_has_active_guild():
         from tests.membership.factories import GuildFactory
 
         guild = GuildFactory()
-        request = rf.get(f"/guilds/{guild.pk}/")
+        request = rf.get(f"/guilds/{guild.slug}/")
         template = Template("{% load hub_tags %}{% has_active_guild guilds as result %}{{ result }}")
         context = Context({"request": request, "guilds": Guild.objects.all()})
 

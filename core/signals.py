@@ -15,24 +15,32 @@ from core.models import SiteActivity
 def _on_login(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
     import hashlib
 
-    from core import notifications
+    from core.events.emit import emit
     from core.models import KnownLoginSignature
 
     SiteActivity.log(SiteActivity.Kind.LOGIN, actor=user)
 
+    # Key the device signature on the browser/user-agent only — NOT the IP. IPs
+    # rotate constantly (mobile data, dynamic home ISPs, VPNs, the host's proxy
+    # fleet), so including the IP fired a "new login" email on every address change
+    # and never actually remembered the device. User-agent stays stable per browser.
     ua = request.META.get("HTTP_USER_AGENT", "")
-    ip = request.META.get("REMOTE_ADDR", "")
-    signature = hashlib.sha256(f"{ua}|{ip}".encode()).hexdigest()
+    signature = hashlib.sha256(ua.encode()).hexdigest()
     _, created = KnownLoginSignature.objects.get_or_create(user=user, signature=signature)
     if created:
         html_body = render_to_string(
             "core/email/new_login.html",
             {"settings_url": request.build_absolute_uri("/settings/")},
         )
-        notifications.dispatch(
+        emit(
             "new_login",
-            [user],
+            actor=user,
+            context={"user": user},
             title="New login detected",
+            # Scope the idempotency bucket to THIS device so each genuinely new
+            # device alerts. With the default one-shot period ("") the delivery
+            # ledger would record new_login once and suppress every later device.
+            period=signature[:32],
             body="Your account was accessed from a new browser or device.",
             url="/settings/",
             html_body=html_body,
@@ -53,17 +61,20 @@ def _on_signup(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
     # its own email setup.
     MemberEmail.objects.migrate_to_user(user)
 
-    SiteActivity.log(SiteActivity.Kind.MEMBER_SIGNUP, actor=user)
+    from core.events.emit import emit
 
-    from django.contrib.auth.models import User
-
-    from core import notifications
-
-    staff = User.objects.filter(is_staff=True)
-    notifications.dispatch(
+    # emit logs the MEMBER_SIGNUP SiteActivity (registry activity_kind="member_signup")
+    # with actor=user, and resolves the admin audience via FOG_ADMINS — the global
+    # admin resolver that replaces the prior is_staff=True scan.
+    emit(
         "new_member_joined",
-        staff,
+        actor=user,
+        context={},
         title="New member joined",
         body=f"{user.get_username()} just signed up.",
         url="/members/",
+        # Scope the idempotency bucket to THIS signup. With the default one-shot
+        # period ("") the delivery ledger would record new_member_joined once and
+        # silently drop the admin alert for every later signup.
+        period=f"signup:{user.pk}",
     )

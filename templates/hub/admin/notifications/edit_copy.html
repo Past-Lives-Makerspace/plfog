@@ -1,0 +1,84 @@
+{% extends "hub/base.html" %}
+{% load static %}
+
+{% block title %}Edit copy — {{ event.label }} — Past Lives{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/notifications-edit-copy.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="hub-card"
+     x-data="{
+       previewUrl: '{% url 'hub_admin_notification_preview' event.key channel.value %}'
+     }">
+  <a href="{% url 'hub_admin_notifications' %}#{{ event.key }}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false" style="margin-bottom:0.75rem;">← Back to all notifications</a>
+  <h1 class="hub-page-title" style="margin:0 0 0.25rem;">{{ event.label }} — {{ channel_label }}</h1>
+  <p class="ntf-meta">
+    <strong>{{ event.key }}</strong> · Audience: {{ audience }}
+    {% if is_forced %} · <span class="ntf-badge ntf-badge--locked">Forced channel — members can't opt out</span>{% endif %}
+  </p>
+
+  <div class="ntf-placeholders">
+    Available merge fields for this event:
+    {% for name in placeholders %}<code>{% templatetag openvariable %} {{ name }} {% templatetag closevariable %}</code>{% empty %}<em>none</em>{% endfor %}
+    <br><span style="opacity:0.8;">Unknown fields show as <code>[missing: name]</code>. The preview uses sample data.</span>
+  </div>
+
+  <div class="ntf-edit-grid">
+    {# ---- Edit form (left) ---- #}
+    <form method="post"
+          hx-post="{% url 'hub_admin_notification_preview' event.key channel.value %}"
+          hx-trigger="input changed delay:300ms from:find textarea, input changed delay:300ms from:find input[type=text], load"
+          hx-target="#ntf-preview-body"
+          hx-swap="innerHTML">
+      {% csrf_token %}
+      <div class="ntf-fields">
+        {% include "components/form_field.html" with field=form.subject %}
+        {% include "components/form_field.html" with field=form.body_text %}
+        {% if channel.value == 'email' %}
+          {% include "components/form_field.html" with field=form.body_html field_hint="HTML email body. Merge-field values are autoescaped." %}
+        {% endif %}
+        {% if form.non_field_errors %}
+          <div class="hub-form-error">{{ form.non_field_errors }}</div>
+        {% endif %}
+        <div>
+          <button type="submit" class="hub-btn hub-btn--primary" hx-disable>Save copy</button>
+        </div>
+      </div>
+    </form>
+
+    {# ---- Live preview (right) ---- #}
+    <div class="ntf-preview-card">
+      <h3>Live preview</h3>
+      <div id="ntf-preview-body">
+        {% include "hub/admin/notifications/_preview.html" with rendered=None channel=channel %}
+      </div>
+    </div>
+  </div>
+
+  {# ---- Version history + revert ---- #}
+  <div class="ntf-history">
+    <h3>Version history</h3>
+    {% if versions %}
+      {% for v in versions %}
+        {% url 'hub_admin_notification_revert' event.key channel.value v.pk as revert_url %}
+        <div class="ntf-version">
+          <span class="ntf-version__meta">
+            <strong>{{ v.created_at|date:"M j, Y g:i A" }}</strong>
+            {% if v.edited_by %} · by {{ v.edited_by.email }}{% else %} · seeded{% endif %}
+            {% if v.subject %} · “{{ v.subject|truncatechars:48 }}”{% endif %}
+          </span>
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                  @click="$dispatch('open-confirm', 'ntf-revert-{{ v.pk }}')">
+            Revert to this
+          </button>
+        </div>
+        {% include "components/confirm_modal.html" with confirm_id="ntf-revert-"|add:v.pk confirm_title="Revert to this version?" confirm_message="This replaces the current copy with the selected version. The current copy is saved to history first, so you can revert back if needed." confirm_action_url=revert_url confirm_button_text="Revert" %}
+      {% endfor %}
+    {% else %}
+      <p style="color:var(--hub-text-muted);font-size:0.8125rem;">No prior versions yet. Every save snapshots the previous copy here.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

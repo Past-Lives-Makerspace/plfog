@@ -245,6 +245,26 @@ return response
 <a id="tab-balance-pill" hx-swap-oob="true" ...>${{ tab_balance }}</a>
 ```
 
+## Email Templates
+
+Emails live in `templates/**/emails/` (plus a few auth ones in `templates/account/email/`) and go out through the notification spine (`emit()`) or the helpers in `classes/emails.py` / `core/email.py`. Getting these right has burned us repeatedly — a "reminder" or "confirmation" that's a dead skeleton: the class name as plain text, one vague button, nothing that helps the reader actually do the next thing. The bar: **every email helps the recipient act, not just informs them.**
+
+> Inline styles are the **exception to Rule 9 here.** Email clients strip `<style>` blocks and external CSS, so email templates style inline on purpose — match the existing shell, don't "fix" it into classes.
+
+Mandatory for every transactional / notification email:
+
+- **Link the subject noun.** The thing the email is about — class title, guild name, event name, the registration/order — is a **clickable link to its detail or management page**, never dead text. (The class reminder links `{{ offering.title }}` to the public class page; do the same for guild names → guild page, events → the calendar, receipts → billing.)
+- **One obvious primary CTA, plus the helpful secondary links.** A reminder links to *Manage Registration* **and** *see full class details (what to bring, parking)*; a receipt links to billing history; a time-sensitive email offers add-to-calendar. Don't make the reader go hunting for the next step.
+- **Surface the human content.** If a person wrote something relevant — an instructor's welcome/prep note, a guild lead's message — show it; don't send the bare scaffold. Guard it (`{% if offering.welcome_email_ready %}`) so it only appears when set.
+- **Absolute URLs only.** Build links with the `_absolute_url()` helper (book-site base) or the spine's absolute-URL resolver — never a bare `/path`, which dead-ends in a mail client.
+- **Branded shell, no "BETA".** Use the branded layout (`templates/membership/emails/_base.html`); the app is past beta — no stale BETA badge in the header.
+- **Never ship a text-only email.** Every email has an HTML body in the branded shell — set `html_template` / `html_body` (a `.txt` fallback is fine, but `html_template=None` / a bare `Message(body=…)` ships unbranded plain text). For a flat-text body, wrap it with `_flat_text_email_html()`.
+- **Copy-mode (spine) emails must be *styled* by the shell, not just wrapped by it.** The default copy in `core/events/copy.py` is bare `<p>`/`<a>` with no color — on the dark `#092E4C` card that renders black text and default-blue links (color doesn't inherit into `<a>`). `core/events/templates.py::_style_copy_fragment` + the `notification_shell.html` wrapper inject the cream/gold styling centrally; if you add a new spine event, verify its email renders cream-on-dark with gold links (not black-on-dark).
+- **Subject and body agree on timezone** (project / Portland). A subject rendered in UTC over a body in local time is a bug.
+- **Keep `.txt` and `.html` in sync.** Every email has both; change one, change the other.
+
+Canonical example to copy: `templates/classes/emails/reminder.{html,txt}` and its builder `build_class_reminder_occurrence` in `classes/emails.py` — it adds `class_url` via `_absolute_url(reverse("classes:public_class_detail", …))`, links the title, surfaces the instructor note, and links to the full details.
+
 ## Rules for Claude / AI Agents
 
 1. **Always use `components/form_field.html`** for form fields — never render raw `{{ field }}` with manual label/error HTML.
@@ -261,6 +281,7 @@ return response
 12. **Never put `display` in an inline `style` on an `x-show` element.** Alpine's `x-show` *removes* the inline `display` property when it reveals the element, so inline `display:flex`/`grid` silently reverts to the default on first show (collapsing flex columns, etc.). Put the layout in a CSS class — Alpine only toggles `display:none` on/off and the class provides the real display. (This bit the orientation slot table: only the header — which had no `x-show` — kept its columns.)
 13. **Never inline-style a form control (`<select>`/`<input>`/`<textarea>`) with `background`/`color`.** Give it a CSS class that uses the theme's input tokens, or scope it under an existing field wrapper — `.hub-form-group` on hub pages, `.reg-field` on public-classes pages, `.bk-field` on book-account pages — which already style any `input`/`select`/`textarea` inside them. (A bare, un-wrapped `<textarea>` on a hub page renders as a browser-default white box — wrap it in `.hub-form-group`.) Valid input tokens: `--hub-input-bg` / `--hub-input-border` / `--text` (hub + public-classes pages) and `--bk-input-bg` / `--bk-input-color` (book-account pages). **`--surface` is NOT a defined token** — `background:var(--surface,#fff)` silently falls back to white, so the control renders as a white box with near-invisible light text on the dark theme. Also style `select option { background; color }` — native option popups don't inherit the select's colors. (This is what broke the registration "Choose your dates" dropdown and the orientation "decline note" textarea.)
 14. **Native `<input type="date">` / `<input type="time">` need dark-mode help.** The browser's picker icon (`::-webkit-calendar-picker-indicator`) is black by default — invisible on the dark theme. Invert it (`filter: invert(1)`) and reset it under `[data-theme="light"]` (`filter: none`). Also let the whole field open the picker, not just the icon: `@click="try { $event.currentTarget.showPicker() } catch (e) {}"` (the `try/catch` swallows the harmless "already open" error thrown when the icon itself is clicked). (This was the session-scheduler date/time/Duration popover.)
+15. **Building or editing an email?** Follow *Email Templates* above — link the subject noun (class/guild/event/order) to its page, give one clear CTA plus the obviously-helpful secondary links, surface any human-written note (guarded), use absolute URLs and the branded shell (no "BETA"), keep subject/body in one timezone, and keep `.txt` + `.html` in sync. Inline styles are expected in emails (clients strip external CSS) — the one place Rule 9 doesn't apply.
 
 ## CSS Files
 

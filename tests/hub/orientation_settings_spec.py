@@ -374,3 +374,35 @@ def describe_GuildOrientationSettingsForm_email_timestamps():
         saved = form.save()
 
         assert saved.join_email_updated_at == original
+
+
+def describe_GuildOrientationSettingsForm_sanitization():
+    def it_sanitizes_both_email_bodies_and_strips_script():
+        settings_obj = GuildOrientationSettingsFactory()
+        form = GuildOrientationSettingsForm(
+            data=_form_data_from(
+                settings_obj,
+                thankyou_email_body="<p>Thanks!</p><script>a()</script>",
+                join_email_body="<p>Welcome!</p><script>b()</script>",
+            ),
+            instance=settings_obj,
+        )
+        assert form.is_valid(), form.errors
+        assert "<script" not in form.cleaned_data["thankyou_email_body"]
+        assert "Thanks!" in form.cleaned_data["thankyou_email_body"]
+        assert "<script" not in form.cleaned_data["join_email_body"]
+        assert "Welcome!" in form.cleaned_data["join_email_body"]
+
+    def it_treats_an_empty_quill_doc_as_a_missing_body_when_enabling():
+        settings_obj = GuildOrientationSettingsFactory()
+        form = GuildOrientationSettingsForm(
+            data=_form_data_from(
+                settings_obj,
+                thankyou_email_enabled="on",
+                thankyou_email_subject="Thanks",
+                thankyou_email_body="<p><br></p>",
+            ),
+            instance=settings_obj,
+        )
+        assert not form.is_valid()
+        assert "thankyou_email_body" in form.errors

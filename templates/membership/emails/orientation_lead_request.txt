@@ -13,4 +13,6 @@ Quick actions (no login needed):
 Or respond on the hub (suggest another time, see details):
 {{ respond_url }}
 
-— Past Lives Makerspace
+Guild page: {{ guild_url }}
+
+{% include "membership/emails/_footer.txt" %}

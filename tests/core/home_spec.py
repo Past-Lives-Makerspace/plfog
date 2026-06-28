@@ -19,7 +19,7 @@ def describe_home_page():
 
     def it_contains_past_lives_text(client):
         response = client.get("/")
-        assert b"Past Lives Makerspace" in response.content
+        assert b"Past Lives Federation of Guilds" in response.content
 
 
 def describe_home_page_hero():
@@ -31,7 +31,7 @@ def describe_home_page_hero():
     def it_contains_makerspace_subtitle(client):
         response = client.get("/")
         content = response.content.decode()
-        assert 'class="hero__subtitle">Makerspace<' in content
+        assert 'class="hero__subtitle">Federation of Guilds<' in content
 
 
 def describe_nav_anonymous():

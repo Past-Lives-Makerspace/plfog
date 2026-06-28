@@ -1,0 +1,78 @@
+name: Copy-review gallery
+
+# Rebuilds the seeded CMS screenshot gallery on every merge to main (i.e. every
+# production deploy) and publishes it to GitHub Pages at
+# https://copy-review.pastlives.space/ for the copy team to review.
+#
+# The screenshots use SEEDED, fake data (no member info, no secrets) — that's
+# what makes hosting them at an unlisted public URL safe. The capture runs here
+# in CI, never on the Render prod instance.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages deployment needs these; nothing else in the repo does.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two publishes race; the newest merge wins.
+concurrency:
+  group: copy-review-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SECRET_KEY: ci-copy-review-secret
+      CAPTURE_SCREENSHOTS: "1"
+      SHOT_DIR: site
+    steps:
+      - uses: actions/checkout@v4
+
+      # Turns on Pages (source = GitHub Actions) on the first run, so there's
+      # no manual Settings toggle. No-op once it's enabled.
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Install Playwright browser
+        run: python -m playwright install --with-deps chromium
+
+      - name: Capture seeded CMS screenshots
+        run: pytest -m e2e --no-cov -q tests/e2e/screenshots_spec.py
+
+      - name: Attach custom domain
+        run: echo 'copy-review.pastlives.space' > site/CNAME
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

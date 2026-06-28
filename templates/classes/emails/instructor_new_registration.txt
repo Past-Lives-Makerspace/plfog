@@ -1,0 +1,9 @@
+{{ registration.first_name }} {{ registration.last_name }} ({{ registration.email }}) just registered for "{{ offering.title }}".
+
+Status: {{ registration.get_status_display }}
+Paid: ${{ amount_paid }}
+Spots filled: {{ spots_filled }}/{{ capacity }}
+{% if manage_url %}
+Manage my class: {{ manage_url }}{% endif %}
+View the class page: {{ class_url }}
+{% include "membership/emails/_footer.txt" %}

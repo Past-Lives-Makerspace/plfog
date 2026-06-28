@@ -3,6 +3,7 @@
 {% block title %}Site Settings — Past Lives{% endblock %}
 
 {% block extra_head %}
+{% include "_components/rich_editor_assets.html" %}
 <style>
   .site-settings-form input[type="text"],
   .site-settings-form input[type="url"],
@@ -36,6 +37,13 @@
     height: 18px;
     accent-color: #EEB44B;
     cursor: pointer;
+  }
+  /* The Features tab renders boolean fields as pl-toggle switches (components/form_field.html).
+     The rule above would otherwise force the toggle's visually-hidden checkbox back to 18px —
+     keep it collapsed so only the themed slider shows. */
+  .site-settings-form .pl-toggle input[type="checkbox"] {
+    width: 0;
+    height: 0;
   }
   .site-settings-form .field-row { display: flex; flex-direction: column; gap: 0.35rem; }
   .site-settings-form .field-checkbox { flex-direction: row; align-items: center; gap: 0.625rem; }
@@ -103,16 +111,28 @@
             class="vote-tab">
       Legacy CMS
     </button>
+    <button type="button"
+            @click="tab = 'features'"
+            :class="{ 'vote-tab--active': tab === 'features' }"
+            class="vote-tab">
+      Features
+    </button>
+    <button type="button"
+            @click="tab = 'announcements'"
+            :class="{ 'vote-tab--active': tab === 'announcements' }"
+            class="vote-tab">
+      Announcements
+    </button>
   </div>
 
-  <form method="post" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
+  <form method="post" id="site-settings-form" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
     {% csrf_token %}
     <input type="hidden" name="submitted_tab" :value="tab">
 
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -270,14 +290,15 @@
         {% endif %}
       </div>
 
-      {# Sync Now button — separate form so it doesn't require the full settings form to be valid #}
+      {% comment %}Sync Now submits the MAIN settings form with action=sync_now. The view runs
+      the sync (and redirects) before the settings form is validated, so it never needs a valid
+      form. This must NOT be its own form element — a nested form is invalid HTML and closes the
+      main form early, orphaning the Save button below it.{% endcomment %}
       <div>
-        <form method="post" id="sync-now-form"
-              data-estimate="{{ config.legacy_cms_last_sync_duration|default_if_none:'' }}"
-              style="display:flex;flex-direction:column;gap:0.6rem;align-items:flex-start;max-width:320px;">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="sync_now">
-          <button type="submit" id="sync-now-btn" class="hub-btn hub-btn--sm hub-btn--primary">
+        <div id="sync-now-wrap"
+             data-estimate="{{ config.legacy_cms_last_sync_duration|default_if_none:'' }}"
+             style="display:flex;flex-direction:column;gap:0.6rem;align-items:flex-start;max-width:320px;">
+          <button type="submit" name="action" value="sync_now" id="sync-now-btn" class="hub-btn hub-btn--sm hub-btn--primary">
             <span class="sync-spinner" aria-hidden="true"></span>
             <span class="sync-now-label">Sync Now</span>
           </button>
@@ -285,7 +306,7 @@
             <div class="sync-progress__fill"></div>
           </div>
           <small class="sync-status" style="color:var(--hub-text-muted);" hidden></small>
-        </form>
+        </div>
         {% if config.legacy_cms_last_sync_duration %}
           <small style="color:var(--hub-text-muted);">Typically takes about {{ config.legacy_cms_last_sync_duration|floatformat:0 }}s.</small>
         {% endif %}
@@ -328,10 +349,81 @@
 
     </div>
 
-    <div>
+    {# -------- Features tab -------- #}
+    <div x-show="tab === 'features'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
+      <div>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Feature switches</h2>
+        <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+          Soft-launch toggles. Leave these on for normal operation; turn one off to hide a feature that isn't ready yet.
+        </p>
+      </div>
+
+      {% include "components/form_field.html" with field=form.tab_payments_enabled %}
+      {% include "components/form_field.html" with field=form.class_registration_enabled %}
+      {% include "components/form_field.html" with field=form.class_registration_disabled_note %}
+    </div>
+
+    <div x-show="tab !== 'announcements'">
       <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
     </div>
   </form>
+
+  {# -------- Announcements tab (own form — compose, preview, then send) -------- #}
+  <div x-show="tab === 'announcements'" x-cloak style="max-width:760px;display:flex;flex-direction:column;gap:1.25rem;">
+    <div>
+      <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Sitewide announcement</h2>
+      <p style="color:var(--hub-text-muted);margin:0;">
+        Compose a message, preview the exact email, then send it to every <strong>activated</strong> member —
+        anyone who has signed in at least once. It lands in their notification bell and inbox. Members who've never
+        logged in are skipped.
+      </p>
+    </div>
+
+    <div>
+      <a href="?tab=announcements&amp;draft=release" class="hub-btn hub-btn--sm">Draft from latest release</a>
+      <small style="color:var(--hub-text-muted);margin-left:0.5rem;">Pre-fills the subject &amp; notes from this release's changelog (Discord left off — it auto-posts on deploy).</small>
+    </div>
+
+    <form method="post" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;">
+      {% csrf_token %}
+      <div class="field-row">
+        <label for="{{ announce_form.title.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ announce_form.title.label }}</label>
+        {{ announce_form.title }}
+        {% if announce_form.title.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ announce_form.title.errors }}</div>{% endif %}
+      </div>
+      <div class="field-row">
+        <label for="{{ announce_form.body.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ announce_form.body.label }}</label>
+        {{ announce_form.body }}
+        {% if announce_form.body.help_text %}<small style="color:var(--hub-text-muted);">{{ announce_form.body.help_text }}</small>{% endif %}
+        {% if announce_form.body.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ announce_form.body.errors }}</div>{% endif %}
+      </div>
+      <div class="field-row field-checkbox">
+        {{ announce_form.post_to_discord }}
+        <label for="{{ announce_form.post_to_discord.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ announce_form.post_to_discord.label }}</label>
+        {% if announce_form.post_to_discord.help_text %}<small style="color:var(--hub-text-muted);display:block;">{{ announce_form.post_to_discord.help_text }}</small>{% endif %}
+      </div>
+      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+        <button type="submit" name="action" value="announce_preview" class="hub-btn hub-btn--primary">Preview email</button>
+        {% if announce_preview %}
+        <button type="submit" name="action" value="announce_send" class="hub-btn hub-btn--primary"
+                onclick="return confirm('Send this announcement to {{ announce_preview.count }} member{{ announce_preview.count|pluralize }}? This cannot be undone.')">
+          Send to {{ announce_preview.count }} member{{ announce_preview.count|pluralize }}
+        </button>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if announce_preview %}
+    <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
+      <h3 style="margin:0 0 0.25rem;font-size:0.95rem;color:var(--hub-text);">Email preview</h3>
+      <p style="color:var(--hub-text-muted);margin:0 0 0.75rem;">
+        Exactly what lands in their inbox. Reaches <strong>{{ announce_preview.count }}</strong> activated member{{ announce_preview.count|pluralize }}{% if announce_preview.post_to_discord %}, and posts to Discord.{% else %} (Discord off).{% endif %}
+      </p>
+      <iframe srcdoc="{{ announce_preview.html }}" title="Email preview"
+              style="width:100%;height:540px;border:1px solid var(--hub-border);border-radius:8px;background:#fff;"></iframe>
+    </div>
+    {% endif %}
+  </div>
 </div>
 
 {# Sync Now loading state: spinner + estimated progress bar (estimate = last run's duration). #}
@@ -344,38 +436,42 @@
   #sync-now-btn.is-syncing .sync-spinner { display: inline-block; }
   #sync-now-btn[disabled] { opacity: 0.85; cursor: progress; }
   @keyframes sync-spin { to { transform: rotate(360deg); } }
-  #sync-now-form .sync-progress {
+  #sync-now-wrap .sync-progress {
     width: 100%; height: 6px; border-radius: 3px; overflow: hidden;
     background: var(--hub-border, #e5e7eb);
   }
-  #sync-now-form .sync-progress__fill {
+  #sync-now-wrap .sync-progress__fill {
     height: 100%; width: 0; border-radius: 3px;
     background: linear-gradient(90deg, #60a5fa, #34d399); transition: width 0.25s linear;
   }
-  #sync-now-form .sync-progress__fill.is-indeterminate {
+  #sync-now-wrap .sync-progress__fill.is-indeterminate {
     width: 35% !important; animation: sync-indet 1.1s ease-in-out infinite;
   }
   @keyframes sync-indet { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 </style>
 <script>
   (function () {
-    var form = document.getElementById('sync-now-form');
-    if (!form) return;
-    form.addEventListener('submit', function () {
+    var form = document.getElementById('site-settings-form');
+    var wrap = document.getElementById('sync-now-wrap');
+    if (!form || !wrap) return;
+    form.addEventListener('submit', function (event) {
+      // Sync Now and Save settings share this form — only react to the Sync Now submitter.
+      if (!event.submitter || event.submitter.id !== 'sync-now-btn') return;
       var btn = document.getElementById('sync-now-btn');
       if (btn.disabled) return;
-      var label = form.querySelector('.sync-now-label');
-      var prog = form.querySelector('.sync-progress');
-      var fill = form.querySelector('.sync-progress__fill');
-      var status = form.querySelector('.sync-status');
+      var label = wrap.querySelector('.sync-now-label');
+      var prog = wrap.querySelector('.sync-progress');
+      var fill = wrap.querySelector('.sync-progress__fill');
+      var status = wrap.querySelector('.sync-status');
 
       btn.classList.add('is-syncing');
-      btn.disabled = true;
+      // Defer disabling so the button's name=value is still serialized into this submission.
+      setTimeout(function () { btn.disabled = true; }, 0);
       if (label) label.textContent = 'Syncing…';
       prog.hidden = false;
       status.hidden = false;
 
-      var estimate = parseFloat(form.getAttribute('data-estimate'));
+      var estimate = parseFloat(wrap.getAttribute('data-estimate'));
       var t0 = Date.now();
       function tick() {
         var s = Math.round((Date.now() - t0) / 1000);

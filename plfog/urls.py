@@ -1,4 +1,4 @@
-from allauth.account.views import EmailView
+from allauth.account.views import EmailView, RequestLoginCodeView
 from django.contrib import admin
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
@@ -11,19 +11,13 @@ from plfog.admin_views import (
     member_aliases_remove,
     member_aliases_set_primary,
     member_aliases_toggle_verified,
-    snapshot_delete,
-    snapshot_detail,
-    snapshot_draft,
-    snapshot_take,
+    site_announcement,
 )
 
 # Custom admin URLs must be before admin.site.urls
 admin_custom_urls = [
     path("admin/membership/member/invite/", invite_member, name="admin_invite_member"),
-    path("admin/snapshots/draft/", snapshot_draft, name="admin_snapshot_draft"),
-    path("admin/snapshots/take/", snapshot_take, name="admin_snapshot_take"),
-    path("admin/snapshots/<int:pk>/", snapshot_detail, name="admin_snapshot_detail"),
-    path("admin/snapshots/<int:pk>/delete/", snapshot_delete, name="admin_snapshot_delete"),
+    path("admin/announcement/", site_announcement, name="admin_site_announcement"),
     path(
         "admin/members/<int:pk>/aliases/",
         member_aliases,
@@ -68,10 +62,29 @@ class HubEmailView(EmailView):
         return redirect("/settings/?tab=emails")
 
 
+class SeededRequestLoginCodeView(RequestLoginCodeView):
+    """Override allauth's request-login-code view to honor ``?email=`` prefill.
+
+    allauth's :class:`~allauth.account.views.RequestLoginCodeView` has no
+    ``get_initial``, so the ``?email=`` query string the "Send login invite" email
+    points at is otherwise ignored. Seeding the initial here makes the first-time
+    sign-in seamless: the member lands on the page with their address already filled
+    and just requests a code.
+    """
+
+    def get_initial(self) -> dict[str, object]:
+        initial = super().get_initial()
+        email = self.request.GET.get("email", "")
+        if email:
+            initial["email"] = email
+        return initial
+
+
 urlpatterns = admin_custom_urls + [
     path("admin/", admin.site.urls),
-    # Must precede the allauth include so our override wins URL resolution.
+    # Must precede the allauth include so our overrides win URL resolution.
     path("accounts/email/", HubEmailView.as_view(), name="account_email"),
+    path("accounts/login/code/", SeededRequestLoginCodeView.as_view(), name="account_request_login_code"),
     path("accounts/", include("allauth.urls")),
     path("billing/", include("billing.urls")),
     path("classes/", include("classes.urls")),

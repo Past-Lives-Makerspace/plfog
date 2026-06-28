@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from membership.models import VotePreference
+from membership.models import Member, VotePreference
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +42,18 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
     if not created:
         return
 
+    from membership.services.provisioning import is_provisioning
+
+    # FULL suppression (Review fix #3): while ``provision_user_for_member`` runs it
+    # OWNS the create → EmailAddress → migrate → link chain. This signal must be a
+    # complete no-op so a case/whitespace lookup miss here can't fall through to the
+    # create branch and mint a SECOND Member (a OneToOne collision on ``user``).
+    if is_provisioning():
+        return
+
     from core.allauth_state import is_in_allauth_signup
 
-    from .models import Member, MemberEmail, MembershipPlan
+    from .models import MemberEmail
 
     email = getattr(instance, "email", "") or ""
     if email:
@@ -77,7 +86,20 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
         except MemberEmail.DoesNotExist:
             pass
 
-    # No pre-existing member found; create one
+    _auto_create_member_for_user(instance)
+
+
+def _auto_create_member_for_user(instance: Any) -> None:
+    """Create a fresh Member for a User with no pre-existing match (signal helper).
+
+    Extracted from :func:`ensure_user_has_member` so the receiver stays under the
+    complexity limit. Early-returns (logging) when no MembershipPlan exists; warns
+    but proceeds when the user has no email (the emailless-account case).
+    """
+    from core.allauth_state import is_in_allauth_signup
+
+    from .models import MemberEmail, MembershipPlan
+
     try:
         plan = MembershipPlan.objects.order_by("pk").earliest("pk")
     except MembershipPlan.DoesNotExist:
@@ -88,16 +110,51 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
         return
 
     name = instance.get_full_name() or instance.username
+    member_email = instance.email or ""
+    if not member_email:
+        logger.warning(
+            "Creating Member for user %s (id=%s) with NO email — this account has no "
+            "usable email and will surface in Manage Members → 'Missing email'. "
+            "See the member-email-integrity spec.",
+            instance.username,
+            instance.pk,
+        )
     Member.objects.create(
         user=instance,
         full_legal_name=name,
-        _pre_signup_email=instance.email or "",
+        _pre_signup_email=member_email,
         membership_plan=plan,
         status=Member.Status.ACTIVE,
     )
     if not is_in_allauth_signup():
         MemberEmail.objects.migrate_to_user(instance)
     logger.info("Auto-created Member for user %s with plan '%s'.", instance.username, plan.name)
+
+
+@receiver(post_save, sender=Member)
+def auto_provision_member_user(sender: type, instance: Member, created: bool, **kwargs: Any) -> None:
+    """Going-forward invariant: a newly-created ACTIVE Member gets a linked User.
+
+    Fires only on the FIRST save of an ACTIVE member that has no user yet — the
+    common case being an Airtable import (``airtable_pull`` creates members via
+    ``Member.objects.create``). Provisioning is SILENT and idempotent.
+
+    Scope guards (Review fix #1): non-ACTIVE members (INVITED placeholders,
+    FORMER/SUSPENDED) are skipped — provisioning an INVITED stub would bypass
+    invite acceptance, and resurrecting a cancelled person is wrong. The link path
+    inside ``provision_user_for_member`` writes only ``user`` (never ``status``).
+
+    Recursion is impossible: ``provision_user_for_member`` re-saves the member with
+    ``update_fields=["user"]`` (``created=False`` → this handler returns early), and
+    the User it creates runs under the provisioning guard so ``ensure_user_has_member``
+    no-ops — so no new ACTIVE userless Member is ever created mid-provision.
+    """
+    if not created or instance.user_id is not None or instance.status != Member.Status.ACTIVE:
+        return
+
+    from membership.services.provisioning import provision_user_for_member
+
+    provision_user_for_member(instance)
 
 
 @receiver(post_save, sender=VotePreference)

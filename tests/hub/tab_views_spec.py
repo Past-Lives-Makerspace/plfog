@@ -10,10 +10,17 @@ from django.db.models.signals import post_save
 from django.test import Client
 
 from billing.models import TabCharge
+from core.models import SiteConfiguration
 from membership.signals import ensure_user_has_member
 from tests.billing.factories import TabChargeFactory, TabEntryFactory, TabFactory
 
 pytestmark = pytest.mark.django_db
+
+
+def _disable_tab_payments():
+    config = SiteConfiguration.load()
+    config.tab_payments_enabled = False
+    config.save()
 
 
 def describe_tab_detail():
@@ -30,6 +37,20 @@ def describe_tab_detail():
 
         assert response.status_code == 200
         assert response.context["tab"] is not None  # Tab created lazily
+
+    def it_redirects_to_the_dashboard_when_tab_payments_disabled(client: Client):
+        _disable_tab_payments()
+        User.objects.create_user(username="tab_off", password="pass")
+        client.login(username="tab_off", password="pass")
+
+        response = client.get("/tab/")
+
+        assert response.status_code == 302
+        assert response.url == "/"
+        from django.contrib.messages import get_messages
+
+        messages = [str(m) for m in get_messages(response.wsgi_request)]
+        assert "My Tab isn't available right now." in messages
 
     def it_handles_user_with_no_member_linked(client: Client):
         """When user has no Member, _get_member returns None → tab is None."""
@@ -125,6 +146,16 @@ def describe_tab_history():
 
         assert response.status_code == 200
         assert len(response.context["charges"]) == 0
+
+    def it_redirects_to_the_dashboard_when_tab_payments_disabled(client: Client):
+        _disable_tab_payments()
+        User.objects.create_user(username="hist_off", password="pass")
+        client.login(username="hist_off", password="pass")
+
+        response = client.get("/tab/history/")
+
+        assert response.status_code == 302
+        assert response.url == "/"
 
     def it_handles_user_with_no_member(client: Client):
         post_save.disconnect(ensure_user_has_member, sender=User)

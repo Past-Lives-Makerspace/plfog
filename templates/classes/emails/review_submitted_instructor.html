@@ -8,7 +8,7 @@
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#092E4C;border-radius:10px;overflow:hidden;">
     <tr><td style="padding:24px 28px 8px;">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.18em;color:#EEB44B;">In review</div>
-      <h1 style="font-family:'Lato',sans-serif;font-size:26px;font-weight:800;margin:8px 0 4px;color:#F4EFDD;">{{ offering.title }}</h1>
+      <h1 style="font-family:'Lato',sans-serif;font-size:26px;font-weight:800;margin:8px 0 4px;color:#F4EFDD;"><a href="{{ instructor_url }}" style="color:#F4EFDD;text-decoration:none;">{{ offering.title }}</a></h1>
     </td></tr>
     <tr><td style="padding:14px 28px;">
       <p style="margin:0 0 14px;color:#F4EFDD;font-size:15px;line-height:1.55;">
@@ -27,6 +27,7 @@
         </a>
       </p>
     </td></tr>
+    {% include "membership/emails/_footer.html" %}
   </table>
 </body>
 </html>

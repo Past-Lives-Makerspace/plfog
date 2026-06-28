@@ -49,32 +49,28 @@ def _editing_member(request: HttpRequest) -> Member | None:
 
 
 def can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
-    """True when this request may edit the guild: admin/officer, or the guild's lead."""
+    """True when this request may edit the guild: admin/officer, the lead, or any staff member."""
     if is_effective_staff(request):
         return True
     member = _editing_member(request)
-    return member is not None and guild.guild_lead_id == member.pk
+    return member is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member))
 
 
 def can_manage_orientations(request: HttpRequest, guild: Guild) -> bool:
     """True when this request may run the guild's orientations.
 
-    Editors (admin / officer / the guild's lead) always can; so can a member the
-    guild has designated as an orienter. Honors ``view_as`` preview mode like the
-    other helpers — an admin previewing as a member sees only what that viewer
-    would. Adding or removing orienters stays gated on ``can_edit_guild``.
+    Anyone who can edit the guild can run its orientations — that now includes every
+    staff member (orienters are a staff role). Honors ``view_as`` preview mode like the
+    other helpers, so an admin previewing as a member sees only what that viewer would.
     """
-    if can_edit_guild(request, guild):
-        return True
-    member = _editing_member(request)
-    return member is not None and guild.orienters.filter(pk=member.pk).exists()
+    return can_edit_guild(request, guild)
 
 
 def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:
     """True when this request may edit the class offering.
 
-    Editors are admins/officers, the lead of the class's category's guild (FK
-    only), or the class's own instructor.
+    Editors are admins/officers, the lead or any staff member of the class's category's
+    guild, or the class's own instructor.
     """
     if is_effective_staff(request):
         return True
@@ -82,7 +78,7 @@ def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:
     if member is None:
         return False
     guild = offering.category.guild
-    if guild is not None and guild.guild_lead_id == member.pk:
+    if guild is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member)):
         return True
     return offering.instructor_id == member.pk
 

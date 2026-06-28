@@ -1,6 +1,6 @@
 {% extends "classes/admin/base.html" %}
 {% block tab_content %}
-<h2>{% if mode == 'create' %}New Category{% else %}Edit: {{ category.name }}{% endif %}</h2>
+<h2>{% if mode == 'create' %}New Guild{% else %}Edit: {{ category.name }}{% endif %}</h2>
 <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
     {% for field in form %}

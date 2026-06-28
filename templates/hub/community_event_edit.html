@@ -1,0 +1,35 @@
+{% extends "hub/base.html" %}
+{% block title %}{% if event.pk %}Edit{% else %}Add{% endif %} event{% if guild %} · {{ guild.name }}{% endif %}{% endblock %}
+{% block content %}
+<div x-data="{}">
+  <p style="margin-bottom:0.75rem;">
+    <a href="{{ cancel_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back</a>
+  </p>
+  <h1 class="hub-page-title">{% if event.pk %}Edit event{% else %}Add event{% endif %}{% if guild %} · {{ guild.name }}{% endif %}</h1>
+
+  <form method="post" class="hub-form">
+    {% csrf_token %}
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Event details</h2>
+      {% if form.event_type %}{% include "components/form_field.html" with field=form.event_type %}{% endif %}
+      {% if form.guild %}{% include "components/form_field.html" with field=form.guild field_hint="Pick a guild for a guild event; leave blank for a site-wide event." %}{% endif %}
+      {% include "components/form_field.html" with field=form.title %}
+      {% include "components/form_field.html" with field=form.starts_at %}
+      {% include "components/form_field.html" with field=form.ends_at %}
+      {% include "components/form_field.html" with field=form.location field_hint="A room, address, or video link. Optional." %}
+      {% include "components/form_field.html" with field=form.description field_hint="Optional details for members." %}
+      {% include "components/form_field.html" with field=form.recurrence field_hint="A monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
+    </div>
+
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
+      Saving a new event posts an announcement to Discord and adds it to the Community Calendar. Editing an existing event won't re-announce it.
+    </p>
+
+    <div style="display:flex; gap:1rem;">
+      <button type="submit" class="pl-btn pl-btn--primary">Save event</button>
+      <a href="{{ cancel_url }}" class="pl-btn pl-btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

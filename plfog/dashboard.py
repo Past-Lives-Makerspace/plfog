@@ -8,9 +8,7 @@ from django.db.models import Count, Q
 from django.http import HttpRequest
 from django.utils import timezone
 
-from membership.models import FundingSnapshot, Guild, Member, VotePreference
-
-MINIMUM_FUNDING_POOL_FLOOR = 1000
+from membership.models import FundingSnapshot, Guild, Member, VotePreference, VotingSettings
 
 
 class GuildStanding(TypedDict, total=False):
@@ -31,8 +29,9 @@ def dashboard_callback(request: HttpRequest, context: dict) -> dict:
         member__member_type=Member.MemberType.STANDARD,
     ).count()
     active_guilds = Guild.objects.filter(is_active=True).count()
+    minimum_pool_floor = VotingSettings.load().minimum_pool_floor
     contributed_pool = paying_voters * 10
-    projected_pool = max(contributed_pool, MINIMUM_FUNDING_POOL_FLOOR)
+    projected_pool = max(contributed_pool, minimum_pool_floor)
     participation_pct = round(total_voters / active_members * 100) if active_members else 0
 
     # Current vote leaders — only votes from signed-up members count
@@ -79,8 +78,8 @@ def dashboard_callback(request: HttpRequest, context: dict) -> dict:
         "active_guilds": active_guilds,
         "contributed_pool": contributed_pool,
         "projected_pool": projected_pool,
-        "minimum_pool_floor": MINIMUM_FUNDING_POOL_FLOOR,
-        "floor_applied": contributed_pool < MINIMUM_FUNDING_POOL_FLOOR,
+        "minimum_pool_floor": minimum_pool_floor,
+        "floor_applied": contributed_pool < minimum_pool_floor,
         "participation_pct": participation_pct,
         "top_guilds": top_guilds,
         "last_snapshot": last_snapshot,

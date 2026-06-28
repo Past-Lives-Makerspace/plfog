@@ -3,7 +3,7 @@
 import pytest
 from django.test import RequestFactory
 
-from core.context_processors import app_version, google_analytics, registration_mode, surface
+from core.context_processors import app_version, feature_flags, google_analytics, registration_mode, surface
 from core.models import SiteConfiguration
 from plfog.version import CHANGELOG, VERSION
 
@@ -52,6 +52,35 @@ def describe_app_version():
         assert isinstance(result["changelog"], list)
         assert len(result["changelog"]) >= 1
         assert result["changelog"][0]["version"] == CHANGELOG[0]["version"]
+
+
+def describe_feature_flags():
+    def it_defaults_both_switches_on_with_the_note():
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = feature_flags(request)
+        assert result["tab_payments_enabled"] is True
+        assert result["class_registration_enabled"] is True
+        assert (
+            result["class_registration_disabled_note"]
+            == SiteConfiguration._meta.get_field("class_registration_disabled_note").default
+        )
+
+    def it_reflects_toggled_values():
+        config = SiteConfiguration.load()
+        config.tab_payments_enabled = False
+        config.class_registration_enabled = False
+        config.class_registration_disabled_note = "Call the studio."
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = feature_flags(request)
+        assert result == {
+            "tab_payments_enabled": False,
+            "class_registration_enabled": False,
+            "class_registration_disabled_note": "Call the studio.",
+        }
 
 
 def describe_google_analytics():

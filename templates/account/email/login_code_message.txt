@@ -7,7 +7,5 @@ Your login code for Past Lives Makerspace is:
 Enter this code in your browser to sign in. It expires in 5 minutes.
 
 If you didn't request this, you can safely ignore this email.
-
-Past Lives Makerspace
-Do It Together
+{% include "membership/emails/_footer.txt" %}
 {% endautoescape %}

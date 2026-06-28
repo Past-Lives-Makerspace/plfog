@@ -2,61 +2,66 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
-from classes.emails import send_reminder_email
-from classes.models import ClassSession, ClassSettings, Registration, RegistrationReminder
+from classes.emails import build_class_reminder_occurrence
+from classes.models import ClassSession, ClassSettings, Registration
+from core.events.scheduler import run_due
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from core.events.scheduler import ScheduledOccurrence
 
 
-def send_due_class_reminders(window_minutes: int = 15) -> int:
-    """Email confirmed registrants about sessions starting in ``reminder_hours_before``.
+def class_reminder_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
+    """Yield the class-reminder occurrences to consider this tick (a scheduler source).
 
-    Finds sessions whose ``starts_at - reminder_hours_before`` falls in the
-    last ``window_minutes``. Records a ``RegistrationReminder`` row per
-    (registration, session) so the same reminder never fires twice.
-
-    Returns the number of reminders sent.
+    Windows the query the proven way: select sessions starting in the band that
+    makes ``starts_at − reminder_hours_before`` land near ``now`` (the scheduler
+    then due-checks each against the 15-minute tick window), and pair each with its
+    CONFIRMED registrations. The scheduler fires the due ones via ``emit`` and
+    dedupes on :class:`core.models.EventDelivery` — so there is no longer a separate
+    ``RegistrationReminder`` guard (the per-(registration, session) ``period`` bucket
+    is the single dedupe authority now, design §2.5/§2.6).
     """
-    settings_obj = ClassSettings.load()
-    hours_before = settings_obj.reminder_hours_before or 24
-    now = timezone.now()
-    # Sessions starting within [now + hours_before, now + hours_before + window)
-    # — i.e. it's been at most `window_minutes` since we crossed the send threshold.
+    hours_before = ClassSettings.load().reminder_hours_before or 24
+    # Prefilter sessions to a generous band around the fire time; the scheduler's
+    # is_due() applies the exact half-open tick window. The band is [fire, fire+1h)
+    # in anchor space, comfortably covering any reasonable tick width.
     target_start = now + timedelta(hours=hours_before)
-    target_end = target_start + timedelta(minutes=window_minutes)
-
     sessions = ClassSession.objects.filter(
         starts_at__gte=target_start,
-        starts_at__lt=target_end,
+        starts_at__lt=target_start + timedelta(hours=1),
     ).select_related("class_offering")
-
-    sent = 0
     for session in sessions:
         registrations = Registration.objects.filter(
             class_offering=session.class_offering,
             status=Registration.Status.CONFIRMED,
         )
         for registration in registrations:
-            _, created = RegistrationReminder.objects.get_or_create(registration=registration, session=session)
-            if not created:
-                continue
-            send_reminder_email(registration, session)
-            user = (
-                registration.member.user
-                if (registration.member is not None and registration.member.user is not None)
-                else None
-            )
-            if user is not None:
-                from core import notifications
+            yield build_class_reminder_occurrence(registration, session, hours_before=hours_before)
 
-                notifications.dispatch(
-                    "class_reminder",
-                    [user],
-                    title="Class reminder",
-                    body=f"{session.class_offering.title} starts soon.",
-                    url="/classes/account/",
-                )
-            sent += 1
-    return sent
+
+def send_due_class_reminders(window_minutes: int = 15) -> int:
+    """Fire reminders for sessions whose ``starts_at − reminder_hours_before`` is due.
+
+    Now a thin driver over the generalized scheduler: it builds this tick's
+    occurrences (:func:`class_reminder_occurrences`) and hands them to
+    :func:`core.events.scheduler.run_due`, which due-checks each against the
+    ``window_minutes`` tick window and fires the due ones through ``emit`` (deduped
+    on :class:`core.models.EventDelivery`).
+
+    Returns the number of reminders actually delivered (a re-run within the same
+    window returns 0 — the EventDelivery rows dedupe it), preserving the old return
+    contract.
+    """
+    now = timezone.now()
+    return run_due(
+        class_reminder_occurrences(now),
+        now=now,
+        window=timedelta(minutes=window_minutes),
+    )

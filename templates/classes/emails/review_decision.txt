@@ -22,3 +22,4 @@ View public page:
 {% endif %}Open the class:
 {{ edit_url }}
 {% endif %}
+{% include "membership/emails/_footer.txt" %}

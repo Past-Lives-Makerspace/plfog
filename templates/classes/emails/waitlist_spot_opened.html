@@ -9,7 +9,7 @@
     <tr><td style="padding:24px 28px 8px;">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.18em;color:#EEB44B;">Spot opened</div>
       <h1 style="font-family:'Lato',sans-serif;font-size:26px;font-weight:800;margin:8px 0 4px;color:#F4EFDD;">A seat is yours if you want it</h1>
-      <div style="color:#96ACBB;font-size:14px;">{{ offering.title }}</div>
+      <div style="color:#96ACBB;font-size:14px;"><a href="{{ class_url }}" style="color:#EEB44B;text-decoration:none;">{{ offering.title }}</a></div>
     </td></tr>
     <tr><td style="padding:14px 28px;">
       <p style="margin:0 0 14px;color:#F4EFDD;font-size:16px;line-height:1.55;">
@@ -26,6 +26,7 @@
         <span style="color:#F4EFDD;word-break:break-all;">{{ register_url }}</span>
       </p>
     </td></tr>
+    {% include "membership/emails/_footer.html" %}
   </table>
 </body>
 </html>

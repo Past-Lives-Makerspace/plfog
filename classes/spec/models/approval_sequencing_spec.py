@@ -110,12 +110,16 @@ def describe_escalation_notifications():
         assert "Iris Smith" in note.body
         assert "Forge Guild" in note.body
 
-    def it_notifies_staff_on_guild_lead_approval(guilded_offering, guild_lead_user, admin_user):
+    def it_notifies_fog_admins_on_guild_lead_approval(guilded_offering, guild_lead_user, admin_user):
+        # The validation in-app now resolves to FOG_ADMINS (was is_staff) — admin_user
+        # is a fog admin, so they receive it. The copy names the guild lead by display
+        # name (unified with the email shell) rather than by username.
         (gl_row,) = guilded_offering.submit_for_review()
         gl_row.decide(ClassApproval.Decision.APPROVED, user=guild_lead_user)
         note = Notification.objects.get(user=admin_user, trigger="class_validation_requested")
         assert "Iris Smith" in note.body
-        assert guild_lead_user.get_username() in note.body
+        # The guild lead is named by display name (full legal name) in the unified copy.
+        assert "Lead Person" in note.body
 
 
 def describe_instructor_approved_notification():
@@ -147,6 +151,8 @@ def describe_instructor_approved_notification():
     def it_notifies_the_instructor_exactly_once_on_publication(
         offering_with_instructor_user, guild_lead_user, admin_user
     ):
+        from classes.emails import send_class_review_decision
+
         offering, instr_user = offering_with_instructor_user
         (gl_row,) = offering.submit_for_review()
         gl_row.decide(ClassApproval.Decision.APPROVED, user=guild_lead_user)
@@ -154,5 +160,10 @@ def describe_instructor_approved_notification():
         admin_row.class_offering = offering
         admin_row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
         offering.refresh_from_db()
+        admin_row.refresh_from_db()
         assert offering.status == ClassOffering.Status.PUBLISHED
+        # The "approved" bell row + the "live!" email now both fan out from the single
+        # ``instructor_class_approved`` event the view emits via send_class_review_decision
+        # after the publishing decision — exactly one bell row, even across the two gates.
+        send_class_review_decision(offering, admin_row)
         assert Notification.objects.filter(user=instr_user, trigger="instructor_class_approved").count() == 1

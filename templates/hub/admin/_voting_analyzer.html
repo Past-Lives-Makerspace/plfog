@@ -1,0 +1,211 @@
+{% comment %}
+Shared analyzer body for the stored (Funding History detail) and draft
+(Snapshots) modes. Renders the summary tiles, the filter form (GET, persisted
+across reloads), the per-guild allocation table, and the immutable per-member
+audit table. Expects the context produced by
+membership.vote_analyzer.build_analyzer_context (mode, is_legacy, calc,
+filtered_votes, filter_state, *_choices, paying_count, non_paying_count,
+total_count, minimum_pool, snapshot, any_filter_active, has_raw_votes).
+{% endcomment %}
+{% load static %}
+
+{% if is_legacy %}
+<div class="hub-card">
+  <p class="pl-vote-banner">
+    This snapshot was created before per-vote history was stored — showing the original stored
+    totals only. Filters and individual votes aren't available for it.
+  </p>
+</div>
+{% endif %}
+
+{# --- Summary --- #}
+<div class="hub-card">
+  <h2 class="pl-vote-section-title">Summary</h2>
+  <div class="pl-vote-summary">
+    <div class="pl-vote-summary__tile">
+      <div class="pl-vote-summary__label">Voters included</div>
+      {% if is_legacy %}
+        <div class="pl-vote-summary__value">{{ snapshot.contributor_count }}</div>
+        <div class="pl-vote-summary__hint">Stored contributor count</div>
+      {% else %}
+        <div class="pl-vote-summary__value">{{ total_count }}</div>
+        <div class="pl-vote-summary__hint">{{ paying_count }} paying / {{ non_paying_count }} non-paying</div>
+      {% endif %}
+    </div>
+    <div class="pl-vote-summary__tile">
+      <div class="pl-vote-summary__label">Contributed pool</div>
+      {% if is_legacy %}
+        <div class="pl-vote-summary__value">—</div>
+        <div class="pl-vote-summary__hint">Not stored on legacy snapshots</div>
+      {% else %}
+        <div class="pl-vote-summary__value">${{ calc.contributed_pool }}</div>
+        <div class="pl-vote-summary__hint">{{ paying_count }} × $10 from paying voters</div>
+      {% endif %}
+    </div>
+    <div class="pl-vote-summary__tile">
+      <div class="pl-vote-summary__label">Minimum floor</div>
+      <div class="pl-vote-summary__value">${{ minimum_pool|floatformat:'0' }}</div>
+    </div>
+    <div class="pl-vote-summary__tile">
+      <div class="pl-vote-summary__label">Total pool</div>
+      {% if is_legacy %}
+        <div class="pl-vote-summary__value">${{ snapshot.funding_pool }}</div>
+      {% else %}
+        <div class="pl-vote-summary__value">${{ calc.total_pool }}</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if not is_legacy %}
+{# --- Filters --- #}
+<div class="hub-card">
+  <h2 class="pl-vote-section-title">Filters</h2>
+  <form method="get">
+    {% if mode == 'draft' %}
+      {# Preserve the Take-form fields across filter submits. #}
+      <input type="hidden" name="title" value="{{ title_default }}">
+      <input type="hidden" name="minimum_pool" value="{{ minimum_pool|floatformat:'0' }}">
+    {% endif %}
+    <div class="pl-vote-filters">
+      <div>
+        <h3 class="pl-vote-filters__group-title">Member type</h3>
+        {% for value, label in member_type_choices %}
+        <label class="pl-vote-filters__row">
+          <input type="checkbox" name="member_type" value="{{ value }}"
+                 {% if value in filter_state.member_type %}checked{% endif %}>
+          {{ label }}
+        </label>
+        {% endfor %}
+      </div>
+      <div>
+        <h3 class="pl-vote-filters__group-title">FOG role</h3>
+        {% for value, label in fog_role_choices %}
+        <label class="pl-vote-filters__row">
+          <input type="checkbox" name="fog_role" value="{{ value }}"
+                 {% if value in filter_state.fog_role %}checked{% endif %}>
+          {{ label }}
+        </label>
+        {% endfor %}
+      </div>
+      <div>
+        <h3 class="pl-vote-filters__group-title">Guild role</h3>
+        <label class="pl-vote-filters__row">
+          <input type="checkbox" name="is_guild_lead" value="yes"
+                 {% if filter_state.is_guild_lead %}checked{% endif %}>
+          Guild leads only
+        </label>
+        <label class="pl-vote-filters__row">
+          <input type="checkbox" name="is_guild_staff" value="yes"
+                 {% if filter_state.is_guild_staff %}checked{% endif %}>
+          Guild staff only
+        </label>
+        {% if mode == 'stored' %}
+        <p class="pl-vote-filters__hint">Lead/staff tags weren't recorded on older snapshots.</p>
+        {% endif %}
+
+        <h3 class="pl-vote-filters__group-title" style="margin-top:1rem;">Paying</h3>
+        <label class="pl-vote-filters__row">
+          <input type="radio" name="is_paying" value="" {% if filter_state.is_paying == "" %}checked{% endif %}>
+          Both
+        </label>
+        <label class="pl-vote-filters__row">
+          <input type="radio" name="is_paying" value="yes" {% if filter_state.is_paying == "yes" %}checked{% endif %}>
+          Paying only
+        </label>
+        <label class="pl-vote-filters__row">
+          <input type="radio" name="is_paying" value="no" {% if filter_state.is_paying == "no" %}checked{% endif %}>
+          Non-paying only
+        </label>
+      </div>
+    </div>
+    <div class="pl-vote-filters__actions">
+      <button type="submit" class="hub-btn hub-btn--primary">Apply</button>
+      <a href="{% if mode == 'stored' %}{% url 'hub_admin_voting_history_detail' snapshot.pk %}{% else %}{% url 'hub_admin_voting_snapshots' %}{% endif %}"
+         class="hub-btn hub-btn--ghost">Clear filters</a>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+{# --- Per-guild allocation --- #}
+<div class="hub-card">
+  <h2 class="pl-vote-section-title">Per-guild allocation</h2>
+  {% if calc.results %}
+  <div class="pl-vote-table-scroll">
+    <table class="pl-vote-table">
+      <thead>
+        <tr>
+          <th>Guild</th>
+          <th class="num">1st</th>
+          <th class="num">2nd</th>
+          <th class="num">3rd</th>
+          <th class="num">Points</th>
+          <th class="num">Share %</th>
+          <th class="num">Funding</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in calc.results %}
+        <tr>
+          <td>{{ row.guild_name }}</td>
+          <td class="num">{{ row.votes_1st }}</td>
+          <td class="num">{{ row.votes_2nd }}</td>
+          <td class="num">{{ row.votes_3rd }}</td>
+          <td class="num">{{ row.total_points }}</td>
+          <td class="num">{{ row.share_pct }}%</td>
+          <td class="num">${{ row.funding }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif not is_legacy %}
+    {% include "hub/admin/_voting_empty.html" %}
+  {% endif %}
+</div>
+
+{% if not is_legacy %}
+{# --- Per-member audit (the immutable transparency record) --- #}
+<div class="hub-card">
+  <h2 class="pl-vote-section-title">Individual votes ({{ total_count }})</h2>
+  {% if filtered_votes %}
+  <div class="pl-vote-table-scroll">
+    <table class="pl-vote-table">
+      <thead>
+        <tr>
+          <th>Member</th>
+          <th>Member type</th>
+          <th>FOG role</th>
+          <th>Paying?</th>
+          <th>1st</th>
+          <th>2nd</th>
+          <th>3rd</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for vote in filtered_votes %}
+        <tr>
+          <td>{{ vote.member_name }}</td>
+          <td>{{ vote.member_type }}</td>
+          <td>{{ vote.fog_role }}</td>
+          <td>
+            {% if vote.is_paying %}
+              <span class="pl-vote-badge pl-vote-badge--paying">Paying</span>
+            {% else %}
+              <span class="pl-vote-badge">Non-paying</span>
+            {% endif %}
+          </td>
+          <td>{{ vote.guild_1st_name }}</td>
+          <td>{{ vote.guild_2nd_name }}</td>
+          <td>{{ vote.guild_3rd_name }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    {% include "hub/admin/_voting_empty.html" %}
+  {% endif %}
+</div>
+{% endif %}

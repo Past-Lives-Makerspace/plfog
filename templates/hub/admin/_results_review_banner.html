@@ -1,0 +1,22 @@
+{% comment %}
+The Overview "Results are in — review & send" banner for the most-recent snapshot
+whose member results are still pending. Renders nothing when none is pending. Shared
+by voting_overview.html (inside #results-review-region) and the send_results OOB
+refresh. Expects: pending_results_snapshot (FundingSnapshot or None).
+{% endcomment %}
+{% if pending_results_snapshot %}
+<div class="hub-card pl-results-banner">
+  <div class="pl-results-banner__text">
+    <h2 class="pl-results-banner__title">
+      Results are in for {{ pending_results_snapshot.cycle_label }} — review &amp; send.
+      {% if pending_results_snapshot.is_auto %}<span class="pl-vote-badge pl-vote-badge--auto">Auto</span>{% endif %}
+    </h2>
+    <p class="pl-results-banner__meta">${{ pending_results_snapshot.funding_pool }} pool</p>
+  </div>
+  <div class="pl-results-banner__actions">
+    <a href="{% url 'hub_admin_voting_history_detail' pending_results_snapshot.pk %}"
+       class="hub-btn hub-btn--ghost">Review numbers</a>
+    {% include "hub/admin/_results_send_control.html" with snapshot=pending_results_snapshot %}
+  </div>
+</div>
+{% endif %}

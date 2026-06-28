@@ -6,5 +6,9 @@ You're number {{ position }} in line for this class. If a spot opens,
 we'll email you a link to register. There's no charge to hold your
 spot on the waitlist.
 
+Full class details (what to bring, parking, and more):
+{{ class_url }}
+
 You can leave the waitlist any time from your self-serve page:
 {{ self_serve_url }}
+{% include "membership/emails/_footer.txt" %}

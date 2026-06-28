@@ -1,4 +1,12 @@
-"""Notify tenants 30 days before a lease end_date. Daily cron; idempotent per lease."""
+"""Notify tenants 30 days before a lease end_date. Daily cron; idempotent per lease.
+
+Runs on the event spine: one ``lease_expiring`` :func:`core.events.emit.emit` per due
+lease. Idempotency is the spine's :class:`core.models.EventDelivery` ledger — the
+``lease:<pk>:expiring`` period claims the slot so a re-run never double-notifies
+(replacing the old per-job ``ScheduledNotificationMarker`` dedupe). The
+``lease_tenant`` resolver finds the member tenant's linked user; a guild-tenant lease
+or a tenant with no usable account resolves to nobody and is skipped automatically.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +16,7 @@ from typing import Any
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core import notifications
-from core.models import ScheduledNotificationMarker
+from core.events.emit import emit
 from membership.models import Lease, Member
 
 
@@ -21,20 +28,19 @@ class Command(BaseCommand):
         leases = Lease.objects.filter(end_date=target)
         sent = 0
         for lease in leases:
-            key = f"lease_expiring:{lease.pk}"
-            _, created = ScheduledNotificationMarker.objects.get_or_create(key=key)
-            if not created:
-                continue
             tenant = lease.tenant
-            user = getattr(tenant, "user", None) if isinstance(tenant, Member) else None
-            if user is None:
+            member = tenant if isinstance(tenant, Member) else None
+            if member is None or member.user is None:
                 continue
-            notifications.dispatch(
+            result = emit(
                 "lease_expiring",
-                [user],
+                target=lease,
+                context={"member": member},
                 title="Your space lease is expiring",
                 body=f"Your lease for {lease.space} ends on {lease.end_date:%b %d, %Y}.",
                 url="/",
+                period=f"lease:{lease.pk}:expiring",
             )
-            sent += 1
+            if result.delivery_count:
+                sent += 1
         self.stdout.write(self.style.SUCCESS(f"Sent {sent} lease-expiry reminder(s)."))

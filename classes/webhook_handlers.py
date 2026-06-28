@@ -15,9 +15,9 @@ from django.db.models import F
 from django.utils import timezone
 
 from classes.emails import (
+    emit_instructor_new_registration,
     send_admin_registration_notification,
     send_class_welcome_email,
-    send_instructor_registration_notification,
     send_registration_confirmation,
 )
 from classes.models import DiscountCode, Registration
@@ -92,19 +92,11 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
 
     send_registration_confirmation(registration)
     send_class_welcome_email(registration)
-    send_instructor_registration_notification(registration)
-    _instructor = registration.class_offering.instructor
-    if _instructor is not None and _instructor.user is not None:
-        from core import notifications
-
-        notifications.dispatch(
-            "instructor_new_registration",
-            [_instructor.user],
-            title="New registration",
-            body=registration.class_offering.title,
-            url="/classes/teach/",
-        )
+    emit_instructor_new_registration(registration)
     send_admin_registration_notification(registration)
     from classes.services.mailchimp_subscribe import subscribe_registration
 
     subscribe_registration(registration)
+    from core.services.guest_account import ensure_account_for_registration
+
+    ensure_account_for_registration(registration)

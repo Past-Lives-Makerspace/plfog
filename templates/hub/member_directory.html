@@ -6,17 +6,43 @@
 <h1 class="hub-page-title">Member Directory</h1>
 <p class="hub-text-muted" style="margin-bottom: 1rem;">{{ members|length }} active member{{ members|length|pluralize }}.</p>
 
-{% if guilds %}
-<form method="get" style="margin-bottom:1.5rem;">
-    <label style="font-size:0.85rem; color:var(--hub-text-muted); margin-right:0.5rem;">Filter by guild:</label>
-    <select name="guild" onchange="this.form.submit()" style="background:var(--hub-card-bg,#0c2236);color:var(--hub-text,#f4efdd);border:1px solid var(--hub-border);border-radius:6px;padding:0.45rem 0.75rem;font-size:0.875rem;">
-        <option value="">All guilds</option>
-        {% for g in guilds %}
-        <option value="{{ g.pk }}"{% if g.pk|stringformat:'s' == guild_filter %} selected{% endif %}>{{ g.name }}</option>
-        {% endfor %}
-    </select>
+<form method="get" class="pl-directory-filters">
+    {% if guilds %}
+    <label class="pl-filter-field">
+        <span class="pl-filter-label">Guild</span>
+        <select name="guild" class="pl-filter-control" onchange="this.form.submit()">
+            <option value="">All guilds</option>
+            {% for g in guilds %}
+            <option value="{{ g.pk }}"{% if g.pk|stringformat:'s' == guild_filter %} selected{% endif %}>{{ g.name }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
+    <label class="pl-filter-field">
+        <span class="pl-filter-label">Skill</span>
+        <select name="skill" class="pl-filter-control" onchange="this.form.submit()">
+            <option value="">All skills</option>
+            {% for category in skill_categories %}
+            {% if category.skills.all %}
+            <optgroup label="{{ category.name }}">
+                {% for skill in category.skills.all %}
+                <option value="{{ skill.slug }}"{% if skill.slug == selected_skill %} selected{% endif %}>{{ skill.name }}</option>
+                {% endfor %}
+            </optgroup>
+            {% endif %}
+            {% endfor %}
+        </select>
+    </label>
+    <label class="pl-filter-field">
+        <span class="pl-filter-label">Search</span>
+        <input type="search" name="q" value="{{ query }}" placeholder="name or skill" class="pl-filter-control">
+    </label>
+    <label class="pl-filter-checkbox">
+        <input type="checkbox" name="commissions" value="1"{% if commissions_only %} checked{% endif %} onchange="this.form.submit()">
+        Open for commissions
+    </label>
+    <button type="submit" class="hub-btn hub-btn--sm">Apply</button>
 </form>
-{% endif %}
 
 {% if is_admin %}
 <div style="background:rgba(238,180,75,0.08);border:1px solid rgba(238,180,75,0.25);border-radius:8px;padding:0.75rem 1rem;margin-bottom:1.25rem;color:var(--hub-text);font-size:0.9375rem;display:flex;align-items:center;gap:0.625rem;">
@@ -133,6 +159,24 @@
             </span>
             {% endfor %}
         </div>
+        {% endif %}
+
+        {% if member|is_public:"skills" %}
+        {% with member_skills=member.approved_skills %}
+        {% if member_skills %}
+        <div class="pl-skill-chips">
+            {% for ms in member_skills %}
+            <span class="pl-skill-chip">{{ ms.skill.name }}{% if ms.years_experience is not None %}<span class="pl-skill-chip__years">{{ ms.years_experience }}y</span>{% endif %}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% if member.open_for_commissions %}
+        <div class="pl-commission">
+            <span class="pl-commission__badge">Open for commissions!</span>
+            {% if member.commission_note %}<p class="pl-commission__note">{{ member.commission_note }}</p>{% endif %}
+        </div>
+        {% endif %}
+        {% endwith %}
         {% endif %}
 
     </div>

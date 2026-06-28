@@ -15,6 +15,22 @@ def describe_admin_categories():
         assert response.status_code == 200
         assert b"Pottery" in response.content
 
+    def it_labels_the_tab_as_guilds(admin_user, client, db):
+        from classes.factories import CategoryFactory
+
+        client.force_login(admin_user)
+        CategoryFactory(name="Pottery")
+        response = client.get(reverse("classes:admin_categories"))
+        assert response.status_code == 200
+        assert b"+ New Guild" in response.content
+        assert b"Search guilds" in response.content
+
+    def it_shows_a_guild_empty_state_when_none_exist(admin_user, client, db):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_categories"))
+        assert response.status_code == 200
+        assert b"No guilds yet" in response.content
+
     def it_renders_the_create_form_on_get(admin_user, client, db):
         client.force_login(admin_user)
         response = client.get(reverse("classes:admin_category_create"))

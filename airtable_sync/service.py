@@ -211,6 +211,18 @@ def sync_vote_to_airtable(vote: VotePreference) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def delete_snapshot_from_airtable(record_id: str) -> None:
+    """Delete a FundingSnapshot record from the Airtable Voting Sessions table."""
+    if not _sync_enabled():
+        return
+    try:
+        table = get_table(VOTING_SESSIONS_TABLE_ID)
+        table.delete(record_id)
+        logger.info("Deleted Airtable FundingSnapshot %s", record_id)
+    except Exception:
+        logger.exception("Airtable delete failed for FundingSnapshot %s", record_id)
+
+
 def sync_snapshot_to_airtable(snapshot: FundingSnapshot) -> str | None:
     """Push a FundingSnapshot to Airtable Voting Sessions table."""
     if not _sync_enabled():

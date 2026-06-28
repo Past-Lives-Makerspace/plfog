@@ -1,0 +1,43 @@
+{% extends "hub/base.html" %}
+{% load static hub_tags %}
+
+{% block title %}Voting — Past Lives{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/voting-admin.css' %}">
+{% endblock %}
+
+{% block content %}
+<h1 class="hub-page-title">Voting</h1>
+
+{% include "hub/admin/_voting_tabs.html" %}
+
+<div x-data>
+  <div class="hub-card">
+    <div class="pl-vote-detail-head">
+      <h2 style="margin:0;">{{ snapshot.cycle_label }}</h2>
+      <p class="pl-vote-detail-meta">
+        Taken {{ snapshot.snapshot_at|date:"N j, Y, g:i a" }}
+        &middot; ${{ snapshot.funding_pool }} pool
+        &middot; {{ snapshot.contributor_count }} paying contributor{{ snapshot.contributor_count|pluralize }}
+        &middot; <span class="pl-vote-badge pl-vote-badge--manual">{{ snapshot.source_label }}</span>
+      </p>
+    </div>
+    <div class="pl-vote-detail-actions">
+      {% if snapshot.results_pending or snapshot.results_sent_at %}
+        {% include "hub/admin/_results_send_control.html" with snapshot=snapshot %}
+      {% endif %}
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+              @click="$dispatch('open-confirm', 'del-snapshot-{{ snapshot.pk }}')">Delete Snapshot</button>
+      <a href="{% url 'hub_admin_voting_history' %}" class="hub-btn hub-btn--ghost">Back to Funding History</a>
+    </div>
+  </div>
+
+  {% include "hub/admin/_voting_analyzer.html" %}
+
+  {% url 'hub_admin_voting_snapshot_delete' snapshot.pk as snapshot_delete_url %}
+  {% with pks=snapshot.pk|stringformat:"s" %}
+    {% include "components/confirm_modal.html" with confirm_id="del-snapshot-"|add:pks confirm_title="Delete this snapshot?" confirm_message="Delete the snapshot for “"|add:snapshot.cycle_label|add:"”? This also removes its Airtable mirror and cannot be undone." confirm_action_url=snapshot_delete_url confirm_button_text="Delete Snapshot" %}
+  {% endwith %}
+</div>
+{% endblock %}

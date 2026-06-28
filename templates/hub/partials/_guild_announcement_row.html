@@ -1,0 +1,25 @@
+{% comment %}
+One "Recent Announcements" row on the guild edit page.
+
+Shared by the announcements list (initial render) and the announcement-edit view, which
+re-renders this single row with `oob=True` to OOB-swap it back in after a successful edit.
+
+Params:
+  guild — the parent guild
+  a     — the GuildAnnouncement to render
+  oob   — when truthy, this is an out-of-band swap (sets hx-swap-oob on the row)
+{% endcomment %}
+<div id="announcement-row-{{ a.pk }}"{% if oob %} hx-swap-oob="true"{% endif %}
+     class="hub-card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem; padding:1rem; background:rgba(255,255,255,0.02);">
+  <div>
+    <strong>{{ a.title }}</strong>{% if not a.is_active %} <span class="hub-badge">Expired</span>{% endif %}
+    <div class="hub-text-muted" style="font-size:0.8125rem;">{{ a.published_at|date:"M j, Y" }}{% if a.expires_at %} · hides {{ a.expires_at|date:"M j, Y" }}{% endif %}</div>
+  </div>
+  <div style="display:flex; gap:0.5rem; flex-shrink:0;">
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" style="min-height:unset; padding:0.25rem 0.6rem;"
+            @click="$dispatch('open-modal', 'edit-ann-{{ a.pk }}')"
+            hx-get="{% url 'hub_guild_announcement_edit' guild.pk a.pk %}"
+            hx-target="#edit-ann-{{ a.pk }}-body" hx-swap="innerHTML">Edit</button>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'del-ann-{{ a.pk }}')" style="min-height:unset; padding:0.25rem 0.6rem;">Delete</button>
+  </div>
+</div>

@@ -1,0 +1,62 @@
+{% extends "hub/base.html" %}
+{% load static %}
+
+{% block title %}Notifications — Past Lives{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/notifications-catalogue.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="hub-card">
+  <h1 class="hub-page-title" style="margin:0 0 0.25rem;">Notifications</h1>
+  <p class="ntf-intro">
+    Every notification the makerspace can send, grouped by category. Each shows who receives it,
+    whether members can opt out, the channels it goes out on, and its Discord routing. Click a channel
+    to edit its wording with a live preview.
+  </p>
+
+  {% for category, events in groups %}
+    <div class="ntf-group" id="cat-{{ category|slugify }}">
+      <h2 class="ntf-group__heading">{{ category }}</h2>
+
+      {% for ev in events %}
+        <div class="ntf-event" id="{{ ev.event.key }}">
+          <div class="ntf-event__head">
+            <span class="ntf-event__title">{{ ev.event.label }}</span>
+            <span class="ntf-event__key">{{ ev.event.key }}</span>
+            {% if ev.is_locked %}
+              <span class="ntf-badge ntf-badge--locked" title="At least one channel is forced — members can't opt out.">Forced</span>
+            {% else %}
+              <span class="ntf-badge ntf-badge--optout" title="Members can opt out of every channel.">Opt-out-able</span>
+            {% endif %}
+          </div>
+          <p class="ntf-event__desc">{{ ev.event.description }}</p>
+          <p class="ntf-audience"><strong>Audience:</strong> {{ ev.audience }}</p>
+
+          <div class="ntf-channels">
+            {% for ch in ev.channels %}
+              <a class="ntf-chan {% if ch.is_forced %}ntf-chan--forced{% endif %}"
+                 href="{% url 'hub_admin_notification_edit' ev.event.key ch.channel.value %}"
+                 title="{{ ch.lock_label }}">
+                {{ ch.label }}
+                <span class="ntf-chan__lock">· {% if ch.is_forced %}forced{% else %}{% if ch.has_copy %}edited{% else %}default{% endif %}{% endif %}</span>
+              </a>
+            {% endfor %}
+          </div>
+
+          <div class="ntf-discord">
+            <span class="ntf-dot {% if ev.discord_webhook_configured %}ntf-dot--on{% else %}ntf-dot--off{% endif %}"></span>
+            <span class="ntf-discord__state">
+              Discord: {% if ev.discord_webhook_configured %}routed{% else %}not routed{% endif %}
+            </span>
+            <a class="hub-btn hub-btn--ghost hub-btn--sm" href="{% url 'hub_admin_notification_discord' ev.event.key %}">
+              Edit routing
+            </a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

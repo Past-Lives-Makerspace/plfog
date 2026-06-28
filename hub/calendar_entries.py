@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 # focusEvent() JS and the month_event_pages map keep working untouched.
 CLASS_PK_OFFSET = 1_000_000_000
 ORIENTATION_PK_OFFSET = 2_000_000_000
+EVENT_PK_OFFSET = 3_000_000_000
+_OCC_STRIDE = 100  # max occurrences per event per window (a few months of monthly « 100)
 
 
 @dataclass
@@ -96,4 +98,40 @@ def guild_calendar_entries(guild: Guild, fetch_from: date, fetch_to: date) -> li
             )
         )
 
+    return entries
+
+
+def community_event_entries(fetch_from: date, fetch_to: date, guild: Guild | None = None) -> list[CalendarEntry]:
+    """Build synthetic calendar entries for FOG-native ``CommunityEvent`` rows that
+    contribute an occurrence to ``[fetch_from, fetch_to]``.
+
+    A monthly series expands to one entry per in-window occurrence; a non-recurring
+    event yields a single entry. ``guild=None`` returns site-wide + every guild's
+    events (the Community Calendar); a guild returns just that guild's events.
+    """
+    from membership.models import CommunityEvent
+
+    qs = CommunityEvent.objects.candidates_for_window(fetch_from, fetch_to)
+    if guild is not None:
+        qs = qs.for_guild(guild)
+
+    entries: list[CalendarEntry] = []
+    for ev in qs.select_related("guild"):
+        duration = ev.ends_at - ev.starts_at
+        for i, occ_start in enumerate(ev.occurrences_in(fetch_from, fetch_to)):
+            entries.append(
+                CalendarEntry(
+                    # Unique synthetic pk per occurrence: base offset + ev.pk*stride + index.
+                    pk=EVENT_PK_OFFSET + ev.pk * _OCC_STRIDE + i,
+                    title=ev.title,
+                    start_dt=occ_start,
+                    end_dt=occ_start + duration,
+                    source="community",
+                    url=ev.absolute_url,
+                    location=ev.location,
+                    description=ev.description,
+                    all_day=False,
+                    guild=ev.guild,
+                )
+            )
     return entries

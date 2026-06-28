@@ -15,15 +15,23 @@ def describe_notifications_tab():
         client.login(username="m", password="pw12345!")
         client.post(
             reverse("hub_user_settings"),
-            {"form_id": "notifications", "push_class_published": "on", "email_tab_charged": "on"},
+            {
+                "form_id": "notifications",
+                "pref__class_published__push": "on",
+                "pref__tab_charged__email": "on",
+            },
         )
         user = User.objects.get(username="m")
-        assert NotificationPreference.objects.get(user=user, trigger="class_published").push_enabled is True
-        assert NotificationPreference.objects.get(user=user, trigger="tab_charged").email_enabled is True
+        assert (
+            NotificationPreference.objects.get(user=user, event_key="class_published", channel="push").enabled is True
+        )
+        assert NotificationPreference.objects.get(user=user, event_key="tab_charged", channel="email").enabled is True
 
     def it_clears_unchecked_toggles(client):
         user = User.objects.create_user(username="m2", email="m2@example.com", password="pw12345!")
-        NotificationPreference.objects.create(user=user, trigger="class_published", push_enabled=True)
+        NotificationPreference.objects.create(user=user, event_key="class_published", channel="push", enabled=True)
         client.login(username="m2", password="pw12345!")
         client.post(reverse("hub_user_settings"), {"form_id": "notifications"})  # nothing checked
-        assert NotificationPreference.objects.get(user=user, trigger="class_published").push_enabled is False
+        assert (
+            NotificationPreference.objects.get(user=user, event_key="class_published", channel="push").enabled is False
+        )

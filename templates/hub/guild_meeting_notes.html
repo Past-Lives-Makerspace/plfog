@@ -1,0 +1,46 @@
+{% extends "hub/base.html" %}
+{% block title %}Meeting Notes · {{ guild.name }}{% endblock %}
+{% block content %}
+<div x-data="{}">
+  <p style="margin-bottom:0.75rem;">
+    <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to {{ guild.name }}</a>
+  </p>
+  <h1 class="hub-page-title">Meeting Notes · {{ guild.name }}</h1>
+  <p class="hub-text-muted" style="margin-bottom:1.5rem;">
+    Post your meeting agendas and recaps so members can catch up — with a date, a write-up, and any files or links.
+  </p>
+
+  <div style="margin-bottom:1.5rem;">
+    <a href="{% url 'hub_guild_meeting_note_add' guild.pk %}" class="pl-btn pl-btn--primary">+ Add meeting notes</a>
+  </div>
+
+  <div class="hub-card" style="padding:1.5rem;">
+    {% if notes %}
+    <div style="display:flex; flex-direction:column; gap:1rem;">
+      {% for note in notes %}
+      {% with confirm_id=note.pk|stringformat:"s"|add:"-note-delete" %}
+      <div class="hub-card" style="padding:1rem; background:var(--hub-surface); display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+        <div style="flex:1; min-width:220px;">
+          <div style="font-weight:600;">{{ note.title }}</div>
+          <div class="hub-text-muted" style="font-size:0.8125rem;">
+            {{ note.meeting_date|date:"F j, Y" }}
+            {% with atts=note.attachments.all %} · {{ atts|length }} attachment{{ atts|length|pluralize }}{% endwith %}
+          </div>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <a href="{% url 'hub_guild_meeting_note_edit' guild.pk note.pk %}" class="hub-btn hub-btn--sm">Edit</a>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                  @click="$dispatch('open-confirm', '{{ confirm_id }}')">Delete</button>
+          {% url 'hub_guild_meeting_note_delete' guild.pk note.pk as delete_url %}
+          {% include "components/confirm_modal.html" with confirm_id=confirm_id confirm_title="Delete these meeting notes?" confirm_message="This removes these notes and all their attachments. This can't be undone." confirm_action_url=delete_url confirm_button_text="Delete notes" %}
+        </div>
+      </div>
+      {% endwith %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0;">No meeting notes yet. Add your first one.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

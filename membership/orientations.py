@@ -14,12 +14,11 @@ from typing import TYPE_CHECKING, Any
 import icalendar
 from django.conf import settings
 from django.core import signing
-from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 
-from core import email as core_email
-from core import notifications
+from core.events.emit import emit
+from core.events.senders import emit_with_email_shell
 from core.models import SiteActivity
 
 if TYPE_CHECKING:
@@ -122,26 +121,55 @@ def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
         "slot": booking.slot,
         "guild": booking.guild,
         "greeting_name": member.display_name,
-        "guild_url": _absolute_url(reverse("hub_guild_detail", args=[booking.guild_id])),
+        "guild_url": _absolute_url(reverse("hub_guild_detail", args=[booking.guild.slug])),
         "cancel_url": _action_url(booking, "cancel"),
         **extra,
     }
 
 
-def _send_member_email(
-    booking: OrientationBooking, *, subject: str, template: str, trigger_kind: str, ics: tuple[str, bytes, str] | None
+def _emit_member_email(
+    booking: OrientationBooking,
+    *,
+    action: str,
+    subject: str,
+    template: str,
+    ics: tuple[str, bytes, str] | None,
+    in_app_title: str = "",
+    in_app_body: str = "",
 ) -> None:
+    """Emit a member-facing orientation email (structural shell + optional ``.ics``).
+
+    The email body is the existing ``membership/emails/<template>.{txt,html}`` shell,
+    preserved verbatim; the ``.ics`` rides along as an attachment. The
+    ``TransactionalEmailLog`` audit label is the event key (``orientation_update``) — one
+    vocabulary, so the audit log joins to the event + its preferences (Phase 7). When
+    ``in_app_title`` is set the member also gets an ``orientation_update`` bell row
+    (confirm/decline/cancel); when it is empty (the request-received email) no in-app row
+    is created — the member context is suppressed so the resolver finds nobody and only
+    the explicit email goes out.
+
+    ``action`` buckets the idempotency window per booking + lifecycle step, so a booking's
+    request / confirm / decline / cancel emails are independent (each one sends once),
+    while a re-run of the SAME step is deduped — replacing the old "send every time".
+    """
     ctx = _context(booking)
-    text_body = render_to_string(f"membership/emails/{template}.txt", ctx)
-    html_body = render_to_string(f"membership/emails/{template}.html", ctx)
-    core_email.send(
-        to=booking.member.primary_email,
+    # Member in-app only fires for confirm/decline/cancel (in_app_title set). For the
+    # request-received email, suppress the in-app by giving the resolver no member.
+    resolver_context: dict[str, Any] = {"booking": booking} if in_app_title else {"member": None}
+    emit_with_email_shell(
+        "orientation_update",
+        target=booking,
+        context=resolver_context,
         subject=subject,
-        trigger_kind=trigger_kind,
-        text_body=text_body,
-        html_body=html_body,
-        best_effort=True,
+        text_template=f"membership/emails/{template}.txt",
+        html_template=f"membership/emails/{template}.html",
+        template_context=ctx,
+        in_app_title=in_app_title,
+        in_app_body=in_app_body,
+        url=reverse("hub_guild_detail", args=[booking.guild.slug]),
         attachments=[ics] if ics is not None else None,
+        email_to=booking.member.primary_email,
+        period=f"booking:{booking.pk}:{action}",
     )
 
 
@@ -149,129 +177,118 @@ def _ics(booking: OrientationBooking, *, method: str, status: str) -> tuple[str,
     return ("orientation.ics", build_ics(booking, method=method, status=status), "text/calendar")
 
 
-def _notify_member(booking: OrientationBooking, *, title: str, body: str) -> None:
-    user = booking.member.user
-    if user is not None:
-        notifications.dispatch(
-            "orientation_update",
-            [user],
-            title=title,
-            body=body,
-            url=reverse("hub_guild_detail", args=[booking.guild_id]),
-        )
-
-
 def request_orientation(slot: OrientationSlot, member: Member, *, note: str = "") -> OrientationBooking:
-    """Book a slot (REQUESTED) and fan out the request emails, activity, and lead notification.
+    """Book a slot (REQUESTED) and fan out the request emails, activity, and orienter notification.
 
     Raises:
         OrientationError: Propagated from ``slot.book`` when the slot can't be booked.
     """
     booking = slot.book(member, note=note)
-    _send_member_email(
+    _emit_member_email(
         booking,
+        action="request",
         subject=f"Orientation request received — {booking.guild.name}",
         template="orientation_request",
-        trigger_kind="orientations.request",
         ics=_ics(booking, method="REQUEST", status="TENTATIVE"),
     )
-    _send_lead_request_email(booking)
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_REQUESTED, actor=member.user, target=booking)
-    lead = booking.guild.guild_lead
-    if lead is not None and lead.user is not None:
-        notifications.dispatch(
-            "orientation_requested",
-            [lead.user],
-            title="New orientation request",
-            body=f"{member.display_name} requested an orientation for {booking.guild.name}.",
-            url=reverse("hub_orientation_respond", args=[booking.pk]),
-        )
+    _emit_lead_request(booking)
     return booking
 
 
-def _send_lead_request_email(booking: OrientationBooking) -> None:
-    lead = booking.guild.guild_lead
-    if lead is None:
-        return
+def _emit_lead_request(booking: OrientationBooking) -> None:
+    """Email lead + all staff the request, and in-app-notify ALL orienters (Decision 7).
+
+    Email recipients are the guild's whole leadership team (lead + staff), addressed as
+    explicit addresses so the email recipient set is byte-identical to today. The in-app
+    ``orientation_requested`` row now fans out to every orienter (the lead plus the
+    ORIENTER-role staff) via the ``guild_orienters`` resolver — fixing the lead-only
+    asymmetry the audit found. The activity row is logged by the caller.
+    """
+    recipients: list[str] = []
+    for member in booking.guild.leadership_members():
+        if member.primary_email and member.primary_email not in recipients:
+            recipients.append(member.primary_email)
     ctx = _context(
         booking,
         respond_url=_absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
         confirm_url=_action_url(booking, "confirm"),
         decline_url=_action_url(booking, "decline"),
     )
-    text_body = render_to_string("membership/emails/orientation_lead_request.txt", ctx)
-    html_body = render_to_string("membership/emails/orientation_lead_request.html", ctx)
-    core_email.send(
-        to=lead.primary_email,
+    emit_with_email_shell(
+        "orientation_requested",
+        context={"guild": booking.guild},
         subject=f"New orientation request — {booking.guild.name}",
-        trigger_kind="orientations.lead_request",
-        text_body=text_body,
-        html_body=html_body,
-        best_effort=True,
+        text_template="membership/emails/orientation_lead_request.txt",
+        html_template="membership/emails/orientation_lead_request.html",
+        template_context=ctx,
+        in_app_title="New orientation request",
+        in_app_body=f"{booking.member.display_name} requested an orientation for {booking.guild.name}.",
+        url=reverse("hub_orientation_respond", args=[booking.pk]),
+        email_to=recipients or None,
+        period=f"booking:{booking.pk}:request",
     )
 
 
 def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | None = None) -> None:
-    """Confirm a request: update state, email the member a CONFIRMED invite, log + notify."""
+    """Confirm a request: update state, email the member a CONFIRMED invite, log + notify.
+
+    ``oriented_by`` credits the actual runner (Decision 7). The view passes the acting
+    member; when omitted the booking model still defaults to the guild lead.
+    """
     booking.confirm(oriented_by=oriented_by)
-    _send_member_email(
-        booking,
-        subject=f"Orientation confirmed — {booking.guild.name}",
-        template="orientation_confirmed",
-        trigger_kind="orientations.confirmed",
-        ics=_ics(booking, method="REQUEST", status="CONFIRMED"),
-    )
     actor = booking.oriented_by.user if booking.oriented_by is not None else None
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_CONFIRMED, actor=actor, target=booking)
-    _notify_member(
+    _emit_member_email(
         booking,
-        title="Orientation confirmed",
-        body=f"Your orientation for {booking.guild.name} is confirmed.",
+        action="confirm",
+        subject=f"Orientation confirmed — {booking.guild.name}",
+        template="orientation_confirmed",
+        ics=_ics(booking, method="REQUEST", status="CONFIRMED"),
+        in_app_title="Orientation confirmed",
+        in_app_body=f"Your orientation for {booking.guild.name} is confirmed.",
     )
 
 
 def decline_orientation(booking: OrientationBooking, *, note: str = "") -> None:
     """Decline a request: update state, email the member, log + notify."""
     booking.decline(note=note)
-    _send_member_email(
+    SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, actor=None, target=booking)
+    _emit_member_email(
         booking,
+        action="decline",
         subject=f"About your orientation request — {booking.guild.name}",
         template="orientation_declined",
-        trigger_kind="orientations.declined",
         ics=None,
-    )
-    SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, actor=None, target=booking)
-    _notify_member(
-        booking,
-        title="Orientation not confirmed",
-        body=f"Your orientation request for {booking.guild.name} couldn't be confirmed.",
+        in_app_title="Orientation not confirmed",
+        in_app_body=f"Your orientation request for {booking.guild.name} couldn't be confirmed.",
     )
 
 
 def cancel_orientation(booking: OrientationBooking, *, actor_label: str) -> None:
-    """Cancel a booking: update state, email the member, notify the lead, log."""
+    """Cancel a booking: update state, email the member, notify the orienters, log."""
     booking.cancel()
-    _send_member_email(
+    SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, actor=None, target=booking)
+    _emit_member_email(
         booking,
+        action="cancel",
         subject=f"Orientation cancelled — {booking.guild.name}",
         template="orientation_cancelled",
-        trigger_kind="orientations.cancelled",
         ics=_ics(booking, method="CANCEL", status="CANCELLED"),
+        in_app_title="Orientation cancelled",
+        in_app_body=f"The orientation for {booking.guild.name} was cancelled.",
     )
-    SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, actor=None, target=booking)
-    lead = booking.guild.guild_lead
-    if lead is not None and lead.user is not None:
-        notifications.dispatch(
-            "orientation_requested",
-            [lead.user],
-            title="Orientation cancelled",
-            body=f"{actor_label} cancelled the orientation for {booking.guild.name}.",
-            url=reverse("hub_orientation_respond", args=[booking.pk]),
-        )
-    _notify_member(
-        booking,
+    # In-app ping to the orienters that a booking was cancelled (was lead-only; now
+    # fans out to all orienters via the guild_orienters resolver — Decision 7). The
+    # orientation_requested EMAIL channel defaults OFF (opt-in), so this matches the
+    # old dispatch (in-app always; generic email only for an opted-in orienter).
+    emit(
+        "orientation_requested",
+        context={"guild": booking.guild},
         title="Orientation cancelled",
-        body=f"The orientation for {booking.guild.name} was cancelled.",
+        body=f"{actor_label} cancelled the orientation for {booking.guild.name}.",
+        url=reverse("hub_orientation_respond", args=[booking.pk]),
+        period=f"booking:{booking.pk}:cancel",
     )
 
 
@@ -288,18 +305,23 @@ def complete_orientation(booking: OrientationBooking) -> None:
     from membership.models import GuildOrientationSettings
 
     booking.mark_completed()
+    SiteActivity.log(SiteActivity.Kind.ORIENTATION_COMPLETED, actor=None, target=booking)
     settings_obj = GuildOrientationSettings.objects.filter(guild=booking.guild).first()
     if settings_obj is not None and settings_obj.thankyou_email_ready:
         ctx = _context(booking, body=settings_obj.thankyou_email_body)
-        core_email.send(
-            to=booking.member.primary_email,
+        # Email-only thank-you (no in-app pair today) → suppress the in-app by giving the
+        # registrant resolver no member; the email goes to the explicit member address.
+        emit_with_email_shell(
+            "orientation_update",
+            target=booking,
+            context={"member": None},
             subject=settings_obj.thankyou_email_subject,
-            trigger_kind="orientations.thankyou",
-            text_body=render_to_string("membership/emails/orientation_thankyou.txt", ctx),
-            html_body=render_to_string("membership/emails/orientation_thankyou.html", ctx),
-            best_effort=True,
+            text_template="membership/emails/orientation_thankyou.txt",
+            html_template="membership/emails/orientation_thankyou.html",
+            template_context=ctx,
+            email_to=booking.member.primary_email,
+            period=f"booking:{booking.pk}:thankyou",
         )
-    SiteActivity.log(SiteActivity.Kind.ORIENTATION_COMPLETED, actor=None, target=booking)
 
 
 def auto_complete(*, now: datetime | None = None) -> int:
@@ -360,32 +382,39 @@ def generate_slots(*, guild: Guild | None = None, window_weeks: int = 8, now: da
 
 
 def member_joined_guild(guild: Guild, member: Member) -> None:
-    """Fan out when a member joins a guild: welcome email (if configured), lead notification, activity."""
+    """Fan out when a member joins a guild: welcome email (if configured), lead notification, activity.
+
+    One :func:`emit` handles all three: the ``GUILD_JOINED`` activity row, the lead-only
+    in-app ``guild_joined`` notification (resolver ``guild_lead`` — preserving the
+    lead-only audience), and — when the guild configured a welcome email — the welcome
+    email to the *member* via an explicit ``email_to`` (a different audience from the
+    in-app, addressed directly so it sends regardless of preferences, as today).
+    """
     from membership.models import GuildOrientationSettings
 
     settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
-    if settings_obj is not None and settings_obj.join_email_ready:
-        ctx = {
-            "guild": guild,
-            "greeting_name": member.display_name,
-            "body": settings_obj.join_email_body,
-            "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.pk])),
-        }
-        core_email.send(
-            to=member.primary_email,
-            subject=settings_obj.join_email_subject,
-            trigger_kind="guild.welcome",
-            text_body=render_to_string("membership/emails/guild_welcome.txt", ctx),
-            html_body=render_to_string("membership/emails/guild_welcome.html", ctx),
-            best_effort=True,
-        )
-    SiteActivity.log(SiteActivity.Kind.GUILD_JOINED, actor=member.user, target=guild)
-    lead = guild.guild_lead
-    if lead is not None and lead.user is not None:
-        notifications.dispatch(
-            "guild_joined",
-            [lead.user],
-            title="New guild member",
-            body=f"{member.display_name} joined {guild.name}.",
-            url=reverse("hub_guild_detail", args=[guild.pk]),
-        )
+    # A configured welcome email needs a settings row that is join_email_ready; bind it to
+    # a separate name so the type checker can narrow ``GuildOrientationSettings | None``.
+    welcome_settings = settings_obj if (settings_obj is not None and settings_obj.join_email_ready) else None
+    welcome_ready = welcome_settings is not None
+    template_context = {
+        "guild": guild,
+        "greeting_name": member.display_name,
+        "body": welcome_settings.join_email_body if welcome_settings is not None else "",
+        "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.slug])),
+    }
+    emit_with_email_shell(
+        "guild_joined",
+        actor=member.user,
+        target=guild,
+        context={"guild": guild},
+        subject=welcome_settings.join_email_subject if welcome_settings is not None else "",
+        text_template="membership/emails/guild_welcome.txt",
+        html_template="membership/emails/guild_welcome.html",
+        template_context=template_context,
+        in_app_title="New guild member",
+        in_app_body=f"{member.display_name} joined {guild.name}.",
+        url=reverse("hub_guild_detail", args=[guild.slug]),
+        email_to=member.primary_email if welcome_ready else None,
+        period=f"guild:{guild.pk}:join:{member.pk}",
+    )

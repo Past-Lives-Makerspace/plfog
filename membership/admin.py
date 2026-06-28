@@ -8,7 +8,7 @@ from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin, TabularInline
 
 from .forms import MemberAdminForm
-from .models import FundingSnapshot, Member, MemberEmail, VotePreference
+from .models import FundingSnapshot, Member, MemberEmail, MemberSkill, Skill, SkillCategory, VotePreference
 
 
 # ---------------------------------------------------------------------------
@@ -174,26 +174,23 @@ class MemberAdmin(ModelAdmin):
         ]
 
     def save_model(self, request: HttpRequest, obj: Member, form: MemberAdminForm, change: bool) -> None:
-        """Optionally create a User account when adding."""
-        create_user = form.cleaned_data["create_user"]
+        """Save the member, provisioning a linked User on add when appropriate.
 
-        if not change and create_user and obj._pre_signup_email:
-            from django.contrib.auth import get_user_model
+        A new ACTIVE member is auto-provisioned by the ``auto_provision_member_user``
+        signal (the "every member is a user" invariant). The "Create login immediately"
+        checkbox forces provisioning for a member the signal would skip (e.g. one added
+        in a non-ACTIVE status). ``provision_user_for_member`` is idempotent, so the two
+        paths never double-create a User.
+        """
+        super().save_model(request, obj, form, change)
 
-            UserModel = get_user_model()
+        if not change and form.cleaned_data["create_user"] and obj.user_id is None and obj._pre_signup_email:
+            from membership.services.provisioning import provision_user_for_member
 
-            # Save the member first (without a user)
-            super().save_model(request, obj, form, change)
-            # Create the user — the post_save signal will try to auto-link a member
-            user = UserModel.objects.create_user(username=obj._pre_signup_email, email=obj._pre_signup_email)
-            # Signal may have created a duplicate member or linked to wrong one.
-            # Delete any signal-created member and link ours.
-            Member.objects.filter(user=user).exclude(pk=obj.pk).delete()
-            obj.user = user
-            obj.save(update_fields=["user"])
+            provision_user_for_member(obj)
+
+        if obj.user_id is not None:
             obj.sync_user_permissions()
-        else:
-            super().save_model(request, obj, form, change)
 
     @admin.display(description="Email aliases")
     def email_aliases_link(self, obj: Member) -> str:
@@ -349,7 +346,7 @@ def _member_snapshot_rows(member_id: int) -> list[tuple]:
         )
         if match is None:
             continue
-        url = reverse("admin_snapshot_detail", args=[snap.pk])
+        url = reverse("hub_admin_voting_history_detail", args=[snap.pk])
         rows.append(
             (
                 url,
@@ -379,8 +376,39 @@ class FundingSnapshotAdmin(ModelAdmin):
         from django.urls import reverse
         from django.utils.html import format_html
 
-        url = reverse("admin_snapshot_detail", args=[obj.pk])
+        url = reverse("hub_admin_voting_history_detail", args=[obj.pk])
         return format_html('<a href="{}">Open analyzer →</a>', url)
+
+
+# ---------------------------------------------------------------------------
+# SkillAdmin — vocabulary curation + suggestion approval
+# ---------------------------------------------------------------------------
+
+
+@admin.register(Skill)
+class SkillAdmin(ModelAdmin):
+    list_display = ("name", "category", "status", "suggested_by")
+    list_filter = ("status", "category")
+    search_fields = ("name",)
+    actions = ["approve_skills"]
+
+    @admin.action(description="Approve selected skills")
+    def approve_skills(self, request: HttpRequest, queryset: QuerySet[Skill]) -> None:
+        queryset.update(status=Skill.Status.APPROVED)
+
+
+@admin.register(SkillCategory)
+class SkillCategoryAdmin(ModelAdmin):
+    list_display = ("name", "sort_order")
+    search_fields = ("name",)
+
+
+@admin.register(MemberSkill)
+class MemberSkillAdmin(ModelAdmin):
+    list_display = ("member", "skill", "years_experience")
+    list_filter = ("skill__category",)
+    search_fields = ("member__full_legal_name", "skill__name")
+    autocomplete_fields = ("member", "skill")
 
 
 # ---------------------------------------------------------------------------

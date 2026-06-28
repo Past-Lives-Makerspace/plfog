@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from hub.forms import EmailPreferencesForm, ProfileSettingsForm
+from hub.forms import ProfileSettingsForm, SiteAnnouncementForm
 from tests.membership.factories import MemberFactory
 
 
@@ -49,6 +49,8 @@ def describe_profile_settings_form():
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "open_for_commissions",
+            "commission_note",
             "instructor_website",
             "instructor_social_handle",
             "show_pronouns",
@@ -58,6 +60,7 @@ def describe_profile_settings_form():
             "show_other_contact_info",
             "show_about_me",
             "show_profile_photo",
+            "show_skills",
         ]
 
     def it_writes_visibility_flags_into_directory_visibility_json():
@@ -81,6 +84,7 @@ def describe_profile_settings_form():
             "other_contact_info": False,
             "about_me": False,
             "profile_photo": False,
+            "skills": False,
         }
         assert saved.is_public("phone") is True
         assert saved.is_public("about_me") is False
@@ -99,13 +103,16 @@ def describe_profile_settings_form():
         assert form.fields["show_pronouns"].initial is True
 
 
-def describe_email_preferences_form():
-    def it_accepts_checked_voting_results():
-        form = EmailPreferencesForm({"voting_results": "on"})
-        assert form.is_valid()
-        assert form.cleaned_data["voting_results"] is True
+def describe_site_announcement_form():
+    def it_sanitizes_the_body_and_strips_script():
+        form = SiteAnnouncementForm(
+            {"title": "Hi", "body": "<p>Hello there</p><script>evil()</script>", "post_to_discord": ""}
+        )
+        assert form.is_valid(), form.errors
+        assert "<script" not in form.cleaned_data["body"]
+        assert "Hello there" in form.cleaned_data["body"]
 
-    def it_accepts_unchecked_voting_results():
-        form = EmailPreferencesForm({})
-        assert form.is_valid()
-        assert form.cleaned_data["voting_results"] is False
+    def it_rejects_an_empty_quill_doc_as_a_missing_message():
+        form = SiteAnnouncementForm({"title": "Hi", "body": "<p><br></p>", "post_to_discord": ""})
+        assert not form.is_valid()
+        assert "body" in form.errors

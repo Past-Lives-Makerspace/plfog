@@ -3,26 +3,36 @@
 from __future__ import annotations
 
 from datetime import time
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.conf import settings
-from django.core.mail import send_mail
 from django.utils import timezone
+from django.utils.text import slugify
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
+from core.html_sanitize import sanitize_rich_html
 from core.models import CalendarFeed, SiteConfiguration
+from core.widgets import RichTextEditorWidget
 from membership.models import (
+    CommunityEvent,
     Guild,
     GuildAnnouncement,
     GuildFAQItem,
     GuildLink,
+    GuildMeetingNote,
+    GuildMeetingNoteAttachment,
     GuildOrientationSettings,
     Member,
+    MemberSkill,
     OrientationAvailability,
     OrientationSlot,
+    Skill,
+    SkillCategory,
+    VotingSettings,
 )
 
 
@@ -74,12 +84,15 @@ class GuildEditForm(forms.ModelForm):
             "meeting_schedule",
             "contact_email",
             "discord_url",
+            "discord_webhook_url",
+            "discord_post_enabled",
             "website_url",
             "show_members",
             "featured_class",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Guild name"}),
+            "discord_webhook_url": forms.URLInput(attrs={"placeholder": "https://discord.com/api/webhooks/..."}),
             "about": forms.Textarea(
                 attrs={"rows": 5, "placeholder": "Tell members what this guild is about..."},
             ),
@@ -107,7 +120,9 @@ class GuildEditForm(forms.ModelForm):
             "meeting_is_tba": "No meeting scheduled yet (show TBA)",
             "meeting_schedule": "Meeting notes",
             "contact_email": "Contact email",
-            "discord_url": "Discord channel URL",
+            "discord_url": "Discord channel link (shown to members)",
+            "discord_webhook_url": "Announcement webhook (auto-posts here — keep private)",
+            "discord_post_enabled": "Also post to our Discord",
             "website_url": "Website URL",
             "show_members": "Show members roster",
             "featured_class": "Featured class",
@@ -119,11 +134,40 @@ class GuildEditForm(forms.ModelForm):
                 "Leave blank if you don't use Google Calendar."
             ),
             "calendar_color": "Color used for your guild's events on the Community Calendar.",
+            "discord_url": "The public invite/link to your channel, shown as a button on your guild page.",
+            "discord_webhook_url": (
+                "A private Discord webhook for your channel. Don't paste your public invite link here. "
+                "Blank = nothing posts to your channel."
+            ),
         }
+
+    # Accepted Discord webhook hosts. A mis-pasted public invite link (or any other
+    # URL) is rejected here so a bad webhook surfaces at save time instead of failing
+    # silently later (the broadcast is best-effort — logged, never shown to the lead).
+    _WEBHOOK_PREFIXES = (
+        "https://discord.com/api/webhooks/",
+        "https://discordapp.com/api/webhooks/",
+    )
 
     def clean_meeting_cadence(self) -> str:
         # An omitted/blank cadence means "no regular meeting", not an empty string.
         return self.cleaned_data.get("meeting_cadence") or Guild.MeetingCadence.NONE
+
+    def clean_discord_webhook_url(self) -> str:
+        """Validate the webhook is a Discord webhook URL (or blank).
+
+        Blank is allowed (the guild simply posts nothing to its own channel). A
+        non-blank value must be a Discord webhook — not the public invite link that
+        belongs in the separate ``discord_url`` field — so a lead never publishes a
+        secret webhook on the public guild page or saves a URL that silently fails.
+        """
+        url = (self.cleaned_data.get("discord_webhook_url") or "").strip()
+        if url and not url.startswith(self._WEBHOOK_PREFIXES):
+            raise forms.ValidationError(
+                "That doesn't look like a Discord webhook. Paste the private webhook URL "
+                "(https://discord.com/api/webhooks/...), not your channel's public invite link."
+            )
+        return url
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -208,6 +252,8 @@ class ProfileSettingsForm(forms.ModelForm):
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "open_for_commissions",
+            "commission_note",
             "instructor_website",
             "instructor_social_handle",
         ]
@@ -217,6 +263,12 @@ class ProfileSettingsForm(forms.ModelForm):
             "discord_handle": forms.TextInput(attrs={"placeholder": "@username"}),
             "other_contact_info": forms.TextInput(attrs={"placeholder": "Instagram, Signal, etc."}),
             "about_me": forms.Textarea(attrs={"rows": 3, "placeholder": "Tell other members a bit about yourself..."}),
+            "commission_note": forms.Textarea(
+                attrs={
+                    "rows": 2,
+                    "placeholder": "e.g. Small custom woodworking, websites, AI consulting — happy to chat!",
+                }
+            ),
             "instructor_social_handle": forms.TextInput(attrs={"placeholder": "@handle"}),
         }
         labels = {
@@ -225,6 +277,8 @@ class ProfileSettingsForm(forms.ModelForm):
             "other_contact_info": "Other contact info",
             "about_me": "About me",
             "profile_photo": "Profile photo",
+            "open_for_commissions": "Open for commissions",
+            "commission_note": "What kind of work do you welcome?",
             "instructor_website": "Website",
             "instructor_social_handle": "Social handle",
         }
@@ -235,10 +289,62 @@ class ProfileSettingsForm(forms.ModelForm):
         }
 
 
-class EmailPreferencesForm(forms.Form):
-    """Form for email notification preferences."""
+class MemberSkillForm(forms.Form):
+    """Add a single skill to a member's profile, with optional years of experience."""
 
-    voting_results = forms.BooleanField(required=False, label="Voting Result Emails")
+    skill = forms.ModelChoiceField(queryset=Skill.objects.none())
+    years_experience = forms.IntegerField(required=False, min_value=0, max_value=99)
+
+    def __init__(self, *args: Any, member: Member, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.member = member
+        self.fields["skill"].queryset = Skill.objects.filter(status=Skill.Status.APPROVED)  # type: ignore[attr-defined]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        skill = cleaned.get("skill")
+        if skill and self.member.skills.filter(skill=skill).exists():
+            raise forms.ValidationError("You've already listed that skill.")
+        if self.member.skills.count() >= Member.MAX_SKILLS:
+            raise forms.ValidationError(f"You can list up to {Member.MAX_SKILLS} skills.")
+        return cleaned
+
+    def save(self) -> MemberSkill:
+        return MemberSkill.objects.create(
+            member=self.member,
+            skill=self.cleaned_data["skill"],
+            years_experience=self.cleaned_data.get("years_experience"),
+        )
+
+
+class SkillSuggestionForm(forms.Form):
+    """Suggest a new skill not yet in the vocabulary; created pending admin approval."""
+
+    name = forms.CharField(max_length=80)
+
+    def __init__(self, *args: Any, member: Member, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.member = member
+
+    def clean_name(self) -> str:
+        name = self.cleaned_data["name"].strip()
+        if Skill.objects.filter(name__iexact=name).exists():
+            raise forms.ValidationError("That skill already exists — pick it from the list instead.")
+        return name
+
+    def save(self) -> MemberSkill:
+        name = self.cleaned_data["name"]
+        category, _ = SkillCategory.objects.get_or_create(
+            slug="suggested", defaults={"name": "Suggested", "sort_order": 999}
+        )
+        skill = Skill.objects.create(
+            name=name,
+            slug=slugify(name),
+            category=category,
+            status=Skill.Status.PENDING,
+            suggested_by=self.member,
+        )
+        return MemberSkill.objects.create(member=self.member, skill=skill)
 
 
 class BetaFeedbackForm(forms.Form):
@@ -257,7 +363,15 @@ class BetaFeedbackForm(forms.Form):
     )
 
     def send(self, *, user: User) -> None:
-        """Send the feedback email to the configured recipients."""
+        """Send the feedback email to the configured recipients.
+
+        Routes through the ``core.email.send`` choke-point (Decision 8) so the
+        send is audited in ``TransactionalEmailLog`` instead of bypassing it via
+        Django's ``send_mail``. Best-effort: a failed feedback email is logged but
+        must not 500 the feedback page.
+        """
+        from core.email import send as send_email
+
         category_label = dict(self.CATEGORY_CHOICES)[self.cleaned_data["category"]]
         subject = f"[Beta {category_label}] {self.cleaned_data['subject']}"
         body = (
@@ -265,11 +379,12 @@ class BetaFeedbackForm(forms.Form):
             f"Category: {category_label}\n\n"
             f"{self.cleaned_data['message']}"
         )
-        send_mail(
+        send_email(
+            to=list(settings.BETA_FEEDBACK_EMAILS),
             subject=subject,
-            message=body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=settings.BETA_FEEDBACK_EMAILS,
+            trigger_kind="hub.beta_feedback",
+            text_body=body,
+            best_effort=True,
         )
 
 
@@ -344,9 +459,13 @@ class SiteSettingsForm(forms.ModelForm):
             "mailchimp_api_key",
             "mailchimp_list_id",
             "google_analytics_measurement_id",
+            "tab_payments_enabled",
+            "class_registration_enabled",
+            "class_registration_disabled_note",
         ]
         widgets = {
             "classes_calendar_color": forms.TextInput(attrs={"type": "color"}),
+            "class_registration_disabled_note": forms.Textarea(attrs={"rows": 3}),
         }
 
 
@@ -406,18 +525,49 @@ class VotePreferenceForm(forms.Form):
 
 
 class GuildFAQItemForm(forms.ModelForm):
-    """A single FAQ question/answer row on the guild edit page."""
+    """A single FAQ question/answer row on the guild edit page.
+
+    Beyond the text answer, a row may add a YouTube embed and at most one document
+    (an uploaded file OR a link). The XOR guard mirrors ``GuildMeetingNoteAttachmentForm``.
+    """
 
     class Meta:
         model = GuildFAQItem
-        fields = ["question", "answer", "sort_order"]
+        fields = ["question", "answer", "video_url", "document", "document_url", "sort_order"]
         widgets = {
             "answer": forms.Textarea(attrs={"rows": 3}),
+            "video_url": forms.URLInput(attrs={"placeholder": "https://youtube.com/watch?v=…"}),
+            "document_url": forms.URLInput(attrs={"placeholder": "https://docs.google.com/…"}),
             "sort_order": forms.HiddenInput(),
         }
+        labels = {
+            "video_url": "Video (YouTube)",
+            "document": "Document (upload)",
+            "document_url": "…or document link",
+        }
+
+    def clean_video_url(self) -> str:
+        """Accept only a YouTube URL (or blank) so the answer can embed it."""
+        from classes.templatetags.classes_tags import youtube_embed_id
+
+        url = (self.cleaned_data.get("video_url") or "").strip()
+        if url and not youtube_embed_id(url):
+            raise forms.ValidationError(
+                "Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…"
+            )
+        return url
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        # Rows flagged for deletion skip the check — mirrors the meeting-note form.
+        if cleaned.get("DELETE"):
+            return cleaned
+        if cleaned.get("document") and cleaned.get("document_url"):
+            raise forms.ValidationError("Add a document OR a link for this answer, not both.")
+        return cleaned
 
 
-GuildFAQItemFormSet = forms.inlineformset_factory(Guild, GuildFAQItem, form=GuildFAQItemForm, extra=1, can_delete=True)
+GuildFAQItemFormSet = forms.inlineformset_factory(Guild, GuildFAQItem, form=GuildFAQItemForm, extra=0, can_delete=True)
 
 
 class GuildLinkForm(forms.ModelForm):
@@ -429,7 +579,48 @@ class GuildLinkForm(forms.ModelForm):
         widgets = {"sort_order": forms.HiddenInput()}
 
 
-GuildLinkFormSet = forms.inlineformset_factory(Guild, GuildLink, form=GuildLinkForm, extra=1, can_delete=True)
+GuildLinkFormSet = forms.inlineformset_factory(Guild, GuildLink, form=GuildLinkForm, extra=0, can_delete=True)
+
+
+class GuildMeetingNoteForm(forms.ModelForm):
+    """The note's own fields (date, title, Markdown body). ``guild``/``created_by`` set in the view."""
+
+    class Meta:
+        model = GuildMeetingNote
+        fields = ["meeting_date", "title", "body"]
+        widgets = {
+            "meeting_date": forms.DateInput(attrs={"type": "date"}),
+            "body": forms.Textarea(attrs={"rows": 6}),
+        }
+
+
+class GuildMeetingNoteAttachmentForm(forms.ModelForm):
+    """A single attachment row — exactly one of file / url, enforced here (the user-facing guard)."""
+
+    class Meta:
+        model = GuildMeetingNoteAttachment
+        fields = ["label", "file", "url", "sort_order"]
+        widgets = {"sort_order": forms.HiddenInput()}
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        # Rows flagged for deletion skip the check — mirrors OrientationAvailabilityForm.
+        if cleaned.get("DELETE"):
+            return cleaned
+        has_file = bool(cleaned.get("file"))
+        has_url = bool(cleaned.get("url"))
+        if has_file == has_url:  # both empty or both filled
+            raise forms.ValidationError("Each attachment needs exactly one of: an uploaded file OR a link.")
+        return cleaned
+
+
+GuildMeetingNoteAttachmentFormSet = forms.inlineformset_factory(
+    GuildMeetingNote,
+    GuildMeetingNoteAttachment,
+    form=GuildMeetingNoteAttachmentForm,
+    extra=0,
+    can_delete=True,
+)
 
 
 class GuildOrientationSettingsForm(forms.ModelForm):
@@ -460,8 +651,8 @@ class GuildOrientationSettingsForm(forms.ModelForm):
         widgets = {
             "info": forms.Textarea(attrs={"rows": 4}),
             "closed_message": forms.TextInput(attrs={"placeholder": "On vacation till Sept 8"}),
-            "thankyou_email_body": forms.Textarea(attrs={"rows": 6}),
-            "join_email_body": forms.Textarea(attrs={"rows": 6}),
+            "thankyou_email_body": RichTextEditorWidget(attrs={"rows": 6}),
+            "join_email_body": RichTextEditorWidget(attrs={"rows": 6}),
         }
         labels = {
             "is_enabled": "Offer orientation booking on this guild's page",
@@ -479,6 +670,12 @@ class GuildOrientationSettingsForm(forms.ModelForm):
             "join_email_subject": "Welcome subject",
             "join_email_body": "Welcome message",
         }
+
+    def clean_thankyou_email_body(self) -> str:
+        return sanitize_rich_html(self.cleaned_data.get("thankyou_email_body") or "")
+
+    def clean_join_email_body(self) -> str:
+        return sanitize_rich_html(self.cleaned_data.get("join_email_body") or "")
 
     def _require_subject_and_body(self, cleaned: dict[str, Any], prefix: str, label: str) -> None:
         if cleaned.get(f"{prefix}_enabled"):
@@ -562,6 +759,57 @@ class OrientationSlotForm(forms.ModelForm):
         return cleaned
 
 
+class CommunityEventForm(forms.ModelForm):
+    """Add/edit a FOG-native community event.
+
+    One form serves both surfaces: a guild lead (``as_admin=False``) authors their
+    guild's events (``event_type``/``guild`` are implied by context and removed from the
+    form), while an admin (``as_admin=True``) authors site-wide events and picks the
+    type/guild. The datetime widgets are copied from :class:`OrientationSlotForm`.
+    """
+
+    class Meta:
+        model = CommunityEvent
+        fields = ["event_type", "guild", "title", "starts_at", "ends_at", "location", "description", "recurrence"]
+        widgets = {
+            "starts_at": forms.DateTimeInput(
+                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
+            ),
+            "ends_at": forms.DateTimeInput(
+                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
+            ),
+            "description": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args: Any, guild: Guild | None = None, as_admin: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for name in ("starts_at", "ends_at"):
+            cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
+        self._as_admin = as_admin
+        self._fixed_guild = guild
+        if not as_admin:
+            del self.fields["event_type"]
+            del self.fields["guild"]
+        else:
+            self.fields["guild"].required = False
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        starts = cleaned.get("starts_at")
+        ends = cleaned.get("ends_at")
+        if starts and ends and ends <= starts:
+            self.add_error("ends_at", "End time must be after the start.")
+        if self._as_admin:
+            etype = cleaned.get("event_type")
+            guild = cleaned.get("guild")
+            if etype == CommunityEvent.EventType.GUILD_MEETING and guild is None:
+                self.add_error("guild", "Pick a guild for a guild event.")
+            site_wide = {CommunityEvent.EventType.LEAD_MEETING, CommunityEvent.EventType.COMMUNITY}
+            if etype in site_wide and guild is not None:
+                self.add_error("guild", "Leave the guild blank for a site-wide event.")
+        return cleaned
+
+
 class OrientationCustomRequestForm(forms.Form):
     """A member proposing their own orientation time when no posted slot works."""
 
@@ -596,13 +844,17 @@ class OrientationAddMemberForm(forms.Form):
             cast(forms.ModelChoiceField, self.fields["slot"]).queryset = slot_queryset
 
 
-class OrientationOrienterAddForm(forms.Form):
-    """Lead/admin designates a member as an orienter for a guild."""
+class GuildStaffAddForm(forms.Form):
+    """Lead/admin/staff assigns a member a guild staff role (co-lead, secretary, treasurer, orienter)."""
 
     member = forms.ModelChoiceField(queryset=Member.objects.none(), label="Member")
+    role = forms.ChoiceField(choices=[], label="Role")
 
     def __init__(self, *args: Any, member_queryset: Any = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        from membership.models import GuildStaffMembership
+
+        cast(forms.ChoiceField, self.fields["role"]).choices = GuildStaffMembership.Role.choices
         if member_queryset is not None:
             cast(forms.ModelChoiceField, self.fields["member"]).queryset = member_queryset
 
@@ -622,7 +874,62 @@ class GuildAnnouncementForm(forms.ModelForm):
 
 
 class SiteAnnouncementForm(forms.Form):
-    """Admin form to broadcast a site-wide announcement to all members."""
+    """Admin form to broadcast a site-wide announcement to activated members.
 
-    title = forms.CharField(max_length=300, label="Title")
-    body = forms.CharField(widget=forms.Textarea(attrs={"rows": 4}), label="Message")
+    Drives the Site Settings → Announcements composer (preview-then-send). ``body``
+    accepts simple HTML (paragraphs / links) — it rides into the branded email shell.
+    """
+
+    title = forms.CharField(max_length=300, label="Subject")
+    body = forms.CharField(
+        widget=RichTextEditorWidget(attrs={"rows": 10}),
+        label="Message",
+        help_text="Use the toolbar to format — bold, headings, lists, and links. The formatted version "
+        "goes out by email; the bell and Discord get a plain-text version.",
+    )
+    post_to_discord = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Also post to Discord",
+        help_text="Leave on for normal announcements. Turn OFF when sending the release notes — "
+        "the release is already posted to Discord automatically when the code goes live.",
+    )
+
+    def clean_body(self) -> str:
+        body = sanitize_rich_html(self.cleaned_data["body"])
+        if not body:
+            raise forms.ValidationError("Add a message before sending.")
+        return body
+
+
+class VotingSettingsForm(forms.ModelForm):
+    """Admin form for the VotingSettings singleton (the Voting → Settings tab)."""
+
+    class Meta:
+        model = VotingSettings
+        fields = [
+            "reminder_lead_days",
+            "minimum_pool_floor",
+            "reminders_enabled",
+            "send_vote_soon_enabled",
+            "auto_snapshot_enabled",
+        ]
+        labels = {
+            "reminder_lead_days": "Reminder lead time (days)",
+            "minimum_pool_floor": "Minimum pool floor ($)",
+            "reminders_enabled": "Send 'Polls closing soon!' reminders",
+            "send_vote_soon_enabled": "Send 'Vote soon!' nudges",
+            "auto_snapshot_enabled": "Auto-take the cycle-end snapshot",
+        }
+
+    def clean_reminder_lead_days(self) -> int:
+        days = self.cleaned_data["reminder_lead_days"]
+        if days < 1:
+            raise forms.ValidationError("Send the reminder at least 1 day before close.")
+        return days
+
+    def clean_minimum_pool_floor(self) -> Decimal:
+        floor = self.cleaned_data["minimum_pool_floor"]
+        if floor < 0:
+            raise forms.ValidationError("The pool floor can't be negative.")
+        return floor

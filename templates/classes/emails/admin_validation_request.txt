@@ -14,3 +14,4 @@ Open the review page:
 
 You're getting this because your address is configured as a class
 reviewer at Past Lives Makerspace.
+{% include "membership/emails/_footer.txt" %}

@@ -208,3 +208,31 @@ def describe_RegistrationForm():
             user = get_user_model().objects.create_user(username="noprofile", email="np@example.com", password="x")
             form = _build_form(user=user)
             assert "wants_newsletter" in form.fields
+
+    def describe_create_account_checkbox_visibility():
+        def it_shows_checkbox_for_an_anonymous_user(db):
+            form = _build_form(user=None)
+            assert "create_account" in form.fields
+
+        def it_defaults_the_checkbox_to_checked_for_an_anonymous_user(db):
+            form = _build_form(user=None)
+            assert form.fields["create_account"].initial is True
+
+        def it_makes_the_checkbox_optional(db):
+            form = _build_form(user=None)
+            assert form.fields["create_account"].required is False
+
+        def it_hides_checkbox_for_an_authenticated_user(db):
+            from django.contrib.auth import get_user_model
+
+            user = get_user_model().objects.create_user(username="member", email="member@example.com", password="x")
+            form = _build_form(user=user)
+            assert "create_account" not in form.fields
+
+        def it_persists_create_account_on_save(offering, settings_obj):
+            data = _post_data(create_account="on")
+            form = RegistrationForm(data=data, offering=offering, settings_obj=settings_obj)
+            assert form.is_valid(), form.errors
+            registration = form.save()
+            registration.refresh_from_db()
+            assert registration.create_account is True

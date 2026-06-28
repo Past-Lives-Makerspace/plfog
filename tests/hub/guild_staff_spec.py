@@ -1,0 +1,194 @@
+"""BDD specs for the guild Staff tab — co-leads, secretaries, treasurers, orienters.
+
+Every staff role carries the same authority as the guild lead: staff can edit the
+guild page and its classes, run orientations, and receive the same emails. Staff are
+managed on the guild edit page's Staff tab. See ``GuildStaffMembership`` and
+``membership.permissions``.
+"""
+
+from __future__ import annotations
+
+import pytest
+from django.contrib.auth.models import User
+from django.test import Client
+from django.urls import reverse
+
+from membership.models import GuildStaffMembership, Member
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MembershipPlanFactory
+
+pytestmark = pytest.mark.django_db
+
+Role = GuildStaffMembership.Role
+
+
+def _member_user(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
+    MembershipPlanFactory()
+    user = User.objects.create_user(username=username, password="pass")
+    member = user.member
+    member.fog_role = fog_role
+    if not member.full_legal_name:
+        member.full_legal_name = username.title()
+    member.save()
+    member.sync_user_permissions()
+    return user
+
+
+def describe_staff_tab_on_guild_edit():
+    def it_shows_staff_context_and_add_form_to_a_lead(client: Client):
+        lead = _member_user("s_lead")
+        guild = GuildFactory(guild_lead=lead.member)
+        co = _member_user("s_co")
+        GuildStaffMembershipFactory(guild=guild, member=co.member, role=Role.CO_LEAD)
+        client.login(username="s_lead", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        groups = response.context["staff_by_role"]
+        assert groups[0][0] == "Co-Guild Lead"
+        assert groups[0][1][0].member_id == co.member.pk
+        assert reverse("hub_guild_staff_add", args=[guild.pk]).encode() in response.content
+
+    def it_excludes_the_lead_from_the_candidate_list(client: Client):
+        lead = _member_user("s_cand_lead")
+        guild = GuildFactory(guild_lead=lead.member)
+        fresh = _member_user("s_cand_fresh")
+        client.login(username="s_cand_lead", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        ids = set(response.context["staff_add_form"].fields["member"].queryset.values_list("pk", flat=True))
+        assert fresh.member.pk in ids
+        assert lead.member.pk not in ids
+
+
+def describe_guild_staff_add():
+    def it_lets_a_lead_add_a_staff_member(client: Client):
+        lead = _member_user("a_lead")
+        guild = GuildFactory(guild_lead=lead.member)
+        target = _member_user("a_target")
+        client.login(username="a_lead", password="pass")
+        response = client.post(
+            reverse("hub_guild_staff_add", args=[guild.pk]),
+            {"member": target.member.pk, "role": Role.TREASURER.value},
+        )
+        assert response.status_code == 302
+        assert guild.staff_memberships.filter(member=target.member, role=Role.TREASURER).exists()
+
+    def it_lets_a_staff_member_add_another_staff_member(client: Client):
+        guild = GuildFactory()
+        me = _member_user("a_staff")
+        GuildStaffMembershipFactory(guild=guild, member=me.member, role=Role.CO_LEAD)
+        target = _member_user("a_staff_target")
+        client.login(username="a_staff", password="pass")
+        response = client.post(
+            reverse("hub_guild_staff_add", args=[guild.pk]),
+            {"member": target.member.pk, "role": Role.SECRETARY.value},
+        )
+        assert response.status_code == 302
+        assert guild.staff_memberships.filter(member=target.member).exists()
+
+    def it_lets_an_admin_add_staff_to_a_leadless_guild(client: Client):
+        _member_user("a_admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(guild_lead=None)
+        target = _member_user("a_leadless_target")
+        client.login(username="a_admin", password="pass")
+        response = client.post(
+            reverse("hub_guild_staff_add", args=[guild.pk]),
+            {"member": target.member.pk, "role": Role.ORIENTER.value},
+        )
+        assert response.status_code == 302
+        assert guild.staff_memberships.filter(member=target.member).exists()
+
+    def it_forbids_an_unrelated_member(client: Client):
+        guild = GuildFactory()
+        _member_user("a_stranger")
+        target = _member_user("a_stranger_target")
+        client.login(username="a_stranger", password="pass")
+        response = client.post(
+            reverse("hub_guild_staff_add", args=[guild.pk]),
+            {"member": target.member.pk, "role": Role.CO_LEAD.value},
+        )
+        assert response.status_code == 403
+        assert not guild.staff_memberships.exists()
+
+    def it_is_idempotent_for_a_duplicate_role(client: Client):
+        lead = _member_user("a_dup_lead")
+        guild = GuildFactory(guild_lead=lead.member)
+        target = _member_user("a_dup_target")
+        GuildStaffMembershipFactory(guild=guild, member=target.member, role=Role.SECRETARY)
+        client.login(username="a_dup_lead", password="pass")
+        response = client.post(
+            reverse("hub_guild_staff_add", args=[guild.pk]),
+            {"member": target.member.pk, "role": Role.SECRETARY.value},
+        )
+        assert response.status_code == 302
+        assert guild.staff_memberships.filter(member=target.member, role=Role.SECRETARY).count() == 1
+
+    def it_rejects_an_invalid_submission_without_adding(client: Client):
+        lead = _member_user("a_inv")
+        guild = GuildFactory(guild_lead=lead.member)
+        client.login(username="a_inv", password="pass")
+        response = client.post(
+            reverse("hub_guild_staff_add", args=[guild.pk]),
+            {"member": "999999", "role": Role.CO_LEAD.value},
+        )
+        assert response.status_code == 302
+        assert guild.staff_memberships.count() == 0
+
+    def it_rejects_get(client: Client):
+        lead = _member_user("a_get")
+        guild = GuildFactory(guild_lead=lead.member)
+        client.login(username="a_get", password="pass")
+        assert client.get(reverse("hub_guild_staff_add", args=[guild.pk])).status_code == 405
+
+
+def describe_guild_staff_remove():
+    def it_lets_a_lead_remove_a_staff_member(client: Client):
+        lead = _member_user("rm_lead")
+        guild = GuildFactory(guild_lead=lead.member)
+        target = _member_user("rm_target")
+        sm = GuildStaffMembershipFactory(guild=guild, member=target.member, role=Role.ORIENTER)
+        client.login(username="rm_lead", password="pass")
+        response = client.post(reverse("hub_guild_staff_remove", args=[guild.pk, sm.pk]))
+        assert response.status_code == 302
+        assert not guild.staff_memberships.filter(pk=sm.pk).exists()
+
+    def it_forbids_an_unrelated_member(client: Client):
+        guild = GuildFactory()
+        target = _member_user("rm_t2")
+        sm = GuildStaffMembershipFactory(guild=guild, member=target.member, role=Role.CO_LEAD)
+        _member_user("rm_stranger")
+        client.login(username="rm_stranger", password="pass")
+        response = client.post(reverse("hub_guild_staff_remove", args=[guild.pk, sm.pk]))
+        assert response.status_code == 403
+        assert guild.staff_memberships.filter(pk=sm.pk).exists()
+
+    def it_404s_for_a_membership_on_another_guild(client: Client):
+        lead = _member_user("rm_404")
+        guild = GuildFactory(guild_lead=lead.member)
+        other = GuildFactory()
+        sm = GuildStaffMembershipFactory(guild=other, role=Role.CO_LEAD)
+        client.login(username="rm_404", password="pass")
+        assert client.post(reverse("hub_guild_staff_remove", args=[guild.pk, sm.pk])).status_code == 404
+
+    def it_rejects_get(client: Client):
+        lead = _member_user("rm_get")
+        guild = GuildFactory(guild_lead=lead.member)
+        client.login(username="rm_get", password="pass")
+        assert client.get(reverse("hub_guild_staff_remove", args=[guild.pk, 1])).status_code == 405
+
+
+def describe_staff_gain_full_guild_lead_access():
+    def it_lets_a_staff_member_open_the_guild_editor(client: Client):
+        guild = GuildFactory()
+        staff = _member_user("e_staff")
+        GuildStaffMembershipFactory(guild=guild, member=staff.member, role=Role.SECRETARY)
+        client.login(username="e_staff", password="pass")
+        assert client.get(reverse("hub_guild_edit", args=[guild.pk])).status_code == 200
+
+    def it_shows_staff_under_the_lead_section_on_the_public_page(client: Client):
+        guild = GuildFactory()
+        staff = _member_user("p_staff")
+        GuildStaffMembershipFactory(guild=guild, member=staff.member, role=Role.TREASURER)
+        client.login(username="p_staff", password="pass")
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+        assert response.status_code == 200
+        assert b"Treasurer" in response.content
+        assert staff.member.display_name.encode() in response.content

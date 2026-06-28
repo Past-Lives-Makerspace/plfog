@@ -329,7 +329,7 @@
           </div>
           <div class="cp-detail__guild">
             <p class="cp-detail__prose">{% if offering.category.guild.about %}{{ offering.category.guild.about }}{% else %}This class is offered in partnership with the {{ offering.category.guild.name }} at Past Lives Makerspace.{% endif %}</p>
-            <a class="cp-detail__guild-link" href="{% url 'hub_guild_detail' offering.category.guild.pk %}" hx-boost="false">About our guilds &rarr;</a>
+            <a class="cp-detail__guild-link" href="{% url 'hub_guild_detail' offering.category.guild.slug %}" hx-boost="false">About our guilds &rarr;</a>
           </div>
         </section>
       {% endif %}
@@ -374,6 +374,10 @@
         {% if not is_bookable %}
           <div class="cp-detail__spots cp-detail__spots--full">Registration closed</div>
           <div class="cp-detail__waitlist-hint">This {% if offering.is_series %}series{% else %}class{% endif %} has already started — sign-ups are closed.</div>
+        {% elif not class_registration_enabled %}
+          <div class="cp-detail__spots cp-detail__spots--full">Registration unavailable</div>
+          <span class="cp-detail__cta cp-detail__cta--disabled" aria-disabled="true" role="button">Registration unavailable</span>
+          <div class="cp-detail__waitlist-hint">{{ class_registration_disabled_note }}</div>
         {% else %}
           <div class="cp-detail__spots cp-detail__spots--{{ spots_remaining|spots_class }}">
             {% if spots_remaining == 0 %}

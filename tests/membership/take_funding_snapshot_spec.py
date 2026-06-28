@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from io import StringIO
+from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
@@ -11,6 +12,7 @@ from django.core.management import call_command
 from membership.models import FundingSnapshot, Member
 from tests.membership.factories import (
     GuildFactory,
+    GuildStaffMembershipFactory,
     MemberFactory,
     MembershipPlanFactory,
     VotePreferenceFactory,
@@ -178,3 +180,71 @@ def describe_take_funding_snapshot_command():
 
         assert result is None
         assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN).exists()
+
+    def it_freezes_guild_lead_and_staff_flags_in_raw_votes():
+        g1, g2, g3 = GuildFactory(name="G1"), GuildFactory(name="G2"), GuildFactory(name="G3")
+        lead = MemberFactory(full_legal_name="Lena Lead")
+        staff = MemberFactory(full_legal_name="Sam Staff")
+        plain = MemberFactory(full_legal_name="Pat Plain")
+        VotePreferenceFactory(member=lead, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
+        VotePreferenceFactory(member=staff, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
+        VotePreferenceFactory(member=plain, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
+        led_guild = GuildFactory(name="Led", guild_lead=lead)
+        GuildStaffMembershipFactory(member=staff, guild=led_guild)
+
+        snap = FundingSnapshot.take(minimum_pool=Decimal("0"))
+
+        assert snap is not None
+        by_name = {v["member_name"]: v for v in snap.raw_votes}
+        assert by_name["Lena Lead"]["is_guild_lead"] is True
+        assert by_name["Lena Lead"]["is_guild_staff"] is False
+        assert by_name["Sam Staff"]["is_guild_staff"] is True
+        assert by_name["Sam Staff"]["is_guild_lead"] is False
+        assert by_name["Pat Plain"]["is_guild_lead"] is False
+        assert by_name["Pat Plain"]["is_guild_staff"] is False
+
+
+@pytest.mark.django_db
+def describe_source_label():
+    def it_is_manual():
+        snap = FundingSnapshot(cycle_label="June 2026", contributor_count=0, funding_pool=Decimal("0"))
+        assert snap.source_label == "Manual"
+
+
+@pytest.mark.django_db
+def describe_delete():
+    def _snapshot_with_votes() -> FundingSnapshot:
+        g1, g2, g3 = GuildFactory(name="G1"), GuildFactory(name="G2"), GuildFactory(name="G3")
+        member = MemberFactory(member_type=Member.MemberType.STANDARD)
+        VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
+        snap = FundingSnapshot.take(minimum_pool=Decimal("0"))
+        assert snap is not None
+        return snap
+
+    def it_hard_deletes_the_row():
+        snap = _snapshot_with_votes()
+        pk = snap.pk
+        snap.delete()
+        assert not FundingSnapshot.objects.filter(pk=pk).exists()
+
+    def it_deletes_the_airtable_record_when_record_id_present():
+        snap = _snapshot_with_votes()
+        snap.airtable_record_id = "recSNAP123"
+        with patch("airtable_sync.service.delete_snapshot_from_airtable") as mock_delete:
+            snap.delete()
+        mock_delete.assert_called_once_with("recSNAP123")
+
+    def it_skips_airtable_when_no_record_id():
+        snap = _snapshot_with_votes()
+        assert snap.airtable_record_id is None
+        with patch("airtable_sync.service.delete_snapshot_from_airtable") as mock_delete:
+            snap.delete()
+        mock_delete.assert_not_called()
+
+    def it_skips_airtable_when_sync_disabled():
+        snap = _snapshot_with_votes()
+        snap.airtable_record_id = "recSNAP999"
+        snap._skip_airtable_sync = True
+        with patch("airtable_sync.service.delete_snapshot_from_airtable") as mock_delete:
+            snap.delete()
+        mock_delete.assert_not_called()

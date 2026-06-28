@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from django.core import mail
 
-from classes.emails import send_admin_registration_notification, send_instructor_registration_notification
+from classes.emails import emit_instructor_new_registration, send_admin_registration_notification
 from classes.factories import ClassOfferingFactory, InstructorFactory, RegistrationFactory, UserFactory
 from classes.models import ClassOffering
+from core.models import Notification
 
 
-def describe_send_instructor_registration_notification():
+def describe_emit_instructor_new_registration():
     def it_emails_the_instructor_with_registration_details(db):
         user = UserFactory(email="teach@example.com")
         instructor = InstructorFactory(user=user, full_legal_name="Ms. Paint")
@@ -25,8 +26,9 @@ def describe_send_instructor_registration_notification():
             status="confirmed",
         )
 
-        send_instructor_registration_notification(registration)
+        emit_instructor_new_registration(registration)
 
+        # Exactly one notice email — no second generic email from a separate dispatch.
         assert len(mail.outbox) == 1
         msg = mail.outbox[0]
         assert msg.to == ["teach@example.com"]
@@ -34,6 +36,8 @@ def describe_send_instructor_registration_notification():
         assert "Watercolors 101" in msg.subject
         assert "$50.00" in msg.body
         assert "1/8" in msg.body
+        # And exactly one in-app row for the instructor.
+        assert Notification.objects.filter(trigger="instructor_new_registration", user=user).count() == 1
 
     def it_skips_when_instructor_has_no_email(db):
         user = UserFactory(email="")
@@ -41,7 +45,7 @@ def describe_send_instructor_registration_notification():
         offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.PUBLISHED)
         registration = RegistrationFactory(class_offering=offering)
 
-        send_instructor_registration_notification(registration)
+        emit_instructor_new_registration(registration)
 
         assert len(mail.outbox) == 0
 
@@ -61,9 +65,11 @@ def describe_send_admin_registration_notification():
 
         send_admin_registration_notification(registration)
 
-        assert len(mail.outbox) == 1
+        # The spine sends one email per admin address (deduped + audited per recipient);
+        # the recipient SET is identical to the old single multi-To send.
+        assert len(mail.outbox) == 2
+        assert {addr for m in mail.outbox for addr in m.to} == {"admin1@example.com", "admin2@example.com"}
         msg = mail.outbox[0]
-        assert msg.to == ["admin1@example.com", "admin2@example.com"]
         assert "Alex Doe" in msg.subject
         assert "Pottery Basics" in msg.subject
         assert "$80.00" in msg.body

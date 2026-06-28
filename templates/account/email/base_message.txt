@@ -2,6 +2,5 @@
 
 {% block content %}{% endblock content %}
 
-Past Lives Makerspace
-Do It Together
+{% include "membership/emails/_footer.txt" %}
 {% endautoescape %}

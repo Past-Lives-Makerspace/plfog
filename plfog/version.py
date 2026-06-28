@@ -2,9 +2,187 @@
 
 from __future__ import annotations
 
-VERSION = "0.18.11"
+VERSION = "0.19.10"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.10",
+        "date": "2026-06-27",
+        "title": "Your notifications and emails, all in one place",
+        "changes": [
+            (
+                "Your notification settings are now a single, simple grid: for every kind of update — class "
+                "reminders, approvals, waitlist spots, billing receipts, announcements, and voting — you pick how it "
+                "reaches you: the in-app bell, email, or a browser push. Quick 'All on / All off' buttons let you "
+                "adjust a whole section at once."
+            ),
+            (
+                "Class reminders now send on their own before each class — a single, nicely formatted reminder, and "
+                "never a duplicate."
+            ),
+            (
+                "Every email from Past Lives now arrives in one branded layout, with an easy way to manage your "
+                "preferences or unsubscribe right in the footer. The 'new login' security alert also stops crying "
+                "wolf — it recognizes devices you've used and only emails you about a genuinely new browser."
+            ),
+            (
+                "New things you can opt into: makerspace-wide and guild announcements, a heads-up before monthly "
+                "voting closes, and the voting results once they're in."
+            ),
+            (
+                "When you write an email or announcement — a class welcome note, a guild's thank-you, a makerspace-wide "
+                "post — you now get a simple formatting toolbar: bold, italic, headings, and bulleted or numbered "
+                "lists, so what you send arrives looking polished."
+            ),
+        ],
+    },
+    {
+        "version": "0.19.8",
+        "date": "2026-06-26",
+        "title": "Show off your skills — and open up for commissions",
+        "changes": [
+            (
+                "Your member directory profile can now list the things you make and do — woodworking, welding, music "
+                "production, web design, and lots more — with optional years of experience next to each one."
+            ),
+            (
+                "Flip on 'Open for commissions!' and add a short note if you're happy to take on custom work, "
+                "contract jobs, or consulting, so other members know they can reach out."
+            ),
+            (
+                "The member directory is now searchable and filterable by skill, and you can show just the members "
+                "who are open for commissions — handy when you're looking for the right person for a project."
+            ),
+        ],
+    },
+    {
+        "version": "0.19.7",
+        "date": "2026-06-26",
+        "title": "The monthly guild-funding vote, leveled up",
+        "changes": [
+            (
+                "The tools for running the monthly guild-funding vote now live in one tabbed place — an at-a-glance "
+                "overview, the full Funding History, and Snapshots for locking in each month's tally — and admins can "
+                "open the same voting page members see without leaving the admin area."
+            ),
+            (
+                "The vote keeps members in the loop by email: a friendly 'polls closing soon' note showing what "
+                "you're currently voting for, a nudge if you haven't voted yet, and the final funding breakdown once "
+                "the results are in."
+            ),
+            (
+                "A new Voting → Settings page sets how far ahead reminders go and the funding-pool floor, lets "
+                "organizers reword any voting email, and holds the results email until an organizer reviews the "
+                "numbers and sends it."
+            ),
+        ],
+    },
+    {
+        "version": "0.19.6",
+        "date": "2026-06-26",
+        "title": "Guild pages get a leadership team and more to share",
+        "changes": [
+            (
+                "Guild leads can now build a staff team — co-guild-leads, secretaries, treasurers, and orienters — "
+                "who get the same access and are copied on the same requests; your whole leadership team shows on the "
+                "guild page."
+            ),
+            (
+                "Post meeting notes and agendas (each with a write-up and downloadable files or links) on a new "
+                "Meeting Notes tab, and make your FAQ answers richer with an embedded video or an attached document."
+            ),
+            (
+                "Editing a guild page is easier: each section saves on its own, photos get their own Gallery tab, and "
+                "you can edit an announcement after posting instead of starting over."
+            ),
+        ],
+    },
+    {
+        "version": "0.19.5",
+        "date": "2026-06-26",
+        "title": "Community events and meetings on the calendar",
+        "changes": [
+            (
+                "Guild leads can post their guild's meetings and events, and admins can post community events and the "
+                "Guild Lead Meeting — all on the Community Calendar, with a Discord heads-up when they go up."
+            ),
+            (
+                "Events can repeat on the schedule you choose — twice a month, monthly, every few months, or yearly — "
+                "landing on the same weekday-of-month (like the 2nd Saturday), and they show on the guild's own "
+                "calendar and in calendar exports and subscriptions too."
+            ),
+            (
+                "A guild's published classes now appear on its Guild Calendar alongside orientations and events, and "
+                "the calendars are bigger and easier to read at a glance."
+            ),
+        ],
+    },
+    {
+        "version": "0.19.4",
+        "date": "2026-06-26",
+        "title": "Easier member management and invites",
+        "changes": [
+            (
+                "Every member now has a login account ready to go — so if you've never signed in, an organizer can "
+                "send a one-tap email invite to set it up."
+            ),
+            (
+                "Inviting people is a proper workflow now: see who's been invited and whether they've joined, resend "
+                "an invite that's been sitting unanswered, or cancel one that went out by mistake."
+            ),
+            (
+                "The member admin is tidier — each person shows their email and whether they've signed in, people who "
+                "took a class without joining are marked as non-members, and managing someone's email addresses lives "
+                "in one Emails tab."
+            ),
+        ],
+    },
+    {
+        "version": "0.19.3",
+        "date": "2026-06-26",
+        "title": "Discord, tidied — one channel, guild channels, and a personal DM line",
+        "changes": [
+            (
+                "Every announcement the app posts — releases, makerspace-wide notes, voting reminders, and newly "
+                "published classes — now lands in one tidy Discord channel, so nothing gets missed."
+            ),
+            (
+                "Guild leads can connect their guild's own Discord channel, so a guild announcement shows up both "
+                "makerspace-wide and in the guild's own channel."
+            ),
+            "You can now link your own Discord account to get your Past Lives notifications as a direct message.",
+        ],
+    },
+    {
+        "version": "0.19.2",
+        "date": "2026-06-26",
+        "title": "Book a class, get an account",
+        "changes": [
+            (
+                "Booking a class can now set you up with a free Past Lives account in the same step — no extra sign- "
+                "up and no password — so you can come back and manage your bookings."
+            ),
+            (
+                "When you opt into the newsletter while registering, the answers you give (like your experience "
+                "level) help us sign you up for the mailing lists that actually fit, instead of one generic list."
+            ),
+        ],
+    },
+    {
+        "version": "0.19.1",
+        "date": "2026-06-26",
+        "title": "A few catalog touches",
+        "changes": [
+            (
+                "The Classes & Workshops catalog now shows how many upcoming sessions you can actually book, not just "
+                "how many class types we offer."
+            ),
+            (
+                "Class groupings are now called 'Guilds' everywhere, matching how the makerspace already talks about "
+                "its guilds."
+            ),
+        ],
+    },
     {
         "version": "0.18.11",
         "date": "2026-06-23",

@@ -24,14 +24,14 @@ def _linked_user(client: Client, *, username: str = "u1", guild=None) -> tuple:
 def describe_guild_detail():
     def it_is_accessible_to_anonymous_guests(client: Client):
         guild = GuildFactory()
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
         assert response.status_code == 200
 
     def it_shows_guild_name(client: Client):
         User.objects.create_user(username="viewer", password="pass")
         guild = GuildFactory(name="Woodworking Guild")
         client.login(username="viewer", password="pass")
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
         assert response.status_code == 200
         assert b"Woodworking Guild" in response.content
 
@@ -39,21 +39,21 @@ def describe_guild_detail():
         User.objects.create_user(username="v2", password="pass")
         guild = GuildFactory(about="We love wood.")
         client.login(username="v2", password="pass")
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
         assert b"We love wood." in response.content
 
     def it_shows_placeholder_when_about_is_blank(client: Client):
         User.objects.create_user(username="v3", password="pass")
         guild = GuildFactory(about="")
         client.login(username="v3", password="pass")
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
         assert b"Nothing here yet" in response.content
 
     def it_shows_no_products_placeholder_when_empty(client: Client):
         User.objects.create_user(username="v5", password="pass")
         guild = GuildFactory()
         client.login(username="v5", password="pass")
-        response = client.get(f"/guilds/{guild.pk}/")
+        response = client.get(f"/guilds/{guild.slug}/")
         assert b"No products listed yet" in response.content
 
     def describe_product_cards():
@@ -62,7 +62,7 @@ def describe_guild_detail():
             guild = GuildFactory()
             ProductFactory(guild=guild, name="Laser Time")
             _linked_user(client)
-            response = client.get(f"/guilds/{guild.pk}/")
+            response = client.get(f"/guilds/{guild.slug}/")
             assert b"Add to Cart" in response.content
 
         def it_hides_add_button_when_no_payment_method(client: Client):
@@ -72,7 +72,7 @@ def describe_guild_detail():
             user = User.objects.create_user(username="nocard_grid", password="pass")
             TabFactory(member=user.member, stripe_payment_method_id="")
             client.login(username="nocard_grid", password="pass")
-            response = client.get(f"/guilds/{guild.pk}/")
+            response = client.get(f"/guilds/{guild.slug}/")
             assert b"Add to Cart" not in response.content
             assert b"saved payment method" in response.content
 
@@ -85,7 +85,7 @@ def describe_guild_detail():
             Member.objects.filter(user=user).delete()
             client.login(username="nomember", password="pass")
 
-            response = client.get(f"/guilds/{guild.pk}/")
+            response = client.get(f"/guilds/{guild.slug}/")
 
             assert response.status_code == 200
             assert response.context["tab"] is None
@@ -94,7 +94,7 @@ def describe_guild_detail():
         def it_shows_a_join_button_to_a_linked_member_not_in_the_guild(client: Client):
             guild = GuildFactory()
             _linked_user(client)
-            response = client.get(f"/guilds/{guild.pk}/")
+            response = client.get(f"/guilds/{guild.slug}/")
             assert b"Join This Guild" in response.content
 
         def it_hides_the_join_button_from_unlinked_accounts(client: Client):
@@ -104,14 +104,14 @@ def describe_guild_detail():
 
             Member.objects.filter(user=user).delete()
             client.login(username="unlinked_join", password="pass")
-            response = client.get(f"/guilds/{guild.pk}/")
+            response = client.get(f"/guilds/{guild.slug}/")
             assert b"Join This Guild" not in response.content
 
     def describe_stat_chips():
         def it_hides_member_and_class_chips_when_zero(client: Client):
             guild = GuildFactory()
             _linked_user(client)
-            response = client.get(f"/guilds/{guild.pk}/")
+            response = client.get(f"/guilds/{guild.slug}/")
             assert b"0 member" not in response.content
             assert b"0 class" not in response.content
 
@@ -121,7 +121,7 @@ def describe_guild_detail():
             guild = GuildFactory()
             user, _ = _linked_user(client)
             GuildMembership.objects.create(guild=guild, member=user.member)
-            response = client.get(f"/guilds/{guild.pk}/")
+            response = client.get(f"/guilds/{guild.slug}/")
             assert b"1 member" in response.content
 
     def describe_faq_tab():
@@ -131,12 +131,12 @@ def describe_guild_detail():
             guild = GuildFactory()
             _linked_user(client)
             GuildFAQItem.objects.create(guild=guild, question="Why?", answer="Because.", sort_order=0)
-            response = client.get(f"/guilds/{guild.pk}/")
+            response = client.get(f"/guilds/{guild.slug}/")
             assert b"section = 'faq'" in response.content
             assert b"Why?" in response.content
 
         def it_hides_the_faq_tab_when_the_guild_has_no_faqs(client: Client):
             guild = GuildFactory()
             _linked_user(client)
-            response = client.get(f"/guilds/{guild.pk}/")
+            response = client.get(f"/guilds/{guild.slug}/")
             assert b"section = 'faq'" not in response.content

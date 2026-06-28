@@ -1,44 +1,110 @@
 {% load hub_tags %}
 <div class="hub-card">
-  <h2 style="font-size:1rem;font-weight:600;margin:0 0 0.25rem;">Notifications</h2>
-  <p class="hub-text-muted" style="margin-bottom:1rem;font-size:0.85rem;">
-    The bell always shows everything. Choose which events also reach you by browser push or email.
+  <h2 class="pl-notif-title">Notifications</h2>
+  <p class="hub-text-muted pl-notif-intro">
+    Choose how each event reaches you. The bell always shows everything; some essential and
+    operational notices (receipts, security, booking and orientation updates) are always on and
+    can't be turned off.
   </p>
+  {% if member %}
+    <div class="pl-discord-link">
+      <div class="pl-discord-link__status">
+        <svg class="pl-discord-link__icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M20.317 4.369A19.79 19.79 0 0 0 16.558 3.2a.074.074 0 0 0-.079.037c-.34.604-.718 1.392-.982 2.012a18.27 18.27 0 0 0-5.487 0 12.6 12.6 0 0 0-.997-2.012.077.077 0 0 0-.079-.037A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C1.07 8.043.358 11.617.708 15.146a.082.082 0 0 0 .031.056 19.9 19.9 0 0 0 5.993 3.04.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.105 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .078-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .079.009c.12.099.245.198.372.292a.077.077 0 0 1-.006.127c-.598.349-1.225.645-1.873.891a.076.076 0 0 0-.04.106c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.029 19.84 19.84 0 0 0 6.002-3.04.077.077 0 0 0 .032-.055c.5-4.083-.838-7.628-3.549-10.75a.06.06 0 0 0-.031-.028ZM8.02 12.998c-1.182 0-2.157-1.085-2.157-2.419 0-1.333.956-2.418 2.157-2.418 1.21 0 2.176 1.094 2.157 2.418 0 1.334-.956 2.419-2.157 2.419Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.418 2.157-2.418 1.21 0 2.176 1.094 2.157 2.418 0 1.334-.946 2.419-2.157 2.419Z"/>
+        </svg>
+        {% if member.discord_is_linked %}
+          <span>Discord connected — turn on the <strong>Discord</strong> column below to get notices as a DM.</span>
+        {% else %}
+          <span>Connect your Discord account to get your Past Lives notifications as a direct message.</span>
+        {% endif %}
+      </div>
+      {% if member.discord_is_linked %}
+        <form method="post" action="{% url 'hub_discord_disconnect' %}" class="pl-discord-link__form">
+          {% csrf_token %}
+          <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Disconnect</button>
+        </form>
+      {% else %}
+        <a href="{% url 'hub_discord_connect' %}" class="hub-btn hub-btn--sm hub-btn--primary" hx-boost="false">Connect Discord</a>
+      {% endif %}
+    </div>
+  {% endif %}
   <form method="post" class="hub-form">
     {% csrf_token %}
     <input type="hidden" name="form_id" value="notifications">
-    {% for category, rows in notif_groups.items %}
-      <h3 class="hub-detail-label" style="margin:1.25rem 0 0.5rem;">{{ category }}</h3>
-      <table class="pl-notif-table" style="width:100%;border-collapse:collapse;">
-        <thead>
-          <tr>
-            <th style="text-align:left;font-weight:500;color:var(--hub-text-muted);font-size:0.75rem;">Event</th>
-            <th style="width:64px;color:var(--hub-text-muted);font-size:0.75rem;">Push</th>
-            <th style="width:64px;color:var(--hub-text-muted);font-size:0.75rem;">Email</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for t in rows %}
-          {% with pref=notif_prefs|get_item:t.key %}
-          <tr style="border-top:1px solid var(--hub-border);">
-            <td style="padding:0.6rem 0;">
-              <div style="font-weight:500;font-size:0.875rem;">{{ t.label }}</div>
-              <div class="hub-text-muted" style="font-size:0.75rem;">{{ t.description }}</div>
-            </td>
-            <td style="text-align:center;">
-              <input type="checkbox" name="push_{{ t.key }}" {% if pref and pref.push_enabled %}checked{% endif %}>
-            </td>
-            <td style="text-align:center;">
-              <input type="checkbox" name="email_{{ t.key }}" {% if pref and pref.email_enabled %}checked{% endif %}>
-            </td>
-          </tr>
-          {% endwith %}
+    <div class="pl-notif-bulk pl-notif-bulk--all">
+      <span class="pl-notif-bulk__label">Everything</span>
+      <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('form'), true)">All on</button>
+      <span class="pl-notif-bulk__sep">·</span>
+      <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('form'), false)">All off</button>
+    </div>
+    {% for category, rows in notif_matrix %}
+      <div class="pl-notif-section">
+      <div class="pl-notif-category-head">
+        <h3 class="hub-detail-label pl-notif-category">{{ category }}</h3>
+        <div class="pl-notif-bulk pl-notif-bulk--section">
+          <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('.pl-notif-section'), true)">All on</button>
+          <span class="pl-notif-bulk__sep">·</span>
+          <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('.pl-notif-section'), false)">All off</button>
+        </div>
+      </div>
+      <div class="pl-notif-matrix__scroll">
+        <div class="pl-notif-matrix" role="table" aria-label="{{ category }} notification preferences"
+             style="--pl-notif-cols: {{ notif_channels|length }};">
+          <div class="pl-notif-matrix__head" role="row">
+            <div class="pl-notif-matrix__event-head" role="columnheader">Event</div>
+            {% for channel, label in notif_channels %}
+              <div class="pl-notif-matrix__chan-head" role="columnheader">{{ label }}</div>
+            {% endfor %}
+          </div>
+          {% for row in rows %}
+            <div class="pl-notif-matrix__row" role="row">
+              <div class="pl-notif-matrix__event" role="rowheader">
+                <div class="pl-notif-matrix__event-label">{{ row.label }}</div>
+                <div class="hub-text-muted pl-notif-matrix__event-desc">{{ row.description }}</div>
+              </div>
+              {% for cell in row.cells %}
+                <div class="pl-notif-matrix__cell" role="cell">
+                  {% if cell.present %}
+                    <label class="pl-toggle pl-toggle--sm{% if cell.forced %} pl-toggle--locked{% elif not cell.available %} pl-toggle--disabled{% endif %}"
+                           {% if cell.forced %}title="Always on — this notice can't be turned off"{% elif not cell.available %}title="{{ cell.hint }}"{% endif %}>
+                      <input type="checkbox"
+                             name="{{ cell.name }}"
+                             aria-label="{{ row.label }} — {{ notif_channel_labels|get_item:cell.channel.value }}{% if cell.forced %} (always on){% elif not cell.available %} ({{ cell.hint }}){% endif %}"
+                             {% if cell.enabled %}checked{% endif %}
+                             {% if cell.forced or not cell.available %}disabled aria-disabled="true"{% endif %}>
+                      <span class="pl-toggle__slider">
+                        {% if cell.forced %}
+                          <svg class="pl-toggle__lock" width="9" height="9" viewBox="0 0 24 24" fill="none"
+                               stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                               aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        {% endif %}
+                      </span>
+                    </label>
+                  {% else %}
+                    <span class="pl-notif-matrix__na" aria-hidden="true">—</span>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
           {% endfor %}
-        </tbody>
-      </table>
+        </div>
+      </div>
+      </div>
     {% endfor %}
-    <div style="margin-top:1.25rem;">
+    <div class="pl-notif-actions">
       <button type="submit" class="hub-btn hub-btn--primary">Save Preferences</button>
     </div>
   </form>
 </div>
+<script>
+  // Bulk on/off for the notification matrix. ``scope`` is the whole <form> (the
+  // top "Everything" control) or one .pl-notif-section (a per-category control).
+  // Only non-disabled boxes flip — locked/always-on cells (the bell, forced mail)
+  // are disabled and stay put.
+  function plNotifBulk(scope, on) {
+    if (!scope) return;
+    scope.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(function (cb) {
+      cb.checked = on;
+    });
+  }
+</script>

@@ -6,25 +6,33 @@ from decimal import Decimal
 import factory
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models.signals import post_save
 from django.utils import timezone
 from factory.django import mute_signals
 
 from membership.models import (
+    CommunityEvent,
     FundingSnapshot,
     Guild,
     GuildAnnouncement,
     GuildFAQItem,
     GuildLink,
+    GuildMeetingNote,
+    GuildMeetingNoteAttachment,
     GuildMembership,
     GuildOrientationSettings,
+    GuildStaffMembership,
     Lease,
     Member,
     MemberEmail,
     MembershipPlan,
+    MemberSkill,
     OrientationAvailability,
     OrientationBooking,
     OrientationSlot,
+    Skill,
+    SkillCategory,
     Space,
     VotePreference,
 )
@@ -38,7 +46,13 @@ class MembershipPlanFactory(factory.django.DjangoModelFactory):
     monthly_price = Decimal("150.00")
 
 
+@mute_signals(post_save)
 class MemberFactory(factory.django.DjangoModelFactory):
+    # post_save is muted so the going-forward ``auto_provision_member_user`` signal
+    # does NOT auto-provision a User for every factory-built ACTIVE member — the
+    # default factory member stays unlinked (``user=None``), matching the behaviour
+    # tests have always relied on. Specs that exercise auto-provisioning create the
+    # member without this mute (via ``Member.objects.create``).
     class Meta:
         model = Member
 
@@ -103,12 +117,75 @@ class GuildAnnouncementFactory(factory.django.DjangoModelFactory):
     body = "Body text."
 
 
+class GuildMeetingNoteFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildMeetingNote
+
+    guild = factory.SubFactory(GuildFactory)
+    meeting_date = date(2026, 6, 1)
+    title = factory.Sequence(lambda n: f"Meeting {n}")
+    body = ""
+
+
+class GuildMeetingNoteAttachmentFactory(factory.django.DjangoModelFactory):
+    """Defaults to a link attachment. Use the ``file`` trait for an uploaded file.
+
+    Exactly one of file / url is ever set — the model's XOR constraint requires it.
+    """
+
+    class Meta:
+        model = GuildMeetingNoteAttachment
+
+    note = factory.SubFactory(GuildMeetingNoteFactory)
+    label = factory.Sequence(lambda n: f"Attachment {n}")
+    url = "https://docs.example.com/agenda"
+    file = ""
+
+    class Params:
+        file_doc = factory.Trait(
+            url="",
+            file=factory.LazyFunction(lambda: SimpleUploadedFile("agenda.pdf", b"%PDF-1.4 test", "application/pdf")),
+        )
+
+
+class CommunityEventFactory(factory.django.DjangoModelFactory):
+    """A FOG-native community event. Defaults to a guild meeting (guild set).
+
+    Use the ``community`` / ``lead_meeting`` traits for the site-wide variants (which
+    null the guild to satisfy the type↔scope constraint).
+    """
+
+    class Meta:
+        model = CommunityEvent
+
+    guild = factory.SubFactory(GuildFactory)
+    event_type = CommunityEvent.EventType.GUILD_MEETING
+    title = factory.Sequence(lambda n: f"Event {n}")
+    starts_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=7))
+    ends_at = factory.LazyAttribute(lambda o: o.starts_at + timedelta(hours=2))
+    recurrence = CommunityEvent.Recurrence.NONE
+
+    class Params:
+        guild_meeting = factory.Trait(event_type=CommunityEvent.EventType.GUILD_MEETING)
+        community = factory.Trait(event_type=CommunityEvent.EventType.COMMUNITY, guild=None)
+        lead_meeting = factory.Trait(event_type=CommunityEvent.EventType.LEAD_MEETING, guild=None)
+
+
 class GuildMembershipFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = GuildMembership
 
     guild = factory.SubFactory(GuildFactory)
     member = factory.SubFactory(MemberFactory)
+
+
+class GuildStaffMembershipFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildStaffMembership
+
+    guild = factory.SubFactory(GuildFactory)
+    member = factory.SubFactory(MemberFactory)
+    role = GuildStaffMembership.Role.CO_LEAD
 
 
 class VotePreferenceFactory(factory.django.DjangoModelFactory):
@@ -196,6 +273,34 @@ class OrientationBookingFactory(factory.django.DjangoModelFactory):
     slot = factory.SubFactory(OrientationSlotFactory)
     member = factory.SubFactory(MemberFactory)
     # guild is denormalized from the slot in OrientationBooking.save().
+
+
+class SkillCategoryFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = SkillCategory
+        django_get_or_create = ("name",)
+
+    name = factory.Sequence(lambda n: f"Category {n}")
+    slug = factory.Sequence(lambda n: f"category-{n}")
+
+
+class SkillFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = Skill
+        django_get_or_create = ("name",)
+
+    name = factory.Sequence(lambda n: f"Skill {n}")
+    slug = factory.Sequence(lambda n: f"skill-{n}")
+    category = factory.SubFactory(SkillCategoryFactory)
+    status = Skill.Status.APPROVED
+
+
+class MemberSkillFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = MemberSkill
+
+    member = factory.SubFactory(MemberFactory)
+    skill = factory.SubFactory(SkillFactory)
 
 
 class LeaseFactory(factory.django.DjangoModelFactory):

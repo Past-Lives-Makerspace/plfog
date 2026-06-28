@@ -15,6 +15,15 @@ def describe_class_review():
         response = client.get(reverse("classes:class_review", kwargs={"token": row.token}))
         assert response.status_code == 200
 
+    def it_wraps_the_notes_field_in_a_themed_wrapper(client, db):
+        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        (row,) = offering.submit_for_review()
+        response = client.get(reverse("classes:class_review", kwargs={"token": row.token}))
+        # The notes control is rendered through components/form_field.html, so it sits in the
+        # theme-correct .pl-form-group wrapper instead of falling through to a bare white textarea.
+        assert b"pl-form-group" in response.content
+        assert b'name="notes"' in response.content
+
     def it_returns_404_with_invalid_token(client, db):
         response = client.get(reverse("classes:class_review", kwargs={"token": "not-a-real-token"}))
         assert response.status_code == 404
@@ -51,6 +60,20 @@ def describe_class_review():
         assert row.decision == ClassApproval.Decision.DENIED
         offering.refresh_from_db()
         assert offering.status == ClassOffering.Status.DRAFT
+
+    def it_shows_the_notes_error_once_when_declining_without_notes(client, db):
+        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        (row,) = offering.submit_for_review()
+        response = client.post(
+            reverse("classes:class_review", kwargs={"token": row.token}),
+            {"decision": ClassApproval.Decision.DENIED, "notes": ""},
+        )
+        assert response.status_code == 200
+        # form_field.html renders the notes error inline; the top-of-form loop is scoped to
+        # `decision` only, so the notes error must appear exactly once (not duplicated, not orphaned).
+        assert response.content.decode().count("Please leave a note so the instructor knows what to change.") == 1
+        row.refresh_from_db()
+        assert row.decision == ""
 
     def it_ignores_post_when_decision_already_recorded(client, db):
         offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)

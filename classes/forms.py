@@ -12,6 +12,9 @@ from django.forms import inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
 
+from core.html_sanitize import sanitize_rich_html
+from core.widgets import RichTextEditorWidget
+
 from classes.models import (
     Category,
     ClassImage,
@@ -402,6 +405,8 @@ class ClassReviewDecisionForm(forms.Form):
         ),
         required=False,
         label="Notes for the instructor",
+        help_text="Optional when you approve. Required when you request changes or decline, "
+        "so the instructor knows what to fix.",
     )
 
     def clean(self) -> dict:
@@ -498,7 +503,14 @@ class RegistrationQuestionForm(forms.ModelForm):
             "is_required",
             "is_active",
             "sort_order",
+            "mailchimp_tag",
         ]
+        help_texts = {
+            "mailchimp_tag": (
+                "Optional. For Yes/No and Single Choice questions, the newsletter tag prefix sent to Mailchimp "
+                "when someone opts in. Leave blank to auto-name it from the question."
+            ),
+        }
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -566,6 +578,7 @@ class RegistrationForm(forms.ModelForm):
             "prior_experience",
             "looking_for",
             "wants_newsletter",
+            "create_account",
         ]
         widgets = {
             "prior_experience": forms.Textarea(attrs={"rows": 3}),
@@ -574,6 +587,10 @@ class RegistrationForm(forms.ModelForm):
         labels = {
             "wants_newsletter": (
                 "Keep me in the loop — email me about future classes, events, and what's happening at Past Lives."
+            ),
+            "create_account": (
+                "Create a Past Lives account so you can manage your bookings — "
+                "no password, we'll email you a sign-in code."
             ),
         }
 
@@ -604,6 +621,14 @@ class RegistrationForm(forms.ModelForm):
         if self._user_already_opted_in(user):
             # Don't re-ask a user who already opted in during a prior session.
             self.fields.pop("wants_newsletter", None)
+        if user is not None and user.is_authenticated:
+            # Logged-in registrants already have an account — nothing to offer.
+            self.fields.pop("create_account", None)
+        else:
+            # Anonymous registrants: offer the account, opt-in but default ON.
+            self.fields["create_account"].required = False
+            if not self.is_bound:
+                self.fields["create_account"].initial = True
         if is_waitlist:
             # Waitlist signups don't transact money so the discount field is
             # noise on the form. Drop it so the registrant isn't confused.
@@ -811,12 +836,14 @@ class TeachEmailForm(forms.Form):
         """Send the email and record the InstructorMessage + recipient audit rows.
 
         Returns the created InstructorMessage. Caller is responsible for any
-        success/error flash messages. Uses Django's mail backend, so the test
-        suite can assert on ``mail.outbox``.
+        success/error flash messages. Routes through the ``core.email.send``
+        choke-point (Decision 8) so the send is audited in ``TransactionalEmailLog``
+        instead of bypassing it; registrants stay BCC'd (private) and the test suite
+        can still assert on ``mail.outbox``.
         """
-        from django.conf import settings as django_settings
-        from django.core.mail import EmailMessage
         from django.db import transaction
+
+        from core.email import send as send_email
 
         registrations = list(self.cleaned_data["registration_ids"])
         # All selected regs share the same class_offering only if the teaching member
@@ -835,14 +862,13 @@ class TeachEmailForm(forms.Form):
         ):
             bcc_emails.append(teaching_member_email)
 
-        email_message = EmailMessage(
-            subject=self.cleaned_data["subject"],
-            body=self.cleaned_data["body"],
-            from_email=django_settings.DEFAULT_FROM_EMAIL,
+        send_email(
             to=to_addresses,
+            subject=self.cleaned_data["subject"],
+            trigger_kind="classes.instructor_message",
+            text_body=self.cleaned_data["body"],
             bcc=bcc_emails,
         )
-        email_message.send(fail_silently=False)
 
         with transaction.atomic():
             message = InstructorMessage.objects.create(
@@ -890,9 +916,14 @@ class AdminClassEmailForm(forms.Form):
         )
 
     def send(self, *, sender_member: Member | None = None) -> InstructorMessage:
-        from django.conf import settings as django_settings
-        from django.core.mail import EmailMessage
+        """Send the admin class email + record the audit rows.
+
+        Routes through the ``core.email.send`` choke-point (Decision 8) so the send
+        is audited in ``TransactionalEmailLog``; registrants stay BCC'd.
+        """
         from django.db import transaction
+
+        from core.email import send as send_email
 
         registrations = list(self.cleaned_data["registration_ids"])
         bcc_emails = [r.email for r in registrations]
@@ -902,14 +933,13 @@ class AdminClassEmailForm(forms.Form):
         if bcc_self and sender_email and sender_email not in bcc_emails:
             bcc_emails.append(sender_email)
 
-        email_message = EmailMessage(
-            subject=self.cleaned_data["subject"],
-            body=self.cleaned_data["body"],
-            from_email=django_settings.DEFAULT_FROM_EMAIL,
+        send_email(
             to=to_addresses,
+            subject=self.cleaned_data["subject"],
+            trigger_kind="classes.admin_message",
+            text_body=self.cleaned_data["body"],
             bcc=bcc_emails,
         )
-        email_message.send(fail_silently=False)
 
         with transaction.atomic():
             message = InstructorMessage.objects.create(
@@ -971,20 +1001,16 @@ class TeachWelcomeEmailForm(forms.ModelForm):
                     "border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.9rem;",
                 }
             ),
-            "welcome_email_body": forms.Textarea(
-                attrs={
-                    "rows": 12,
-                    "style": "width:100%; padding:0.6rem 0.75rem; border:1px solid var(--hub-border); "
-                    "border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.9rem; "
-                    "line-height:1.6;",
-                }
-            ),
+            "welcome_email_body": RichTextEditorWidget(attrs={"rows": 12}),
         }
         labels = {
             "welcome_email_enabled": "Active",
             "welcome_email_subject": "Subject",
             "welcome_email_body": "Message",
         }
+
+    def clean_welcome_email_body(self) -> str:
+        return sanitize_rich_html(self.cleaned_data.get("welcome_email_body") or "")
 
     def clean(self) -> dict[str, object]:
         cleaned = super().clean()
