@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.17"
+VERSION = "0.20.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.20.1",
+        "date": "2026-06-28",
+        "title": "Guild pages: more polish and clearer announcements",
+        "changes": [
+            # WIP — refined as the 0.20.x guild-page work lands (multiple title badges,
+            # Orientations/Announcements UX, tab conformity). Curated before the PR is ready to merge.
+            "Guild page improvements (in progress).",
+        ],
+    },
     {
         "version": "0.19.17",
         "date": "2026-06-28",
