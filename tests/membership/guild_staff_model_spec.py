@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from django.db import IntegrityError, transaction
 
 from classes.emails import _guild_leadership_recipients
 from membership.models import GuildStaffMembership
@@ -20,6 +21,51 @@ def describe_GuildStaffMembership():
             member = MemberFactory(full_legal_name="Ada Lovelace")
             sm = GuildStaffMembershipFactory(guild=guild, member=member, role=Role.TREASURER)
             assert str(sm) == f"{member.display_name} — Treasurer of Ceramics"
+
+        def it_uses_the_custom_title_when_set():
+            guild = GuildFactory(name="Ceramics")
+            member = MemberFactory(full_legal_name="Ada Lovelace")
+            sm = GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Glaze Technician")
+            assert str(sm) == f"{member.display_name} — Glaze Technician of Ceramics"
+
+    def describe_display_title():
+        def it_returns_the_custom_title_when_set():
+            sm = GuildStaffMembershipFactory(custom=True, custom_title="Studio Technician")
+            assert sm.display_title == "Studio Technician"
+
+        def it_falls_back_to_the_preset_role_label():
+            sm = GuildStaffMembershipFactory(role=Role.ORIENTER)
+            assert sm.display_title == "Orienter"
+
+    def describe_constraints():
+        def it_rejects_a_row_with_neither_role_nor_custom_title():
+            with pytest.raises(IntegrityError), transaction.atomic():
+                GuildStaffMembershipFactory(role="", custom_title="")
+
+        def it_rejects_a_row_with_both_a_role_and_a_custom_title():
+            with pytest.raises(IntegrityError), transaction.atomic():
+                GuildStaffMembershipFactory(role=Role.CO_LEAD, custom_title="Studio Technician")
+
+        def it_rejects_a_duplicate_preset_role_for_the_same_member():
+            guild = GuildFactory()
+            member = MemberFactory()
+            GuildStaffMembershipFactory(guild=guild, member=member, role=Role.SECRETARY)
+            with pytest.raises(IntegrityError), transaction.atomic():
+                GuildStaffMembershipFactory(guild=guild, member=member, role=Role.SECRETARY)
+
+        def it_rejects_a_duplicate_custom_title_for_the_same_member():
+            guild = GuildFactory()
+            member = MemberFactory()
+            GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Studio Technician")
+            with pytest.raises(IntegrityError), transaction.atomic():
+                GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Studio Technician")
+
+        def it_allows_one_member_to_hold_a_preset_role_and_a_custom_title():
+            guild = GuildFactory()
+            member = MemberFactory()
+            GuildStaffMembershipFactory(guild=guild, member=member, role=Role.ORIENTER)
+            GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Studio Technician")
+            assert guild.staff_memberships.filter(member=member).count() == 2
 
 
 def describe_Guild_staff_helpers():
@@ -52,6 +98,25 @@ def describe_Guild_staff_helpers():
 
         def it_is_empty_with_no_staff():
             assert GuildFactory().staff_by_role() == []
+
+        def it_lists_presets_first_then_custom_titles_alphabetically():
+            guild = GuildFactory()
+            GuildStaffMembershipFactory(guild=guild, member=MemberFactory(), role=Role.SECRETARY)
+            GuildStaffMembershipFactory(
+                guild=guild, member=MemberFactory(), custom=True, custom_title="Studio Technician"
+            )
+            GuildStaffMembershipFactory(
+                guild=guild, member=MemberFactory(), custom=True, custom_title="Glaze Technician"
+            )
+            labels = [label for label, _ in guild.staff_by_role()]
+            assert labels == ["Secretary", "Glaze Technician", "Studio Technician"]
+
+        def it_groups_a_custom_title_as_its_own_heading():
+            guild = GuildFactory()
+            member = MemberFactory()
+            GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Glaze Technician")
+            grouped = dict(guild.staff_by_role())
+            assert [s.member_id for s in grouped["Glaze Technician"]] == [member.pk]
 
     def describe_leadership_members():
         def it_returns_the_lead_plus_staff_without_duplicates():

@@ -582,7 +582,7 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "link_formset": link_formset,
             "announcement_form": GuildAnnouncementForm(),
             "staff_by_role": guild.staff_by_role(),
-            "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild)),
+            "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
             "is_admin": _viewing_as_admin(request),
         },
     )
@@ -671,20 +671,18 @@ def guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
     if forbidden is not None:
         return forbidden
 
-    form = GuildStaffAddForm(request.POST, member_queryset=_staff_candidates(guild))
+    form = GuildStaffAddForm(request.POST, member_queryset=_staff_candidates(guild), guild=guild)
     if form.is_valid():
-        member = form.cleaned_data["member"]
-        role = form.cleaned_data["role"]
-        _, created = GuildStaffMembership.objects.get_or_create(guild=guild, member=member, role=role)
-        if created:
-            messages.success(
-                request,
-                f"{member.display_name} is now {GuildStaffMembership.Role(role).label} of {guild.name}.",
-            )
-        else:
-            messages.info(request, f"{member.display_name} already holds that role.")
+        staff = GuildStaffMembership.objects.create(
+            guild=guild,
+            member=form.cleaned_data["member"],
+            role=form.cleaned_data["role"] or "",
+            custom_title=form.cleaned_data["custom_title"],
+        )
+        messages.success(request, f"{staff.member.display_name} is now {staff.display_title} of {guild.name}.")
     else:
-        messages.error(request, "Pick an active member and a staff role.")
+        error_list = form.non_field_errors() or next(iter(form.errors.values()))
+        messages.error(request, str(error_list[0]))
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
 
 
@@ -701,9 +699,9 @@ def guild_staff_remove(request: HttpRequest, pk: int, staff_pk: int) -> HttpResp
 
     staff = get_object_or_404(GuildStaffMembership, pk=staff_pk, guild=guild)
     member_name = staff.member.display_name
-    role_label = staff.get_role_display()
+    title_label = staff.display_title
     staff.delete()
-    messages.success(request, f"{member_name} is no longer {role_label} of {guild.name}.")
+    messages.success(request, f"{member_name} is no longer {title_label} of {guild.name}.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
 
 

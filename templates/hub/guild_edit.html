@@ -323,7 +323,11 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% csrf_token %}
       <div style="flex:2; min-width:220px;">{% include "components/form_field.html" with field=staff_add_form.member %}</div>
       <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=staff_add_form.role %}</div>
+      <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=staff_add_form.custom_title %}</div>
       <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Add staff member</button>
+      <p class="hub-text-muted" style="flex-basis:100%; margin:0.25rem 0 0; font-size:0.8125rem;">
+        Pick a preset role or write your own title.
+      </p>
     </form>
   </div>
 </div>

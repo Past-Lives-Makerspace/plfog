@@ -1053,20 +1053,28 @@ class Guild(HeroCropMixin, models.Model):
         return self.staff_memberships.filter(member=member).exists()
 
     def staff_by_role(self) -> list[tuple[str, list[GuildStaffMembership]]]:
-        """Staff memberships grouped by role label, in role-declaration order, for display.
+        """Staff memberships grouped by display title, for display.
 
-        Returns ``(role_label, [memberships])`` pairs, omitting roles that have no members.
+        Preset roles come first in role-declaration order, then any custom titles
+        alphabetically (case-insensitive), so the list is stable. Returns
+        ``(title_label, [memberships])`` pairs, omitting titles that have no members.
         Each membership carries its ``member`` and ``pk`` for display and removal.
         """
-        by_role: dict[str, list[GuildStaffMembership]] = {}
+        by_title: dict[str, list[GuildStaffMembership]] = {}
         for staff in self.staff_memberships.select_related("member"):
-            by_role.setdefault(staff.role, []).append(staff)
+            by_title.setdefault(staff.display_title, []).append(staff)
         grouped: list[tuple[str, list[GuildStaffMembership]]] = []
+        # Preset roles first, in their declaration order.
         for role in GuildStaffMembership.Role:
-            rows = by_role.get(role.value)
+            rows = by_title.pop(role.label, None)
             if rows:
                 rows.sort(key=lambda s: (s.member.full_legal_name or "").lower())
                 grouped.append((role.label, rows))
+        # Then any custom titles, alphabetically.
+        for title in sorted(by_title, key=str.lower):
+            rows = by_title[title]
+            rows.sort(key=lambda s: (s.member.full_legal_name or "").lower())
+            grouped.append((title, rows))
         return grouped
 
     def leadership_members(self) -> list[Member]:
@@ -1117,21 +1125,49 @@ class GuildStaffMembership(models.Model):
     role = models.CharField(
         max_length=20,
         choices=Role.choices,
-        help_text="The staff role held — every role carries full guild-lead permissions.",
+        blank=True,
+        default="",
+        help_text="A preset officer role. Leave blank when this entry uses a custom title instead.",
+    )
+    custom_title = models.CharField(
+        max_length=60,
+        blank=True,
+        default="",
+        help_text="A free-text officer title (e.g. 'Studio Technician') used instead of a preset role.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When this role was assigned.")
 
     class Meta:
         ordering = ["role", "member__full_legal_name"]
         constraints = [
+            # Exactly one of role / custom_title is set — fail loudly on a blank-or-both row.
+            models.CheckConstraint(
+                name="ck_guildstaff_role_xor_custom_title",
+                condition=(
+                    (models.Q(role="") & ~models.Q(custom_title="")) | (~models.Q(role="") & models.Q(custom_title=""))
+                ),
+            ),
+            # No duplicate preset role per member per guild.
             models.UniqueConstraint(
                 fields=["guild", "member", "role"],
-                name="uq_guildstaff_guild_member_role",
+                condition=~models.Q(role=""),
+                name="uq_guildstaff_member_role",
+            ),
+            # No duplicate custom title per member per guild.
+            models.UniqueConstraint(
+                fields=["guild", "member", "custom_title"],
+                condition=~models.Q(custom_title=""),
+                name="uq_guildstaff_member_custom_title",
             ),
         ]
 
+    @property
+    def display_title(self) -> str:
+        """The label to show for this staff entry — the custom title if set, else the preset role's label."""
+        return self.custom_title or self.get_role_display()
+
     def __str__(self) -> str:
-        return f"{self.member.display_name} — {self.get_role_display()} of {self.guild.name}"
+        return f"{self.member.display_name} — {self.display_title} of {self.guild.name}"
 
 
 class GuildImage(models.Model):

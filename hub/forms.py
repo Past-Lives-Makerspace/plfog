@@ -845,18 +845,59 @@ class OrientationAddMemberForm(forms.Form):
 
 
 class GuildStaffAddForm(forms.Form):
-    """Lead/admin/staff assigns a member a guild staff role (co-lead, secretary, treasurer, orienter)."""
+    """Lead/admin/staff assigns a member a guild staff entry — a preset role or a free-text custom title.
+
+    Each entry is *either* one preset role (co-lead/secretary/treasurer/orienter) *or* one custom title
+    (e.g. "Studio Technician"), never both. Titles are cosmetic — every staff entry grants the same authority.
+    """
 
     member = forms.ModelChoiceField(queryset=Member.objects.none(), label="Member")
-    role = forms.ChoiceField(choices=[], label="Role")
+    role = forms.ChoiceField(choices=[], label="Role", required=False)
+    custom_title = forms.CharField(
+        max_length=60,
+        required=False,
+        label="…or type a custom title",
+        widget=forms.TextInput(attrs={"maxlength": 60, "placeholder": "e.g. Studio Technician"}),
+    )
 
-    def __init__(self, *args: Any, member_queryset: Any = None, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, member_queryset: Any = None, guild: Any = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         from membership.models import GuildStaffMembership
 
-        cast(forms.ChoiceField, self.fields["role"]).choices = GuildStaffMembership.Role.choices
+        self._guild = guild
+        cast(forms.ChoiceField, self.fields["role"]).choices = [
+            ("", "Choose a role…"),
+            *GuildStaffMembership.Role.choices,
+        ]
         if member_queryset is not None:
             cast(forms.ModelChoiceField, self.fields["member"]).queryset = member_queryset
+
+    def clean(self) -> dict[str, Any]:
+        from membership.models import GuildStaffMembership
+
+        cleaned: dict[str, Any] = super().clean() or {}
+        role = cleaned.get("role") or ""
+        custom_title = (cleaned.get("custom_title") or "").strip()
+        cleaned["custom_title"] = custom_title
+
+        if role and custom_title:
+            raise forms.ValidationError("Pick a preset role or type a custom title — not both.")
+        if not role and not custom_title:
+            raise forms.ValidationError("Pick a role or type a custom title.")
+
+        preset_labels = {label.casefold() for _, label in GuildStaffMembership.Role.choices}
+        if custom_title and custom_title.casefold() in preset_labels:
+            raise forms.ValidationError("That title is already a preset role — pick it from the dropdown instead.")
+
+        member = cleaned.get("member")
+        if self._guild is not None and member is not None:
+            held = self._guild.staff_memberships.filter(member=member)
+            if role and held.filter(role=role).exists():
+                label = GuildStaffMembership.Role(role).label
+                raise forms.ValidationError(f"{member.display_name} is already {label} of this guild.")
+            if custom_title and held.filter(custom_title__iexact=custom_title).exists():
+                raise forms.ValidationError(f"{member.display_name} already holds the title “{custom_title}”.")
+        return cleaned
 
 
 class GuildAnnouncementForm(forms.ModelForm):

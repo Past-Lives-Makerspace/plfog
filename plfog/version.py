@@ -2,9 +2,34 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.16"
+VERSION = "0.19.17"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.19.17",
+        "date": "2026-06-28",
+        "title": "Guild pages get a leadership team and more to share",
+        "changes": [
+            (
+                "Guild leads can now build a staff team — co-guild-leads, secretaries, treasurers, and orienters — "
+                "who get the same access and are copied on the same requests; your whole leadership team shows on the "
+                "guild page."
+            ),
+            (
+                "Give a staff member a title of your own, too: type something like 'Studio Technician' or 'Glaze "
+                "Technician' right beside the preset roles, and it shows on the guild page just like the rest. A "
+                "person can hold a preset role and a custom title at the same time."
+            ),
+            (
+                "Post meeting notes and agendas (each with a write-up and downloadable files or links) on a new "
+                "Meeting Notes tab, and make your FAQ answers richer with an embedded video or an attached document."
+            ),
+            (
+                "Editing a guild page is easier: each section saves on its own, photos get their own Gallery tab, and "
+                "you can edit an announcement after posting instead of starting over."
+            ),
+        ],
+    },
     {
         "version": "0.19.16",
         "date": "2026-06-27",
@@ -74,26 +99,6 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "A new Voting → Settings page sets how far ahead reminders go and the funding-pool floor, lets "
                 "organizers reword any voting email, and holds the results email until an organizer reviews the "
                 "numbers and sends it."
-            ),
-        ],
-    },
-    {
-        "version": "0.19.6",
-        "date": "2026-06-26",
-        "title": "Guild pages get a leadership team and more to share",
-        "changes": [
-            (
-                "Guild leads can now build a staff team — co-guild-leads, secretaries, treasurers, and orienters — "
-                "who get the same access and are copied on the same requests; your whole leadership team shows on the "
-                "guild page."
-            ),
-            (
-                "Post meeting notes and agendas (each with a write-up and downloadable files or links) on a new "
-                "Meeting Notes tab, and make your FAQ answers richer with an embedded video or an attached document."
-            ),
-            (
-                "Editing a guild page is easier: each section saves on its own, photos get their own Gallery tab, and "
-                "you can edit an announcement after posting instead of starting over."
             ),
         ],
     },
