@@ -19,4 +19,4 @@ RUN DATABASE_URL="sqlite:///tmp/build.db" python manage.py collectstatic --noinp
 
 EXPOSE ${PORT:-10000}
 
-CMD python manage.py migrate --noinput && gunicorn plfog.wsgi:application --bind 0.0.0.0:${PORT:-10000} --workers 2
+CMD python manage.py migrate --noinput && python manage.py seed_notification_templates --quiet && gunicorn plfog.wsgi:application --bind 0.0.0.0:${PORT:-10000} --workers 2
