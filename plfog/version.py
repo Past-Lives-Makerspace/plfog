@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.19.9"
+VERSION = "0.19.10"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.19.9",
+        "version": "0.19.10",
         "date": "2026-06-27",
         "title": "Your notifications and emails, all in one place",
         "changes": [

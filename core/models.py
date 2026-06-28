@@ -1140,3 +1140,35 @@ class DiscordWebhookRoute(models.Model):
         A disabled route does not override (fall back to global).
         """
         return self.is_enabled
+
+    @classmethod
+    def save_routing(
+        cls, *, event_key: str, submitted_url: str, is_enabled: bool, editor: Any | None
+    ) -> DiscordWebhookRoute:
+        """Create or update the routing row for ``event_key`` (blank URL keeps the stored one).
+
+        The webhook URL field is write-only and blank-on-load on the edit form, so a
+        blank ``submitted_url`` means "keep the existing URL" — toggling ``is_enabled``
+        must never wipe a configured webhook — while a non-blank value replaces it.
+
+        Args:
+            event_key: The EventType key this route applies to.
+            submitted_url: The URL from the form; blank keeps the stored one.
+            is_enabled: Whether the route is active.
+            editor: The user who made the change, recorded as ``updated_by`` (dropped
+                when it has no pk, e.g. an anonymous or system caller).
+
+        Returns:
+            The created or updated route.
+        """
+        existing = cls.objects.filter(event_key=event_key).first()
+        new_url = submitted_url if submitted_url else (existing.webhook_url if existing is not None else "")
+        route, _ = cls.objects.update_or_create(
+            event_key=event_key,
+            defaults={
+                "webhook_url": new_url,
+                "is_enabled": is_enabled,
+                "updated_by": editor if (editor is not None and getattr(editor, "pk", None)) else None,
+            },
+        )
+        return route

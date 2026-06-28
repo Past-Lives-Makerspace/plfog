@@ -31,6 +31,7 @@ from django.conf import settings
 
 if TYPE_CHECKING:
     from core.events.channels import Message
+    from core.models import DiscordWebhookRoute
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ def webhook_for_event(event_key: str) -> str:
     return global_webhook()
 
 
-def _db_route(event_key: str):  # type: ignore[no-untyped-def]
+def _db_route(event_key: str) -> DiscordWebhookRoute | None:
     """Fetch the DB routing row for ``event_key``, or ``None`` if absent / unavailable.
 
     Imported lazily (the model layer must not be touched at import time) and tolerant

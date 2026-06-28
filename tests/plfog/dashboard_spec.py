@@ -173,6 +173,23 @@ def describe_site_announcement_view():
         resp = admin_client.post("/admin/announcement/", data={"title": "", "body": ""})
         assert resp.status_code == 200  # re-renders form with errors
 
+    def it_suppresses_discord_when_post_to_discord_is_unchecked(admin_client):
+        # Unchecked/omitted checkbox → suppress the broadcast (no Discord post).
+        with patch("core.events.emit.emit") as mock_emit:
+            admin_client.post(
+                "/admin/announcement/",
+                data={"title": "Quiet one", "body": "No Discord please."},
+            )
+        assert mock_emit.call_args.kwargs["suppress_broadcast"] is True
+
+    def it_posts_to_discord_when_the_checkbox_is_on(admin_client):
+        with patch("core.events.emit.emit") as mock_emit:
+            admin_client.post(
+                "/admin/announcement/",
+                data={"title": "Loud one", "body": "Tell Discord.", "post_to_discord": "on"},
+            )
+        assert mock_emit.call_args.kwargs["suppress_broadcast"] is False
+
 
 @pytest.mark.django_db
 def describe_invite_member_view():

@@ -3143,7 +3143,9 @@ def _send_site_announcement(request: HttpRequest, form: SiteAnnouncementForm) ->
     )
     result = emit(
         "site_announcement",
-        actor=request.user,  # always set — the view is @fog_admin_required (authenticated staff)
+        # Always authenticated — the view is @fog_admin_required (the else-branch never
+        # runs); the guard just narrows User | AnonymousUser to a Model for emit().
+        actor=request.user if request.user.is_authenticated else None,
         context={
             "member_name": "there",
             "announcement_title": title,

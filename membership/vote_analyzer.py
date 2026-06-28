@@ -43,11 +43,15 @@ def serialize_live_votes() -> list[dict[str, Any]]:
     member's current guild-lead / guild-staff status so the analyzer can filter
     on those dimensions.
     """
-    preferences = VotePreference.objects.from_signed_up_members().select_related(
-        "member",
-        "guild_1st",
-        "guild_2nd",
-        "guild_3rd",
+    preferences = (
+        VotePreference.objects.from_signed_up_members()
+        .with_role_flags()
+        .select_related(
+            "member",
+            "guild_1st",
+            "guild_2nd",
+            "guild_3rd",
+        )
     )
     return [
         {
@@ -56,8 +60,8 @@ def serialize_live_votes() -> list[dict[str, Any]]:
             "member_type": pref.member.member_type,
             "fog_role": pref.member.fog_role,
             "is_paying": pref.member.is_paying,
-            "is_guild_lead": pref.member.is_guild_lead,
-            "is_guild_staff": pref.member.is_guild_staff,
+            "is_guild_lead": pref.member_is_guild_lead,
+            "is_guild_staff": pref.member_is_guild_staff,
             "guild_1st_id": pref.guild_1st_id,
             "guild_1st_name": pref.guild_1st.name,
             "guild_2nd_id": pref.guild_2nd_id,

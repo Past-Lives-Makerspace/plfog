@@ -1651,12 +1651,6 @@ class CommunityEvent(models.Model):
         related_name="+",
         help_text="Who created this event.",
     )
-    google_event_id = models.CharField(
-        max_length=1024,
-        blank=True,
-        default="",
-        help_text="Reserved for a future Google Calendar sync. Not used yet.",
-    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1818,6 +1812,20 @@ class VotePreferenceQuerySet(models.QuerySet):
         signed-up members should influence live standings or snapshots.
         """
         return self.filter(member__user__isnull=False)
+
+    def with_role_flags(self) -> VotePreferenceQuerySet:
+        """Annotate each vote with the voter's guild-lead / guild-staff status.
+
+        Mirrors ``Member.is_guild_lead`` / ``Member.is_guild_staff`` as ``Exists``
+        subqueries, so a caller serializing many votes reads ``member_is_guild_lead`` /
+        ``member_is_guild_staff`` straight off the row instead of firing one EXISTS
+        query per voter (the N+1 the raw-votes builders used to hit). The same managers
+        the properties use keep the booleans byte-for-byte identical.
+        """
+        return self.annotate(
+            member_is_guild_lead=Exists(Guild.objects.filter(guild_lead_id=OuterRef("member_id"))),
+            member_is_guild_staff=Exists(GuildStaffMembership.objects.filter(member_id=OuterRef("member_id"))),
+        )
 
 
 class VotePreference(models.Model):
@@ -2011,13 +2019,18 @@ class FundingSnapshot(models.Model):
         """
         from core.events.emit import emit
         from core.models import SiteActivity
+        from membership.orientations import _absolute_url
         from membership.vote_calculator import calculate_results
 
-        preferences = VotePreference.objects.from_signed_up_members().select_related(
-            "member",
-            "guild_1st",
-            "guild_2nd",
-            "guild_3rd",
+        preferences = (
+            VotePreference.objects.from_signed_up_members()
+            .with_role_flags()
+            .select_related(
+                "member",
+                "guild_1st",
+                "guild_2nd",
+                "guild_3rd",
+            )
         )
 
         if not preferences.exists():
@@ -2030,8 +2043,8 @@ class FundingSnapshot(models.Model):
                 "member_type": pref.member.member_type,
                 "fog_role": pref.member.fog_role,
                 "is_paying": pref.member.is_paying,
-                "is_guild_lead": pref.member.is_guild_lead,
-                "is_guild_staff": pref.member.is_guild_staff,
+                "is_guild_lead": pref.member_is_guild_lead,
+                "is_guild_staff": pref.member_is_guild_staff,
                 "guild_1st_id": pref.guild_1st_id,
                 "guild_1st_name": pref.guild_1st.name,
                 "guild_2nd_id": pref.guild_2nd_id,
@@ -2079,6 +2092,9 @@ class FundingSnapshot(models.Model):
         SiteActivity.log(SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
 
         # Ping admins to review & send — taking a snapshot never emails members.
+        # The spine never absolutizes URLs, so the email/Discord link must already
+        # carry the full host (a bare "/manage/..." path is a dead link in an inbox).
+        review_url = _absolute_url(f"/manage/voting/history/{snapshot.pk}/")
         emit(
             "voting.results_ready",
             actor=actor,
@@ -2087,9 +2103,9 @@ class FundingSnapshot(models.Model):
                 "cycle_label": snapshot.cycle_label,
                 "funding_pool": f"{snapshot.funding_pool}",
                 "votes_cast": f"{calc['votes_cast']}",
-                "review_url": f"/manage/voting/history/{snapshot.pk}/",
+                "review_url": review_url,
             },
-            url=f"/manage/voting/history/{snapshot.pk}/",
+            url=review_url,
             period=f"snapshot_ready:{snapshot.pk}",
         )
         return snapshot
@@ -2127,6 +2143,7 @@ class FundingSnapshot(models.Model):
             ResultsAlreadySentError: If results were already sent and ``resend`` is False.
         """
         from core.events.emit import emit
+        from membership.orientations import _absolute_url
 
         if self.results_sent_at is not None and not resend:
             raise ResultsAlreadySentError(f"Results for '{self.cycle_label}' were already sent.")
@@ -2135,6 +2152,9 @@ class FundingSnapshot(models.Model):
         n = self.results_send_count
         sent = 0
         allocation = self.allocation_summary()
+        # The spine never absolutizes URLs — the results email's "See the full
+        # breakdown" link must carry the full host or it's a dead link in an inbox.
+        voting_url = _absolute_url("/guilds/voting/history/")
         member_ids = [vote["member_id"] for vote in self.raw_votes]
         active = {
             member.pk: member
@@ -2155,9 +2175,9 @@ class FundingSnapshot(models.Model):
                     "vote_1st": vote["guild_1st_name"],
                     "vote_2nd": vote["guild_2nd_name"],
                     "vote_3rd": vote["guild_3rd_name"],
-                    "voting_url": "/guilds/voting/history/",
+                    "voting_url": voting_url,
                 },
-                url="/guilds/voting/history/",
+                url=voting_url,
                 period=f"snapshot:{self.pk}:send:{n}",  # fresh per send → resend re-delivers
             )
             if result.delivery_count:

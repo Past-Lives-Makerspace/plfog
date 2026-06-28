@@ -73,4 +73,8 @@ def _on_signup(sender: Any, request: Any, user: Any, **kwargs: Any) -> None:
         title="New member joined",
         body=f"{user.get_username()} just signed up.",
         url="/members/",
+        # Scope the idempotency bucket to THIS signup. With the default one-shot
+        # period ("") the delivery ledger would record new_member_joined once and
+        # silently drop the admin alert for every later signup.
+        period=f"signup:{user.pk}",
     )

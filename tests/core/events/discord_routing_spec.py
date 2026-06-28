@@ -56,3 +56,52 @@ def describe_route_model():
         assert route.overrides_global is True
         route.is_enabled = False
         assert route.overrides_global is False
+
+
+def describe_save_routing():
+    def it_creates_a_route_from_a_submitted_url():
+        route = DiscordWebhookRoute.save_routing(
+            event_key="class_published", submitted_url=_ROUTED, is_enabled=True, editor=None
+        )
+        assert route.webhook_url == _ROUTED
+        assert route.is_enabled is True
+        assert DiscordWebhookRoute.objects.filter(event_key="class_published").count() == 1
+
+    def it_keeps_the_existing_url_when_the_submission_is_blank():
+        DiscordWebhookRoute.objects.create(event_key="class_published", webhook_url=_ROUTED, is_enabled=True)
+        route = DiscordWebhookRoute.save_routing(
+            event_key="class_published", submitted_url="", is_enabled=False, editor=None
+        )
+        # A blank submission keeps the stored URL (toggling enabled never wipes it)…
+        assert route.webhook_url == _ROUTED
+        # …while the enabled toggle still applies.
+        assert route.is_enabled is False
+
+    def it_replaces_the_url_when_a_new_one_is_submitted():
+        DiscordWebhookRoute.objects.create(event_key="class_published", webhook_url=_ROUTED, is_enabled=True)
+        new_url = "https://discord.example/replacement"
+        route = DiscordWebhookRoute.save_routing(
+            event_key="class_published", submitted_url=new_url, is_enabled=True, editor=None
+        )
+        assert route.webhook_url == new_url
+
+    def it_stores_blank_when_blank_is_submitted_with_no_existing_route():
+        route = DiscordWebhookRoute.save_routing(event_key="new_login", submitted_url="", is_enabled=True, editor=None)
+        assert route.webhook_url == ""
+
+    def it_records_the_editor_when_one_has_a_pk():
+        from django.contrib.auth.models import User
+
+        editor = User.objects.create_user(username="route-editor", email="re@x.com")
+        route = DiscordWebhookRoute.save_routing(
+            event_key="class_published", submitted_url=_ROUTED, is_enabled=True, editor=editor
+        )
+        assert route.updated_by == editor
+
+    def it_drops_an_editor_without_a_pk():
+        from django.contrib.auth.models import User
+
+        route = DiscordWebhookRoute.save_routing(
+            event_key="class_published", submitted_url=_ROUTED, is_enabled=True, editor=User()
+        )
+        assert route.updated_by is None

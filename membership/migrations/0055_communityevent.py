@@ -56,15 +56,6 @@ class Migration(migrations.Migration):
                         max_length=12,
                     ),
                 ),
-                (
-                    "google_event_id",
-                    models.CharField(
-                        blank=True,
-                        default="",
-                        help_text="Reserved for a future Google Calendar sync. Not used yet.",
-                        max_length=1024,
-                    ),
-                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (

@@ -53,6 +53,10 @@ def site_announcement(request: HttpRequest) -> HttpResponse:
                 # window. Without it all site announcements collapse onto one
                 # EventDelivery slot and only the first ever delivers.
                 period=f"site:{timezone.now():%Y%m%d%H%M%S%f}",
+                # Honor the "Also post to Discord" checkbox — unchecking it must
+                # silence the broadcast (the field is always present in cleaned_data
+                # since it's required=False with initial=True).
+                suppress_broadcast=not form.cleaned_data["post_to_discord"],
             )
             messages.success(request, f"Announcement sent to {result.recipient_count} member(s).")
             return redirect("admin:index")

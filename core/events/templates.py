@@ -30,12 +30,13 @@ from core.events.registry import Channel
 
 if TYPE_CHECKING:
     from core.events.channels import Message
+    from core.models import NotificationTemplate
 
 # Email channels whose HTML body is wrapped in the branded shell at render time.
 _EMAIL_CHANNELS = (Channel.EMAIL, Channel.SCHEDULED_EMAIL)
 
 
-def _db_copy(event_key: str, channel: Channel):  # type: ignore[no-untyped-def]
+def _db_copy(event_key: str, channel: Channel) -> NotificationTemplate | None:
     """The admin-edited NotificationTemplate row for (event, channel), or ``None``.
 
     Lazy + defensive: imported inside the function (model layer not touched at import

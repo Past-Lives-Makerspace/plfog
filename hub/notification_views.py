@@ -142,19 +142,21 @@ def _get_template(event_key: str, channel: Channel) -> NotificationTemplate:
 
     A catalogue that has never been seeded still edits cleanly: if no row exists we
     create one from the code default so the edit page always has a row to version.
+    ``get_or_create`` is atomic against the ``(event_key, channel)`` unique constraint,
+    so two concurrent first-edit GETs can't both create and trip an IntegrityError.
     """
-    row = NotificationTemplate.objects.filter(event_key=event_key, channel=channel.value).first()
-    if row is not None:
-        return row
     default = copy_module.default_copy_for(event_key, channel)
-    return NotificationTemplate.objects.create(
+    row, _ = NotificationTemplate.objects.get_or_create(
         event_key=event_key,
         channel=channel.value,
-        subject=default.subject,
-        body_text=default.body_text,
-        body_html=default.body_html,
-        is_overridden=False,
+        defaults={
+            "subject": default.subject,
+            "body_text": default.body_text,
+            "body_html": default.body_html,
+            "is_overridden": False,
+        },
     )
+    return row
 
 
 def _editor(request: HttpRequest) -> "User | None":
@@ -284,18 +286,11 @@ def edit_discord_route(request: HttpRequest, event_key: str) -> HttpResponse:
     if request.method == "POST":
         form = DiscordRouteForm(request.POST)
         if form.is_valid():
-            submitted_url = form.cleaned_data["webhook_url"]
-            # The URL field is write-only and blank-on-load: a blank submission means
-            # "keep the stored URL" (so toggling enabled doesn't wipe the webhook). A
-            # non-blank submission replaces it.
-            new_url = submitted_url if submitted_url else (route.webhook_url if route is not None else "")
-            DiscordWebhookRoute.objects.update_or_create(
+            DiscordWebhookRoute.save_routing(
                 event_key=event_key,
-                defaults={
-                    "webhook_url": new_url,
-                    "is_enabled": form.cleaned_data["is_enabled"],
-                    "updated_by": _editor(request),
-                },
+                submitted_url=form.cleaned_data["webhook_url"],
+                is_enabled=form.cleaned_data["is_enabled"],
+                editor=_editor(request),
             )
             response = redirect(f"{reverse('hub_admin_notifications')}#{event_key}")
             trigger_toast(response, "Discord routing saved.", "success")

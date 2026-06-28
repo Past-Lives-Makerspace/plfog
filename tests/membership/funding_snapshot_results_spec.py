@@ -95,6 +95,23 @@ def describe_take():
         assert manual.is_auto is False
         assert manual.source_label == "Manual"
 
+    def it_pings_admins_with_absolute_review_urls():
+        # The spine never absolutizes — a bare "/manage/..." path is a dead link in an
+        # admin's inbox/Discord, so both the emit url and the context review_url must
+        # carry the full host.
+        from unittest.mock import patch
+
+        from django.conf import settings as dj_settings
+
+        _voter("v@x.com")
+        with patch("core.events.emit.emit") as mock_emit:
+            snap = FundingSnapshot.take()
+        assert snap is not None
+        kwargs = mock_emit.call_args.kwargs
+        assert kwargs["url"].startswith(dj_settings.MEMBER_BASE_URL)
+        assert kwargs["context"]["review_url"].startswith(dj_settings.MEMBER_BASE_URL)
+        assert kwargs["url"].endswith(f"/manage/voting/history/{snap.pk}/")
+
 
 def describe_results_pending():
     def it_is_true_for_a_fresh_snapshot_with_allocation():
@@ -182,6 +199,23 @@ def describe_send_results():
         assert snap.results_send_count == 2
         # A fresh period re-delivers → a second in-app row for the voter.
         assert Notification.objects.filter(trigger="voting.results_published", user=voter.user).count() == 2
+
+    def it_emits_absolute_voting_urls_to_each_voter():
+        # The results email's "See the full breakdown" link must carry the full host,
+        # not a bare "/guilds/..." path (the spine never absolutizes it).
+        from unittest.mock import patch
+
+        from django.conf import settings as dj_settings
+
+        _voter("v@x.com")
+        snap = FundingSnapshot.take()
+        assert snap is not None
+        with patch("core.events.emit.emit") as mock_emit:
+            snap.send_results()
+        kwargs = mock_emit.call_args.kwargs
+        assert kwargs["url"].startswith(dj_settings.MEMBER_BASE_URL)
+        assert kwargs["context"]["voting_url"].startswith(dj_settings.MEMBER_BASE_URL)
+        assert kwargs["url"].endswith("/guilds/voting/history/")
 
 
 def describe_send_results_audience_safety():
