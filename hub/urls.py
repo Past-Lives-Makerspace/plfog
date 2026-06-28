@@ -16,6 +16,11 @@ urlpatterns = [
     path("hero-adjust/", views.hub_hero_adjust, name="hub_hero_adjust"),
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
     path("guilds/<int:pk>/orientation/edit/", views.guild_orientation_edit, name="hub_guild_orientation_edit"),
+    path(
+        "guilds/<int:pk>/orientation/hours/save/",
+        views.guild_orientation_hours_save,
+        name="hub_guild_orientation_hours_save",
+    ),
     path("guilds/<int:pk>/staff/add/", views.guild_staff_add, name="hub_guild_staff_add"),
     path(
         "guilds/<int:pk>/staff/<int:staff_pk>/remove/",

@@ -196,7 +196,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
   </div>
 </div>
 
-{# ── Orientations (own form → guild_orientation_edit, redirects back to ?tab=orientations) ──── #}
+{# ── Orientations (settings + recurring hours each save via their own endpoint) ──── #}
 <div x-show="section === 'orientations'" x-cloak>
   <form method="post" action="{% url 'hub_guild_orientation_edit' guild.pk %}" class="hub-form">
     {% csrf_token %}
@@ -219,6 +219,40 @@ confirm modal carries its own POST form, and template content can't nest a form.
     </div>
 
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Thank-you email</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to the member once their orientation is marked complete.</p>
+      {% include "components/form_field.html" with field=orientation_form.thankyou_email_enabled %}
+      {% include "components/form_field.html" with field=orientation_form.thankyou_email_subject %}
+      {% include "components/form_field.html" with field=orientation_form.thankyou_email_body %}
+    </div>
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Welcome email</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent when a member joins this guild.</p>
+      {% include "components/form_field.html" with field=orientation_form.join_email_enabled %}
+      {% include "components/form_field.html" with field=orientation_form.join_email_subject %}
+      {% include "components/form_field.html" with field=orientation_form.join_email_body %}
+    </div>
+
+    {# Who runs orientations — sits above the Save button with clear margin (orienters are guild staff). #}
+    <div class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+      <div style="flex:1; min-width:240px;">
+        <h2 class="hub-detail-label" style="margin:0 0 0.25rem;">Who runs orientations</h2>
+        <p class="hub-text-muted" style="font-size:0.8125rem; margin:0;">
+          Orienters are now part of your guild staff. Add someone as an orienter (or any staff role) and they
+          can confirm bookings, sign members off, and manage availability here.
+        </p>
+      </div>
+      <a href="{% url 'hub_guild_edit' guild.pk %}?tab=staff" class="hub-btn hub-btn--sm">Manage staff →</a>
+    </div>
+
+    <button type="submit" class="hub-btn hub-btn--primary">Save orientation settings</button>
+  </form>
+
+  {# Recurring hours — its own form/endpoint, like the FAQ & Links editors. #}
+  <form method="post" action="{% url 'hub_guild_orientation_hours_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Recurring hours</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows we turn into bookable slots automatically.</p>
       {{ rule_formset.management_form }}
@@ -234,7 +268,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
           </div>
           {% include "components/form_field.html" with field=rule.is_active %}
           {% if rule.instance.pk %}
-            {# Real delete button: flips the hidden DELETE field and saves the page so no work is lost. #}
+            {# Real delete button: flips the hidden DELETE field and saves the form so no work is lost. #}
             <div style="display:none;">{{ rule.DELETE }}</div>
             <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
                     onclick="document.getElementById('{{ rule.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
@@ -242,6 +276,8 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </button>
           {% endif %}
         </div>
+        {% empty %}
+        <p class="hub-text-muted">No recurring hours yet — add your first window.</p>
         {% endfor %}
       </div>
 
@@ -262,37 +298,23 @@ confirm modal carries its own POST form, and template content can't nest a form.
         </div>
       </template>
 
-      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
-              onclick="
-                const tpl = document.getElementById('rule-empty-template');
-                const total = document.getElementById('id_rules-TOTAL_FORMS');
-                const idx = parseInt(total.value, 10);
-                const wrap = document.createElement('div');
-                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                document.getElementById('rule-rows').appendChild(wrap.firstElementChild);
-                total.value = idx + 1;
-              ">
-        + Add recurring hours
-      </button>
+      {# Add then Save sit together — the user asked for Save next to Add (FAQ/Links footer rhythm). #}
+      <div style="margin-top:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+        <button type="button" class="hub-btn hub-btn--sm"
+                onclick="
+                  const tpl = document.getElementById('rule-empty-template');
+                  const total = document.getElementById('id_rules-TOTAL_FORMS');
+                  const idx = parseInt(total.value, 10);
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  document.getElementById('rule-rows').appendChild(wrap.firstElementChild);
+                  total.value = idx + 1;
+                ">
+          + Add recurring hours
+        </button>
+        <button type="submit" class="pl-btn pl-btn--primary">Save Hours</button>
+      </div>
     </div>
-
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Thank-you email</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to the member once their orientation is marked complete.</p>
-      {% include "components/form_field.html" with field=orientation_form.thankyou_email_enabled %}
-      {% include "components/form_field.html" with field=orientation_form.thankyou_email_subject %}
-      {% include "components/form_field.html" with field=orientation_form.thankyou_email_body %}
-    </div>
-
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Welcome email</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent when a member joins this guild.</p>
-      {% include "components/form_field.html" with field=orientation_form.join_email_enabled %}
-      {% include "components/form_field.html" with field=orientation_form.join_email_subject %}
-      {% include "components/form_field.html" with field=orientation_form.join_email_body %}
-    </div>
-
-    <button type="submit" class="hub-btn hub-btn--primary">Save orientation settings</button>
   </form>
 </div>
 

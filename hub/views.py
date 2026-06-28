@@ -633,14 +633,16 @@ def guild_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save handler for the Orientations tab (settings + recurring availability rules).
+    """Save handler for the Orientations tab's settings form (recurring hours save separately).
 
-    The editor itself is now an in-page tab on ``guild_edit``, so a GET just sends the viewer
-    there. A POST validates, saves, materializes slots, and redirects back to the tab; an invalid
-    POST re-renders the full guild edit page with the orientation form's errors. Open to anyone
-    who may manage the guild's orientations (lead, admin, or staff).
+    The editor itself is an in-page tab on ``guild_edit``, so a GET just sends the viewer there.
+    A POST validates the settings, saves, regenerates slots (seat/duration changes affect them),
+    and redirects back to the tab; an invalid POST re-renders the full guild edit page with the
+    settings form's errors. Recurring hours save through their own form
+    (:func:`guild_orientation_hours_save`). Open to anyone who may manage the guild's orientations
+    (lead, admin, or staff).
     """
-    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet
+    from hub.forms import GuildOrientationSettingsForm
     from membership.models import GuildOrientationSettings
 
     guild = get_object_or_404(Guild, pk=pk)
@@ -653,11 +655,9 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     form = GuildOrientationSettingsForm(request.POST, instance=settings_obj)
-    rule_formset = OrientationAvailabilityFormSet(request.POST, instance=guild, prefix="rules")
-    if form.is_valid() and rule_formset.is_valid():
+    if form.is_valid():
         form.save()
-        rule_formset.save()
-        # Materialize bookable slots now so recurring hours show up immediately —
+        # Materialize bookable slots now so seat/duration changes show up immediately —
         # don't make the editor wait for the nightly generation cron.
         from membership import orientations
 
@@ -665,7 +665,38 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
         messages.success(request, "Orientation settings updated.")
         return redirect(orientations_tab)
 
-    ctx = _guild_edit_context(request, guild, orientation_form=form, rule_formset=rule_formset)
+    ctx = _guild_edit_context(request, guild, orientation_form=form)
+    return render(request, "hub/guild_edit.html", ctx)
+
+
+@login_required
+@require_POST
+def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the recurring orientation hours from their own form on the Orientations tab.
+
+    The recurring-hours formset is its own ``<form>`` (mirroring the FAQ/Links editors), so it
+    saves independently of the orientation-settings form, materializes bookable slots immediately,
+    and redirects back to the Orientations tab. An invalid time range re-renders the page with the
+    formset's field errors and saves nothing. Open to anyone who may manage the guild's
+    orientations (lead, admin, or staff/orienter).
+    """
+    from hub.forms import OrientationAvailabilityFormSet
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_manage_orientations(request, guild)
+    if forbidden is not None:
+        return forbidden
+    formset = OrientationAvailabilityFormSet(request.POST, instance=guild, prefix="rules")
+    if formset.is_valid():
+        formset.save()
+        # Same side effect the combined save had — saved hours materialize slots immediately.
+        from membership import orientations
+
+        orientations.generate_slots(guild=guild)
+        messages.success(request, "Recurring hours saved.")
+        return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+
+    ctx = _guild_edit_context(request, guild, rule_formset=formset)
     return render(request, "hub/guild_edit.html", ctx)
 
 
