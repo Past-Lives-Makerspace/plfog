@@ -42,11 +42,11 @@ Every PR bumps `VERSION` in `plfog/version.py`. The `CHANGELOG` is the **member-
 - **A fix to something already live on production IS member-facing** (they lived with the bug) — that gets its own plain-language entry.
 - Always keep one entry whose `version == VERSION` (so `announce_release` resolves) — that's the feature entry you just edited and re-stamped.
 - Entries are **plain, member-friendly language** — no jargon, PR numbers, or commit hashes.
-- The GitHub Actions workflow (`.github/workflows/discord-notify.yml`) aggregates every `CHANGELOG` entry whose version shares the current `MAJOR.MINOR` and posts them as one announcement, newest entry's title as the headline. Git history is the granular per-PR trail; the changelog is the curated highlights.
+- The GitHub Actions workflow (`.github/workflows/discord-notify.yml`) aggregates every `CHANGELOG` entry whose version shares the current `MAJOR.MINOR` and posts them as one announcement, newest entry's title as the headline. It is **manual-only** (`workflow_dispatch`) — trigger it deliberately when a release ships (`gh workflow run discord-notify.yml`, or the Actions "Run workflow" button). Git history is the granular per-PR trail; the changelog is the curated highlights.
 
 ## Discord Notifications
 
-A GitHub Actions workflow posts to the Past Lives Discord channel when code is merged to main. It reads the latest changelog entry from `plfog/version.py` and posts a friendly release announcement. No notifications are sent for PR activity — only merged releases.
+A GitHub Actions workflow posts a release announcement to the Past Lives Discord channel. It reads the `CHANGELOG` from `plfog/version.py` (the current `MAJOR.MINOR` line). It is **triggered manually** (`workflow_dispatch`) when a release is ready — it does NOT fire on every merge to main (that re-posted the whole changelog as a duplicate on every routine hotfix). Run it with `gh workflow run discord-notify.yml` or the Actions "Run workflow" button. The script chunks the post under Discord's 4096-char embed limit and fails loudly on a rejected post.
 
 ---
 
