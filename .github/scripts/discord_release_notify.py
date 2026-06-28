@@ -1,10 +1,12 @@
-"""Post the current release's changelog to Discord — chunked under the embed limit.
+"""Post the just-shipped version's changelog to Discord — chunked under the embed limit.
 
-Aggregates every CHANGELOG entry in the current release line (MAJOR.MINOR) into one
-announcement, newest first, and posts it to the ``DISCORD_WEBHOOK_URL`` webhook. The
-release line can accumulate several patch entries (e.g. 0.19.1 … 0.19.11), so the
-combined notes routinely exceed Discord's 4096-char embed-description limit — this
-splits them across as many embeds/messages as needed and FAILS LOUDLY on a rejected
+Posts ONLY the CHANGELOG entry/entries stamped at the current ``VERSION`` (what just
+went live) to the ``DISCORD_WEBHOOK_URL`` webhook — not the whole MAJOR.MINOR release
+line. Features now ship one merge → one deploy → one announce, so re-posting every
+patch entry in the line each time would spam members with things already announced.
+Several entries can still share one VERSION (two features released together), so a
+single announcement may exceed Discord's 4096-char embed-description limit — this
+splits it across as many embeds/messages as needed and FAILS LOUDLY on a rejected
 post (the old inline ``curl`` had no ``--fail``, so a 400 looked like success and the
 0.19 release silently never posted).
 
@@ -29,9 +31,8 @@ _DESC_LIMIT = 4000  # Discord's hard cap is 4096; leave headroom
 
 
 def _release_entries() -> list[dict[str, object]]:
-    """Every CHANGELOG entry sharing the current MAJOR.MINOR line, newest first."""
-    minor = ".".join(VERSION.split(".")[:2])
-    entries = [e for e in CHANGELOG if ".".join(str(e["version"]).split(".")[:2]) == minor]
+    """Only the CHANGELOG entry/entries for the version being announced (what just went live)."""
+    entries = [e for e in CHANGELOG if str(e["version"]) == VERSION]
     return entries or [CHANGELOG[0]]
 
 
