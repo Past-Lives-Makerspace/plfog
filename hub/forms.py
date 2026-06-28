@@ -885,6 +885,10 @@ class GuildStaffAddForm(forms.Form):
         if not role and not custom_title:
             raise forms.ValidationError("Pick a role or type a custom title.")
 
+        preset_labels = {label.casefold() for _, label in GuildStaffMembership.Role.choices}
+        if custom_title and custom_title.casefold() in preset_labels:
+            raise forms.ValidationError("That title is already a preset role — pick it from the dropdown instead.")
+
         member = cleaned.get("member")
         if self._guild is not None and member is not None:
             held = self._guild.staff_memberships.filter(member=member)

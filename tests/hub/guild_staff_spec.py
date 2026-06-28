@@ -113,6 +113,12 @@ def describe_GuildStaffAddForm():
         assert not form.is_valid()
         assert "already holds the title" in " ".join(form.non_field_errors())
 
+    def it_rejects_a_custom_title_that_matches_a_preset_role_label():
+        member = MemberFactory()
+        form = _form(GuildFactory(), {"member": member.pk, "custom_title": "treasurer"})
+        assert not form.is_valid()
+        assert "already a preset role" in " ".join(form.non_field_errors())
+
 
 def describe_guild_staff_add():
     def it_lets_a_lead_add_a_staff_member(client: Client):

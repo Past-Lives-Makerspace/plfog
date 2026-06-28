@@ -681,8 +681,8 @@ def guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
         )
         messages.success(request, f"{staff.member.display_name} is now {staff.display_title} of {guild.name}.")
     else:
-        errors = form.non_field_errors() or next(iter(form.errors.values()), None)
-        messages.error(request, str(errors[0]) if errors else "Pick an active member and a role or custom title.")
+        error_list = form.non_field_errors() or next(iter(form.errors.values()))
+        messages.error(request, str(error_list[0]))
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
 
 
