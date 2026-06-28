@@ -61,7 +61,12 @@ def _post(webhook: str, payload: dict[str, object]) -> None:
     request = urllib.request.Request(
         webhook,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            # Discord/Cloudflare rejects the default "Python-urllib/x" UA with a 403
+            # (error 1010). A descriptive User-Agent is required — see Discord's API docs.
+            "User-Agent": "PastLivesReleaseBot (https://github.com/Past-Lives-Makerspace/plfog, 1.0)",
+        },
     )
     try:
         with urllib.request.urlopen(request) as response:  # noqa: S310 - trusted webhook URL
