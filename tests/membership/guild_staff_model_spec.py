@@ -118,6 +118,49 @@ def describe_Guild_staff_helpers():
             grouped = dict(guild.staff_by_role())
             assert [s.member_id for s in grouped["Glaze Technician"]] == [member.pk]
 
+    def describe_staff_by_member():
+        def it_lists_each_member_once_with_all_their_titles():
+            guild = GuildFactory()
+            member = MemberFactory()
+            GuildStaffMembershipFactory(guild=guild, member=member, role=Role.ORIENTER)
+            GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Glaze Technician")
+            grouped = guild.staff_by_member()
+            assert [m.pk for m, _rows in grouped] == [member.pk]
+            titles = [sm.display_title for sm in grouped[0][1]]
+            assert titles == ["Orienter", "Glaze Technician"]
+
+        def it_orders_a_members_titles_presets_first_then_custom_alphabetically():
+            guild = GuildFactory()
+            member = MemberFactory()
+            GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Studio Technician")
+            GuildStaffMembershipFactory(guild=guild, member=member, role=Role.TREASURER)
+            GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Glaze Technician")
+            GuildStaffMembershipFactory(guild=guild, member=member, role=Role.CO_LEAD)
+            titles = [sm.display_title for sm in guild.staff_by_member()[0][1]]
+            assert titles == ["Co-Guild Lead", "Treasurer", "Glaze Technician", "Studio Technician"]
+
+        def it_sorts_members_by_name_case_insensitively():
+            guild = GuildFactory()
+            zoe = MemberFactory(full_legal_name="zoe")
+            amy = MemberFactory(full_legal_name="Amy")
+            GuildStaffMembershipFactory(guild=guild, member=zoe, role=Role.CO_LEAD)
+            GuildStaffMembershipFactory(guild=guild, member=amy, role=Role.SECRETARY)
+            assert [m.pk for m, _rows in guild.staff_by_member()] == [amy.pk, zoe.pk]
+
+        def it_is_empty_with_no_staff():
+            assert GuildFactory().staff_by_member() == []
+
+        def it_takes_a_single_query_with_no_n_plus_one(django_assert_num_queries):
+            guild = GuildFactory()
+            for member in (MemberFactory(), MemberFactory()):
+                GuildStaffMembershipFactory(guild=guild, member=member, role=Role.ORIENTER)
+                GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Glaze Technician")
+            with django_assert_num_queries(1):
+                for member, rows in guild.staff_by_member():
+                    _ = member.display_name
+                    for sm in rows:
+                        _ = sm.display_title
+
     def describe_leadership_members():
         def it_returns_the_lead_plus_staff_without_duplicates():
             lead = MemberFactory()

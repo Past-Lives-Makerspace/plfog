@@ -579,7 +579,7 @@ def _guild_edit_context(
         "faq_formset": GuildFAQItemFormSet(instance=guild, prefix="faq"),
         "link_formset": GuildLinkFormSet(instance=guild, prefix="links"),
         "announcement_form": GuildAnnouncementForm(),
-        "staff_by_role": guild.staff_by_role(),
+        "staff_by_member": guild.staff_by_member(),
         "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
         "is_admin": _viewing_as_admin(request),
         "notes": guild.meeting_notes.prefetch_related("attachments"),

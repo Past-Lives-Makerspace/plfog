@@ -19,6 +19,10 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "whether to also post it to your guild's Discord channel — and your guild's welcome and thank-you "
                 "emails now live on the new Announcements/Emails tab."
             ),
+            (
+                "Guild staff now show up once with all their titles together as badges, so someone can be an Orienter "
+                "and a Glaze Technician without appearing twice."
+            ),
         ],
     },
     {

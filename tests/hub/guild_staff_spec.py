@@ -47,8 +47,8 @@ def describe_staff_tab_on_guild_edit():
         client.login(username="s_lead", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert response.status_code == 200
-        groups = response.context["staff_by_role"]
-        assert groups[0][0] == "Co-Guild Lead"
+        groups = response.context["staff_by_member"]
+        assert groups[0][0].pk == co.member.pk
         assert groups[0][1][0].member_id == co.member.pk
         assert reverse("hub_guild_staff_add", args=[guild.pk]).encode() in response.content
 
@@ -270,3 +270,39 @@ def describe_staff_gain_full_guild_lead_access():
         assert response.status_code == 200
         assert b"Treasurer" in response.content
         assert staff.member.display_name.encode() in response.content
+
+
+def describe_staff_grouped_by_member_with_title_badges():
+    def it_shows_a_member_once_with_every_title_on_the_public_page(client: Client):
+        lead = _member_user("pp_lead")
+        guild = GuildFactory(guild_lead=lead.member)
+        staff = _member_user("pp_staff")
+        GuildStaffMembershipFactory(guild=guild, member=staff.member, role=Role.ORIENTER)
+        GuildStaffMembershipFactory(guild=guild, member=staff.member, custom=True, custom_title="Glaze Technician")
+        client.login(username="pp_lead", password="pass")
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Orienter" in content
+        assert "Glaze Technician" in content
+        # The fix: one row per person, so the staff member's name shows exactly once.
+        assert content.count(staff.member.display_name) == 1
+
+    def it_shows_a_member_once_with_per_title_remove_on_the_staff_tab(client: Client):
+        lead = _member_user("bb_lead")
+        guild = GuildFactory(guild_lead=lead.member)
+        staff = _member_user("bb_staff")
+        sm_role = GuildStaffMembershipFactory(guild=guild, member=staff.member, role=Role.ORIENTER)
+        sm_custom = GuildStaffMembershipFactory(
+            guild=guild, member=staff.member, custom=True, custom_title="Glaze Technician"
+        )
+        client.login(username="bb_lead", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        grouped = response.context["staff_by_member"]
+        assert [m.pk for m, _rows in grouped] == [staff.member.pk]
+        content = response.content.decode()
+        assert "Orienter" in content
+        assert "Glaze Technician" in content
+        # Each title has its own Remove control wired to that membership's confirm modal.
+        assert f"del-staff-{sm_role.pk}" in content
+        assert f"del-staff-{sm_custom.pk}" in content

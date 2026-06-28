@@ -1016,6 +1016,21 @@ a:hover { color: var(--hub-link-hover); }
     color: var(--color-tuscan-yellow);
 }
 
+/* A staff member's titles shown together as badges — wraps on narrow screens. */
+.pl-badge-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+/* One title badge plus its per-title Remove control on the Staff tab. */
+.pl-staff-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
 .hub-note {
     font-size: 0.8125rem;
     font-style: italic;

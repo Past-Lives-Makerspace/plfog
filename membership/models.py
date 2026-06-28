@@ -1077,6 +1077,38 @@ class Guild(HeroCropMixin, models.Model):
             grouped.append((title, rows))
         return grouped
 
+    @staticmethod
+    def _staff_title_sort_key(staff: GuildStaffMembership) -> tuple[int, str]:
+        """Order a staff row's title: presets first (role-declaration order), then custom titles alphabetically.
+
+        Shared by the title-ordering in :meth:`staff_by_member` so a person's badges read the same way the
+        :meth:`staff_by_role` headings do.
+        """
+        role_order = {role.value: index for index, role in enumerate(GuildStaffMembership.Role)}
+        if staff.role:
+            return (role_order[staff.role], "")
+        return (len(role_order), staff.custom_title.lower())
+
+    def staff_by_member(self) -> list[tuple[Member, list[GuildStaffMembership]]]:
+        """Each staff member once, with all their staff-title rows, for badge display.
+
+        Members are sorted by name (case-insensitive, matching :meth:`staff_by_role`). Within a member,
+        rows are ordered presets-first (role-declaration order) then custom titles alphabetically. Built
+        from a single ``select_related`` query, so iterating the result hits no extra queries.
+        """
+        members: dict[int, Member] = {}
+        rows_by_member: dict[int, list[GuildStaffMembership]] = {}
+        for staff in self.staff_memberships.select_related("member"):
+            members[staff.member_id] = staff.member
+            rows_by_member.setdefault(staff.member_id, []).append(staff)
+        ordered_ids = sorted(rows_by_member, key=lambda mid: (members[mid].full_legal_name or "").lower())
+        grouped: list[tuple[Member, list[GuildStaffMembership]]] = []
+        for member_id in ordered_ids:
+            rows = rows_by_member[member_id]
+            rows.sort(key=self._staff_title_sort_key)
+            grouped.append((members[member_id], rows))
+        return grouped
+
     def leadership_members(self) -> list[Member]:
         """The guild lead plus every staff member, de-duplicated — all who hold lead authority.
 

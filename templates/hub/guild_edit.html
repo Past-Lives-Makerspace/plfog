@@ -502,18 +502,19 @@ confirm modal carries its own POST form, and template content can't nest a form.
       the same emails (class approvals and orientation requests). The guild lead itself is set by an admin.
     </p>
 
-    {% if staff_by_role %}
-    <div style="display:flex; flex-direction:column; gap:1.25rem; margin-bottom:1.5rem;">
-      {% for role_label, memberships in staff_by_role %}
-      <div>
-        <h3 class="hub-detail-label" style="margin:0 0 0.5rem; font-size:0.8125rem;">{{ role_label }}</h3>
-        <div style="display:flex; flex-direction:column; gap:0.5rem;">
+    {% if staff_by_member %}
+    <div style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1.5rem;">
+      {% for member, memberships in staff_by_member %}
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; padding:0.5rem 0.75rem; background:rgba(255,255,255,0.02); border-radius:6px;">
+        <span>{{ member.display_name }}</span>
+        <div class="pl-badge-group">
           {% for sm in memberships %}
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.5rem 0.75rem; background:rgba(255,255,255,0.02); border-radius:6px;">
-            <span>{{ sm.member.display_name }}</span>
+          <span class="pl-staff-chip">
+            <span class="hub-badge">{{ sm.display_title }}</span>
             <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                    aria-label="Remove {{ sm.display_title }} from {{ member.display_name }}"
                     @click="$dispatch('open-confirm', 'del-staff-{{ sm.pk }}')">Remove</button>
-          </div>
+          </span>
           {% endfor %}
         </div>
       </div>
@@ -540,7 +541,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
 </div>
 
 {# Confirm modals for staff removal #}
-{% for role_label, memberships in staff_by_role %}
+{% for member, memberships in staff_by_member %}
   {% for sm in memberships %}
     {% url 'hub_guild_staff_remove' guild.pk sm.pk as staff_remove_url %}
     {% with pks=sm.pk|stringformat:"s" %}

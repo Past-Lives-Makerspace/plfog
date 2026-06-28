@@ -186,8 +186,8 @@
     </main>
 
     <aside>
-        {% with staff_groups=guild.staff_by_role %}
-        {% if guild.guild_lead or staff_groups %}
+        {% with staff_members=guild.staff_by_member %}
+        {% if guild.guild_lead or staff_members %}
         <div class="hub-card">
             <h3 class="hub-detail-label">Guild Lead</h3>
             {% if guild.guild_lead %}
@@ -199,16 +199,16 @@
                 </div>
             </div>
             {% endif %}
-            {% for role_label, memberships in staff_groups %}
-              {% for sm in memberships %}
+            {% for member, memberships in staff_members %}
               <div class="hub-member-row">
-                  <div class="hub-member-avatar">{{ sm.member.display_name|make_list|first|upper }}</div>
+                  <div class="hub-member-avatar">{{ member.display_name|make_list|first|upper }}</div>
                   <div class="hub-member-info">
-                      <span class="hub-member-name">{{ sm.member.display_name }}</span>
-                      <span class="hub-badge">{{ sm.display_title }}</span>
+                      <span class="hub-member-name">{{ member.display_name }}</span>
+                      <div class="pl-badge-group">
+                          {% for sm in memberships %}<span class="hub-badge">{{ sm.display_title }}</span>{% endfor %}
+                      </div>
                   </div>
               </div>
-              {% endfor %}
             {% endfor %}
         </div>
         {% endif %}
