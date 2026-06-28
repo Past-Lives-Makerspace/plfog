@@ -2121,7 +2121,7 @@ class FundingSnapshot(models.Model):
         lines = [f"{row['guild_name']} — ${row['funding']} ({row['share_pct']}%)" for row in results]
         return "\n".join(lines)
 
-    def send_results(self, *, actor: Any | None = None, resend: bool = False) -> int:
+    def send_results(self, *, actor: Any | None = None, resend: bool = False, intro_note: str = "") -> int:
         """Email each member who voted their personalized results — the admin-confirmed send.
 
         Loops the snapshot's frozen ``raw_votes`` and emits ``voting.results_published``
@@ -2135,6 +2135,10 @@ class FundingSnapshot(models.Model):
                 symmetry/auditing of the calling view).
             resend: When True, allows re-sending already-sent results (a fresh ``period``
                 re-delivers); when False a second send raises ``ResultsAlreadySentError``.
+            intro_note: Optional organizer note rendered at the top of the results email
+                (blank for a normal automated send; used for a one-off, e.g. explaining a
+                late send). Carried into the ``voting.results_published`` ``intro_note``
+                merge field.
 
         Returns:
             The number of voters who received a fresh delivery this send.
@@ -2170,6 +2174,7 @@ class FundingSnapshot(models.Model):
                 context={
                     "member": member,  # → registrant resolver (drops no-account/no-email; respects opt-out)
                     "member_name": member.display_name,
+                    "intro_note": intro_note,
                     "cycle_label": self.cycle_label,
                     "allocation_summary": allocation,
                     "vote_1st": vote["guild_1st_name"],

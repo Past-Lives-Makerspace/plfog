@@ -217,6 +217,28 @@ def describe_send_results():
         assert kwargs["context"]["voting_url"].startswith(dj_settings.MEMBER_BASE_URL)
         assert kwargs["url"].endswith("/guilds/voting/history/")
 
+    def it_renders_an_intro_note_at_the_top_when_provided():
+        _voter("a@x.com")
+        snap = FundingSnapshot.take()
+        assert snap is not None
+        mail.outbox.clear()
+
+        snap.send_results(intro_note="Sorry this is overdue — results are automated from here.")
+
+        assert "Sorry this is overdue — results are automated from here." in mail.outbox[0].body
+
+    def it_omits_the_note_and_still_renders_when_no_intro_note_is_given():
+        _voter("a@x.com")
+        snap = FundingSnapshot.take()
+        assert snap is not None
+        mail.outbox.clear()
+
+        snap.send_results()  # default intro_note=""
+
+        body = mail.outbox[0].body
+        assert "overdue" not in body
+        assert "The votes for" in body  # the email still renders normally without a note
+
 
 def describe_send_results_audience_safety():
     def it_excludes_former_suspended_and_emailless_and_respects_email_opt_out():
