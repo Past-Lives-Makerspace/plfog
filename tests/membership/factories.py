@@ -187,6 +187,11 @@ class GuildStaffMembershipFactory(factory.django.DjangoModelFactory):
     member = factory.SubFactory(MemberFactory)
     role = GuildStaffMembership.Role.CO_LEAD
 
+    class Params:
+        # Pass ``custom=True`` for a free-text-title entry (override ``custom_title`` to set the text);
+        # the default stays a preset role so existing callers are unaffected.
+        custom = factory.Trait(role="", custom_title="Studio Technician")
+
 
 class VotePreferenceFactory(factory.django.DjangoModelFactory):
     class Meta:

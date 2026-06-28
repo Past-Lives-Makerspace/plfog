@@ -14,7 +14,12 @@ from django.test import Client
 from django.urls import reverse
 
 from membership.models import GuildStaffMembership, Member
-from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MembershipPlanFactory
+from tests.membership.factories import (
+    GuildFactory,
+    GuildStaffMembershipFactory,
+    MemberFactory,
+    MembershipPlanFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -58,6 +63,57 @@ def describe_staff_tab_on_guild_edit():
         assert lead.member.pk not in ids
 
 
+def describe_GuildStaffAddForm():
+    def _form(guild: object, data: dict[str, object]) -> object:
+        from hub.forms import GuildStaffAddForm
+
+        return GuildStaffAddForm(data, member_queryset=Member.objects.all(), guild=guild)
+
+    def it_accepts_a_preset_role():
+        member = MemberFactory()
+        form = _form(GuildFactory(), {"member": member.pk, "role": Role.TREASURER.value})
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["role"] == Role.TREASURER.value
+        assert form.cleaned_data["custom_title"] == ""
+
+    def it_accepts_and_trims_a_custom_title():
+        member = MemberFactory()
+        form = _form(GuildFactory(), {"member": member.pk, "custom_title": "  Studio Technician  "})
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["custom_title"] == "Studio Technician"
+        assert form.cleaned_data["role"] == ""
+
+    def it_rejects_both_a_role_and_a_custom_title():
+        member = MemberFactory()
+        form = _form(
+            GuildFactory(), {"member": member.pk, "role": Role.CO_LEAD.value, "custom_title": "Studio Technician"}
+        )
+        assert not form.is_valid()
+        assert "not both" in " ".join(form.non_field_errors())
+
+    def it_rejects_neither_a_role_nor_a_custom_title():
+        member = MemberFactory()
+        form = _form(GuildFactory(), {"member": member.pk})
+        assert not form.is_valid()
+        assert "Pick a role or type a custom title." in form.non_field_errors()
+
+    def it_rejects_a_duplicate_preset_role_the_member_already_holds():
+        guild = GuildFactory()
+        member = MemberFactory()
+        GuildStaffMembershipFactory(guild=guild, member=member, role=Role.SECRETARY)
+        form = _form(guild, {"member": member.pk, "role": Role.SECRETARY.value})
+        assert not form.is_valid()
+        assert "is already" in " ".join(form.non_field_errors())
+
+    def it_rejects_a_duplicate_custom_title_case_insensitively():
+        guild = GuildFactory()
+        member = MemberFactory()
+        GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Studio Technician")
+        form = _form(guild, {"member": member.pk, "custom_title": "studio technician"})
+        assert not form.is_valid()
+        assert "already holds the title" in " ".join(form.non_field_errors())
+
+
 def describe_guild_staff_add():
     def it_lets_a_lead_add_a_staff_member(client: Client):
         lead = _member_user("a_lead")
@@ -70,6 +126,22 @@ def describe_guild_staff_add():
         )
         assert response.status_code == 302
         assert guild.staff_memberships.filter(member=target.member, role=Role.TREASURER).exists()
+
+    def it_lets_a_lead_add_a_staff_member_with_a_custom_title(client: Client):
+        lead = _member_user("a_custom_lead")
+        guild = GuildFactory(guild_lead=lead.member)
+        target = _member_user("a_custom_target")
+        client.login(username="a_custom_lead", password="pass")
+        response = client.post(
+            reverse("hub_guild_staff_add", args=[guild.pk]),
+            {"member": target.member.pk, "custom_title": "Studio Technician"},
+        )
+        assert response.status_code == 302
+        sm = guild.staff_memberships.get(member=target.member)
+        assert sm.role == ""
+        assert sm.custom_title == "Studio Technician"
+        page = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert b"Studio Technician" in page.content
 
     def it_lets_a_staff_member_add_another_staff_member(client: Client):
         guild = GuildFactory()
