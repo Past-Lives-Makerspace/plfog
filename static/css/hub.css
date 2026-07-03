@@ -2858,6 +2858,8 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 [data-theme="light"] .pl-guild-hero--noimg .pl-guild-hero__title { color: var(--hub-text); }
 [data-theme="light"] .pl-guild-hero--noimg .pl-guild-hero__lead { color: var(--hub-text-muted); opacity: 1; }
 .pl-guild-hero__lead { font-size: 0.9375rem; opacity: 0.9; margin-top: 0.25rem; }
+/* Hero placement adjuster toolbar (x-show target — display lives in the class, never inline, per FRONTEND.md Rule 12). */
+.pl-hero-adjust { display: flex; align-items: center; gap: 1rem; }
 .pl-guild-grid { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
 .pl-guild-grid aside { display: flex; flex-direction: column; gap: 1.5rem; }
 @media (min-width: 1024px) { .pl-guild-grid { grid-template-columns: 1fr 340px; } }

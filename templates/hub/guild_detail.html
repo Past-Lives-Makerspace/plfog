@@ -75,7 +75,7 @@
                 </button>
 
                 {# Sliders #}
-                <div x-show="isAdjusting" x-cloak style="display:flex; align-items:center; gap:1rem; background:rgba(0,0,0,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
+                <div x-show="isAdjusting" x-cloak class="pl-hero-adjust" style="background:rgba(0,0,0,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
                     <div style="display:flex; flex-direction:column; gap:2px;">
                         <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Vertical</label>
                         <input type="range" min="0" max="100" x-model="posY" style="width:120px; cursor:pointer;">

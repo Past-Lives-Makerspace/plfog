@@ -713,6 +713,13 @@
     background: #ef4444;
 }
 
+.pl-btn--sm {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8125rem;
+    min-height: 0;
+    border-radius: 4px;
+}
+
 .pl-btn--icon {
     width: 36px;
     height: 36px;
