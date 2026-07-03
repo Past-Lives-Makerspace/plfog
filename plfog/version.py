@@ -8,6 +8,31 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "0.20.1",
         "date": "2026-07-03",
+        "title": "A home page when you sign in",
+        "changes": [
+            (
+                "Signing in now takes you to a real home page: what's coming up for you (your orientations, your "
+                "guilds' meetings and events, and classes at the space), the latest from your guilds, quick links to "
+                "everywhere you go, and a nudge to finish setting up your profile."
+            ),
+        ],
+    },
+    {
+        "version": "0.20.1",
+        "date": "2026-07-03",
+        "title": "One place for how our space works",
+        "changes": [
+            (
+                "New Space & Org Info page in the sidebar — one spot for how the space and the organization work: a "
+                "map of the space (guild locations, restrooms, and emergency exits), parking, who to contact for "
+                "what, and the code of conduct. The Member Guide and Code of Conduct now live right here instead of "
+                "in separate Google Docs."
+            ),
+        ],
+    },
+    {
+        "version": "0.20.1",
+        "date": "2026-07-03",
         "title": "Guild pages: more polish and clearer announcements",
         "changes": [
             (
