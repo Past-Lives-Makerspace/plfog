@@ -1,0 +1,34 @@
+{% comment %}
+Standard member-hub page header — the "what is this page for" intro at the top of a page.
+
+Renders the `hub-page-title` <h1> and, when given, a muted lead paragraph stating the
+page's purpose (UAT #9: every page should say what it's for up front). Optionally shows a
+single right-aligned action button (e.g. a "New …" / "Export" link) beside the title.
+
+Uses existing CSS only — `hub-page-title`, `hub-text-muted`, `hub-btn`. No new styles.
+The muted lead uses the theme's `--hub-text-muted` token, so it reads correctly on both
+the dark (Obsidian) and light (Slate) themes.
+
+Parameters (pass via {% include "components/page_header.html" with … %}):
+  title        — required. Heading text.
+  description  — optional. One or two plain, member-friendly sentences on what the page is for.
+  action_url   — optional. When set, renders a right-aligned action button linking here.
+  action_label — required when action_url is set. Button text.
+  action_class — optional. Button classes (default: "hub-btn hub-btn--sm").
+
+Examples:
+  {% include "components/page_header.html" with title="Member Directory" description="Find other members and connect." %}
+  {% include "components/page_header.html" with title="Orientations" description="Track requests for the guilds you lead." action_url=export_url action_label="Export CSV" %}
+{% endcomment %}
+{% if action_url %}
+<div class="hub-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;">
+    <div>
+        <h1 class="hub-page-title"{% if description %} style="margin-bottom:0.5rem;"{% endif %}>{{ title }}</h1>
+        {% if description %}<p class="hub-text-muted" style="margin:0;max-width:65ch;">{{ description }}</p>{% endif %}
+    </div>
+    <a href="{{ action_url }}" class="{{ action_class|default:'hub-btn hub-btn--sm' }}">{{ action_label }}</a>
+</div>
+{% else %}
+<h1 class="hub-page-title">{{ title }}</h1>
+{% if description %}<p class="hub-text-muted" style="margin-bottom:1.5rem;max-width:65ch;">{{ description }}</p>{% endif %}
+{% endif %}

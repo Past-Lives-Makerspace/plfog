@@ -45,6 +45,11 @@
     {% endif %}
 </div>
 
+<p class="hub-text-muted" style="margin:-0.25rem 0 1.5rem;max-width:65ch;">
+    Everything happening at the makerspace in one place — guild meetings, classes, workshops,
+    and community events. Switch to the Events tab for the full list.
+</p>
+
 <div x-data="{ tab: new URLSearchParams(window.location.search).get('tab') === 'events' ? 'events' : 'calendar' }">
 
 {# ── Calendar | Events tab bar ── #}
