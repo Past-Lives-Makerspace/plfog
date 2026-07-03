@@ -120,10 +120,32 @@ def describe_surface():
         assert result == {
             "surface": "public",
             "is_public_surface": True,
+            "is_guilds_surface": False,
+            "is_guest_surface": True,
             "MEMBER_HOST": settings.MEMBER_HOST,
             "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
+            "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "guilds_page_base": "hub/base.html",
             "parent_template": "classes/base_public.html",
+        }
+
+    def it_reports_guilds_when_request_surface_is_guilds(settings):
+        rf = RequestFactory()
+        request = rf.get("/")
+        request.surface = "guilds"
+        result = surface(request)
+        assert result == {
+            "surface": "guilds",
+            "is_public_surface": False,
+            "is_guilds_surface": True,
+            "is_guest_surface": True,
+            "MEMBER_HOST": settings.MEMBER_HOST,
+            "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
+            "BOOK_BASE_URL": settings.BOOK_BASE_URL,
+            "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "guilds_page_base": "guilds/base_public.html",
+            "parent_template": "guilds/base_public.html",
         }
 
     def it_reports_members_when_request_surface_is_members(settings):
@@ -134,9 +156,13 @@ def describe_surface():
         assert result == {
             "surface": "members",
             "is_public_surface": False,
+            "is_guilds_surface": False,
+            "is_guest_surface": False,
             "MEMBER_HOST": settings.MEMBER_HOST,
             "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
+            "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "guilds_page_base": "hub/base.html",
             "parent_template": "base.html",
         }
 
@@ -149,9 +175,13 @@ def describe_surface():
         assert result == {
             "surface": "members",
             "is_public_surface": False,
+            "is_guilds_surface": False,
+            "is_guest_surface": False,
             "MEMBER_HOST": settings.MEMBER_HOST,
             "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
+            "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "guilds_page_base": "hub/base.html",
             "parent_template": "base.html",
         }
 

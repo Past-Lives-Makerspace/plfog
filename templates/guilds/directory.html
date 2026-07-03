@@ -1,0 +1,66 @@
+{% extends guilds_page_base %}
+{% load static %}
+{% block title %}Guilds{% endblock %}
+
+{% block content %}
+<div class="cp-page">
+  <section id="hero">
+    <h1>Find your <span>guild</span>.</h1>
+    <p>Every Past Lives guild — what they make, when they meet, and how to jump in. No login needed to look around.</p>
+    <div id="hero-stats">
+      <div>
+        <div class="hs-n">{{ hero_stats.guilds }}</div>
+        <div class="hs-l">Guild{{ hero_stats.guilds|pluralize }}</div>
+      </div>
+      <div>
+        <div class="hs-n">{{ hero_stats.members }}</div>
+        <div class="hs-l">Member{{ hero_stats.members|pluralize }}</div>
+      </div>
+      <div>
+        <div class="hs-n">{{ hero_stats.classes }}</div>
+        <div class="hs-l">Class{{ hero_stats.classes|pluralize:"es" }} running</div>
+      </div>
+    </div>
+    <div id="hero-cta">
+      <a href="https://pastlives.space/membership" class="cta-primary" hx-boost="false">Become a member</a>
+      <a href="{{ BOOK_BASE_URL }}{% url 'classes:public_list' %}" class="cta-secondary" hx-boost="false">Browse classes</a>
+    </div>
+  </section>
+
+  {% if guilds %}
+  <div class="cls-grid pl-guild-dir__grid">
+    {% for guild in guilds %}
+    <div class="cls-card">
+      <a href="{% url 'hub_guild_detail' guild.slug %}" class="cls-media" aria-label="{{ guild.name }}">
+        {% if guild.banner_image %}
+        <img class="cls-img" src="{{ guild.banner_image.url }}" alt="{{ guild.name }}">
+        {% else %}
+        <span class="cls-img-ph">
+          {% if guild.logo_prefix %}
+          <img src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_bw.svg' %}" alt="" width="64" height="64">
+          {% else %}{{ guild.name|make_list|first|upper }}{% endif %}
+        </span>
+        {% endif %}
+        {% if guild.is_featured %}<span class="pl-guild-dir__star">★ Featured</span>{% endif %}
+      </a>
+      <div class="cls-body">
+        <a href="{% url 'hub_guild_detail' guild.slug %}" class="cls-title">{{ guild.name }}</a>
+        {% if guild.guild_lead %}<div class="cls-inst">Led by {{ guild.guild_lead.display_name }}</div>{% endif %}
+        {% if guild.about %}<p class="pl-guild-dir__blurb">{{ guild.about|striptags|truncatewords:18 }}</p>{% endif %}
+        <div class="pl-guild-dir__meta">
+          <span class="pl-guild-dir__chip">{{ guild.member_total }} member{{ guild.member_total|pluralize }}</span>
+          {% if guild.next_meeting_at %}<span class="pl-guild-dir__chip">Next meeting {{ guild.next_meeting_at|date:"M j" }}</span>{% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="pl-guild-dir__empty">
+    <h2>No guilds are listed yet.</h2>
+    <p>Check back soon — or become a member to help start one.</p>
+    <a href="https://pastlives.space/membership" class="cta-primary" hx-boost="false">Become a member</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

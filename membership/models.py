@@ -899,6 +899,10 @@ class GuildManager(models.Manager["Guild"]):
     def get_queryset(self) -> models.QuerySet[Guild]:
         return super().get_queryset().filter(deleted_at__isnull=True)
 
+    def directory(self) -> models.QuerySet[Guild]:
+        """Active guilds for the public directory: featured first, then alphabetical."""
+        return self.filter(is_active=True).order_by("-is_featured", "name")
+
 
 class Guild(HeroCropMixin, models.Model):
     # Queryset annotation (set by GuildAdmin.get_queryset)
@@ -1011,6 +1015,9 @@ class Guild(HeroCropMixin, models.Model):
     )
     show_members = models.BooleanField(
         default=False, help_text="Show the opt-in members roster on the public guild page."
+    )
+    is_featured = models.BooleanField(
+        default=False, help_text="Pin this guild to the top of the public guilds directory."
     )
     featured_class = models.ForeignKey(
         "classes.ClassOffering",

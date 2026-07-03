@@ -93,6 +93,40 @@ MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
 # /account/ end up on book.pastlives.space (where /account/ actually lives).
 PUBLIC_ONLY_PATH_PREFIXES: tuple[str, ...] = ("/account/",)
 
+# Guilds surface. GUILDS_HOSTS is the set of hostnames that serve the public
+# guild directory + guest guild pages (guilds.pastlives.app). Root redirects to
+# /guilds/ and only the guest-appropriate views below resolve there; everything
+# else 404s. Empty defaults are safe hooks — until DNS + DJANGO_ALLOWED_HOSTS
+# include the host, no request ever reaches the guilds branch. Go-live: set
+# GUILDS_HOSTS=guilds.pastlives.app and add the host to ALLOWED_HOSTS +
+# CSRF_TRUSTED_ORIGINS (do NOT add it to PUBLIC_HOSTS — that serves the class
+# catalog and redirects / to /classes/).
+GUILDS_HOSTS = [
+    h.strip().lower() for h in os.environ.get("GUILDS_HOSTS", "guilds.pastlives.app").split(",") if h.strip()
+]
+# Absolute base URL of the guilds surface, used to canonicalize OG/SEO tags on
+# shared guild links regardless of which host rendered them.
+GUILDS_BASE_URL = os.environ.get("GUILDS_BASE_URL", "https://guilds.pastlives.app").rstrip("/")
+# Precise allowlist of view names that may resolve on the guilds host. A precise
+# allowlist (not a broad /guilds/ prefix) keeps the guild editor + product/cart
+# endpoints off the guest surface. Allauth's built-in ``account_*`` login/signup/
+# verification views are also allowed (matched by prefix in the middleware) so the
+# email-code login renders in guest chrome; the book-only namespaced ``account:``
+# views (e.g. account:lookup) are deliberately excluded.
+GUILDS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
+    {
+        "hub_guild_directory",
+        "hub_guild_detail",
+        "hub_guild_detail_by_id",
+        "hub_org_info",
+        "hub_guild_join",
+        "hub_guild_leave",
+        "hub_orientation_book",
+        "hub_guild_orientation_request_custom",
+        "hub_orientation_cancel_mine",
+    }
+)
+
 # Allauth needs to know about the reverse proxy to resolve client IPs for rate limiting
 ALLAUTH_TRUSTED_PROXY_COUNT = int(os.environ.get("ALLAUTH_TRUSTED_PROXY_COUNT", "0"))
 

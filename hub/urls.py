@@ -8,6 +8,8 @@ urlpatterns = [
     path("guilds/voting/history/", views.snapshot_history, name="hub_snapshot_history"),
     path("guilds/voting/history/<int:pk>/", views.snapshot_detail, name="hub_snapshot_detail"),
     path("members/", views.member_directory, name="hub_member_directory"),
+    # Public guild directory — the guilds.pastlives.app front door (also reachable on FOG).
+    path("guilds/", views.guild_directory, name="hub_guild_directory"),
     # Old numeric guild URLs (already shared in Discord/emails) 301 → the slug URL.
     path("guilds/<int:pk>/", views.guild_detail_redirect, name="hub_guild_detail_by_id"),
     path("guilds/<slug:slug>/", views.guild_detail, name="hub_guild_detail"),

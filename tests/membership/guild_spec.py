@@ -318,3 +318,28 @@ def describe_guild_soft_delete():
         deleted.soft_delete()
         fresh = GuildFactory(name="Glass!")
         assert fresh.slug == "glass-2"
+
+
+def describe_directory():
+    def it_defaults_is_featured_to_false():
+        guild = GuildFactory()
+        assert guild.is_featured is False
+
+    def it_lists_only_active_guilds():
+        GuildFactory(name="Active Guild", is_active=True)
+        GuildFactory(name="Retired Guild", is_active=False)
+        names = list(Guild.objects.directory().values_list("name", flat=True))
+        assert "Active Guild" in names
+        assert "Retired Guild" not in names
+
+    def it_orders_featured_first_then_alphabetical():
+        GuildFactory(name="Zebra Guild", is_featured=False)
+        GuildFactory(name="Alpha Guild", is_featured=False)
+        GuildFactory(name="Woodworking", is_featured=True)
+        names = list(Guild.objects.directory().values_list("name", flat=True))
+        assert names == ["Woodworking", "Alpha Guild", "Zebra Guild"]
+
+    def it_excludes_soft_deleted_guilds():
+        gone = GuildFactory(name="Gone Guild")
+        gone.soft_delete()
+        assert "Gone Guild" not in list(Guild.objects.directory().values_list("name", flat=True))

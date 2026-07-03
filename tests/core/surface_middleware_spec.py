@@ -177,6 +177,79 @@ def describe_SurfaceMiddleware():
             assert response.status_code == 200
 
 
+def describe_guilds_surface():
+    @pytest.fixture(autouse=True)
+    def _guilds_settings():
+        with override_settings(
+            ALLOWED_HOSTS=[
+                "guilds.pastlives.app",
+                "book.pastlives.space",
+                "members.pastlives.space",
+                "testserver",
+            ],
+            GUILDS_HOSTS=["guilds.pastlives.app"],
+            GUILDS_BASE_URL="https://guilds.pastlives.app",
+            PUBLIC_HOSTS=["book.pastlives.space"],
+            MEMBER_HOST="members.pastlives.space",
+        ):
+            yield
+
+    def it_sets_surface_to_guilds_for_the_guilds_host():
+        request, middleware = _build("guilds.pastlives.app", "/guilds/")
+        middleware(request)
+        assert request.surface == "guilds"
+
+    def it_redirects_root_to_the_directory():
+        request, middleware = _build("guilds.pastlives.app", "/")
+        response = middleware(request)
+        assert response.status_code == 302
+        assert response["Location"] == "/guilds/"
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/guilds/",
+            "/guilds/woodworking/",
+            "/guilds/1/",
+            "/guilds/1/join/",
+            "/guilds/1/leave/",
+            "/orientation/slots/1/book/",
+            "/guilds/1/orientation/request-custom/",
+            "/orientation/bookings/1/cancel/",
+            "/info/",
+            "/accounts/login/",
+            "/accounts/signup/",
+            "/accounts/login/code/",
+            "/accounts/login/code/confirm/",
+        ],
+    )
+    def it_allows_guest_appropriate_views(path):
+        request, middleware = _build("guilds.pastlives.app", path)
+        response = middleware(request)
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/settings/",  # hub_user_settings
+            "/members/",  # hub_member_directory
+            "/guilds/1/edit/",  # guild editor
+            "/guilds/1/products/add/",  # product admin
+            "/guilds/1/cart/confirm/",  # cart
+            "/account/lookup/",  # book-only namespaced account view
+        ],
+    )
+    def it_404s_views_that_are_not_guest_appropriate(path):
+        request, middleware = _build("guilds.pastlives.app", path)
+        with pytest.raises(Http404):
+            middleware(request)
+
+    def it_404s_a_path_that_does_not_resolve():
+        request, middleware = _build("guilds.pastlives.app", "/totally/unknown/xyz/")
+        with pytest.raises(Http404):
+            middleware(request)
+
+
 def describe_handle_members_surface_early_returns():
     def it_passes_through_when_public_only_prefixes_is_empty():
         with override_settings(

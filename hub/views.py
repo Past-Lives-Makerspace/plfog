@@ -425,6 +425,24 @@ def guild_detail_redirect(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("hub_guild_detail", slug=guild.slug, permanent=True)
 
 
+def guild_directory(request: HttpRequest) -> HttpResponse:
+    """Public guild directory — featured guilds first, then alphabetical.
+
+    Renders in guest chrome on the guilds surface (guilds.pastlives.app); the
+    sidebar context is ignored there but keeps parity on the members host.
+    """
+    guilds = Guild.objects.directory().select_related("guild_lead").annotate(member_total=Count("memberships"))
+    ctx = _get_hub_context(request)
+    hero_stats = {
+        "guilds": len(guilds),
+        "members": (
+            Member.objects.filter(guild_memberships__guild__in=guilds, status=Member.Status.ACTIVE).distinct().count()
+        ),
+        "classes": ClassOffering.objects.bookable().count(),
+    }
+    return render(request, "guilds/directory.html", {**ctx, "guilds": guilds, "hero_stats": hero_stats})
+
+
 def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """Guild detail page — shows about text, active products, and cart interface."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm, build_product_split_formset
@@ -444,7 +462,10 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
 
     eyop_form = TabItemForm(context=CONTEXT_MEMBER_GUILD_PAGE, user=request.user, guild=guild)
 
-    can_edit_this_guild = _can_edit_guild(request, guild)
+    # Editor affordances never render on the guest guilds surface: a logged-in
+    # lead there would otherwise see Edit / Adjust / product-admin buttons that
+    # 404 (the editor endpoints aren't in the guilds allowlist). Leads edit on FOG.
+    can_edit_this_guild = _can_edit_guild(request, guild) and getattr(request, "surface", "members") != "guilds"
     product_form = None
     product_splits_formset = None
     all_guilds = None
@@ -460,7 +481,9 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     links = guild.links.all()
     announcements = guild.announcements.active()[:5]
     meeting_notes = guild.meeting_notes.prefetch_related("attachments")
-    roster = guild.roster_members() if guild.show_members else None
+    # Gate the roster on the viewer, not just the guild opt-in: an anonymous guest
+    # must never see member names/avatars (the count-only chip lives in the hero).
+    roster = guild.roster_members() if guild.show_members and member is not None else None
     is_member_of_guild = member is not None and guild.memberships.filter(member=member).exists()
 
     from classes.models import ClassOffering
