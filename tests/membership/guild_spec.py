@@ -345,6 +345,16 @@ def describe_directory():
         gone.soft_delete()
         assert "Gone Guild" not in list(Guild.objects.directory().values_list("name", flat=True))
 
+    def it_defaults_is_public_to_true():
+        assert GuildFactory().is_public is True
+
+    def it_includes_public_and_excludes_private_guilds():
+        GuildFactory(name="Public Guild", is_public=True)
+        GuildFactory(name="Private Guild", is_public=False)
+        names = list(Guild.objects.directory().values_list("name", flat=True))
+        assert "Public Guild" in names
+        assert "Private Guild" not in names
+
 
 # ---------------------------------------------------------------------------
 # Vanity URL, QR code, and essential_rules (flyer feature)

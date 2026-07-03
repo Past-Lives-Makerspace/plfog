@@ -55,3 +55,9 @@ def describe_guild_vanity_redirect():
         slug = guild.slug
         guild.soft_delete()
         assert client.get(f"/g/{slug}/").status_code == 404
+
+    def it_404s_for_a_private_guild(client: Client):
+        # A private guild's page is 404 on the guest surface, so we never publicly
+        # redirect to it — the vanity link would only dead-end.
+        guild = GuildFactory(name="Hidden Guild", is_public=False)
+        assert client.get(f"/g/{guild.slug}/").status_code == 404

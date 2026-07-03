@@ -900,8 +900,12 @@ class GuildManager(models.Manager["Guild"]):
         return super().get_queryset().filter(deleted_at__isnull=True)
 
     def directory(self) -> models.QuerySet[Guild]:
-        """Active guilds for the public directory: featured first, then alphabetical."""
-        return self.filter(is_active=True).order_by("-is_featured", "name")
+        """Active, public guilds for the directory: featured first, then alphabetical.
+
+        Guilds marked private (``is_public=False``) never appear on the public guilds
+        site — they stay visible to members inside the hub only.
+        """
+        return self.filter(is_active=True, is_public=True).order_by("-is_featured", "name")
 
 
 class Guild(HeroCropMixin, models.Model):
@@ -1026,6 +1030,13 @@ class Guild(HeroCropMixin, models.Model):
     )
     is_featured = models.BooleanField(
         default=False, help_text="Pin this guild to the top of the public guilds directory."
+    )
+    is_public = models.BooleanField(
+        default=True,
+        help_text=(
+            "When off, this guild's page is hidden from the public guilds site "
+            "(guilds.pastlives.app) — members can still see it in the hub."
+        ),
     )
     featured_class = models.ForeignKey(
         "classes.ClassOffering",
