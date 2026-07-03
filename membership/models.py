@@ -2799,17 +2799,18 @@ class CommunityEvent(models.Model):
     # --- Review lifecycle (member proposals) ----------------------------------
 
     def publish(self, *, actor: User | None = None) -> None:
-        """Make a PUBLISHED event live everywhere.
+        """Make a PUBLISHED event live everywhere: the single "it's live now" choke point.
 
-        Fires the one-shot announcement (idempotent via its ``period``) and marks the
-        event as needing a Google push (``IDLE`` → ``PENDING``). Called by
-        :meth:`approve` and by the direct-create views. **The Google push itself is
-        wired in a later wave** — this method never contacts Google.
+        Fires the one-shot announcement (idempotent via its ``period``), marks the event as
+        needing a Google push (``IDLE`` → ``PENDING``), then pushes it to the linked Google
+        Calendar (best-effort — a Google outage records ``FAILED`` and never blocks this
+        call). Called by :meth:`approve` and by the direct-create views.
         """
         self.announce(actor=actor)
         if self.sync_state == self.SyncState.IDLE:
             self.sync_state = self.SyncState.PENDING
             self.save(update_fields=["sync_state", "updated_at"])
+        self.push_to_google(actor=actor)
 
     # --- Google Calendar sync (delegates to core.integrations) ----------------
 

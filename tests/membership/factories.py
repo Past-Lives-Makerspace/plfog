@@ -237,6 +237,12 @@ class CommunityEventFactory(factory.django.DjangoModelFactory):
             reviewed_by=factory.SubFactory(UserFactory),
             review_notes="Not a fit right now.",
         )
+        pushed = factory.Trait(
+            google_event_id=factory.Sequence(lambda n: f"gevent{n}"),
+            google_calendar_id="cal@group.calendar.google.com",
+            google_ical_uid=factory.Sequence(lambda n: f"gevent{n}@google.com"),
+            sync_state=CommunityEvent.SyncState.SYNCED,
+        )
 
 
 class GuildMembershipFactory(factory.django.DjangoModelFactory):

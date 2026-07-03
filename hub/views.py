@@ -2408,6 +2408,8 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             event.save()
             if is_new:
                 event.publish(actor=request.user)
+            elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
+                event.push_to_google(actor=request.user)
             messages.success(request, "Event saved.")
             return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
     else:
@@ -2437,7 +2439,9 @@ def guild_event_delete(request: HttpRequest, pk: int, event_pk: int) -> HttpResp
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
-    get_object_or_404(CommunityEvent, pk=event_pk, guild=guild).delete()
+    event = get_object_or_404(CommunityEvent, pk=event_pk, guild=guild)
+    event.remove_from_google()  # best-effort; must run before the FOG row is gone
+    event.delete()
     messages.success(request, "Event deleted.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
 
@@ -2464,6 +2468,8 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
             event.save()
             if is_new:
                 event.publish(actor=request.user)
+            elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
+                event.push_to_google(actor=request.user)
             messages.success(request, "Event saved.")
             return redirect(cancel_url)
     else:
@@ -2486,7 +2492,9 @@ def event_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
     forbidden = _require_admin(request)
     if forbidden is not None:
         return forbidden
-    get_object_or_404(CommunityEvent, pk=event_pk).delete()
+    event = get_object_or_404(CommunityEvent, pk=event_pk)
+    event.remove_from_google()  # best-effort; must run before the FOG row is gone
+    event.delete()
     messages.success(request, "Event deleted.")
     return redirect(reverse("hub_community_calendar") + "?tab=events")
 
@@ -2822,7 +2830,7 @@ def _get_calendar_context(
     from collections import defaultdict
 
     from core.models import CalendarFeed, SiteConfiguration
-    from membership.models import CalendarEvent, Guild
+    from membership.models import CalendarEvent, CommunityEvent, Guild
 
     now = dj_timezone.now()
     today = now.date()
@@ -2844,6 +2852,10 @@ def _get_calendar_context(
     events_qs = CalendarEvent.objects.filter(start_dt__date__gte=fetch_from, start_dt__date__lte=fetch_to)
     if guild is not None:
         events_qs = events_qs.filter(guild=guild)
+    # Echo de-dup: hide the iCal copy of any event FOG itself pushed to Google (the daily
+    # read re-imports it as a CalendarEvent whose UID matches our stored google_ical_uid),
+    # so a FOG event never shows twice on the calendar.
+    events_qs = events_qs.exclude(uid__in=CommunityEvent.objects.pushed().values_list("google_ical_uid", flat=True))
     # CalendarEvent rows, optionally merged with synthetic guild entries (classes/orientations)
     # that duck-type CalendarEvent — hence the Any element type.
     all_events: list[Any] = list(events_qs.select_related("guild", "feed").order_by("start_dt"))
@@ -3072,8 +3084,11 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
 
     now = dj_timezone.now()
     horizon = now + timedelta(days=90)
+    # Echo de-dup: exclude the iCal re-import of any event FOG pushed to Google (matched by
+    # the stored google_ical_uid), so the export never carries a FOG event twice.
     events = (
         CalendarEvent.objects.filter(start_dt__gte=now, start_dt__lte=horizon)
+        .exclude(uid__in=CommunityEvent.objects.pushed().values_list("google_ical_uid", flat=True))
         .select_related("guild")
         .order_by("start_dt")
     )
