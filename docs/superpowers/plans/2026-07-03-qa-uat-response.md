@@ -56,7 +56,26 @@ announce-current-version) are **done** and were the original PR #118 scope. This
   and repoints them at the new home. C5 keeps only the theme cookie fix to avoid double-editing those lines.
   (If Spec A is deferred and C5 ships first, C5 may set both entry points to the Calendar as an interim.)
 - **C6 — Catalog/calendar consistency** (#8), from Spec C. Small, no migration; align the calendar's local-class
-  sync to the catalog's `bookable()` gate + external-feed microcopy. Sequenced last.
+  sync to the catalog's `bookable()` gate + external-feed microcopy.
+
+**C1–C6 are DONE — built, tested, and pushed to `release-0.20.x` (commits `5f72bf7`…`843c8de`).**
+
+### Follow-on build commits — Josh's decision (2026-07-03): EVERYTHING goes in PR #118, no separate PRs.
+
+- **C7 — Member home/dashboard** (Spec A, `2026-07-03-member-home-dashboard.md`). New `hub_home` view/template + sidebar
+  entry; **owns the landing repoint** (`adapters.py` + `core/views.py` → `hub_home`) that C5 deliberately left alone.
+  Reuses C2's `Member.has_started_profile`; adds `Member.profile_completeness` (property, no migration).
+- **C8 — Space & Org Info page + floorplan map** (Spec B, `2026-07-03-org-info-page.md`). `OrgInfoPage` singleton +
+  `OrgFAQItem`/`OrgLink` + nav + fold in the Google-Doc links. **Build everything EXCEPT the "replace Member Guild"
+  301 redirect** — that sub-task waits on the prod guild slug + safe-to-retire confirmation (still open). Page ships
+  with placeholder/empty states; content (floorplan image, code-of-conduct text) is post-deploy data entry.
+- **C9 — Guest Guilds Surface base** (`2026-07-01-guest-guilds-surface.md` §1–§10). New `"guilds"` surface +
+  directory page + `Guild.is_featured`. **Code lands in #118; go-live needs infra** (the `guilds.pastlives.app`
+  subdomain, DNS CNAME, Render custom domain, `GUILDS_HOSTS`/allowed-hosts/CSRF env) — a separate ops step.
+- **C10 — Guest surface flyer/QR/vanity** (§11–§16). `pastlives.app/g/<slug>` vanity 301 + `segno` QR + print flyer +
+  `Guild.essential_rules`. Depends on C9.
+
+Migration order stays clean (sequential): C8 → `0068`(+), C9 → `Guild.is_featured`, C10 → `Guild.essential_rules`.
 
 ## Specs written (parallel pass, 2026-07-03) — with disposition
 
@@ -74,9 +93,9 @@ announce-current-version) are **done** and were the original PR #118 scope. This
 
 ## Open decisions for Josh (from the specs)
 
-1. **Home dashboard + Org-info release sizing** — both specs recommend their **own release** rather than cramming
-   into PR #118. Default I'll follow unless told otherwise: build the C1–C6 quick wins into #118 now; treat the
-   home dashboard (`0.21.0`) and org-info page as their own follow-up PRs. Say the word to fold them into #118.
+1. **Home dashboard + Org-info release sizing** — ~~recommend own releases~~ **RESOLVED (Josh, 2026-07-03): everything
+   goes in PR #118, no separate PRs.** Home dashboard, org-info, and the guest surface + flyer are now build commits
+   C7–C10 above (VERSION stays `0.20.1`).
 2. **"Member Guild"** (#15) — the prod `Guild` row QA wants to replace. Need: its exact slug, and confirmation it's
    safe to retire (no in-flight voting/funding/membership dependence) so we can convert-and-301-redirect it.
 3. **Prison Outreach lead** (#11) — who is it? (Then `set_guild_lead`.)
