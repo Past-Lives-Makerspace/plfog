@@ -13,11 +13,36 @@
     <meta name="default-theme" content="{% block default_theme %}dark{% endblock %}">
     <script>
         (function() {
-            var t = localStorage.getItem('theme');
             var h = document.documentElement;
+            // Injected from settings.THEME_COOKIE_DOMAIN. Empty → host-only cookie
+            // (local dev); ".pastlives.app" in prod so the choice is shared across
+            // the member hub, the guilds surface, and the Discord OAuth callback.
+            var themeCookieDomain = '{{ theme_cookie_domain|escapejs }}';
+            function readThemeCookie() {
+                var m = document.cookie.match(/(?:^|;\s*)pl_theme=(light|dark)/);
+                return m ? m[1] : null;
+            }
+            function writeThemeCookie(theme) {
+                var c = 'pl_theme=' + theme + '; path=/; max-age=31536000; SameSite=Lax';
+                // Only mark Secure over https so the cookie still stores on local
+                // http dev (pastlives.test); prod is https so it stays Secure there.
+                if (location.protocol === 'https:') c += '; Secure';
+                if (themeCookieDomain) c += '; domain=' + themeCookieDomain;
+                document.cookie = c;
+            }
             var meta = document.querySelector('meta[name="default-theme"]');
             var def = (meta && meta.content === 'light') ? 'light' : 'dark';
-            var effective = (t === 'light' || t === 'dark') ? t : def;
+            // Resolution order: cross-subdomain cookie first, then per-origin
+            // localStorage, then this surface's default. The cookie winning is what
+            // carries an explicit choice across a subdomain hop.
+            var cookieTheme = readThemeCookie();
+            var lsTheme = localStorage.getItem('theme');
+            var effective = (cookieTheme === 'light' || cookieTheme === 'dark') ? cookieTheme
+                          : (lsTheme === 'light' || lsTheme === 'dark') ? lsTheme
+                          : def;
+            // Expose the resolved theme so the toggle button's initial icon matches
+            // what was actually painted (which may have come from the cookie).
+            window.__plTheme = effective;
             if (effective === 'light') {
                 h.setAttribute('data-theme', 'light');
                 h.classList.remove('dark');
@@ -26,17 +51,18 @@
                 h.classList.add('dark');
             }
             window.__plSetTheme = function(isLight) {
+                var theme = isLight ? 'light' : 'dark';
                 if (isLight) {
                     h.setAttribute('data-theme', 'light');
                     h.classList.remove('dark');
-                    localStorage.setItem('theme', 'light');
-                    localStorage.setItem('_x_adminTheme', '"light"');
                 } else {
                     h.removeAttribute('data-theme');
                     h.classList.add('dark');
-                    localStorage.setItem('theme', 'dark');
-                    localStorage.setItem('_x_adminTheme', '"dark"');
                 }
+                window.__plTheme = theme;
+                localStorage.setItem('theme', theme);
+                localStorage.setItem('_x_adminTheme', '"' + theme + '"');
+                writeThemeCookie(theme);
             };
         })();
     </script>
@@ -372,7 +398,7 @@
             </a>
             {% endif %}
             <button class="pl-topbar__theme-toggle"
-                    x-data="{ light: localStorage.getItem('theme') === 'light' }"
+                    x-data="{ light: window.__plTheme === 'light' }"
                     @click="light = !light; window.__plSetTheme(light)"
                     aria-label="Toggle theme">
                 <svg x-show="!light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -49,6 +49,16 @@ if _cookie_domain:
     SESSION_COOKIE_DOMAIN = _cookie_domain
     CSRF_COOKIE_DOMAIN = _cookie_domain
 
+# Theme-persistence cookie. Written client-side by the theme toggle (see
+# templates/hub/base.html) so an explicit light/dark choice follows the member
+# across subdomains of the same registrable domain — the member hub,
+# guilds.pastlives.app, and the Discord OAuth callback all live on .pastlives.app.
+# It is deliberately separate from COOKIE_DOMAIN (which scopes the session/CSRF
+# cookies to .pastlives.space) because a single cookie cannot span two different
+# registrable domains. Empty (the default) → host-only cookie, correct for local
+# dev (pastlives.test); production sets THEME_COOKIE_DOMAIN=.pastlives.app.
+THEME_COOKIE_DOMAIN = os.environ.get("THEME_COOKIE_DOMAIN", "").strip()
+
 # Surface routing. PUBLIC_HOSTS is the set of hostnames that serve the public
 # class catalog only; every other host serves the full member application.
 # MEMBER_HOST is where the public surface redirects /accounts/* requests so
@@ -144,6 +154,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "core.context_processors.registration_mode",
                 "core.context_processors.app_version",
+                "core.context_processors.theme",
                 "core.context_processors.feature_flags",
                 "core.context_processors.google_analytics",
                 "core.context_processors.surface",

@@ -23,6 +23,18 @@ def app_version(request: HttpRequest) -> dict[str, Any]:
     return {"app_version": VERSION, "changelog": CHANGELOG}
 
 
+def theme(request: HttpRequest) -> dict[str, str]:
+    """Expose the theme cookie's domain scope to base.html's early inline script.
+
+    The script writes the light/dark choice to the ``pl_theme`` cookie so an
+    explicit choice survives navigation across subdomains of the registrable
+    domain. Empty string → a host-only cookie (correct for local dev like
+    ``pastlives.test``); production sets ``THEME_COOKIE_DOMAIN=.pastlives.app``
+    so the member hub and the guilds surface share the choice.
+    """
+    return {"theme_cookie_domain": settings.THEME_COOKIE_DOMAIN}
+
+
 def feature_flags(request: HttpRequest) -> dict[str, Any]:
     """Expose the Site Settings → Features toggles site-wide (members + public)."""
     from core.models import SiteConfiguration

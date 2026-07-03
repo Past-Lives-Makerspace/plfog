@@ -57,7 +57,7 @@ toggle still wins.
       {% endif %}
       <a href="https://pastlives.space/membership" class="cp-topbar__cta" hx-boost="false">Become a member</a>
       <button class="cp-topbar__theme-toggle"
-              x-data="{ light: localStorage.getItem('theme') === 'light' || (localStorage.getItem('theme') === null) }"
+              x-data="{ light: window.__plTheme === 'light' }"
               @click="light = !light; window.__plSetTheme(light)"
               aria-label="Toggle theme">
         <svg x-show="!light" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

@@ -3,7 +3,7 @@
 import pytest
 from django.test import RequestFactory
 
-from core.context_processors import app_version, feature_flags, google_analytics, registration_mode, surface
+from core.context_processors import app_version, feature_flags, google_analytics, registration_mode, surface, theme
 from core.models import SiteConfiguration
 from plfog.version import CHANGELOG, VERSION
 
@@ -154,6 +154,23 @@ def describe_surface():
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "parent_template": "base.html",
         }
+
+
+def describe_theme():
+    def it_exposes_empty_domain_by_default(settings):
+        # Default (local dev): host-only cookie, no domain attribute.
+        settings.THEME_COOKIE_DOMAIN = ""
+        rf = RequestFactory()
+        request = rf.get("/")
+        assert theme(request) == {"theme_cookie_domain": ""}
+
+    def it_exposes_the_configured_parent_domain(settings):
+        # Production scopes the theme cookie to the .pastlives.app registrable
+        # domain so the choice is shared across the hub and guilds surfaces.
+        settings.THEME_COOKIE_DOMAIN = ".pastlives.app"
+        rf = RequestFactory()
+        request = rf.get("/")
+        assert theme(request) == {"theme_cookie_domain": ".pastlives.app"}
 
 
 def describe_notification_badge():
