@@ -12,6 +12,8 @@ urlpatterns = [
     path("health/", views.health_check, name="health_check"),
     # Home page
     path("", views.home, name="home"),
+    # Short, human-typable vanity share URL → 301 to the public guest guild page.
+    path("g/<slug:slug>/", views.guild_vanity_redirect, name="guild_vanity"),
     # Clear pending login stage and restart
     path("accounts/restart-login/", views.restart_login, name="restart_login"),
     # Find account by name

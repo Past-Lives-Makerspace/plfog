@@ -3171,3 +3171,21 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     .pl-upcoming__link { flex-direction: column; gap: 0.25rem; }
     .pl-upcoming__when { flex-direction: row; gap: 0.5rem; width: auto; }
 }
+
+/* Guild editor "Share & Print" QR preview. The QR SVG (segno, scale=1) is tiny
+   at intrinsic size, so scale it up to a fixed preview box. */
+.pl-qr-preview {
+    flex: 0 0 auto;
+    width: 140px;
+    height: 140px;
+    padding: 8px;
+    background: #ffffff;
+    border: 1px solid var(--hub-border);
+    border-radius: 6px;
+}
+
+.pl-qr-preview svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}

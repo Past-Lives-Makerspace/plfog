@@ -929,6 +929,14 @@ class Guild(HeroCropMixin, models.Model):
         default="",
         help_text="Member-facing description or announcement shown on the guild page.",
     )
+    essential_rules = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Short essential/safety rules shown on your printable flyer. "
+            "Keep it brief — your full About is too long to print."
+        ),
+    )
     banner_image = models.ImageField(
         upload_to="guilds/banners/",
         blank=True,
@@ -1061,6 +1069,38 @@ class Guild(HeroCropMixin, models.Model):
         from membership.logos import logo_prefix_for
 
         return logo_prefix_for(self.name)
+
+    @property
+    def vanity_url(self) -> str:
+        """Absolute, human-typable share URL, e.g. https://pastlives.app/g/ceramics/.
+
+        Lives on the member host and 301-redirects to the public guest guild page. It is
+        the single source of truth for what the QR encodes and the flyer prints.
+        """
+        from django.urls import reverse
+
+        return f"{settings.MEMBER_BASE_URL}{reverse('guild_vanity', args=[self.slug])}"
+
+    def qr_svg(self) -> str:
+        """Inline SVG markup of this guild's vanity-URL QR (crisp at any print size)."""
+        import io
+
+        import segno
+
+        # segno's SVG writer emits bytes, so buffer as bytes and decode to markup.
+        buf = io.BytesIO()
+        segno.make(self.vanity_url, error="m").save(buf, kind="svg", scale=1, xmldecl=False, svgns=True)
+        return buf.getvalue().decode("utf-8")
+
+    def qr_png_bytes(self) -> bytes:
+        """PNG bytes of the same QR (segno's native writer — no Pillow)."""
+        import io
+
+        import segno
+
+        buf = io.BytesIO()
+        segno.make(self.vanity_url, error="m").save(buf, kind="png", scale=10, border=2)
+        return buf.getvalue()
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.slug:

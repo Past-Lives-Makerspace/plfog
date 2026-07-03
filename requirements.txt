@@ -19,5 +19,6 @@ icalendar>=6.0
 pywebpush>=2.0
 markdown>=3.6
 bleach>=6.1
+segno>=1.6
 httpx>=0.27
 respx>=0.21

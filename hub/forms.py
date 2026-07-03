@@ -74,6 +74,7 @@ class GuildEditForm(forms.ModelForm):
         fields = [
             "name",
             "about",
+            "essential_rules",
             "banner_image",
             "calendar_url",
             "calendar_color",
@@ -100,6 +101,12 @@ class GuildEditForm(forms.ModelForm):
             "about": forms.Textarea(
                 attrs={"rows": 5, "placeholder": "Tell members what this guild is about..."},
             ),
+            "essential_rules": forms.Textarea(
+                attrs={
+                    "rows": 3,
+                    "placeholder": "e.g. Closed-toe shoes in the shop. No solo use of the kiln. Sign in at the front desk.",
+                },
+            ),
             "calendar_url": forms.URLInput(attrs={"placeholder": "https://calendar.google.com/calendar/ical/..."}),
             "calendar_color": forms.TextInput(
                 attrs={"type": "color", "class": "pl-color-input"},
@@ -114,6 +121,7 @@ class GuildEditForm(forms.ModelForm):
         }
         labels = {
             "about": "About",
+            "essential_rules": "Essential / safety rules (for the flyer)",
             "banner_image": "Banner image",
             "calendar_url": "Google Calendar iCal URL",
             "calendar_color": "Calendar Color",
@@ -133,6 +141,7 @@ class GuildEditForm(forms.ModelForm):
             "faq_label": "FAQ / info section heading",
         }
         help_texts = {
+            "essential_rules": "Shown on your printable flyer. Keep it to a few short lines.",
             "banner_image": "Shown at the top of the guild page. Max 5 MB.",
             "faq_label": "The heading shown above this guild's FAQ / info section — e.g. 'Ceramics Info'. Defaults to 'FAQ'.",
             "calendar_url": (

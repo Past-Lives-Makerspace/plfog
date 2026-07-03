@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 from django.db import IntegrityError
+from django.test import override_settings
 from django.utils import timezone
 
 from membership.models import Guild, Lease, Member, MembershipPlan, Space
@@ -343,3 +344,57 @@ def describe_directory():
         gone = GuildFactory(name="Gone Guild")
         gone.soft_delete()
         assert "Gone Guild" not in list(Guild.objects.directory().values_list("name", flat=True))
+
+
+# ---------------------------------------------------------------------------
+# Vanity URL, QR code, and essential_rules (flyer feature)
+# ---------------------------------------------------------------------------
+
+
+def describe_vanity_url():
+    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    def it_is_the_member_host_g_slug_path():
+        guild = GuildFactory(name="Ceramics")
+        assert guild.vanity_url == f"https://pastlives.app/g/{guild.slug}/"
+
+
+def describe_qr_svg():
+    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    def it_returns_non_empty_svg_markup():
+        guild = GuildFactory(name="Ceramics")
+        svg = guild.qr_svg()
+        assert "<svg" in svg
+        assert svg.strip() != ""
+
+    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    def it_encodes_the_vanity_url():
+        import io
+
+        import segno
+
+        guild = GuildFactory(name="Ceramics")
+        buf = io.BytesIO()
+        segno.make(guild.vanity_url, error="m").save(buf, kind="svg", scale=1, xmldecl=False, svgns=True)
+        # The QR is generated from the vanity URL specifically (not the slug or guest URL).
+        assert guild.qr_svg() == buf.getvalue().decode("utf-8")
+
+    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    def it_differs_for_a_different_guild():
+        one = GuildFactory(name="Ceramics")
+        two = GuildFactory(name="Woodworking")
+        assert one.qr_svg() != two.qr_svg()
+
+
+def describe_qr_png_bytes():
+    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    def it_returns_bytes_with_the_png_magic_header():
+        guild = GuildFactory(name="Ceramics")
+        png = guild.qr_png_bytes()
+        assert isinstance(png, bytes)
+        assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def describe_essential_rules():
+    def it_defaults_to_an_empty_string():
+        guild = GuildFactory(name="Ceramics")
+        assert guild.essential_rules == ""

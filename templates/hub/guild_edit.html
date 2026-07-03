@@ -28,6 +28,7 @@
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Basic Information</h2>
       {% include "components/form_field.html" with field=form.name %}
       {% include "components/form_field.html" with field=form.about %}
+      {% include "components/form_field.html" with field=form.essential_rules %}
       {% include "components/form_field.html" with field=form.faq_label %}
       <div class="pl-form-grid">
         {% include "components/form_field.html" with field=form.youtube_url %}
@@ -99,6 +100,31 @@
     <a href="{% url 'hub_guild_detail' guild.slug %}" class="pl-btn pl-btn--secondary">Cancel</a>
   </div>
 </form>
+
+{# ── Share & Print (Basic tab) — vanity URL, printable flyer, QR downloads ──── #}
+<div x-show="section === 'basic'" x-cloak class="hub-card" style="padding:1.5rem; margin-top:2.5rem; margin-bottom:1.5rem;">
+  <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Share &amp; Print</h2>
+  <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem; max-width:46rem;">
+    Every guild has a short public web page. Print the flyer for the shop wall, hand out the QR code, or read the link aloud.
+  </p>
+  <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start;">
+    <div style="flex:1 1 20rem; min-width:16rem;">
+      <div class="hub-form-group" style="margin-bottom:0.35rem;">
+        <label for="guild-vanity-url">Short link (vanity URL)</label>
+        <input id="guild-vanity-url" type="text" readonly value="{{ guild.vanity_url }}" onclick="this.select()">
+      </div>
+      <p class="hub-text-muted" style="font-size:0.75rem; margin:0 0 1rem;">
+        Print this on signage or read it aloud — it opens your public guild page.
+      </p>
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+        <a href="{% url 'hub_guild_flyer' guild.pk %}" target="_blank" rel="noopener" class="pl-btn pl-btn--primary">Open printable flyer</a>
+        <a href="{% url 'hub_guild_qr' guild.pk 'svg' %}" class="pl-btn pl-btn--secondary">Download QR (SVG)</a>
+        <a href="{% url 'hub_guild_qr' guild.pk 'png' %}" class="pl-btn pl-btn--secondary">Download QR (PNG)</a>
+      </div>
+    </div>
+    <div class="pl-qr-preview" aria-hidden="true">{{ guild.qr_svg|safe }}</div>
+  </div>
+</div>
 
 {% if is_admin %}
 {% comment %}

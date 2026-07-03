@@ -16,7 +16,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, QuerySet
-from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -672,6 +672,33 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
         return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild, form=form))
 
     return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild))
+
+
+@login_required
+def guild_qr_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
+    """Download this guild's vanity-URL QR code as SVG (default) or PNG (editor-gated)."""
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    if fmt == "svg":
+        resp = HttpResponse(guild.qr_svg(), content_type="image/svg+xml")
+    elif fmt == "png":
+        resp = HttpResponse(guild.qr_png_bytes(), content_type="image/png")
+    else:
+        raise Http404
+    resp["Content-Disposition"] = f'attachment; filename="{guild.slug}-qr.{fmt}"'
+    return resp
+
+
+@login_required
+def guild_flyer(request: HttpRequest, pk: int) -> HttpResponse:
+    """Print-optimized one-page flyer for a guild (leads → Print → Save as PDF)."""
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    return render(request, "hub/guild_flyer.html", {"guild": guild, "qr_svg": guild.qr_svg()})
 
 
 @login_required
