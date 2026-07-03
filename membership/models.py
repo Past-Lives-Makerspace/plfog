@@ -975,6 +975,11 @@ class Guild(HeroCropMixin, models.Model):
         related_name="+",
         help_text="A class to spotlight at the top of the guild page.",
     )
+    faq_label = models.CharField(
+        max_length=50,
+        default="FAQ",
+        help_text="Heading for this guild's FAQ / info section on the guild page — e.g. 'Ceramics Info'.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(
         null=True,

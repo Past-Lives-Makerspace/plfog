@@ -104,7 +104,7 @@
     <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
     {% if tab_payments_enabled %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
-    {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">FAQ</button>{% endif %}
+    {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
     {% if meeting_notes or can_edit_this_guild %}<button type="button" class="vote-tab" :class="section === 'notes' ? 'vote-tab--active' : ''" @click="section = 'notes'">Meeting Notes</button>{% endif %}
     {% if gallery_images %}<button type="button" class="vote-tab" :class="section === 'gallery' ? 'vote-tab--active' : ''" @click="section = 'gallery'">Gallery</button>{% endif %}
 </nav>
@@ -311,12 +311,12 @@
 {% if faq_items %}
 <div x-show="section === 'faq'" x-cloak>
     <section class="pl-guild-section">
-        <h2 class="pl-guild-section__h2">FAQ</h2>
+        <h2 class="pl-guild-section__h2">{{ guild.faq_label|default:"FAQ" }}</h2>
         {% for item in faq_items %}
         <div x-data="{ open: false }">
             <div class="pl-guild-faq__q" @click="open = !open">{{ item.question }}</div>
             <div class="pl-guild-faq__a" x-show="open" x-cloak>
-                {{ item.answer|linebreaksbr }}
+                <div class="pl-md">{{ item.answer|guild_markdown }}</div>
                 {% if item.video_url %}{% with vid=item.video_url|youtube_embed_id %}{% if vid %}
                 <div class="pl-guild-video" style="margin-top:0.75rem;">
                     <iframe src="https://www.youtube-nocookie.com/embed/{{ vid }}" title="{{ item.question }}" allowfullscreen></iframe>

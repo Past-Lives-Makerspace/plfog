@@ -558,6 +558,24 @@ def describe_GuildEditForm():
         )
         assert form.is_valid(), form.errors
 
+    def it_saves_a_custom_faq_label():
+        guild = GuildFactory(name="Ceramics")
+        form = GuildEditForm(
+            data={"name": "Ceramics", "calendar_color": "#4B9FEE", "faq_label": "Ceramics Info"},
+            instance=guild,
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().faq_label == "Ceramics Info"
+
+    def it_coerces_a_blank_faq_label_back_to_FAQ():
+        guild = GuildFactory(name="Weavers")
+        form = GuildEditForm(
+            data={"name": "Weavers", "calendar_color": "#4B9FEE", "faq_label": ""},
+            instance=guild,
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().faq_label == "FAQ"
+
 
 @pytest.mark.django_db
 def describe_guild_edit_page():

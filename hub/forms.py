@@ -89,6 +89,7 @@ class GuildEditForm(forms.ModelForm):
             "website_url",
             "show_members",
             "featured_class",
+            "faq_label",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Guild name"}),
@@ -126,9 +127,11 @@ class GuildEditForm(forms.ModelForm):
             "website_url": "Website URL",
             "show_members": "Show members roster",
             "featured_class": "Featured class",
+            "faq_label": "FAQ / info section heading",
         }
         help_texts = {
             "banner_image": "Shown at the top of the guild page. Max 5 MB.",
+            "faq_label": "The heading shown above this guild's FAQ / info section — e.g. 'Ceramics Info'. Defaults to 'FAQ'.",
             "calendar_url": (
                 "In Google Calendar → Settings → your calendar → 'Secret address in iCal format'. "
                 "Leave blank if you don't use Google Calendar."
@@ -153,6 +156,11 @@ class GuildEditForm(forms.ModelForm):
         # An omitted/blank cadence means "no regular meeting", not an empty string.
         return self.cleaned_data.get("meeting_cadence") or Guild.MeetingCadence.NONE
 
+    def clean_faq_label(self) -> str:
+        # A blank label falls back to the default heading rather than an empty string,
+        # so the FAQ section always has a visible title.
+        return (self.cleaned_data.get("faq_label") or "").strip() or "FAQ"
+
     def clean_discord_webhook_url(self) -> str:
         """Validate the webhook is a Discord webhook URL (or blank).
 
@@ -172,6 +180,10 @@ class GuildEditForm(forms.ModelForm):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         from classes.models import ClassOffering
+
+        # Blank is accepted and coerced back to "FAQ" in clean_faq_label, so leaving it
+        # empty never blocks a save of the rest of the form.
+        self.fields["faq_label"].required = False
 
         featured = cast(forms.ModelChoiceField, self.fields["featured_class"])
         if self.instance and self.instance.pk:
@@ -579,6 +591,9 @@ class GuildFAQItemForm(forms.ModelForm):
             "video_url": "Video (YouTube)",
             "document": "Document (upload)",
             "document_url": "…or document link",
+        }
+        help_texts = {
+            "answer": "You can use Markdown — **bold**, lists, and [links](https://example.com) all render on the page.",
         }
 
     def clean_video_url(self) -> str:

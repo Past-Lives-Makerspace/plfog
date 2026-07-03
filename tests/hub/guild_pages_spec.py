@@ -140,3 +140,67 @@ def describe_guild_detail():
             _linked_user(client)
             response = client.get(f"/guilds/{guild.slug}/")
             assert b"section = 'faq'" not in response.content
+
+        def it_renders_a_custom_faq_label_in_the_tab_and_heading(client: Client):
+            from membership.models import GuildFAQItem
+
+            guild = GuildFactory(faq_label="Ceramics Info")
+            _linked_user(client)
+            GuildFAQItem.objects.create(guild=guild, question="Why?", answer="Because.", sort_order=0)
+            response = client.get(f"/guilds/{guild.slug}/")
+            body = response.content.decode()
+            # Once in the tab button, once in the section heading.
+            assert body.count("Ceramics Info") == 2
+            assert '<h2 class="pl-guild-section__h2">Ceramics Info</h2>' in body
+
+        def it_falls_back_to_FAQ_when_the_label_is_blank(client: Client):
+            from membership.models import GuildFAQItem
+
+            guild = GuildFactory(faq_label="")
+            _linked_user(client)
+            GuildFAQItem.objects.create(guild=guild, question="Why?", answer="Because.", sort_order=0)
+            response = client.get(f"/guilds/{guild.slug}/")
+            assert '<h2 class="pl-guild-section__h2">FAQ</h2>' in response.content.decode()
+
+        def it_renders_a_markdown_link_in_the_answer_as_a_clickable_anchor(client: Client):
+            from membership.models import GuildFAQItem
+
+            guild = GuildFactory()
+            _linked_user(client)
+            GuildFAQItem.objects.create(
+                guild=guild,
+                question="Where are the docs?",
+                answer="See the [handbook](https://example.com/handbook).",
+                sort_order=0,
+            )
+            response = client.get(f"/guilds/{guild.slug}/")
+            body = response.content.decode()
+            assert 'href="https://example.com/handbook"' in body
+            assert ">handbook</a>" in body
+            # Wrapped in the shared Markdown container, like meeting notes.
+            assert '<div class="pl-md">' in body
+
+        def it_autolinks_a_pasted_url_in_the_answer(client: Client):
+            from membership.models import GuildFAQItem
+
+            guild = GuildFactory()
+            _linked_user(client)
+            GuildFAQItem.objects.create(
+                guild=guild, question="Link?", answer="Visit https://example.com/guide today.", sort_order=0
+            )
+            response = client.get(f"/guilds/{guild.slug}/")
+            assert 'href="https://example.com/guide"' in response.content.decode()
+
+        def it_sanitizes_script_injection_in_the_answer(client: Client):
+            from membership.models import GuildFAQItem
+
+            guild = GuildFactory()
+            _linked_user(client)
+            GuildFAQItem.objects.create(
+                guild=guild, question="Safe?", answer="Hi <script>alert('x')</script> there.", sort_order=0
+            )
+            response = client.get(f"/guilds/{guild.slug}/")
+            body = response.content.decode()
+            # The <script> tag is stripped by bleach; its payload survives only as inert text.
+            assert "<script>alert" not in body
+            assert "<p>Hi alert('x') there.</p>" in body
