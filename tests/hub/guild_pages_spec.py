@@ -149,8 +149,10 @@ def describe_guild_detail():
             GuildFAQItem.objects.create(guild=guild, question="Why?", answer="Because.", sort_order=0)
             response = client.get(f"/guilds/{guild.slug}/")
             body = response.content.decode()
-            # Once in the tab button, once in the section heading.
-            assert body.count("Ceramics Info") == 2
+            # Assert the two specific render locations (FAQ tab button + section heading)
+            # rather than a global substring count — the label can also legitimately appear
+            # in unrelated page chrome (e.g. the changelog modal quoting it as an example).
+            assert ">Ceramics Info</button>" in body
             assert '<h2 class="pl-guild-section__h2">Ceramics Info</h2>' in body
 
         def it_falls_back_to_FAQ_when_the_label_is_blank(client: Client):

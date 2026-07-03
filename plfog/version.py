@@ -7,7 +7,7 @@ VERSION = "0.20.1"
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "0.20.1",
-        "date": "2026-06-28",
+        "date": "2026-07-03",
         "title": "Guild pages: more polish and clearer announcements",
         "changes": [
             (
@@ -22,6 +22,51 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             (
                 "Guild staff now show up once with all their titles together as badges, so someone can be an Orienter "
                 "and a Glaze Technician without appearing twice."
+            ),
+            (
+                "You can now rename a guild's FAQ section to whatever fits — like 'Ceramics Info' — and FAQ answers "
+                "can include clickable links and simple formatting, not just plain text."
+            ),
+        ],
+    },
+    {
+        "version": "0.20.1",
+        "date": "2026-07-03",
+        "title": "Your profile is safer to edit — and you're listed by default",
+        "changes": [
+            (
+                "Editing your profile is safer: if a photo you upload is too large, we now keep the rest of your "
+                "changes — pronouns, Discord, about-you, and your visibility choices — instead of losing them while "
+                "you swap in a smaller picture."
+            ),
+            (
+                "New members now appear in the member directory by default, so you're never hidden by accident. You "
+                "can still hide yourself, or any single detail, anytime from Settings."
+            ),
+            "When you connect your Discord account, we now fill in your Discord handle for you.",
+            (
+                "New here? A friendly welcome now greets you on your first sign-in and points you to set up your "
+                "profile."
+            ),
+        ],
+    },
+    {
+        "version": "0.20.1",
+        "date": "2026-07-03",
+        "title": "Clearer pages, a tidier calendar, and a theme that follows you",
+        "changes": [
+            (
+                "More pages now tell you what they're for right at the top — so it's clear, for example, that the "
+                "Orientations page is where guild leads track and manage orientations, and what the Member Directory "
+                "is for."
+            ),
+            (
+                "Classes that have already started no longer linger on the Community Calendar — it now matches the "
+                "Class Catalog, so you won't run into a class you can't actually book."
+            ),
+            (
+                "Your light or dark theme choice now sticks as you move between parts of the member site, instead of "
+                "flipping back on you."
             ),
         ],
     },
