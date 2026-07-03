@@ -450,6 +450,7 @@
     </div>
 
     {% include "includes/changelog_modal.html" %}
+    {% if show_welcome_modal %}{% include "includes/welcome_modal.html" %}{% endif %}
     <script src="{% static 'js/htmx.min.js' %}"></script>
     {% comment %}
         head-support: makes hx-boost merge <head> contents (per-page styles, link tags) — without it,

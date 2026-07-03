@@ -376,6 +376,14 @@ class Member(models.Model):
     )
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    welcome_dismissed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the member dismissed the first-login 'set up your profile' welcome modal "
+            "(null = not dismissed yet). Set once they act on it, so it never shows again."
+        ),
+    )
     leases = GenericRelation(
         "Lease",
         content_type_field="content_type",
@@ -420,6 +428,22 @@ class Member(models.Model):
     def discord_is_linked(self) -> bool:
         """Whether this member has a verified Discord account linked for DM notifications."""
         return bool(self.discord_user_id)
+
+    @property
+    def has_started_profile(self) -> bool:
+        """Whether the member has customized any part of their profile yet.
+
+        True once a photo, bio, pronouns, or Discord (typed handle or a linked
+        account) is set. Drives the first-login welcome nudge: brand-new members
+        with an empty profile see it once; anyone who has already customized
+        anything never does — without touching or backfilling existing rows.
+        """
+        return bool(self.profile_photo or self.about_me or self.pronouns or self.discord_handle or self.discord_user_id)
+
+    def dismiss_welcome(self) -> None:
+        """Mark the first-login profile welcome modal as dismissed so it never shows again."""
+        self.welcome_dismissed_at = timezone.now()
+        self.save(update_fields=["welcome_dismissed_at"])
 
     def link_discord(self, discord_user_id: str, handle: str = "") -> None:
         """Record a verified Discord account id for DM notifications.

@@ -196,6 +196,45 @@ def describe_member_computed_properties():
 
 
 @pytest.mark.django_db
+def describe_member_has_started_profile():
+    def it_is_false_for_a_brand_new_member():
+        member = MemberFactory()
+        assert member.has_started_profile is False
+
+    def it_is_true_when_about_me_is_set():
+        member = MemberFactory(about_me="Potter, welder, tea enthusiast.")
+        assert member.has_started_profile is True
+
+    def it_is_true_when_pronouns_are_set():
+        member = MemberFactory(pronouns=Member.Pronouns.HE_HIM)
+        assert member.has_started_profile is True
+
+    def it_is_true_when_a_discord_handle_is_typed():
+        member = MemberFactory(discord_handle="@maker")
+        assert member.has_started_profile is True
+
+    def it_is_true_when_a_discord_account_is_linked():
+        member = MemberFactory(discord_user_id="123456789012345678")
+        assert member.has_started_profile is True
+
+    def it_is_true_when_a_profile_photo_is_set():
+        member = MemberFactory(profile_photo="members/profile/avatar.png")
+        assert member.has_started_profile is True
+
+
+@pytest.mark.django_db
+def describe_member_dismiss_welcome():
+    def it_stamps_welcome_dismissed_at():
+        member = MemberFactory()
+        assert member.welcome_dismissed_at is None
+
+        member.dismiss_welcome()
+
+        member.refresh_from_db()
+        assert member.welcome_dismissed_at is not None
+
+
+@pytest.mark.django_db
 def describe_member_leases_and_spaces():
     def describe_active_leases():
         def it_returns_active_leases():

@@ -1,0 +1,47 @@
+{% comment %}
+First-login welcome modal — nudges brand-new members to set up their profile.
+
+Gated by `show_welcome_modal` (set in hub _get_hub_context) so it only renders for a
+member who hasn't customized anything and hasn't dismissed it yet. Auto-opens on load.
+
+Uses the shared pl-modal design (backdrop / card / header / body classes from
+components.css). Deliberately has NO X, backdrop, or escape dismissal — the member must
+pick one of the two buttons, both of which POST to hub_welcome_dismiss, so the modal can
+never be left un-stamped and therefore never reappears.
+{% endcomment %}
+<div x-data="{ open: false }"
+     x-init="$nextTick(() => open = true)"
+     x-show="open"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-modal.window="if ($event.detail === 'welcome') open = true"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="welcome-modal-title">
+    <div class="pl-modal pl-modal--sm">
+        <div class="pl-modal__header">
+            <h2 class="pl-modal__title" id="welcome-modal-title">Welcome to Past Lives!</h2>
+        </div>
+        <div class="pl-modal__body">
+            <p class="pl-welcome-modal__lead">
+                You're in. Take a minute to set up your profile — add a photo, your pronouns
+                and skills, and choose what other members can see. It helps the community get
+                to know you.
+            </p>
+            <div class="pl-modal__actions pl-welcome-modal__actions">
+                <form method="post" action="{% url 'hub_welcome_dismiss' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <button type="submit" class="pl-btn pl-btn--secondary">Maybe later</button>
+                </form>
+                <form method="post" action="{% url 'hub_welcome_dismiss' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="destination" value="profile">
+                    <button type="submit" class="pl-btn pl-btn--primary">Set up my profile</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

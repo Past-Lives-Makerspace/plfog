@@ -73,6 +73,23 @@
     margin-top: 1.5rem;
 }
 
+/* First-login welcome modal (nudges profile setup) */
+.pl-welcome-modal__lead {
+    margin: 0;
+    color: var(--hub-text-muted, #96ACBB);
+    line-height: 1.6;
+    font-size: 0.95rem;
+}
+
+.pl-welcome-modal__actions {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.pl-welcome-modal__actions form {
+    margin: 0;
+}
+
 /* Modal transitions */
 .modal-enter {
     transition: opacity 0.2s ease;

@@ -19,6 +19,7 @@ from django.db.models import Count, Prefetch, Q, QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST, require_http_methods
 
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
@@ -58,16 +59,21 @@ def _get_hub_context(request: HttpRequest) -> dict[str, Any]:
     guilds = Guild.objects.order_by("name")
     initials = ""
     photo_url = ""
+    show_welcome_modal = False
     if request.user.is_authenticated:
         member: Member | None = getattr(request.user, "member", None)
         if member is not None:
             initials = member.initials
             if member.profile_photo:
                 photo_url = member.profile_photo.url
+            # First-login nudge: brand-new members who haven't customized anything and
+            # haven't dismissed it yet. Established members are never shown it (no backfill).
+            show_welcome_modal = member.welcome_dismissed_at is None and not member.has_started_profile
     return {
         "guilds": guilds,
         "user_initials": initials,
         "user_profile_photo_url": photo_url,
+        "show_welcome_modal": show_welcome_modal,
     }
 
 
@@ -78,6 +84,26 @@ def _get_member(request: HttpRequest) -> Member | None:
     """
     member: Member | None = getattr(request.user, "member", None)
     return member
+
+
+@login_required
+@require_POST
+def welcome_dismiss(request: HttpRequest) -> HttpResponse:
+    """Dismiss the first-login 'set up your profile' welcome modal.
+
+    Both modal buttons POST here so the dismissal always sticks server-side.
+    "Set up my profile" (destination=profile) stamps and lands the member on their
+    profile settings; "Maybe later" stamps and returns them to where they were.
+    """
+    member = _get_member(request)
+    if member is not None:
+        member.dismiss_welcome()
+    if request.POST.get("destination") == "profile":
+        return redirect(f"{reverse('hub_user_settings')}?tab=profile")
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
+    return redirect("hub_community_calendar")
 
 
 @login_required

@@ -150,6 +150,7 @@ urlpatterns = [
         views.guild_product_delete,
         name="hub_guild_product_delete",
     ),
+    path("welcome/dismiss/", views.welcome_dismiss, name="hub_welcome_dismiss"),
     path("settings/", views.user_settings, name="hub_user_settings"),
     path(
         "settings/profile-photo/delete/",
