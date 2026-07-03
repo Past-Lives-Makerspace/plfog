@@ -2407,7 +2407,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
                 event.created_by = request.user
             event.save()
             if is_new:
-                event.announce(actor=request.user)
+                event.publish(actor=request.user)
             messages.success(request, "Event saved.")
             return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
     else:
@@ -2463,7 +2463,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
                 event.created_by = request.user
             event.save()
             if is_new:
-                event.announce(actor=request.user)
+                event.publish(actor=request.user)
             messages.success(request, "Event saved.")
             return redirect(cancel_url)
     else:
@@ -2489,6 +2489,216 @@ def event_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
     get_object_or_404(CommunityEvent, pk=event_pk).delete()
     messages.success(request, "Event deleted.")
     return redirect(reverse("hub_community_calendar") + "?tab=events")
+
+
+# --- Member event proposals + reviewer queue --------------------------------
+
+
+def _reviewer_guild_scope(request: HttpRequest) -> Any:
+    """The requester's event-review authority.
+
+    Returns ``True`` for an admin (every guild + site-wide), a ``Guild`` queryset for a
+    lead/staffer (their guilds only), or ``None`` when the request may not review.
+    """
+    if _viewing_as_admin(request):
+        return True
+    member = _get_member(request)
+    if member is not None and member.staffed_guilds.exists():
+        return member.staffed_guilds
+    return None
+
+
+def _pending_for_scope(scope: Any) -> Any:
+    """The pending proposals visible to a reviewer ``scope`` (``True`` = admin/all)."""
+    from membership.models import CommunityEvent
+
+    pending = CommunityEvent.objects.awaiting_review().select_related("guild", "submitted_by").order_by("starts_at")
+    return pending if scope is True else pending.filter(guild__in=scope)
+
+
+@login_required
+def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
+    """Member "Propose an event" page — create a new proposal, or edit/resubmit an
+    owned Pending/Changes-requested one.
+
+    On create the member-event policy decides the outcome: ``DISABLED`` → 403;
+    ``OPEN`` → publish immediately; ``APPROVAL`` → submit to the review queue. Editing
+    always re-submits for review (a changes-requested proposal returns to Pending).
+    """
+    from hub.forms import CommunityEventForm
+    from membership.models import CommunityEvent
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    policy = SiteConfiguration.load().member_event_policy
+    Policy = SiteConfiguration.MemberEventPolicy
+    editable_states = [
+        CommunityEvent.ModerationState.PENDING,
+        CommunityEvent.ModerationState.CHANGES_REQUESTED,
+    ]
+    if pk is None:
+        if policy == Policy.DISABLED:
+            return HttpResponse("Forbidden", status=403)
+        event = CommunityEvent()
+        editing = False
+    else:
+        event = get_object_or_404(CommunityEvent, pk=pk, submitted_by=user, moderation_state__in=editable_states)
+        editing = True
+
+    cancel_url = reverse("hub_community_calendar") + "?tab=events"
+
+    if request.method == "POST":
+        form = CommunityEventForm(request.POST, instance=event, as_member=True)
+        if form.is_valid():
+            event = form.save(commit=False)
+            guild = form.cleaned_data.get("guild")
+            event.guild = guild
+            event.event_type = (
+                CommunityEvent.EventType.GUILD_MEETING if guild is not None else CommunityEvent.EventType.COMMUNITY
+            )
+            if not editing:
+                event.created_by = user
+            if not editing and policy == Policy.OPEN:
+                event.moderation_state = CommunityEvent.ModerationState.PUBLISHED
+                event.save()
+                event.publish(actor=user)
+                messages.success(request, "Your event is live on the Community Calendar.")
+            else:
+                # On an edit, persist the form's field changes first — submit_for_review
+                # then saves only the moderation fields (update_fields), so the edited
+                # title/time/etc. would otherwise be dropped for an already-saved row.
+                if editing:
+                    event.save()
+                event.submit_for_review(submitted_by=user)
+                messages.success(
+                    request,
+                    "Thanks — your event was submitted for review. You'll get a note when a lead or admin responds.",
+                )
+            return redirect(cancel_url)
+    else:
+        form = CommunityEventForm(instance=event, as_member=True)
+
+    ctx = _get_hub_context(request)
+    my_proposals = (
+        CommunityEvent.objects.filter(submitted_by=user)
+        .exclude(moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+        .select_related("guild")
+        .order_by("-updated_at")
+    )
+    return render(
+        request,
+        "hub/propose_event.html",
+        {
+            **ctx,
+            "event": event,
+            "form": form,
+            "editing": editing,
+            "policy": policy,
+            "cancel_url": cancel_url,
+            "my_proposals": my_proposals,
+        },
+    )
+
+
+@login_required
+@require_POST
+def event_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
+    """The proposer withdraws (deletes) their own not-yet-published proposal. POST only."""
+    from membership.models import CommunityEvent
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    event = get_object_or_404(
+        CommunityEvent,
+        pk=pk,
+        submitted_by=user,
+        moderation_state__in=[
+            CommunityEvent.ModerationState.PENDING,
+            CommunityEvent.ModerationState.CHANGES_REQUESTED,
+        ],
+    )
+    event.withdraw(by=user)
+    messages.success(request, "Proposal withdrawn.")
+    return redirect(reverse("hub_community_calendar") + "?tab=events")
+
+
+@login_required
+def event_review_queue(request: HttpRequest) -> HttpResponse:
+    """The reviewer queue — pending proposals a lead/admin can approve, send back, or decline."""
+    scope = _reviewer_guild_scope(request)
+    if scope is None:
+        return HttpResponse("Forbidden", status=403)
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/event_review_queue.html",
+        {
+            **ctx,
+            "pending_events": _pending_for_scope(scope),
+            "decision_form": None,
+            "open_decision_for": None,
+            "open_decision_kind": "",
+            "decision_note_value": "",
+            "decision_note_error": "",
+        },
+    )
+
+
+@login_required
+@require_POST
+def event_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
+    """Record a reviewer's decision (approve / request changes / decline) on a proposal."""
+    from hub.forms import EventDecisionForm
+    from membership.models import CommunityEvent, InvalidEventTransition
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    scope = _reviewer_guild_scope(request)
+    if scope is None:
+        return HttpResponse("Forbidden", status=403)
+
+    # Fetch scoped to the reviewer's authority (a lead can only touch their guilds' events),
+    # but NOT to a moderation state — a stale decision surfaces as a friendly "already
+    # handled" via the model guard rather than a bare 404.
+    if scope is True:
+        event = get_object_or_404(CommunityEvent, pk=pk)
+    else:
+        event = get_object_or_404(CommunityEvent, pk=pk, guild__in=scope)
+
+    # Approve carries its decision in the query string (a plain confirm modal posts no
+    # notes field); changes/decline post the decision + notes in the body.
+    data = request.POST.copy()
+    if not data.get("decision"):
+        data["decision"] = request.GET.get("decision", "")
+    form = EventDecisionForm(data)
+    if not form.is_valid():
+        kind = data.get("decision", "")
+        return render(
+            request,
+            "hub/event_review_queue.html",
+            {
+                **_get_hub_context(request),
+                "pending_events": _pending_for_scope(scope),
+                "decision_form": form,
+                "open_decision_for": event.pk,
+                "open_decision_kind": kind,
+                "decision_note_value": data.get("notes", ""),
+                "decision_note_error": " ".join(str(e) for e in form.errors.get("notes", [])),
+            },
+        )
+
+    decision = form.cleaned_data["decision"]
+    notes = form.cleaned_data["notes"]
+    try:
+        if decision == "approve":
+            event.approve(reviewer=user)
+            messages.success(request, "Event approved and published.")
+        elif decision == "changes":
+            event.request_changes(reviewer=user, notes=notes)
+            messages.success(request, "Sent back to the proposer for changes.")
+        else:
+            event.decline(reviewer=user, notes=notes)
+            messages.success(request, "Proposal declined.")
+    except InvalidEventTransition:
+        messages.info(request, "That event was already handled.")
+    return redirect("hub_event_review_queue")
 
 
 @login_required
@@ -2784,8 +2994,28 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     cal_ctx["events_url"] = reverse("hub_community_calendar_events")
 
     view_as = getattr(request, "view_as", None)
-    cal_ctx["upcoming_events"] = CommunityEvent.objects.upcoming().select_related("guild")
-    cal_ctx["events_can_manage"] = bool(view_as is not None and view_as.is_admin)
+    is_admin = bool(view_as is not None and view_as.is_admin)
+    # Only PUBLISHED events reach the public list (pending/declined proposals never leak).
+    cal_ctx["upcoming_events"] = CommunityEvent.objects.published().upcoming().select_related("guild")
+    cal_ctx["events_can_manage"] = is_admin
+
+    policy = SiteConfiguration.load().member_event_policy
+    cal_ctx["member_can_propose"] = policy != SiteConfiguration.MemberEventPolicy.DISABLED
+
+    # Reviewer queue link + count, and the member's own in-flight proposals (Screen A′).
+    scope = _reviewer_guild_scope(request)
+    can_review = scope is not None
+    cal_ctx["can_review"] = can_review
+    cal_ctx["review_pending_count"] = _pending_for_scope(scope).count() if can_review else 0
+    if request.user.is_authenticated:
+        cal_ctx["my_proposals"] = (
+            CommunityEvent.objects.filter(submitted_by=request.user)
+            .exclude(moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+            .select_related("guild")
+            .order_by("-updated_at")
+        )
+    else:
+        cal_ctx["my_proposals"] = CommunityEvent.objects.none()
     return render(request, "hub/community_calendar.html", {**ctx, **cal_ctx})
 
 
@@ -2881,8 +3111,9 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
 
     # FOG-native events need their own loop — they lack the CalendarEvent attrs the
     # loop above reads (uid / all_day). A recurring series emits ONE VEVENT carrying an
-    # RRULE so subscribers expand it themselves (no per-occurrence VEVENTs).
-    for ev in CommunityEvent.objects.upcoming().select_related("guild"):
+    # RRULE so subscribers expand it themselves (no per-occurrence VEVENTs). Only
+    # PUBLISHED events export (pending/declined proposals never leave FOG).
+    for ev in CommunityEvent.objects.published().upcoming().select_related("guild"):
         lines += [
             "BEGIN:VEVENT",
             f"UID:community-{ev.pk}@pastlives",

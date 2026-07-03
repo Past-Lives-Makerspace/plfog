@@ -230,11 +230,18 @@
 
 {# ── Events tab: member-readable upcoming list + admin authoring ── #}
 <div x-show="tab === 'events'" x-cloak>
-    {% if events_can_manage %}
-    <div style="margin-bottom:1.5rem;">
+    <div style="margin-bottom:1.5rem; display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+        {% if events_can_manage %}
         <a href="{% url 'hub_event_add' %}" class="pl-btn pl-btn--primary">+ Add event</a>
+        {% elif member_can_propose %}
+        <a href="{% url 'hub_propose_event' %}" class="pl-btn pl-btn--primary">+ Propose an event</a>
+        {% endif %}
+        {% if can_review %}
+        <a href="{% url 'hub_event_review_queue' %}" class="hub-btn hub-btn--sm">Review queue{% if review_pending_count %} <span class="hub-pill hub-pill--warn">{{ review_pending_count }}</span>{% endif %}</a>
+        {% endif %}
     </div>
-    {% endif %}
+
+    {% include "hub/partials/_my_proposed_events.html" %}
 
     <div class="hub-card" style="padding:1.5rem;">
         {% if upcoming_events %}

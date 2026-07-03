@@ -2796,6 +2796,200 @@ class CommunityEvent(models.Model):
             period=f"event:{self.pk}:published",
         )
 
+    # --- Review lifecycle (member proposals) ----------------------------------
+
+    def publish(self, *, actor: User | None = None) -> None:
+        """Make a PUBLISHED event live everywhere.
+
+        Fires the one-shot announcement (idempotent via its ``period``) and marks the
+        event as needing a Google push (``IDLE`` → ``PENDING``). Called by
+        :meth:`approve` and by the direct-create views. **The Google push itself is
+        wired in a later wave** — this method never contacts Google.
+        """
+        self.announce(actor=actor)
+        if self.sync_state == self.SyncState.IDLE:
+            self.sync_state = self.SyncState.PENDING
+            self.save(update_fields=["sync_state", "updated_at"])
+
+    def submit_for_review(self, *, submitted_by: User) -> None:
+        """Enter (or re-enter) the review queue — the member proposal path.
+
+        Used for BOTH the first submit and a resubmit after a changes-requested edit.
+        Sets ``PENDING``, records the proposer, clears any prior review verdict, and
+        notifies reviewers. Does NOT announce or push (a pending proposal is FOG-only).
+
+        Raises:
+            InvalidEventTransition: If the event is already published or declined.
+        """
+        if self.pk is not None and self.moderation_state not in (
+            self.ModerationState.PENDING,
+            self.ModerationState.CHANGES_REQUESTED,
+        ):
+            raise InvalidEventTransition(f"Cannot submit an event in state '{self.moderation_state}' for review.")
+        self.moderation_state = self.ModerationState.PENDING
+        self.submitted_by = submitted_by
+        self.reviewed_by = None
+        self.reviewed_at = None
+        self.review_notes = ""
+        if self.pk is None:
+            self.save()
+        else:
+            self.save(
+                update_fields=[
+                    "moderation_state",
+                    "submitted_by",
+                    "reviewed_by",
+                    "reviewed_at",
+                    "review_notes",
+                    "updated_at",
+                ]
+            )
+        self._emit_submitted()
+
+    def withdraw(self, *, by: User) -> None:
+        """The proposer pulls back their own not-yet-published proposal.
+
+        Deletes the row — it was never published, so there is no Google event or
+        announcement to unwind.
+
+        Raises:
+            InvalidEventTransition: If the event is published/declined or already pushed.
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED) or (
+            self.google_event_id
+        ):
+            raise InvalidEventTransition(f"Cannot withdraw an event in state '{self.moderation_state}'.")
+        self.delete()
+
+    def approve(self, *, reviewer: User) -> None:
+        """Single reviewer decision → live. Records the reviewer, publishes, notifies.
+
+        Raises:
+            InvalidEventTransition: If the event is not awaiting a decision.
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED):
+            raise InvalidEventTransition(f"Cannot approve an event in state '{self.moderation_state}'.")
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.moderation_state = self.ModerationState.PUBLISHED
+        self.save(update_fields=["reviewed_by", "reviewed_at", "moderation_state", "updated_at"])
+        self.publish(actor=reviewer)
+        self._emit_decision("event.approved", url=self.absolute_url, period=f"event:{self.pk}:approved")
+
+    def request_changes(self, *, reviewer: User, notes: str) -> None:
+        """Send a pending proposal back to the proposer with a note to fix + resubmit.
+
+        Raises:
+            InvalidEventTransition: If the event is not currently pending.
+            ValueError: If ``notes`` is blank (a changes request must explain what to fix).
+        """
+        if self.moderation_state != self.ModerationState.PENDING:
+            raise InvalidEventTransition(f"Cannot request changes on an event in state '{self.moderation_state}'.")
+        if not (notes or "").strip():
+            raise ValueError("A changes request needs a note so the proposer knows what to fix.")
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        self.moderation_state = self.ModerationState.CHANGES_REQUESTED
+        self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        from django.urls import reverse
+
+        edit_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_propose_event_edit', args=[self.pk])}"
+        self._emit_decision(
+            "event.changes_requested",
+            url=edit_url,
+            period=f"event:{self.pk}:changes:{self.reviewed_at.timestamp()}",
+        )
+
+    def decline(self, *, reviewer: User, notes: str) -> None:
+        """Reject a proposal (it was never published — no Google/announce to unwind).
+
+        Raises:
+            InvalidEventTransition: If the event is not awaiting a decision.
+            ValueError: If ``notes`` is blank (a decline must explain why).
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED):
+            raise InvalidEventTransition(f"Cannot decline an event in state '{self.moderation_state}'.")
+        if not (notes or "").strip():
+            raise ValueError("A decline needs a note so the proposer knows why.")
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        self.moderation_state = self.ModerationState.DECLINED
+        self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        from django.urls import reverse
+
+        propose_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_propose_event')}"
+        self._emit_decision("event.declined", url=propose_url, period=f"event:{self.pk}:declined")
+
+    def _proposer_display_name(self) -> str:
+        """A friendly name for the proposer, for notification copy."""
+        user = self.submitted_by
+        if user is None:
+            return "A Past Lives member"
+        full = (user.get_full_name() or "").strip()
+        if full:
+            return full
+        member = getattr(user, "member", None)
+        if member is not None and member.display_name:
+            return member.display_name
+        return user.get_username()
+
+    def _emit_submitted(self) -> None:
+        """Notify the guild's leadership (or admins) that a proposal awaits review.
+
+        A fresh, timestamped ``period`` per submit round so a resubmit re-notifies
+        reviewers instead of being deduped away by :func:`core.events.emit.emit`.
+        """
+        from django.urls import reverse
+
+        from core.events.emit import emit
+
+        review_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_event_review_queue')}#event-{self.pk}"
+        emit(
+            "event.submitted",
+            actor=self.submitted_by,
+            target=self,
+            context={
+                "guild": self.guild,
+                "guild_name": self.guild.name if self.guild is not None else "Site-wide",
+                "event_title": self.title,
+                "when": self.when_display,
+                "proposer_name": self._proposer_display_name(),
+                "review_url": review_url,
+            },
+            url=review_url,
+            period=f"event:{self.pk}:submitted:{timezone.now().timestamp()}",
+        )
+
+    def _emit_decision(self, event_key: str, *, url: str, period: str) -> None:
+        """Notify the proposer of a reviewer decision (approve / changes / decline).
+
+        Builds the full superset context; each event's curated copy uses only its own
+        documented placeholders (the extra keys are ignored by the safe renderer).
+        """
+        from django.urls import reverse
+
+        from core.events.emit import emit
+
+        base = settings.MEMBER_BASE_URL
+        emit(
+            event_key,
+            actor=self.reviewed_by,
+            target=self,
+            context={
+                "user": self.submitted_by,
+                "event_title": self.title,
+                "when": self.when_display,
+                "event_url": self.absolute_url,
+                "edit_url": f"{base}{reverse('hub_propose_event_edit', args=[self.pk])}",
+                "propose_url": f"{base}{reverse('hub_propose_event')}",
+                "reviewer_notes": self.review_notes,
+            },
+            url=url,
+            period=period,
+        )
+
 
 class VotePreferenceQuerySet(models.QuerySet):
     def from_signed_up_members(self) -> VotePreferenceQuerySet:

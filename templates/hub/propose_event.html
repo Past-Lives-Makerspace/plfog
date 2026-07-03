@@ -1,0 +1,51 @@
+{% extends "hub/base.html" %}
+{% block title %}{% if editing %}Edit your proposal{% else %}Propose an event{% endif %} — Past Lives Makerspace{% endblock %}
+{% block content %}
+<div x-data="{}">
+  <p style="margin-bottom:0.75rem;">
+    <a href="{{ cancel_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to the Community Calendar</a>
+  </p>
+  <h1 class="hub-page-title">{% if editing %}Edit your proposal{% else %}Propose an event{% endif %}</h1>
+
+  {% if editing and event.review_notes %}
+  <div class="hub-card" style="padding:1rem 1.25rem; margin-bottom:1.5rem; border-left:3px solid var(--color-tuscan-yellow);">
+    <p style="margin:0;"><strong>A reviewer asked for changes:</strong> {{ event.review_notes }}</p>
+  </div>
+  {% endif %}
+
+  {% include "hub/partials/_my_proposed_events.html" %}
+  {% if not my_proposals %}
+  <p class="hub-text-muted" style="margin:-0.5rem 0 1.5rem;">You haven't proposed any events yet.</p>
+  {% endif %}
+
+  <form method="post" class="hub-form">
+    {% csrf_token %}
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Event details</h2>
+      {% include "components/form_field.html" with field=form.title %}
+      {% include "components/form_field.html" with field=form.guild field_hint="Pick your guild to propose one of its meetings/events; leave blank for a site-wide community event." %}
+      {% include "components/form_field.html" with field=form.starts_at %}
+      {% include "components/form_field.html" with field=form.ends_at %}
+      {% include "components/form_field.html" with field=form.location field_hint="A room, address, or video link. Optional." %}
+      {% include "components/form_field.html" with field=form.description field_hint="Optional details for members." %}
+      {% include "components/form_field.html" with field=form.recurrence field_hint="A monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
+    </div>
+
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
+      {% if policy == "open" %}
+      Your event will be published to the Community Calendar right away.
+      {% else %}
+      Your event goes to your guild's leads (or an admin) for a quick review before it appears on the calendar.
+      {% endif %}
+    </p>
+
+    <div style="display:flex; gap:1rem;">
+      <button type="submit" class="pl-btn pl-btn--primary">
+        {% if editing %}Resubmit for review{% elif policy == "open" %}Publish event{% else %}Submit for review{% endif %}
+      </button>
+      <a href="{{ cancel_url }}" class="pl-btn pl-btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

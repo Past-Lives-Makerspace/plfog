@@ -27,6 +27,10 @@ _BRAND_NEW_KEYS = {
     "guild_announcement.approved",
     "guild_announcement.changes_requested",
     "guild_announcement.declined",
+    "event.submitted",
+    "event.approved",
+    "event.changes_requested",
+    "event.declined",
 }
 
 

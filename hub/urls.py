@@ -220,6 +220,12 @@ urlpatterns = [
     path("events/add/", views.event_edit, name="hub_event_add"),
     path("events/<int:event_pk>/edit/", views.event_edit, name="hub_event_edit"),
     path("events/<int:event_pk>/delete/", views.event_delete, name="hub_event_delete"),
+    # Member event proposals + reviewer queue.
+    path("events/propose/", views.propose_event, name="hub_propose_event"),
+    path("events/propose/<int:pk>/edit/", views.propose_event, name="hub_propose_event_edit"),
+    path("events/<int:pk>/withdraw/", views.event_withdraw, name="hub_event_withdraw"),
+    path("events/review/", views.event_review_queue, name="hub_event_review_queue"),
+    path("events/review/<int:pk>/decision/", views.event_review_decision, name="hub_event_review_decision"),
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
     path("manage/voting/", views.voting_overview, name="hub_admin_voting_overview"),
     path("manage/voting/history/", views.voting_history, name="hub_admin_voting_history"),

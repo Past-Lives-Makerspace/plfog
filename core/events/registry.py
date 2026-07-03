@@ -72,6 +72,7 @@ class Recipients(str, Enum):
 
     FOG_ADMINS = "fog_admins"
     GUILD_LEADERSHIP = "guild_leadership"
+    GUILD_LEADERSHIP_OR_ADMINS = "guild_leadership_or_admins"
     GUILD_LEAD = "guild_lead"
     GUILD_MEMBERS = "guild_members"
     GUILD_ORIENTERS = "guild_orienters"
@@ -333,6 +334,10 @@ GUILD_ANNOUNCEMENT_SUBMITTED = "guild_announcement.submitted"
 GUILD_ANNOUNCEMENT_APPROVED = "guild_announcement.approved"
 GUILD_ANNOUNCEMENT_CHANGES_REQUESTED = "guild_announcement.changes_requested"
 GUILD_ANNOUNCEMENT_DECLINED = "guild_announcement.declined"
+EVENT_SUBMITTED = "event.submitted"
+EVENT_APPROVED = "event.approved"
+EVENT_CHANGES_REQUESTED = "event.changes_requested"
+EVENT_DECLINED = "event.declined"
 
 
 _NEW_EVENTS: list[EventType] = [
@@ -542,6 +547,48 @@ _NEW_EVENTS: list[EventType] = [
         label="Your announcement wasn't posted",
         description="A reviewer declined a member's proposed announcement.",
         category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 14. event.submitted — a member proposed a Community Calendar event; it lands in the
+    #     review queue. Goes to the guild's leadership OR (site-wide → admins). A per-person
+    #     workflow reply: in-app + email, no Discord broadcast.
+    EventType(
+        key=EVENT_SUBMITTED,
+        label="Event proposal submitted",
+        description="A member proposed a Community Calendar event that needs review.",
+        category="Events",
+        recipient=Recipients.GUILD_LEADERSHIP_OR_ADMINS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 15. event.approved — the proposer hears their event is live on the calendar.
+    EventType(
+        key=EVENT_APPROVED,
+        label="Your event was approved",
+        description="A reviewer approved a member's proposed event and it's now published.",
+        category="Events",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 16. event.changes_requested — the proposer is asked to edit + resubmit.
+    EventType(
+        key=EVENT_CHANGES_REQUESTED,
+        label="Changes requested on your event",
+        description="A reviewer asked the proposer to adjust their event and resubmit.",
+        category="Events",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 17. event.declined — the proposal was turned down.
+    EventType(
+        key=EVENT_DECLINED,
+        label="Your event wasn't approved",
+        description="A reviewer declined a member's proposed event.",
+        category="Events",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,

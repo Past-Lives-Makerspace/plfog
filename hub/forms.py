@@ -967,10 +967,12 @@ class OrientationSlotForm(forms.ModelForm):
 class CommunityEventForm(forms.ModelForm):
     """Add/edit a FOG-native community event.
 
-    One form serves both surfaces: a guild lead (``as_admin=False``) authors their
+    One form serves three surfaces: a guild lead (``as_admin=False``) authors their
     guild's events (``event_type``/``guild`` are implied by context and removed from the
-    form), while an admin (``as_admin=True``) authors site-wide events and picks the
-    type/guild. The datetime widgets are copied from :class:`OrientationSlotForm`.
+    form); an admin (``as_admin=True``) authors site-wide events and picks the
+    type/guild; and a member (``as_member=True``) proposes an event with an *optional*
+    guild picker (the type is derived — a guild picked → guild meeting, blank →
+    community). The datetime widgets are copied from :class:`OrientationSlotForm`.
     """
 
     class Meta:
@@ -986,17 +988,30 @@ class CommunityEventForm(forms.ModelForm):
             "description": forms.Textarea(attrs={"rows": 4}),
         }
 
-    def __init__(self, *args: Any, guild: Guild | None = None, as_admin: bool = False, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        guild: Guild | None = None,
+        as_admin: bool = False,
+        as_member: bool = False,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         for name in ("starts_at", "ends_at"):
             cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
         self._as_admin = as_admin
+        self._as_member = as_member
         self._fixed_guild = guild
-        if not as_admin:
+        if as_member:
+            # The proposer picks an optional guild; the type is derived on save.
+            del self.fields["event_type"]
+            self.fields["guild"].required = False
+            self.fields["guild"].label = "Guild (optional)"
+        elif as_admin:
+            self.fields["guild"].required = False
+        else:
             del self.fields["event_type"]
             del self.fields["guild"]
-        else:
-            self.fields["guild"].required = False
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
@@ -1012,6 +1027,28 @@ class CommunityEventForm(forms.ModelForm):
             site_wide = {CommunityEvent.EventType.LEAD_MEETING, CommunityEvent.EventType.COMMUNITY}
             if etype in site_wide and guild is not None:
                 self.add_error("guild", "Leave the guild blank for a site-wide event.")
+        return cleaned
+
+
+class EventDecisionForm(forms.Form):
+    """A reviewer's decision on a proposed event (approve / request changes / decline).
+
+    ``notes`` is required for the two outcomes that send the proposer a reason
+    (changes / decline), so an empty note is a real validation error — never a silent
+    redirect. Approvals need no note.
+    """
+
+    DECISION_CHOICES = [("approve", "Approve"), ("changes", "Request changes"), ("decline", "Decline")]
+
+    decision = forms.ChoiceField(choices=DECISION_CHOICES)
+    notes = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        decision = cleaned.get("decision")
+        notes = (cleaned.get("notes") or "").strip()
+        if decision in ("changes", "decline") and not notes:
+            self.add_error("notes", "Add a note so the proposer knows why.")
         return cleaned
 
 

@@ -463,6 +463,10 @@ a:hover { color: var(--hub-link-hover); }
    ("Hasn't signed in yet" / "Non-member user"), Review fix #8. */
 [data-theme="light"] .pl-members-table .hub-pill--neutral { color: #5b6675; }
 [data-theme="light"] .pl-members-table .hub-pill--danger { color: #b03030; }
+/* "Your proposed events" status pills (Community Calendar Events tab + propose page):
+   the shared amber/red pills need a darker text on the light theme to stay readable. */
+[data-theme="light"] .pl-proposals .hub-pill--warn { color: #9a6a00; }
+[data-theme="light"] .pl-proposals .hub-pill--danger { color: #b03030; }
 @media (max-width: 640px) {
     .pl-invite-row__actions {
         width: 100%;

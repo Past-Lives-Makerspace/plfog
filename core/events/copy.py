@@ -83,6 +83,7 @@ class EventCopy:
 _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.FOG_ADMINS: "All FOG admins (site-wide).",
     Recipients.GUILD_LEADERSHIP: "The guild's lead and all of its staff.",
+    Recipients.GUILD_LEADERSHIP_OR_ADMINS: "The guild's lead and staff, plus all admins (admins only for site-wide events).",
     Recipients.GUILD_LEAD: "The guild's lead only.",
     Recipients.GUILD_MEMBERS: "Every active member of the guild.",
     Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orienter role.",
@@ -748,6 +749,37 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    "event.submitted": EventCopy(
+        placeholders=("guild_name", "event_title", "when", "proposer_name", "review_url"),
+        sample_context={
+            "guild_name": "Metal Guild",
+            "event_title": "Forge Night",
+            "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
+            "proposer_name": "Robin Vale",
+            "review_url": "https://pastlives.example/calendar/review/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="New event proposal: {{ event_title }}",
+                body_text="{{ proposer_name }} proposed {{ event_title }} ({{ guild_name }}) for {{ when }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="New event proposal: {{ event_title }}",
+                body_text=(
+                    "{{ proposer_name }} proposed a Community Calendar event that needs a quick review.\n\n"
+                    "{{ event_title }}\n{{ guild_name }} · {{ when }}\n\n"
+                    "Review it: {{ review_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ proposer_name }} proposed a Community Calendar event that needs a quick review.</p>"
+                    '<p><strong><a href="{{ review_url }}">{{ event_title }}</a></strong><br>'
+                    "{{ guild_name }} · {{ when }}</p>"
+                    '<p><a href="{{ review_url }}">Review it in the queue</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     "guild_announcement.approved": EventCopy(
         placeholders=("guild_name", "announcement_title", "guild_url"),
         sample_context={
@@ -770,6 +802,34 @@ _CURATED: dict[str, EventCopy] = {
                     "<p>Your announcement “<strong>{{ announcement_title }}</strong>” was approved and is "
                     "now posted to {{ guild_name }}.</p>"
                     '<p><a href="{{ guild_url }}">See it on the guild page</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "event.approved": EventCopy(
+        placeholders=("event_title", "when", "event_url"),
+        sample_context={
+            "event_title": "Forge Night",
+            "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
+            "event_url": "https://pastlives.example/calendar/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Your event is live: {{ event_title }}",
+                body_text="{{ event_title }} — {{ when }} — is now on the Community Calendar.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your event is live: {{ event_title }}",
+                body_text=(
+                    "Good news — your proposed event was approved and is now on the Community Calendar.\n\n"
+                    "{{ event_title }}\n{{ when }}\n\n"
+                    "See it: {{ event_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Good news — your proposed event was approved and is now on the Community Calendar.</p>"
+                    '<p><strong><a href="{{ event_url }}">{{ event_title }}</a></strong><br>{{ when }}</p>'
+                    '<p><a href="{{ event_url }}">See it on the Community Calendar</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
@@ -803,6 +863,36 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    "event.changes_requested": EventCopy(
+        placeholders=("event_title", "reviewer_notes", "edit_url"),
+        sample_context={
+            "event_title": "Forge Night",
+            "reviewer_notes": "Can you move it a bit later so it doesn't clash with open studio?",
+            "edit_url": "https://pastlives.example/calendar/events/propose/5/edit/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Changes requested: {{ event_title }}",
+                body_text="A reviewer asked for changes to {{ event_title }}: {{ reviewer_notes }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Changes requested: {{ event_title }}",
+                body_text=(
+                    "A reviewer took a look at your proposed event, {{ event_title }}, and asked for a change "
+                    "before it goes live:\n\n{{ reviewer_notes }}\n\n"
+                    "Update and resubmit it: {{ edit_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>A reviewer took a look at your proposed event, "
+                    '<strong><a href="{{ edit_url }}">{{ event_title }}</a></strong>, and asked for a change '
+                    "before it goes live:</p>"
+                    "<p>{{ reviewer_notes }}</p>"
+                    '<p><a href="{{ edit_url }}">Update and resubmit your event</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     "guild_announcement.declined": EventCopy(
         placeholders=("guild_name", "announcement_title", "review_notes"),
         sample_context={
@@ -824,6 +914,35 @@ _CURATED: dict[str, EventCopy] = {
                 body_html=(
                     "<p>Your proposed announcement “<strong>{{ announcement_title }}</strong>” wasn't posted.</p>"
                     "<p>{{ review_notes }}</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "event.declined": EventCopy(
+        placeholders=("event_title", "reviewer_notes", "propose_url"),
+        sample_context={
+            "event_title": "Forge Night",
+            "reviewer_notes": "We already have a similar event that week — thanks for suggesting it!",
+            "propose_url": "https://pastlives.example/calendar/events/propose/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Proposal not approved: {{ event_title }}",
+                body_text="{{ event_title }} wasn't approved this time: {{ reviewer_notes }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="About your event proposal: {{ event_title }}",
+                body_text=(
+                    "Thanks for proposing {{ event_title }}. After a look, a reviewer decided not to add it to "
+                    "the calendar this time:\n\n{{ reviewer_notes }}\n\n"
+                    "You're welcome to propose another event any time: {{ propose_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Thanks for proposing <strong>{{ event_title }}</strong>. After a look, a reviewer decided "
+                    "not to add it to the calendar this time:</p>"
+                    "<p>{{ reviewer_notes }}</p>"
+                    '<p><a href="{{ propose_url }}">Propose another event</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

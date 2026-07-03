@@ -137,6 +137,18 @@ def guild_leadership(context: dict[str, Any]) -> list[Recipient]:
     return _members_to_recipients(guild.leadership_members(), "guild_leadership")
 
 
+def guild_leadership_or_admins(context: dict[str, Any]) -> list[Recipient]:
+    """UNION — the in-context guild's leadership PLUS every FOG admin (deduped).
+
+    The single-stage routing audience for a member's event proposal (§7): a guild
+    event routes to that guild's lead + staff *and* any admin; a site-wide proposal
+    (``context["guild"]`` is ``None``) resolves to admins only, because
+    :func:`guild_leadership` returns ``[]`` for a null guild. Composes the two existing
+    resolvers exactly as :func:`release_audience` composes its members.
+    """
+    return _dedupe([*guild_leadership(context), *fog_admins(context)])  # type: ignore[list-item]
+
+
 def guild_lead(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — the lead only (staff excluded), for lead-only events."""
     guild: Guild = _require(context, "guild")
@@ -435,6 +447,7 @@ def single_user(context: dict[str, Any]) -> list[Recipient]:
 _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.FOG_ADMINS: fog_admins,
     Recipients.GUILD_LEADERSHIP: guild_leadership,
+    Recipients.GUILD_LEADERSHIP_OR_ADMINS: guild_leadership_or_admins,
     Recipients.GUILD_LEAD: guild_lead,
     Recipients.GUILD_MEMBERS: guild_members,
     Recipients.GUILD_ORIENTERS: guild_orienters,
