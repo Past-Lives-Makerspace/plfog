@@ -141,7 +141,7 @@
                             </button>
                             <input type="hidden" name="show_profile_photo" :value="vis.profile_photo ? 'on' : ''">
                         </div>
-                        {% include "components/image_field.html" with field=profile_form.profile_photo current_image=member.profile_photo delete_url=profile_photo_delete_url modal_id="delete-profile-photo" label="" shape="circle" thumbnail_width="96px" delete_button_text="Delete photo" confirm_title="Delete profile photo?" confirm_message="Your profile photo will be removed from the member directory and from our storage. This can't be undone." hint_html="Optional. Shown next to your name in the member directory and in the navbar. Max 5 MB." %}
+                        {% include "components/image_field.html" with field=profile_form.profile_photo current_image=member.profile_photo delete_url=profile_photo_delete_url modal_id="delete-profile-photo" label="" shape="circle" thumbnail_width="96px" max_bytes=max_upload_image_bytes delete_button_text="Delete photo" confirm_title="Delete profile photo?" confirm_message="Your profile photo will be removed from the member directory and from our storage. This can't be undone." hint_html=photo_upload_hint %}
                     </div>
 
                     {# Plain (no visibility) — preferred name #}

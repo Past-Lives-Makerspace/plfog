@@ -36,6 +36,24 @@ def describe_Member_discord_linking():
             member.refresh_from_db()
             assert member.discord_user_id == "42"
 
+        def it_fills_a_blank_handle_from_the_linked_account():
+            member = MemberFactory(discord_handle="")
+            member.link_discord("123", handle="makerjo")
+            member.refresh_from_db()
+            assert member.discord_handle == "makerjo"
+
+        def it_never_overwrites_a_handle_the_member_typed():
+            member = MemberFactory(discord_handle="my_own_tag")
+            member.link_discord("123", handle="makerjo")
+            member.refresh_from_db()
+            assert member.discord_handle == "my_own_tag"
+
+        def it_leaves_the_handle_untouched_when_none_is_supplied():
+            member = MemberFactory(discord_handle="")
+            member.link_discord("123")
+            member.refresh_from_db()
+            assert member.discord_handle == ""
+
     def describe_unlink_discord():
         def it_clears_the_id_and_the_timestamp():
             member = MemberFactory()

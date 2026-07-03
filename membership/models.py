@@ -341,7 +341,11 @@ class Member(models.Model):
     cancellation_date = models.DateField(null=True, blank=True)
     committed_until = models.DateField(null=True, blank=True)
     show_in_directory = models.BooleanField(
-        default=False, help_text="Whether this member appears in the public member directory."
+        default=True,
+        help_text=(
+            "Whether this member appears in the public member directory. New members are listed by "
+            "default; they can opt out any time in profile settings."
+        ),
     )
     directory_visibility = models.JSONField(
         default=dict,
@@ -417,16 +421,26 @@ class Member(models.Model):
         """Whether this member has a verified Discord account linked for DM notifications."""
         return bool(self.discord_user_id)
 
-    def link_discord(self, discord_user_id: str) -> None:
+    def link_discord(self, discord_user_id: str, handle: str = "") -> None:
         """Record a verified Discord account id for DM notifications.
 
         Stores the snowflake and stamps :attr:`discord_linked_at`. Called by the OAuth
         linking service (:func:`core.events.discord_oauth.link_member_from_code`) after
         the member authorizes the FOG bot.
+
+        Args:
+            discord_user_id: The member's numeric Discord id (snowflake).
+            handle: The member's Discord username (or global name). Used to fill
+                :attr:`discord_handle` **only when it is currently blank** — a handle the
+                member typed themselves is never overwritten.
         """
         self.discord_user_id = discord_user_id.strip()
         self.discord_linked_at = timezone.now()
-        self.save(update_fields=["discord_user_id", "discord_linked_at"])
+        update_fields = ["discord_user_id", "discord_linked_at"]
+        if handle and not self.discord_handle:
+            self.discord_handle = handle.strip()
+            update_fields.append("discord_handle")
+        self.save(update_fields=update_fields)
 
     def unlink_discord(self) -> None:
         """Clear the linked Discord account (the member opts out of DMs entirely)."""

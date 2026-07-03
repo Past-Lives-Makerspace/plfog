@@ -10,6 +10,7 @@ from typing import Any, TypedDict, cast
 from django.utils import timezone as dj_timezone
 
 from allauth.account.models import EmailAddress
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
@@ -1333,10 +1334,15 @@ def user_settings(request: HttpRequest) -> HttpResponse:
         profile_form = ProfileSettingsForm(request.POST, request.FILES, instance=member)
         if profile_form.is_valid():
             profile_form.save()
-            from core.models import SiteActivity
-
-            SiteActivity.log(SiteActivity.Kind.PROFILE_UPDATED, actor=request.user, target=member)
+            _log_profile_updated(cast(User, request.user), member)
             messages.success(request, "Profile updated.")
+            return redirect(f"{request.path}?tab=profile")
+        if profile_form.has_only_photo_errors:
+            # A rejected photo (too large / not an image) must never discard the member's
+            # other edits — save everything except the photo and flag just the photo.
+            profile_form.save_keeping_existing_photo()
+            _log_profile_updated(cast(User, request.user), member)
+            messages.warning(request, f"Your profile was saved, but the new photo wasn't: {profile_form.photo_error}")
             return redirect(f"{request.path}?tab=profile")
     elif member is not None:
         profile_form = ProfileSettingsForm(instance=member)
@@ -1389,8 +1395,20 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "notif_matrix": notif_matrix,
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,
+            "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+            "photo_upload_hint": (
+                "Optional. Shown next to your name in the member directory and in the navbar. "
+                f"Max {settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024):.0f} MB."
+            ),
         },
     )
+
+
+def _log_profile_updated(user: User, member: Member) -> None:
+    """Record a profile-update activity entry (used by both the full and photo-only saves)."""
+    from core.models import SiteActivity
+
+    SiteActivity.log(SiteActivity.Kind.PROFILE_UPDATED, actor=user, target=member)
 
 
 @login_required

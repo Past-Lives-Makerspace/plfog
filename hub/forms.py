@@ -213,6 +213,9 @@ class ProfileSettingsForm(forms.ModelForm):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        # Snapshot the photo the member already has so an invalid upload can be discarded
+        # without saving it (see ``save_keeping_existing_photo``).
+        self._initial_photo = self.instance.profile_photo if self.instance and self.instance.pk else None
         # Admins, Guild Officers, Guild Leads, and Instructors are always listed —
         # the field gets force-true on save and is shown disabled with a note.
         if self.instance and self.instance.pk and self.instance.must_be_listed_in_directory:
@@ -229,16 +232,48 @@ class ProfileSettingsForm(forms.ModelForm):
                 label=f"Show {field_name.replace('_', ' ')} on my directory card",
             )
 
-    def save(self, commit: bool = True) -> Member:
-        member = super().save(commit=False)
+    def _apply_directory_fields(self, member: Member) -> None:
+        """Force-list privileged roles and fold the visibility toggles into JSON."""
         if member.must_be_listed_in_directory:
             member.show_in_directory = True
         member.directory_visibility = {
             field_name: bool(self.cleaned_data.get(f"{self.VISIBILITY_PREFIX}{field_name}", True))
             for field_name in Member.DIRECTORY_TOGGLEABLE_FIELDS
         }
+
+    def save(self, commit: bool = True) -> Member:
+        member = super().save(commit=False)
+        self._apply_directory_fields(member)
         if commit:
             member.save()
+        return member
+
+    @property
+    def has_only_photo_errors(self) -> bool:
+        """True when every validation error is confined to the profile photo field.
+
+        Lets the view persist the member's text + visibility edits even though the new
+        photo was rejected (too large / not an image) — losing those edits was the bug.
+        """
+        return bool(self.errors) and set(self.errors) <= {"profile_photo"}
+
+    @property
+    def photo_error(self) -> str:
+        """The first profile-photo error message, for the 'photo not saved' notice."""
+        return str(self.errors["profile_photo"][0])
+
+    def save_keeping_existing_photo(self) -> Member:
+        """Persist the text + visibility edits while discarding an invalid photo upload.
+
+        Only called when :attr:`has_only_photo_errors` — the text fields are already
+        applied to ``self.instance`` by the form's clean pass, so we restore the member's
+        existing photo (dropping the rejected upload) and save. ``save()`` can't be used
+        because the form did not fully validate.
+        """
+        member = self.instance
+        member.profile_photo = self._initial_photo
+        self._apply_directory_fields(member)
+        member.save()
         return member
 
     class Meta:

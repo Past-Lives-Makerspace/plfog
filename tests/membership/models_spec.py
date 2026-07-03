@@ -83,6 +83,11 @@ def describe_member():
         member = MemberFactory()
         assert member.fog_role == Member.FogRole.MEMBER
 
+    def it_is_listed_in_the_directory_by_default():
+        # New members are opted in to the directory; they can opt out in settings.
+        member = MemberFactory()
+        assert member.show_in_directory is True
+
     def it_allows_null_user():
         member = MemberFactory(user=None)
         assert member.user is None
