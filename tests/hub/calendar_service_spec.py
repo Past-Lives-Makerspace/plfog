@@ -30,6 +30,16 @@ def _future_session(offering: ClassOffering, days: int = 5) -> object:
     return ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
 
 
+def _session_at(offering: ClassOffering, days: int) -> object:
+    """A session ``days`` from now (negative = already passed)."""
+    start = timezone.now() + timedelta(days=days)
+    return ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+
+
+def _series(**kwargs: object) -> ClassOffering:
+    return _published_offering(scheduling_type=ClassOffering.SchedulingType.SERIES_PACKAGE, **kwargs)
+
+
 def describe_sync_local_class_events():
     def it_creates_a_calendar_event_per_upcoming_published_session():
         from hub.calendar_service import sync_local_class_events
@@ -80,6 +90,56 @@ def describe_sync_local_class_events():
 
         assert count == 0
         assert CalendarEvent.objects.filter(source="classes").count() == 0
+
+    def it_drops_a_started_multi_session_series():
+        # A series drops out of the catalog the instant its first session begins;
+        # the calendar must do the same — none of the still-future sessions 2–4
+        # may materialize, or the member hits a dead-end (can't register).
+        from hub.calendar_service import sync_local_class_events
+
+        series = _series(title="Glassblowing Series")
+        _session_at(series, -3)
+        _session_at(series, 4)
+        _session_at(series, 11)
+
+        count = sync_local_class_events()
+
+        assert count == 0
+        assert CalendarEvent.objects.filter(source="classes").count() == 0
+
+    def it_keeps_a_not_yet_started_series():
+        from hub.calendar_service import sync_local_class_events
+
+        series = _series()
+        _session_at(series, 2)
+        _session_at(series, 9)
+        _session_at(series, 16)
+
+        count = sync_local_class_events()
+
+        assert count == 3
+        assert CalendarEvent.objects.filter(source="classes").count() == 3
+
+    def it_keeps_future_single_dates_when_a_sibling_date_has_passed():
+        # Two single-session offerings sharing a catalog card (same title +
+        # category → same grouping_key). The passed date drops; the future date
+        # stays — per-offering gating, singles unharmed.
+        from classes.factories import CategoryFactory
+        from hub.calendar_service import sync_local_class_events
+
+        category = CategoryFactory()
+        past = _published_offering(title="Intro to Glass", category=category, slug="intro-glass-past")
+        _session_at(past, -2)
+        future = _published_offering(title="Intro to Glass", category=category, slug="intro-glass-future")
+        future_session = _session_at(future, 6)
+
+        assert past.grouping_key == future.grouping_key  # they collapse into one catalog card
+
+        count = sync_local_class_events()
+
+        assert count == 1
+        event = CalendarEvent.objects.get(source="classes")
+        assert event.uid == f"local-class-{future_session.pk}"
 
     def it_purges_leftover_legacy_drupal_calendar_events():
         from hub.calendar_service import sync_local_class_events
@@ -138,6 +198,37 @@ def describe_sync_local_class_events():
 
         config.refresh_from_db()
         assert config.classes_last_synced_at is not None
+
+
+# ---------------------------------------------------------------------------
+# Parity — the catalog and the calendar must agree about a started series
+# ---------------------------------------------------------------------------
+
+
+def describe_catalog_calendar_parity():
+    def it_shows_a_series_on_both_catalog_and_calendar_before_it_starts():
+        from hub.calendar_service import sync_local_class_events
+
+        series = _series()
+        _session_at(series, 2)
+        _session_at(series, 9)
+
+        sync_local_class_events()
+
+        assert ClassOffering.objects.bookable().filter(pk=series.pk).exists()
+        assert CalendarEvent.objects.filter(source="classes").exists()
+
+    def it_hides_a_series_from_both_after_it_starts():
+        from hub.calendar_service import sync_local_class_events
+
+        series = _series()
+        _session_at(series, -1)
+        _session_at(series, 6)
+
+        sync_local_class_events()
+
+        assert not ClassOffering.objects.bookable().filter(pk=series.pk).exists()
+        assert not CalendarEvent.objects.filter(source="classes").exists()
 
 
 # ---------------------------------------------------------------------------

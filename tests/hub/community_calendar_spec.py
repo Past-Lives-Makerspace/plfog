@@ -628,3 +628,37 @@ def describe_calendar_week_label_cross_month():
         # Cross-month format: "Apr 28 – May 4, 2026"
         assert "Apr" in week_label
         assert "May" in week_label
+
+
+def describe_calendar_event_item_feed_invariant():
+    def it_does_not_present_a_feed_event_as_a_bookable_class():
+        # An external subscribed-calendar event whose title happens to contain
+        # "Class" must never render the catalog affordances (title→detail link,
+        # "Classes" badge, "Register →"). It gets its feed-name badge instead.
+        from django.template.loader import render_to_string
+
+        from core.models import CalendarFeed
+
+        feed = CalendarFeed.objects.create(
+            name="Portland Makers", ical_url="https://example.com/pm.ics", color="#EEB44B"
+        )
+        now = timezone.now()
+        event = CalendarEvent.objects.create(
+            uid="feed-felix-001",
+            feed=feed,
+            source="general",
+            title="Felix Glassblowing Class",
+            start_dt=now + timedelta(days=3),
+            end_dt=now + timedelta(days=3, hours=2),
+            fetched_at=now,
+        )
+
+        html = render_to_string(
+            "hub/partials/calendar_event_item.html",
+            {"event": event, "source_colors": {f"feed-{feed.pk}": feed.color}},
+        )
+
+        assert "Register" not in html
+        assert "pl-calendar-list__register" not in html
+        assert ">Classes<" not in html  # the "Classes" source badge span
+        assert "Portland Makers" in html  # feed-name badge is shown instead

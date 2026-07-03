@@ -162,9 +162,14 @@ def sync_local_class_events() -> int:
     now = timezone.now()
     horizon = now + timedelta(days=180)
 
+    # Gate on the catalog's own bookable() rule so the calendar hides a series the
+    # instant its first session begins — exactly as the Class Catalog does. Using a
+    # materialized pk list (not class_offering__in=<qs>) keeps bookable()'s internal
+    # annotate/order_by/distinct from becoming a correlated subquery. bookable()
+    # already enforces published + non-private, so those filters are subsumed.
+    bookable_ids = ClassOffering.objects.bookable().values_list("pk", flat=True)
     qs = ClassSession.objects.filter(
-        class_offering__status=ClassOffering.Status.PUBLISHED,
-        class_offering__is_private=False,
+        class_offering_id__in=bookable_ids,
         starts_at__gte=now,
         starts_at__lte=horizon,
     ).select_related("class_offering", "class_offering__category")

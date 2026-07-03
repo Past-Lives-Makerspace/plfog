@@ -555,6 +555,13 @@ a.pl-calendar-list__title--link:hover {
     background: color-mix(in srgb, var(--color-tuscan-yellow) 28%, transparent);
 }
 
+.pl-calendar-list-note {
+    margin: 0 0 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--hub-text-muted);
+}
+
 .pl-calendar-empty {
     text-align: center;
     padding: 2.5rem 1rem;
