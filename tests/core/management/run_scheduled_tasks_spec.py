@@ -32,6 +32,11 @@ def describe_run_scheduled_tasks():
         called = _tasks_called(hour=9)
         assert "take_cycle_snapshot" in called
 
+    def it_retries_calendar_pushes_every_tick():
+        # Self-gating (no-op when Google sync is off), so it slots into the always-run tuple.
+        called = _tasks_called(hour=9)
+        assert "retry_calendar_pushes" in called
+
     def it_dispatches_bill_tabs_every_tick():
         # Decision 3: bill_tabs is wired into the always-run tuple (no --force) so
         # receipts + failed-charge retries run automatically. It self-gates inside

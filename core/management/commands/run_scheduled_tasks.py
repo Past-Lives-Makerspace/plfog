@@ -40,6 +40,7 @@ class Command(BaseCommand):
             "auto_complete_orientations",
             "send_class_reminders",
             "bill_tabs",
+            "retry_calendar_pushes",
         ):
             try:
                 call_command(task, stdout=self.stdout, stderr=self.stderr)
