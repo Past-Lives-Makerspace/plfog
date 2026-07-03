@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
 from decimal import Decimal
@@ -200,6 +201,21 @@ class MemberQuerySet(models.QuerySet):
             | models.Q(full_legal_name__icontains=text)
             | (approved & models.Q(skills__skill__name__icontains=text))
         ).distinct()
+
+
+@dataclass(frozen=True)
+class ProfileCompleteness:
+    """Result of :attr:`Member.profile_completeness` — a profile-completion checklist.
+
+    ``missing`` is the ordered list of still-empty field labels (member-friendly text),
+    ``complete`` is True when nothing is missing, and ``percent`` is the 0–100 share of
+    checked fields that are filled in. Pure derived data — drives the home dashboard's
+    "Finish your profile" nudge and any progress display from one source of truth.
+    """
+
+    missing: list[str]
+    complete: bool
+    percent: int
 
 
 class Member(models.Model):
@@ -440,6 +456,30 @@ class Member(models.Model):
         """
         return bool(self.profile_photo or self.about_me or self.pronouns or self.discord_handle or self.discord_user_id)
 
+    @property
+    def profile_completeness(self) -> ProfileCompleteness:
+        """Which member-directory profile fields are filled in, as a checklist + percent.
+
+        Checks the public-facing fields a new member is nudged to complete: a photo, a
+        short bio, pronouns, a Discord link (a typed handle or a verified linked account),
+        and being listed in the member directory. Returns the still-missing field labels,
+        a complete flag, and a 0–100 percent, so the home dashboard's "Finish your profile"
+        card reads from one source. Kept in step with :attr:`has_started_profile` (the same
+        photo/bio/pronouns/Discord signals) so the first-login modal and this persistent
+        nudge never disagree. Pure derived data — no query, no migration.
+        """
+        checks: list[tuple[str, bool]] = [
+            ("Profile photo", bool(self.profile_photo)),
+            ("Short bio", bool(self.about_me)),
+            ("Pronouns", bool(self.pronouns)),
+            ("Discord link", bool(self.discord_is_linked or self.discord_handle)),
+            ("Directory listing", bool(self.show_in_directory)),
+        ]
+        missing = [label for label, ok in checks if not ok]
+        filled = len(checks) - len(missing)
+        percent = round(filled / len(checks) * 100)
+        return ProfileCompleteness(missing=missing, complete=not missing, percent=percent)
+
     def dismiss_welcome(self) -> None:
         """Mark the first-login profile welcome modal as dismissed so it never shows again."""
         self.welcome_dismissed_at = timezone.now()
@@ -641,6 +681,11 @@ class Member(models.Model):
     def staffed_guilds(self) -> models.QuerySet[Guild]:
         """Guilds this member leads or holds any staff role on (i.e. has lead authority)."""
         return Guild.objects.filter(models.Q(guild_lead=self) | models.Q(staff_memberships__member=self)).distinct()
+
+    @property
+    def joined_guilds(self) -> models.QuerySet[Guild]:
+        """Guilds this member has explicitly joined (via :class:`GuildMembership`), name-ordered."""
+        return Guild.objects.filter(memberships__member=self).order_by("name")
 
     @property
     def is_instructor(self) -> bool:
@@ -1351,6 +1396,10 @@ class GuildAnnouncementQuerySet(models.QuerySet):
         """Announcements still showing — no expiry, or expiring today or later."""
         return self.filter(Q(expires_at__isnull=True) | Q(expires_at__gte=timezone.localdate()))
 
+    def for_member(self, member: "Member") -> "GuildAnnouncementQuerySet":
+        """Announcements from the guilds this member has explicitly joined."""
+        return self.filter(guild__memberships__member=member)
+
 
 class GuildAnnouncement(models.Model):
     """A news post on a guild page.
@@ -1689,6 +1738,14 @@ class CommunityEventQuerySet(models.QuerySet):
 
     def site_wide(self) -> CommunityEventQuerySet:
         return self.filter(guild__isnull=True)
+
+    def for_member(self, member: "Member") -> CommunityEventQuerySet:
+        """Site-wide events plus events from the guilds this member has joined.
+
+        The personalized home feed: a member sees every makerspace-wide community/lead
+        event and the meetings of guilds they belong to, but not other guilds' meetings.
+        """
+        return self.filter(Q(guild__isnull=True) | Q(guild__memberships__member=member))
 
 
 class CommunityEvent(models.Model):

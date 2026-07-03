@@ -62,10 +62,10 @@ def describe_nav_authenticated():
         client.force_login(user)
         return client
 
-    def it_redirects_to_hub(logged_in_client):
+    def it_redirects_authenticated_users_to_hub_home(logged_in_client):
         response = logged_in_client.get("/")
         assert response.status_code == 302
-        assert response.url == "/guilds/voting/"
+        assert response.url == "/home/"
 
 
 def describe_base_template_meta():

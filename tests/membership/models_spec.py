@@ -222,6 +222,48 @@ def describe_member_has_started_profile():
         assert member.has_started_profile is True
 
 
+def _fully_completed_member() -> Member:
+    """A member with every profile-completeness field filled in."""
+    return MemberFactory(
+        profile_photo="members/profile/avatar.png",
+        about_me="Potter and welder.",
+        pronouns=Member.Pronouns.SHE_HER,
+        discord_user_id="123456789012345678",
+        show_in_directory=True,
+    )
+
+
+@pytest.mark.django_db
+def describe_member_profile_completeness():
+    def it_reports_missing_fields_for_a_brand_new_member():
+        # A fresh member has no photo/bio/pronouns/Discord, but show_in_directory
+        # defaults True — so the directory listing is the one satisfied field.
+        member = MemberFactory()
+        result = member.profile_completeness
+        assert result.missing == ["Profile photo", "Short bio", "Pronouns", "Discord link"]
+        assert result.complete is False
+
+    def it_is_complete_when_all_fields_are_set():
+        member = _fully_completed_member()
+        result = member.profile_completeness
+        assert result.missing == []
+        assert result.complete is True
+        assert result.percent == 100
+
+    def it_computes_percent_from_filled_fields():
+        # Brand-new member: only the directory listing is filled → 1 of 5 → 20%.
+        member = MemberFactory()
+        assert member.profile_completeness.percent == 20
+
+    def it_counts_a_typed_discord_handle_as_the_discord_field():
+        member = MemberFactory(discord_handle="@maker")
+        assert "Discord link" not in member.profile_completeness.missing
+
+    def it_flags_directory_listing_when_the_member_opts_out():
+        member = MemberFactory(show_in_directory=False)
+        assert "Directory listing" in member.profile_completeness.missing
+
+
 @pytest.mark.django_db
 def describe_member_dismiss_welcome():
     def it_stamps_welcome_dismissed_at():

@@ -2276,6 +2276,24 @@ def _get_calendar_context(
     }
 
 
+@login_required
+def home(request: HttpRequest) -> HttpResponse:
+    """Member Home / Dashboard — the post-login landing page.
+
+    Reads the logged-in member's upcoming items, joined-guild announcements, guild
+    shortcuts, and profile-completeness from the ``hub.home`` service. An unlinked
+    account (a User with no ``Member``) renders a friendly "not linked yet" state and
+    skips the personalized blocks — the hub's established graceful-``None`` pattern.
+    """
+    member = _get_member(request)
+    ctx = _get_hub_context(request)
+    if member is None:
+        return render(request, "hub/home.html", {**ctx, "member": None})
+    from hub.home import build_home_context
+
+    return render(request, "hub/home.html", {**ctx, "member": member, **build_home_context(member)})
+
+
 def community_calendar(request: HttpRequest) -> HttpResponse:
     """Community Calendar page — a Calendar grid tab + an Events list/authoring tab.
 

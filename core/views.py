@@ -139,7 +139,7 @@ def find_account(request: HttpRequest) -> HttpResponse:
 def home(request):
     """Home page view."""
     if request.user.is_authenticated:
-        return redirect("hub_guild_voting")
+        return redirect("hub_home")
     return render(request, "home.html")
 
 

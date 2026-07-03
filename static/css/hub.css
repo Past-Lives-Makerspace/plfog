@@ -2967,3 +2967,198 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-profile-section { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--hub-border); }
 .pl-profile-section__title { font-size: 1rem; font-weight: 700; margin: 0 0 0.5rem; }
 .pl-commission-note { display: block; margin-top: 0.5rem; }
+
+/* ========================================
+   Member Home / Dashboard
+   ======================================== */
+
+/* Shared section heading + card spacing for the home blocks. */
+.pl-home-heading {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0 0 1rem;
+}
+.pl-home-block { margin-bottom: 1.5rem; }
+
+/* Empty-state line inside a home block. */
+.pl-home-empty {
+    color: var(--hub-text-muted);
+    font-size: 0.9375rem;
+    margin: 0;
+}
+.pl-home-empty a { color: var(--hub-link); font-weight: 500; }
+.pl-home-empty a:hover { color: var(--hub-link-hover); }
+
+/* --- Finish-your-profile nudge --- */
+.pl-nudge {
+    position: relative;
+    margin-bottom: 1.5rem;
+    border-left: 3px solid var(--color-tuscan-yellow);
+}
+.pl-nudge__lead { margin: 0 0 0.75rem; max-width: 60ch; }
+.pl-nudge__close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+.pl-nudge__close:hover { background: var(--hub-surface); color: var(--hub-text); }
+.pl-nudge__progress {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+    max-width: 320px;
+}
+.pl-nudge__bar { height: 100%; background: var(--color-tuscan-yellow); border-radius: 999px; }
+.pl-nudge__list {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+    padding: 0;
+}
+.pl-nudge__list li {
+    font-size: 0.8125rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+}
+.pl-nudge__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+/* --- Quick links --- */
+.pl-quicklinks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+.pl-quicklink {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 10px;
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.1s ease, background-color 0.15s ease;
+}
+.pl-quicklink:hover {
+    border-color: var(--color-tuscan-yellow);
+    background: var(--hub-surface);
+    transform: translateY(-1px);
+}
+.pl-quicklink__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: rgba(238, 180, 75, 0.15);
+    color: var(--color-tuscan-yellow);
+}
+.pl-quicklink__label { font-size: 0.9375rem; font-weight: 500; }
+
+/* --- Your upcoming --- */
+.pl-upcoming { list-style: none; margin: 0; padding: 0; }
+.pl-upcoming__item + .pl-upcoming__item { border-top: 1px solid var(--hub-border); }
+.pl-upcoming__link {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    text-decoration: none;
+    color: var(--hub-text);
+}
+.pl-upcoming__link:hover .pl-upcoming__title { color: var(--hub-link); }
+.pl-upcoming__when {
+    flex-shrink: 0;
+    width: 6.5rem;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+}
+.pl-upcoming__date { font-size: 0.875rem; font-weight: 700; }
+.pl-upcoming__time { font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-upcoming__body { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.pl-upcoming__title { font-size: 0.9375rem; font-weight: 500; }
+.pl-upcoming__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+}
+.pl-upcoming__kind {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.1rem 0.45rem;
+    border-radius: 10px;
+    background: var(--hub-blue-soft);
+    color: var(--hub-blue);
+}
+
+/* --- Latest announcements --- */
+.pl-ann-list { list-style: none; margin: 0; padding: 0; }
+.pl-ann { padding: 0.85rem 0; }
+.pl-ann + .pl-ann { border-top: 1px solid var(--hub-border); }
+.pl-ann__title { font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.2rem; }
+.pl-ann__meta { font-size: 0.8125rem; margin-bottom: 0.4rem; }
+.pl-ann__meta a { color: var(--hub-link); font-weight: 500; }
+.pl-ann__meta a:hover { color: var(--hub-link-hover); }
+.pl-ann__body { font-size: 0.875rem; color: var(--hub-text-muted); margin: 0; }
+
+/* --- Your guilds (chips) --- */
+.pl-guild-chips { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.pl-guild-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.8rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    text-decoration: none;
+    font-size: 0.875rem;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.pl-guild-chip:hover { border-color: var(--color-tuscan-yellow); background: var(--hub-card-bg); }
+.pl-guild-chip__logo { flex-shrink: 0; }
+.pl-guild-chip__name { font-weight: 500; }
+.pl-guild-chip__badge {
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.1rem 0.4rem;
+    border-radius: 8px;
+    background: rgba(238, 180, 75, 0.15);
+    color: var(--color-tuscan-yellow);
+}
+
+/* Home blocks stack their date column on narrow screens. */
+@media (max-width: 520px) {
+    .pl-upcoming__link { flex-direction: column; gap: 0.25rem; }
+    .pl-upcoming__when { flex-direction: row; gap: 0.5rem; width: auto; }
+}

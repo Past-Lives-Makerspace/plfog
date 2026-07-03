@@ -23,7 +23,7 @@ def describe_get_login_redirect_url():
             assert adapter.get_login_redirect_url(req) == "/account/"
 
     def describe_on_members_surface():
-        def it_uses_existing_redirect(rf, db):
+        def it_lands_on_hub_home(rf, db):
             from plfog.adapters import AdminRedirectAccountAdapter
 
             user = UserFactory()
@@ -31,4 +31,4 @@ def describe_get_login_redirect_url():
             req.surface = "members"
             req.user = user
             adapter = AdminRedirectAccountAdapter()
-            assert adapter.get_login_redirect_url(req) == reverse("hub_community_calendar")
+            assert adapter.get_login_redirect_url(req) == reverse("hub_home")
