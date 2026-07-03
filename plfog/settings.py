@@ -292,6 +292,15 @@ IMAGE_MAX_LONG_EDGE_PROFILE = int(os.environ.get("IMAGE_MAX_LONG_EDGE_PROFILE", 
 SIMPLYBOOK_API_KEY = os.environ.get("SIMPLYBOOK_API_KEY", "")
 SIMPLYBOOK_COMPANY_LOGIN = os.environ.get("SIMPLYBOOK_COMPANY_LOGIN", "")
 
+# Google Calendar push (FOG → Google). The service-account JSON key (raw JSON or its
+# base64 encoding) is the credential; the flag is the infrastructure master switch that
+# says "credentials are present and loadable." Both are blank/off by default so the app
+# and tests run without real credentials (the "disabled when blank" idiom). A second,
+# admin-facing runtime toggle lives on SiteConfiguration.google_calendar_sync_enabled —
+# the push service acts only when BOTH are on and a target Calendar ID is set.
+GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+GOOGLE_CALENDAR_SYNC_ENABLED = os.environ.get("GOOGLE_CALENDAR_SYNC_ENABLED", "").lower() == "true"
+
 # Member invites — how long (in days) an un-accepted invite stays "Pending" before the
 # Manage Members panel shows it as "Expired". Advisory only: the signup link keeps
 # working; resending an invite resets the clock (see Invite.is_expired / send_invite_email).

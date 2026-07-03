@@ -2811,6 +2811,37 @@ class CommunityEvent(models.Model):
             self.sync_state = self.SyncState.PENDING
             self.save(update_fields=["sync_state", "updated_at"])
 
+    # --- Google Calendar sync (delegates to core.integrations) ----------------
+
+    def push_to_google(self, *, actor: User | None = None) -> None:
+        """Push this event to its linked Google Calendar and persist the sync fields.
+
+        Best-effort: the service records ``PENDING``/``FAILED`` instead of raising, so a
+        Google outage never rolls back the FOG save. Lazy-imports the service to keep the
+        ``membership → core`` layering clean (like :meth:`announce`).
+        """
+        from core.integrations.google_calendar import push_community_event
+
+        push_community_event(self, actor=actor)
+        self.save(
+            update_fields=[
+                "google_event_id",
+                "google_calendar_id",
+                "google_ical_uid",
+                "sync_state",
+                "sync_error",
+                "synced_at",
+                "updated_at",
+            ]
+        )
+
+    def remove_from_google(self) -> None:
+        """Delete this event from Google (best-effort). Call BEFORE deleting the FOG row —
+        it needs the stored ``google_event_id``/``google_calendar_id``. Never raises."""
+        from core.integrations.google_calendar import remove_community_event
+
+        remove_community_event(self)
+
     def submit_for_review(self, *, submitted_by: User) -> None:
         """Enter (or re-enter) the review queue — the member proposal path.
 
