@@ -195,11 +195,22 @@ class GuildMeetingNoteAttachmentFactory(factory.django.DjangoModelFactory):
         )
 
 
+class UserFactory(factory.django.DjangoModelFactory):
+    """A bare auth User — for ``submitted_by`` / ``reviewed_by`` on proposals."""
+
+    class Meta:
+        model = User
+
+    username = factory.Sequence(lambda n: f"eventuser{n}")
+    email = factory.LazyAttribute(lambda o: f"{o.username}@example.com")
+
+
 class CommunityEventFactory(factory.django.DjangoModelFactory):
     """A FOG-native community event. Defaults to a guild meeting (guild set).
 
     Use the ``community`` / ``lead_meeting`` traits for the site-wide variants (which
-    null the guild to satisfy the type↔scope constraint).
+    null the guild to satisfy the type↔scope constraint); the ``pending`` / ``declined``
+    traits for member-proposal moderation states.
     """
 
     class Meta:
@@ -216,6 +227,16 @@ class CommunityEventFactory(factory.django.DjangoModelFactory):
         guild_meeting = factory.Trait(event_type=CommunityEvent.EventType.GUILD_MEETING)
         community = factory.Trait(event_type=CommunityEvent.EventType.COMMUNITY, guild=None)
         lead_meeting = factory.Trait(event_type=CommunityEvent.EventType.LEAD_MEETING, guild=None)
+        pending = factory.Trait(
+            moderation_state=CommunityEvent.ModerationState.PENDING,
+            submitted_by=factory.SubFactory(UserFactory),
+        )
+        declined = factory.Trait(
+            moderation_state=CommunityEvent.ModerationState.DECLINED,
+            submitted_by=factory.SubFactory(UserFactory),
+            reviewed_by=factory.SubFactory(UserFactory),
+            review_notes="Not a fit right now.",
+        )
 
 
 class GuildMembershipFactory(factory.django.DjangoModelFactory):

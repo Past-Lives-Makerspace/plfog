@@ -104,6 +104,11 @@ class SiteConfiguration(models.Model):
         OPEN = "open", "Open"
         INVITE_ONLY = "invite_only", "Invite Only"
 
+    class MemberEventPolicy(models.TextChoices):
+        APPROVAL = "approval", "Members can propose (needs review)"  # default
+        OPEN = "open", "Members can post directly"
+        DISABLED = "disabled", "Only leads and admins can post"
+
     registration_mode = models.CharField(
         "New User Registration Mode",
         max_length=20,
@@ -215,6 +220,33 @@ class SiteConfiguration(models.Model):
         default="Online registration is paused right now. Email info@pastlives.space and we'll help you sign up.",
         verbose_name="Registration-off message",
         help_text="Shown under the disabled Register button when class registration is off.",
+    )
+    member_event_policy = models.CharField(
+        max_length=20,
+        choices=MemberEventPolicy.choices,
+        default=MemberEventPolicy.APPROVAL,
+        help_text=(
+            "Who can create Community Calendar events, and whether a member's event needs review "
+            "before it's published. Leads, staff, and admins always post directly."
+        ),
+    )
+    general_google_calendar_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="General Google Calendar ID",
+        help_text=(
+            "Google Calendar ID for site-wide community events (Calendar Settings → Integrate calendar → "
+            "Calendar ID — NOT the iCal URL). Blank keeps site-wide events in FOG only."
+        ),
+    )
+    google_calendar_sync_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Push events to Google Calendar",
+        help_text=(
+            "When on (and the Google service account is configured), publishing/editing/deleting an "
+            "event updates the linked Google Calendar."
+        ),
     )
 
     class Meta:

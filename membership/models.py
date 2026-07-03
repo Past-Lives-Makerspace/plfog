@@ -1102,6 +1102,17 @@ class Guild(HeroCropMixin, models.Model):
         default="",
         help_text="Public iCal URL for this guild's Google Calendar (File → Share → Get shareable iCal link).",
     )
+    google_calendar_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "This guild's Google Calendar ID for pushing FOG-created events out to Google "
+            "(e.g. abc123@group.calendar.google.com). Find it in Google Calendar → Settings "
+            "for that calendar → 'Integrate calendar' → Calendar ID. This is NOT the iCal URL "
+            "above — leave blank to keep this guild's events in FOG only."
+        ),
+    )
     calendar_color = models.CharField(
         max_length=7,
         blank=True,
@@ -2444,6 +2455,29 @@ class CommunityEventQuerySet(models.QuerySet):
         """
         return self.filter(Q(guild__isnull=True) | Q(guild__memberships__member=member))
 
+    def published(self) -> CommunityEventQuerySet:
+        """Only events live on the calendar (eligible to push to Google)."""
+        return self.filter(moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+
+    def awaiting_review(self) -> CommunityEventQuerySet:
+        """Member proposals waiting on a reviewer decision."""
+        return self.filter(moderation_state=CommunityEvent.ModerationState.PENDING)
+
+    def pushed(self) -> CommunityEventQuerySet:
+        """Rows FOG has pushed to Google (their iCal echo must be de-duped)."""
+        return self.exclude(google_ical_uid="")
+
+    def needs_push(self) -> CommunityEventQuerySet:
+        """Published rows whose Google sync is pending or failed (the retry set)."""
+        return self.published().filter(
+            sync_state__in=[CommunityEvent.SyncState.PENDING, CommunityEvent.SyncState.FAILED]
+        )
+
+
+class InvalidEventTransition(ValueError):
+    """Raised when a :class:`CommunityEvent` lifecycle method is called from a state
+    that does not permit it (e.g. approving an already-declined proposal)."""
+
 
 class CommunityEvent(models.Model):
     """A FOG-native event on the Community Calendar (a guild meeting/event, a site-wide
@@ -2470,6 +2504,18 @@ class CommunityEvent(models.Model):
         EVERY_3_MONTHS = "every_3_months", "Every 3 months"
         EVERY_6_MONTHS = "every_6_months", "Every 6 months"
         YEARLY = "yearly", "Every year"
+
+    class ModerationState(models.TextChoices):
+        PUBLISHED = "published", "Published"  # live on the calendar; eligible to push
+        PENDING = "pending", "Pending review"  # member proposal awaiting a decision; FOG-only
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"  # sent back to the proposer to edit + resubmit
+        DECLINED = "declined", "Declined"  # rejected; never pushes (removed from Google if it was)
+
+    class SyncState(models.TextChoices):
+        IDLE = "idle", "Not synced"  # nothing to push yet (unpublished, or a pre-existing/unmanaged row)
+        PENDING = "pending", "Pending"  # published and awaiting its push / re-push
+        SYNCED = "synced", "Synced"  # pushed to Google successfully
+        FAILED = "failed", "Failed"  # last push errored (retry_calendar_pushes will re-try)
 
     # Months between occurrences for each recurring choice (semi-monthly walks
     # monthly but emits two dates per month — see ``occurrences_in``).
@@ -2533,6 +2579,74 @@ class CommunityEvent(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # --- Moderation (member-proposal review lifecycle) ------------------------
+    moderation_state = models.CharField(
+        max_length=20,
+        choices=ModerationState.choices,
+        default=ModerationState.PUBLISHED,
+        help_text=(
+            "Where this event is in the review flow. Leads/staff/admins create events already "
+            "Published; member proposals start Pending."
+        ),
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The member who proposed this event (for events that went through review).",
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The lead or admin who approved, declined, or requested changes.",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True, help_text="When the review decision was recorded.")
+    review_notes = models.TextField(
+        blank=True,
+        default="",
+        help_text="The reviewer's note to the proposer (shown on a decline or a changes-requested).",
+    )
+
+    # --- Google Calendar sync -------------------------------------------------
+    google_event_id = models.CharField(
+        max_length=1024,
+        blank=True,
+        default="",
+        help_text="The Google Calendar event id returned when FOG pushed this event. Blank until pushed.",
+    )
+    google_calendar_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Which Google calendar this event was pushed to (kept so a later edit/delete targets the right one).",
+    )
+    google_ical_uid = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text=(
+            "The pushed event's iCal UID (<id>@google.com), used to hide the echoed copy when the "
+            "daily iCal read re-imports it."
+        ),
+    )
+    sync_state = models.CharField(
+        max_length=12,
+        choices=SyncState.choices,
+        default=SyncState.IDLE,
+        help_text="Google Calendar sync status for this event.",
+    )
+    sync_error = models.TextField(
+        blank=True,
+        default="",
+        help_text="Why the last Google push failed (or why it's still pending, e.g. no calendar linked). Blank when synced.",
+    )
+    synced_at = models.DateTimeField(null=True, blank=True, help_text="When this event last synced to Google.")
 
     objects = CommunityEventQuerySet.as_manager()
 
