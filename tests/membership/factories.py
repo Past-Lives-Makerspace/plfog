@@ -28,6 +28,9 @@ from membership.models import (
     MemberEmail,
     MembershipPlan,
     MemberSkill,
+    OrgFAQItem,
+    OrgInfoPage,
+    OrgLink,
     OrientationAvailability,
     OrientationBooking,
     OrientationSlot,
@@ -105,6 +108,39 @@ class GuildLinkFactory(factory.django.DjangoModelFactory):
 
     guild = factory.SubFactory(GuildFactory)
     label = factory.Sequence(lambda n: f"Link {n}")
+    url = "https://example.com"
+
+
+class OrgInfoPageFactory(factory.django.DjangoModelFactory):
+    """The Space & Org Info page is a pk=1 singleton — always returns/updates the one row."""
+
+    class Meta:
+        model = OrgInfoPage
+
+    @classmethod
+    def _create(cls, model_class, *args, **kwargs):
+        obj = model_class.load()
+        for field, value in kwargs.items():
+            setattr(obj, field, value)
+        obj.save()
+        return obj
+
+
+class OrgFAQItemFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = OrgFAQItem
+
+    page = factory.SubFactory(OrgInfoPageFactory)
+    question = factory.Sequence(lambda n: f"Org question {n}?")
+    answer = "An answer."
+
+
+class OrgLinkFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = OrgLink
+
+    page = factory.SubFactory(OrgInfoPageFactory)
+    label = factory.Sequence(lambda n: f"Org link {n}")
     url = "https://example.com"
 
 

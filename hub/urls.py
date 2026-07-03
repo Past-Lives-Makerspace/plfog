@@ -105,6 +105,12 @@ urlpatterns = [
     path("guilds/<int:pk>/emails/save/", views.guild_emails_save, name="hub_guild_emails_save"),
     path("guilds/<int:pk>/faq/save/", views.guild_faq_save, name="hub_guild_faq_save"),
     path("guilds/<int:pk>/links/save/", views.guild_links_save, name="hub_guild_links_save"),
+    # Space & Org Info page (org-wide info: map, parking, who-to-contact, code of conduct).
+    path("info/", views.org_info, name="hub_org_info"),
+    path("info/edit/", views.org_info_edit, name="hub_org_info_edit"),
+    path("info/floorplan/delete/", views.org_info_floorplan_delete, name="hub_org_info_floorplan_delete"),
+    path("info/faq/save/", views.org_info_faq_save, name="hub_org_info_faq_save"),
+    path("info/links/save/", views.org_info_links_save, name="hub_org_info_links_save"),
     path("guilds/<int:pk>/meeting-notes/", views.guild_meeting_notes, name="hub_guild_meeting_notes"),
     path(
         "guilds/<int:pk>/meeting-notes/add/",

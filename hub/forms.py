@@ -28,6 +28,9 @@ from membership.models import (
     GuildOrientationSettings,
     Member,
     MemberSkill,
+    OrgFAQItem,
+    OrgInfoPage,
+    OrgLink,
     OrientationAvailability,
     OrientationSlot,
     Skill,
@@ -630,6 +633,113 @@ class GuildLinkForm(forms.ModelForm):
 
 
 GuildLinkFormSet = forms.inlineformset_factory(Guild, GuildLink, form=GuildLinkForm, extra=0, can_delete=True)
+
+
+class OrgInfoPageForm(forms.ModelForm):
+    """Main edit form for the Space & Org Info page — Markdown sections + the two images.
+
+    Mirrors ``GuildEditForm``'s shape: plain Markdown textareas (rendered on the page via
+    the ``guild_markdown`` filter) plus the banner and floor-plan images. The FAQ and Links
+    save via their own endpoints, exactly like the guild editor.
+    """
+
+    class Meta:
+        model = OrgInfoPage
+        fields = [
+            "intro",
+            "floorplan_caption",
+            "parking",
+            "who_to_contact",
+            "code_of_conduct",
+            "code_of_conduct_url",
+            "banner_image",
+            "floorplan_image",
+        ]
+        widgets = {
+            "intro": forms.Textarea(attrs={"rows": 4, "placeholder": "Welcome members to the space…"}),
+            "floorplan_caption": forms.TextInput(
+                attrs={"placeholder": "Guild locations, restrooms, and emergency exits."}
+            ),
+            "parking": forms.Textarea(attrs={"rows": 4, "placeholder": "Where to park, when it's free, entrances…"}),
+            "who_to_contact": forms.Textarea(
+                attrs={"rows": 6, "placeholder": "Who to ask about billing, keys, a class idea…"}
+            ),
+            "code_of_conduct": forms.Textarea(attrs={"rows": 8, "placeholder": "Our code of conduct…"}),
+            "code_of_conduct_url": forms.URLInput(attrs={"placeholder": "https://docs.google.com/…"}),
+        }
+        labels = {
+            "intro": "Intro / welcome",
+            "floorplan_caption": "Map caption",
+            "parking": "Parking & arrival",
+            "who_to_contact": "Who's who / who to contact",
+            "code_of_conduct": "Code of conduct",
+            "code_of_conduct_url": "…or a code-of-conduct link",
+            "banner_image": "Banner image",
+            "floorplan_image": "Floor plan / map",
+        }
+        help_texts = {
+            "intro": "Supports Markdown — **bold**, lists, and [links](https://example.com) all render.",
+            "parking": "Supports Markdown.",
+            "who_to_contact": "Supports Markdown — a list of 'topic → who to contact' works well.",
+            "code_of_conduct": "Supports Markdown. Leave blank to link out with the field below instead.",
+            "code_of_conduct_url": "Used only when the body above is blank.",
+        }
+
+
+class OrgFAQItemForm(forms.ModelForm):
+    """A single FAQ question/answer row on the Space & Org Info editor — mirrors ``GuildFAQItemForm``."""
+
+    class Meta:
+        model = OrgFAQItem
+        fields = ["question", "answer", "video_url", "document", "document_url", "sort_order"]
+        widgets = {
+            "answer": forms.Textarea(attrs={"rows": 3}),
+            "video_url": forms.URLInput(attrs={"placeholder": "https://youtube.com/watch?v=…"}),
+            "document_url": forms.URLInput(attrs={"placeholder": "https://docs.google.com/…"}),
+            "sort_order": forms.HiddenInput(),
+        }
+        labels = {
+            "video_url": "Video (YouTube)",
+            "document": "Document (upload)",
+            "document_url": "…or document link",
+        }
+        help_texts = {
+            "answer": "You can use Markdown — **bold**, lists, and [links](https://example.com) all render on the page.",
+        }
+
+    def clean_video_url(self) -> str:
+        """Accept only a YouTube URL (or blank) so the answer can embed it."""
+        from classes.templatetags.classes_tags import youtube_embed_id
+
+        url = (self.cleaned_data.get("video_url") or "").strip()
+        if url and not youtube_embed_id(url):
+            raise forms.ValidationError(
+                "Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…"
+            )
+        return url
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if cleaned.get("DELETE"):
+            return cleaned
+        if cleaned.get("document") and cleaned.get("document_url"):
+            raise forms.ValidationError("Add a document OR a link for this answer, not both.")
+        return cleaned
+
+
+OrgFAQItemFormSet = forms.inlineformset_factory(OrgInfoPage, OrgFAQItem, form=OrgFAQItemForm, extra=0, can_delete=True)
+
+
+class OrgLinkForm(forms.ModelForm):
+    """A single external-link row on the Space & Org Info editor — mirrors ``GuildLinkForm``."""
+
+    class Meta:
+        model = OrgLink
+        fields = ["label", "url", "sort_order"]
+        widgets = {"sort_order": forms.HiddenInput()}
+
+
+OrgLinkFormSet = forms.inlineformset_factory(OrgInfoPage, OrgLink, form=OrgLinkForm, extra=0, can_delete=True)
 
 
 class GuildMeetingNoteForm(forms.ModelForm):

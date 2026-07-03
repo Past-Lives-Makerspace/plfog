@@ -1391,6 +1391,174 @@ class GuildLink(models.Model):
         return f"{self.label} ({self.guild.name})"
 
 
+class OrgInfoPage(HeroCropMixin, models.Model):
+    """Singleton (pk=1) org-wide info page: map, parking, who-to-contact, code of conduct.
+
+    Reuses the guild page's content shapes (hero banner, Markdown sections, FAQ, links)
+    but is org-scoped and never participates in guild voting, funding, or the directory.
+    Load the one row via :meth:`load`, exactly like ``SiteConfiguration``.
+    """
+
+    banner_image = models.ImageField(
+        upload_to="org/banner/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text="Optional hero banner across the top of the Space & Org Info page.",
+    )
+    intro = models.TextField(
+        blank=True,
+        default="",
+        help_text="Welcome / overview blurb shown at the top of the page. Supports Markdown.",
+    )
+    floorplan_image = models.ImageField(
+        upload_to="org/floorplan/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text="Annotated floor plan — guild locations, restrooms, emergency exits. Click-to-zoom on the page.",
+    )
+    floorplan_caption = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        help_text="Caption shown under the map, e.g. 'Guild locations, restrooms, and emergency exits.'",
+    )
+    parking = models.TextField(
+        blank=True,
+        default="",
+        help_text="Parking & arrival info. Supports Markdown.",
+    )
+    who_to_contact = models.TextField(
+        blank=True,
+        default="",
+        help_text="Org structure / who's-who / who to contact for what. Supports Markdown (a list or headings).",
+    )
+    code_of_conduct = models.TextField(
+        blank=True,
+        default="",
+        help_text="Code of conduct body. Supports Markdown. Leave blank to link out instead.",
+    )
+    code_of_conduct_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional external Code of Conduct link, used only when the body above is blank.",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this page was last edited.")
+
+    class Meta:
+        verbose_name = "Space & Org Info Page"
+        verbose_name_plural = "Space & Org Info Page"
+
+    def __str__(self) -> str:
+        return "Space & Org Info"
+
+    def get_hero_image_field_name(self) -> str:
+        return "banner_image"
+
+    @property
+    def has_code_of_conduct(self) -> bool:
+        """True when a written body or an external link is set — drives the section/nav."""
+        return bool(self.code_of_conduct or self.code_of_conduct_url)
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        from django.conf import settings
+
+        self.pk = 1
+        delete_orphan_on_replace(self, "banner_image")
+        delete_orphan_on_replace(self, "floorplan_image")
+        # Normalize the floor plan at the HERO long edge (larger than gallery) so its
+        # annotations stay legible when a member zooms in.
+        normalize_field_if_uploaded(self, "floorplan_image", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> "OrgInfoPage":
+        """Load the singleton row, creating it with defaults if needed."""
+        obj, _created = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class OrgFAQItem(models.Model):
+    """A question/answer pair in the Space & Org Info page FAQ — mirrors ``GuildFAQItem``.
+
+    An answer may also carry a YouTube embed and/or one attached document — either an
+    uploaded file or a link to an external doc (at most one of the two).
+    """
+
+    page = models.ForeignKey(
+        OrgInfoPage, on_delete=models.CASCADE, related_name="faq_items", help_text="Parent org-info page."
+    )
+    question = models.CharField(max_length=500, help_text="The question.")
+    answer = models.TextField(help_text="The answer.")
+    video_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional YouTube link shown with this answer (watch, youtu.be, embed, or shorts URL).",
+    )
+    document = models.FileField(
+        upload_to="org/faq/",
+        blank=True,
+        validators=[validate_document],
+        help_text="Optional document (PDF, Word, slides, spreadsheet…) shown with this answer. "
+        "Leave blank to link an external doc instead.",
+    )
+    document_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional link to an external doc for this answer. Leave blank if you uploaded a file.",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order"]
+        constraints = [
+            # A document is optional, but it can't be BOTH an upload and a link.
+            models.CheckConstraint(
+                condition=Q(document="") | Q(document_url=""),
+                name="ck_orgfaqitem_doc_not_both",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.question
+
+    @property
+    def has_document(self) -> bool:
+        return bool(self.document) or bool(self.document_url)
+
+    @property
+    def document_display_name(self) -> str:
+        """The uploaded file's base name, else the link URL, else ``""``."""
+        if self.document and self.document.name:
+            return self.document.name.rsplit("/", 1)[-1]
+        return self.document_url
+
+    @property
+    def document_href(self) -> str:
+        """Where the document link points — the uploaded file's URL or the external link."""
+        return self.document.url if self.document else self.document_url
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "document")
+        super().save(*args, **kwargs)
+
+
+class OrgLink(models.Model):
+    """A named external link shown in the Space & Org Info page sidebar — mirrors ``GuildLink``."""
+
+    page = models.ForeignKey(
+        OrgInfoPage, on_delete=models.CASCADE, related_name="links", help_text="Parent org-info page."
+    )
+    label = models.CharField(max_length=100, help_text="Display text, e.g. 'Member Guide'.")
+    url = models.URLField(help_text="Destination URL.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order"]
+
+    def __str__(self) -> str:
+        return f"{self.label} (Space & Org Info)"
+
+
 class GuildAnnouncementQuerySet(models.QuerySet):
     def active(self) -> "GuildAnnouncementQuerySet":
         """Announcements still showing — no expiry, or expiring today or later."""

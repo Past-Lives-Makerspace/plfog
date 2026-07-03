@@ -33,6 +33,7 @@ from hub.forms import (
     GuildEditForm,
     MemberAdminEditForm,
     MemberSkillForm,
+    OrgInfoPageForm,
     ProfileSettingsForm,
     SiteAnnouncementForm,
     SiteSettingsForm,
@@ -41,7 +42,7 @@ from hub.forms import (
 )
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
-from membership.models import FundingSnapshot, Guild, Member, Skill, SkillCategory, VotePreference
+from membership.models import FundingSnapshot, Guild, Member, OrgInfoPage, Skill, SkillCategory, VotePreference
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
@@ -360,7 +361,7 @@ def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
 
     ct = get_object_or_404(ContentType, pk=ct_id)
     model_class = ct.model_class()
-    if model_class not in [Guild, Category, ClassOffering]:
+    if model_class not in [Guild, Category, ClassOffering, OrgInfoPage]:
         return JsonResponse({"error": "Unsupported model"}, status=400)
 
     obj = get_object_or_404(model_class, pk=object_id)
@@ -373,6 +374,8 @@ def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
         allowed = _can_edit_offering(request, obj)
     elif isinstance(obj, Category):
         allowed = _can_edit_category(request, obj)
+    elif isinstance(obj, OrgInfoPage):
+        allowed = _viewing_as_admin(request)
 
     if not allowed:
         return JsonResponse({"error": "Forbidden"}, status=403)
@@ -1780,6 +1783,130 @@ def guild_links_save(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         messages.error(request, "Couldn't save the links — check the highlighted fields.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=content")
+
+
+# ── Space & Org Info page ────────────────────────────────────────────────────
+
+
+def org_info(request: HttpRequest) -> HttpResponse:
+    """Public, org-wide info page — map, parking, who-to-contact, code of conduct.
+
+    Public-read like ``guild_detail`` (no ``@login_required``): it carries only org-wide
+    reference content, no member PII, so it is safe on the guest surface too. Editing is
+    admin-only via ``org_info_edit``.
+    """
+    page = OrgInfoPage.load()
+    ctx = _get_hub_context(request)
+    org_ct = ContentType.objects.get_for_model(OrgInfoPage)
+    return render(
+        request,
+        "hub/org_info.html",
+        {
+            **ctx,
+            "page": page,
+            "faq_items": page.faq_items.all(),
+            "links": page.links.all(),
+            "can_edit": _viewing_as_admin(request),
+            "org_ct_id": org_ct.pk,
+        },
+    )
+
+
+def _org_info_edit_context(
+    request: HttpRequest,
+    page: OrgInfoPage,
+    *,
+    form: OrgInfoPageForm | None = None,
+) -> dict[str, Any]:
+    """Build the render context for the Space & Org Info editor (Content / Map / FAQ & Links).
+
+    The main form covers Content + Map; the FAQ and Links formsets each save via their own
+    endpoint (they can't nest inside the main form), so they are always unbound here —
+    exactly the guild-editor idiom in ``_guild_edit_context``.
+    """
+    from hub.forms import OrgFAQItemFormSet, OrgLinkFormSet
+
+    ctx = _get_hub_context(request)
+    return {
+        **ctx,
+        "page": page,
+        "form": form if form is not None else OrgInfoPageForm(instance=page),
+        "faq_formset": OrgFAQItemFormSet(instance=page, prefix="faq"),
+        "link_formset": OrgLinkFormSet(instance=page, prefix="links"),
+        "is_admin": _viewing_as_admin(request),
+    }
+
+
+@login_required
+def org_info_edit(request: HttpRequest) -> HttpResponse:
+    """Edit the Space & Org Info page (GET + main-form POST). Admin only.
+
+    Content and Map are in the single main form; FAQ and Links save via their own endpoints.
+    """
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    page = OrgInfoPage.load()
+    if request.method == "POST":
+        form = OrgInfoPageForm(request.POST, request.FILES, instance=page)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Space & Org Info page updated.")
+            return redirect("hub_org_info")
+        return render(request, "hub/org_info_edit.html", _org_info_edit_context(request, page, form=form))
+    return render(request, "hub/org_info_edit.html", _org_info_edit_context(request, page))
+
+
+@login_required
+@require_POST
+def org_info_faq_save(request: HttpRequest) -> HttpResponse:
+    """Save the org-info FAQ rows from their own form on the FAQ & Links tab. Admin only."""
+    from hub.forms import OrgFAQItemFormSet
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    page = OrgInfoPage.load()
+    formset = OrgFAQItemFormSet(request.POST, request.FILES, instance=page, prefix="faq")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "FAQ saved.")
+    else:
+        messages.error(request, "Couldn't save the FAQ — check the highlighted fields.")
+    return redirect(f"{reverse('hub_org_info_edit')}?tab=faq")
+
+
+@login_required
+@require_POST
+def org_info_links_save(request: HttpRequest) -> HttpResponse:
+    """Save the org-info Links rows from their own form on the FAQ & Links tab. Admin only."""
+    from hub.forms import OrgLinkFormSet
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    page = OrgInfoPage.load()
+    formset = OrgLinkFormSet(request.POST, instance=page, prefix="links")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Links saved.")
+    else:
+        messages.error(request, "Couldn't save the links — check the highlighted fields.")
+    return redirect(f"{reverse('hub_org_info_edit')}?tab=faq")
+
+
+@login_required
+@require_POST
+def org_info_floorplan_delete(request: HttpRequest) -> HttpResponse:
+    """Clear the floor-plan image and return to the editor's Map tab. Admin only."""
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    page = OrgInfoPage.load()
+    if page.floorplan_image:
+        page.floorplan_image.delete(save=True)
+        messages.success(request, "Floor plan removed.")
+    return redirect(f"{reverse('hub_org_info_edit')}?tab=map")
 
 
 @login_required

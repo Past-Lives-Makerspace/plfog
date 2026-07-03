@@ -1,0 +1,190 @@
+{% extends "hub/base.html" %}
+{% block title %}Edit Space & Org Info{% endblock %}
+{% block content %}
+<div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'content' }">
+<h1 class="hub-page-title">Edit Space &amp; Org Info</h1>
+<p class="hub-text-muted" style="margin-bottom:1.5rem; max-width:65ch;">The org-wide info page: the floor plan, parking, who to contact, and the code of conduct. Members see it at <a href="{% url 'hub_org_info' %}" style="color:var(--color-tuscan-yellow);">/info/</a>.</p>
+
+<div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;">
+  <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">Content</button>
+  <button type="button" class="vote-tab" :class="section === 'map' ? 'vote-tab--active' : ''" @click="section = 'map'">Map</button>
+  <button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">FAQ &amp; Links</button>
+</div>
+
+{# ── Main form: Content + Map (banner + floor plan + Markdown sections) ── #}
+<form method="post" enctype="multipart/form-data" class="hub-form">
+  {% csrf_token %}
+
+  {# ── Content ── #}
+  <div x-show="section === 'content'">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Welcome &amp; sections</h2>
+      {% include "components/form_field.html" with field=form.intro %}
+      {% include "components/form_field.html" with field=form.parking %}
+      {% include "components/form_field.html" with field=form.who_to_contact %}
+    </div>
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Code of Conduct</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Write the code of conduct here, or leave it blank and paste an external link below.</p>
+      {% include "components/form_field.html" with field=form.code_of_conduct %}
+      {% include "components/form_field.html" with field=form.code_of_conduct_url %}
+    </div>
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Banner</h2>
+      {% include "components/form_field.html" with field=form.banner_image field_hint="Optional. Shown across the top of the page." %}
+    </div>
+  </div>
+
+  {# ── Map ── #}
+  <div x-show="section === 'map'" x-cloak>
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Floor plan / map</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">An annotated floor plan — guild locations, restrooms, and emergency exits. Members can tap it to zoom. Use a high-resolution image (long edge ≥ ~2000px) so annotations stay legible.</p>
+      {% url 'hub_org_info_floorplan_delete' as floorplan_delete_url %}
+      {% include "components/image_field.html" with field=form.floorplan_image current_image=page.floorplan_image delete_url=floorplan_delete_url modal_id="delete-org-floorplan" label="Floor plan image" shape="rect" thumbnail_width="240px" thumbnail_height="150px" delete_button_text="Delete floor plan" confirm_title="Delete the floor plan?" confirm_message="The map will be removed from the Space & Org Info page and from our storage. This can't be undone." hint_html="Shown in the Map & Facilities section." %}
+      {% include "components/form_field.html" with field=form.floorplan_caption %}
+    </div>
+  </div>
+
+  <div x-show="section === 'content' || section === 'map'" style="margin-top:0.5rem; display:flex; gap:1rem;">
+    <button type="submit" class="pl-btn pl-btn--primary">Save Changes</button>
+    <a href="{% url 'hub_org_info' %}" class="pl-btn pl-btn--secondary">Cancel</a>
+  </div>
+</form>
+
+{# ── FAQ & Links (each its own form — can't nest inside the main form) ── #}
+<div x-show="section === 'faq'" x-cloak>
+  <form method="post" action="{% url 'hub_org_info_faq_save' %}" class="hub-form" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">FAQ</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Great for "who do I ask about…" answers. Each answer can also embed a YouTube video and attach one document — upload a file <em>or</em> paste a link.</p>
+      {{ faq_formset.management_form }}
+      <div id="faq-rows" style="display:flex; flex-direction:column; gap:1rem;">
+        {% for f in faq_formset %}
+          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+            {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+            {% include "components/form_field.html" with field=f.question %}
+            {% include "components/form_field.html" with field=f.answer %}
+            {% include "components/form_field.html" with field=f.video_url %}
+            {% include "components/form_field.html" with field=f.document %}
+            {% include "components/form_field.html" with field=f.document_url %}
+            {% if f.instance.pk and f.instance.has_document %}
+              <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.25rem 0 0;">Current document: {{ f.instance.document_display_name }}. Choosing a new file replaces it; re-attach it if the form bounces with an error — it isn't kept.</p>
+            {% endif %}
+            {% if f.instance.pk %}
+              <div style="display:none;">{{ f.DELETE }}</div>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                Delete this question
+              </button>
+            {% endif %}
+            {{ f.id }}
+            {{ f.sort_order }}
+          </div>
+        {% empty %}
+          <p class="hub-text-muted">No questions yet. Add your first.</p>
+        {% endfor %}
+      </div>
+
+      {# Hidden empty-form template, cloned by the +Add button below. #}
+      <template id="faq-empty-template">
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {% with faq_formset.empty_form as ef %}
+            {% include "components/form_field.html" with field=ef.question %}
+            {% include "components/form_field.html" with field=ef.answer %}
+            {% include "components/form_field.html" with field=ef.video_url %}
+            {% include "components/form_field.html" with field=ef.document %}
+            {% include "components/form_field.html" with field=ef.document_url %}
+            {{ ef.id }}
+            {{ ef.sort_order }}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+          {% endwith %}
+        </div>
+      </template>
+
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+              onclick="
+                const tpl = document.getElementById('faq-empty-template');
+                const total = document.getElementById('id_faq-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                document.getElementById('faq-rows').appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add a question
+      </button>
+
+      <div style="margin-top:1rem;">
+        <button type="submit" class="pl-btn pl-btn--primary">Save FAQ</button>
+      </div>
+    </div>
+  </form>
+
+  <form method="post" action="{% url 'hub_org_info_links_save' %}" class="hub-form">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Resource links</h2>
+      {{ link_formset.management_form }}
+      <div id="link-rows" style="display:flex; flex-direction:column; gap:1rem;">
+        {% for f in link_formset %}
+          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+            <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+              <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=f.label %}</div>
+              <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=f.url %}</div>
+            </div>
+            {% if f.instance.pk %}
+              <div style="display:none;">{{ f.DELETE }}</div>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                Delete this link
+              </button>
+            {% endif %}
+            {{ f.id }}
+            {{ f.sort_order }}
+          </div>
+        {% empty %}
+          <p class="hub-text-muted">No links yet. Add your first.</p>
+        {% endfor %}
+      </div>
+
+      {# Hidden empty-form template, cloned by the +Add button below. #}
+      <template id="link-empty-template">
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {% with link_formset.empty_form as ef %}
+            <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+              <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=ef.label %}</div>
+              <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=ef.url %}</div>
+            </div>
+            {{ ef.id }}
+            {{ ef.sort_order }}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+          {% endwith %}
+        </div>
+      </template>
+
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+              onclick="
+                const tpl = document.getElementById('link-empty-template');
+                const total = document.getElementById('id_links-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                document.getElementById('link-rows').appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add a link
+      </button>
+
+      <div style="margin-top:1rem;">
+        <button type="submit" class="pl-btn pl-btn--primary">Save Links</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+</div>
+{% endblock %}

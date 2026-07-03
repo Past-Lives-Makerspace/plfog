@@ -2871,6 +2871,15 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-guild-gallery__item img { width: 100%; height: 100%; object-fit: cover; }
 .pl-guild-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .pl-guild-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 6px; }
+
+/* Space & Org Info — annotated floor plan / map. Reuses .pl-guild-lightbox for zoom. */
+.pl-org-map { margin: 0; }
+.pl-org-map__btn { display: block; width: 100%; padding: 0; border: 1px solid var(--hub-border); border-radius: 8px; overflow: hidden; background: var(--hub-surface); cursor: zoom-in; position: relative; }
+.pl-org-map__btn img { display: block; width: 100%; height: auto; }
+.pl-org-map__zoom { position: absolute; bottom: 0.75rem; right: 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.6rem; border-radius: 6px; background: rgba(0,0,0,0.6); color: #F4EFDD; font-size: 0.75rem; }
+.pl-org-map__caption { margin: 0.6rem 0 0; color: var(--hub-text-muted); font-size: 0.85rem; }
+.pl-org-map--empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0; padding: 2rem 1.25rem; border: 1px dashed var(--hub-border); border-radius: 8px; background: var(--hub-surface); color: var(--hub-text-muted); }
+
 .pl-guild-faq__q { font-weight: 600; cursor: pointer; padding: 0.75rem 0; border-top: 1px solid var(--hub-border); }
 .pl-guild-faq__a { padding-bottom: 0.75rem; color: var(--hub-text-muted); }
 .pl-guild-roster { display: flex; flex-direction: column; gap: 0.5rem; }

@@ -31,8 +31,7 @@
     </ul>
     <div class="pl-nudge__actions">
         <a href="{% url 'hub_user_settings' %}?tab=profile" class="hub-btn hub-btn--primary hub-btn--sm">Edit your profile</a>
-        <a href="https://docs.google.com/document/d/1snMD2H2APfNR3MdwSmEuxTLIiTODHpefjJsLfb29HjQ/edit"
-           class="hub-btn hub-btn--ghost hub-btn--sm" target="_blank" rel="noopener noreferrer" hx-boost="false">New here? Member Guide</a>
+        <a href="{% url 'hub_org_info' %}" class="hub-btn hub-btn--ghost hub-btn--sm">New here? Space &amp; Org Info</a>
     </div>
 </div>
 {% endif %}
