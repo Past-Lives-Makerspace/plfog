@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
-VERSION = "0.20.5"
+VERSION = "0.21.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.0",
+        "date": "2026-07-03",
+        "title": "Propose events for the Community Calendar",
+        "changes": [
+            (
+                "You can now propose an event for the Community Calendar right from FOG — add the date, time, and "
+                "details and send it in. Your guild's leads or an admin give it a quick review, and once it's "
+                "approved it shows up on the calendar for everyone. Guild leads and admins keep posting directly, "
+                "as before."
+            ),
+            (
+                "Keep track of what you've proposed: edit and resubmit if a reviewer asks for a tweak, or withdraw "
+                "one you've thought better of — and you'll get a note when a lead or admin responds."
+            ),
+            (
+                "Approved events can also publish out to the makerspace's linked Google Calendars, so they reach the "
+                "wider community, not just folks in FOG."
+            ),
+        ],
+    },
     {
         "version": "0.20.5",
         "date": "2026-07-04",
