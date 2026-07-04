@@ -190,21 +190,33 @@ def describe_review_queue_gating():
         assert b"Other Guild Pending" not in resp.content
         assert b'id="announcement-' in resp.content
 
+    def it_renders_the_channel_picker_in_the_approve_modal(client: Client):
+        # §6.4 — the approve modal reuses the same Discord channel picker as the lead's post
+        # form, with this guild's unconfigured channels disabled.
+        _member("adm_picker", fog_role=Member.FogRole.ADMIN)
+        GuildAnnouncementFactory(pending=True, title="Pick me")  # guild has no webhook
+        client.login(username="adm_picker", password="pass")
+        content = client.get(reverse("hub_guild_announcement_review_queue")).content.decode()
+        assert "Post to Discord channel" in content
+        assert 'name="discord_channel"' in content
+        assert 'data-hint="Not set up yet."' in content
+
 
 @pytest.mark.django_db
 def describe_review_decision():
     def it_approves_and_posts_with_the_chosen_channels(client: Client):
         _member("adm2", fog_role=Member.FogRole.ADMIN)
-        announcement = GuildAnnouncementFactory(pending=True)
+        guild = GuildFactory(discord_webhook_url="https://discord.com/api/webhooks/1/guild")
+        announcement = GuildAnnouncementFactory(pending=True, guild=guild)
         client.login(username="adm2", password="pass")
         resp = client.post(
             reverse("hub_guild_announcement_review_decision", args=[announcement.pk]),
-            data={"decision": "approve", "post_to_discord": "on"},  # send_email unchecked
+            data={"decision": "approve", "discord_channel": "guild"},  # send_email unchecked
         )
         assert resp.status_code == 302
         announcement.refresh_from_db()
         assert announcement.moderation_state == GuildAnnouncement.ModerationState.PUBLISHED
-        assert announcement.post_to_discord is True
+        assert announcement.discord_channel == GuildAnnouncement.DiscordChannel.GUILD
         assert announcement.send_email is False
 
     def it_approves_via_the_query_string(client: Client):

@@ -206,16 +206,26 @@ def _broadcast_fan_out(
     Discord channel ALSO dual-routes to the guild's own webhook — see
     :func:`_guild_broadcast`. That second post is purely additive: it claims its own
     independent ledger slot and never blocks the central post.
+
+    When the caller supplies an explicit ``ctx["discord_broadcast_webhook"]`` (the guild
+    announcement channel picker), the central DISCORD iteration is skipped entirely: the
+    chosen webhook — resolved in :func:`_guild_broadcast` — owns the single Discord post,
+    so the event does not also hit the global/route webhook. Callers that never set the
+    key (every other event) keep the byte-for-byte central-post behavior.
     """
     if suppress_broadcast:
         return []
     posted: list[Channel] = []
+    override_discord = "discord_broadcast_webhook" in ctx
     for spec in event.channels:
         channel = spec.channel
         if not channel_module.is_implemented(channel):
             continue
         adapter = channel_module.get_adapter(channel)
         if not adapter.is_broadcast:
+            continue
+        if channel is Channel.DISCORD and override_discord:
+            # The chosen-webhook override owns the single Discord post (_guild_broadcast).
             continue
         if _record_broadcast(event.key, channel, period):
             channel_module.broadcast(adapter, message_for(channel))
@@ -244,19 +254,24 @@ def _guild_broadcast(
 ) -> None:
     """Additionally post the Discord embed to the in-context guild's own webhook.
 
-    A no-op unless the event context carries a ``guild`` whose
-    :func:`core.events.discord.guild_webhook` resolves to a non-blank URL (toggle on
-    AND a webhook set). Claims an independent ``broadcast:guild:<id>`` ledger slot so
-    it dedups separately from the central post, then posts best-effort via
-    ``post_embed`` (which logs and never raises on a bad/blank webhook), so a guild
-    failure can never block the central post that already ran.
+    A no-op unless the event context carries a ``guild``. The destination webhook is
+    resolved two ways: an explicit ``ctx["discord_broadcast_webhook"]`` (the guild
+    announcement channel picker, which may deliberately be ``""`` for "Don't post"),
+    else the guild's own :func:`core.events.discord.guild_webhook` (toggle on AND a
+    webhook set) for any other guild-scoped caller. Claims an independent
+    ``broadcast:guild:<id>`` ledger slot so it dedups separately from the central post,
+    then posts best-effort via ``post_embed`` (which logs and never raises on a
+    bad/blank webhook), so a guild failure can never block the central post.
     """
     from core.events import discord as discord_module
 
     guild = ctx.get("guild")
     if guild is None:
         return
-    webhook = discord_module.guild_webhook(guild)
+    if "discord_broadcast_webhook" in ctx:
+        webhook = ctx["discord_broadcast_webhook"]
+    else:
+        webhook = discord_module.guild_webhook(guild)
     if not webhook:
         return
     target_ref = f"broadcast:guild:{guild.pk}"

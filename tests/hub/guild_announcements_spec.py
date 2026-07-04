@@ -71,7 +71,7 @@ def describe_announcement_create():
         guild = GuildFactory()
         resp = client.post(
             reverse("hub_guild_announcement_create", args=[guild.pk]),
-            {"title": "Forge night!", "body": "This Friday.", "expires_at": ""},
+            {"title": "Forge night!", "body": "This Friday.", "expires_at": "", "discord_channel": "none"},
         )
         assert resp.status_code == 302
         announcement = GuildAnnouncement.objects.get(guild=guild, title="Forge night!")
@@ -100,7 +100,7 @@ def describe_announcement_create():
 
         client.post(
             reverse("hub_guild_announcement_create", args=[guild.pk]),
-            {"title": "Forge night!", "body": "This Friday.", "expires_at": ""},
+            {"title": "Forge night!", "body": "This Friday.", "expires_at": "", "discord_channel": "none"},
         )
         assert Notification.objects.filter(user=member_user, trigger="guild_announcement").exists()
 
@@ -113,23 +113,24 @@ def describe_announcement_create():
         assert resp.status_code == 403
         assert not GuildAnnouncement.objects.filter(guild=guild).exists()
 
-    def it_persists_send_options_off_when_the_toggles_are_unchecked(client: Client):
-        # An unchecked toggle is simply absent from the POST → stored as False.
+    def it_persists_send_options_off_when_email_is_unchecked_and_discord_is_none(client: Client):
+        # An unchecked email toggle is absent from the POST → stored as False; the picker's
+        # "Don't post to Discord" radio is the successor to the old post_to_discord=False.
         _editor_user("ac_off")
         client.login(username="ac_off", password="pw")
         guild = GuildFactory()
         client.post(
             reverse("hub_guild_announcement_create", args=[guild.pk]),
-            {"title": "Quiet post", "body": "No email, no Discord.", "expires_at": ""},
+            {"title": "Quiet post", "body": "No email, no Discord.", "expires_at": "", "discord_channel": "none"},
         )
         announcement = GuildAnnouncement.objects.get(guild=guild, title="Quiet post")
         assert announcement.send_email is False
-        assert announcement.post_to_discord is False
+        assert announcement.discord_channel == GuildAnnouncement.DiscordChannel.NONE
 
-    def it_persists_send_options_on_when_the_toggles_are_checked(client: Client):
+    def it_persists_send_options_on_when_email_is_checked_and_a_channel_is_picked(client: Client):
         _editor_user("ac_on")
         client.login(username="ac_on", password="pw")
-        guild = GuildFactory()
+        guild = GuildFactory(discord_webhook_url="https://discord.com/api/webhooks/1/guild")
         client.post(
             reverse("hub_guild_announcement_create", args=[guild.pk]),
             {
@@ -137,12 +138,12 @@ def describe_announcement_create():
                 "body": "Email + Discord.",
                 "expires_at": "",
                 "send_email": "on",
-                "post_to_discord": "on",
+                "discord_channel": "guild",
             },
         )
         announcement = GuildAnnouncement.objects.get(guild=guild, title="Loud post")
         assert announcement.send_email is True
-        assert announcement.post_to_discord is True
+        assert announcement.discord_channel == GuildAnnouncement.DiscordChannel.GUILD
 
 
 @pytest.mark.django_db
@@ -210,19 +211,21 @@ def describe_announcement_edit():
         assert settle["close-modal"] == f"edit-ann-{announcement.pk}"
 
     def it_does_not_clobber_the_send_options_on_edit(client: Client):
-        # Editing never re-sends, and the toggles aren't on the edit form — a blank
-        # checkbox there must not flip the originally-chosen send options to False.
+        # Editing never re-sends, and the send options aren't on the edit form — a blank
+        # value there must not reset the originally-chosen email toggle or channel choice.
         _editor_user("ae_noclobber")
         client.login(username="ae_noclobber", password="pw")
         guild = GuildFactory()
-        announcement = GuildAnnouncementFactory(guild=guild, send_email=True, post_to_discord=True)
+        announcement = GuildAnnouncementFactory(
+            guild=guild, send_email=True, discord_channel=GuildAnnouncement.DiscordChannel.GENERAL
+        )
         client.post(
             reverse("hub_guild_announcement_edit", args=[guild.pk, announcement.pk]),
             {"title": "Edited", "body": "Edited body", "expires_at": ""},
         )
         announcement.refresh_from_db()
         assert announcement.send_email is True
-        assert announcement.post_to_discord is True
+        assert announcement.discord_channel == GuildAnnouncement.DiscordChannel.GENERAL
 
     def it_re_renders_with_errors_and_no_close_trigger_on_invalid(client: Client):
         _editor_user("ae_inv")
@@ -291,10 +294,20 @@ def describe_announcement_display():
         assert b"GoneAnnounce" not in resp.content
 
 
+@pytest.mark.django_db
 def describe_announcement_form_send_options():
-    def it_defaults_both_switches_to_on():
+    def it_defaults_email_on_and_channel_to_the_guilds_own_when_configured():
         from hub.forms import GuildAnnouncementForm
 
-        form = GuildAnnouncementForm()
+        guild = GuildFactory(discord_webhook_url="https://discord.com/api/webhooks/1/guild")
+        form = GuildAnnouncementForm(guild=guild)
         assert form["send_email"].value() is True
-        assert form["post_to_discord"].value() is True
+        # Guild Channel is pre-selected when the guild has its own webhook (§5.3).
+        assert form["discord_channel"].value() == GuildAnnouncement.DiscordChannel.GUILD
+
+    def it_steps_down_to_dont_post_when_no_channel_is_configured():
+        from hub.forms import GuildAnnouncementForm
+
+        guild = GuildFactory()  # no guild webhook, no shared webhooks
+        form = GuildAnnouncementForm(guild=guild)
+        assert form["discord_channel"].value() == GuildAnnouncement.DiscordChannel.NONE

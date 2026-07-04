@@ -123,6 +123,12 @@
             class="vote-tab">
       Announcements
     </button>
+    <button type="button"
+            @click="tab = 'discord'"
+            :class="{ 'vote-tab--active': tab === 'discord' }"
+            class="vote-tab">
+      Discord
+    </button>
   </div>
 
   <form method="post" id="site-settings-form" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
@@ -132,7 +138,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -361,6 +367,20 @@
       {% include "components/form_field.html" with field=form.tab_payments_enabled %}
       {% include "components/form_field.html" with field=form.class_registration_enabled %}
       {% include "components/form_field.html" with field=form.class_registration_disabled_note %}
+    </div>
+
+    {# -------- Discord tab -------- #}
+    {# No inline display on this x-show wrapper (FRONTEND Rule 12); the two fields flow in normal block layout. #}
+    <div x-show="tab === 'discord'" x-cloak>
+      <div style="margin-bottom:1.25rem;">
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Shared Discord channels</h2>
+        <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+          Set these so guild leads can post announcements to #general-chat and #leadership. Leave a field blank to hide that option from leads.
+          In Discord: Server Settings → Integrations → Webhooks → New Webhook → pick the channel → Copy Webhook URL.
+        </p>
+      </div>
+      {% include "components/form_field.html" with field=form.discord_general_webhook_url %}
+      {% include "components/form_field.html" with field=form.discord_leadership_webhook_url %}
     </div>
 
     <div x-show="tab !== 'announcements'">

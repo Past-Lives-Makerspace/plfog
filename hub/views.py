@@ -638,7 +638,7 @@ def _guild_edit_context(
         "form": form if form is not None else GuildEditForm(instance=guild),
         "faq_formset": GuildFAQItemFormSet(instance=guild, prefix="faq"),
         "link_formset": GuildLinkFormSet(instance=guild, prefix="links"),
-        "announcement_form": GuildAnnouncementForm(),
+        "announcement_form": GuildAnnouncementForm(guild=guild),
         "staff_by_member": guild.staff_by_member(),
         "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
         "is_admin": _viewing_as_admin(request),
@@ -1771,7 +1771,7 @@ def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
-    form = GuildAnnouncementForm(request.POST)
+    form = GuildAnnouncementForm(request.POST, guild=guild)
     if form.is_valid():
         announcement = form.save(commit=False)
         announcement.guild = guild
@@ -2021,11 +2021,11 @@ def guild_announcement_edit(request: HttpRequest, pk: int, announcement_pk: int)
     announcement = get_object_or_404(GuildAnnouncement, pk=announcement_pk, guild=guild)
 
     if request.method == "POST":
-        form = GuildAnnouncementForm(request.POST, instance=announcement)
+        form = GuildAnnouncementForm(request.POST, instance=announcement, guild=guild)
         if form.is_valid():
             # Editing never re-sends, so persist only the editable copy. The post-time
-            # send_email / post_to_discord switches aren't on the edit form, so a blank
-            # checkbox there must not clobber the originally-chosen values to False.
+            # send_email toggle and discord_channel picker aren't on the edit form, so a
+            # blank value there must not clobber the originally-chosen send options.
             form.save(commit=False)
             announcement.save(update_fields=["title", "body", "expires_at"])
             response = render(
@@ -2046,7 +2046,7 @@ def guild_announcement_edit(request: HttpRequest, pk: int, announcement_pk: int)
             {"guild": guild, "announcement": announcement, "form": form},
         )
 
-    form = GuildAnnouncementForm(instance=announcement)
+    form = GuildAnnouncementForm(instance=announcement, guild=guild)
     return render(
         request,
         "hub/partials/guild_announcement_edit_form.html",
@@ -2072,13 +2072,23 @@ def _announcement_review_scope(request: HttpRequest) -> Any:
 
 
 def _pending_announcements_for_scope(scope: Any) -> Any:
-    """The pending proposals visible to a reviewer ``scope`` (``True`` = admin/all)."""
+    """The pending proposals visible to a reviewer ``scope`` (``True`` = admin/all).
+
+    Each returned announcement carries a ``channel_picker_field`` — a bound
+    ``discord_channel`` field from a per-guild :class:`GuildAnnouncementDecisionForm` — so the
+    approve modal renders the same Discord channel picker the lead's own post form uses, with
+    this guild's unconfigured channels disabled.
+    """
+    from hub.forms import GuildAnnouncementDecisionForm
     from membership.models import GuildAnnouncement
 
     pending = (
         GuildAnnouncement.objects.awaiting_review().select_related("guild", "submitted_by").order_by("published_at")
     )
-    return pending if scope is True else pending.filter(guild__in=scope)
+    announcements = list(pending if scope is True else pending.filter(guild__in=scope))
+    for announcement in announcements:
+        announcement.channel_picker_field = GuildAnnouncementDecisionForm(guild=announcement.guild)["discord_channel"]
+    return announcements
 
 
 @login_required
@@ -2228,7 +2238,7 @@ def guild_announcement_review_decision(request: HttpRequest, pk: int) -> HttpRes
     data = request.POST.copy()
     if not data.get("decision"):
         data["decision"] = request.GET.get("decision", "")
-    form = GuildAnnouncementDecisionForm(data)
+    form = GuildAnnouncementDecisionForm(data, guild=announcement.guild)
     if not form.is_valid():
         kind = data.get("decision", "")
         return render(
@@ -2250,8 +2260,10 @@ def guild_announcement_review_decision(request: HttpRequest, pk: int) -> HttpRes
     try:
         if decision == "approve":
             announcement.send_email = form.cleaned_data["send_email"]
-            announcement.post_to_discord = form.cleaned_data["post_to_discord"]
-            announcement.save(update_fields=["send_email", "post_to_discord", "updated_at"])
+            chosen_channel = form.cleaned_data["discord_channel"]
+            if chosen_channel:
+                announcement.discord_channel = chosen_channel
+            announcement.save(update_fields=["send_email", "discord_channel", "updated_at"])
             announcement.approve(reviewer=user)
             messages.success(request, "Announcement approved and posted.")
         elif decision == "changes":
@@ -3801,7 +3813,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
-    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features"}:
+    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features", "discord"}:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()

@@ -533,6 +533,8 @@ class SiteSettingsForm(forms.ModelForm):
             "mailchimp_api_key",
             "mailchimp_list_id",
             "google_analytics_measurement_id",
+            "discord_general_webhook_url",
+            "discord_leadership_webhook_url",
             "tab_payments_enabled",
             "class_registration_enabled",
             "class_registration_disabled_note",
@@ -1103,28 +1105,123 @@ class GuildStaffAddForm(forms.Form):
         return cleaned
 
 
+class ChannelRadioSelect(forms.RadioSelect):
+    """Radio group for the guild-announcement Discord channel picker.
+
+    Renders each :class:`~membership.models.GuildAnnouncement.DiscordChannel` option as a
+    radio. A channel whose webhook isn't configured *for this guild* is rendered as a real,
+    greyed ``<input disabled>`` carrying a ``data-hint`` attribute so the picker partial can
+    show a muted "Not set up yet." next to it. ``NONE`` ("Don't post to Discord") is always
+    available. Keeping the disabled state on the widget (not a parallel template map) means
+    the browser genuinely disables the input and the form/clean layer and the template read
+    from one source of truth (:attr:`configured_channels`).
+    """
+
+    DISABLED_HINT = "Not set up yet."
+
+    def __init__(self, *args: Any, configured_channels: set[str] | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.configured_channels: set[str] = set(configured_channels or set())
+
+    def create_option(
+        self,
+        name: str,
+        value: Any,
+        label: Any,
+        selected: bool,
+        index: int,
+        subindex: int | None = None,
+        attrs: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        channel = str(getattr(value, "value", value))
+        if channel != GuildAnnouncement.DiscordChannel.NONE and channel not in self.configured_channels:
+            option["attrs"]["disabled"] = True
+            option["attrs"]["data-hint"] = self.DISABLED_HINT
+        return option
+
+
+def _configured_discord_channels(guild: Guild | None) -> set[str]:
+    """The set of :class:`GuildAnnouncement.DiscordChannel` values that have a webhook set.
+
+    ``GUILD`` when this guild has its own ``discord_webhook_url``; ``GENERAL`` / ``LEADERSHIP``
+    when the makerspace-wide :class:`~core.models.SiteConfiguration` webhooks are set. ``NONE``
+    is always selectable and is deliberately not listed here.
+    """
+    channels = GuildAnnouncement.DiscordChannel
+    configured: set[str] = set()
+    if guild is not None and (guild.discord_webhook_url or "").strip():
+        configured.add(channels.GUILD.value)
+    config = SiteConfiguration.load()
+    if (config.discord_general_webhook_url or "").strip():
+        configured.add(channels.GENERAL.value)
+    if (config.discord_leadership_webhook_url or "").strip():
+        configured.add(channels.LEADERSHIP.value)
+    return configured
+
+
+def _default_discord_channel(configured: set[str]) -> str:
+    """The pre-selected channel: the first *configured* channel, stepping down to "Don't post".
+
+    Guild Channel → #general-chat → #leadership → Don't post (§5.3), so the picker never opens
+    pre-selected on a disabled option.
+    """
+    channels = GuildAnnouncement.DiscordChannel
+    for channel in (channels.GUILD, channels.GENERAL, channels.LEADERSHIP):
+        if channel.value in configured:
+            return channel.value
+    return channels.NONE.value
+
+
+_CHANNEL_UNCONFIGURED_ERROR = "That Discord channel isn’t set up — pick another, or choose “Don’t post to Discord.”"
+
+
 class GuildAnnouncementForm(forms.ModelForm):
     """Post a news announcement on a guild page.
 
-    Two opt-out switches (both default ON) let the author choose whether to also email
-    the guild's joined members and whether to also post to the guild's own Discord
-    channel. ``GuildAnnouncement.notify_members`` reads the saved values and suppresses
-    the matching channel; the in-app bell always fires.
+    The "Also send email" toggle (default ON) chooses whether to also email the guild's
+    joined members; the Discord **channel picker** chooses where the single Discord echo
+    posts — this guild's own channel, the makerspace-wide #general-chat / #leadership, or
+    "Don't post to Discord." ``GuildAnnouncement.notify_members`` reads the saved values;
+    the in-app bell always fires.
     """
 
     class Meta:
         model = GuildAnnouncement
-        fields = ["title", "body", "expires_at", "send_email", "post_to_discord"]
+        fields = ["title", "body", "expires_at", "send_email", "discord_channel"]
         widgets = {
             "body": forms.Textarea(attrs={"rows": 4}),
             "expires_at": forms.DateInput(attrs={"type": "date"}),
+            "discord_channel": ChannelRadioSelect,
         }
         labels = {
             "expires_at": "Hide after (optional)",
             "send_email": "Also send email",
-            "post_to_discord": "Also post to your guild's Discord channel",
+            "discord_channel": "Post to Discord channel",
         }
         help_texts = {"expires_at": "Leave blank to keep it up indefinitely."}
+
+    def __init__(self, *args: Any, guild: Guild, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Not strictly required at the field level: this same ModelForm backs the edit
+        # modal, which renders only title/body/expires_at — an omitted channel there must
+        # leave the saved choice untouched (Django keeps the model default/existing value
+        # when a defaulted field is omitted from the data), exactly like ``send_email``.
+        self.fields["discord_channel"].required = False
+        configured = _configured_discord_channels(guild)
+        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
+        widget.configured_channels = configured
+        if not self.is_bound and not (self.instance and self.instance.pk):
+            self.fields["discord_channel"].initial = _default_discord_channel(configured)
+
+    def clean_discord_channel(self) -> str:
+        channel = cast(str, self.cleaned_data.get("discord_channel") or "")
+        if not channel:
+            return ""  # omitted (edit form) → the model default / existing value stands
+        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
+        if channel != GuildAnnouncement.DiscordChannel.NONE and channel not in widget.configured_channels:
+            raise forms.ValidationError(_CHANNEL_UNCONFIGURED_ERROR)
+        return channel
 
 
 class GuildAnnouncementProposalForm(forms.ModelForm):
@@ -1161,10 +1258,13 @@ class GuildAnnouncementProposalForm(forms.ModelForm):
 class GuildAnnouncementDecisionForm(forms.Form):
     """A reviewer's decision on a proposed guild announcement.
 
-    Approving also chooses the outbound channels (email the guild's members / post to the
-    guild's own Discord), both defaulting on — the reviewer, not the proposer, owns those.
-    ``notes`` is required for the two outcomes that send the proposer a reason
-    (changes / decline), so an empty note is a real validation error, never a silent send.
+    Approving also chooses the outbound channels: whether to email the guild's members
+    (``send_email``, default on) and which Discord channel to post to (``discord_channel``,
+    the same picker the lead's own post form uses) — the reviewer, not the proposer, owns
+    those. Pass ``guild=`` so unconfigured channels render disabled and validate. The channel
+    field is optional on the form because the changes/decline modals don't render it; the view
+    only reads it on an approve. ``notes`` is required for the two outcomes that send the
+    proposer a reason (changes / decline), so an empty note is a real validation error.
     """
 
     DECISION_CHOICES = [("approve", "Approve"), ("changes", "Request changes"), ("decline", "Decline")]
@@ -1172,7 +1272,29 @@ class GuildAnnouncementDecisionForm(forms.Form):
     decision = forms.ChoiceField(choices=DECISION_CHOICES)
     notes = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
     send_email = forms.BooleanField(required=False, initial=True)
-    post_to_discord = forms.BooleanField(required=False, initial=True)
+    discord_channel = forms.ChoiceField(
+        required=False,
+        choices=GuildAnnouncement.DiscordChannel.choices,
+        widget=ChannelRadioSelect,
+        label="Post to Discord channel",
+    )
+
+    def __init__(self, *args: Any, guild: Guild | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        configured = _configured_discord_channels(guild)
+        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
+        widget.configured_channels = configured
+        if not self.is_bound:
+            self.fields["discord_channel"].initial = _default_discord_channel(configured)
+
+    def clean_discord_channel(self) -> str:
+        channel = cast(str, self.cleaned_data.get("discord_channel") or "")
+        if not channel:
+            return ""
+        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
+        if channel != GuildAnnouncement.DiscordChannel.NONE and channel not in widget.configured_channels:
+            raise forms.ValidationError(_CHANNEL_UNCONFIGURED_ERROR)
+        return channel
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())

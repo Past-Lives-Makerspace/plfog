@@ -3245,3 +3245,66 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+/* ── Guild-announcement Discord channel picker ─────────────────────────────
+   A single-choice radio group (one-of-N destination). Theme tokens only — no
+   inline background/color, no --surface. Verified on dark (Obsidian) + light
+   (Slate). See templates/hub/partials/_announcement_channel_picker.html. */
+.pl-channel-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.pl-channel-option {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+}
+
+.pl-channel-option input[type="radio"] {
+    flex: 0 0 auto;
+    margin: 0;
+    accent-color: var(--color-tuscan-yellow);
+    cursor: pointer;
+}
+
+.pl-channel-option__label {
+    flex: 1 1 auto;
+}
+
+.pl-channel-option__hint {
+    flex: 0 0 auto;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+
+/* :checked lives on the input; style the enclosing label via :has (option card). */
+.pl-channel-option:has(input:checked) {
+    border-color: var(--color-tuscan-yellow);
+    background: var(--hub-elevated);
+}
+
+.pl-channel-option--disabled,
+.pl-channel-option:has(input:disabled) {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.pl-channel-option--disabled input[type="radio"] {
+    cursor: not-allowed;
+}
+
+.pl-channel-picker__empty {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}

@@ -486,7 +486,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% include "components/form_field.html" with field=announcement_form.body %}
       {% include "components/form_field.html" with field=announcement_form.expires_at %}
       {% include "components/form_field.html" with field=announcement_form.send_email field_label="Also send email" %}
-      {% include "components/form_field.html" with field=announcement_form.post_to_discord field_label="Also post to "|add:guild.name|add:"’s Discord channel" field_hint="Only does something if this guild has a Discord announcement webhook set on the Meetings tab — otherwise it posts nothing." %}
+      {% include "hub/partials/_announcement_channel_picker.html" with field=announcement_form.discord_channel %}
       <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.75rem 0 1rem;">Everyone who has <strong>Joined</strong> this guild will receive this announcement by email (when “Also send email” is on), plus an in-app notification.</p>
       <button type="submit" class="pl-btn pl-btn--primary">Post Announcement</button>
     </form>

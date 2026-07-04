@@ -42,12 +42,10 @@ from the page context to re-open + repopulate the note on a server-side validati
                 {% csrf_token %}
                 <input type="hidden" name="decision" value="{{ kind }}">
                 {% if kind == "approve" %}
-                <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem; font-size:0.9375rem;">
+                <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem; font-size:0.9375rem;">
                     <input type="checkbox" name="send_email" checked> Also email the guild's members
                 </label>
-                <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem; font-size:0.9375rem;">
-                    <input type="checkbox" name="post_to_discord" checked> Also post to the guild's Discord channel
-                </label>
+                {% include "hub/partials/_announcement_channel_picker.html" with field=announcement.channel_picker_field %}
                 {% else %}
                 <div class="pl-form-group">
                     <label for="{{ modal_id }}-notes" class="pl-form-label">Note to the proposer</label>

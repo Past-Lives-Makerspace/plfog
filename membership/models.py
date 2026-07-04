@@ -1674,9 +1674,18 @@ class GuildAnnouncement(models.Model):
         default=True,
         help_text="Also email this announcement to members who joined the guild.",
     )
-    post_to_discord = models.BooleanField(
-        default=True,
-        help_text="Also post this announcement to the guild's own Discord channel.",
+
+    class DiscordChannel(models.TextChoices):
+        GUILD = "guild", "Our Guild Channel"
+        GENERAL = "general", "#general-chat"
+        LEADERSHIP = "leadership", "#leadership"
+        NONE = "none", "Don't post to Discord"
+
+    discord_channel = models.CharField(
+        max_length=20,
+        choices=DiscordChannel.choices,
+        default=DiscordChannel.GUILD,
+        help_text="Which Discord channel this announcement posted to (or 'none').",
     )
 
     class ModerationState(models.TextChoices):
@@ -1732,6 +1741,34 @@ class GuildAnnouncement(models.Model):
         """Visible on the page — never expires, or the expiry is today or later."""
         return self.expires_at is None or self.expires_at >= timezone.localdate()
 
+    def resolve_discord_webhook(self) -> str:
+        """Map :attr:`discord_channel` to the webhook URL this announcement posts to.
+
+        Returns ``""`` for :attr:`DiscordChannel.NONE` or any channel whose webhook is
+        unset — the emit path treats a blank result as "no Discord post" (a stripped,
+        best-effort echo). The makerspace-wide #general-chat / #leadership webhooks live
+        on :class:`core.models.SiteConfiguration`; "Our Guild Channel" is the guild's own
+        ``discord_webhook_url``.
+
+        Returns:
+            The chosen webhook URL, or ``""`` when the channel is "none" or unconfigured.
+
+        Raises:
+            ValueError: If ``discord_channel`` holds an unknown value (fail loudly).
+        """
+        from core.models import SiteConfiguration
+
+        channel = self.discord_channel
+        if channel == self.DiscordChannel.GUILD:
+            return (self.guild.discord_webhook_url or "").strip()
+        if channel == self.DiscordChannel.GENERAL:
+            return (SiteConfiguration.load().discord_general_webhook_url or "").strip()
+        if channel == self.DiscordChannel.LEADERSHIP:
+            return (SiteConfiguration.load().discord_leadership_webhook_url or "").strip()
+        if channel == self.DiscordChannel.NONE:
+            return ""
+        raise ValueError(f"Unknown Discord channel '{channel}' on announcement {self.pk}.")
+
     def notify_members(self) -> None:
         """Emit ``guild.announcement`` to the guild's members (Decision 4).
 
@@ -1740,10 +1777,12 @@ class GuildAnnouncement(models.Model):
         a single Discord broadcast. The copy is DB-editable; the merge fields come from
         this announcement. Called once by the create view after the row is saved.
 
-        The author's two opt-out switches are honored here: when ``send_email`` is off
-        the per-recipient email channel is suppressed (the in-app bell still fires), and
-        when ``post_to_discord`` is off the guild's *own* Discord webhook is skipped —
-        the makerspace-wide post still goes out, by design.
+        The author's controls are honored here: when ``send_email`` is off the
+        per-recipient email channel is suppressed (the in-app bell still fires), and the
+        persisted ``discord_channel`` choice picks exactly where the single Discord echo
+        posts (:meth:`resolve_discord_webhook`). A resolved webhook of ``""`` (the "Don't
+        post to Discord" choice, or an unconfigured channel) suppresses the guild
+        broadcast entirely — the bell + email still deliver.
 
         The ``period`` is keyed to this announcement's pk so re-saving never double-
         notifies, while a different announcement (a different pk) still notifies.
@@ -1754,6 +1793,7 @@ class GuildAnnouncement(models.Model):
         from membership.orientations import _absolute_url
 
         guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
+        webhook = self.resolve_discord_webhook()
         emit(
             "guild_announcement",
             actor=self.author,
@@ -1765,11 +1805,12 @@ class GuildAnnouncement(models.Model):
                 "announcement_title": self.title,
                 "announcement_body": self.body,
                 "guild_url": guild_url,
+                "discord_broadcast_webhook": webhook,
             },
             url=guild_url,
             period=f"announcement:{self.pk}",
             suppress_email=not self.send_email,
-            suppress_guild_broadcast=not self.post_to_discord,
+            suppress_guild_broadcast=(webhook == ""),
         )
 
     # --- Review lifecycle (member proposals) ----------------------------------
