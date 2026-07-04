@@ -1127,6 +1127,62 @@ class GuildAnnouncementForm(forms.ModelForm):
         help_texts = {"expires_at": "Leave blank to keep it up indefinitely."}
 
 
+class GuildAnnouncementProposalForm(forms.ModelForm):
+    """A member proposing a guild announcement for a lead/admin to review.
+
+    Any logged-in member can propose to any guild: they pick the guild and write the
+    post, but NOT the outbound channels — a reviewer decides whether to also email the
+    guild's members and post to Discord at approval time (see
+    :class:`GuildAnnouncementDecisionForm`).
+    """
+
+    class Meta:
+        model = GuildAnnouncement
+        fields = ["guild", "title", "body", "expires_at"]
+        widgets = {
+            "body": forms.Textarea(attrs={"rows": 4}),
+            "expires_at": forms.DateInput(attrs={"type": "date"}),
+        }
+        labels = {"guild": "Guild", "expires_at": "Hide after (optional)"}
+        help_texts = {
+            "guild": "Which guild is this announcement for?",
+            "expires_at": "Leave blank to keep it up indefinitely.",
+        }
+
+    def __init__(self, *args: Any, fixed_guild: Guild | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
+        guild_field.queryset = Guild.objects.filter(is_active=True).order_by("name")
+        guild_field.required = True
+        if fixed_guild is not None and not self.is_bound:
+            guild_field.initial = fixed_guild.pk
+
+
+class GuildAnnouncementDecisionForm(forms.Form):
+    """A reviewer's decision on a proposed guild announcement.
+
+    Approving also chooses the outbound channels (email the guild's members / post to the
+    guild's own Discord), both defaulting on — the reviewer, not the proposer, owns those.
+    ``notes`` is required for the two outcomes that send the proposer a reason
+    (changes / decline), so an empty note is a real validation error, never a silent send.
+    """
+
+    DECISION_CHOICES = [("approve", "Approve"), ("changes", "Request changes"), ("decline", "Decline")]
+
+    decision = forms.ChoiceField(choices=DECISION_CHOICES)
+    notes = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
+    send_email = forms.BooleanField(required=False, initial=True)
+    post_to_discord = forms.BooleanField(required=False, initial=True)
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        decision = cleaned.get("decision")
+        notes = (cleaned.get("notes") or "").strip()
+        if decision in ("changes", "decline") and not notes:
+            self.add_error("notes", "Add a note so the proposer knows why.")
+        return cleaned
+
+
 class SiteAnnouncementForm(forms.Form):
     """Admin form to broadcast a site-wide announcement to activated members.
 

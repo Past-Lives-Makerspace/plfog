@@ -106,6 +106,32 @@ urlpatterns = [
         views.guild_announcement_edit,
         name="hub_guild_announcement_edit",
     ),
+    # Member-proposed announcements (any logged-in member proposes; a lead/admin reviews).
+    path(
+        "announcements/propose/",
+        views.propose_guild_announcement,
+        name="hub_guild_announcement_propose",
+    ),
+    path(
+        "announcements/propose/<int:pk>/edit/",
+        views.propose_guild_announcement,
+        name="hub_guild_announcement_propose_edit",
+    ),
+    path(
+        "announcements/<int:pk>/withdraw/",
+        views.guild_announcement_withdraw,
+        name="hub_guild_announcement_withdraw",
+    ),
+    path(
+        "announcements/review/",
+        views.guild_announcement_review_queue,
+        name="hub_guild_announcement_review_queue",
+    ),
+    path(
+        "announcements/review/<int:pk>/decision/",
+        views.guild_announcement_review_decision,
+        name="hub_guild_announcement_review_decision",
+    ),
     path("guilds/<int:pk>/emails/save/", views.guild_emails_save, name="hub_guild_emails_save"),
     path("guilds/<int:pk>/faq/save/", views.guild_faq_save, name="hub_guild_faq_save"),
     path("guilds/<int:pk>/links/save/", views.guild_links_save, name="hub_guild_links_save"),

@@ -1,0 +1,44 @@
+{% extends "hub/base.html" %}
+{% block title %}{% if editing %}Edit your announcement{% else %}Suggest an announcement{% endif %} — Past Lives Makerspace{% endblock %}
+{% block content %}
+<div x-data="{}">
+  <p style="margin-bottom:0.75rem;">
+    <a href="{{ back_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back</a>
+  </p>
+  <h1 class="hub-page-title">{% if editing %}Edit your announcement{% else %}Suggest an announcement{% endif %}</h1>
+  <p class="hub-text-muted" style="margin:-0.25rem 0 1.5rem; max-width:65ch;">
+    Anyone can suggest an announcement for a guild. A guild lead (or an admin) reviews it before it posts —
+    they decide whether to also email the guild's members and post to its Discord channel.
+  </p>
+
+  {% if editing and announcement.review_notes %}
+  <div class="hub-card" style="padding:1rem 1.25rem; margin-bottom:1.5rem; border-left:3px solid var(--color-tuscan-yellow);">
+    <p style="margin:0;"><strong>A reviewer asked for changes:</strong> {{ announcement.review_notes }}</p>
+  </div>
+  {% endif %}
+
+  {% include "hub/partials/_my_proposed_announcements.html" %}
+
+  <form method="post" class="hub-form">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Announcement details</h2>
+      {% include "components/form_field.html" with field=form.guild %}
+      {% include "components/form_field.html" with field=form.title %}
+      {% include "components/form_field.html" with field=form.body %}
+      {% include "components/form_field.html" with field=form.expires_at %}
+    </div>
+
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
+      Your announcement goes to the guild's leads (or an admin) for a quick review before it appears on the guild page.
+    </p>
+
+    <div style="display:flex; gap:1rem;">
+      <button type="submit" class="pl-btn pl-btn--primary">
+        {% if editing %}Resubmit for review{% else %}Submit for review{% endif %}
+      </button>
+      <a href="{{ back_url }}" class="pl-btn pl-btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% comment %}
+Per-row reviewer decision modal for a proposed guild announcement. One partial serves
+all three decisions via `kind`:
+  approve  — no note; shows the two outbound-channel toggles (email members / post to Discord)
+  changes  — required note; sends the proposal back to the proposer to edit + resubmit
+  decline  — required note; turns the proposal down
+
+Params (via include ... with):
+  announcement — the GuildAnnouncement row
+  modal_id     — unique DOM id, e.g. "approve-annmodal-<pk>"
+  kind         — "approve" | "changes" | "decline"
+
+Reads open_decision_for / open_decision_kind / decision_note_value / decision_note_error
+from the page context to re-open + repopulate the note on a server-side validation error.
+{% endcomment %}
+<div x-data="{ open: false }"
+     x-show="open"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-modal.window="if ($event.detail === '{{ modal_id }}') open = true"
+     @close-modal.window="if ($event.detail === '{{ modal_id }}') open = false"
+     @keydown.escape.window="open = false"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="{{ modal_id }}-title">
+    <div class="pl-modal pl-modal--sm" @click.outside="open = false">
+        <div class="pl-modal__header">
+            <h2 class="pl-modal__title" id="{{ modal_id }}-title">
+                {% if kind == "approve" %}Approve &amp; post{% elif kind == "changes" %}Request changes{% else %}Decline announcement{% endif %}
+            </h2>
+            <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+        </div>
+        <div class="pl-modal__body">
+            <p class="hub-text-muted" style="margin:0 0 1rem; font-size:0.875rem;">
+                {% if kind == "approve" %}This posts it to the guild page. Choose whether to also email the guild's members and post to its Discord channel.
+                {% elif kind == "changes" %}The proposer can edit and resubmit — tell them what to change.
+                {% else %}This removes the proposal; the proposer will be notified.{% endif %}
+            </p>
+            <form method="post" action="{% url 'hub_guild_announcement_review_decision' announcement.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="decision" value="{{ kind }}">
+                {% if kind == "approve" %}
+                <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem; font-size:0.9375rem;">
+                    <input type="checkbox" name="send_email" checked> Also email the guild's members
+                </label>
+                <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem; font-size:0.9375rem;">
+                    <input type="checkbox" name="post_to_discord" checked> Also post to the guild's Discord channel
+                </label>
+                {% else %}
+                <div class="pl-form-group">
+                    <label for="{{ modal_id }}-notes" class="pl-form-label">Note to the proposer</label>
+                    <textarea id="{{ modal_id }}-notes" name="notes" rows="3" required>{% if open_decision_for == announcement.pk and open_decision_kind == kind %}{{ decision_note_value }}{% endif %}</textarea>
+                    {% if open_decision_for == announcement.pk and open_decision_kind == kind and decision_note_error %}
+                    <ul class="pl-field-errors"><li class="pl-field-error">{{ decision_note_error }}</li></ul>
+                    {% endif %}
+                </div>
+                {% endif %}
+                <div class="pl-modal__actions" style="margin-top:1rem;">
+                    <button type="submit" class="pl-btn pl-btn--{% if kind == 'decline' %}danger{% else %}primary{% endif %}" style="flex:1;">
+                        {% if kind == "approve" %}Approve &amp; post{% elif kind == "changes" %}Send back{% else %}Decline{% endif %}
+                    </button>
+                    <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

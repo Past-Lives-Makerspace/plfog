@@ -470,6 +470,14 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 {# ── Announcements/Emails (separate forms, live outside the main form) ── #}
 <div x-show="section === 'announcements'" x-cloak>
+  {% with pending_ann_count=guild.announcements.awaiting_review.count %}
+  {% if pending_ann_count %}
+  <div class="hub-card" style="padding:1rem 1.25rem; margin-bottom:1.25rem; border-left:3px solid var(--color-tuscan-yellow,#EEB44B); display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+    <span>{{ pending_ann_count }} member{{ pending_ann_count|pluralize }}-proposed announcement{{ pending_ann_count|pluralize }} awaiting your review.</span>
+    <a href="{% url 'hub_guild_announcement_review_queue' %}" class="hub-btn hub-btn--sm">Review proposals →</a>
+  </div>
+  {% endif %}
+  {% endwith %}
   <div class="hub-card" style="padding:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Post an Announcement</h2>
     <form method="post" action="{% url 'hub_guild_announcement_create' guild.pk %}" class="hub-form">
@@ -487,7 +495,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
   <div class="hub-card" style="margin-top:1.5rem; padding:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Recent Announcements</h2>
     <div style="display:flex; flex-direction:column; gap:0.75rem;">
-      {% for a in guild.announcements.all %}
+      {% for a in guild.announcements.published %}
       {% include "hub/partials/_guild_announcement_row.html" with a=a %}
       {% empty %}
       <p class="hub-text-muted">No announcements yet.</p>
@@ -518,7 +526,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
   </form>
 </div>
 
-{% for a in guild.announcements.all %}
+{% for a in guild.announcements.published %}
   {% url 'hub_guild_announcement_delete' guild.pk a.pk as ann_delete_url %}
   {% with pks=a.pk|stringformat:"s" %}
     {% include "components/confirm_modal.html" with confirm_id="del-ann-"|add:pks confirm_action_url=ann_delete_url confirm_title="Delete announcement?" confirm_message="Delete this announcement? This can't be undone." %}

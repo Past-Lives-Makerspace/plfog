@@ -151,7 +151,9 @@ def _next_occurrence(event: CommunityEvent, frm: date_type, to: date_type, now: 
 
 def _announcements(member: Member) -> list[GuildAnnouncement]:
     """Active guild announcements from the member's joined guilds, newest first, capped."""
-    return list(GuildAnnouncement.objects.active().for_member(member).select_related("guild")[:ANNOUNCEMENTS_CAP])
+    return list(
+        GuildAnnouncement.objects.published().active().for_member(member).select_related("guild")[:ANNOUNCEMENTS_CAP]
+    )
 
 
 def _my_guilds(member: Member) -> list[GuildShortcut]:
