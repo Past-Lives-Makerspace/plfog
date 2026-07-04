@@ -171,6 +171,55 @@ def _public_pages(d: dict[str, object]) -> list[tuple[str, str]]:
     ]
 
 
+# Feature-shot capture is framed (a fixed viewport, NOT full_page), so the shot fits a
+# ~560px-wide email card at retina density (1200 captured → 560 displayed ≈ 2×).
+FEATURE_SHOT_VIEWPORT = {"width": 1200, "height": 800}
+
+
+def _seed_member_hub(member: Member) -> None:
+    """Populate the member-hub feature pages so each screenshot shows a good state.
+
+    Guilds (for the directory + My Guilds toggles), two official memberships for the
+    signed-in member, a published announcement (for the home dashboard), a filled-in
+    Space & Org Info page, and a few more members for the directory. This seeding is
+    the bulk of the capture effort and grows with each FeaturePage in the registry.
+    """
+    from tests.membership.factories import (
+        GuildAnnouncementFactory,
+        GuildFactory,
+        GuildMembershipFactory,
+        MemberFactory,
+        OrgInfoPageFactory,
+    )
+
+    guilds = [
+        GuildFactory(name="Ceramics Guild", about="Wheel-throwing, glazing, and kiln firings — all skill levels."),
+        GuildFactory(name="Textiles Guild", about="Weaving, dyeing, and sewing in the fiber studio."),
+        GuildFactory(name="Woodshop Guild", about="Hand tools, the lathe, and safe machine time."),
+    ]
+    for guild in guilds[:2]:
+        GuildMembershipFactory(guild=guild, member=member)
+    GuildAnnouncementFactory(
+        guild=guilds[0],
+        title="Spring glaze restock is in",
+        body="New celadons and a fresh batch of clay just landed. Come make something.",
+    )
+    OrgInfoPageFactory(
+        intro="Everything you need to know about how our space and our guilds work.",
+        parking="Free lot on the north side; street parking is open after 6pm.",
+        who_to_contact="Front desk for access, your guild lead for studio-specific questions.",
+        code_of_conduct="Be kind, clean your station, and ask before borrowing tools.",
+    )
+    MemberFactory.create_batch(4)
+
+
+def _feature_pages() -> list[tuple[str, str, str]]:
+    """(slug, label, path) for each release-email feature page — driven by the registry."""
+    from core.release_email import FEATURE_PAGES
+
+    return [(fp.slug, fp.label, fp.path) for fp in FEATURE_PAGES]
+
+
 def _members_pages(d: dict[str, object]) -> list[tuple[str, str]]:
     """(label, path) for the admin + teaching dashboards on the members surface."""
     pub_pk = d["published"].pk
@@ -309,3 +358,40 @@ def describe_cms_screenshots():
         print(f"\nWrote {captured}/{len(results)} screenshots to {out_dir}\nOpen {out_dir / 'index.html'}")
         # Surface failures loudly but don't fail the run for one stubborn page.
         assert captured, "no pages captured — check the dev harness and seed data"
+
+
+def describe_feature_screenshots():
+    def it_captures_member_hub_feature_pages(live_server, page, login_via_code, settings):
+        """Shoot each release-email FeaturePage framed (not full_page) and upload to R2.
+
+        Runs on the members surface (the autouse _e2e_settings keeps the live host off
+        PUBLIC_HOSTS). Each shot lands at ``email/features/<slug>.png`` via
+        ``save_feature_shot`` — R2 in CI (needs the R2 secrets), the local media dir in
+        dev. Seeded fake data only → no member PII ever appears in a shot.
+        """
+        from core.release_email import save_feature_shot
+
+        data = _seed()
+        _seed_member_hub(data["instructor"])  # type: ignore[arg-type]
+        login_via_code(ADMIN_EMAIL)
+        page.set_viewport_size(FEATURE_SHOT_VIEWPORT)
+
+        results: list[dict[str, object]] = []
+        for slug, label, path in _feature_pages():
+            record: dict[str, object] = {"slug": slug, "label": label, "path": path}
+            try:
+                page.goto(f"{live_server.url}{path}", wait_until="networkidle", timeout=15000)
+                page.wait_for_timeout(250)  # let entrance transitions settle
+                png = page.screenshot(full_page=False)  # framed viewport shot — right shape for a card
+                record["url"] = save_feature_shot(slug, png)
+                record["ok"] = True
+            except Exception as exc:  # noqa: BLE001 — one bad page must not abort the run
+                record["ok"] = False
+                record["note"] = f"{type(exc).__name__}: {exc}".splitlines()[0][:200]
+            results.append(record)
+
+        captured = sum(1 for r in results if r["ok"])
+        print(f"\nUploaded {captured}/{len(results)} feature screenshots to email/features/")
+        for r in results:
+            print(f"  {r['slug']}: {'ok' if r['ok'] else r.get('note')}")
+        assert captured, "no feature pages captured — check the dev harness and member-hub seed data"
