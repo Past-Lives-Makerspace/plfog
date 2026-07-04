@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "0.20.2"
+VERSION = "0.20.3"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.20.3",
+        "date": "2026-07-04",
+        "title": "Choose which guilds you're in — right from Settings",
+        "changes": [
+            (
+                "There's a new Guilds tab in Settings with a simple on/off switch for every guild. Flip one on to "
+                "officially join — you'll start getting that guild's announcement emails and show up on its roster — "
+                "and flip it off to leave. It's the first easy way to leave a guild you're no longer part of, and your "
+                "changes save the moment you tap."
+            ),
+        ],
+    },
     {
         "version": "0.20.2",
         "date": "2026-07-04",
@@ -63,9 +76,10 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "the editor instead of separate pages, so you stay in one place while you set everything up."
             ),
             (
-                "When you post a guild announcement you can now choose whether to also email everyone who's joined and "
-                "whether to also post it to your guild's Discord channel — and your guild's welcome and thank-you "
-                "emails now live on the new Announcements/Emails tab."
+                "When you post a guild announcement you can now choose whether to also email everyone who's joined, "
+                "and pick exactly where it goes on Discord — your guild's own channel, #general-chat, or #leadership "
+                "(or nowhere) — and your guild's welcome and thank-you emails now live on the new Announcements/Emails "
+                "tab."
             ),
             (
                 "Guild staff now show up once with all their titles together as badges, so someone can be an Orienter "
