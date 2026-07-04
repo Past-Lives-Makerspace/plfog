@@ -329,6 +329,10 @@ RELEASE_PUBLISHED = "release.published"
 EVENT_GUILD_PUBLISHED = "event.guild_published"
 EVENT_COMMUNITY_PUBLISHED = "event.community_published"
 EVENT_LEAD_MEETING_PUBLISHED = "event.lead_meeting_published"
+GUILD_ANNOUNCEMENT_SUBMITTED = "guild_announcement.submitted"
+GUILD_ANNOUNCEMENT_APPROVED = "guild_announcement.approved"
+GUILD_ANNOUNCEMENT_CHANGES_REQUESTED = "guild_announcement.changes_requested"
+GUILD_ANNOUNCEMENT_DECLINED = "guild_announcement.declined"
 
 
 _NEW_EVENTS: list[EventType] = [
@@ -498,6 +502,48 @@ _NEW_EVENTS: list[EventType] = [
         category="Events",
         recipient=Recipients.ALL_GUILD_LEADS,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        activity_kind=None,
+    ),
+    # 10. guild_announcement.submitted — a member proposed an announcement for a guild; it
+    #     lands in the reviewer queue. Goes to the guild's leadership (lead + staff); admins
+    #     also see it in the queue. A per-person workflow reply: in-app + email, no Discord.
+    EventType(
+        key=GUILD_ANNOUNCEMENT_SUBMITTED,
+        label="Announcement proposal submitted",
+        description="A member proposed a guild announcement that needs review.",
+        category="Guilds",
+        recipient=Recipients.GUILD_LEADERSHIP,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 11. guild_announcement.approved — the proposer hears their announcement is posted.
+    EventType(
+        key=GUILD_ANNOUNCEMENT_APPROVED,
+        label="Your announcement was approved",
+        description="A reviewer approved a member's proposed announcement and it's now posted.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 12. guild_announcement.changes_requested — the proposer is asked to edit + resubmit.
+    EventType(
+        key=GUILD_ANNOUNCEMENT_CHANGES_REQUESTED,
+        label="Changes requested on your announcement",
+        description="A reviewer asked the proposer to adjust their announcement and resubmit.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 13. guild_announcement.declined — the proposal was turned down.
+    EventType(
+        key=GUILD_ANNOUNCEMENT_DECLINED,
+        label="Your announcement wasn't posted",
+        description="A reviewer declined a member's proposed announcement.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
 ]
