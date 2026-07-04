@@ -1,0 +1,13 @@
+{% comment %}
+Brand-colored hero band for the release email (the "dark" half of the hybrid).
+Deep navy with near-white text designed to read both upright and if a mail client
+auto-inverts it (white-on-navy → dark-on-pale, both legible). Rounded top corners.
+Params: minor_label — e.g. "v0.20"; release_date — the release date string.
+{% endcomment %}
+<tr>
+<td style="background-color: #092E4C; border-radius: 12px 12px 0 0; padding: 32px 28px; text-align: center;">
+    <span style="display: inline-block; background-color: #EEB44B; color: #092E4C; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; padding: 4px 12px; border-radius: 20px;">{{ minor_label }}</span>
+    <h1 style="margin: 16px 0 4px; font-size: 26px; font-weight: 800; color: #FFFFFF;">What's new</h1>
+    {% if release_date %}<p style="margin: 0; font-size: 13px; color: #B9C7D3;">{{ release_date }}</p>{% endif %}
+</td>
+</tr>

@@ -1,0 +1,22 @@
+{% comment %}
+One feature card on the light body of the release email. Fully legible with no image:
+the title + bullets carry the meaning; the screenshot is enhancement.
+Param: card — a core.release_email.Card (title, bullets, screenshot_url, feature_url).
+{% endcomment %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 20px;">
+<tr>
+<td style="background-color: #FFFFFF; border: 1px solid #e3e7ec; border-radius: 10px;">
+    {% include "membership/emails/_screenshot.html" with url=card.screenshot_url alt=card.title link=card.feature_url %}
+    <div style="padding: 18px 20px 4px;">
+        {% if card.feature_url %}
+        <a href="{{ card.feature_url }}" style="font-size: 18px; font-weight: 700; color: #092E4C; text-decoration: none;">{{ card.title }}</a>
+        {% else %}
+        <span style="font-size: 18px; font-weight: 700; color: #1c2b36;">{{ card.title }}</span>
+        {% endif %}
+    </div>
+    <ul style="margin: 8px 0 18px; padding: 0 20px 0 38px; color: #33424f; font-size: 14px; line-height: 1.6;">
+        {% for bullet in card.bullets %}<li style="margin: 0 0 6px;">{{ bullet }}</li>{% endfor %}
+    </ul>
+</td>
+</tr>
+</table>
