@@ -254,6 +254,11 @@
                     <div class="hub-text-muted" style="font-size:0.8125rem;">
                         {{ event.get_event_type_display }} · {{ event.guild.name|default:"Site-wide" }} · {{ event.starts_at|date:"D, M j · g:i A" }}{% if event.recurrence != "none" %} · Repeats monthly{% endif %}
                     </div>
+                    {% if google_sync_enabled and events_can_manage %}
+                    <div style="margin-top:0.35rem;">
+                        {% include "hub/partials/_sync_badge.html" with event=event can_retry=events_can_manage %}
+                    </div>
+                    {% endif %}
                 </div>
                 {% if events_can_manage %}
                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">

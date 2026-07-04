@@ -624,6 +624,16 @@ def _require_admin(request: HttpRequest) -> HttpResponse | None:
     return None
 
 
+def _google_sync_enabled() -> bool:
+    """True only when Google Calendar push is on at BOTH gates: the ``GOOGLE_CALENDAR_SYNC_ENABLED``
+    env master switch (credentials present on the server) AND the admin runtime toggle in Site
+    Settings. Drives the sync-state badges (Screens C/E) — when False they stay hidden entirely,
+    so spaces not using Google never see a "pending forever" badge.
+    """
+    env_on = bool(getattr(settings, "GOOGLE_CALENDAR_SYNC_ENABLED", False))
+    return env_on and SiteConfiguration.load().google_calendar_sync_enabled
+
+
 def _guild_edit_context(
     request: HttpRequest,
     guild: Guild,
@@ -664,6 +674,7 @@ def _guild_edit_context(
         "staff_by_member": guild.staff_by_member(),
         "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
         "is_admin": _viewing_as_admin(request),
+        "google_sync_enabled": _google_sync_enabled(),
         "notes": guild.meeting_notes.prefetch_related("attachments"),
         "events": guild.events.upcoming().select_related("guild"),
         "orientation_form": (
@@ -2425,6 +2436,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             "event": event,
             "form": form,
             "cancel_url": f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events",
+            "google_sync_enabled": _google_sync_enabled(),
         },
     )
 
@@ -2479,7 +2491,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
     return render(
         request,
         "hub/community_event_edit.html",
-        {**ctx, "event": event, "form": form, "cancel_url": cancel_url},
+        {**ctx, "event": event, "form": form, "cancel_url": cancel_url, "google_sync_enabled": _google_sync_enabled()},
     )
 
 
@@ -2707,6 +2719,32 @@ def event_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
     except InvalidEventTransition:
         messages.info(request, "That event was already handled.")
     return redirect("hub_event_review_queue")
+
+
+@login_required
+@require_POST
+def event_retry_sync(request: HttpRequest, pk: int) -> HttpResponse:
+    """Re-push a single event to Google now (the "Retry sync now" button on a FAILED sync
+    badge). Admin-only; best-effort — records the outcome and reports the new sync state so
+    an admin who just fixed the Calendar ID / sharing doesn't wait up to 15 min for the cron.
+    """
+    from membership.models import CommunityEvent
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    event = get_object_or_404(CommunityEvent, pk=pk)
+    event.push_to_google()
+    if event.sync_state == CommunityEvent.SyncState.SYNCED:
+        messages.success(request, "Event synced to Google Calendar.")
+    elif event.sync_state == CommunityEvent.SyncState.FAILED:
+        messages.error(request, f"Sync failed: {event.sync_error}")
+    else:
+        messages.info(request, event.sync_error or "Sync is still pending.")
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
+    return redirect(reverse("hub_community_calendar") + "?tab=events")
 
 
 @login_required
@@ -3013,6 +3051,7 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
 
     policy = SiteConfiguration.load().member_event_policy
     cal_ctx["member_can_propose"] = policy != SiteConfiguration.MemberEventPolicy.DISABLED
+    cal_ctx["google_sync_enabled"] = _google_sync_enabled()
 
     # Reviewer queue link + count, and the member's own in-flight proposals (Screen A′).
     scope = _reviewer_guild_scope(request)

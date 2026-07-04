@@ -86,6 +86,7 @@ class GuildEditForm(forms.ModelForm):
             "essential_rules",
             "banner_image",
             "calendar_url",
+            "google_calendar_id",
             "calendar_color",
             "youtube_url",
             "meeting_cadence",
@@ -117,6 +118,7 @@ class GuildEditForm(forms.ModelForm):
                 },
             ),
             "calendar_url": forms.URLInput(attrs={"placeholder": "https://calendar.google.com/calendar/ical/..."}),
+            "google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "calendar_color": forms.TextInput(
                 attrs={"type": "color", "class": "pl-color-input"},
             ),
@@ -538,10 +540,14 @@ class SiteSettingsForm(forms.ModelForm):
             "tab_payments_enabled",
             "class_registration_enabled",
             "class_registration_disabled_note",
+            "member_event_policy",
+            "general_google_calendar_id",
+            "google_calendar_sync_enabled",
         ]
         widgets = {
             "classes_calendar_color": forms.TextInput(attrs={"type": "color"}),
             "class_registration_disabled_note": forms.Textarea(attrs={"rows": 3}),
+            "general_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
         }
 
 

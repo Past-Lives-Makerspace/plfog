@@ -558,6 +558,19 @@ def describe_GuildEditForm():
         )
         assert form.is_valid(), form.errors
 
+    def it_saves_the_google_calendar_id():
+        guild = GuildFactory(name="Forge")
+        form = GuildEditForm(
+            data={
+                "name": "Forge",
+                "calendar_color": "#4B9FEE",
+                "google_calendar_id": "forge@group.calendar.google.com",
+            },
+            instance=guild,
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().google_calendar_id == "forge@group.calendar.google.com"
+
     def it_saves_a_custom_faq_label():
         guild = GuildFactory(name="Ceramics")
         form = GuildEditForm(

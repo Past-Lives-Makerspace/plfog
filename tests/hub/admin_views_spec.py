@@ -532,6 +532,7 @@ def describe_admin_site_settings():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -585,6 +586,7 @@ def describe_admin_site_settings():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -610,6 +612,7 @@ def describe_admin_site_settings():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -636,6 +639,7 @@ def describe_admin_site_settings():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -737,6 +741,7 @@ def describe_admin_site_settings_features():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -764,6 +769,7 @@ def describe_admin_site_settings_features():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",

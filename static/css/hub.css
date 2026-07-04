@@ -80,6 +80,12 @@
     --color-success: #7bc88f;
     --color-success-bg: rgba(123, 200, 143, 0.12);
 
+    /* Google Calendar sync-state badge (Screen C) — theme tokens so the badge
+       stays legible on both Obsidian (here) and Slate (overridden below). */
+    --pl-sync-synced: #6ee7b7;
+    --pl-sync-pending: #8b97a8;
+    --pl-sync-failed: #f0a0a0;
+
     --font-heading: 'Lato', system-ui, -apple-system, sans-serif;
     --font-body: 'Inter', system-ui, -apple-system, sans-serif;
 
@@ -124,6 +130,11 @@
     /* Darker amber for gold text on white (~5:1 contrast, passes AA). */
     --hub-link: #9c5e0d;
     --hub-link-hover: #7e4b09;
+
+    /* Sync badge — darker greens/reds that pass contrast on white cards. */
+    --pl-sync-synced: #1f7a52;
+    --pl-sync-pending: #5b6675;
+    --pl-sync-failed: #b03030;
 }
 
 /* ========================================
@@ -391,6 +402,31 @@ a:hover { color: var(--hub-link-hover); }
    the family above; new in-family modifiers, no new prefix/token. */
 .hub-pill--neutral { background: rgba(139, 151, 168, 0.18); color: var(--hub-text-muted); }
 .hub-pill--danger { background: rgba(224, 85, 85, 0.16); color: #f0a0a0; }
+
+/* ========================================
+   Google Calendar sync-state badge (Screen C / E)
+   Shown per event row when Google sync is on. Colors come from theme tokens
+   defined for both :root (Obsidian) and [data-theme="light"] (Slate) above —
+   no hardcoded hex here, so the badge tracks the theme in both directions.
+   ======================================== */
+.pl-sync-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.pl-sync-badge--synced { color: var(--pl-sync-synced); }
+.pl-sync-badge--pending { color: var(--pl-sync-pending); }
+.pl-sync-badge--failed { color: var(--pl-sync-failed); }
+/* The failure/config-gap reason, on its own line beneath the badge — visible
+   inline text, never a title-tooltip (dead on touch, FRONTEND Screen C). */
+.pl-sync-badge__reason {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+}
 
 /* ========================================
    Invites panel — Manage Members page

@@ -138,7 +138,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -270,6 +270,18 @@
           {% include "components/color_picker.html" with field=classes_color_field %}
           {% if classes_color_field.help_text %}<small style="color:var(--hub-text-muted);">{{ classes_color_field.help_text }}</small>{% endif %}
         </div>
+      </div>
+
+      {# Member-event policy + Google Calendar push — all three on this one tab so a
+         per-tab partial save can't blank one another's value (FRONTEND Screen D1). #}
+      <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Member events &amp; Google sync</h2>
+        <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
+          Control who can add Community Calendar events, and whether FOG pushes them out to a public Google Calendar.
+        </p>
+        {% include "components/form_field.html" with field=form.member_event_policy field_hint="Leads, staff, and admins always post directly. This controls what ordinary members can do." %}
+        {% include "components/form_field.html" with field=form.general_google_calendar_id field_hint="Site-wide events push here. Find the Calendar ID in Google Calendar → Settings for that calendar → Integrate calendar → Calendar ID (e.g. abc123@group.calendar.google.com). This is NOT the iCal URL." %}
+        {% include "components/form_field.html" with field=form.google_calendar_sync_enabled field_hint="Also requires the Google service account to be configured on the server." %}
       </div>
     </div>
 

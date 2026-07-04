@@ -224,6 +224,7 @@ urlpatterns = [
     path("events/propose/", views.propose_event, name="hub_propose_event"),
     path("events/propose/<int:pk>/edit/", views.propose_event, name="hub_propose_event_edit"),
     path("events/<int:pk>/withdraw/", views.event_withdraw, name="hub_event_withdraw"),
+    path("events/<int:pk>/retry-sync/", views.event_retry_sync, name="hub_event_retry_sync"),
     path("events/review/", views.event_review_queue, name="hub_event_review_queue"),
     path("events/review/<int:pk>/decision/", views.event_review_decision, name="hub_event_review_decision"),
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),

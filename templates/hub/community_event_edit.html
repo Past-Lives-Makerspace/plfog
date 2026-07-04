@@ -7,6 +7,12 @@
   </p>
   <h1 class="hub-page-title">{% if event.pk %}Edit event{% else %}Add event{% endif %}{% if guild %} · {{ guild.name }}{% endif %}</h1>
 
+  {% if google_sync_enabled and event.pk %}
+  <div style="margin-bottom:0.75rem;">
+    {% include "hub/partials/_sync_badge.html" with event=event %}
+  </div>
+  {% endif %}
+
   <form method="post" class="hub-form">
     {% csrf_token %}
 
@@ -23,7 +29,7 @@
     </div>
 
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
-      Saving a new event posts an announcement to Discord and adds it to the Community Calendar. Editing an existing event won't re-announce it.
+      Saving a new event posts an announcement to Discord and adds it to the Community Calendar. Editing an existing event won't re-announce it.{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
     </p>
 
     <div style="display:flex; gap:1rem;">
