@@ -3191,3 +3191,57 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     width: 100%;
     height: 100%;
 }
+
+/* ========================================
+   My Guilds settings tab — per-guild join/leave toggle list.
+   Layout only; every color comes from theme tokens (hub-card wrapper, --hub-text,
+   --hub-text-muted, --hub-border) and the switch is the already-themed pl-toggle,
+   so this reads correctly on both Obsidian (dark) and Slate (light) with no rules
+   of its own. Reflows to a single column; no table, no fixed widths, no h-scroll.
+   ======================================== */
+.pl-guild-toggle-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.pl-guild-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--hub-border);
+    transition: opacity 0.15s ease;
+}
+
+.pl-guild-toggle-row:first-child {
+    border-top: 0;
+}
+
+/* In-flight: the whole row dims and locks while its join/leave POST is on the wire.
+   htmx tags only the firing element with .htmx-request, so the toggle carries
+   hx-indicator="closest .pl-guild-toggle-row" to lift the class up to the row. */
+.pl-guild-toggle-row.htmx-request {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.pl-guild-toggle-row__info {
+    /* min-width:0 lets the hint truncate instead of stretching the flex row. */
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.pl-guild-toggle-row__name {
+    color: var(--hub-text);
+    font-weight: 500;
+}
+
+.pl-guild-toggle-row__hint {
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

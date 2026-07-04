@@ -268,6 +268,13 @@
                 <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="width:100%;" @click="$dispatch('open-confirm', 'leave-guild')">Leave this guild</button>
                 {% url 'hub_guild_leave' guild.pk as leave_url %}
                 {% include "components/confirm_modal.html" with confirm_id="leave-guild" confirm_title="Leave "|add:guild.name|add:"?" confirm_message="You can rejoin any time. Your orientation history stays." confirm_action_url=leave_url confirm_button_text="Leave guild" %}
+                {% elif member and is_member_of_guild %}
+                {# Already in this guild on the members hub — joining/leaving lives on the Guilds settings tab. #}
+                <div class="hub-text-muted" style="display:flex; align-items:center; gap:0.4rem; font-size:0.9rem;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+                    You're in this guild
+                </div>
+                <a href="{% url 'hub_user_settings' %}?tab=guilds" class="pl-btn pl-btn--secondary" style="width:100%;">Manage in Settings</a>
                 {% endif %}
                 {% if show_orientation and not is_oriented %}
                 <button type="button" class="pl-btn pl-btn--primary" style="width:100%;"

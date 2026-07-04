@@ -1451,12 +1451,13 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     # Whitelist the tab param — it flows into an Alpine x-data JS expression, so
     # HTML escaping alone isn't enough to stop a payload like ?tab='+alert(1)+'.
     tab_param = request.GET.get("tab", "profile")
-    active_tab = tab_param if tab_param in {"profile", "emails", "notifications"} else "profile"
+    active_tab = tab_param if tab_param in {"profile", "emails", "notifications", "guilds"} else "profile"
 
     if member is None and request.method == "GET" and not request.GET.get("tab"):
         messages.info(request, "Your account is not linked to a membership.")
 
     from core.events import settings_matrix
+    from hub.guild_membership import build_my_guilds_rows
 
     notif_matrix = settings_matrix.build_matrix(user)
     notif_channels = [
@@ -1481,6 +1482,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "notif_matrix": notif_matrix,
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,
+            "my_guilds_rows": build_my_guilds_rows(member),
             "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
             "photo_upload_hint": (
                 "Optional. Shown next to your name in the member directory and in the navbar. "
@@ -1618,6 +1620,40 @@ def guild_leave(request: HttpRequest, pk: int) -> HttpResponse:
         GuildMembership.objects.filter(guild=guild, member=member).delete()
         messages.success(request, f"You left {guild.name}.")
     return redirect("hub_guild_detail", slug=guild.slug)
+
+
+@login_required
+@require_POST
+def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
+    """Join or leave a guild from the My Guilds settings toggle (HTMX; 204 + toast).
+
+    Runs the same idempotent join/leave logic as ``guild_join`` / ``guild_leave`` but
+    returns a toast instead of a full-page redirect. The toggle's checkbox posts
+    ``joined`` when checked (join) and omits the field when unchecked (leave), so the
+    presence of ``joined`` in POST is the switch state.
+    """
+    from membership import orientations
+    from membership.models import GuildMembership
+
+    guild = get_object_or_404(Guild, pk=pk)
+    member = _get_member(request)
+    response = HttpResponse(status=204)
+    if member is None:
+        trigger_toast(response, "Your account is not linked to a membership.", "error")
+        return response
+    if "joined" in request.POST:
+        _membership, created = GuildMembership.objects.get_or_create(guild=guild, member=member)
+        if created:
+            orientations.member_joined_guild(guild, member)
+        trigger_toast(response, f"You joined {guild.name}.", "success")
+    else:
+        GuildMembership.objects.filter(guild=guild, member=member).delete()
+        trigger_toast(
+            response,
+            f"You left {guild.name}. You'll stop getting its announcements — rejoin anytime.",
+            "info",
+        )
+    return response
 
 
 @login_required

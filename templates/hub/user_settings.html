@@ -24,6 +24,12 @@
                 class="vote-tab">
             Notifications
         </button>
+        <button type="button"
+                @click="tab = 'guilds'"
+                :class="{ 'vote-tab--active': tab === 'guilds' }"
+                class="vote-tab">
+            Guilds
+        </button>
     </div>
 
     {# -------- Profile tab -------- #}
@@ -368,6 +374,13 @@
     {# -------- Notifications tab -------- #}
     <div x-show="tab === 'notifications'" x-cloak>
         {% include "hub/_notifications_settings.html" %}
+    </div>
+
+    {# -------- Guilds tab -------- #}
+    {# Sits outside every <form>: its per-row toggles carry their own hx-post, so a
+       wrapping <form> would orphan them (the nested-form/submit bug). No page Save. #}
+    <div x-show="tab === 'guilds'" x-cloak>
+        {% include "hub/partials/_my_guilds.html" %}
     </div>
 </div>
 {% endblock %}
