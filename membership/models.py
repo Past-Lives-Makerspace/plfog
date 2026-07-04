@@ -1622,9 +1622,26 @@ class GuildAnnouncementQuerySet(models.QuerySet):
         """Announcements still showing — no expiry, or expiring today or later."""
         return self.filter(Q(expires_at__isnull=True) | Q(expires_at__gte=timezone.localdate()))
 
+    def published(self) -> "GuildAnnouncementQuerySet":
+        """Only announcements that are live — a lead's direct post or an approved proposal.
+
+        Everything a member reads on the guild page, home feed, or activity list must be
+        Published; a pending/changes-requested/declined proposal is never public.
+        """
+        return self.filter(moderation_state=GuildAnnouncement.ModerationState.PUBLISHED)
+
+    def awaiting_review(self) -> "GuildAnnouncementQuerySet":
+        """Member proposals waiting on a lead/admin decision (the reviewer queue)."""
+        return self.filter(moderation_state=GuildAnnouncement.ModerationState.PENDING)
+
     def for_member(self, member: "Member") -> "GuildAnnouncementQuerySet":
         """Announcements from the guilds this member has explicitly joined."""
         return self.filter(guild__memberships__member=member)
+
+
+class InvalidAnnouncementTransition(ValueError):
+    """Raised when a :class:`GuildAnnouncement` lifecycle method is called from a state
+    that does not permit it (e.g. approving an already-declined proposal)."""
 
 
 class GuildAnnouncement(models.Model):
@@ -1661,6 +1678,46 @@ class GuildAnnouncement(models.Model):
         default=True,
         help_text="Also post this announcement to the guild's own Discord channel.",
     )
+
+    class ModerationState(models.TextChoices):
+        PUBLISHED = "published", "Published"  # live on the guild page (a lead post or an approved proposal)
+        PENDING = "pending", "Pending review"  # a member's proposal awaiting a decision; not yet public
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"  # sent back to the proposer to edit + resubmit
+        DECLINED = "declined", "Declined"  # turned down; never posted
+
+    # --- Moderation (member-proposal review lifecycle) ------------------------
+    moderation_state = models.CharField(
+        max_length=20,
+        choices=ModerationState.choices,
+        default=ModerationState.PUBLISHED,
+        help_text=(
+            "Where this announcement is in the review flow. Leads/staff/admins post already "
+            "Published; a member's proposal starts Pending until a lead or admin approves it."
+        ),
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The member who proposed this announcement (for posts that went through review).",
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The lead or admin who approved, declined, or requested changes.",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True, help_text="When the review decision was recorded.")
+    review_notes = models.TextField(
+        blank=True,
+        default="",
+        help_text="The reviewer's note to the proposer (shown on a decline or a changes-requested).",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
 
     objects = GuildAnnouncementQuerySet.as_manager()
 
@@ -1713,6 +1770,207 @@ class GuildAnnouncement(models.Model):
             period=f"announcement:{self.pk}",
             suppress_email=not self.send_email,
             suppress_guild_broadcast=not self.post_to_discord,
+        )
+
+    # --- Review lifecycle (member proposals) ----------------------------------
+
+    def submit_for_review(self, *, submitted_by: "User") -> None:
+        """Enter (or re-enter) the review queue — the member-proposal path.
+
+        Used for BOTH the first submit and a resubmit after a changes-requested edit.
+        Sets ``PENDING``, records the proposer as the author (so the eventual post is
+        credited to them), clears any prior verdict, and notifies the guild's leadership.
+        A pending proposal is never public — nothing posts until :meth:`approve`.
+
+        Raises:
+            InvalidAnnouncementTransition: If the announcement is already published or declined.
+        """
+        if self.pk is not None and self.moderation_state not in (
+            self.ModerationState.PENDING,
+            self.ModerationState.CHANGES_REQUESTED,
+        ):
+            raise InvalidAnnouncementTransition(
+                f"Cannot submit an announcement in state '{self.moderation_state}' for review."
+            )
+        self.moderation_state = self.ModerationState.PENDING
+        self.submitted_by = submitted_by
+        self.author = submitted_by
+        self.reviewed_by = None
+        self.reviewed_at = None
+        self.review_notes = ""
+        if self.pk is None:
+            self.save()
+        else:
+            self.save(
+                update_fields=[
+                    "moderation_state",
+                    "submitted_by",
+                    "author",
+                    "reviewed_by",
+                    "reviewed_at",
+                    "review_notes",
+                    "updated_at",
+                ]
+            )
+        self._emit_submitted()
+
+    def withdraw(self, *, by: "User") -> None:
+        """The proposer pulls back their own not-yet-published proposal — deletes the row.
+
+        Raises:
+            InvalidAnnouncementTransition: If the announcement is published or declined.
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED):
+            raise InvalidAnnouncementTransition(f"Cannot withdraw an announcement in state '{self.moderation_state}'.")
+        self.delete()
+
+    def approve(self, *, reviewer: "User") -> None:
+        """Single reviewer decision → live. Records the reviewer, posts it, notifies.
+
+        Resets ``published_at`` to now so the announcement sorts and dates from when it
+        actually went live (not when it was drafted), then fires :meth:`notify_members`
+        (the guild-page post, the opt-out guild-member email, and the guild's Discord
+        post) and tells the proposer it's up.
+
+        Raises:
+            InvalidAnnouncementTransition: If the announcement is not awaiting a decision.
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED):
+            raise InvalidAnnouncementTransition(f"Cannot approve an announcement in state '{self.moderation_state}'.")
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.moderation_state = self.ModerationState.PUBLISHED
+        self.published_at = timezone.now()
+        self.save(update_fields=["reviewed_by", "reviewed_at", "moderation_state", "published_at", "updated_at"])
+        self.notify_members()
+        self._emit_decision(
+            "guild_announcement.approved",
+            url=self._guild_url(),
+            period=f"announcement:{self.pk}:approved",
+        )
+
+    def request_changes(self, *, reviewer: "User", notes: str) -> None:
+        """Send a pending proposal back to the proposer with a note to fix + resubmit.
+
+        Raises:
+            InvalidAnnouncementTransition: If the announcement is not currently pending.
+            ValueError: If ``notes`` is blank (a changes request must explain what to fix).
+        """
+        if self.moderation_state != self.ModerationState.PENDING:
+            raise InvalidAnnouncementTransition(
+                f"Cannot request changes on an announcement in state '{self.moderation_state}'."
+            )
+        if not (notes or "").strip():
+            raise ValueError("A changes request needs a note so the proposer knows what to fix.")
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        self.moderation_state = self.ModerationState.CHANGES_REQUESTED
+        self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        from django.urls import reverse
+
+        edit_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_guild_announcement_propose_edit', args=[self.pk])}"
+        self._emit_decision(
+            "guild_announcement.changes_requested",
+            url=edit_url,
+            period=f"announcement:{self.pk}:changes:{self.reviewed_at.timestamp()}",
+        )
+
+    def decline(self, *, reviewer: "User", notes: str) -> None:
+        """Reject a proposal (it was never posted — nothing to unwind).
+
+        Raises:
+            InvalidAnnouncementTransition: If the announcement is not awaiting a decision.
+            ValueError: If ``notes`` is blank (a decline must explain why).
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED):
+            raise InvalidAnnouncementTransition(f"Cannot decline an announcement in state '{self.moderation_state}'.")
+        if not (notes or "").strip():
+            raise ValueError("A decline needs a note so the proposer knows why.")
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        self.moderation_state = self.ModerationState.DECLINED
+        self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        self._emit_decision(
+            "guild_announcement.declined",
+            url=self._guild_url(),
+            period=f"announcement:{self.pk}:declined",
+        )
+
+    def _guild_url(self) -> str:
+        """Absolute URL of this announcement's guild page (for notification links)."""
+        from django.urls import reverse
+
+        from membership.orientations import _absolute_url
+
+        return _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
+
+    def _proposer_display_name(self) -> str:
+        """A friendly name for the proposer, for notification copy."""
+        user = self.submitted_by
+        if user is None:
+            return "A Past Lives member"
+        full = (user.get_full_name() or "").strip()
+        if full:
+            return full
+        member = getattr(user, "member", None)
+        if member is not None and member.display_name:
+            return member.display_name
+        return user.get_username()
+
+    def _emit_submitted(self) -> None:
+        """Notify the guild's leadership that a member's announcement awaits review.
+
+        A fresh, timestamped ``period`` per submit round so a resubmit re-notifies
+        reviewers instead of being deduped away by :func:`core.events.emit.emit`.
+        """
+        from django.urls import reverse
+
+        from core.events.emit import emit
+
+        review_url = (
+            f"{settings.MEMBER_BASE_URL}{reverse('hub_guild_announcement_review_queue')}#announcement-{self.pk}"
+        )
+        emit(
+            "guild_announcement.submitted",
+            actor=self.submitted_by,
+            target=self,
+            context={
+                "guild": self.guild,
+                "guild_name": self.guild.name,
+                "announcement_title": self.title,
+                "proposer_name": self._proposer_display_name(),
+                "review_url": review_url,
+            },
+            url=review_url,
+            period=f"announcement:{self.pk}:submitted:{timezone.now().timestamp()}",
+        )
+
+    def _emit_decision(self, event_key: str, *, url: str, period: str) -> None:
+        """Notify the proposer of a reviewer decision (approve / changes / decline).
+
+        Builds the full superset context; each event's curated copy uses only its own
+        documented placeholders (extra keys are ignored by the safe renderer).
+        """
+        from core.events.emit import emit
+
+        emit(
+            event_key,
+            actor=self.reviewed_by,
+            target=self,
+            context={
+                "user": self.submitted_by,
+                "guild": self.guild,
+                "guild_name": self.guild.name,
+                "announcement_title": self.title,
+                "announcement_body": self.body,
+                "review_notes": self.review_notes,
+                "guild_url": self._guild_url(),
+                "action_url": url,
+            },
+            url=url,
+            period=period,
         )
 
 

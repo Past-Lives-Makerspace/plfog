@@ -145,12 +145,23 @@ class OrgLinkFactory(factory.django.DjangoModelFactory):
 
 
 class GuildAnnouncementFactory(factory.django.DjangoModelFactory):
+    """A guild announcement. Defaults to PUBLISHED (a lead's direct post).
+
+    Use the ``pending`` / ``changes_requested`` / ``declined`` traits for member-proposal
+    states, and pass ``submitted_by=<user>`` for the proposer.
+    """
+
     class Meta:
         model = GuildAnnouncement
 
     guild = factory.SubFactory(GuildFactory)
     title = factory.Sequence(lambda n: f"Announcement {n}")
     body = "Body text."
+
+    class Params:
+        pending = factory.Trait(moderation_state=GuildAnnouncement.ModerationState.PENDING)
+        changes_requested = factory.Trait(moderation_state=GuildAnnouncement.ModerationState.CHANGES_REQUESTED)
+        declined = factory.Trait(moderation_state=GuildAnnouncement.ModerationState.DECLINED)
 
 
 class GuildMeetingNoteFactory(factory.django.DjangoModelFactory):
