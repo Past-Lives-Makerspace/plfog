@@ -2,9 +2,32 @@
 
 from __future__ import annotations
 
-VERSION = "0.20.1"
+VERSION = "0.20.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.20.2",
+        "date": "2026-07-04",
+        "title": "Suggest an announcement for your guild",
+        "changes": [
+            (
+                "Anyone can now suggest an announcement for a guild — a guild lead (or an admin) reviews it before it "
+                "goes up. Look for 'Suggest an announcement' on any guild page."
+            ),
+            (
+                "You can track your suggestions from the same page: see whether each one is still pending, edit and "
+                "resubmit it if a lead asks for changes, or withdraw it — and you'll get a note when a lead responds."
+            ),
+            (
+                "When a lead approves a suggestion, they choose whether to also email the guild's members and post it "
+                "to the guild's Discord — the same options they have for their own posts."
+            ),
+            (
+                "Guild leads and admins also get a quick 'View public page' button on a guild page, to see the guild "
+                "exactly as a guest would."
+            ),
+        ],
+    },
     {
         "version": "0.20.1",
         "date": "2026-07-03",
