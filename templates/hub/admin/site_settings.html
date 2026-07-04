@@ -390,6 +390,9 @@
 
   {# -------- Announcements tab (own form — compose, preview, then send) -------- #}
   <div x-show="tab === 'announcements'" x-cloak style="max-width:760px;display:flex;flex-direction:column;gap:1.25rem;">
+    {% if release_mode %}
+    {% include "hub/admin/_release_announcement.html" %}
+    {% else %}
     <div>
       <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Sitewide announcement</h2>
       <p style="color:var(--hub-text-muted);margin:0;">
@@ -401,7 +404,7 @@
 
     <div>
       <a href="?tab=announcements&amp;draft=release" class="hub-btn hub-btn--sm">Draft from latest release</a>
-      <small style="color:var(--hub-text-muted);margin-left:0.5rem;">Pre-fills the subject &amp; notes from this release's changelog (Discord left off — it auto-posts on deploy).</small>
+      <small style="color:var(--hub-text-muted);margin-left:0.5rem;">Composes the sectioned release update, with feature cards and screenshots from this release's changelog (Discord left off — it auto-posts on deploy).</small>
     </div>
 
     <form method="post" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;">
@@ -442,6 +445,7 @@
       <iframe srcdoc="{{ announce_preview.html }}" title="Email preview"
               style="width:100%;height:540px;border:1px solid var(--hub-border);border-radius:8px;background:#fff;"></iframe>
     </div>
+    {% endif %}
     {% endif %}
   </div>
 </div>

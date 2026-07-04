@@ -3308,3 +3308,168 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     font-size: 0.8125rem;
     color: var(--hub-text-muted);
 }
+
+/* ============================================================================
+   Release-update email composer + preview  (Site Settings → Announcements)
+   Admin-page chrome only — the iframe content is the email itself.
+   ========================================================================== */
+.pl-release-form__error {
+    background: rgba(192, 57, 43, 0.12);
+    border: 1px solid #c0392b;
+    border-radius: 6px;
+    padding: 0.6rem 0.85rem;
+    color: #f0a49b;
+    font-size: 0.875rem;
+}
+.pl-release-form__warn {
+    margin: 0;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    font-style: italic;
+}
+.pl-release-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.pl-release-cards__title {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--hub-text);
+}
+.pl-release-cards__hint {
+    margin: -0.25rem 0 0.25rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-release-card {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 1rem;
+    align-items: start;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+.pl-release-card__name {
+    display: block;
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+}
+.pl-release-card__bullets {
+    margin: 0.4rem 0 0;
+    padding-left: 1.1rem;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+.pl-release-card__bullets li { margin-bottom: 0.2rem; }
+.pl-release-card__note {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+    color: #e0a63c;
+}
+.pl-release-card__controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+.pl-release-actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 0.25rem;
+}
+
+/* --- The upgraded preview (device frame, inbox row, HTML/plain-text toggle) --- */
+.pl-email-preview__title {
+    margin: 0 0 0.25rem;
+    font-size: 0.95rem;
+    color: var(--hub-text);
+}
+.pl-email-preview__lead {
+    margin: 0 0 0.9rem;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+.pl-email-preview__inbox {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px 8px 0 0;
+    background: var(--hub-elevated);
+}
+.pl-email-preview__from { font-size: 0.75rem; color: var(--hub-text-muted); font-weight: 700; }
+.pl-email-preview__subject { font-size: 0.9375rem; color: var(--hub-text); font-weight: 700; }
+.pl-email-preview__preheader { font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-email-preview__toolbar {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--hub-border);
+    border-top: none;
+    background: var(--hub-surface);
+}
+.pl-seg {
+    display: inline-flex;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 6px;
+    overflow: hidden;
+}
+.pl-seg__btn {
+    border: none;
+    background: transparent;
+    color: var(--hub-text-muted);
+    font-family: var(--font-body);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    padding: 0.35rem 0.85rem;
+    cursor: pointer;
+}
+.pl-seg__btn + .pl-seg__btn { border-left: 1px solid var(--hub-border-strong); }
+.pl-seg__btn--active {
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+}
+.pl-email-preview__pane { display: block; }
+.pl-email-preview__frame {
+    display: flex;
+    justify-content: center;
+    overflow-x: auto;
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    background: var(--hub-surface);
+}
+.pl-email-preview__iframe {
+    height: 620px;
+    max-width: 100%;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 8px;
+    background: #fff;
+}
+.pl-email-preview__text {
+    margin: 0;
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    background: var(--hub-input-bg);
+    color: var(--hub-text);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 620px;
+    overflow-y: auto;
+}
+
+@media (max-width: 640px) {
+    .pl-release-card { grid-template-columns: 1fr; }
+}

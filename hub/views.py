@@ -35,6 +35,7 @@ from hub.forms import (
     MemberSkillForm,
     OrgInfoPageForm,
     ProfileSettingsForm,
+    ReleaseAnnouncementForm,
     SiteAnnouncementForm,
     SiteSettingsForm,
     SkillSuggestionForm,
@@ -3692,26 +3693,6 @@ def _announcement_email_html(title: str, body: str) -> str:
     return wrap_email_html(fragment)
 
 
-def _release_announcement_draft() -> tuple[str, str]:
-    """A ready-to-edit (subject, body) drawn from the current release line's changelog.
-
-    Aggregates every changelog entry sharing the live VERSION's MAJOR.MINOR (the whole
-    release line) into one plain-text draft the admin can trim before sending.
-    """
-    from plfog.version import CHANGELOG, VERSION
-
-    minor = ".".join(VERSION.split(".")[:2])
-    entries = [e for e in CHANGELOG if ".".join(str(e["version"]).split(".")[:2]) == minor]
-    # entries[0] always exists — VERSION shares a MAJOR.MINOR with its own changelog line.
-    subject = f"What's new at Past Lives: {entries[0]['title']}"
-    blocks = ["We've just shipped a big update — here's what's new:"]
-    for entry in entries:
-        lines = [str(entry["title"])]
-        lines += [f"• {change}" for change in entry["changes"]]
-        blocks.append("\n".join(lines))
-    return subject, "\n\n".join(blocks)
-
-
 def _send_site_announcement(request: HttpRequest, form: SiteAnnouncementForm) -> int:
     """Fire ``site_announcement`` to activated members; return the recipient count.
 
@@ -3778,6 +3759,94 @@ def _handle_announcement_action(
     return None, form, preview
 
 
+def _release_announcement_initial() -> dict[str, str]:
+    """Prefilled subject / preheader / intro for a fresh Release-mode draft."""
+    from core.release_email import current_line_entries
+    from plfog.version import VERSION
+
+    entries = current_line_entries(VERSION)
+    latest_title = str(entries[0]["title"]) if entries else "What's new"
+    return {
+        "subject": f"What's new at Past Lives: {latest_title}",
+        "preheader": latest_title,
+        "intro": "<p>We've just shipped an update — here's what's new.</p>",
+    }
+
+
+def _send_release_announcement(request: HttpRequest, subject: str, html: str, text: str, summary: str) -> int:
+    """Fire the release-update ``site_announcement`` to activated members; return the count.
+
+    Same mechanism as :func:`_send_site_announcement` — a per-channel EMAIL override on the
+    spine, Discord suppressed (the GitHub Action auto-posts on merge), and a **timestamp-
+    unique** period (NOT version-keyed) so an admin who caught a bad card can send a
+    corrected version and have it actually deliver.
+    """
+    from core.events.channels import Channel, Message
+    from core.events.emit import emit
+
+    site_url = request.build_absolute_uri("/")
+    email = Message(title=subject, body=text, url=site_url, html_body=html, trigger_kind="site_announcement")
+    result = emit(
+        "site_announcement",
+        actor=request.user if request.user.is_authenticated else None,
+        context={
+            "member_name": "there",
+            "announcement_title": subject,
+            "announcement_body": summary,
+            "site_url": site_url,
+        },
+        url=site_url,
+        period=f"site:{dj_timezone.now():%Y%m%d%H%M%S%f}",
+        messages={Channel.EMAIL: email},
+        suppress_broadcast=True,
+    )
+    return result.recipient_count
+
+
+def _handle_release_announcement_action(
+    request: HttpRequest, action: str
+) -> tuple[HttpResponse | None, ReleaseAnnouncementForm, dict[str, object] | None]:
+    """Process a Release-mode Announcements POST. Returns ``(redirect_or_none, form, preview)``.
+
+    ``announce_send`` (valid) redirects; ``announce_preview`` / ``announce_test`` (valid)
+    re-render with the assembled preview (test additionally sends a copy to the admin and
+    flashes a success message — a direct send, never the spine). An invalid form re-renders
+    with errors.
+    """
+    from core.html_sanitize import render_rich_email_text
+    from core.release_email import render_release_email, send_release_test
+
+    form = ReleaseAnnouncementForm(request.POST)
+    if not form.is_valid():
+        return None, form, None
+
+    admin_user = cast(User, request.user)  # @fog_admin_required guarantees an authed admin
+    subject = form.cleaned_data["subject"]
+    preheader = form.cleaned_data["preheader"]
+    intro = form.cleaned_data["intro"]
+    cards = form.cleaned_cards()
+    html, text = render_release_email(form.version, subject=subject, preheader=preheader, intro=intro, cards=cards)
+
+    if action == "announce_send":
+        summary = render_rich_email_text(intro).strip() or "See what's new at Past Lives."
+        count = _send_release_announcement(request, subject, html, text, summary)
+        messages.success(request, f"Release update sent to {count} member(s).")
+        return redirect(f"{reverse('hub_admin_site_settings')}?tab=announcements"), form, None
+
+    if action == "announce_test":
+        send_release_test(admin_user, html, text, subject)
+        messages.success(request, f"Test sent to {admin_user.email} — check your inbox.")
+
+    preview: dict[str, object] = {
+        "html": html,
+        "text": text,
+        "count": _activated_member_count(),
+        "subject": subject,
+        "preheader": preheader,
+    }
+    return None, form, preview
+
+
 def _save_site_settings(
     request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
 ) -> tuple[HttpResponse | None, SiteSettingsForm, Any]:
@@ -3819,6 +3888,9 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     feed_queryset = CalendarFeed.objects.all()
     announce_form = SiteAnnouncementForm()
     announce_preview: dict[str, object] | None = None
+    release_mode = False
+    release_form: ReleaseAnnouncementForm | None = None
+    release_preview: dict[str, object] | None = None
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -3835,11 +3907,16 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             return redirect(f"{url}?tab=legacy-cms")
 
         # Announcements tab — preview-then-send, separate from the settings form.
-        if action in ("announce_preview", "announce_send"):
+        if action in ("announce_preview", "announce_send", "announce_test"):
             active_tab = "announcements"
             form = SiteSettingsForm(instance=config)
             feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
-            response, announce_form, announce_preview = _handle_announcement_action(request, action)
+            # The Release composer submits mode=release; the freeform composer does not.
+            if request.POST.get("mode") == "release":
+                release_mode = True
+                response, release_form, release_preview = _handle_release_announcement_action(request, action)
+            else:
+                response, announce_form, announce_preview = _handle_announcement_action(request, action)
             if response is not None:
                 return response
             # else fall through to render (preview, or send with validation errors)
@@ -3850,10 +3927,10 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     else:
         form = SiteSettingsForm(instance=config)
         feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
-        # "Draft from latest release" — pre-fill the composer from the changelog.
+        # "Draft from latest release" — enter Release mode with a prefilled draft.
         if request.GET.get("draft") == "release":
-            subject, body = _release_announcement_draft()
-            announce_form = SiteAnnouncementForm(initial={"title": subject, "body": body, "post_to_discord": False})
+            release_mode = True
+            release_form = ReleaseAnnouncementForm(initial=_release_announcement_initial())
             active_tab = "announcements"
 
     instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
@@ -3874,5 +3951,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "config": config,
             "announce_form": announce_form,
             "announce_preview": announce_preview,
+            "release_mode": release_mode,
+            "release_form": release_form,
+            "release_preview": release_preview,
         },
     )

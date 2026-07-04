@@ -1334,6 +1334,105 @@ class SiteAnnouncementForm(forms.Form):
         return body
 
 
+class ReleaseAnnouncementForm(forms.Form):
+    """Compose the sectioned release-update email (the Announcements tab's Release mode).
+
+    Subject / preheader / intro are freeform; the feature **cards** are derived from the
+    current release line's changelog — not created or deleted here — so each card gets a
+    fixed pair of dynamically-named fields (``include_<i>`` toggle + ``screenshot_<i>``
+    select), built in ``__init__`` from :func:`core.release_email.build_release_cards`.
+    The screenshot select offers only slugs whose asset actually exists, so the admin
+    can never pick an image that would render text-only. Validation ("include at least
+    one feature") lives in :meth:`clean`.
+    """
+
+    subject = forms.CharField(max_length=300, label="Subject")
+    preheader = forms.CharField(
+        max_length=200,
+        required=False,
+        label="Inbox preview line",
+        help_text="The gray preview line next to the subject in the inbox. ~90 characters.",
+    )
+    intro = forms.CharField(
+        widget=RichTextEditorWidget(attrs={"rows": 4}),
+        required=False,
+        label="Intro",
+        help_text="A short line above the features. Optional.",
+    )
+
+    def __init__(self, *args: Any, version: str | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        from core.release_email import build_release_cards, feature_shot_choices
+        from plfog.version import VERSION
+
+        self.version = version or VERSION
+        self.cards = build_release_cards(self.version)
+        # Captured *before* any per-card override mutates screenshot_url: True when the
+        # changelog named a shot for this card but it hasn't been captured yet — drives
+        # the composer's "hasn't been captured" note.
+        self._card_default_uncaptured = [bool(c.slug) and not c.screenshot_url for c in self.cards]
+        choices = feature_shot_choices()
+        for index, card in enumerate(self.cards):
+            self.fields[f"include_{index}"] = forms.BooleanField(
+                required=False,
+                initial=True,
+                label="Include",
+                widget=forms.CheckboxInput(
+                    attrs={
+                        "data-include-toggle": "1",
+                        "@change": "includedCount += $event.target.checked ? 1 : -1",
+                    }
+                ),
+            )
+            # Default to the entry's own shot only when it's actually captured; otherwise
+            # the card defaults to "No screenshot" rather than expecting a missing image.
+            initial_slug = card.slug if card.screenshot_url else ""
+            self.fields[f"screenshot_{index}"] = forms.ChoiceField(
+                choices=choices, required=False, initial=initial_slug, label="Screenshot"
+            )
+
+    def card_rows(self) -> list[dict[str, Any]]:
+        """``{card, include, screenshot, index, default_uncaptured}`` per feature, for the template list."""
+        return [
+            {
+                "card": card,
+                "include": self[f"include_{i}"],
+                "screenshot": self[f"screenshot_{i}"],
+                "index": i,
+                "default_uncaptured": self._card_default_uncaptured[i],
+            }
+            for i, card in enumerate(self.cards)
+        ]
+
+    @property
+    def included_count(self) -> int:
+        """How many cards are currently toggled on (initial for an unbound form; else submitted)."""
+        return sum(1 for i in range(len(self.cards)) if self[f"include_{i}"].value())
+
+    def clean_intro(self) -> str:
+        return sanitize_rich_html(self.cleaned_data.get("intro") or "")
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if not any(cleaned.get(f"include_{i}") for i in range(len(self.cards))):
+            raise forms.ValidationError("Include at least one feature to send.")
+        return cleaned
+
+    def cleaned_cards(self) -> list[Any]:
+        """The assembled cards with the admin's include/screenshot overrides applied.
+
+        Mutates each :class:`~core.release_email.Card` in place: ``included`` from the
+        toggle and ``screenshot_url`` re-resolved from the chosen slug (the title link
+        stays tied to the changelog entry's own feature page).
+        """
+        from core.release_email import resolve_feature_shot_url
+
+        for index, card in enumerate(self.cards):
+            card.included = bool(self.cleaned_data[f"include_{index}"])
+            card.screenshot_url = resolve_feature_shot_url(self.cleaned_data[f"screenshot_{index}"])
+        return self.cards
+
+
 class VotingSettingsForm(forms.ModelForm):
     """Admin form for the VotingSettings singleton (the Voting → Settings tab)."""
 

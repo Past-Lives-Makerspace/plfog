@@ -1,0 +1,107 @@
+{% comment %}
+Release-update email composer + upgraded preview (Site Settings → Announcements, Release mode).
+Reached via "Draft from latest release" (?draft=release / mode=release). Uses the themed
+form_field/toggle components so every control is dark/light safe. Rule 12: the preview panes
+and the mobile toggle-group get their display from `pl-` classes, never inline on an x-show
+element; the one allowed inline nudge is the bound `:style="width:…"` on the iframe.
+{% endcomment %}
+<div>
+  <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Release update</h2>
+  <p style="color:var(--hub-text-muted);margin:0;">
+    The sectioned "what's new" email, assembled from this release's changelog. Preview it, send a
+    test to yourself, then send it to every <strong>activated</strong> member. Discord is left off —
+    it auto-posts on deploy.
+  </p>
+</div>
+
+<div>
+  <a href="?tab=announcements" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Plain announcement</a>
+</div>
+
+<form method="post" class="pl-release-form"
+      x-data="{ includedCount: {{ release_form.included_count }} }"
+      style="display:flex;flex-direction:column;gap:1.25rem;">
+  {% csrf_token %}
+  <input type="hidden" name="mode" value="release">
+
+  {% if release_form.non_field_errors %}
+  <div class="pl-release-form__error">{{ release_form.non_field_errors }}</div>
+  {% endif %}
+
+  {% include "components/form_field.html" with field=release_form.subject %}
+  {% include "components/form_field.html" with field=release_form.preheader %}
+  {% include "components/form_field.html" with field=release_form.intro %}
+
+  <div class="pl-release-cards">
+    <h3 class="pl-release-cards__title">Features in this update</h3>
+    <p class="pl-release-cards__hint">These cards come from this release's changelog. Turn any off, or swap its screenshot.</p>
+    {% for row in release_form.card_rows %}
+    <div class="pl-release-card">
+      <div class="pl-release-card__meta">
+        <strong class="pl-release-card__name">{{ row.card.title }}</strong>
+        <ul class="pl-release-card__bullets">
+          {% for bullet in row.card.bullets %}<li>{{ bullet }}</li>{% endfor %}
+        </ul>
+        {% if row.default_uncaptured %}
+        <p class="pl-release-card__note">Screenshot for &ldquo;{{ row.card.title }}&rdquo; hasn't been captured yet — run the capture or pick another.</p>
+        {% endif %}
+      </div>
+      <div class="pl-release-card__controls">
+        {% include "components/form_field.html" with field=row.screenshot %}
+        {% include "components/toggle.html" with field=row.include toggle_label="Include" %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="pl-release-form__warn" x-show="includedCount === 0" x-cloak>Include at least one feature to send.</p>
+
+  <div class="pl-release-actions">
+    <button type="submit" name="action" value="announce_preview" class="hub-btn hub-btn--ghost">Preview email</button>
+    <button type="submit" name="action" value="announce_test" class="hub-btn hub-btn--ghost" :disabled="includedCount === 0">Send test to me</button>
+    {% if release_preview %}
+    <button type="submit" name="action" value="announce_send" class="hub-btn hub-btn--primary" :disabled="includedCount === 0"
+            onclick="return confirm('Send this release update to {{ release_preview.count }} member{{ release_preview.count|pluralize }}? This cannot be undone.')">
+      Send to {{ release_preview.count }} member{{ release_preview.count|pluralize }}
+    </button>
+    {% endif %}
+  </div>
+</form>
+
+{% if release_preview %}
+<div class="pl-email-preview" x-data="{ view: 'html', device: 'desktop' }"
+     style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
+  <h3 class="pl-email-preview__title">Email preview</h3>
+  <p class="pl-email-preview__lead">
+    Exactly what lands in their inbox. Reaches <strong>{{ release_preview.count }}</strong> activated member{{ release_preview.count|pluralize }} (Discord off — it auto-posts on deploy).
+  </p>
+
+  {# Inbox row — sender · subject · preheader; both are otherwise invisible in the HTML body. #}
+  <div class="pl-email-preview__inbox">
+    <span class="pl-email-preview__from">Past Lives</span>
+    <span class="pl-email-preview__subject">{{ release_preview.subject }}</span>
+    <span class="pl-email-preview__preheader">{{ release_preview.preheader|default:"" }}</span>
+  </div>
+
+  <div class="pl-email-preview__toolbar">
+    <div class="pl-seg">
+      <button type="button" class="pl-seg__btn" :class="{ 'pl-seg__btn--active': view === 'html' }" @click="view = 'html'">HTML</button>
+      <button type="button" class="pl-seg__btn" :class="{ 'pl-seg__btn--active': view === 'text' }" @click="view = 'text'">Plain text</button>
+    </div>
+    <div class="pl-seg" x-show="view === 'html'">
+      <button type="button" class="pl-seg__btn" :class="{ 'pl-seg__btn--active': device === 'desktop' }" @click="device = 'desktop'">Desktop</button>
+      <button type="button" class="pl-seg__btn" :class="{ 'pl-seg__btn--active': device === 'mobile' }" @click="device = 'mobile'">Mobile</button>
+    </div>
+  </div>
+
+  <div class="pl-email-preview__pane" x-show="view === 'html'">
+    <div class="pl-email-preview__frame">
+      <iframe srcdoc="{{ release_preview.html }}" title="Email preview" class="pl-email-preview__iframe"
+              :style="device === 'mobile' ? 'width:375px' : 'width:600px'"></iframe>
+    </div>
+  </div>
+  <div class="pl-email-preview__pane" x-show="view === 'text'">
+    <pre class="pl-email-preview__text">{{ release_preview.text }}</pre>
+  </div>
+</div>
+{% endif %}

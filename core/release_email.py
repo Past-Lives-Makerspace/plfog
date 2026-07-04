@@ -145,7 +145,7 @@ def feature_shot_choices() -> list[tuple[str, str]]:
     return choices
 
 
-def current_line_entries(version: str) -> list[dict[str, object]]:
+def current_line_entries(version: str) -> list[dict[str, str | list[str]]]:
     """The CHANGELOG entries sharing ``version``'s ``MAJOR.MINOR`` line (newest first)."""
     from plfog.version import CHANGELOG
 
