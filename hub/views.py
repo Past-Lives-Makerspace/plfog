@@ -2101,6 +2101,7 @@ def _pending_announcements_for_scope(scope: Any) -> Any:
     approve modal renders the same Discord channel picker the lead's own post form uses, with
     this guild's unconfigured channels disabled.
     """
+    from core.models import SiteConfiguration
     from hub.forms import GuildAnnouncementDecisionForm
     from membership.models import GuildAnnouncement
 
@@ -2108,8 +2109,10 @@ def _pending_announcements_for_scope(scope: Any) -> Any:
         GuildAnnouncement.objects.awaiting_review().select_related("guild", "submitted_by").order_by("published_at")
     )
     announcements = list(pending if scope is True else pending.filter(guild__in=scope))
+    config = SiteConfiguration.load()
     for announcement in announcements:
-        announcement.channel_picker_field = GuildAnnouncementDecisionForm(guild=announcement.guild)["discord_channel"]
+        form = GuildAnnouncementDecisionForm(guild=announcement.guild, config=config)
+        announcement.channel_picker_field = form["discord_channel"]
     return announcements
 
 
@@ -2281,12 +2284,11 @@ def guild_announcement_review_decision(request: HttpRequest, pk: int) -> HttpRes
     notes = form.cleaned_data["notes"]
     try:
         if decision == "approve":
-            announcement.send_email = form.cleaned_data["send_email"]
-            chosen_channel = form.cleaned_data["discord_channel"]
-            if chosen_channel:
-                announcement.discord_channel = chosen_channel
-            announcement.save(update_fields=["send_email", "discord_channel", "updated_at"])
-            announcement.approve(reviewer=user)
+            announcement.approve(
+                reviewer=user,
+                send_email=form.cleaned_data["send_email"],
+                discord_channel=form.cleaned_data["discord_channel"] or None,
+            )
             messages.success(request, "Announcement approved and posted.")
         elif decision == "changes":
             announcement.request_changes(reviewer=user, notes=notes)

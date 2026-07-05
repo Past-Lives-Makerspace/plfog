@@ -68,6 +68,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="guildannouncement",
             name="updated_at",
-            field=models.DateTimeField(auto_now=True),
+            field=models.DateTimeField(auto_now=True, help_text="When this announcement was last edited."),
         ),
     ]

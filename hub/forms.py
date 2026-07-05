@@ -1141,18 +1141,23 @@ class ChannelRadioSelect(forms.RadioSelect):
         return option
 
 
-def _configured_discord_channels(guild: Guild | None) -> set[str]:
+def _configured_discord_channels(guild: Guild | None, config: SiteConfiguration | None = None) -> set[str]:
     """The set of :class:`GuildAnnouncement.DiscordChannel` values that have a webhook set.
 
     ``GUILD`` when this guild has its own ``discord_webhook_url``; ``GENERAL`` / ``LEADERSHIP``
     when the makerspace-wide :class:`~core.models.SiteConfiguration` webhooks are set. ``NONE``
     is always selectable and is deliberately not listed here.
+
+    Pass ``config`` to reuse an already-loaded :class:`~core.models.SiteConfiguration`
+    singleton — building one picker per row (the review queue) would otherwise re-load it
+    each call.
     """
     channels = GuildAnnouncement.DiscordChannel
     configured: set[str] = set()
     if guild is not None and (guild.discord_webhook_url or "").strip():
         configured.add(channels.GUILD.value)
-    config = SiteConfiguration.load()
+    if config is None:
+        config = SiteConfiguration.load()
     if (config.discord_general_webhook_url or "").strip():
         configured.add(channels.GENERAL.value)
     if (config.discord_leadership_webhook_url or "").strip():
@@ -1279,9 +1284,11 @@ class GuildAnnouncementDecisionForm(forms.Form):
         label="Post to Discord channel",
     )
 
-    def __init__(self, *args: Any, guild: Guild | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, guild: Guild | None = None, config: SiteConfiguration | None = None, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
-        configured = _configured_discord_channels(guild)
+        configured = _configured_discord_channels(guild, config)
         widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
         widget.configured_channels = configured
         if not self.is_bound:

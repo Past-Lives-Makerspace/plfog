@@ -122,7 +122,11 @@ def _upcoming_items(member: Member) -> list[UpcomingItem]:
         )
 
     # 3. Classes at the space — already materialized as source="classes" calendar rows.
-    class_events = CalendarEvent.objects.upcoming().filter(source=CalendarEvent.Source.CLASSES)
+    # Only the soonest few can survive the final cap, so bound the fetch instead of pulling
+    # every future class session.
+    class_events = (
+        CalendarEvent.objects.upcoming().filter(source=CalendarEvent.Source.CLASSES).order_by("start_dt")[:UPCOMING_CAP]
+    )
     for event in class_events:
         items.append(
             UpcomingItem(

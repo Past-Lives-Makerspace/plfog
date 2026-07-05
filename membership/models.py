@@ -1872,7 +1872,7 @@ class GuildAnnouncement(models.Model):
         default="",
         help_text="The reviewer's note to the proposer (shown on a decline or a changes-requested).",
     )
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this announcement was last edited.")
 
     objects = GuildAnnouncementQuerySet.as_manager()
 
@@ -2011,8 +2011,20 @@ class GuildAnnouncement(models.Model):
             raise InvalidAnnouncementTransition(f"Cannot withdraw an announcement in state '{self.moderation_state}'.")
         self.delete()
 
-    def approve(self, *, reviewer: "User") -> None:
+    def approve(
+        self,
+        *,
+        reviewer: "User",
+        send_email: bool | None = None,
+        discord_channel: str | None = None,
+    ) -> None:
         """Single reviewer decision → live. Records the reviewer, posts it, notifies.
+
+        The reviewer — not the proposer — owns the outbound channels: pass ``send_email``
+        to set whether the opt-out guild-member email goes out, and ``discord_channel`` to
+        choose which Discord channel the single echo posts to. Both default to the values
+        already on the row when omitted, so the send options live and persist here rather
+        than being mutated by the caller.
 
         Resets ``published_at`` to now so the announcement sorts and dates from when it
         actually went live (not when it was drafted), then fires :meth:`notify_members`
@@ -2024,11 +2036,25 @@ class GuildAnnouncement(models.Model):
         """
         if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED):
             raise InvalidAnnouncementTransition(f"Cannot approve an announcement in state '{self.moderation_state}'.")
+        if send_email is not None:
+            self.send_email = send_email
+        if discord_channel:
+            self.discord_channel = discord_channel
         self.reviewed_by = reviewer
         self.reviewed_at = timezone.now()
         self.moderation_state = self.ModerationState.PUBLISHED
         self.published_at = timezone.now()
-        self.save(update_fields=["reviewed_by", "reviewed_at", "moderation_state", "published_at", "updated_at"])
+        self.save(
+            update_fields=[
+                "reviewed_by",
+                "reviewed_at",
+                "moderation_state",
+                "published_at",
+                "send_email",
+                "discord_channel",
+                "updated_at",
+            ]
+        )
         self.notify_members()
         self._emit_decision(
             "guild_announcement.approved",
