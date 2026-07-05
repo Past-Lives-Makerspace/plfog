@@ -263,6 +263,23 @@ def describe_member_profile_completeness():
         member = MemberFactory(show_in_directory=False)
         assert "Directory listing" in member.profile_completeness.missing
 
+    def describe_essentials_complete():
+        def it_is_false_for_a_brand_new_member():
+            assert MemberFactory().profile_completeness.essentials_complete is False
+
+        def it_is_true_when_the_content_signals_are_filled():
+            # Photo/bio/pronouns/Discord filled — the content essentials are done.
+            assert _fully_completed_member().profile_completeness.essentials_complete is True
+
+        def it_ignores_the_directory_listing_opt_out():
+            # Opting out of the directory leaves ``complete`` False but essentials still True.
+            member = _fully_completed_member()
+            member.show_in_directory = False
+            member.save(update_fields=["show_in_directory"])
+            result = member.profile_completeness
+            assert result.complete is False
+            assert result.essentials_complete is True
+
 
 @pytest.mark.django_db
 def describe_member_dismiss_welcome():

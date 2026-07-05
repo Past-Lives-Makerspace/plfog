@@ -15,6 +15,7 @@ from django.db import models
 from django.db.models import BooleanField, Case, CharField, DecimalField, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.functional import cached_property
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
@@ -211,11 +212,51 @@ class ProfileCompleteness:
     ``complete`` is True when nothing is missing, and ``percent`` is the 0–100 share of
     checked fields that are filled in. Pure derived data — drives the home dashboard's
     "Finish your profile" nudge and any progress display from one source of truth.
+
+    ``essentials_complete`` is the same check *excluding the directory-listing preference*
+    — every profile **content** signal (photo, bio, pronouns, Discord) is filled, regardless
+    of whether the member opts to be listed. The onboarding gate uses this so a member who
+    legitimately hides from the directory is still counted as onboarded (``complete`` would
+    leave them stuck forever). See :attr:`Member.is_onboarded`.
     """
 
     missing: list[str]
     complete: bool
     percent: int
+    essentials_complete: bool
+
+
+@dataclass(frozen=True)
+class OnboardingStep:
+    """One row in the home "Get started" onboarding checklist (:attr:`Member.onboarding`).
+
+    A derived status row that links to the existing page which completes it — the member
+    never adds/removes/toggles steps here, they *do* them elsewhere. ``optional`` marks the
+    recommended-but-not-required voting step; ``hint`` carries the profile percent while
+    that step is undone (empty otherwise).
+    """
+
+    key: str
+    label: str
+    done: bool
+    url: str
+    optional: bool
+    hint: str
+
+
+@dataclass(frozen=True)
+class OnboardingChecklist:
+    """The three-step home onboarding checklist for a member (:attr:`Member.onboarding`).
+
+    ``required_done`` / ``required_total`` count only the non-optional steps (profile +
+    guilds), so the optional voting step can never make the progress read "2 of 3" forever;
+    ``complete`` mirrors :attr:`Member.is_onboarded`.
+    """
+
+    steps: list[OnboardingStep]
+    required_done: int
+    required_total: int
+    complete: bool
 
 
 class Member(models.Model):
@@ -400,6 +441,14 @@ class Member(models.Model):
             "(null = not dismissed yet). Set once they act on it, so it never shows again."
         ),
     )
+    onboarding_dismissed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the member dismissed the home 'Get started' checklist card; null = never "
+            "dismissed. Does NOT affect is_onboarded — only hides the card."
+        ),
+    )
     leases = GenericRelation(
         "Lease",
         content_type_field="content_type",
@@ -468,22 +517,119 @@ class Member(models.Model):
         photo/bio/pronouns/Discord signals) so the first-login modal and this persistent
         nudge never disagree. Pure derived data — no query, no migration.
         """
-        checks: list[tuple[str, bool]] = [
+        content_checks: list[tuple[str, bool]] = [
             ("Profile photo", bool(self.profile_photo)),
             ("Short bio", bool(self.about_me)),
             ("Pronouns", bool(self.pronouns)),
             ("Discord link", bool(self.discord_is_linked or self.discord_handle)),
-            ("Directory listing", bool(self.show_in_directory)),
         ]
+        # The directory-listing preference is an opt-out, not a "content" signal — it's part
+        # of the completeness percent/checklist but is EXCLUDED from ``essentials_complete``
+        # (the onboarding gate), so opting out never blocks onboarding.
+        checks: list[tuple[str, bool]] = [*content_checks, ("Directory listing", bool(self.show_in_directory))]
         missing = [label for label, ok in checks if not ok]
         filled = len(checks) - len(missing)
         percent = round(filled / len(checks) * 100)
-        return ProfileCompleteness(missing=missing, complete=not missing, percent=percent)
+        essentials_complete = all(ok for _, ok in content_checks)
+        return ProfileCompleteness(
+            missing=missing, complete=not missing, percent=percent, essentials_complete=essentials_complete
+        )
 
     def dismiss_welcome(self) -> None:
         """Mark the first-login profile welcome modal as dismissed so it never shows again."""
         self.welcome_dismissed_at = timezone.now()
         self.save(update_fields=["welcome_dismissed_at"])
+
+    # --- Home onboarding ("Get started" checklist) ---
+
+    @cached_property
+    def _profile_essentials_done(self) -> bool:
+        """Whether the profile **content** essentials are filled (photo/bio/pronouns/Discord).
+
+        Reads :attr:`profile_completeness` but uses its ``essentials_complete`` — which
+        excludes the directory-listing opt-out — so a member who hides from the directory
+        is still onboardable. Cached so the three onboarding reads don't recompute it.
+        """
+        return self.profile_completeness.essentials_complete
+
+    @cached_property
+    def _has_joined_guild(self) -> bool:
+        """Whether the member has officially joined at least one guild. Cached (one query)."""
+        return self.joined_guilds.exists()
+
+    @property
+    def _has_voting_preference(self) -> bool:
+        """Whether the member has set a guild funding vote (a :class:`VotePreference` row)."""
+        return VotePreference.objects.filter(member=self).exists()
+
+    @property
+    def is_onboarded(self) -> bool:
+        """Whether the member has finished the required first-week setup.
+
+        True once their profile **content essentials** are filled AND they've joined at
+        least one guild. Voting is a recommended, **optional** step and does NOT affect
+        this. Uses ``_profile_essentials_done`` (not ``profile_completeness.complete``) so
+        the directory-listing opt-out can never make a member permanently un-onboardable.
+        """
+        return self._profile_essentials_done and self._has_joined_guild
+
+    @property
+    def onboarding(self) -> OnboardingChecklist:
+        """The three-step home "Get started" checklist for this member.
+
+        Each step is a derived status row linking to the page that completes it — the
+        profile editor, the My Guilds settings tab, and the voting page. ``required_done`` /
+        ``required_total`` count only profile + guilds (voting is optional); ``complete``
+        equals :attr:`is_onboarded`.
+        """
+        from django.urls import reverse
+
+        profile = self.profile_completeness
+        profile_done = profile.essentials_complete
+        steps = [
+            OnboardingStep(
+                key="profile",
+                label="Set up your profile",
+                done=profile_done,
+                url=f"{reverse('hub_user_settings')}?tab=profile",
+                optional=False,
+                hint="" if profile_done else f"{profile.percent}% complete",
+            ),
+            OnboardingStep(
+                key="guilds",
+                label="Join your guilds",
+                done=self._has_joined_guild,
+                url=f"{reverse('hub_user_settings')}?tab=guilds",
+                optional=False,
+                hint="",
+            ),
+            OnboardingStep(
+                key="voting",
+                label="Set a voting preference",
+                done=self._has_voting_preference,
+                url=reverse("hub_guild_voting"),
+                optional=True,
+                hint="",
+            ),
+        ]
+        required = [step for step in steps if not step.optional]
+        required_done = sum(1 for step in required if step.done)
+        return OnboardingChecklist(
+            steps=steps,
+            required_done=required_done,
+            required_total=len(required),
+            complete=required_done == len(required),
+        )
+
+    @property
+    def show_onboarding(self) -> bool:
+        """Whether to show the home "Get started" card: not onboarded and not dismissed."""
+        return self.onboarding_dismissed_at is None and not self.is_onboarded
+
+    def dismiss_onboarding(self) -> None:
+        """Hide the home "Get started" checklist card (sticky). Does not affect is_onboarded."""
+        self.onboarding_dismissed_at = timezone.now()
+        self.save(update_fields=["onboarding_dismissed_at"])
 
     def link_discord(self, discord_user_id: str, handle: str = "") -> None:
         """Record a verified Discord account id for DM notifications.
