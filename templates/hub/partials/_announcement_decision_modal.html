@@ -42,9 +42,15 @@ from the page context to re-open + repopulate the note on a server-side validati
                 {% csrf_token %}
                 <input type="hidden" name="decision" value="{{ kind }}">
                 {% if kind == "approve" %}
-                <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem; font-size:0.9375rem;">
-                    <input type="checkbox" name="send_email" checked> Also email the guild's members
-                </label>
+                <div class="pl-toggle-row" style="margin-bottom:0.75rem;">
+                    <div class="pl-toggle-info">
+                        <div class="pl-toggle-label">Also email the guild's members</div>
+                    </div>
+                    <label class="pl-toggle">
+                        <input type="checkbox" name="send_email" checked>
+                        <span class="pl-toggle__slider"></span>
+                    </label>
+                </div>
                 {% include "hub/partials/_announcement_channel_picker.html" with field=announcement.channel_picker_field %}
                 {% else %}
                 <div class="pl-form-group">
