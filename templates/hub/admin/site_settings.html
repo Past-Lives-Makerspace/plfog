@@ -389,7 +389,7 @@
   </form>
 
   {# -------- Announcements tab (own form — compose, preview, then send) -------- #}
-  <div x-show="tab === 'announcements'" x-cloak style="max-width:760px;display:flex;flex-direction:column;gap:1.25rem;">
+  <div x-show="tab === 'announcements'" x-cloak class="pl-announce-tab">
     {% if release_mode %}
     {% include "hub/admin/_release_announcement.html" %}
     {% else %}

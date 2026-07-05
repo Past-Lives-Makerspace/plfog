@@ -3279,7 +3279,11 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 
 .pl-channel-option input[type="radio"] {
     flex: 0 0 auto;
+    width: auto;
     margin: 0;
+    padding: 0;
+    background: none;
+    border: none;
     accent-color: var(--color-tuscan-yellow);
     cursor: pointer;
 }
@@ -3320,12 +3324,19 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
    Release-update email composer + preview  (Site Settings → Announcements)
    Admin-page chrome only — the iframe content is the email itself.
    ========================================================================== */
+.pl-announce-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    max-width: 760px;
+}
+
 .pl-release-form__error {
-    background: rgba(192, 57, 43, 0.12);
-    border: 1px solid #c0392b;
+    background: var(--color-error-bg);
+    border: 1px solid var(--color-error);
     border-radius: 6px;
     padding: 0.6rem 0.85rem;
-    color: #f0a49b;
+    color: var(--color-error);
     font-size: 0.875rem;
 }
 .pl-release-form__warn {
@@ -3375,7 +3386,7 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-release-card__note {
     margin: 0.5rem 0 0;
     font-size: 0.8125rem;
-    color: #e0a63c;
+    color: var(--hub-link);
 }
 .pl-release-card__controls {
     display: flex;
