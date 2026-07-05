@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "0.20.4"
+VERSION = "0.20.5"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.20.5",
+        "date": "2026-07-04",
+        "title": "A “Get started” checklist to help you settle in",
+        "changes": [
+            (
+                "New members now get a friendly “Get started” card on the home page that walks you through the "
+                "first few steps — finishing your profile, officially joining your guilds, and setting a voting "
+                "preference — each linking right to where you do it and checking off as you go. Dismiss it anytime; "
+                "it never gets in your way."
+            ),
+        ],
+    },
     {
         "version": "0.20.4",
         "date": "2026-07-04",
