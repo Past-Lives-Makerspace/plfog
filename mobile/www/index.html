@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Past Lives</title>
+    <style>
+      :root { color-scheme: light dark; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #092e4c;
+        color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      .wrap {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        padding: env(safe-area-inset-top) 1.5rem env(safe-area-inset-bottom);
+        text-align: center;
+      }
+      h1 { font-size: 1.25rem; font-weight: 600; margin: 0; }
+      p { margin: 0; opacity: 0.7; font-size: 0.95rem; }
+    </style>
+  </head>
+  <body>
+    <!--
+      Fallback splash. In normal operation the webview loads
+      https://pastlives.app (see capacitor.config.ts server.url) and this file
+      is not shown. It only appears if the shell starts fully offline before
+      the service worker's offline shell can take over.
+    -->
+    <div class="wrap">
+      <h1>Past Lives</h1>
+      <p>Connecting&hellip;</p>
+    </div>
+  </body>
+</html>
