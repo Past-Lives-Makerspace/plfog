@@ -3,7 +3,7 @@
 {% block content %}
 <div x-data="{}">
   <p style="margin-bottom:0.75rem;">
-    <a href="{{ cancel_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back</a>
+    <a href="{{ cancel_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">{% if guild %}← Back to {{ guild.name }} · Events{% else %}← Back{% endif %}</a>
   </p>
   <h1 class="hub-page-title">{% if event.pk %}Edit event{% else %}Add event{% endif %}{% if guild %} · {{ guild.name }}{% endif %}</h1>
 

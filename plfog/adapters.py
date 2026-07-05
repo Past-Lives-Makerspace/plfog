@@ -154,12 +154,12 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         """Land on the right place based on surface.
 
         - Public/book surface → /account/ overview (no onboarding step).
-        - Members surface (anywhere else) → Community Calendar (existing behavior).
+        - Members surface (anywhere else) → the member Home / Dashboard.
         """
         surface = getattr(request, "surface", "members")
         if surface == "public":
             return reverse("account:overview")
-        return reverse("hub_community_calendar")
+        return reverse("hub_home")
 
     def send_mail(self, template_prefix: str, email: str, context: dict) -> None:
         """Gate login-code emails through the global circuit breaker, then send.

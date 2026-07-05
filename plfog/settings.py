@@ -49,6 +49,16 @@ if _cookie_domain:
     SESSION_COOKIE_DOMAIN = _cookie_domain
     CSRF_COOKIE_DOMAIN = _cookie_domain
 
+# Theme-persistence cookie. Written client-side by the theme toggle (see
+# templates/hub/base.html) so an explicit light/dark choice follows the member
+# across subdomains of the same registrable domain — the member hub,
+# guilds.pastlives.app, and the Discord OAuth callback all live on .pastlives.app.
+# It is deliberately separate from COOKIE_DOMAIN (which scopes the session/CSRF
+# cookies to .pastlives.space) because a single cookie cannot span two different
+# registrable domains. Empty (the default) → host-only cookie, correct for local
+# dev (pastlives.test); production sets THEME_COOKIE_DOMAIN=.pastlives.app.
+THEME_COOKIE_DOMAIN = os.environ.get("THEME_COOKIE_DOMAIN", "").strip()
+
 # Surface routing. PUBLIC_HOSTS is the set of hostnames that serve the public
 # class catalog only; every other host serves the full member application.
 # MEMBER_HOST is where the public surface redirects /accounts/* requests so
@@ -82,6 +92,40 @@ MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
 # members host get 302-redirected to the book host so members visiting
 # /account/ end up on book.pastlives.space (where /account/ actually lives).
 PUBLIC_ONLY_PATH_PREFIXES: tuple[str, ...] = ("/account/",)
+
+# Guilds surface. GUILDS_HOSTS is the set of hostnames that serve the public
+# guild directory + guest guild pages (guilds.pastlives.app). Root redirects to
+# /guilds/ and only the guest-appropriate views below resolve there; everything
+# else 404s. Empty defaults are safe hooks — until DNS + DJANGO_ALLOWED_HOSTS
+# include the host, no request ever reaches the guilds branch. Go-live: set
+# GUILDS_HOSTS=guilds.pastlives.app and add the host to ALLOWED_HOSTS +
+# CSRF_TRUSTED_ORIGINS (do NOT add it to PUBLIC_HOSTS — that serves the class
+# catalog and redirects / to /classes/).
+GUILDS_HOSTS = [
+    h.strip().lower() for h in os.environ.get("GUILDS_HOSTS", "guilds.pastlives.app").split(",") if h.strip()
+]
+# Absolute base URL of the guilds surface, used to canonicalize OG/SEO tags on
+# shared guild links regardless of which host rendered them.
+GUILDS_BASE_URL = os.environ.get("GUILDS_BASE_URL", "https://guilds.pastlives.app").rstrip("/")
+# Precise allowlist of view names that may resolve on the guilds host. A precise
+# allowlist (not a broad /guilds/ prefix) keeps the guild editor + product/cart
+# endpoints off the guest surface. Allauth's built-in ``account_*`` login/signup/
+# verification views are also allowed (matched by prefix in the middleware) so the
+# email-code login renders in guest chrome; the book-only namespaced ``account:``
+# views (e.g. account:lookup) are deliberately excluded.
+GUILDS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
+    {
+        "hub_guild_directory",
+        "hub_guild_detail",
+        "hub_guild_detail_by_id",
+        "hub_org_info",
+        "hub_guild_join",
+        "hub_guild_leave",
+        "hub_orientation_book",
+        "hub_guild_orientation_request_custom",
+        "hub_orientation_cancel_mine",
+    }
+)
 
 # Allauth needs to know about the reverse proxy to resolve client IPs for rate limiting
 ALLAUTH_TRUSTED_PROXY_COUNT = int(os.environ.get("ALLAUTH_TRUSTED_PROXY_COUNT", "0"))
@@ -144,6 +188,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "core.context_processors.registration_mode",
                 "core.context_processors.app_version",
+                "core.context_processors.theme",
                 "core.context_processors.feature_flags",
                 "core.context_processors.google_analytics",
                 "core.context_processors.surface",

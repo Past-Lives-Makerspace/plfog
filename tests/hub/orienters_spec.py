@@ -50,12 +50,14 @@ def _future(hours: int) -> str:
 
 def describe_orienter_access_to_the_config_editor():
     def it_lets_an_orienter_open_the_editor(client: Client):
+        # The editor is an in-page tab now; the old URL redirects an orienter through to it.
         guild = GuildFactory()
         user = _member_user("o_edit")
         _make_orienter(guild, user)
         client.login(username="o_edit", password="pass")
-        response = client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]))
+        response = client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]), follow=True)
         assert response.status_code == 200
+        assert b"Recurring hours" in response.content
 
     def it_still_forbids_an_unrelated_member(client: Client):
         guild = GuildFactory()

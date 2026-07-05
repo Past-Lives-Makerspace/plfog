@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 from django.utils import timezone
 
+from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
+from classes.models import ClassOffering
 from hub.calendar_entries import CalendarEntry
+from tests.membership.factories import GuildFactory
 
 
 def _entry(**kwargs) -> CalendarEntry:
@@ -32,3 +36,47 @@ def describe_CalendarEntry():
         now = timezone.now()
         entry = _entry(start_dt=now - timedelta(hours=1), end_dt=now + timedelta(hours=1), all_day=True)
         assert entry.is_in_progress is False
+
+
+def _guild_series(day_offsets: list[int]) -> object:
+    """A guild with a published series whose sessions fall at the given day offsets."""
+    guild = GuildFactory()
+    category = CategoryFactory(guild=guild)
+    offering = ClassOfferingFactory(
+        status=ClassOffering.Status.PUBLISHED,
+        category=category,
+        scheduling_type=ClassOffering.SchedulingType.SERIES_PACKAGE,
+    )
+    for days in day_offsets:
+        start = timezone.now() + timedelta(days=days)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+    return guild
+
+
+@pytest.mark.django_db
+def describe_guild_calendar_entries():
+    def _window() -> tuple[object, object]:
+        today = timezone.now().date()
+        return today - timedelta(days=10), today + timedelta(days=30)
+
+    def it_omits_a_started_series():
+        # A guild's own calendar must drop a started series just like the catalog.
+        from hub.calendar_entries import guild_calendar_entries
+
+        guild = _guild_series([-3, 4, 11])
+        fetch_from, fetch_to = _window()
+
+        entries = guild_calendar_entries(guild, fetch_from, fetch_to)
+
+        assert [e for e in entries if e.source == "classes"] == []
+
+    def it_keeps_a_future_series():
+        from hub.calendar_entries import guild_calendar_entries
+
+        guild = _guild_series([2, 9, 16])
+        fetch_from, fetch_to = _window()
+
+        entries = guild_calendar_entries(guild, fetch_from, fetch_to)
+
+        class_entries = [e for e in entries if e.source == "classes"]
+        assert len(class_entries) == 3

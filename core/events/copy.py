@@ -720,6 +720,115 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    "guild_announcement.submitted": EventCopy(
+        placeholders=("guild_name", "announcement_title", "proposer_name", "review_url"),
+        sample_context={
+            "guild_name": "Metal Guild",
+            "announcement_title": "New anvil this Saturday",
+            "proposer_name": "Sam Rivera",
+            "review_url": "https://pastlives.example/announcements/review/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ proposer_name }} proposed a {{ guild_name }} announcement",
+                body_text="“{{ announcement_title }}” is waiting for your review.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Review a proposed {{ guild_name }} announcement",
+                body_text=(
+                    "{{ proposer_name }} proposed an announcement for {{ guild_name }}: "
+                    "“{{ announcement_title }}”.\n\nReview it: {{ review_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p><strong>{{ proposer_name }}</strong> proposed an announcement for "
+                    "{{ guild_name }}: “{{ announcement_title }}”.</p>"
+                    '<p><a href="{{ review_url }}">Review it</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "guild_announcement.approved": EventCopy(
+        placeholders=("guild_name", "announcement_title", "guild_url"),
+        sample_context={
+            "guild_name": "Metal Guild",
+            "announcement_title": "New anvil this Saturday",
+            "guild_url": "https://pastlives.example/guilds/metal-guild/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Your {{ guild_name }} announcement is posted",
+                body_text="“{{ announcement_title }}” is now live on the guild page.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your {{ guild_name }} announcement is posted",
+                body_text=(
+                    "Your announcement “{{ announcement_title }}” was approved and is now posted "
+                    "to {{ guild_name }}.\n\nSee it: {{ guild_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Your announcement “<strong>{{ announcement_title }}</strong>” was approved and is "
+                    "now posted to {{ guild_name }}.</p>"
+                    '<p><a href="{{ guild_url }}">See it on the guild page</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "guild_announcement.changes_requested": EventCopy(
+        placeholders=("guild_name", "announcement_title", "review_notes", "action_url"),
+        sample_context={
+            "guild_name": "Metal Guild",
+            "announcement_title": "New anvil this Saturday",
+            "review_notes": "Can you add the start time and where to meet?",
+            "action_url": "https://pastlives.example/announcements/propose/7/edit/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Changes requested on your {{ guild_name }} announcement",
+                body_text="{{ review_notes }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Changes requested on your {{ guild_name }} announcement",
+                body_text=(
+                    "A reviewer asked for changes on “{{ announcement_title }}”:\n\n{{ review_notes }}\n\n"
+                    "Edit and resubmit: {{ action_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>A reviewer asked for changes on “<strong>{{ announcement_title }}</strong>”:</p>"
+                    "<p>{{ review_notes }}</p>"
+                    '<p><a href="{{ action_url }}">Edit and resubmit</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "guild_announcement.declined": EventCopy(
+        placeholders=("guild_name", "announcement_title", "review_notes"),
+        sample_context={
+            "guild_name": "Metal Guild",
+            "announcement_title": "New anvil this Saturday",
+            "review_notes": "We already announced this one — thanks though!",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Your {{ guild_name }} announcement wasn't posted",
+                body_text="{{ review_notes }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="About your {{ guild_name }} announcement",
+                body_text=(
+                    "Your proposed announcement “{{ announcement_title }}” wasn't posted.\n\n"
+                    "{{ review_notes }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Your proposed announcement “<strong>{{ announcement_title }}</strong>” wasn't posted.</p>"
+                    "<p>{{ review_notes }}</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
 }
 
 

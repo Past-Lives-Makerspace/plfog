@@ -62,20 +62,23 @@ def describe_gating():
         resp = client.post(reverse("hub_guild_meeting_note_delete", args=[guild.pk, note.pk]))
         assert resp.status_code == 403
 
-    def it_lets_the_guild_lead_open_the_management_list(client: Client):
+    def it_redirects_the_guild_lead_to_the_meeting_notes_tab(client: Client):
+        # The list is now an in-page tab on the guild editor; the old list URL redirects there.
         user = _user_with_role("lead1")
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="lead1", password="pass")
         resp = client.get(reverse("hub_guild_meeting_notes", args=[guild.pk]))
-        assert resp.status_code == 200
+        assert resp.status_code == 302
+        assert resp["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meeting_notes"
 
-    def it_lets_a_staff_member_open_the_management_list(client: Client):
+    def it_redirects_a_staff_member_to_the_meeting_notes_tab(client: Client):
         user = _user_with_role("staff1")
         guild = GuildFactory()
         GuildStaffMembership.objects.create(guild=guild, member=user.member, role=GuildStaffMembership.Role.SECRETARY)
         client.login(username="staff1", password="pass")
         resp = client.get(reverse("hub_guild_meeting_notes", args=[guild.pk]))
-        assert resp.status_code == 200
+        assert resp.status_code == 302
+        assert resp["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meeting_notes"
 
 
 @pytest.mark.django_db
@@ -130,11 +133,11 @@ def describe_read_tab():
 
 @pytest.mark.django_db
 def describe_management_list_template():
-    def it_shows_the_empty_state_and_add_button(client: Client):
+    def it_shows_the_empty_state_and_add_button_on_the_tab(client: Client):
         user = _user_with_role("e1")
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="e1", password="pass")
-        resp = client.get(reverse("hub_guild_meeting_notes", args=[guild.pk]))
+        resp = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert b"No meeting notes yet" in resp.content
         assert b"+ Add meeting notes" in resp.content
 

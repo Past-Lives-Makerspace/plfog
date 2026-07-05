@@ -1,0 +1,86 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ guild.name }} — flyer · Past Lives</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/guild-flyer.css' %}">
+</head>
+<body class="pl-flyer-body">
+
+<div class="pl-flyer-toolbar no-print">
+  <button type="button" class="pl-flyer-print-btn" onclick="window.print()">Print / Save as PDF</button>
+  <p class="pl-flyer-toolbar__hint">Use your browser's Print dialog and choose “Save as PDF,” or print it for the shop wall.</p>
+</div>
+
+<div class="pl-flyer">
+  {# 1 · Header band — color logo (or banner, or initial) + guild name #}
+  <header class="pl-flyer__header">
+    <div class="pl-flyer__logo">
+      {% if guild.logo_prefix %}
+        <img src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_color.svg' %}" alt="" width="88" height="88">
+      {% elif guild.banner_image %}
+        <img class="pl-flyer__logo-banner" src="{{ guild.banner_image.url }}" alt="">
+      {% else %}
+        <span class="pl-flyer__logo-initial">{{ guild.name|make_list|first|upper }}</span>
+      {% endif %}
+    </div>
+    <h1 class="pl-flyer__name">{{ guild.name }}</h1>
+  </header>
+
+  {# 2 · One-line about #}
+  {% if guild.about %}
+  <p class="pl-flyer__about">{{ guild.about|striptags|truncatewords:20 }}</p>
+  {% endif %}
+
+  <div class="pl-flyer__cols">
+    <div class="pl-flyer__info">
+      {# 3 · Contact block #}
+      {% if guild.guild_lead or guild.contact_email or guild.guild_lead.primary_email or guild.discord_url %}
+      <section class="pl-flyer__block">
+        <h2 class="pl-flyer__block-title">Get in touch</h2>
+        {% if guild.guild_lead %}<p class="pl-flyer__line">Led by <strong>{{ guild.guild_lead.display_name }}</strong></p>{% endif %}
+        {% if guild.contact_email %}
+          <p class="pl-flyer__line">{{ guild.contact_email }}</p>
+        {% elif guild.guild_lead.primary_email %}
+          <p class="pl-flyer__line">{{ guild.guild_lead.primary_email }}</p>
+        {% endif %}
+        {% if guild.discord_url %}<p class="pl-flyer__line">Discord: {{ guild.discord_url }}</p>{% endif %}
+      </section>
+      {% endif %}
+
+      {# 4 · Next meeting #}
+      <section class="pl-flyer__block">
+        <h2 class="pl-flyer__block-title">Next meeting</h2>
+        {% if guild.next_meeting_at %}
+          <p class="pl-flyer__line"><strong>{{ guild.next_meeting_at|date:"l, M j" }}</strong></p>
+          {% if guild.meeting_location %}<p class="pl-flyer__line">{{ guild.meeting_location }}</p>{% endif %}
+          {% if guild.meeting_schedule %}<p class="pl-flyer__line">{{ guild.meeting_schedule }}</p>{% endif %}
+        {% else %}
+          <p class="pl-flyer__line">TBA</p>
+        {% endif %}
+      </section>
+
+      {# 5 · Essential / safety rules (hidden when blank) #}
+      {% if guild.essential_rules %}
+      <section class="pl-flyer__block">
+        <h2 class="pl-flyer__block-title">Essential rules</h2>
+        <p class="pl-flyer__line pl-flyer__rules">{{ guild.essential_rules|linebreaksbr }}</p>
+      </section>
+      {% endif %}
+    </div>
+
+    {# 6 · QR + call-to-action panel #}
+    <aside class="pl-flyer__qr-panel">
+      <div class="pl-flyer__qr">{{ qr_svg|safe }}</div>
+      <p class="pl-flyer__qr-caption">Scan for our digital home page — rules, tutorials, announcements &amp; meetings.</p>
+      <p class="pl-flyer__qr-url">{{ guild.vanity_url }}</p>
+    </aside>
+  </div>
+
+  <footer class="pl-flyer__footer">Past Lives Makerspace · Portland, OR</footer>
+</div>
+
+</body>
+</html>

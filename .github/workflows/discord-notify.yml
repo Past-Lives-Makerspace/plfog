@@ -23,6 +23,6 @@ jobs:
       - name: Post release announcement to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        # Aggregates every changelog entry in the current release line and posts it,
+        # Posts only the current VERSION's changelog entry (what just shipped),
         # chunked under Discord's 4096-char embed limit, failing loudly on rejection.
         run: python .github/scripts/discord_release_notify.py

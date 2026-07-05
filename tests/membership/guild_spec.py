@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 from django.db import IntegrityError
+from django.test import override_settings
 from django.utils import timezone
 
 from membership.models import Guild, Lease, Member, MembershipPlan, Space
@@ -318,3 +319,92 @@ def describe_guild_soft_delete():
         deleted.soft_delete()
         fresh = GuildFactory(name="Glass!")
         assert fresh.slug == "glass-2"
+
+
+def describe_directory():
+    def it_defaults_is_featured_to_false():
+        guild = GuildFactory()
+        assert guild.is_featured is False
+
+    def it_lists_only_active_guilds():
+        GuildFactory(name="Active Guild", is_active=True)
+        GuildFactory(name="Retired Guild", is_active=False)
+        names = list(Guild.objects.directory().values_list("name", flat=True))
+        assert "Active Guild" in names
+        assert "Retired Guild" not in names
+
+    def it_orders_featured_first_then_alphabetical():
+        GuildFactory(name="Zebra Guild", is_featured=False)
+        GuildFactory(name="Alpha Guild", is_featured=False)
+        GuildFactory(name="Woodworking", is_featured=True)
+        names = list(Guild.objects.directory().values_list("name", flat=True))
+        assert names == ["Woodworking", "Alpha Guild", "Zebra Guild"]
+
+    def it_excludes_soft_deleted_guilds():
+        gone = GuildFactory(name="Gone Guild")
+        gone.soft_delete()
+        assert "Gone Guild" not in list(Guild.objects.directory().values_list("name", flat=True))
+
+    def it_defaults_is_public_to_true():
+        assert GuildFactory().is_public is True
+
+    def it_includes_public_and_excludes_private_guilds():
+        GuildFactory(name="Public Guild", is_public=True)
+        GuildFactory(name="Private Guild", is_public=False)
+        names = list(Guild.objects.directory().values_list("name", flat=True))
+        assert "Public Guild" in names
+        assert "Private Guild" not in names
+
+
+# ---------------------------------------------------------------------------
+# Vanity URL, QR code, and essential_rules (flyer feature)
+# ---------------------------------------------------------------------------
+
+
+def describe_vanity_url():
+    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    def it_is_the_member_host_g_slug_path():
+        guild = GuildFactory(name="Ceramics")
+        assert guild.vanity_url == f"https://pastlives.app/g/{guild.slug}/"
+
+
+def describe_qr_svg():
+    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    def it_returns_non_empty_svg_markup():
+        guild = GuildFactory(name="Ceramics")
+        svg = guild.qr_svg()
+        assert "<svg" in svg
+        assert svg.strip() != ""
+
+    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    def it_encodes_the_vanity_url():
+        import io
+
+        import segno
+
+        guild = GuildFactory(name="Ceramics")
+        buf = io.BytesIO()
+        segno.make(guild.vanity_url, error="m").save(buf, kind="svg", scale=1, xmldecl=False, svgns=True)
+        # The QR is generated from the vanity URL specifically (not the slug or guest URL).
+        assert guild.qr_svg() == buf.getvalue().decode("utf-8")
+
+    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    def it_differs_for_a_different_guild():
+        one = GuildFactory(name="Ceramics")
+        two = GuildFactory(name="Woodworking")
+        assert one.qr_svg() != two.qr_svg()
+
+
+def describe_qr_png_bytes():
+    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    def it_returns_bytes_with_the_png_magic_header():
+        guild = GuildFactory(name="Ceramics")
+        png = guild.qr_png_bytes()
+        assert isinstance(png, bytes)
+        assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def describe_essential_rules():
+    def it_defaults_to_an_empty_string():
+        guild = GuildFactory(name="Ceramics")
+        assert guild.essential_rules == ""

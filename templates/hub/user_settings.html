@@ -24,6 +24,12 @@
                 class="vote-tab">
             Notifications
         </button>
+        <button type="button"
+                @click="tab = 'guilds'"
+                :class="{ 'vote-tab--active': tab === 'guilds' }"
+                class="vote-tab">
+            Guilds
+        </button>
     </div>
 
     {# -------- Profile tab -------- #}
@@ -141,7 +147,7 @@
                             </button>
                             <input type="hidden" name="show_profile_photo" :value="vis.profile_photo ? 'on' : ''">
                         </div>
-                        {% include "components/image_field.html" with field=profile_form.profile_photo current_image=member.profile_photo delete_url=profile_photo_delete_url modal_id="delete-profile-photo" label="" shape="circle" thumbnail_width="96px" delete_button_text="Delete photo" confirm_title="Delete profile photo?" confirm_message="Your profile photo will be removed from the member directory and from our storage. This can't be undone." hint_html="Optional. Shown next to your name in the member directory and in the navbar. Max 5 MB." %}
+                        {% include "components/image_field.html" with field=profile_form.profile_photo current_image=member.profile_photo delete_url=profile_photo_delete_url modal_id="delete-profile-photo" label="" shape="circle" thumbnail_width="96px" max_bytes=max_upload_image_bytes delete_button_text="Delete photo" confirm_title="Delete profile photo?" confirm_message="Your profile photo will be removed from the member directory and from our storage. This can't be undone." hint_html=photo_upload_hint %}
                     </div>
 
                     {# Plain (no visibility) — preferred name #}
@@ -368,6 +374,13 @@
     {# -------- Notifications tab -------- #}
     <div x-show="tab === 'notifications'" x-cloak>
         {% include "hub/_notifications_settings.html" %}
+    </div>
+
+    {# -------- Guilds tab -------- #}
+    {% comment %}Sits outside every <form>: its per-row toggles carry their own hx-post, so a
+       wrapping <form> would orphan them (the nested-form/submit bug). No page Save.{% endcomment %}
+    <div x-show="tab === 'guilds'" x-cloak>
+        {% include "hub/partials/_my_guilds.html" %}
     </div>
 </div>
 {% endblock %}

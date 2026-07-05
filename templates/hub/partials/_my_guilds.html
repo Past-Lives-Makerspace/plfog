@@ -1,0 +1,57 @@
+{% comment %}My Guilds — one on/off row per active guild. Each toggle auto-saves over HTMX
+   (join on check, leave on uncheck) and returns a toast; there is no page-level Save.
+   The toggles carry their own hx-post, so this partial must live OUTSIDE any <form>.{% endcomment %}
+<div class="hub-card">
+  <h2 class="pl-notif-title">My Guilds</h2>
+  <p class="hub-text-muted pl-notif-intro">
+    Officially joining a guild means you'll get its announcement emails and show up on its
+    roster. Flip a guild on to join, off to leave — changes save instantly.
+  </p>
+  {% if member %}
+    {% if my_guilds_rows %}
+      <div class="pl-guild-toggle-list">
+        {% for row in my_guilds_rows %}
+          <div class="pl-guild-toggle-row">
+            <div class="pl-guild-toggle-row__info">
+              <div class="pl-guild-toggle-row__name">{{ row.guild.name }}</div>
+              {% if row.meeting_hint %}
+                <div class="hub-text-muted pl-guild-toggle-row__hint">{{ row.meeting_hint|truncatechars:60 }}</div>
+              {% endif %}
+            </div>
+            <label class="pl-toggle pl-toggle--sm">
+              <input type="checkbox"
+                     name="joined"
+                     aria-label="Officially in {{ row.guild.name }}"
+                     {% if row.joined %}checked{% endif %}
+                     hx-post="{% url 'hub_guild_membership_set' row.guild.pk %}"
+                     hx-trigger="change"
+                     hx-swap="none"
+                     hx-disabled-elt="this"
+                     hx-indicator="closest .pl-guild-toggle-row"
+                     hx-on::response-error="plGuildToggleRevert(this)"
+                     hx-on::send-error="plGuildToggleRevert(this)">
+              <span class="pl-toggle__slider"></span>
+            </label>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="hub-text-muted">No guilds have been set up yet. Check back soon.</p>
+    {% endif %}
+  {% else %}
+    <p class="hub-text-muted">Your account is not linked to a membership. Contact an admin for help.</p>
+  {% endif %}
+</div>
+<script>
+  // A join/leave POST that fails (server error or dropped connection) leaves the switch
+  // showing the state the member clicked, which no longer matches the server. htmx does
+  // NOT touch the control on error, so a single flip restores server truth. The error
+  // toast uses the documented window `show-toast` contract (see components/toast.html) —
+  // `$dispatch` is Alpine-only and isn't available inside an htmx `hx-on::` handler.
+  function plGuildToggleRevert(el) {
+    el.checked = !el.checked;
+    window.dispatchEvent(new CustomEvent('show-toast', {
+      detail: { message: "Couldn't update — please try again.", type: 'error' }
+    }));
+  }
+</script>

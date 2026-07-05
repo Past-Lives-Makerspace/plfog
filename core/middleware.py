@@ -1,6 +1,6 @@
 """Surface routing middleware for plfog.
 
-Plfog answers to two hostnames:
+Plfog answers to three kinds of hostname:
 
 - ``members.pastlives.space`` (and local dev, Hetzner staging, Render preview):
   the full member application. ``request.surface == "members"``.
@@ -9,14 +9,21 @@ Plfog answers to two hostnames:
   Everything else (admin, billing, voting, settings, member directory, the
   classes admin/instructor dashboards, etc.) returns 404 from this surface.
   ``request.surface == "public"``.
+- ``guilds.pastlives.app``: a public guild directory + guest guild pages.
+  ``request.surface == "guilds"``. Only the guest-appropriate views in
+  ``GUILDS_ALLOWED_VIEW_NAMES`` (plus allauth's ``account_*`` login views)
+  resolve here; everything else 404s, so the guild editor / product / cart
+  endpoints never leak onto the guest surface. Root redirects to ``/guilds/``.
 
 The middleware tags every request with ``request.surface`` so templates and
 views can branch on the chrome they should render, and short-circuits any
 request to a member-only path that arrives on the public surface.
 
-Member auth (``/accounts/*``) is served on both surfaces. Session cookies
-are scoped to ``.pastlives.space`` so a login completed on book is
-recognised on members automatically.
+Member auth (``/accounts/*``) is served on all surfaces. On ``.pastlives.space``
+session cookies scope to ``.pastlives.space`` so a login completed on book is
+recognised on members automatically; on the ``.app`` guilds surface cookies are
+host-only (prod ``COOKIE_DOMAIN`` is unset), so login-in-place resolves on the
+guilds host with no extra plumbing.
 
 The root path on the public surface redirects to ``/classes/`` so the bare
 domain lands on the catalog rather than the member hub home.
@@ -33,7 +40,7 @@ from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 
 
 class SurfaceMiddleware:
-    """Route by hostname into one of two surfaces: public or members."""
+    """Route by hostname into one of three surfaces: guilds, public, or members."""
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
@@ -41,6 +48,15 @@ class SurfaceMiddleware:
     def __call__(self, request: HttpRequest) -> HttpResponse:
         host = request.get_host().split(":", 1)[0].lower()
         public_hosts: set[str] = set(getattr(settings, "PUBLIC_HOSTS", []))
+        guilds_hosts: set[str] = set(getattr(settings, "GUILDS_HOSTS", []))
+
+        if host in guilds_hosts:
+            request.surface = "guilds"  # type: ignore[attr-defined]
+            short_circuit = self._handle_guilds_surface(request)
+            if short_circuit is not None:
+                return short_circuit
+            return self.get_response(request)
+
         request.surface = "public" if host in public_hosts else "members"  # type: ignore[attr-defined]
 
         if request.surface == "public":  # type: ignore[attr-defined]
@@ -53,6 +69,31 @@ class SurfaceMiddleware:
                 return short_circuit
 
         return self.get_response(request)
+
+    def _handle_guilds_surface(self, request: HttpRequest) -> HttpResponse | None:
+        """Redirect the root to /guilds/ and gate every other path to an allowlist.
+
+        Returns a redirect for ``/``; raises :class:`~django.http.Http404` for any
+        path whose resolved view name is not guest-appropriate (so the guild editor,
+        product/cart, and book-only account routes never render on ``.app``); returns
+        ``None`` when the request may continue to the view.
+        """
+        from django.urls import Resolver404, resolve
+
+        if request.path == "/":
+            return HttpResponseRedirect("/guilds/")
+
+        allowed: frozenset[str] = frozenset(getattr(settings, "GUILDS_ALLOWED_VIEW_NAMES", ()))
+        try:
+            match = resolve(request.path)
+        except Resolver404:
+            raise Http404("Not available on this surface.")
+        # ``view_name`` carries the namespace (e.g. "account:lookup"), so allauth's
+        # built-in ``account_*`` login views are allowed while the book-only
+        # namespaced ``account:`` routes are not.
+        if match.view_name in allowed or match.view_name.startswith("account_"):
+            return None
+        raise Http404("Not available on this surface.")
 
     def _handle_public_surface(self, request: HttpRequest) -> HttpResponse | None:
         """Apply the public surface's restrictions and redirects.

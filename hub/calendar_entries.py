@@ -64,9 +64,13 @@ def guild_calendar_entries(guild: Guild, fetch_from: date, fetch_to: date) -> li
 
     entries: list[CalendarEntry] = []
 
+    # Gate on the catalog's bookable() rule (published + non-private + not-yet-started)
+    # so per-guild calendars drop a started series exactly as the catalog and the
+    # Community Calendar do. Materialized pk list avoids a correlated subquery.
+    bookable_ids = ClassOffering.objects.bookable().values_list("pk", flat=True)
     sessions = ClassSession.objects.filter(
         class_offering__category__guild=guild,
-        class_offering__status=ClassOffering.Status.PUBLISHED,
+        class_offering_id__in=bookable_ids,
         starts_at__date__gte=fetch_from,
         starts_at__date__lte=fetch_to,
     ).select_related("class_offering")

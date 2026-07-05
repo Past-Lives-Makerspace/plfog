@@ -8,14 +8,23 @@ urlpatterns = [
     path("guilds/voting/history/", views.snapshot_history, name="hub_snapshot_history"),
     path("guilds/voting/history/<int:pk>/", views.snapshot_detail, name="hub_snapshot_detail"),
     path("members/", views.member_directory, name="hub_member_directory"),
+    # Public guild directory — the guilds.pastlives.app front door (also reachable on FOG).
+    path("guilds/", views.guild_directory, name="hub_guild_directory"),
     # Old numeric guild URLs (already shared in Discord/emails) 301 → the slug URL.
     path("guilds/<int:pk>/", views.guild_detail_redirect, name="hub_guild_detail_by_id"),
     path("guilds/<slug:slug>/", views.guild_detail, name="hub_guild_detail"),
     path("guilds/<int:pk>/edit/", views.guild_edit, name="hub_guild_edit"),
+    path("guilds/<int:pk>/qr.<str:fmt>/", views.guild_qr_download, name="hub_guild_qr"),
+    path("guilds/<int:pk>/flyer/", views.guild_flyer, name="hub_guild_flyer"),
     path("guilds/<int:pk>/delete/", views.guild_delete, name="hub_guild_delete"),
     path("hero-adjust/", views.hub_hero_adjust, name="hub_hero_adjust"),
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
     path("guilds/<int:pk>/orientation/edit/", views.guild_orientation_edit, name="hub_guild_orientation_edit"),
+    path(
+        "guilds/<int:pk>/orientation/hours/save/",
+        views.guild_orientation_hours_save,
+        name="hub_guild_orientation_hours_save",
+    ),
     path("guilds/<int:pk>/staff/add/", views.guild_staff_add, name="hub_guild_staff_add"),
     path(
         "guilds/<int:pk>/staff/<int:staff_pk>/remove/",
@@ -97,8 +106,41 @@ urlpatterns = [
         views.guild_announcement_edit,
         name="hub_guild_announcement_edit",
     ),
+    # Member-proposed announcements (any logged-in member proposes; a lead/admin reviews).
+    path(
+        "announcements/propose/",
+        views.propose_guild_announcement,
+        name="hub_guild_announcement_propose",
+    ),
+    path(
+        "announcements/propose/<int:pk>/edit/",
+        views.propose_guild_announcement,
+        name="hub_guild_announcement_propose_edit",
+    ),
+    path(
+        "announcements/<int:pk>/withdraw/",
+        views.guild_announcement_withdraw,
+        name="hub_guild_announcement_withdraw",
+    ),
+    path(
+        "announcements/review/",
+        views.guild_announcement_review_queue,
+        name="hub_guild_announcement_review_queue",
+    ),
+    path(
+        "announcements/review/<int:pk>/decision/",
+        views.guild_announcement_review_decision,
+        name="hub_guild_announcement_review_decision",
+    ),
+    path("guilds/<int:pk>/emails/save/", views.guild_emails_save, name="hub_guild_emails_save"),
     path("guilds/<int:pk>/faq/save/", views.guild_faq_save, name="hub_guild_faq_save"),
     path("guilds/<int:pk>/links/save/", views.guild_links_save, name="hub_guild_links_save"),
+    # Space & Org Info page (org-wide info: map, parking, who-to-contact, code of conduct).
+    path("info/", views.org_info, name="hub_org_info"),
+    path("info/edit/", views.org_info_edit, name="hub_org_info_edit"),
+    path("info/floorplan/delete/", views.org_info_floorplan_delete, name="hub_org_info_floorplan_delete"),
+    path("info/faq/save/", views.org_info_faq_save, name="hub_org_info_faq_save"),
+    path("info/links/save/", views.org_info_links_save, name="hub_org_info_links_save"),
     path("guilds/<int:pk>/meeting-notes/", views.guild_meeting_notes, name="hub_guild_meeting_notes"),
     path(
         "guilds/<int:pk>/meeting-notes/add/",
@@ -144,6 +186,8 @@ urlpatterns = [
         views.guild_product_delete,
         name="hub_guild_product_delete",
     ),
+    path("welcome/dismiss/", views.welcome_dismiss, name="hub_welcome_dismiss"),
+    path("settings/onboarding/dismiss/", views.onboarding_dismiss, name="hub_onboarding_dismiss"),
     path("settings/", views.user_settings, name="hub_user_settings"),
     path(
         "settings/profile-photo/delete/",
@@ -153,6 +197,7 @@ urlpatterns = [
     path("settings/skills/add/", views.skill_add, name="hub_skill_add"),
     path("settings/skills/<int:skill_pk>/remove/", views.skill_remove, name="hub_skill_remove"),
     path("settings/skills/suggest/", views.skill_suggest, name="hub_skill_suggest"),
+    path("settings/guilds/<int:pk>/", views.guild_membership_set, name="hub_guild_membership_set"),
     # Discord account-linking for the per-member Discord DM notification channel.
     path("settings/discord/connect/", discord_views.discord_connect, name="hub_discord_connect"),
     path("settings/discord/callback/", discord_views.discord_callback, name="hub_discord_callback"),
@@ -167,6 +212,7 @@ urlpatterns = [
     path("tab/", views.tab_detail, name="hub_tab_detail"),
     path("tab/history/", views.tab_history, name="hub_tab_history"),
     path("tab/void/<int:entry_pk>/", views.void_tab_entry, name="hub_void_tab_entry"),
+    path("home/", views.home, name="hub_home"),
     path("calendar/", views.community_calendar, name="hub_community_calendar"),
     path("calendar/events/", views.calendar_events_partial, name="hub_community_calendar_events"),
     path("calendar/export.ics", views.calendar_export_ics, name="hub_calendar_export_ics"),

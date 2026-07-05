@@ -81,44 +81,62 @@ def describe_exchange_code():
             discord_oauth.exchange_code("code", _REDIRECT)
 
 
-def describe_fetch_user_id():
+def describe_fetch_identity():
     @respx.mock
-    def it_returns_the_user_id_on_success():
+    def it_returns_the_id_and_username_on_success():
+        respx.get(_IDENTITY_URL).mock(
+            return_value=httpx.Response(200, json={"id": "777", "username": "makerjo", "global_name": "Jo"})
+        )
+        identity = discord_oauth.fetch_identity("token")
+        assert identity.user_id == "777"
+        assert identity.handle == "makerjo"
+
+    @respx.mock
+    def it_falls_back_to_global_name_when_username_is_blank():
+        respx.get(_IDENTITY_URL).mock(
+            return_value=httpx.Response(200, json={"id": "777", "username": "", "global_name": "Jo"})
+        )
+        assert discord_oauth.fetch_identity("token").handle == "Jo"
+
+    @respx.mock
+    def it_returns_a_blank_handle_when_neither_name_is_present():
         respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"id": "777"}))
-        assert discord_oauth.fetch_user_id("token") == "777"
+        assert discord_oauth.fetch_identity("token").handle == ""
 
     @respx.mock
     def it_raises_on_a_non_success_status():
         respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(401, text="unauthorized"))
         with pytest.raises(DiscordOAuthError):
-            discord_oauth.fetch_user_id("token")
+            discord_oauth.fetch_identity("token")
 
     @respx.mock
     def it_raises_on_a_network_error():
         respx.get(_IDENTITY_URL).mock(side_effect=httpx.ConnectError("down"))
         with pytest.raises(DiscordOAuthError):
-            discord_oauth.fetch_user_id("token")
+            discord_oauth.fetch_identity("token")
 
     @respx.mock
     def it_raises_when_no_id_is_returned():
-        respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={}))
+        respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"username": "nope"}))
         with pytest.raises(DiscordOAuthError):
-            discord_oauth.fetch_user_id("token")
+            discord_oauth.fetch_identity("token")
 
 
 def describe_link_member_from_code():
     @respx.mock
     @pytest.mark.django_db
-    def it_links_the_member_with_the_fetched_discord_id(settings, linked_member):
+    def it_links_the_member_and_fills_a_blank_handle(settings, linked_member):
         settings.DISCORD_CLIENT_ID = "cid"
         settings.DISCORD_CLIENT_SECRET = "secret"
         member = linked_member()
+        assert member.discord_handle == ""
         respx.post(_TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "abc"}))
-        respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"id": "888999"}))
+        respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"id": "888999", "username": "makerjo"}))
         discord_oauth.link_member_from_code(member, "code", _REDIRECT)
         member.refresh_from_db()
         assert member.discord_user_id == "888999"
         assert member.discord_is_linked is True
+        assert member.discord_handle == "makerjo"
 
     @respx.mock
     @pytest.mark.django_db

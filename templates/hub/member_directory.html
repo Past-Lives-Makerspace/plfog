@@ -3,7 +3,7 @@
 {% block title %}Member Directory{% endblock %}
 
 {% block content %}
-<h1 class="hub-page-title">Member Directory</h1>
+{% include "components/page_header.html" with title="Member Directory" description="Find other members, see their skills, and connect — you control what of yours appears here from your Settings." %}
 <p class="hub-text-muted" style="margin-bottom: 1rem;">{{ members|length }} active member{{ members|length|pluralize }}.</p>
 
 <form method="get" class="pl-directory-filters">

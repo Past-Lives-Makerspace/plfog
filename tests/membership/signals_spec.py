@@ -34,6 +34,15 @@ def describe_ensure_user_has_member():
         )
         assert Member.objects.filter(user=user).exists()
 
+    def it_lists_the_auto_created_member_in_the_directory_by_default():
+        MembershipPlanFactory()
+        user = User.objects.create_user(
+            username="listeddefault",
+            email="listed@example.com",
+            password="password",
+        )
+        assert Member.objects.get(user=user).show_in_directory is True
+
     def it_does_not_create_duplicate_member():
         MembershipPlanFactory()
         user = User.objects.create_user(

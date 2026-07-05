@@ -8,7 +8,7 @@
 {% endblock %}
 
 {% block content %}
-{% if is_public_surface %}
+{% if is_guest_surface %}
 <div class="cp-page">
 {% block portal_content %}
 <div class="bk-themed-login bk-auth-surface">
@@ -22,6 +22,7 @@
           <label>Email address</label>
           <input type="email" name="email" required autofocus placeholder="you@pastlives.space">
         </div>
+        {{ redirect_field }}
         <div class="bk-auth-actions">
           <button type="submit" class="bk-btn-primary">Email me a login code</button>
         </div>
@@ -29,7 +30,7 @@
       <div class="bk-auth-divider">or</div>
       <div class="bk-auth-links">
         <p>New to Past Lives? <a href="{% url 'account_signup' %}">Create an account</a></p>
-        <p>Booked as a guest? <a href="{% url 'account:lookup' %}">Look up your class.</a></p>
+        {% if not is_guilds_surface %}<p>Booked as a guest? <a href="{% url 'account:lookup' %}">Look up your class.</a></p>{% endif %}
       </div>
       <div class="bk-auth-foot">
         <b>Heads up:</b> if you registered for a class as a guest, use the same email you signed up with — that's how we find your bookings.
@@ -55,6 +56,7 @@
                 <label for="id_website">Leave this field empty</label>
                 <input type="text" name="website" id="id_website" tabindex="-1" autocomplete="off">
             </div>
+            {{ redirect_field }}
             <button type="submit" class="btn btn--primary btn--full">Send Login Code</button>
         </form>
         <div class="auth-links">

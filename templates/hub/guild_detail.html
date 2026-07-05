@@ -1,15 +1,24 @@
-{% extends "hub/base.html" %}
+{% extends guilds_page_base %}
 {% load static %}
 {% load classes_tags %}
 {% load membership_md %}
 {% block title %}{{ guild.name }}{% endblock %}
 
-{% block extra_head %}
+{% block extra_head %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
-{% endblock %}
+{% if is_guilds_surface %}{# ── OG / SEO — only where the guild link is shared publicly ── #}
+<link rel="canonical" href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ guild.name }} — Past Lives Guilds">
+<meta property="og:description" content="{{ guild.about|striptags|truncatewords:30|default:'A guild at Past Lives Makerspace in Portland, OR.' }}">
+<meta property="og:url" content="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}">
+<meta property="og:image" content="{% if guild.banner_image %}{{ guild.banner_image.url }}{% else %}{{ GUILDS_BASE_URL }}{% static 'img/og-guild-default.png' %}{% endif %}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="description" content="{{ guild.about|striptags|truncatewords:30|default:'A guild at Past Lives Makerspace in Portland, OR.' }}">
+{% endif %}{% endblock %}
 
 {% block content %}
-<div x-data="guildCart({{ guild.pk }})">
+<div {% if is_guilds_surface %}x-data="{}"{% else %}x-data="guildCart({{ guild.pk }})"{% endif %}>
 
 {# ── HERO ── #}
 <div class="pl-guild-hero{% if not guild.banner_image %} pl-guild-hero--noimg{% endif %}"
@@ -56,6 +65,13 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
                 Edit
             </a>
+            {% if guild.is_public %}
+            <a href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}" target="_blank" rel="noopener"
+               class="pl-btn pl-btn--secondary" title="Open this guild's public page as a guest" x-show="!isAdjusting">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                View public page
+            </a>
+            {% endif %}
             {% if guild.banner_image %}
                 <button type="button" class="pl-btn pl-btn--secondary"
                         @click="startAdjusting()" x-show="!isAdjusting" :disabled="isLoading" title="Adjust Placement">
@@ -66,7 +82,7 @@
                 </button>
 
                 {# Sliders #}
-                <div x-show="isAdjusting" x-cloak style="display:flex; align-items:center; gap:1rem; background:rgba(0,0,0,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
+                <div x-show="isAdjusting" x-cloak class="pl-hero-adjust" style="background:rgba(0,0,0,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
                     <div style="display:flex; flex-direction:column; gap:2px;">
                         <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Vertical</label>
                         <input type="range" min="0" max="100" x-model="posY" style="width:120px; cursor:pointer;">
@@ -93,7 +109,7 @@
 
 {# ── STAT CHIPS ── #}
 <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin:0 0 1rem;">
-    {% if member_count %}<a href="{% url 'hub_member_directory' %}?guild={{ guild.pk }}" class="hub-badge" style="text-decoration:none;" title="See these members in the directory">{{ member_count }} member{{ member_count|pluralize }}</a>{% endif %}
+    {% if member_count %}{% if is_guilds_surface %}<span class="hub-badge">{{ member_count }} member{{ member_count|pluralize }}</span>{% else %}<a href="{% url 'hub_member_directory' %}?guild={{ guild.pk }}" class="hub-badge" style="text-decoration:none;" title="See these members in the directory">{{ member_count }} member{{ member_count|pluralize }}</a>{% endif %}{% endif %}
     {% if class_count %}<span class="hub-badge">{{ class_count }} class{{ class_count|pluralize:"es" }}</span>{% endif %}
     {% if guild.next_meeting_at %}<span class="hub-badge">Next meeting {{ guild.next_meeting_at|date:"M j" }}</span>{% endif %}
 </div>
@@ -103,8 +119,8 @@
 <nav role="tablist" style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.25rem; flex-wrap:wrap;">
     <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
-    {% if tab_payments_enabled %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
-    {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">FAQ</button>{% endif %}
+    {% if tab_payments_enabled and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
+    {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
     {% if meeting_notes or can_edit_this_guild %}<button type="button" class="vote-tab" :class="section === 'notes' ? 'vote-tab--active' : ''" @click="section = 'notes'">Meeting Notes</button>{% endif %}
     {% if gallery_images %}<button type="button" class="vote-tab" :class="section === 'gallery' ? 'vote-tab--active' : ''" @click="section = 'gallery'">Gallery</button>{% endif %}
 </nav>
@@ -115,7 +131,7 @@
 
         {% if guild.featured_class %}
         <section class="pl-guild-section">
-            <a href="{% url 'classes:register' guild.featured_class.slug %}" class="hub-card" style="display:flex; gap:1rem; align-items:center; text-decoration:none;">
+            <a href="{% if is_guilds_surface %}{{ BOOK_BASE_URL }}{% endif %}{% url 'classes:register' guild.featured_class.slug %}"{% if is_guilds_surface %} hx-boost="false"{% endif %} class="hub-card" style="display:flex; gap:1rem; align-items:center; text-decoration:none;">
                 <div style="flex:1;">
                     <span class="hub-badge">Featured</span>
                     <div style="font-weight:600; font-size:1.05rem; margin-top:0.35rem;">{{ guild.featured_class.title }}</div>
@@ -126,10 +142,16 @@
         </section>
         {% endif %}
 
-        {% if announcements %}
+        {% if announcements or user.is_authenticated and not can_edit_this_guild %}
         <section class="pl-guild-section">
-            <h2 class="pl-guild-section__h2">Announcements</h2>
-            <div style="display:flex; flex-direction:column; gap:0.75rem;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+                <h2 class="pl-guild-section__h2" style="margin:0;">Announcements</h2>
+                {% if user.is_authenticated and not can_edit_this_guild %}
+                <a href="{% url 'hub_guild_announcement_propose' %}?guild={{ guild.pk }}" class="hub-btn hub-btn--sm">+ Suggest an announcement</a>
+                {% endif %}
+            </div>
+            {% if announcements %}
+            <div style="display:flex; flex-direction:column; gap:0.75rem; margin-top:0.75rem;">
                 {% for a in announcements %}
                 <div class="hub-card" style="border-left:3px solid var(--color-tuscan-yellow,#EEB44B);">
                     <strong>{{ a.title }}</strong>
@@ -138,6 +160,9 @@
                 </div>
                 {% endfor %}
             </div>
+            {% else %}
+            <p class="hub-text-muted" style="margin-top:0.5rem;">No announcements yet — be the first to suggest one.</p>
+            {% endif %}
         </section>
         {% endif %}
 
@@ -156,7 +181,7 @@
             <h2 class="pl-guild-section__h2">Upcoming classes</h2>
             <div style="display:flex; flex-direction:column; gap:0.5rem;">
                 {% for c in upcoming_classes %}
-                <a href="{% url 'classes:register' c.slug %}" class="hub-card" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; text-decoration:none;">
+                <a href="{% if is_guilds_surface %}{{ BOOK_BASE_URL }}{% endif %}{% url 'classes:register' c.slug %}"{% if is_guilds_surface %} hx-boost="false"{% endif %} class="hub-card" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; text-decoration:none;">
                     <div>
                         <strong>{{ c.title }}</strong>
                         {% if c.instructor %}<div class="hub-text-muted" style="font-size:0.8125rem;">with {{ c.instructor.display_name }}</div>{% endif %}
@@ -186,12 +211,13 @@
     </main>
 
     <aside>
-        {% with staff_groups=guild.staff_by_role %}
-        {% if guild.guild_lead or staff_groups %}
+        {% with staff_members=guild.staff_by_member %}
+        {% if guild.guild_lead or staff_members %}
         <div class="hub-card">
             <h3 class="hub-detail-label">Guild Lead</h3>
             {% if guild.guild_lead %}
-            <div class="hub-member-row" style="cursor:pointer;" @click="$dispatch('open-modal', 'guild-lead-profile')">
+            {# Anon guests see the lead's name only — the clickable contact modal (email/phone/Discord/bio) is gated behind auth. #}
+            <div class="hub-member-row"{% if user.is_authenticated %} style="cursor:pointer;" @click="$dispatch('open-modal', 'guild-lead-profile')"{% endif %}>
                 <div class="hub-member-avatar">{{ guild.guild_lead.display_name|make_list|first|upper }}</div>
                 <div class="hub-member-info">
                     <span class="hub-member-name">{{ guild.guild_lead.display_name }}</span>
@@ -199,16 +225,16 @@
                 </div>
             </div>
             {% endif %}
-            {% for role_label, memberships in staff_groups %}
-              {% for sm in memberships %}
+            {% for member, memberships in staff_members %}
               <div class="hub-member-row">
-                  <div class="hub-member-avatar">{{ sm.member.display_name|make_list|first|upper }}</div>
+                  <div class="hub-member-avatar">{{ member.display_name|make_list|first|upper }}</div>
                   <div class="hub-member-info">
-                      <span class="hub-member-name">{{ sm.member.display_name }}</span>
-                      <span class="hub-badge">{{ sm.display_title }}</span>
+                      <span class="hub-member-name">{{ member.display_name }}</span>
+                      <div class="pl-badge-group">
+                          {% for sm in memberships %}<span class="hub-badge">{{ sm.display_title }}</span>{% endfor %}
+                      </div>
                   </div>
               </div>
-              {% endfor %}
             {% endfor %}
         </div>
         {% endif %}
@@ -229,11 +255,26 @@
         <div class="hub-card">
             <h3 class="hub-detail-label">Get Involved</h3>
             <div style="display:flex; flex-direction:column; gap:0.5rem;">
-                {% if member and not is_member_of_guild %}
+                {# Join / Leave — three-way on auth + membership. "Log in to join" carries a GET-path next so the member lands right back here. #}
+                {% if not user.is_authenticated %}
+                <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" class="pl-btn pl-btn--primary" style="width:100%;">Log in to join</a>
+                {% elif member and not is_member_of_guild %}
                 <form method="post" action="{% url 'hub_guild_join' guild.pk %}">
                     {% csrf_token %}
                     <button type="submit" class="pl-btn pl-btn--primary" style="width:100%;">Join This Guild</button>
                 </form>
+                {% elif member and is_member_of_guild and is_guilds_surface %}
+                {# Leave is guilds-surface-only (per coordinator decision — do not add it to the members hub). #}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="width:100%;" @click="$dispatch('open-confirm', 'leave-guild')">Leave this guild</button>
+                {% url 'hub_guild_leave' guild.pk as leave_url %}
+                {% include "components/confirm_modal.html" with confirm_id="leave-guild" confirm_title="Leave "|add:guild.name|add:"?" confirm_message="You can rejoin any time. Your orientation history stays." confirm_action_url=leave_url confirm_button_text="Leave guild" %}
+                {% elif member and is_member_of_guild %}
+                {# Already in this guild on the members hub — joining/leaving lives on the Guilds settings tab. #}
+                <div class="hub-text-muted" style="display:flex; align-items:center; gap:0.4rem; font-size:0.9rem;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+                    You're in this guild
+                </div>
+                <a href="{% url 'hub_user_settings' %}?tab=guilds" class="pl-btn pl-btn--secondary" style="width:100%;">Manage in Settings</a>
                 {% endif %}
                 {% if show_orientation and not is_oriented %}
                 <button type="button" class="pl-btn pl-btn--primary" style="width:100%;"
@@ -241,11 +282,17 @@
                     Join an Orientation
                 </button>
                 {% endif %}
+                {% if not is_guilds_surface %}
                 <a href="{% url 'classes:teach_class_create' %}" class="pl-btn pl-btn--secondary" style="width:100%;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.35rem;"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1 2.5 3 6 3s6-2 6-3v-5"/></svg>
                     Teach a Class
                 </a>
-                {% if guild.guild_lead.primary_email %}
+                {% endif %}
+                {% if is_guilds_surface and products %}
+                {# No in-place cart on the guest surface — buyables live on the members hub. #}
+                <a href="{{ MEMBER_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}" class="pl-btn pl-btn--secondary" style="width:100%;" hx-boost="false">{% if user.is_authenticated %}Buy this guild's items on the members hub{% else %}Log in on the members hub to shop{% endif %}</a>
+                {% endif %}
+                {% if user.is_authenticated and guild.guild_lead.primary_email %}
                 <a href="mailto:{{ guild.guild_lead.primary_email }}" class="pl-btn pl-btn--secondary" style="width:100%;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.35rem;"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
                     Email Guild Lead
@@ -261,7 +308,8 @@
             </div>
         </div>
 
-        {% if pulse %}
+        {% if pulse and not is_guilds_surface %}
+        {# Suppressed on the guest surface — the activity feed names members who joined. #}
         <div class="hub-card">
             <h3 class="hub-detail-label">Recent Activity</h3>
             <div style="display:flex; flex-direction:column; gap:0.6rem;">
@@ -275,7 +323,7 @@
         </div>
         {% endif %}
 
-        {% if guild.show_members and roster %}
+        {% if user.is_authenticated and guild.show_members and roster %}
         <div class="hub-card">
             <h3 class="hub-detail-label">Members</h3>
             <div class="pl-guild-roster">
@@ -311,12 +359,12 @@
 {% if faq_items %}
 <div x-show="section === 'faq'" x-cloak>
     <section class="pl-guild-section">
-        <h2 class="pl-guild-section__h2">FAQ</h2>
+        <h2 class="pl-guild-section__h2">{{ guild.faq_label|default:"FAQ" }}</h2>
         {% for item in faq_items %}
         <div x-data="{ open: false }">
             <div class="pl-guild-faq__q" @click="open = !open">{{ item.question }}</div>
             <div class="pl-guild-faq__a" x-show="open" x-cloak>
-                {{ item.answer|linebreaksbr }}
+                <div class="pl-md">{{ item.answer|guild_markdown }}</div>
                 {% if item.video_url %}{% with vid=item.video_url|youtube_embed_id %}{% if vid %}
                 <div class="pl-guild-video" style="margin-top:0.75rem;">
                     <iframe src="https://www.youtube-nocookie.com/embed/{{ vid }}" title="{{ item.question }}" allowfullscreen></iframe>
@@ -339,7 +387,7 @@
     <section class="pl-guild-section">
         {% if can_edit_this_guild %}
         <div style="margin-bottom:1rem;">
-            <a href="{% url 'hub_guild_meeting_notes' guild.pk %}" class="hub-btn hub-btn--sm">Manage meeting notes</a>
+            <a href="{% url 'hub_guild_edit' guild.pk %}?tab=meeting_notes" class="hub-btn hub-btn--sm">Manage meeting notes</a>
         </div>
         {% endif %}
         {% for note in meeting_notes %}
@@ -386,7 +434,7 @@
     {% if show_orientation %}{% include "hub/partials/guild_orientation.html" %}{% endif %}
 </div>
 
-{% if tab_payments_enabled %}
+{% if tab_payments_enabled and not is_guilds_surface %}
 <div x-show="section === 'buyables'" x-cloak>
     {# Products card #}
     <div class="hub-card">
@@ -492,8 +540,17 @@
 {% endif %}
 </div>{# /section scope #}
 
-{# Guild lead profile modal — triggered from the aside lead card #}
-{% if guild.guild_lead %}
+{# ── Become-a-member footer band — primarily for guests; harmless for members. ── #}
+<div class="hub-card" style="margin-top:1.5rem; display:flex; flex-wrap:wrap; gap:1rem; align-items:center; justify-content:space-between;">
+    <div>
+        <strong>Not a member yet?</strong>
+        <div class="hub-text-muted" style="font-size:0.9rem;">Join Past Lives to teach, book studio time, and take part in your guilds.</div>
+    </div>
+    <a href="https://pastlives.space/membership" class="pl-btn pl-btn--primary" hx-boost="false">Become a member</a>
+</div>
+
+{# Guild lead profile modal — triggered from the aside lead card. Contact details are member-only. #}
+{% if guild.guild_lead and user.is_authenticated %}
 <div x-data="{ open: false }"
      x-show="open"
      x-transition:enter="modal-enter"
@@ -553,7 +610,7 @@
 {% endif %}
 
 {# Add to Cart modal — quantity picker #}
-{% if tab and tab.can_add_entry %}
+{% if tab and tab.can_add_entry and not is_guilds_surface %}
 <div x-show="addModalOpen"
      x-transition:enter="modal-enter"
      x-transition:leave="modal-leave"
@@ -644,7 +701,7 @@
 {% endif %}
 
 {# EYOP modal — form is server-rendered; after-submit re-renders the form partial in place #}
-{% if tab and tab.can_add_entry %}
+{% if tab and tab.can_add_entry and not is_guilds_surface %}
 <div x-data="{ open: false }"
      x-show="open"
      x-transition:enter="modal-enter"
@@ -673,6 +730,7 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if not is_guilds_surface %}
 <script>
 function guildCart(guildPk) {
     return {
@@ -792,4 +850,5 @@ function guildCart(guildPk) {
     };
 }
 </script>
+{% endif %}
 {% endblock %}

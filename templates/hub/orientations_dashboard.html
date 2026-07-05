@@ -3,7 +3,7 @@
 {% block title %}Orientations{% endblock %}
 {% block content %}
 <div x-data="{}">
-  <h1 class="hub-page-title">Orientations</h1>
+  {% include "components/page_header.html" with title="Orientations" description="Track and manage orientation requests and completions for the guilds you lead. Members request an orientation from each guild's own page — this is where leads respond to, schedule, and record them." %}
 
   {% if upcoming %}
   <div class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem;">

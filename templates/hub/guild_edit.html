@@ -1,22 +1,20 @@
 {% extends "hub/base.html" %}
 {% block title %}Edit {{ guild.name }}{% endblock %}
 {% block content %}
+{% include "_components/rich_editor_assets.html" %}
 <div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'basic' }">
 <h1 class="hub-page-title">Edit {{ guild.name }}</h1>
 
 <div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;">
   <button type="button" class="vote-tab" :class="section === 'basic' ? 'vote-tab--active' : ''" @click="section = 'basic'">Basic Information</button>
   <button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>
+  <button type="button" class="vote-tab" :class="section === 'meeting_notes' ? 'vote-tab--active' : ''" @click="section = 'meeting_notes'">Meeting Notes</button>
+  <button type="button" class="vote-tab" :class="section === 'events' ? 'vote-tab--active' : ''" @click="section = 'events'">Events</button>
+  <button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>
   <button type="button" class="vote-tab" :class="section === 'images' ? 'vote-tab--active' : ''" @click="section = 'images'">Images</button>
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ &amp; Links</button>
-  <button type="button" class="vote-tab" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements</button>
+  <button type="button" class="vote-tab" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements/Emails</button>
   <button type="button" class="vote-tab" :class="section === 'staff' ? 'vote-tab--active' : ''" @click="section = 'staff'">Staff</button>
-  {# Meeting Notes is its own management page (file uploads + a repeated formset) — the tab opens that page. #}
-  <a href="{% url 'hub_guild_meeting_notes' guild.pk %}" class="vote-tab" style="text-decoration:none;">Meeting Notes</a>
-  {# Orientations is its own editor (settings, recurring hours, slots) — the tab opens that page. #}
-  <a href="{% url 'hub_guild_orientation_edit' guild.pk %}" class="vote-tab" style="text-decoration:none;">Orientations</a>
-  {# Events is its own management page (list + dedicated add/edit) — the tab opens that page. #}
-  <a href="{% url 'hub_guild_events' guild.pk %}" class="vote-tab" style="text-decoration:none;">Events</a>
 </div>
 
 <form method="post" enctype="multipart/form-data" class="hub-form">
@@ -30,6 +28,8 @@
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Basic Information</h2>
       {% include "components/form_field.html" with field=form.name %}
       {% include "components/form_field.html" with field=form.about %}
+      {% include "components/form_field.html" with field=form.essential_rules %}
+      {% include "components/form_field.html" with field=form.faq_label %}
       <div class="pl-form-grid">
         {% include "components/form_field.html" with field=form.youtube_url %}
         {% include "components/form_field.html" with field=form.contact_email %}
@@ -38,6 +38,7 @@
         {% include "components/form_field.html" with field=form.featured_class field_label="Featured class" %}
       </div>
       {% include "components/form_field.html" with field=form.show_members %}
+      {% include "components/toggle.html" with field=form.make_private toggle_label="Make this guild page private?" toggle_description="When on, this guild's page is hidden from the public guilds site — members can still see it in the hub." %}
     </div>
   </div>
 
@@ -94,11 +95,43 @@
     </div>
   </div>
 
-  <div x-show="section !== 'announcements' && section !== 'staff' && section !== 'content'" style="margin-top:0.5rem; display:flex; gap:1rem;">
+  {# The main form only covers Basic / Meetings / Images — every other tab saves via its own endpoint. #}
+  <div x-show="section === 'basic' || section === 'meetings' || section === 'images'" style="margin-top:0.5rem; display:flex; gap:1rem;">
     <button type="submit" class="pl-btn pl-btn--primary">Save Changes</button>
     <a href="{% url 'hub_guild_detail' guild.slug %}" class="pl-btn pl-btn--secondary">Cancel</a>
   </div>
 </form>
+
+{# ── Share & Print (Basic tab) — vanity URL, printable flyer, QR downloads ──── #}
+<div x-show="section === 'basic'" x-cloak class="hub-card" style="padding:1.5rem; margin-top:2.5rem; margin-bottom:1.5rem;">
+  <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Share &amp; Print</h2>
+  {% if guild.is_public %}
+  <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem; max-width:46rem;">
+    Every guild has a short public web page. Print the flyer for the shop wall, hand out the QR code, or read the link aloud.
+  </p>
+  <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start;">
+    <div style="flex:1 1 20rem; min-width:16rem;">
+      <div class="hub-form-group" style="margin-bottom:0.35rem;">
+        <label for="guild-vanity-url">Short link (vanity URL)</label>
+        <input id="guild-vanity-url" type="text" readonly value="{{ guild.vanity_url }}" onclick="this.select()">
+      </div>
+      <p class="hub-text-muted" style="font-size:0.75rem; margin:0 0 1rem;">
+        Print this on signage or read it aloud — it opens your public guild page.
+      </p>
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+        <a href="{% url 'hub_guild_flyer' guild.pk %}" target="_blank" rel="noopener" class="pl-btn pl-btn--primary">Open printable flyer</a>
+        <a href="{% url 'hub_guild_qr' guild.pk 'svg' %}" class="pl-btn pl-btn--secondary">Download QR (SVG)</a>
+        <a href="{% url 'hub_guild_qr' guild.pk 'png' %}" class="pl-btn pl-btn--secondary">Download QR (PNG)</a>
+      </div>
+    </div>
+    <div class="pl-qr-preview" aria-hidden="true">{{ guild.qr_svg|safe }}</div>
+  </div>
+  {% else %}
+  <p class="hub-text-muted" style="font-size:0.8125rem; margin:0; max-width:46rem;">
+    This guild's page is private — turn off <strong>“Make this guild page private?”</strong> above to share a link, QR code, and printable flyer.
+  </p>
+  {% endif %}
+</div>
 
 {% if is_admin %}
 {% comment %}
@@ -120,13 +153,196 @@ confirm modal carries its own POST form, and template content can't nest a form.
 </div>
 {% endif %}
 
+{# ── Meeting Notes (list only; per-record add/edit live on their own small pages) ──── #}
+<div x-show="section === 'meeting_notes'" x-cloak>
+  <div class="hub-card" style="padding:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Meeting Notes</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
+      Post your meeting agendas and recaps so members can catch up — with a date, a write-up, and any files or links.
+    </p>
+    <div style="margin-bottom:1.5rem;">
+      <a href="{% url 'hub_guild_meeting_note_add' guild.pk %}" class="pl-btn pl-btn--primary">+ Add meeting notes</a>
+    </div>
+    {% if notes %}
+    <div style="display:flex; flex-direction:column; gap:1rem;">
+      {% for note in notes %}
+      {% with confirm_id=note.pk|stringformat:"s"|add:"-note-delete" %}
+      <div class="hub-card" style="padding:1rem; background:var(--hub-surface); display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+        <div style="flex:1; min-width:220px;">
+          <div style="font-weight:600;">{{ note.title }}</div>
+          <div class="hub-text-muted" style="font-size:0.8125rem;">
+            {{ note.meeting_date|date:"F j, Y" }}
+            {% with atts=note.attachments.all %} · {{ atts|length }} attachment{{ atts|length|pluralize }}{% endwith %}
+          </div>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <a href="{% url 'hub_guild_meeting_note_edit' guild.pk note.pk %}" class="hub-btn hub-btn--sm">Edit</a>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                  @click="$dispatch('open-confirm', '{{ confirm_id }}')">Delete</button>
+          {% url 'hub_guild_meeting_note_delete' guild.pk note.pk as delete_url %}
+          {% include "components/confirm_modal.html" with confirm_id=confirm_id confirm_title="Delete these meeting notes?" confirm_message="This removes these notes and all their attachments. This can't be undone." confirm_action_url=delete_url confirm_button_text="Delete notes" %}
+        </div>
+      </div>
+      {% endwith %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0;">No meeting notes yet. Add your first one.</p>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Events (list only; per-record add/edit live on their own small pages) ──── #}
+<div x-show="section === 'events'" x-cloak>
+  <div class="hub-card" style="padding:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Events</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
+      Schedule your guild's meetings and events. They show on the Community Calendar and the guild's own calendar, and members get a heads-up when a new one goes up.
+    </p>
+    <div style="margin-bottom:1.5rem;">
+      <a href="{% url 'hub_guild_event_add' guild.pk %}" class="pl-btn pl-btn--primary">+ Add event</a>
+    </div>
+    {% if events %}
+    <div style="display:flex; flex-direction:column; gap:1rem;">
+      {% for event in events %}
+      {% with confirm_id=event.pk|stringformat:"s"|add:"-event-delete" %}
+      <div class="hub-card" style="padding:1rem; background:var(--hub-surface); display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+        <div style="flex:1; min-width:220px;">
+          <div style="font-weight:600;">{{ event.title }}</div>
+          <div class="hub-text-muted" style="font-size:0.8125rem;">
+            {{ event.starts_at|date:"D, M j · g:i A" }}–{{ event.ends_at|date:"g:i A" }}{% if event.location %} · {{ event.location }}{% endif %}{% if event.recurrence != "none" %} · Repeats monthly{% endif %}
+          </div>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <a href="{% url 'hub_guild_event_edit' guild.pk event.pk %}" class="hub-btn hub-btn--sm">Edit</a>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                  @click="$dispatch('open-confirm', '{{ confirm_id }}')">Delete</button>
+          {% url 'hub_guild_event_delete' guild.pk event.pk as delete_url %}
+          {% include "components/confirm_modal.html" with confirm_id=confirm_id confirm_title="Delete this event?" confirm_message="This removes it from the calendar. This can't be undone." confirm_action_url=delete_url confirm_button_text="Delete event" %}
+        </div>
+      </div>
+      {% endwith %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0;">No upcoming events yet — add one.</p>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Orientations (settings + recurring hours each save via their own endpoint) ──── #}
+<div x-show="section === 'orientations'" x-cloak>
+  <form method="post" action="{% url 'hub_guild_orientation_edit' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Booking</h2>
+      {% include "components/form_field.html" with field=orientation_form.is_enabled %}
+      {% include "components/form_field.html" with field=orientation_form.allow_custom_requests %}
+      {% include "components/form_field.html" with field=orientation_form.info %}
+      {% include "components/form_field.html" with field=orientation_form.default_seats %}
+      {% include "components/form_field.html" with field=orientation_form.default_location %}
+      {% include "components/form_field.html" with field=orientation_form.default_duration_minutes %}
+    </div>
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Closed for orientations</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Pause bookings without losing your settings — e.g. while you're away.</p>
+      {% include "components/form_field.html" with field=orientation_form.is_closed %}
+      {% include "components/form_field.html" with field=orientation_form.closed_message %}
+    </div>
+
+    {# Who runs orientations — sits above the Save button with clear margin (orienters are guild staff). #}
+    <div class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+      <div style="flex:1; min-width:240px;">
+        <h2 class="hub-detail-label" style="margin:0 0 0.25rem;">Who runs orientations</h2>
+        <p class="hub-text-muted" style="font-size:0.8125rem; margin:0;">
+          Orienters are now part of your guild staff. Add someone as an orienter (or any staff role) and they
+          can confirm bookings, sign members off, and manage availability here.
+        </p>
+      </div>
+      <a href="{% url 'hub_guild_edit' guild.pk %}?tab=staff" class="hub-btn hub-btn--sm">Manage staff →</a>
+    </div>
+
+    <button type="submit" class="hub-btn hub-btn--primary">Save orientation settings</button>
+  </form>
+
+  {# Recurring hours — its own form/endpoint, like the FAQ & Links editors. #}
+  <form method="post" action="{% url 'hub_guild_orientation_hours_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Recurring hours</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows we turn into bookable slots automatically.</p>
+      {{ rule_formset.management_form }}
+      <div id="rule-rows" style="display:flex; flex-direction:column; gap:0.75rem;">
+        {% for rule in rule_formset %}
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {{ rule.id }}
+          <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+            <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=rule.weekday %}</div>
+            <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.start_time %}</div>
+            <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.end_time %}</div>
+            <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=rule.seats %}</div>
+          </div>
+          {% include "components/form_field.html" with field=rule.is_active %}
+          {% if rule.instance.pk %}
+            {# Real delete button: flips the hidden DELETE field and saves the form so no work is lost. #}
+            <div style="display:none;">{{ rule.DELETE }}</div>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                    onclick="document.getElementById('{{ rule.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+              Delete
+            </button>
+          {% endif %}
+        </div>
+        {% empty %}
+        <p class="hub-text-muted">No recurring hours yet — add your first window.</p>
+        {% endfor %}
+      </div>
+
+      {# Hidden empty-form template, cloned by the +Add button below. #}
+      <template id="rule-empty-template">
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {% with rule_formset.empty_form as er %}
+            {{ er.id }}
+            <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+              <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=er.weekday %}</div>
+              <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.start_time %}</div>
+              <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.end_time %}</div>
+              <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=er.seats %}</div>
+            </div>
+            {% include "components/form_field.html" with field=er.is_active %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+          {% endwith %}
+        </div>
+      </template>
+
+      {# Add then Save sit together — the user asked for Save next to Add (FAQ/Links footer rhythm). #}
+      <div style="margin-top:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+        <button type="button" class="hub-btn hub-btn--sm"
+                onclick="
+                  const tpl = document.getElementById('rule-empty-template');
+                  const total = document.getElementById('id_rules-TOTAL_FORMS');
+                  const idx = parseInt(total.value, 10);
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  document.getElementById('rule-rows').appendChild(wrap.firstElementChild);
+                  total.value = idx + 1;
+                ">
+          + Add recurring hours
+        </button>
+        <button type="submit" class="pl-btn pl-btn--primary">Save Hours</button>
+      </div>
+    </div>
+  </form>
+</div>
+
 {# ── FAQ & Links (each its own form, outside the main form — you can't nest forms) ──── #}
 <div x-show="section === 'content'" x-cloak>
   <form method="post" action="{% url 'hub_guild_faq_save' guild.pk %}" class="hub-form" enctype="multipart/form-data">
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">FAQ</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Each answer can also embed a YouTube video and attach one document — upload a file <em>or</em> paste a link.</p>
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">{{ guild.faq_label|default:"FAQ" }}</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Each answer can also embed a YouTube video and attach one document — upload a file <em>or</em> paste a link. Rename this section's heading on the <strong>Basic Information</strong> tab.</p>
       {{ faq_formset.management_form }}
       <div id="faq-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in faq_formset %}
@@ -252,8 +468,16 @@ confirm modal carries its own POST form, and template content can't nest a form.
   </form>
 </div>
 
-{# ── Announcements (separate form, lives outside the main form) ─────── #}
+{# ── Announcements/Emails (separate forms, live outside the main form) ── #}
 <div x-show="section === 'announcements'" x-cloak>
+  {% with pending_ann_count=guild.announcements.awaiting_review.count %}
+  {% if pending_ann_count %}
+  <div class="hub-card" style="padding:1rem 1.25rem; margin-bottom:1.25rem; border-left:3px solid var(--color-tuscan-yellow,#EEB44B); display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+    <span>{{ pending_ann_count }} member{{ pending_ann_count|pluralize }}-proposed announcement{{ pending_ann_count|pluralize }} awaiting your review.</span>
+    <a href="{% url 'hub_guild_announcement_review_queue' %}" class="hub-btn hub-btn--sm">Review proposals →</a>
+  </div>
+  {% endif %}
+  {% endwith %}
   <div class="hub-card" style="padding:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Post an Announcement</h2>
     <form method="post" action="{% url 'hub_guild_announcement_create' guild.pk %}" class="hub-form">
@@ -261,6 +485,9 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% include "components/form_field.html" with field=announcement_form.title %}
       {% include "components/form_field.html" with field=announcement_form.body %}
       {% include "components/form_field.html" with field=announcement_form.expires_at %}
+      {% include "components/form_field.html" with field=announcement_form.send_email field_label="Also send email" %}
+      {% include "hub/partials/_announcement_channel_picker.html" with field=announcement_form.discord_channel %}
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.75rem 0 1rem;">Everyone who has <strong>Joined</strong> this guild will receive this announcement by email (when “Also send email” is on), plus an in-app notification.</p>
       <button type="submit" class="pl-btn pl-btn--primary">Post Announcement</button>
     </form>
   </div>
@@ -268,16 +495,38 @@ confirm modal carries its own POST form, and template content can't nest a form.
   <div class="hub-card" style="margin-top:1.5rem; padding:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Recent Announcements</h2>
     <div style="display:flex; flex-direction:column; gap:0.75rem;">
-      {% for a in guild.announcements.all %}
+      {% for a in guild.announcements.published %}
       {% include "hub/partials/_guild_announcement_row.html" with a=a %}
       {% empty %}
       <p class="hub-text-muted">No announcements yet.</p>
       {% endfor %}
     </div>
   </div>
+
+  {# Guild follow-up emails — moved here from Orientations; own form/endpoint. #}
+  <form method="post" action="{% url 'hub_guild_emails_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+    <div class="hub-card" style="margin-top:1.5rem; padding:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Thank-you email</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to the member once their orientation is marked complete.</p>
+      {% include "components/form_field.html" with field=emails_form.thankyou_email_enabled %}
+      {% include "components/form_field.html" with field=emails_form.thankyou_email_subject %}
+      {% include "components/form_field.html" with field=emails_form.thankyou_email_body %}
+    </div>
+
+    <div class="hub-card" style="margin-top:1.5rem; padding:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Welcome email</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent when a member joins this guild.</p>
+      {% include "components/form_field.html" with field=emails_form.join_email_enabled %}
+      {% include "components/form_field.html" with field=emails_form.join_email_subject %}
+      {% include "components/form_field.html" with field=emails_form.join_email_body %}
+    </div>
+
+    <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Save emails</button>
+  </form>
 </div>
 
-{% for a in guild.announcements.all %}
+{% for a in guild.announcements.published %}
   {% url 'hub_guild_announcement_delete' guild.pk a.pk as ann_delete_url %}
   {% with pks=a.pk|stringformat:"s" %}
     {% include "components/confirm_modal.html" with confirm_id="del-ann-"|add:pks confirm_action_url=ann_delete_url confirm_title="Delete announcement?" confirm_message="Delete this announcement? This can't be undone." %}
@@ -295,18 +544,19 @@ confirm modal carries its own POST form, and template content can't nest a form.
       the same emails (class approvals and orientation requests). The guild lead itself is set by an admin.
     </p>
 
-    {% if staff_by_role %}
-    <div style="display:flex; flex-direction:column; gap:1.25rem; margin-bottom:1.5rem;">
-      {% for role_label, memberships in staff_by_role %}
-      <div>
-        <h3 class="hub-detail-label" style="margin:0 0 0.5rem; font-size:0.8125rem;">{{ role_label }}</h3>
-        <div style="display:flex; flex-direction:column; gap:0.5rem;">
+    {% if staff_by_member %}
+    <div style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1.5rem;">
+      {% for member, memberships in staff_by_member %}
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; padding:0.5rem 0.75rem; background:rgba(255,255,255,0.02); border-radius:6px;">
+        <span>{{ member.display_name }}</span>
+        <div class="pl-badge-group">
           {% for sm in memberships %}
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.5rem 0.75rem; background:rgba(255,255,255,0.02); border-radius:6px;">
-            <span>{{ sm.member.display_name }}</span>
+          <span class="pl-staff-chip">
+            <span class="hub-badge">{{ sm.display_title }}</span>
             <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                    aria-label="Remove {{ sm.display_title }} from {{ member.display_name }}"
                     @click="$dispatch('open-confirm', 'del-staff-{{ sm.pk }}')">Remove</button>
-          </div>
+          </span>
           {% endfor %}
         </div>
       </div>
@@ -333,7 +583,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
 </div>
 
 {# Confirm modals for staff removal #}
-{% for role_label, memberships in staff_by_role %}
+{% for member, memberships in staff_by_member %}
   {% for sm in memberships %}
     {% url 'hub_guild_staff_remove' guild.pk sm.pk as staff_remove_url %}
     {% with pks=sm.pk|stringformat:"s" %}

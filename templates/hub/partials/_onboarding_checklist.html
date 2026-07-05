@@ -1,0 +1,64 @@
+{% comment %}Home "Get started" onboarding checklist — a dismissible status card (not a form).
+
+Gated by ``show_onboarding`` in home.html (rendered only when the member isn't onboarded
+and hasn't dismissed it). Each row is a navigation link to the page that completes that step
+— the profile editor, the My Guilds tab, and the voting page — and auto-checks as done. The
+only real action is the dismiss ✕, which POSTs to hub_onboarding_dismiss (empty 200) so the
+outerHTML swap removes the whole card, then shows an info toast naming where to finish setup.
+{% endcomment %}
+<div class="hub-card pl-onboarding">
+    <button type="button" class="pl-onboarding__close"
+            aria-label="Dismiss the Get started checklist"
+            hx-post="{% url 'hub_onboarding_dismiss' %}"
+            hx-target="closest .hub-card"
+            hx-swap="outerHTML"
+            hx-disabled-elt="this"
+            hx-on::response-error="plOnboardingDismissError()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
+    <h2 class="pl-home-heading pl-onboarding__title">Get started at Past Lives</h2>
+    <p class="hub-text-muted pl-onboarding__lead">
+        A few quick steps to get the most out of your membership.
+    </p>
+    <div class="pl-onboarding__steps">
+        {% for step in onboarding.steps %}
+        <a href="{{ step.url }}" class="pl-onboarding-step{% if step.done %} pl-onboarding-step--done{% endif %}">
+            <span class="pl-onboarding-step__status" aria-hidden="true">
+                {% if step.done %}
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                {% else %}
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
+                {% endif %}
+            </span>
+            <span class="pl-onboarding-step__body">
+                <span class="pl-onboarding-step__label">
+                    {{ step.label }}
+                    {% if step.optional %}<span class="pl-onboarding-step__tag">Optional</span>{% endif %}
+                </span>
+                {% if step.done %}
+                <span class="pl-onboarding-step__note hub-text-muted">Done</span>
+                {% elif step.hint %}
+                <span class="pl-onboarding-step__note hub-text-muted">{{ step.hint }}</span>
+                {% endif %}
+            </span>
+            <span class="pl-onboarding-step__go" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            </span>
+        </a>
+        {% endfor %}
+    </div>
+    <p class="pl-onboarding__progress hub-text-muted">
+        {{ onboarding.required_done }} of {{ onboarding.required_total }} done{% if onboarding.required_done == 0 %} — let's get you set up.{% elif onboarding.required_done == 1 %} — you're almost there!{% endif %}
+    </p>
+</div>
+<script>
+    // A dismiss POST that fails (server error or dropped connection) leaves the card in
+    // place (htmx runs no swap on error), so we just surface an error toast. Uses the
+    // documented window `show-toast` contract — `$dispatch` is Alpine-only and isn't
+    // available inside an htmx `hx-on::` handler (mirrors _my_guilds.html).
+    function plOnboardingDismissError() {
+        window.dispatchEvent(new CustomEvent('show-toast', {
+            detail: { message: "Couldn't dismiss — please try again.", type: 'error' }
+        }));
+    }
+</script>

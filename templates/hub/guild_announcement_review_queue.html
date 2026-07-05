@@ -1,0 +1,52 @@
+{% extends "hub/base.html" %}
+{% block title %}Announcements awaiting review — Past Lives Makerspace{% endblock %}
+{% block content %}
+<div x-data="{}"
+     x-init="$nextTick(() => { {% if open_decision_for %}$dispatch('open-modal', '{{ open_decision_kind }}-annmodal-{{ open_decision_for }}'){% endif %} })">
+  <p style="margin-bottom:0.75rem;">
+    <a href="{% url 'hub_home' %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to your hub</a>
+  </p>
+  <h1 class="hub-page-title">Announcements awaiting review</h1>
+  <p class="hub-text-muted" style="margin:-0.25rem 0 1.5rem; max-width:65ch;">
+    Member-proposed announcements waiting on a decision. Approving one posts it to the guild page — and, if you
+    leave the boxes ticked, emails the guild's members and posts to its Discord.
+  </p>
+
+  <div class="hub-card" style="padding:1.5rem;">
+    {% if pending_announcements %}
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
+      {% for a in pending_announcements %}
+      {% with pk_str=a.pk|stringformat:"s" %}
+      <div id="announcement-{{ a.pk }}" class="hub-card" style="padding:1rem; background:var(--hub-surface); display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+        <div style="flex:1; min-width:220px;">
+          <div style="font-weight:600;">{{ a.title }}</div>
+          <div class="hub-text-muted" style="font-size:0.8125rem; margin-top:0.25rem;">
+            Proposed by {% if a.submitted_by %}{{ a.submitted_by.get_full_name|default:a.submitted_by.username }}{% else %}a member{% endif %} · {{ a.guild.name }}
+          </div>
+          <p style="margin:0.5rem 0 0; font-size:0.875rem; white-space:pre-wrap;">{{ a.body }}</p>
+        </div>
+
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+          {# Approve sits apart from the destructive controls so it isn't fat-fingered next to Decline. #}
+          <button type="button" class="pl-btn pl-btn--primary pl-btn--sm"
+                  @click="$dispatch('open-modal', 'approve-annmodal-{{ pk_str }}')">Approve…</button>
+          <span style="width:0.5rem;"></span>
+          <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                  @click="$dispatch('open-modal', 'changes-annmodal-{{ pk_str }}')">Request changes</button>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                  @click="$dispatch('open-modal', 'decline-annmodal-{{ pk_str }}')">Decline</button>
+        </div>
+
+        {% include "hub/partials/_announcement_decision_modal.html" with announcement=a modal_id="approve-annmodal-"|add:pk_str kind="approve" %}
+        {% include "hub/partials/_announcement_decision_modal.html" with announcement=a modal_id="changes-annmodal-"|add:pk_str kind="changes" %}
+        {% include "hub/partials/_announcement_decision_modal.html" with announcement=a modal_id="decline-annmodal-"|add:pk_str kind="decline" %}
+      </div>
+      {% endwith %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0;">Nothing awaiting review. 🎉</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

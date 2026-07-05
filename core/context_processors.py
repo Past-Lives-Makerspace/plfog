@@ -23,6 +23,18 @@ def app_version(request: HttpRequest) -> dict[str, Any]:
     return {"app_version": VERSION, "changelog": CHANGELOG}
 
 
+def theme(request: HttpRequest) -> dict[str, str]:
+    """Expose the theme cookie's domain scope to base.html's early inline script.
+
+    The script writes the light/dark choice to the ``pl_theme`` cookie so an
+    explicit choice survives navigation across subdomains of the registrable
+    domain. Empty string → a host-only cookie (correct for local dev like
+    ``pastlives.test``); production sets ``THEME_COOKIE_DOMAIN=.pastlives.app``
+    so the member hub and the guilds surface share the choice.
+    """
+    return {"theme_cookie_domain": settings.THEME_COOKIE_DOMAIN}
+
+
 def feature_flags(request: HttpRequest) -> dict[str, Any]:
     """Expose the Site Settings → Features toggles site-wide (members + public)."""
     from core.models import SiteConfiguration
@@ -38,21 +50,30 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
 def surface(request: HttpRequest) -> dict[str, str | bool]:
     """Expose which surface the request arrived on so templates can branch chrome.
 
-    ``surface`` is ``"public"`` on book.pastlives.space and ``"members"``
-    everywhere else (members host, local dev, Hetzner staging, Render preview).
-    ``is_public_surface`` is the convenience boolean templates branch on.
-    ``parent_template`` lets allauth templates pick their base via
-    ``{% extends parent_template %}`` without forking the template files.
+    ``surface`` is ``"public"`` on book.pastlives.space, ``"guilds"`` on
+    guilds.pastlives.app, and ``"members"`` everywhere else (members host, local
+    dev, Hetzner staging, Render preview). ``is_public_surface`` /
+    ``is_guilds_surface`` are the convenience booleans templates branch on;
+    ``is_guest_surface`` is the unified "no member chrome" flag (true on book and
+    guilds). ``guilds_page_base`` / ``parent_template`` let shared and allauth
+    templates pick their base via ``{% extends ... %}`` without forking the files.
     """
     value = getattr(request, "surface", "members")
     is_public = value == "public"
+    is_guilds = value == "guilds"
     return {
         "surface": value,
         "is_public_surface": is_public,
+        "is_guilds_surface": is_guilds,
+        "is_guest_surface": is_public or is_guilds,
         "MEMBER_HOST": settings.MEMBER_HOST,
         "MEMBER_BASE_URL": getattr(settings, "MEMBER_BASE_URL", f"https://{settings.MEMBER_HOST}"),
         "BOOK_BASE_URL": getattr(settings, "BOOK_BASE_URL", "https://book.pastlives.space"),
-        "parent_template": "classes/base_public.html" if is_public else "base.html",
+        "GUILDS_BASE_URL": getattr(settings, "GUILDS_BASE_URL", "https://guilds.pastlives.app"),
+        "guilds_page_base": "guilds/base_public.html" if is_guilds else "hub/base.html",
+        "parent_template": (
+            "guilds/base_public.html" if is_guilds else "classes/base_public.html" if is_public else "base.html"
+        ),
     }
 
 

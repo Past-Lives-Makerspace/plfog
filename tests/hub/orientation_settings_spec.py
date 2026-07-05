@@ -10,13 +10,12 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from hub.forms import GuildOrientationSettingsForm
-from membership.models import GuildOrientationSettings, OrientationAvailability, OrientationSlot
-from membership.models import Member
+from membership.models import GuildOrientationSettings, Member, OrientationAvailability, OrientationSlot
 from tests.membership.factories import (
     GuildFactory,
     GuildOrientationSettingsFactory,
     MembershipPlanFactory,
+    OrientationAvailabilityFactory,
     OrientationSlotFactory,
 )
 
@@ -46,25 +45,50 @@ def _settings_payload(**overrides: str) -> dict[str, str]:
     return data
 
 
+def _hours_payload(**overrides: str) -> dict[str, str]:
+    data = {
+        "rules-TOTAL_FORMS": "0",
+        "rules-INITIAL_FORMS": "0",
+        "rules-MIN_NUM_FORMS": "0",
+        "rules-MAX_NUM_FORMS": "1000",
+    }
+    data.update(overrides)
+    return data
+
+
 def _future(hours: int) -> str:
     return (timezone.localtime() + timedelta(days=2, hours=hours)).strftime("%Y-%m-%dT%H:%M")
 
 
 def describe_guild_orientation_edit():
-    def it_renders_the_editor_for_an_editor(client: Client):
+    def it_renders_the_editor_inside_the_orientations_tab(client: Client):
+        # The editor is now an in-page tab on the guild edit page, not a standalone page.
         _user_with_role("ed_admin", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="ed_admin", password="pass")
-        response = client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]))
+        response = client.get(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
         assert response.status_code == 200
         assert b"Recurring hours" in response.content
+        assert b"Save orientation settings" in response.content
+        # Recurring hours now save through their own form with their own button.
+        assert b"Save Hours" in response.content
+        assert reverse("hub_guild_orientation_hours_save", args=[guild.pk]).encode() in response.content
+        assert b"Who runs orientations" in response.content
 
-    def it_creates_settings_on_first_view(client: Client):
+    def it_redirects_a_get_to_the_orientations_tab(client: Client):
+        _user_with_role("ed_get", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="ed_get", password="pass")
+        response = client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]))
+        assert response.status_code == 302
+        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+
+    def it_creates_settings_when_the_tab_is_opened(client: Client):
         _user_with_role("ed_create", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="ed_create", password="pass")
         assert GuildOrientationSettings.objects.filter(guild=guild).count() == 0
-        client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]))
+        client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert GuildOrientationSettings.objects.filter(guild=guild).count() == 1
 
     def it_forbids_a_regular_member(client: Client):
@@ -89,6 +113,7 @@ def describe_guild_orientation_edit():
             _settings_payload(is_enabled="on", default_location="Front desk"),
         )
         assert response.status_code == 302
+        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
         settings_obj = GuildOrientationSettings.objects.get(guild=guild)
         assert settings_obj.is_enabled is True
         assert settings_obj.default_location == "Front desk"
@@ -106,39 +131,126 @@ def describe_guild_orientation_edit():
         )
         assert GuildOrientationSettings.objects.get(guild=guild).allow_custom_requests is True
 
-    def it_saves_a_recurring_rule(client: Client):
-        _user_with_role("ed_rule", fog_role=Member.FogRole.ADMIN)
+    def it_keeps_existing_hours_when_only_settings_are_saved(client: Client):
+        # The settings form no longer carries the hours formset — saving settings must
+        # leave a guild's recurring hours untouched.
+        _user_with_role("ed_keep", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
-        client.login(username="ed_rule", password="pass")
+        rule = OrientationAvailabilityFactory(guild=guild)
+        client.login(username="ed_keep", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_edit", args=[guild.pk]),
-            _settings_payload(
-                is_enabled="on",
+            _settings_payload(is_enabled="on", default_location="Front desk"),
+        )
+        assert response.status_code == 302
+        assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
+
+    def it_no_longer_touches_the_email_fields(client: Client):
+        # The follow-up emails moved to the Announcements/Emails tab; the orientation
+        # settings save must leave the email fields untouched even if they're posted.
+        _user_with_role("ed_no_email", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        settings_obj = GuildOrientationSettingsFactory(
+            guild=guild, thankyou_email_subject="Keep me", thankyou_email_enabled=True
+        )
+        client.login(username="ed_no_email", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_edit", args=[guild.pk]),
+            _settings_payload(is_enabled="on", thankyou_email_subject="Overwritten?", thankyou_email_enabled=""),
+        )
+        assert response.status_code == 302
+        settings_obj.refresh_from_db()
+        assert settings_obj.thankyou_email_subject == "Keep me"
+        assert settings_obj.thankyou_email_enabled is True
+
+
+def describe_guild_orientation_hours_save():
+    """Recurring hours save through their own form/view, separate from the settings form."""
+
+    def it_saves_a_recurring_rule_and_redirects_to_the_tab(client: Client):
+        _user_with_role("hrs_add", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="hrs_add", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _hours_payload(
                 **{
                     "rules-TOTAL_FORMS": "1",
                     "rules-0-weekday": "1",
                     "rules-0-start_time": "18:00",
                     "rules-0-end_time": "19:00",
                     "rules-0-seats": "5",
-                    "rules-0-location": "Studio B",
                     "rules-0-is_active": "on",
-                },
+                }
             ),
+            follow=True,
         )
-        assert response.status_code == 302
+        assert response.status_code == 200
+        assert response.redirect_chain[-1][0] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
         rule = OrientationAvailability.objects.get(guild=guild)
         assert rule.weekday == 1
         assert rule.seats == 5
+        assert "Recurring hours saved." in [str(m) for m in response.context["messages"]]
+
+    def it_edits_an_existing_rule(client: Client):
+        _user_with_role("hrs_edit", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        rule = OrientationAvailabilityFactory(guild=guild, weekday=0, seats=2)
+        client.login(username="hrs_edit", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _hours_payload(
+                **{
+                    "rules-TOTAL_FORMS": "1",
+                    "rules-INITIAL_FORMS": "1",
+                    "rules-0-id": str(rule.pk),
+                    "rules-0-weekday": "3",
+                    "rules-0-start_time": "10:00",
+                    "rules-0-end_time": "12:00",
+                    "rules-0-seats": "6",
+                    "rules-0-is_active": "on",
+                }
+            ),
+        )
+        assert response.status_code == 302
+        rule.refresh_from_db()
+        assert rule.weekday == 3
+        assert rule.seats == 6
+
+    def it_deletes_a_flagged_rule_via_the_delete_field(client: Client):
+        _user_with_role("hrs_del", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        rule = OrientationAvailabilityFactory(guild=guild)
+        client.login(username="hrs_del", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _hours_payload(
+                **{
+                    "rules-TOTAL_FORMS": "1",
+                    "rules-INITIAL_FORMS": "1",
+                    "rules-0-id": str(rule.pk),
+                    "rules-0-weekday": str(rule.weekday),
+                    "rules-0-start_time": "09:00",
+                    "rules-0-end_time": "10:00",
+                    "rules-0-seats": str(rule.seats),
+                    "rules-0-is_active": "on",
+                    "rules-0-DELETE": "on",
+                }
+            ),
+        )
+        assert response.status_code == 302
+        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
 
     def it_generates_bookable_slots_when_a_rule_is_saved(client: Client):
         # Saving recurring hours materializes slots immediately — no waiting for the cron.
-        _user_with_role("ed_gen", fog_role=Member.FogRole.ADMIN)
+        # (Slots only generate for a guild that is accepting orientations.)
+        _user_with_role("hrs_gen", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
-        client.login(username="ed_gen", password="pass")
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        client.login(username="hrs_gen", password="pass")
         response = client.post(
-            reverse("hub_guild_orientation_edit", args=[guild.pk]),
-            _settings_payload(
-                is_enabled="on",
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _hours_payload(
                 **{
                     "rules-TOTAL_FORMS": "1",
                     "rules-0-weekday": "1",
@@ -146,56 +258,92 @@ def describe_guild_orientation_edit():
                     "rules-0-end_time": "19:00",
                     "rules-0-seats": "5",
                     "rules-0-is_active": "on",
-                },
+                }
             ),
         )
         assert response.status_code == 302
         assert OrientationSlot.objects.filter(guild=guild, source=OrientationSlot.Source.GENERATED).exists()
 
-    def it_rejects_a_thankyou_email_with_no_subject(client: Client):
-        _user_with_role("ed_email", fog_role=Member.FogRole.ADMIN)
+    def it_keeps_existing_settings_when_only_hours_are_saved(client: Client):
+        # Saving hours through its own form must not disturb the guild's orientation settings.
+        _user_with_role("hrs_keep", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
-        client.login(username="ed_email", password="pass")
+        settings_obj = GuildOrientationSettingsFactory(guild=guild, is_enabled=True, default_location="Front desk")
+        client.login(username="hrs_keep", password="pass")
         response = client.post(
-            reverse("hub_guild_orientation_edit", args=[guild.pk]),
-            _settings_payload(thankyou_email_enabled="on", thankyou_email_body="Thanks!"),
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _hours_payload(
+                **{
+                    "rules-TOTAL_FORMS": "1",
+                    "rules-0-weekday": "2",
+                    "rules-0-start_time": "10:00",
+                    "rules-0-end_time": "11:00",
+                    "rules-0-seats": "3",
+                    "rules-0-is_active": "on",
+                }
+            ),
         )
-        assert response.status_code == 200
-        assert "thankyou_email_subject" in response.context["form"].errors
-        assert GuildOrientationSettings.objects.get(guild=guild).thankyou_email_enabled is False
-
-    def it_rejects_a_welcome_email_with_no_body(client: Client):
-        _user_with_role("ed_join", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory()
-        client.login(username="ed_join", password="pass")
-        response = client.post(
-            reverse("hub_guild_orientation_edit", args=[guild.pk]),
-            _settings_payload(join_email_enabled="on", join_email_subject="Welcome!"),
-        )
-        assert response.status_code == 200
-        assert "join_email_body" in response.context["form"].errors
+        assert response.status_code == 302
+        settings_obj.refresh_from_db()
+        assert settings_obj.is_enabled is True
+        assert settings_obj.default_location == "Front desk"
 
     def it_rejects_a_rule_whose_end_is_before_its_start(client: Client):
-        _user_with_role("ed_badrule", fog_role=Member.FogRole.ADMIN)
+        # The bad time range re-renders the page with the field error and saves nothing.
+        _user_with_role("hrs_bad", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
-        client.login(username="ed_badrule", password="pass")
+        client.login(username="hrs_bad", password="pass")
         response = client.post(
-            reverse("hub_guild_orientation_edit", args=[guild.pk]),
-            _settings_payload(
-                is_enabled="on",
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _hours_payload(
                 **{
                     "rules-TOTAL_FORMS": "1",
                     "rules-0-weekday": "1",
                     "rules-0-start_time": "19:00",
                     "rules-0-end_time": "18:00",
                     "rules-0-seats": "4",
-                    "rules-0-location": "",
                     "rules-0-is_active": "on",
-                },
+                }
             ),
         )
         assert response.status_code == 200
         assert OrientationAvailability.objects.filter(guild=guild).count() == 0
+        assert response.context["rule_formset"].errors
+
+    def it_lets_the_guild_lead_save_hours(client: Client):
+        user = _user_with_role("hrs_lead", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="hrs_lead", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _hours_payload(
+                **{
+                    "rules-TOTAL_FORMS": "1",
+                    "rules-0-weekday": "1",
+                    "rules-0-start_time": "18:00",
+                    "rules-0-end_time": "19:00",
+                    "rules-0-seats": "5",
+                    "rules-0-is_active": "on",
+                }
+            ),
+        )
+        assert response.status_code == 302
+        assert OrientationAvailability.objects.filter(guild=guild).count() == 1
+
+    def it_forbids_a_regular_member(client: Client):
+        _user_with_role("hrs_reg", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory()
+        client.login(username="hrs_reg", password="pass")
+        response = client.post(reverse("hub_guild_orientation_hours_save", args=[guild.pk]), _hours_payload())
+        assert response.status_code == 403
+        assert OrientationAvailability.objects.filter(guild=guild).count() == 0
+
+    def it_rejects_get_requests(client: Client):
+        _user_with_role("hrs_get", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="hrs_get", password="pass")
+        response = client.get(reverse("hub_guild_orientation_hours_save", args=[guild.pk]))
+        assert response.status_code == 405
 
 
 def describe_guild_orientation_slot_add():
@@ -285,124 +433,3 @@ def describe_guild_orientation_slot_cancel():
         client.login(username="can_get", password="pass")
         response = client.get(reverse("hub_guild_orientation_slot_cancel", args=[guild.pk, slot.pk]))
         assert response.status_code == 405
-
-
-def _form_data_from(instance: GuildOrientationSettings, **overrides: object) -> dict[str, str]:
-    """Build a complete bound payload mirroring ``instance``, with ``overrides`` applied.
-
-    Mirroring every field means ``changed_data`` contains only the overridden
-    fields — exactly what the timestamp gating keys off.
-    """
-    data: dict[str, str] = {}
-    for name in GuildOrientationSettingsForm.Meta.fields:
-        value = getattr(instance, name)
-        if isinstance(value, bool):
-            if value:
-                data[name] = "on"
-        else:
-            data[name] = "" if value is None else str(value)
-    for name, value in overrides.items():
-        if value is None:
-            data.pop(name, None)
-        else:
-            data[name] = str(value)
-    return data
-
-
-def describe_GuildOrientationSettingsForm_email_timestamps():
-    def it_stamps_thankyou_only_when_a_thankyou_field_changes():
-        settings_obj = GuildOrientationSettingsFactory(is_enabled=True)
-        form = GuildOrientationSettingsForm(
-            data=_form_data_from(
-                settings_obj,
-                thankyou_email_enabled="on",
-                thankyou_email_subject="Thanks!",
-                thankyou_email_body="Next steps.",
-            ),
-            instance=settings_obj,
-        )
-        assert form.is_valid(), form.errors
-        saved = form.save()
-
-        assert saved.thankyou_email_updated_at is not None
-        assert saved.join_email_updated_at is None
-
-    def it_stamps_join_only_when_a_join_field_changes():
-        settings_obj = GuildOrientationSettingsFactory(is_enabled=True)
-        form = GuildOrientationSettingsForm(
-            data=_form_data_from(
-                settings_obj,
-                join_email_enabled="on",
-                join_email_subject="Welcome!",
-                join_email_body="Glad you joined.",
-            ),
-            instance=settings_obj,
-        )
-        assert form.is_valid(), form.errors
-        saved = form.save()
-
-        assert saved.join_email_updated_at is not None
-        assert saved.thankyou_email_updated_at is None
-
-    def it_stamps_neither_when_only_an_unrelated_field_changes():
-        settings_obj = GuildOrientationSettingsFactory(is_enabled=True, is_closed=False)
-        form = GuildOrientationSettingsForm(
-            data=_form_data_from(settings_obj, is_closed="on"),
-            instance=settings_obj,
-        )
-        assert form.is_valid(), form.errors
-        saved = form.save()
-
-        assert saved.is_closed is True
-        assert saved.thankyou_email_updated_at is None
-        assert saved.join_email_updated_at is None
-
-    def it_does_not_disturb_an_existing_join_timestamp_on_an_unrelated_save():
-        # A previously-stamped join timestamp must not drift when an unrelated
-        # field is the only change.
-        original = timezone.now() - timedelta(days=3)
-        settings_obj = GuildOrientationSettingsFactory(
-            is_enabled=True,
-            is_closed=False,
-            join_email_updated_at=original,
-        )
-        form = GuildOrientationSettingsForm(
-            data=_form_data_from(settings_obj, is_closed="on"),
-            instance=settings_obj,
-        )
-        assert form.is_valid(), form.errors
-        saved = form.save()
-
-        assert saved.join_email_updated_at == original
-
-
-def describe_GuildOrientationSettingsForm_sanitization():
-    def it_sanitizes_both_email_bodies_and_strips_script():
-        settings_obj = GuildOrientationSettingsFactory()
-        form = GuildOrientationSettingsForm(
-            data=_form_data_from(
-                settings_obj,
-                thankyou_email_body="<p>Thanks!</p><script>a()</script>",
-                join_email_body="<p>Welcome!</p><script>b()</script>",
-            ),
-            instance=settings_obj,
-        )
-        assert form.is_valid(), form.errors
-        assert "<script" not in form.cleaned_data["thankyou_email_body"]
-        assert "Thanks!" in form.cleaned_data["thankyou_email_body"]
-        assert "<script" not in form.cleaned_data["join_email_body"]
-        assert "Welcome!" in form.cleaned_data["join_email_body"]
-
-    def it_treats_an_empty_quill_doc_as_a_missing_body_when_enabling():
-        settings_obj = GuildOrientationSettingsFactory()
-        form = GuildOrientationSettingsForm(
-            data=_form_data_from(
-                settings_obj,
-                thankyou_email_enabled="on",
-                thankyou_email_subject="Thanks",
-                thankyou_email_body="<p><br></p>",
-            ),
-            instance=settings_obj,
-        )
-        assert not form.is_valid()
-        assert "thankyou_email_body" in form.errors

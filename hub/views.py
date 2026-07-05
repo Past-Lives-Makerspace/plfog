@@ -10,14 +10,16 @@ from typing import Any, TypedDict, cast
 from django.utils import timezone as dj_timezone
 
 from allauth.account.models import EmailAddress
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, QuerySet
-from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST, require_http_methods
 
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
@@ -31,7 +33,9 @@ from hub.forms import (
     GuildEditForm,
     MemberAdminEditForm,
     MemberSkillForm,
+    OrgInfoPageForm,
     ProfileSettingsForm,
+    ReleaseAnnouncementForm,
     SiteAnnouncementForm,
     SiteSettingsForm,
     SkillSuggestionForm,
@@ -39,7 +43,7 @@ from hub.forms import (
 )
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
-from membership.models import FundingSnapshot, Guild, Member, Skill, SkillCategory, VotePreference
+from membership.models import FundingSnapshot, Guild, Member, OrgInfoPage, Skill, SkillCategory, VotePreference
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
@@ -57,16 +61,21 @@ def _get_hub_context(request: HttpRequest) -> dict[str, Any]:
     guilds = Guild.objects.order_by("name")
     initials = ""
     photo_url = ""
+    show_welcome_modal = False
     if request.user.is_authenticated:
         member: Member | None = getattr(request.user, "member", None)
         if member is not None:
             initials = member.initials
             if member.profile_photo:
                 photo_url = member.profile_photo.url
+            # First-login nudge: brand-new members who haven't customized anything and
+            # haven't dismissed it yet. Established members are never shown it (no backfill).
+            show_welcome_modal = member.welcome_dismissed_at is None and not member.has_started_profile
     return {
         "guilds": guilds,
         "user_initials": initials,
         "user_profile_photo_url": photo_url,
+        "show_welcome_modal": show_welcome_modal,
     }
 
 
@@ -77,6 +86,47 @@ def _get_member(request: HttpRequest) -> Member | None:
     """
     member: Member | None = getattr(request.user, "member", None)
     return member
+
+
+@login_required
+@require_POST
+def welcome_dismiss(request: HttpRequest) -> HttpResponse:
+    """Dismiss the first-login 'set up your profile' welcome modal.
+
+    Both modal buttons POST here so the dismissal always sticks server-side.
+    "Set up my profile" (destination=profile) stamps and lands the member on their
+    profile settings; "Maybe later" stamps and returns them to where they were.
+    """
+    member = _get_member(request)
+    if member is not None:
+        member.dismiss_welcome()
+    if request.POST.get("destination") == "profile":
+        return redirect(f"{reverse('hub_user_settings')}?tab=profile")
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
+    return redirect("hub_community_calendar")
+
+
+@login_required
+@require_POST
+def onboarding_dismiss(request: HttpRequest) -> HttpResponse:
+    """Dismiss the home "Get started" onboarding checklist card (HTMX; empty 200 + toast).
+
+    Returns an empty **200** body so the card's ``hx-swap="outerHTML"`` removes it — a 204
+    would run no swap and leave the card in place. Sticky: the model records the dismissal so
+    it never comes back. No dead end — the toast names where the member can still finish setup.
+    """
+    member = _get_member(request)
+    if member is not None:
+        member.dismiss_onboarding()
+    response = HttpResponse("")
+    trigger_toast(
+        response,
+        "You can finish setup anytime — Settings → Guilds, your profile, and the voting page.",
+        "info",
+    )
+    return response
 
 
 @login_required
@@ -333,7 +383,7 @@ def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
 
     ct = get_object_or_404(ContentType, pk=ct_id)
     model_class = ct.model_class()
-    if model_class not in [Guild, Category, ClassOffering]:
+    if model_class not in [Guild, Category, ClassOffering, OrgInfoPage]:
         return JsonResponse({"error": "Unsupported model"}, status=400)
 
     obj = get_object_or_404(model_class, pk=object_id)
@@ -346,6 +396,8 @@ def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
         allowed = _can_edit_offering(request, obj)
     elif isinstance(obj, Category):
         allowed = _can_edit_category(request, obj)
+    elif isinstance(obj, OrgInfoPage):
+        allowed = _viewing_as_admin(request)
 
     if not allowed:
         return JsonResponse({"error": "Forbidden"}, status=403)
@@ -376,7 +428,7 @@ def _guild_pulse(guild: "Guild", limit: int = 6) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for membership in guild.memberships.select_related("member").order_by("-joined_at")[:limit]:
         items.append({"when": membership.joined_at, "text": f"{membership.member.display_name} joined the guild"})
-    for announcement in guild.announcements.active().order_by("-published_at")[:limit]:
+    for announcement in guild.announcements.published().active().order_by("-published_at")[:limit]:
         items.append({"when": announcement.published_at, "text": f"Announcement: {announcement.title}"})
     classes = (
         ClassOffering.objects.filter(category__guild=guild, status=ClassOffering.Status.PUBLISHED)
@@ -395,6 +447,24 @@ def guild_detail_redirect(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("hub_guild_detail", slug=guild.slug, permanent=True)
 
 
+def guild_directory(request: HttpRequest) -> HttpResponse:
+    """Public guild directory — featured guilds first, then alphabetical.
+
+    Renders in guest chrome on the guilds surface (guilds.pastlives.app); the
+    sidebar context is ignored there but keeps parity on the members host.
+    """
+    guilds = Guild.objects.directory().select_related("guild_lead").annotate(member_total=Count("memberships"))
+    ctx = _get_hub_context(request)
+    hero_stats = {
+        "guilds": len(guilds),
+        "members": (
+            Member.objects.filter(guild_memberships__guild__in=guilds, status=Member.Status.ACTIVE).distinct().count()
+        ),
+        "classes": ClassOffering.objects.bookable().count(),
+    }
+    return render(request, "guilds/directory.html", {**ctx, "guilds": guilds, "hero_stats": hero_stats})
+
+
 def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """Guild detail page — shows about text, active products, and cart interface."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm, build_product_split_formset
@@ -408,13 +478,23 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     products = guild.products.order_by("name").prefetch_related("splits__guild")
     member = _get_member(request)
 
+    # A private guild is hidden from the public guest surface entirely: it 404s for
+    # anyone who isn't a logged-in member viewing it inside the FOG hub. Members on the
+    # members host always see the page — visibility is never gated on is_public there.
+    on_guest_surface = getattr(request, "surface", "members") != "members"
+    if not guild.is_public and (on_guest_surface or member is None):
+        raise Http404("This guild's page is private.")
+
     tab: Tab | None = None
     if member is not None:
         tab, _created = Tab.objects.get_or_create(member=member)
 
     eyop_form = TabItemForm(context=CONTEXT_MEMBER_GUILD_PAGE, user=request.user, guild=guild)
 
-    can_edit_this_guild = _can_edit_guild(request, guild)
+    # Editor affordances never render on the guest guilds surface: a logged-in
+    # lead there would otherwise see Edit / Adjust / product-admin buttons that
+    # 404 (the editor endpoints aren't in the guilds allowlist). Leads edit on FOG.
+    can_edit_this_guild = _can_edit_guild(request, guild) and getattr(request, "surface", "members") != "guilds"
     product_form = None
     product_splits_formset = None
     all_guilds = None
@@ -428,9 +508,11 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     gallery_images = guild.gallery_images.all()
     faq_items = guild.faq_items.all()
     links = guild.links.all()
-    announcements = guild.announcements.active()[:5]
+    announcements = guild.announcements.published().active()[:5]
     meeting_notes = guild.meeting_notes.prefetch_related("attachments")
-    roster = guild.roster_members() if guild.show_members else None
+    # Gate the roster on the viewer, not just the guild opt-in: an anonymous guest
+    # must never see member names/avatars (the count-only chip lives in the hero).
+    roster = guild.roster_members() if guild.show_members and member is not None else None
     is_member_of_guild = member is not None and guild.memberships.filter(member=member).exists()
 
     from classes.models import ClassOffering
@@ -542,50 +624,110 @@ def _require_admin(request: HttpRequest) -> HttpResponse | None:
     return None
 
 
+def _guild_edit_context(
+    request: HttpRequest,
+    guild: Guild,
+    *,
+    form: GuildEditForm | None = None,
+    orientation_form: Any = None,
+    emails_form: Any = None,
+    rule_formset: Any = None,
+) -> dict[str, Any]:
+    """Build the full render context for the guild edit page (all nine in-page tabs).
+
+    Shared by ``guild_edit`` (GET + invalid-POST re-render) and ``guild_orientation_edit``'s
+    invalid-POST re-render, so the inlined Orientations / Meeting Notes / Events tabs always
+    have their data. Pass a bound ``form`` / ``orientation_form`` / ``rule_formset`` to surface
+    validation errors; unbound defaults are built otherwise. Orientation, FAQ, and Links each
+    save via their own endpoint (the FAQ/Links idiom), so their formsets are unbound here.
+    """
+    from hub.forms import (
+        GuildAnnouncementForm,
+        GuildEmailsForm,
+        GuildFAQItemFormSet,
+        GuildLinkFormSet,
+        GuildOrientationSettingsForm,
+        GuildStaffAddForm,
+        OrientationAvailabilityFormSet,
+    )
+    from membership.models import GuildOrientationSettings
+
+    settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
+    ctx = _get_hub_context(request)
+    return {
+        **ctx,
+        "guild": guild,
+        "form": form if form is not None else GuildEditForm(instance=guild),
+        "faq_formset": GuildFAQItemFormSet(instance=guild, prefix="faq"),
+        "link_formset": GuildLinkFormSet(instance=guild, prefix="links"),
+        "announcement_form": GuildAnnouncementForm(guild=guild),
+        "staff_by_member": guild.staff_by_member(),
+        "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
+        "is_admin": _viewing_as_admin(request),
+        "notes": guild.meeting_notes.prefetch_related("attachments"),
+        "events": guild.events.upcoming().select_related("guild"),
+        "orientation_form": (
+            orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
+        ),
+        "emails_form": emails_form if emails_form is not None else GuildEmailsForm(instance=settings_obj),
+        "rule_formset": (
+            rule_formset if rule_formset is not None else OrientationAvailabilityFormSet(instance=guild, prefix="rules")
+        ),
+    }
+
+
 @login_required
 def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead/staff only."""
-    from hub.forms import GuildAnnouncementForm, GuildFAQItemFormSet, GuildLinkFormSet, GuildStaffAddForm
+    """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead/staff only.
 
+    Orientations, Meeting Notes, and Events are in-page tabs here (see ``_guild_edit_context``),
+    not separate pages. Each non-Basic/Meetings/Images section saves via its own endpoint, so the
+    main form below only covers Basic/Meetings/Images.
+    """
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
 
-    # FAQ and Links now save themselves via guild_faq_save / guild_links_save (their own
-    # forms on the FAQ & Links tab). The main form here only covers Basic/Meetings/Images
-    # — but it still instantiates both formsets for the GET render so the tab can draw rows.
     if request.method == "POST":
         form = GuildEditForm(request.POST, request.FILES, instance=guild)
         if form.is_valid():
             form.save()
             guild.add_gallery_images(request.FILES.getlist("gallery_images"))
-
             messages.success(request, "Guild page updated.")
             if request.POST.get("after") == "edit":
                 return redirect("hub_guild_edit", pk=guild.pk)
             return redirect("hub_guild_detail", slug=guild.slug)
-    else:
-        form = GuildEditForm(instance=guild)
-    faq_formset = GuildFAQItemFormSet(instance=guild, prefix="faq")
-    link_formset = GuildLinkFormSet(instance=guild, prefix="links")
+        return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild, form=form))
 
-    ctx = _get_hub_context(request)
-    return render(
-        request,
-        "hub/guild_edit.html",
-        {
-            **ctx,
-            "guild": guild,
-            "form": form,
-            "faq_formset": faq_formset,
-            "link_formset": link_formset,
-            "announcement_form": GuildAnnouncementForm(),
-            "staff_by_role": guild.staff_by_role(),
-            "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
-            "is_admin": _viewing_as_admin(request),
-        },
-    )
+    return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild))
+
+
+@login_required
+def guild_qr_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
+    """Download this guild's vanity-URL QR code as SVG (default) or PNG (editor-gated)."""
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    if fmt == "svg":
+        resp = HttpResponse(guild.qr_svg(), content_type="image/svg+xml")
+    elif fmt == "png":
+        resp = HttpResponse(guild.qr_png_bytes(), content_type="image/png")
+    else:
+        raise Http404
+    resp["Content-Disposition"] = f'attachment; filename="{guild.slug}-qr.{fmt}"'
+    return resp
+
+
+@login_required
+def guild_flyer(request: HttpRequest, pk: int) -> HttpResponse:
+    """Print-optimized one-page flyer for a guild (leads → Print → Save as PDF)."""
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    return render(request, "hub/guild_flyer.html", {"guild": guild, "qr_svg": guild.qr_svg()})
 
 
 @login_required
@@ -603,50 +745,71 @@ def guild_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Config editor: orientation settings + recurring availability rules.
+    """Save handler for the Orientations tab's settings form (recurring hours save separately).
 
-    Open to anyone who may manage the guild's orientations (lead, admin, or staff).
-    Who *runs* orientations — the guild's staff — is now managed on the guild's Staff
-    tab, not here, so this page is purely the booking + availability configuration.
+    The editor itself is an in-page tab on ``guild_edit``, so a GET just sends the viewer there.
+    A POST validates the settings, saves, regenerates slots (seat/duration changes affect them),
+    and redirects back to the tab; an invalid POST re-renders the full guild edit page with the
+    settings form's errors. Recurring hours save through their own form
+    (:func:`guild_orientation_hours_save`). Open to anyone who may manage the guild's orientations
+    (lead, admin, or staff).
     """
-    from hub.forms import GuildOrientationSettingsForm, OrientationAvailabilityFormSet
+    from hub.forms import GuildOrientationSettingsForm
     from membership.models import GuildOrientationSettings
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_manage_orientations(request, guild)
     if forbidden is not None:
         return forbidden
+    orientations_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+    if request.method != "POST":
+        return redirect(orientations_tab)
+
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
+    form = GuildOrientationSettingsForm(request.POST, instance=settings_obj)
+    if form.is_valid():
+        form.save()
+        # Materialize bookable slots now so seat/duration changes show up immediately —
+        # don't make the editor wait for the nightly generation cron.
+        from membership import orientations
 
-    if request.method == "POST":
-        form = GuildOrientationSettingsForm(request.POST, instance=settings_obj)
-        rule_formset = OrientationAvailabilityFormSet(request.POST, instance=guild, prefix="rules")
-        if form.is_valid() and rule_formset.is_valid():
-            form.save()
-            rule_formset.save()
-            # Materialize bookable slots now so recurring hours show up immediately —
-            # don't make the editor wait for the nightly generation cron.
-            from membership import orientations
+        orientations.generate_slots(guild=guild)
+        messages.success(request, "Orientation settings updated.")
+        return redirect(orientations_tab)
 
-            orientations.generate_slots(guild=guild)
-            messages.success(request, "Orientation settings updated.")
-            return redirect("hub_guild_orientation_edit", pk=guild.pk)
-    else:
-        form = GuildOrientationSettingsForm(instance=settings_obj)
-        rule_formset = OrientationAvailabilityFormSet(instance=guild, prefix="rules")
+    ctx = _guild_edit_context(request, guild, orientation_form=form)
+    return render(request, "hub/guild_edit.html", ctx)
 
-    ctx = _get_hub_context(request)
-    return render(
-        request,
-        "hub/orientation_settings.html",
-        {
-            **ctx,
-            "guild": guild,
-            "form": form,
-            "rule_formset": rule_formset,
-            "can_edit_guild": _can_edit_guild(request, guild),
-        },
-    )
+
+@login_required
+@require_POST
+def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the recurring orientation hours from their own form on the Orientations tab.
+
+    The recurring-hours formset is its own ``<form>`` (mirroring the FAQ/Links editors), so it
+    saves independently of the orientation-settings form, materializes bookable slots immediately,
+    and redirects back to the Orientations tab. An invalid time range re-renders the page with the
+    formset's field errors and saves nothing. Open to anyone who may manage the guild's
+    orientations (lead, admin, or staff/orienter).
+    """
+    from hub.forms import OrientationAvailabilityFormSet
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_manage_orientations(request, guild)
+    if forbidden is not None:
+        return forbidden
+    formset = OrientationAvailabilityFormSet(request.POST, instance=guild, prefix="rules")
+    if formset.is_valid():
+        formset.save()
+        # Same side effect the combined save had — saved hours materialize slots immediately.
+        from membership import orientations
+
+        orientations.generate_slots(guild=guild)
+        messages.success(request, "Recurring hours saved.")
+        return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+
+    ctx = _guild_edit_context(request, guild, rule_formset=formset)
+    return render(request, "hub/guild_edit.html", ctx)
 
 
 def _staff_candidates(guild: Guild) -> Any:
@@ -728,7 +891,7 @@ def guild_orientation_slot_add(request: HttpRequest, pk: int) -> HttpResponse:
         for field, errors in form.errors.items():
             for error in errors:
                 messages.error(request, f"{field}: {error}")
-    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
 
 
 @login_required
@@ -745,7 +908,7 @@ def guild_orientation_slot_cancel(request: HttpRequest, pk: int, slot_pk: int) -
     slot = get_object_or_404(guild.orientation_slots, pk=slot_pk)
     orientations.cancel_slot(slot, reason=request.POST.get("reason", ""))
     messages.success(request, "Orientation slot cancelled.")
-    return redirect("hub_guild_orientation_edit", pk=guild.pk)
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
 
 
 @login_required
@@ -1279,10 +1442,15 @@ def user_settings(request: HttpRequest) -> HttpResponse:
         profile_form = ProfileSettingsForm(request.POST, request.FILES, instance=member)
         if profile_form.is_valid():
             profile_form.save()
-            from core.models import SiteActivity
-
-            SiteActivity.log(SiteActivity.Kind.PROFILE_UPDATED, actor=request.user, target=member)
+            _log_profile_updated(cast(User, request.user), member)
             messages.success(request, "Profile updated.")
+            return redirect(f"{request.path}?tab=profile")
+        if profile_form.has_only_photo_errors:
+            # A rejected photo (too large / not an image) must never discard the member's
+            # other edits — save everything except the photo and flag just the photo.
+            profile_form.save_keeping_existing_photo()
+            _log_profile_updated(cast(User, request.user), member)
+            messages.warning(request, f"Your profile was saved, but the new photo wasn't: {profile_form.photo_error}")
             return redirect(f"{request.path}?tab=profile")
     elif member is not None:
         profile_form = ProfileSettingsForm(instance=member)
@@ -1305,12 +1473,13 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     # Whitelist the tab param — it flows into an Alpine x-data JS expression, so
     # HTML escaping alone isn't enough to stop a payload like ?tab='+alert(1)+'.
     tab_param = request.GET.get("tab", "profile")
-    active_tab = tab_param if tab_param in {"profile", "emails", "notifications"} else "profile"
+    active_tab = tab_param if tab_param in {"profile", "emails", "notifications", "guilds"} else "profile"
 
     if member is None and request.method == "GET" and not request.GET.get("tab"):
         messages.info(request, "Your account is not linked to a membership.")
 
     from core.events import settings_matrix
+    from hub.guild_membership import build_my_guilds_rows
 
     notif_matrix = settings_matrix.build_matrix(user)
     notif_channels = [
@@ -1335,8 +1504,21 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "notif_matrix": notif_matrix,
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,
+            "my_guilds_rows": build_my_guilds_rows(member),
+            "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+            "photo_upload_hint": (
+                "Optional. Shown next to your name in the member directory and in the navbar. "
+                f"Max {settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024):.0f} MB."
+            ),
         },
     )
+
+
+def _log_profile_updated(user: User, member: Member) -> None:
+    """Record a profile-update activity entry (used by both the full and photo-only saves)."""
+    from core.models import SiteActivity
+
+    SiteActivity.log(SiteActivity.Kind.PROFILE_UPDATED, actor=user, target=member)
 
 
 @login_required
@@ -1464,6 +1646,40 @@ def guild_leave(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 @require_POST
+def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
+    """Join or leave a guild from the My Guilds settings toggle (HTMX; 204 + toast).
+
+    Runs the same idempotent join/leave logic as ``guild_join`` / ``guild_leave`` but
+    returns a toast instead of a full-page redirect. The toggle's checkbox posts
+    ``joined`` when checked (join) and omits the field when unchecked (leave), so the
+    presence of ``joined`` in POST is the switch state.
+    """
+    from membership import orientations
+    from membership.models import GuildMembership
+
+    guild = get_object_or_404(Guild, pk=pk)
+    member = _get_member(request)
+    response = HttpResponse(status=204)
+    if member is None:
+        trigger_toast(response, "Your account is not linked to a membership.", "error")
+        return response
+    if "joined" in request.POST:
+        _membership, created = GuildMembership.objects.get_or_create(guild=guild, member=member)
+        if created:
+            orientations.member_joined_guild(guild, member)
+        trigger_toast(response, f"You joined {guild.name}.", "success")
+    else:
+        GuildMembership.objects.filter(guild=guild, member=member).delete()
+        trigger_toast(
+            response,
+            f"You left {guild.name}. You'll stop getting its announcements — rejoin anytime.",
+            "info",
+        )
+    return response
+
+
+@login_required
+@require_POST
 def guild_image_delete(request: HttpRequest, pk: int, image_pk: int) -> HttpResponse:
     """Delete a gallery image. Editor only."""
     from membership.models import GuildImage
@@ -1577,7 +1793,7 @@ def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
-    form = GuildAnnouncementForm(request.POST)
+    form = GuildAnnouncementForm(request.POST, guild=guild)
     if form.is_valid():
         announcement = form.save(commit=False)
         announcement.guild = guild
@@ -1588,6 +1804,38 @@ def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         messages.error(request, "Couldn't post the announcement — add a title and body.")
     return redirect("hub_guild_edit", pk=guild.pk)
+
+
+@login_required
+def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the guild's two follow-up emails from the Announcements/Emails tab. Editor only.
+
+    The editors are an in-page section of the Announcements/Emails tab on ``guild_edit``,
+    so a GET just sends the viewer there. A POST validates and saves the six email fields
+    (enable-requires-subject+body, stamping each email's ``*_updated_at``), then redirects
+    back to the tab; an invalid POST re-renders the full guild edit page with the email
+    form's errors.
+    """
+    from hub.forms import GuildEmailsForm
+    from membership.models import GuildOrientationSettings
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    announcements_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements"
+    if request.method != "POST":
+        return redirect(announcements_tab)
+
+    settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
+    form = GuildEmailsForm(request.POST, instance=settings_obj)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Guild emails saved.")
+        return redirect(announcements_tab)
+
+    ctx = _guild_edit_context(request, guild, emails_form=form)
+    return render(request, "hub/guild_edit.html", ctx)
 
 
 @login_required
@@ -1652,6 +1900,130 @@ def guild_links_save(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=content")
 
 
+# ── Space & Org Info page ────────────────────────────────────────────────────
+
+
+def org_info(request: HttpRequest) -> HttpResponse:
+    """Public, org-wide info page — map, parking, who-to-contact, code of conduct.
+
+    Public-read like ``guild_detail`` (no ``@login_required``): it carries only org-wide
+    reference content, no member PII, so it is safe on the guest surface too. Editing is
+    admin-only via ``org_info_edit``.
+    """
+    page = OrgInfoPage.load()
+    ctx = _get_hub_context(request)
+    org_ct = ContentType.objects.get_for_model(OrgInfoPage)
+    return render(
+        request,
+        "hub/org_info.html",
+        {
+            **ctx,
+            "page": page,
+            "faq_items": page.faq_items.all(),
+            "links": page.links.all(),
+            "can_edit": _viewing_as_admin(request),
+            "org_ct_id": org_ct.pk,
+        },
+    )
+
+
+def _org_info_edit_context(
+    request: HttpRequest,
+    page: OrgInfoPage,
+    *,
+    form: OrgInfoPageForm | None = None,
+) -> dict[str, Any]:
+    """Build the render context for the Space & Org Info editor (Content / Map / FAQ & Links).
+
+    The main form covers Content + Map; the FAQ and Links formsets each save via their own
+    endpoint (they can't nest inside the main form), so they are always unbound here —
+    exactly the guild-editor idiom in ``_guild_edit_context``.
+    """
+    from hub.forms import OrgFAQItemFormSet, OrgLinkFormSet
+
+    ctx = _get_hub_context(request)
+    return {
+        **ctx,
+        "page": page,
+        "form": form if form is not None else OrgInfoPageForm(instance=page),
+        "faq_formset": OrgFAQItemFormSet(instance=page, prefix="faq"),
+        "link_formset": OrgLinkFormSet(instance=page, prefix="links"),
+        "is_admin": _viewing_as_admin(request),
+    }
+
+
+@login_required
+def org_info_edit(request: HttpRequest) -> HttpResponse:
+    """Edit the Space & Org Info page (GET + main-form POST). Admin only.
+
+    Content and Map are in the single main form; FAQ and Links save via their own endpoints.
+    """
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    page = OrgInfoPage.load()
+    if request.method == "POST":
+        form = OrgInfoPageForm(request.POST, request.FILES, instance=page)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Space & Org Info page updated.")
+            return redirect("hub_org_info")
+        return render(request, "hub/org_info_edit.html", _org_info_edit_context(request, page, form=form))
+    return render(request, "hub/org_info_edit.html", _org_info_edit_context(request, page))
+
+
+@login_required
+@require_POST
+def org_info_faq_save(request: HttpRequest) -> HttpResponse:
+    """Save the org-info FAQ rows from their own form on the FAQ & Links tab. Admin only."""
+    from hub.forms import OrgFAQItemFormSet
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    page = OrgInfoPage.load()
+    formset = OrgFAQItemFormSet(request.POST, request.FILES, instance=page, prefix="faq")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "FAQ saved.")
+    else:
+        messages.error(request, "Couldn't save the FAQ — check the highlighted fields.")
+    return redirect(f"{reverse('hub_org_info_edit')}?tab=faq")
+
+
+@login_required
+@require_POST
+def org_info_links_save(request: HttpRequest) -> HttpResponse:
+    """Save the org-info Links rows from their own form on the FAQ & Links tab. Admin only."""
+    from hub.forms import OrgLinkFormSet
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    page = OrgInfoPage.load()
+    formset = OrgLinkFormSet(request.POST, instance=page, prefix="links")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Links saved.")
+    else:
+        messages.error(request, "Couldn't save the links — check the highlighted fields.")
+    return redirect(f"{reverse('hub_org_info_edit')}?tab=faq")
+
+
+@login_required
+@require_POST
+def org_info_floorplan_delete(request: HttpRequest) -> HttpResponse:
+    """Clear the floor-plan image and return to the editor's Map tab. Admin only."""
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    page = OrgInfoPage.load()
+    if page.floorplan_image:
+        page.floorplan_image.delete(save=True)
+        messages.success(request, "Floor plan removed.")
+    return redirect(f"{reverse('hub_org_info_edit')}?tab=map")
+
+
 @login_required
 def guild_announcement_edit(request: HttpRequest, pk: int, announcement_pk: int) -> HttpResponse:
     """Edit an existing announcement from a modal on the Announcements tab. Editor only.
@@ -1671,9 +2043,13 @@ def guild_announcement_edit(request: HttpRequest, pk: int, announcement_pk: int)
     announcement = get_object_or_404(GuildAnnouncement, pk=announcement_pk, guild=guild)
 
     if request.method == "POST":
-        form = GuildAnnouncementForm(request.POST, instance=announcement)
+        form = GuildAnnouncementForm(request.POST, instance=announcement, guild=guild)
         if form.is_valid():
-            form.save()
+            # Editing never re-sends, so persist only the editable copy. The post-time
+            # send_email toggle and discord_channel picker aren't on the edit form, so a
+            # blank value there must not clobber the originally-chosen send options.
+            form.save(commit=False)
+            announcement.save(update_fields=["title", "body", "expires_at"])
             response = render(
                 request,
                 "hub/partials/_guild_announcement_row.html",
@@ -1692,7 +2068,7 @@ def guild_announcement_edit(request: HttpRequest, pk: int, announcement_pk: int)
             {"guild": guild, "announcement": announcement, "form": form},
         )
 
-    form = GuildAnnouncementForm(instance=announcement)
+    form = GuildAnnouncementForm(instance=announcement, guild=guild)
     return render(
         request,
         "hub/partials/guild_announcement_edit_form.html",
@@ -1700,16 +2076,242 @@ def guild_announcement_edit(request: HttpRequest, pk: int, announcement_pk: int)
     )
 
 
+# --- Member announcement proposals + reviewer queue -------------------------
+
+
+def _announcement_review_scope(request: HttpRequest) -> Any:
+    """The requester's announcement-review authority.
+
+    Returns ``True`` for an admin (every guild), a ``Guild`` queryset for a lead/staffer
+    (their guilds only), or ``None`` when the request may not review.
+    """
+    if _viewing_as_admin(request):
+        return True
+    member = _get_member(request)
+    if member is not None and member.staffed_guilds.exists():
+        return member.staffed_guilds
+    return None
+
+
+def _pending_announcements_for_scope(scope: Any) -> Any:
+    """The pending proposals visible to a reviewer ``scope`` (``True`` = admin/all).
+
+    Each returned announcement carries a ``channel_picker_field`` — a bound
+    ``discord_channel`` field from a per-guild :class:`GuildAnnouncementDecisionForm` — so the
+    approve modal renders the same Discord channel picker the lead's own post form uses, with
+    this guild's unconfigured channels disabled.
+    """
+    from core.models import SiteConfiguration
+    from hub.forms import GuildAnnouncementDecisionForm
+    from membership.models import GuildAnnouncement
+
+    pending = (
+        GuildAnnouncement.objects.awaiting_review().select_related("guild", "submitted_by").order_by("published_at")
+    )
+    announcements = list(pending if scope is True else pending.filter(guild__in=scope))
+    config = SiteConfiguration.load()
+    for announcement in announcements:
+        form = GuildAnnouncementDecisionForm(guild=announcement.guild, config=config)
+        announcement.channel_picker_field = form["discord_channel"]
+    return announcements
+
+
+@login_required
+def propose_guild_announcement(request: HttpRequest, pk: int | None = None) -> HttpResponse:
+    """Member "Suggest an announcement" page — create a new proposal, or edit/resubmit an
+    owned Pending/Changes-requested one.
+
+    Any logged-in member may propose an announcement for any guild; it always goes to the
+    guild's leads (or an admin) for review before it posts. Editing a changes-requested
+    proposal re-submits it (back to Pending).
+    """
+    from hub.forms import GuildAnnouncementProposalForm
+    from membership.models import GuildAnnouncement
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    editable_states = [
+        GuildAnnouncement.ModerationState.PENDING,
+        GuildAnnouncement.ModerationState.CHANGES_REQUESTED,
+    ]
+    if pk is None:
+        announcement = GuildAnnouncement()
+        editing = False
+        guild_pk = request.GET.get("guild")
+        fixed_guild = Guild.objects.filter(pk=guild_pk, is_active=True).first() if guild_pk else None
+    else:
+        announcement = get_object_or_404(
+            GuildAnnouncement, pk=pk, submitted_by=user, moderation_state__in=editable_states
+        )
+        editing = True
+        fixed_guild = announcement.guild
+
+    back_guild = announcement.guild if editing else fixed_guild
+    back_url = reverse("hub_guild_detail", args=[back_guild.slug]) if back_guild is not None else reverse("hub_home")
+
+    if request.method == "POST":
+        form = GuildAnnouncementProposalForm(request.POST, instance=announcement, fixed_guild=fixed_guild)
+        if form.is_valid():
+            announcement = form.save(commit=False)
+            if not editing:
+                announcement.author = user
+            else:
+                # Persist the edited title/body/guild first — submit_for_review then saves
+                # only the moderation fields (update_fields), so the content edits would
+                # otherwise be dropped for an already-saved row.
+                announcement.save()
+            announcement.submit_for_review(submitted_by=user)
+            messages.success(
+                request,
+                "Thanks — your announcement was submitted for review. You'll get a note when a lead or admin responds.",
+            )
+            return redirect(reverse("hub_guild_detail", args=[announcement.guild.slug]))
+    else:
+        form = GuildAnnouncementProposalForm(instance=announcement, fixed_guild=fixed_guild)
+
+    ctx = _get_hub_context(request)
+    my_proposals = (
+        GuildAnnouncement.objects.filter(submitted_by=user)
+        .exclude(moderation_state=GuildAnnouncement.ModerationState.PUBLISHED)
+        .select_related("guild")
+        .order_by("-updated_at")
+    )
+    return render(
+        request,
+        "hub/propose_guild_announcement.html",
+        {
+            **ctx,
+            "announcement": announcement,
+            "form": form,
+            "editing": editing,
+            "back_url": back_url,
+            "my_proposals": my_proposals,
+        },
+    )
+
+
+@login_required
+@require_POST
+def guild_announcement_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
+    """The proposer withdraws (deletes) their own not-yet-posted proposal. POST only."""
+    from membership.models import GuildAnnouncement
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    announcement = get_object_or_404(
+        GuildAnnouncement,
+        pk=pk,
+        submitted_by=user,
+        moderation_state__in=[
+            GuildAnnouncement.ModerationState.PENDING,
+            GuildAnnouncement.ModerationState.CHANGES_REQUESTED,
+        ],
+    )
+    guild_slug = announcement.guild.slug
+    announcement.withdraw(by=user)
+    messages.success(request, "Proposal withdrawn.")
+    return redirect(reverse("hub_guild_detail", args=[guild_slug]))
+
+
+@login_required
+def guild_announcement_review_queue(request: HttpRequest) -> HttpResponse:
+    """The reviewer queue — member-proposed announcements a lead/admin can act on."""
+    scope = _announcement_review_scope(request)
+    if scope is None:
+        return HttpResponse("Forbidden", status=403)
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/guild_announcement_review_queue.html",
+        {
+            **ctx,
+            "pending_announcements": _pending_announcements_for_scope(scope),
+            "decision_form": None,
+            "open_decision_for": None,
+            "open_decision_kind": "",
+            "decision_note_value": "",
+            "decision_note_error": "",
+        },
+    )
+
+
+@login_required
+@require_POST
+def guild_announcement_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
+    """Record a reviewer's decision (approve / request changes / decline) on a proposal.
+
+    Approving also carries the two outbound-channel toggles (email the guild's members /
+    post to the guild's Discord); they're persisted before publishing so
+    :meth:`GuildAnnouncement.notify_members` honors them.
+    """
+    from hub.forms import GuildAnnouncementDecisionForm
+    from membership.models import GuildAnnouncement, InvalidAnnouncementTransition
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    scope = _announcement_review_scope(request)
+    if scope is None:
+        return HttpResponse("Forbidden", status=403)
+
+    # Scoped to the reviewer's authority (a lead can only touch their guilds), but NOT to a
+    # moderation state — a stale decision surfaces as a friendly "already handled" via the
+    # model guard rather than a bare 404.
+    if scope is True:
+        announcement = get_object_or_404(GuildAnnouncement, pk=pk)
+    else:
+        announcement = get_object_or_404(GuildAnnouncement, pk=pk, guild__in=scope)
+
+    # Approve carries its decision in the query string (the approve modal posts no notes);
+    # changes/decline post the decision + notes in the body.
+    data = request.POST.copy()
+    if not data.get("decision"):
+        data["decision"] = request.GET.get("decision", "")
+    form = GuildAnnouncementDecisionForm(data, guild=announcement.guild)
+    if not form.is_valid():
+        kind = data.get("decision", "")
+        return render(
+            request,
+            "hub/guild_announcement_review_queue.html",
+            {
+                **_get_hub_context(request),
+                "pending_announcements": _pending_announcements_for_scope(scope),
+                "decision_form": form,
+                "open_decision_for": announcement.pk,
+                "open_decision_kind": kind,
+                "decision_note_value": data.get("notes", ""),
+                "decision_note_error": " ".join(str(e) for e in form.errors.get("notes", [])),
+            },
+        )
+
+    decision = form.cleaned_data["decision"]
+    notes = form.cleaned_data["notes"]
+    try:
+        if decision == "approve":
+            announcement.approve(
+                reviewer=user,
+                send_email=form.cleaned_data["send_email"],
+                discord_channel=form.cleaned_data["discord_channel"] or None,
+            )
+            messages.success(request, "Announcement approved and posted.")
+        elif decision == "changes":
+            announcement.request_changes(reviewer=user, notes=notes)
+            messages.success(request, "Sent back to the proposer for changes.")
+        else:
+            announcement.decline(reviewer=user, notes=notes)
+            messages.success(request, "Proposal declined.")
+    except InvalidAnnouncementTransition:
+        messages.info(request, "That announcement was already handled.")
+    return redirect("hub_guild_announcement_review_queue")
+
+
 @login_required
 def guild_meeting_notes(request: HttpRequest, pk: int) -> HttpResponse:
-    """Management list of a guild's meeting notes (Edit / Delete). Editor only."""
+    """Legacy list URL — the meeting-notes list is now an in-page tab on the guild editor.
+
+    Keeps the editor-only gate (so non-staff still get a 403) and then redirects to the tab.
+    """
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
-    notes = guild.meeting_notes.prefetch_related("attachments")
-    ctx = _get_hub_context(request)
-    return render(request, "hub/guild_meeting_notes.html", {**ctx, "guild": guild, "notes": notes})
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meeting_notes")
 
 
 @login_required
@@ -1736,7 +2338,7 @@ def guild_meeting_note_edit(request: HttpRequest, pk: int, note_pk: int | None =
             formset.instance = note
             formset.save()
             messages.success(request, "Meeting notes saved.")
-            return redirect("hub_guild_meeting_notes", pk=guild.pk)
+            return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meeting_notes")
     else:
         form = GuildMeetingNoteForm(instance=note)
         formset = GuildMeetingNoteAttachmentFormSet(instance=note, prefix="att")
@@ -1761,19 +2363,20 @@ def guild_meeting_note_delete(request: HttpRequest, pk: int, note_pk: int) -> Ht
         return forbidden
     get_object_or_404(GuildMeetingNote, pk=note_pk, guild=guild).delete()
     messages.success(request, "Meeting notes deleted.")
-    return redirect("hub_guild_meeting_notes", pk=guild.pk)
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meeting_notes")
 
 
 @login_required
 def guild_events(request: HttpRequest, pk: int) -> HttpResponse:
-    """Management list of a guild's events (Edit / Delete / + Add). Editor only."""
+    """Legacy list URL — the events list is now an in-page tab on the guild editor.
+
+    Keeps the editor-only gate (so non-staff still get a 403) and then redirects to the tab.
+    """
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
-    events = guild.events.upcoming().select_related("guild")
-    ctx = _get_hub_context(request)
-    return render(request, "hub/guild_events.html", {**ctx, "guild": guild, "events": events})
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
 
 
 @login_required
@@ -1806,7 +2409,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             if is_new:
                 event.announce(actor=request.user)
             messages.success(request, "Event saved.")
-            return redirect("hub_guild_events", pk=guild.pk)
+            return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
     else:
         form = CommunityEventForm(instance=event, guild=guild, as_admin=False)
 
@@ -1819,7 +2422,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             "guild": guild,
             "event": event,
             "form": form,
-            "cancel_url": reverse("hub_guild_events", args=[guild.pk]),
+            "cancel_url": f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events",
         },
     )
 
@@ -1836,7 +2439,7 @@ def guild_event_delete(request: HttpRequest, pk: int, event_pk: int) -> HttpResp
         return forbidden
     get_object_or_404(CommunityEvent, pk=event_pk, guild=guild).delete()
     messages.success(request, "Event deleted.")
-    return redirect("hub_guild_events", pk=guild.pk)
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
 
 
 @login_required
@@ -2138,6 +2741,24 @@ def _get_calendar_context(
         "month_event_pages_json": json.dumps(month_event_pages),
         "now": now,
     }
+
+
+@login_required
+def home(request: HttpRequest) -> HttpResponse:
+    """Member Home / Dashboard — the post-login landing page.
+
+    Reads the logged-in member's upcoming items, joined-guild announcements, guild
+    shortcuts, and profile-completeness from the ``hub.home`` service. An unlinked
+    account (a User with no ``Member``) renders a friendly "not linked yet" state and
+    skips the personalized blocks — the hub's established graceful-``None`` pattern.
+    """
+    member = _get_member(request)
+    ctx = _get_hub_context(request)
+    if member is None:
+        return render(request, "hub/home.html", {**ctx, "member": None})
+    from hub.home import build_home_context
+
+    return render(request, "hub/home.html", {**ctx, "member": member, **build_home_context(member)})
 
 
 def community_calendar(request: HttpRequest) -> HttpResponse:
@@ -3095,26 +3716,6 @@ def _announcement_email_html(title: str, body: str) -> str:
     return wrap_email_html(fragment)
 
 
-def _release_announcement_draft() -> tuple[str, str]:
-    """A ready-to-edit (subject, body) drawn from the current release line's changelog.
-
-    Aggregates every changelog entry sharing the live VERSION's MAJOR.MINOR (the whole
-    release line) into one plain-text draft the admin can trim before sending.
-    """
-    from plfog.version import CHANGELOG, VERSION
-
-    minor = ".".join(VERSION.split(".")[:2])
-    entries = [e for e in CHANGELOG if ".".join(str(e["version"]).split(".")[:2]) == minor]
-    # entries[0] always exists — VERSION shares a MAJOR.MINOR with its own changelog line.
-    subject = f"What's new at Past Lives: {entries[0]['title']}"
-    blocks = ["We've just shipped a big update — here's what's new:"]
-    for entry in entries:
-        lines = [str(entry["title"])]
-        lines += [f"• {change}" for change in entry["changes"]]
-        blocks.append("\n".join(lines))
-    return subject, "\n\n".join(blocks)
-
-
 def _send_site_announcement(request: HttpRequest, form: SiteAnnouncementForm) -> int:
     """Fire ``site_announcement`` to activated members; return the recipient count.
 
@@ -3181,6 +3782,94 @@ def _handle_announcement_action(
     return None, form, preview
 
 
+def _release_announcement_initial() -> dict[str, str]:
+    """Prefilled subject / preheader / intro for a fresh Release-mode draft."""
+    from core.release_email import current_line_entries
+    from plfog.version import VERSION
+
+    entries = current_line_entries(VERSION)
+    latest_title = str(entries[0]["title"]) if entries else "What's new"
+    return {
+        "subject": f"What's new at Past Lives: {latest_title}",
+        "preheader": latest_title,
+        "intro": "<p>We've just shipped an update — here's what's new.</p>",
+    }
+
+
+def _send_release_announcement(request: HttpRequest, subject: str, html: str, text: str, summary: str) -> int:
+    """Fire the release-update ``site_announcement`` to activated members; return the count.
+
+    Same mechanism as :func:`_send_site_announcement` — a per-channel EMAIL override on the
+    spine, Discord suppressed (the GitHub Action auto-posts on merge), and a **timestamp-
+    unique** period (NOT version-keyed) so an admin who caught a bad card can send a
+    corrected version and have it actually deliver.
+    """
+    from core.events.channels import Channel, Message
+    from core.events.emit import emit
+
+    site_url = request.build_absolute_uri("/")
+    email = Message(title=subject, body=text, url=site_url, html_body=html, trigger_kind="site_announcement")
+    result = emit(
+        "site_announcement",
+        actor=request.user if request.user.is_authenticated else None,
+        context={
+            "member_name": "there",
+            "announcement_title": subject,
+            "announcement_body": summary,
+            "site_url": site_url,
+        },
+        url=site_url,
+        period=f"site:{dj_timezone.now():%Y%m%d%H%M%S%f}",
+        messages={Channel.EMAIL: email},
+        suppress_broadcast=True,
+    )
+    return result.recipient_count
+
+
+def _handle_release_announcement_action(
+    request: HttpRequest, action: str
+) -> tuple[HttpResponse | None, ReleaseAnnouncementForm, dict[str, object] | None]:
+    """Process a Release-mode Announcements POST. Returns ``(redirect_or_none, form, preview)``.
+
+    ``announce_send`` (valid) redirects; ``announce_preview`` / ``announce_test`` (valid)
+    re-render with the assembled preview (test additionally sends a copy to the admin and
+    flashes a success message — a direct send, never the spine). An invalid form re-renders
+    with errors.
+    """
+    from core.html_sanitize import render_rich_email_text
+    from core.release_email import render_release_email, send_release_test
+
+    form = ReleaseAnnouncementForm(request.POST)
+    if not form.is_valid():
+        return None, form, None
+
+    admin_user = cast(User, request.user)  # @fog_admin_required guarantees an authed admin
+    subject = form.cleaned_data["subject"]
+    preheader = form.cleaned_data["preheader"]
+    intro = form.cleaned_data["intro"]
+    cards = form.cleaned_cards()
+    html, text = render_release_email(form.version, subject=subject, preheader=preheader, intro=intro, cards=cards)
+
+    if action == "announce_send":
+        summary = render_rich_email_text(intro).strip() or "See what's new at Past Lives."
+        count = _send_release_announcement(request, subject, html, text, summary)
+        messages.success(request, f"Release update sent to {count} member(s).")
+        return redirect(f"{reverse('hub_admin_site_settings')}?tab=announcements"), form, None
+
+    if action == "announce_test":
+        send_release_test(admin_user, html, text, subject)
+        messages.success(request, f"Test sent to {admin_user.email} — check your inbox.")
+
+    preview: dict[str, object] = {
+        "html": html,
+        "text": text,
+        "count": _activated_member_count(),
+        "subject": subject,
+        "preheader": preheader,
+    }
+    return None, form, preview
+
+
 def _save_site_settings(
     request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
 ) -> tuple[HttpResponse | None, SiteSettingsForm, Any]:
@@ -3216,12 +3905,15 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
-    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features"}:
+    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features", "discord"}:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()
     announce_form = SiteAnnouncementForm()
     announce_preview: dict[str, object] | None = None
+    release_mode = False
+    release_form: ReleaseAnnouncementForm | None = None
+    release_preview: dict[str, object] | None = None
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -3238,11 +3930,16 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             return redirect(f"{url}?tab=legacy-cms")
 
         # Announcements tab — preview-then-send, separate from the settings form.
-        if action in ("announce_preview", "announce_send"):
+        if action in ("announce_preview", "announce_send", "announce_test"):
             active_tab = "announcements"
             form = SiteSettingsForm(instance=config)
             feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
-            response, announce_form, announce_preview = _handle_announcement_action(request, action)
+            # The Release composer submits mode=release; the freeform composer does not.
+            if request.POST.get("mode") == "release":
+                release_mode = True
+                response, release_form, release_preview = _handle_release_announcement_action(request, action)
+            else:
+                response, announce_form, announce_preview = _handle_announcement_action(request, action)
             if response is not None:
                 return response
             # else fall through to render (preview, or send with validation errors)
@@ -3253,10 +3950,10 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     else:
         form = SiteSettingsForm(instance=config)
         feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
-        # "Draft from latest release" — pre-fill the composer from the changelog.
+        # "Draft from latest release" — enter Release mode with a prefilled draft.
         if request.GET.get("draft") == "release":
-            subject, body = _release_announcement_draft()
-            announce_form = SiteAnnouncementForm(initial={"title": subject, "body": body, "post_to_discord": False})
+            release_mode = True
+            release_form = ReleaseAnnouncementForm(initial=_release_announcement_initial())
             active_tab = "announcements"
 
     instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
@@ -3277,5 +3974,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "config": config,
             "announce_form": announce_form,
             "announce_preview": announce_preview,
+            "release_mode": release_mode,
+            "release_form": release_form,
+            "release_preview": release_preview,
         },
     )

@@ -41,3 +41,52 @@ def describe_notify_members_url():
 
         _args, kwargs = mock_emit.call_args
         assert kwargs["context"]["guild"] == guild
+
+
+def describe_notify_members_broadcast_choices():
+    """The author's send-email toggle + Discord channel choice ride into ``emit``."""
+
+    _WEBHOOK = "https://discord.com/api/webhooks/500/guild"
+
+    def it_defaults_to_the_guild_channel_and_sends_both():
+        guild = GuildFactory(discord_webhook_url=_WEBHOOK)
+        announcement = GuildAnnouncement.objects.create(guild=guild, title="T", body="B")
+
+        with patch("core.events.emit.emit") as mock_emit:
+            announcement.notify_members()
+
+        _args, kwargs = mock_emit.call_args
+        assert kwargs["suppress_email"] is False
+        assert kwargs["suppress_guild_broadcast"] is False
+        # The chosen webhook rides into context so the picker owns the destination.
+        assert kwargs["context"]["discord_broadcast_webhook"] == _WEBHOOK
+
+    def it_suppresses_the_guild_broadcast_when_the_webhook_is_unset():
+        # Default channel is GUILD, but the guild has no webhook → resolves to "".
+        guild = GuildFactory()
+        announcement = GuildAnnouncement.objects.create(guild=guild, title="T", body="B")
+
+        with patch("core.events.emit.emit") as mock_emit:
+            announcement.notify_members()
+
+        _args, kwargs = mock_emit.call_args
+        assert kwargs["suppress_guild_broadcast"] is True
+        assert kwargs["context"]["discord_broadcast_webhook"] == ""
+
+    def it_passes_through_the_authors_off_choices():
+        guild = GuildFactory()
+        announcement = GuildAnnouncement.objects.create(
+            guild=guild,
+            title="T",
+            body="B",
+            send_email=False,
+            discord_channel=GuildAnnouncement.DiscordChannel.NONE,
+        )
+
+        with patch("core.events.emit.emit") as mock_emit:
+            announcement.notify_members()
+
+        _args, kwargs = mock_emit.call_args
+        assert kwargs["suppress_email"] is True
+        assert kwargs["suppress_guild_broadcast"] is True
+        assert kwargs["context"]["discord_broadcast_webhook"] == ""

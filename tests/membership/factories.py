@@ -28,6 +28,9 @@ from membership.models import (
     MemberEmail,
     MembershipPlan,
     MemberSkill,
+    OrgFAQItem,
+    OrgInfoPage,
+    OrgLink,
     OrientationAvailability,
     OrientationBooking,
     OrientationSlot,
@@ -108,13 +111,57 @@ class GuildLinkFactory(factory.django.DjangoModelFactory):
     url = "https://example.com"
 
 
+class OrgInfoPageFactory(factory.django.DjangoModelFactory):
+    """The Space & Org Info page is a pk=1 singleton — always returns/updates the one row."""
+
+    class Meta:
+        model = OrgInfoPage
+
+    @classmethod
+    def _create(cls, model_class, *args, **kwargs):
+        obj = model_class.load()
+        for field, value in kwargs.items():
+            setattr(obj, field, value)
+        obj.save()
+        return obj
+
+
+class OrgFAQItemFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = OrgFAQItem
+
+    page = factory.SubFactory(OrgInfoPageFactory)
+    question = factory.Sequence(lambda n: f"Org question {n}?")
+    answer = "An answer."
+
+
+class OrgLinkFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = OrgLink
+
+    page = factory.SubFactory(OrgInfoPageFactory)
+    label = factory.Sequence(lambda n: f"Org link {n}")
+    url = "https://example.com"
+
+
 class GuildAnnouncementFactory(factory.django.DjangoModelFactory):
+    """A guild announcement. Defaults to PUBLISHED (a lead's direct post).
+
+    Use the ``pending`` / ``changes_requested`` / ``declined`` traits for member-proposal
+    states, and pass ``submitted_by=<user>`` for the proposer.
+    """
+
     class Meta:
         model = GuildAnnouncement
 
     guild = factory.SubFactory(GuildFactory)
     title = factory.Sequence(lambda n: f"Announcement {n}")
     body = "Body text."
+
+    class Params:
+        pending = factory.Trait(moderation_state=GuildAnnouncement.ModerationState.PENDING)
+        changes_requested = factory.Trait(moderation_state=GuildAnnouncement.ModerationState.CHANGES_REQUESTED)
+        declined = factory.Trait(moderation_state=GuildAnnouncement.ModerationState.DECLINED)
 
 
 class GuildMeetingNoteFactory(factory.django.DjangoModelFactory):

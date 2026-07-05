@@ -123,6 +123,12 @@
             class="vote-tab">
       Announcements
     </button>
+    <button type="button"
+            @click="tab = 'discord'"
+            :class="{ 'vote-tab--active': tab === 'discord' }"
+            class="vote-tab">
+      Discord
+    </button>
   </div>
 
   <form method="post" id="site-settings-form" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
@@ -132,7 +138,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -363,13 +369,30 @@
       {% include "components/form_field.html" with field=form.class_registration_disabled_note %}
     </div>
 
+    {# -------- Discord tab -------- #}
+    {# No inline display on this x-show wrapper (FRONTEND Rule 12); the two fields flow in normal block layout. #}
+    <div x-show="tab === 'discord'" x-cloak>
+      <div style="margin-bottom:1.25rem;">
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Shared Discord channels</h2>
+        <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+          Set these so guild leads can post announcements to #general-chat and #leadership. Leave a field blank to hide that option from leads.
+          In Discord: Server Settings → Integrations → Webhooks → New Webhook → pick the channel → Copy Webhook URL.
+        </p>
+      </div>
+      {% include "components/form_field.html" with field=form.discord_general_webhook_url %}
+      {% include "components/form_field.html" with field=form.discord_leadership_webhook_url %}
+    </div>
+
     <div x-show="tab !== 'announcements'">
       <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
     </div>
   </form>
 
   {# -------- Announcements tab (own form — compose, preview, then send) -------- #}
-  <div x-show="tab === 'announcements'" x-cloak style="max-width:760px;display:flex;flex-direction:column;gap:1.25rem;">
+  <div x-show="tab === 'announcements'" x-cloak class="pl-announce-tab">
+    {% if release_mode %}
+    {% include "hub/admin/_release_announcement.html" %}
+    {% else %}
     <div>
       <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Sitewide announcement</h2>
       <p style="color:var(--hub-text-muted);margin:0;">
@@ -381,7 +404,7 @@
 
     <div>
       <a href="?tab=announcements&amp;draft=release" class="hub-btn hub-btn--sm">Draft from latest release</a>
-      <small style="color:var(--hub-text-muted);margin-left:0.5rem;">Pre-fills the subject &amp; notes from this release's changelog (Discord left off — it auto-posts on deploy).</small>
+      <small style="color:var(--hub-text-muted);margin-left:0.5rem;">Composes the sectioned release update, with feature cards and screenshots from this release's changelog (Discord left off — it auto-posts on deploy).</small>
     </div>
 
     <form method="post" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;">
@@ -422,6 +445,7 @@
       <iframe srcdoc="{{ announce_preview.html }}" title="Email preview"
               style="width:100%;height:540px;border:1px solid var(--hub-border);border-radius:8px;background:#fff;"></iframe>
     </div>
+    {% endif %}
     {% endif %}
   </div>
 </div>

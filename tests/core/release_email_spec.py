@@ -1,0 +1,263 @@
+"""BDD specs for the release-update email renderer and its resolvers."""
+
+from __future__ import annotations
+
+import pytest
+from django.contrib.auth.models import User
+
+from core import release_email
+from core.models import EventDelivery
+from core.release_email import (
+    Card,
+    FeaturePage,
+    _index_pages,
+    build_release_cards,
+    feature_page_url,
+    feature_shot_choices,
+    feature_shot_key,
+    render_release_email,
+    resolve_feature_shot_url,
+    save_feature_shot,
+    send_release_test,
+)
+
+# A changelog that spans two release lines and includes an entry with a screenshot
+# slug (real entries gain their slug later) so the renderer paths are exercised.
+FIXTURE_CHANGELOG: list[dict[str, object]] = [
+    {
+        "version": "0.20.5",
+        "date": "2026-07-10",
+        "title": "A home page when you sign in",
+        "changes": ["See what's coming up.", "Jump to everywhere you go."],
+        "screenshot": "home",
+    },
+    {
+        "version": "0.20.4",
+        "date": "2026-07-09",
+        "title": "One place for how our space works",
+        "changes": ["Map, parking, and the code of conduct."],
+    },
+    {
+        "version": "0.19.9",
+        "date": "2026-06-01",
+        "title": "An older release line",
+        "changes": ["Not in the current line."],
+    },
+]
+
+
+class _FakeStorage:
+    """A minimal default_storage stand-in: tracks which keys exist / were saved / deleted."""
+
+    def __init__(self, existing: set[str] | None = None) -> None:
+        self.existing = set(existing or ())
+        self.saved: dict[str, bytes] = {}
+        self.deleted: list[str] = []
+
+    def exists(self, key: str) -> bool:
+        return key in self.existing
+
+    def url(self, key: str) -> str:
+        return f"https://cdn.example/{key}"
+
+    def save(self, key: str, content: object) -> str:
+        self.saved[key] = content.read()  # type: ignore[attr-defined]
+        self.existing.add(key)
+        return key
+
+    def delete(self, key: str) -> None:
+        self.deleted.append(key)
+        self.existing.discard(key)
+
+
+@pytest.fixture
+def fake_storage(monkeypatch):
+    """Replace the module's default_storage with a FakeStorage; return it for assertions."""
+    storage = _FakeStorage()
+    monkeypatch.setattr(release_email, "default_storage", storage)
+    return storage
+
+
+@pytest.fixture
+def fixture_changelog(monkeypatch):
+    """Point the renderer at FIXTURE_CHANGELOG (read lazily inside current_line_entries)."""
+    monkeypatch.setattr("plfog.version.CHANGELOG", FIXTURE_CHANGELOG)
+
+
+def describe_feature_page():
+    def describe_path():
+        def it_resolves_the_url_name(db):
+            page = FeaturePage(slug="home", label="Home", url_name="hub_home")
+            assert page.path == "/home/"
+
+        def it_appends_the_query_string(db):
+            page = FeaturePage(slug="g", label="Guilds", url_name="hub_user_settings", query="?tab=guilds")
+            assert page.path.endswith("?tab=guilds")
+
+
+def describe_index_pages():
+    def it_indexes_by_slug():
+        pages = [FeaturePage("a", "A", "hub_home"), FeaturePage("b", "B", "hub_org_info")]
+        assert set(_index_pages(pages)) == {"a", "b"}
+
+    def describe_with_a_duplicate_slug():
+        def it_raises_at_build_time():
+            pages = [FeaturePage("dupe", "One", "hub_home"), FeaturePage("dupe", "Two", "hub_org_info")]
+            with pytest.raises(ValueError, match="Duplicate FeaturePage slug"):
+                _index_pages(pages)
+
+
+def describe_feature_shot_key():
+    def it_builds_the_stable_storage_key():
+        assert feature_shot_key("home") == "email/features/home.png"
+
+
+def describe_resolve_feature_shot_url():
+    def it_returns_the_url_when_the_asset_exists(fake_storage):
+        fake_storage.existing.add("email/features/home.png")
+        assert resolve_feature_shot_url("home") == "https://cdn.example/email/features/home.png"
+
+    def it_returns_empty_for_a_known_but_uncaptured_slug(fake_storage):
+        assert resolve_feature_shot_url("home") == ""
+
+    def it_returns_empty_for_an_empty_slug(fake_storage):
+        assert resolve_feature_shot_url("") == ""
+
+
+def describe_feature_page_url():
+    def it_builds_the_absolute_url_for_a_known_slug(db, settings):
+        settings.MEMBER_BASE_URL = "https://members.example"
+        assert feature_page_url("home") == "https://members.example/home/"
+
+    def it_returns_empty_for_an_unknown_slug(db):
+        assert feature_page_url("not-a-page") == ""
+
+
+def describe_feature_shot_choices():
+    def it_offers_only_captured_slugs_plus_no_screenshot(fake_storage):
+        fake_storage.existing.add("email/features/home.png")
+        choices = feature_shot_choices()
+        assert choices[0] == ("", "No screenshot")
+        assert ("home", "Member home dashboard") in choices
+        # A page whose asset is not captured yet is not offered.
+        assert all(value != "org-info" for value, _label in choices)
+
+
+def describe_build_release_cards():
+    def it_yields_one_card_per_current_line_entry_newest_first(db, fixture_changelog, fake_storage):
+        cards = build_release_cards("0.20.5")
+        assert [c.title for c in cards] == [
+            "A home page when you sign in",
+            "One place for how our space works",
+        ]
+
+    def it_excludes_other_major_minor_lines(db, fixture_changelog, fake_storage):
+        cards = build_release_cards("0.20.5")
+        assert all("older release line" not in c.title for c in cards)
+
+    def it_links_the_title_when_the_slug_maps_to_a_feature_page(db, fixture_changelog, fake_storage, settings):
+        settings.MEMBER_BASE_URL = "https://members.example"
+        cards = build_release_cards("0.20.5")
+        assert cards[0].feature_url == "https://members.example/home/"
+        assert cards[1].feature_url == ""  # no screenshot slug → plain title
+
+
+def describe_render_release_email():
+    def it_renders_the_preheader_hero_cards_and_cta(db, fixture_changelog, fake_storage):
+        fake_storage.existing.add("email/features/home.png")
+        cards = build_release_cards("0.20.5")
+        html, _text = render_release_email(
+            "0.20.5",
+            subject="What's new",
+            preheader="Two fresh things this week",
+            intro="<p>Here's what shipped.</p>",
+            cards=cards,
+        )
+        assert "Two fresh things this week" in html  # preheader div
+        assert "display: none" in html  # preheader is hidden
+        assert "v0.20" in html  # version badge
+        assert "2026-07-10" in html  # release date
+        assert "What's new" in html
+        assert "A home page when you sign in" in html
+        assert "See what&#x27;s coming up." in html or "See what's coming up." in html  # bullet
+        assert "Open Past Lives" in html  # CTA button
+        assert "Here&#x27;s what shipped." in html or "Here's what shipped." in html  # intro
+
+    def it_renders_an_image_for_a_captured_card_with_alt(db, fixture_changelog, fake_storage):
+        fake_storage.existing.add("email/features/home.png")
+        cards = build_release_cards("0.20.5")
+        html, _text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
+        assert 'src="https://cdn.example/email/features/home.png"' in html
+        assert 'alt="A home page when you sign in"' in html
+
+    def it_renders_a_text_only_card_when_there_is_no_screenshot(db, fixture_changelog, fake_storage):
+        cards = build_release_cards("0.20.5")  # nothing captured → no image on either card
+        html, _text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
+        assert "One place for how our space works" in html  # card still appears
+        assert "<img" not in html  # but no image
+
+    def it_keeps_the_text_part_in_sync_with_the_html(db, fixture_changelog, fake_storage):
+        cards = build_release_cards("0.20.5")
+        _html, text = render_release_email(
+            "0.20.5",
+            subject="What's new at Past Lives",
+            preheader="p",
+            intro="<p>Here's what shipped.</p>",
+            cards=cards,
+        )
+        assert "What's new at Past Lives" in text
+        assert "Here's what shipped." in text  # intro flattened
+        assert "## A home page when you sign in" in text
+        assert "• See what's coming up." in text
+        assert "## One place for how our space works" in text
+        assert "Open Past Lives: " in text
+        assert "unsubscribe" in text
+
+    def it_omits_a_card_that_is_not_included(db, fixture_changelog, fake_storage):
+        cards = build_release_cards("0.20.5")
+        cards[1].included = False
+        html, text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
+        assert "A home page when you sign in" in html
+        assert "One place for how our space works" not in html
+        assert "One place for how our space works" not in text
+
+    def describe_with_no_entries_for_the_line():
+        def it_renders_without_a_date(db, fixture_changelog, fake_storage):
+            # A line with no changelog entries (near-unreachable) → empty hero date, no cards.
+            html, _text = render_release_email("3.0.0", subject="s", preheader="p", intro="", cards=[])
+            assert "v3.0" in html
+            assert "What's new" in html
+
+
+def describe_save_feature_shot():
+    def it_saves_new_bytes_and_returns_the_url(fake_storage):
+        url = save_feature_shot("home", b"pngdata")
+        assert fake_storage.saved["email/features/home.png"] == b"pngdata"
+        assert url == "https://cdn.example/email/features/home.png"
+
+    def describe_when_the_asset_already_exists():
+        def it_overwrites_in_place(fake_storage):
+            fake_storage.existing.add("email/features/home.png")
+            save_feature_shot("home", b"new")
+            assert fake_storage.deleted == ["email/features/home.png"]
+            assert fake_storage.saved["email/features/home.png"] == b"new"
+
+
+def describe_send_release_test():
+    def it_sends_only_to_the_admin_and_never_touches_the_spine(db, mailoutbox):
+        admin = User.objects.create_user(username="lead", email="lead@example.com", password="p")
+        send_release_test(admin, "<html>hi</html>", "hi", "Test — What's new")
+        assert len(mailoutbox) == 1
+        assert mailoutbox[0].to == ["lead@example.com"]
+        assert mailoutbox[0].subject == "Test — What's new"
+        # A test is a direct send — no EventDelivery ledger row is written, so it can
+        # never consume the real site_announcement period.
+        assert EventDelivery.objects.count() == 0
+
+
+def describe_card():
+    def it_defaults_to_included_with_no_screenshot():
+        card = Card(title="X")
+        assert card.included is True
+        assert card.screenshot_url == ""
+        assert card.bullets == []

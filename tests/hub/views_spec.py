@@ -103,7 +103,11 @@ def describe_member_directory():
         assert response.status_code == 200
 
     def it_lists_active_opted_in_members(client: Client):
-        User.objects.create_user(username="viewer", password="pass")
+        viewer = User.objects.create_user(username="viewer", password="pass")
+        # The viewer's own auto-created member is listed by default — hide it so this
+        # test measures only the members it sets up.
+        viewer.member.show_in_directory = False
+        viewer.member.save(update_fields=["show_in_directory"])
         m1 = MemberFactory(full_legal_name="Alice", status="active", show_in_directory=True)
         m2 = MemberFactory(full_legal_name="Bob", status="active", show_in_directory=True)
         MemberFactory(full_legal_name="Hidden", status="active", show_in_directory=False)
@@ -326,6 +330,38 @@ def describe_user_settings():
         assert response.status_code == 200
         assert response.context["profile_form"].errors
 
+    def it_saves_text_and_visibility_when_the_uploaded_photo_is_invalid(client: Client):
+        """Regression: an invalid/oversized photo must not discard the member's other edits."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        user = User.objects.create_user(username="badphoto", password="pass")
+        member = user.member
+        client.login(username="badphoto", password="pass")
+        bogus = SimpleUploadedFile("notreally.png", b"this is definitely not an image", content_type="image/png")
+
+        response = client.post(
+            "/settings/",
+            {
+                "form_id": "profile",
+                "preferred_name": "Ed",
+                "about_me": "my new bio",
+                "discord_handle": "eddy",
+                "show_about_me": "on",
+                "profile_photo": bogus,
+            },
+            follow=True,
+        )
+
+        assert response.status_code == 200
+        member.refresh_from_db()
+        assert member.preferred_name == "Ed"
+        assert member.about_me == "my new bio"
+        assert member.discord_handle == "eddy"
+        assert member.is_public("about_me") is True
+        assert member.is_public("phone") is False  # unchecked toggle still applied
+        assert not member.profile_photo  # rejected upload never written
+        assert any("photo" in str(m).lower() for m in response.context["messages"])
+
     def it_saves_pronouns(client: Client):
         user = User.objects.create_user(username="pronounuser", password="pass")
         member = user.member
@@ -511,11 +547,134 @@ def describe_profile_photo_delete():
         member.refresh_from_db()
         assert not member.profile_photo
 
+    def it_preserves_other_profile_fields_when_deleting_the_photo(client: Client):
+        """Regression: clearing the photo must not revert the member's saved fields."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        user = User.objects.create_user(username="delkeep", password="pass")
+        member = user.member
+        member.preferred_name = "Keeper"
+        member.about_me = "still here"
+        member.directory_visibility = {"phone": False}
+        member.profile_photo = SimpleUploadedFile("me.png", _tiny_png_bytes(), content_type="image/png")
+        member.save()
+        client.login(username="delkeep", password="pass")
+
+        client.post(_PROFILE_PHOTO_DELETE_URL)
+
+        member.refresh_from_db()
+        assert not member.profile_photo
+        assert member.preferred_name == "Keeper"
+        assert member.about_me == "still here"
+        assert member.is_public("phone") is False
+
     def it_is_a_noop_when_no_photo_is_set(client: Client):
         User.objects.create_user(username="nophoto", password="pass")
         client.login(username="nophoto", password="pass")
 
         response = client.post(_PROFILE_PHOTO_DELETE_URL)
+
+        assert response.status_code == 302
+        assert response.url.endswith("/settings/?tab=profile")
+
+
+@pytest.mark.django_db
+def describe_welcome_modal_context():
+    """The first-login welcome nudge flag from _get_hub_context."""
+
+    def it_shows_for_a_fresh_member(client: Client):
+        User.objects.create_user(username="freshie", password="pass")
+        client.login(username="freshie", password="pass")
+
+        response = client.get("/guilds/voting/")
+
+        assert response.context["show_welcome_modal"] is True
+
+    def it_does_not_show_once_dismissed(client: Client):
+        user = User.objects.create_user(username="dismissed", password="pass")
+        user.member.dismiss_welcome()
+        client.login(username="dismissed", password="pass")
+
+        response = client.get("/guilds/voting/")
+
+        assert response.context["show_welcome_modal"] is False
+
+    def it_does_not_show_when_the_profile_is_already_started(client: Client):
+        user = User.objects.create_user(username="hasprofile", password="pass")
+        member = user.member
+        member.about_me = "Longtime member."
+        member.save()
+        client.login(username="hasprofile", password="pass")
+
+        response = client.get("/guilds/voting/")
+
+        assert response.context["show_welcome_modal"] is False
+
+    def it_does_not_show_for_a_user_without_a_member(client: Client):
+        user = User.objects.create_user(username="nomemberw", password="pass")
+        Member.objects.filter(user=user).delete()
+        User.objects.get(pk=user.pk)  # clear cached .member
+        client.login(username="nomemberw", password="pass")
+
+        response = client.get("/guilds/voting/")
+
+        assert response.context["show_welcome_modal"] is False
+
+
+@pytest.mark.django_db
+def describe_welcome_dismiss():
+    def it_requires_login(client: Client):
+        response = client.post("/welcome/dismiss/")
+
+        assert response.status_code == 302
+        assert "/accounts/login/" in response.url
+
+    def it_rejects_non_POST_requests(client: Client):
+        User.objects.create_user(username="wgets", password="pass")
+        client.login(username="wgets", password="pass")
+
+        response = client.get("/welcome/dismiss/")
+
+        assert response.status_code == 405
+
+    def it_stamps_and_redirects_to_the_profile_tab(client: Client):
+        user = User.objects.create_user(username="setup", password="pass")
+        client.login(username="setup", password="pass")
+
+        response = client.post("/welcome/dismiss/", {"destination": "profile"})
+
+        assert response.status_code == 302
+        assert response.url.endswith("/settings/?tab=profile")
+        user.member.refresh_from_db()
+        assert user.member.welcome_dismissed_at is not None
+
+    def it_stamps_and_returns_to_next_for_maybe_later(client: Client):
+        user = User.objects.create_user(username="later", password="pass")
+        client.login(username="later", password="pass")
+
+        response = client.post("/welcome/dismiss/", {"next": "/guilds/voting/"})
+
+        assert response.status_code == 302
+        assert response.url == "/guilds/voting/"
+        user.member.refresh_from_db()
+        assert user.member.welcome_dismissed_at is not None
+
+    def it_ignores_an_unsafe_next_and_falls_back_to_the_calendar(client: Client):
+        User.objects.create_user(username="unsafe", password="pass")
+        client.login(username="unsafe", password="pass")
+
+        response = client.post("/welcome/dismiss/", {"next": "https://evil.example.com/x"})
+
+        assert response.status_code == 302
+        assert response.url == "/calendar/"
+
+    def it_is_a_noop_but_still_redirects_when_the_user_has_no_member(client: Client):
+        user = User.objects.create_user(username="dismnomember", password="pass")
+        Member.objects.filter(user=user).delete()
+        User.objects.get(pk=user.pk)  # clear cached .member
+        client.login(username="dismnomember", password="pass")
+
+        response = client.post("/welcome/dismiss/", {"destination": "profile"})
 
         assert response.status_code == 302
         assert response.url.endswith("/settings/?tab=profile")

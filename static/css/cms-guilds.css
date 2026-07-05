@@ -1,0 +1,100 @@
+/* ====================================================================
+   Guilds Public Surface — guilds.pastlives.app directory + guest guild page
+   Layers on cms-public.css, which owns the .cp-page tokens and the #hero /
+   .cls-* card styles the directory reuses. Only the directory extras that
+   aren't already in .cls-* live here, plus centering for the reused guild
+   page's <main class="hub-content"> column. pl- prefixed, tokens only.
+   Verified in both the light default and the dark toggle.
+==================================================================== */
+
+/* Page background — matches the FOG body (light default; dark when toggled). */
+body.guilds-portal {
+  background: var(--hub-bg);
+}
+
+/* The reused member guild page (templates/hub/guild_detail.html) keeps its
+   native hub-card layout inside <main class="hub-content">. On the guest
+   surface, center that column so it reads like the book portal — without
+   touching the guild page's markup. */
+body.guilds-portal .hub-content {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 3rem;
+}
+
+/* ── Directory card extras (not already in .cls-*) ──────────────────── */
+.cp-page .pl-guild-dir__grid {
+  margin-top: 8px;
+}
+.cp-page .pl-guild-dir__blurb {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text2);
+  margin: 0;
+}
+.cp-page .pl-guild-dir__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+.cp-page .pl-guild-dir__chip {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text2);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.cp-page .pl-guild-dir__star {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--navy-dark);
+  background: var(--gold);
+  border-radius: 4px;
+  padding: 3px 8px;
+  box-shadow: 0 2px 10px var(--gold-glow);
+}
+.cp-page .cls-img-ph img {
+  opacity: 0.85;
+}
+
+/* ── Empty state ────────────────────────────────────────────────────── */
+.cp-page .pl-guild-dir__empty {
+  text-align: center;
+  max-width: 480px;
+  margin: 40px auto;
+  padding: 40px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  background: var(--bg2);
+}
+.cp-page .pl-guild-dir__empty h2 {
+  font-family: var(--heading);
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0 0 8px;
+}
+.cp-page .pl-guild-dir__empty p {
+  font-size: 14px;
+  color: var(--text2);
+  margin: 0 0 20px;
+}
+.cp-page .pl-guild-dir__empty .cta-primary {
+  display: inline-block;
+  padding: 11px 32px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}

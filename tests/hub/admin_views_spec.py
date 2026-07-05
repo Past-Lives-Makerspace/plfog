@@ -795,8 +795,10 @@ def describe_admin_site_settings_announcements():
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=announcements&draft=release")
         assert response.status_code == 200
-        # The draft is built from the current release line's changelog.
-        assert b"shipped a big update" in response.content
+        # "Draft from latest release" now enters the sectioned Release composer with a
+        # prefilled subject from the current release line's changelog.
+        assert response.context["release_mode"] is True
+        assert b"What&#x27;s new at Past Lives:" in response.content
 
     def it_previews_without_sending(client, mailoutbox):
         _create_superuser(client)

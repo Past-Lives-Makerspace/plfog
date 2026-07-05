@@ -28,6 +28,9 @@ from membership.models import (
     GuildOrientationSettings,
     Member,
     MemberSkill,
+    OrgFAQItem,
+    OrgInfoPage,
+    OrgLink,
     OrientationAvailability,
     OrientationSlot,
     Skill,
@@ -65,12 +68,22 @@ class GuildEditForm(forms.ModelForm):
         choices=_WEEK_CHOICES, coerce=int, required=False, empty_value=None, label="Week of month"
     )
     meeting_time_choice = forms.ChoiceField(choices=_MEETING_TIME_CHOICES, required=False, label="Meeting time")
+    # Stored in the positive ``is_public`` sense on the model; presented to leads as the
+    # inverse ("make private") so the checked = hidden mental model matches the label.
+    make_private = forms.BooleanField(
+        required=False,
+        label="Make this guild page private?",
+        help_text=(
+            "When on, this guild's page is hidden from the public guilds site — members can still see it in the hub."
+        ),
+    )
 
     class Meta:
         model = Guild
         fields = [
             "name",
             "about",
+            "essential_rules",
             "banner_image",
             "calendar_url",
             "calendar_color",
@@ -89,12 +102,19 @@ class GuildEditForm(forms.ModelForm):
             "website_url",
             "show_members",
             "featured_class",
+            "faq_label",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Guild name"}),
             "discord_webhook_url": forms.URLInput(attrs={"placeholder": "https://discord.com/api/webhooks/..."}),
             "about": forms.Textarea(
                 attrs={"rows": 5, "placeholder": "Tell members what this guild is about..."},
+            ),
+            "essential_rules": forms.Textarea(
+                attrs={
+                    "rows": 3,
+                    "placeholder": "e.g. Closed-toe shoes in the shop. No solo use of the kiln. Sign in at the front desk.",
+                },
             ),
             "calendar_url": forms.URLInput(attrs={"placeholder": "https://calendar.google.com/calendar/ical/..."}),
             "calendar_color": forms.TextInput(
@@ -110,6 +130,7 @@ class GuildEditForm(forms.ModelForm):
         }
         labels = {
             "about": "About",
+            "essential_rules": "Essential / safety rules (for the flyer)",
             "banner_image": "Banner image",
             "calendar_url": "Google Calendar iCal URL",
             "calendar_color": "Calendar Color",
@@ -126,9 +147,12 @@ class GuildEditForm(forms.ModelForm):
             "website_url": "Website URL",
             "show_members": "Show members roster",
             "featured_class": "Featured class",
+            "faq_label": "FAQ / info section heading",
         }
         help_texts = {
+            "essential_rules": "Shown on your printable flyer. Keep it to a few short lines.",
             "banner_image": "Shown at the top of the guild page. Max 5 MB.",
+            "faq_label": "The heading shown above this guild's FAQ / info section — e.g. 'Ceramics Info'. Defaults to 'FAQ'.",
             "calendar_url": (
                 "In Google Calendar → Settings → your calendar → 'Secret address in iCal format'. "
                 "Leave blank if you don't use Google Calendar."
@@ -153,6 +177,11 @@ class GuildEditForm(forms.ModelForm):
         # An omitted/blank cadence means "no regular meeting", not an empty string.
         return self.cleaned_data.get("meeting_cadence") or Guild.MeetingCadence.NONE
 
+    def clean_faq_label(self) -> str:
+        # A blank label falls back to the default heading rather than an empty string,
+        # so the FAQ section always has a visible title.
+        return (self.cleaned_data.get("faq_label") or "").strip() or "FAQ"
+
     def clean_discord_webhook_url(self) -> str:
         """Validate the webhook is a Discord webhook URL (or blank).
 
@@ -172,6 +201,14 @@ class GuildEditForm(forms.ModelForm):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         from classes.models import ClassOffering
+
+        # Blank is accepted and coerced back to "FAQ" in clean_faq_label, so leaving it
+        # empty never blocks a save of the rest of the form.
+        self.fields["faq_label"].required = False
+
+        # Seed the "make private" checkbox from the stored (positive) is_public value.
+        if self.instance and self.instance.pk:
+            self.fields["make_private"].initial = not self.instance.is_public
 
         featured = cast(forms.ModelChoiceField, self.fields["featured_class"])
         if self.instance and self.instance.pk:
@@ -201,6 +238,8 @@ class GuildEditForm(forms.ModelForm):
             guild.meeting_time = time(int(hour_str), int(minute_str))
         else:
             guild.meeting_time = None
+        # "Make private" is the inverse of the stored positive is_public flag.
+        guild.is_public = not self.cleaned_data.get("make_private", False)
         if commit:
             guild.save()
         return guild
@@ -213,6 +252,9 @@ class ProfileSettingsForm(forms.ModelForm):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        # Snapshot the photo the member already has so an invalid upload can be discarded
+        # without saving it (see ``save_keeping_existing_photo``).
+        self._initial_photo = self.instance.profile_photo if self.instance and self.instance.pk else None
         # Admins, Guild Officers, Guild Leads, and Instructors are always listed —
         # the field gets force-true on save and is shown disabled with a note.
         if self.instance and self.instance.pk and self.instance.must_be_listed_in_directory:
@@ -229,16 +271,48 @@ class ProfileSettingsForm(forms.ModelForm):
                 label=f"Show {field_name.replace('_', ' ')} on my directory card",
             )
 
-    def save(self, commit: bool = True) -> Member:
-        member = super().save(commit=False)
+    def _apply_directory_fields(self, member: Member) -> None:
+        """Force-list privileged roles and fold the visibility toggles into JSON."""
         if member.must_be_listed_in_directory:
             member.show_in_directory = True
         member.directory_visibility = {
             field_name: bool(self.cleaned_data.get(f"{self.VISIBILITY_PREFIX}{field_name}", True))
             for field_name in Member.DIRECTORY_TOGGLEABLE_FIELDS
         }
+
+    def save(self, commit: bool = True) -> Member:
+        member = super().save(commit=False)
+        self._apply_directory_fields(member)
         if commit:
             member.save()
+        return member
+
+    @property
+    def has_only_photo_errors(self) -> bool:
+        """True when every validation error is confined to the profile photo field.
+
+        Lets the view persist the member's text + visibility edits even though the new
+        photo was rejected (too large / not an image) — losing those edits was the bug.
+        """
+        return bool(self.errors) and set(self.errors) <= {"profile_photo"}
+
+    @property
+    def photo_error(self) -> str:
+        """The first profile-photo error message, for the 'photo not saved' notice."""
+        return str(self.errors["profile_photo"][0])
+
+    def save_keeping_existing_photo(self) -> Member:
+        """Persist the text + visibility edits while discarding an invalid photo upload.
+
+        Only called when :attr:`has_only_photo_errors` — the text fields are already
+        applied to ``self.instance`` by the form's clean pass, so we restore the member's
+        existing photo (dropping the rejected upload) and save. ``save()`` can't be used
+        because the form did not fully validate.
+        """
+        member = self.instance
+        member.profile_photo = self._initial_photo
+        self._apply_directory_fields(member)
+        member.save()
         return member
 
     class Meta:
@@ -459,6 +533,8 @@ class SiteSettingsForm(forms.ModelForm):
             "mailchimp_api_key",
             "mailchimp_list_id",
             "google_analytics_measurement_id",
+            "discord_general_webhook_url",
+            "discord_leadership_webhook_url",
             "tab_payments_enabled",
             "class_registration_enabled",
             "class_registration_disabled_note",
@@ -545,6 +621,9 @@ class GuildFAQItemForm(forms.ModelForm):
             "document": "Document (upload)",
             "document_url": "…or document link",
         }
+        help_texts = {
+            "answer": "You can use Markdown — **bold**, lists, and [links](https://example.com) all render on the page.",
+        }
 
     def clean_video_url(self) -> str:
         """Accept only a YouTube URL (or blank) so the answer can embed it."""
@@ -580,6 +659,113 @@ class GuildLinkForm(forms.ModelForm):
 
 
 GuildLinkFormSet = forms.inlineformset_factory(Guild, GuildLink, form=GuildLinkForm, extra=0, can_delete=True)
+
+
+class OrgInfoPageForm(forms.ModelForm):
+    """Main edit form for the Space & Org Info page — Markdown sections + the two images.
+
+    Mirrors ``GuildEditForm``'s shape: plain Markdown textareas (rendered on the page via
+    the ``guild_markdown`` filter) plus the banner and floor-plan images. The FAQ and Links
+    save via their own endpoints, exactly like the guild editor.
+    """
+
+    class Meta:
+        model = OrgInfoPage
+        fields = [
+            "intro",
+            "floorplan_caption",
+            "parking",
+            "who_to_contact",
+            "code_of_conduct",
+            "code_of_conduct_url",
+            "banner_image",
+            "floorplan_image",
+        ]
+        widgets = {
+            "intro": forms.Textarea(attrs={"rows": 4, "placeholder": "Welcome members to the space…"}),
+            "floorplan_caption": forms.TextInput(
+                attrs={"placeholder": "Guild locations, restrooms, and emergency exits."}
+            ),
+            "parking": forms.Textarea(attrs={"rows": 4, "placeholder": "Where to park, when it's free, entrances…"}),
+            "who_to_contact": forms.Textarea(
+                attrs={"rows": 6, "placeholder": "Who to ask about billing, keys, a class idea…"}
+            ),
+            "code_of_conduct": forms.Textarea(attrs={"rows": 8, "placeholder": "Our code of conduct…"}),
+            "code_of_conduct_url": forms.URLInput(attrs={"placeholder": "https://docs.google.com/…"}),
+        }
+        labels = {
+            "intro": "Intro / welcome",
+            "floorplan_caption": "Map caption",
+            "parking": "Parking & arrival",
+            "who_to_contact": "Who's who / who to contact",
+            "code_of_conduct": "Code of conduct",
+            "code_of_conduct_url": "…or a code-of-conduct link",
+            "banner_image": "Banner image",
+            "floorplan_image": "Floor plan / map",
+        }
+        help_texts = {
+            "intro": "Supports Markdown — **bold**, lists, and [links](https://example.com) all render.",
+            "parking": "Supports Markdown.",
+            "who_to_contact": "Supports Markdown — a list of 'topic → who to contact' works well.",
+            "code_of_conduct": "Supports Markdown. Leave blank to link out with the field below instead.",
+            "code_of_conduct_url": "Used only when the body above is blank.",
+        }
+
+
+class OrgFAQItemForm(forms.ModelForm):
+    """A single FAQ question/answer row on the Space & Org Info editor — mirrors ``GuildFAQItemForm``."""
+
+    class Meta:
+        model = OrgFAQItem
+        fields = ["question", "answer", "video_url", "document", "document_url", "sort_order"]
+        widgets = {
+            "answer": forms.Textarea(attrs={"rows": 3}),
+            "video_url": forms.URLInput(attrs={"placeholder": "https://youtube.com/watch?v=…"}),
+            "document_url": forms.URLInput(attrs={"placeholder": "https://docs.google.com/…"}),
+            "sort_order": forms.HiddenInput(),
+        }
+        labels = {
+            "video_url": "Video (YouTube)",
+            "document": "Document (upload)",
+            "document_url": "…or document link",
+        }
+        help_texts = {
+            "answer": "You can use Markdown — **bold**, lists, and [links](https://example.com) all render on the page.",
+        }
+
+    def clean_video_url(self) -> str:
+        """Accept only a YouTube URL (or blank) so the answer can embed it."""
+        from classes.templatetags.classes_tags import youtube_embed_id
+
+        url = (self.cleaned_data.get("video_url") or "").strip()
+        if url and not youtube_embed_id(url):
+            raise forms.ValidationError(
+                "Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…"
+            )
+        return url
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if cleaned.get("DELETE"):
+            return cleaned
+        if cleaned.get("document") and cleaned.get("document_url"):
+            raise forms.ValidationError("Add a document OR a link for this answer, not both.")
+        return cleaned
+
+
+OrgFAQItemFormSet = forms.inlineformset_factory(OrgInfoPage, OrgFAQItem, form=OrgFAQItemForm, extra=0, can_delete=True)
+
+
+class OrgLinkForm(forms.ModelForm):
+    """A single external-link row on the Space & Org Info editor — mirrors ``GuildLinkForm``."""
+
+    class Meta:
+        model = OrgLink
+        fields = ["label", "url", "sort_order"]
+        widgets = {"sort_order": forms.HiddenInput()}
+
+
+OrgLinkFormSet = forms.inlineformset_factory(OrgInfoPage, OrgLink, form=OrgLinkForm, extra=0, can_delete=True)
 
 
 class GuildMeetingNoteForm(forms.ModelForm):
@@ -624,10 +810,10 @@ GuildMeetingNoteAttachmentFormSet = forms.inlineformset_factory(
 
 
 class GuildOrientationSettingsForm(forms.ModelForm):
-    """Edit a guild's orientation config plus its two lead-authored follow-up emails.
+    """Edit a guild's orientation booking configuration.
 
-    Enabling either follow-up email requires a subject and a body, mirroring the
-    instructor welcome-email form. Saving stamps each email's ``*_updated_at``.
+    The two lead-authored follow-up emails (thank-you + welcome) live on their own
+    :class:`GuildEmailsForm` (Announcements/Emails tab); only the booking config is here.
     """
 
     class Meta:
@@ -641,18 +827,10 @@ class GuildOrientationSettingsForm(forms.ModelForm):
             "default_duration_minutes",
             "is_closed",
             "closed_message",
-            "thankyou_email_enabled",
-            "thankyou_email_subject",
-            "thankyou_email_body",
-            "join_email_enabled",
-            "join_email_subject",
-            "join_email_body",
         ]
         widgets = {
             "info": forms.Textarea(attrs={"rows": 4}),
             "closed_message": forms.TextInput(attrs={"placeholder": "On vacation till Sept 8"}),
-            "thankyou_email_body": RichTextEditorWidget(attrs={"rows": 6}),
-            "join_email_body": RichTextEditorWidget(attrs={"rows": 6}),
         }
         labels = {
             "is_enabled": "Offer orientation booking on this guild's page",
@@ -663,6 +841,33 @@ class GuildOrientationSettingsForm(forms.ModelForm):
             "default_duration_minutes": "Default length (minutes)",
             "is_closed": "Temporarily closed for orientations",
             "closed_message": "Closed message",
+        }
+
+
+class GuildEmailsForm(forms.ModelForm):
+    """Edit a guild's two lead-authored follow-up emails (thank-you + welcome).
+
+    These live on the Announcements/Emails tab of the guild editor. The email *data*
+    stays on :class:`~membership.models.GuildOrientationSettings`; only the editing UI
+    moved here. Enabling either email requires a subject and a body, mirroring the
+    instructor welcome-email form. Saving stamps each email's ``*_updated_at``.
+    """
+
+    class Meta:
+        model = GuildOrientationSettings
+        fields = [
+            "thankyou_email_enabled",
+            "thankyou_email_subject",
+            "thankyou_email_body",
+            "join_email_enabled",
+            "join_email_subject",
+            "join_email_body",
+        ]
+        widgets = {
+            "thankyou_email_body": RichTextEditorWidget(attrs={"rows": 6}),
+            "join_email_body": RichTextEditorWidget(attrs={"rows": 6}),
+        }
+        labels = {
             "thankyou_email_enabled": "Send a thank-you / next-steps email after orientation",
             "thankyou_email_subject": "Thank-you subject",
             "thankyou_email_body": "Thank-you message",
@@ -900,18 +1105,211 @@ class GuildStaffAddForm(forms.Form):
         return cleaned
 
 
+class ChannelRadioSelect(forms.RadioSelect):
+    """Radio group for the guild-announcement Discord channel picker.
+
+    Renders each :class:`~membership.models.GuildAnnouncement.DiscordChannel` option as a
+    radio. A channel whose webhook isn't configured *for this guild* is rendered as a real,
+    greyed ``<input disabled>`` carrying a ``data-hint`` attribute so the picker partial can
+    show a muted "Not set up yet." next to it. ``NONE`` ("Don't post to Discord") is always
+    available. Keeping the disabled state on the widget (not a parallel template map) means
+    the browser genuinely disables the input and the form/clean layer and the template read
+    from one source of truth (:attr:`configured_channels`).
+    """
+
+    DISABLED_HINT = "Not set up yet."
+
+    def __init__(self, *args: Any, configured_channels: set[str] | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.configured_channels: set[str] = set(configured_channels or set())
+
+    def create_option(
+        self,
+        name: str,
+        value: Any,
+        label: Any,
+        selected: bool,
+        index: int,
+        subindex: int | None = None,
+        attrs: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        channel = str(getattr(value, "value", value))
+        if channel != GuildAnnouncement.DiscordChannel.NONE and channel not in self.configured_channels:
+            option["attrs"]["disabled"] = True
+            option["attrs"]["data-hint"] = self.DISABLED_HINT
+        return option
+
+
+def _configured_discord_channels(guild: Guild | None, config: SiteConfiguration | None = None) -> set[str]:
+    """The set of :class:`GuildAnnouncement.DiscordChannel` values that have a webhook set.
+
+    ``GUILD`` when this guild has its own ``discord_webhook_url``; ``GENERAL`` / ``LEADERSHIP``
+    when the makerspace-wide :class:`~core.models.SiteConfiguration` webhooks are set. ``NONE``
+    is always selectable and is deliberately not listed here.
+
+    Pass ``config`` to reuse an already-loaded :class:`~core.models.SiteConfiguration`
+    singleton — building one picker per row (the review queue) would otherwise re-load it
+    each call.
+    """
+    channels = GuildAnnouncement.DiscordChannel
+    configured: set[str] = set()
+    if guild is not None and (guild.discord_webhook_url or "").strip():
+        configured.add(channels.GUILD.value)
+    if config is None:
+        config = SiteConfiguration.load()
+    if (config.discord_general_webhook_url or "").strip():
+        configured.add(channels.GENERAL.value)
+    if (config.discord_leadership_webhook_url or "").strip():
+        configured.add(channels.LEADERSHIP.value)
+    return configured
+
+
+def _default_discord_channel(configured: set[str]) -> str:
+    """The pre-selected channel: the first *configured* channel, stepping down to "Don't post".
+
+    Guild Channel → #general-chat → #leadership → Don't post (§5.3), so the picker never opens
+    pre-selected on a disabled option.
+    """
+    channels = GuildAnnouncement.DiscordChannel
+    for channel in (channels.GUILD, channels.GENERAL, channels.LEADERSHIP):
+        if channel.value in configured:
+            return channel.value
+    return channels.NONE.value
+
+
+_CHANNEL_UNCONFIGURED_ERROR = "That Discord channel isn’t set up — pick another, or choose “Don’t post to Discord.”"
+
+
 class GuildAnnouncementForm(forms.ModelForm):
-    """Post a news announcement on a guild page."""
+    """Post a news announcement on a guild page.
+
+    The "Also send email" toggle (default ON) chooses whether to also email the guild's
+    joined members; the Discord **channel picker** chooses where the single Discord echo
+    posts — this guild's own channel, the makerspace-wide #general-chat / #leadership, or
+    "Don't post to Discord." ``GuildAnnouncement.notify_members`` reads the saved values;
+    the in-app bell always fires.
+    """
 
     class Meta:
         model = GuildAnnouncement
-        fields = ["title", "body", "expires_at"]
+        fields = ["title", "body", "expires_at", "send_email", "discord_channel"]
+        widgets = {
+            "body": forms.Textarea(attrs={"rows": 4}),
+            "expires_at": forms.DateInput(attrs={"type": "date"}),
+            "discord_channel": ChannelRadioSelect,
+        }
+        labels = {
+            "expires_at": "Hide after (optional)",
+            "send_email": "Also send email",
+            "discord_channel": "Post to Discord channel",
+        }
+        help_texts = {"expires_at": "Leave blank to keep it up indefinitely."}
+
+    def __init__(self, *args: Any, guild: Guild, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Not strictly required at the field level: this same ModelForm backs the edit
+        # modal, which renders only title/body/expires_at — an omitted channel there must
+        # leave the saved choice untouched (Django keeps the model default/existing value
+        # when a defaulted field is omitted from the data), exactly like ``send_email``.
+        self.fields["discord_channel"].required = False
+        configured = _configured_discord_channels(guild)
+        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
+        widget.configured_channels = configured
+        if not self.is_bound and not (self.instance and self.instance.pk):
+            self.fields["discord_channel"].initial = _default_discord_channel(configured)
+
+    def clean_discord_channel(self) -> str:
+        channel = cast(str, self.cleaned_data.get("discord_channel") or "")
+        if not channel:
+            return ""  # omitted (edit form) → the model default / existing value stands
+        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
+        if channel != GuildAnnouncement.DiscordChannel.NONE and channel not in widget.configured_channels:
+            raise forms.ValidationError(_CHANNEL_UNCONFIGURED_ERROR)
+        return channel
+
+
+class GuildAnnouncementProposalForm(forms.ModelForm):
+    """A member proposing a guild announcement for a lead/admin to review.
+
+    Any logged-in member can propose to any guild: they pick the guild and write the
+    post, but NOT the outbound channels — a reviewer decides whether to also email the
+    guild's members and post to Discord at approval time (see
+    :class:`GuildAnnouncementDecisionForm`).
+    """
+
+    class Meta:
+        model = GuildAnnouncement
+        fields = ["guild", "title", "body", "expires_at"]
         widgets = {
             "body": forms.Textarea(attrs={"rows": 4}),
             "expires_at": forms.DateInput(attrs={"type": "date"}),
         }
-        labels = {"expires_at": "Hide after (optional)"}
-        help_texts = {"expires_at": "Leave blank to keep it up indefinitely."}
+        labels = {"guild": "Guild", "expires_at": "Hide after (optional)"}
+        help_texts = {
+            "guild": "Which guild is this announcement for?",
+            "expires_at": "Leave blank to keep it up indefinitely.",
+        }
+
+    def __init__(self, *args: Any, fixed_guild: Guild | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
+        guild_field.queryset = Guild.objects.filter(is_active=True).order_by("name")
+        guild_field.required = True
+        if fixed_guild is not None and not self.is_bound:
+            guild_field.initial = fixed_guild.pk
+
+
+class GuildAnnouncementDecisionForm(forms.Form):
+    """A reviewer's decision on a proposed guild announcement.
+
+    Approving also chooses the outbound channels: whether to email the guild's members
+    (``send_email``, default on) and which Discord channel to post to (``discord_channel``,
+    the same picker the lead's own post form uses) — the reviewer, not the proposer, owns
+    those. Pass ``guild=`` so unconfigured channels render disabled and validate. The channel
+    field is optional on the form because the changes/decline modals don't render it; the view
+    only reads it on an approve. ``notes`` is required for the two outcomes that send the
+    proposer a reason (changes / decline), so an empty note is a real validation error.
+    """
+
+    DECISION_CHOICES = [("approve", "Approve"), ("changes", "Request changes"), ("decline", "Decline")]
+
+    decision = forms.ChoiceField(choices=DECISION_CHOICES)
+    notes = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
+    send_email = forms.BooleanField(required=False, initial=True)
+    discord_channel = forms.ChoiceField(
+        required=False,
+        choices=GuildAnnouncement.DiscordChannel.choices,
+        widget=ChannelRadioSelect,
+        label="Post to Discord channel",
+    )
+
+    def __init__(
+        self, *args: Any, guild: Guild | None = None, config: SiteConfiguration | None = None, **kwargs: Any
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        configured = _configured_discord_channels(guild, config)
+        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
+        widget.configured_channels = configured
+        if not self.is_bound:
+            self.fields["discord_channel"].initial = _default_discord_channel(configured)
+
+    def clean_discord_channel(self) -> str:
+        channel = cast(str, self.cleaned_data.get("discord_channel") or "")
+        if not channel:
+            return ""
+        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
+        if channel != GuildAnnouncement.DiscordChannel.NONE and channel not in widget.configured_channels:
+            raise forms.ValidationError(_CHANNEL_UNCONFIGURED_ERROR)
+        return channel
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        decision = cleaned.get("decision")
+        notes = (cleaned.get("notes") or "").strip()
+        if decision in ("changes", "decline") and not notes:
+            self.add_error("notes", "Add a note so the proposer knows why.")
+        return cleaned
 
 
 class SiteAnnouncementForm(forms.Form):
@@ -941,6 +1339,105 @@ class SiteAnnouncementForm(forms.Form):
         if not body:
             raise forms.ValidationError("Add a message before sending.")
         return body
+
+
+class ReleaseAnnouncementForm(forms.Form):
+    """Compose the sectioned release-update email (the Announcements tab's Release mode).
+
+    Subject / preheader / intro are freeform; the feature **cards** are derived from the
+    current release line's changelog — not created or deleted here — so each card gets a
+    fixed pair of dynamically-named fields (``include_<i>`` toggle + ``screenshot_<i>``
+    select), built in ``__init__`` from :func:`core.release_email.build_release_cards`.
+    The screenshot select offers only slugs whose asset actually exists, so the admin
+    can never pick an image that would render text-only. Validation ("include at least
+    one feature") lives in :meth:`clean`.
+    """
+
+    subject = forms.CharField(max_length=300, label="Subject")
+    preheader = forms.CharField(
+        max_length=200,
+        required=False,
+        label="Inbox preview line",
+        help_text="The gray preview line next to the subject in the inbox. ~90 characters.",
+    )
+    intro = forms.CharField(
+        widget=RichTextEditorWidget(attrs={"rows": 4}),
+        required=False,
+        label="Intro",
+        help_text="A short line above the features. Optional.",
+    )
+
+    def __init__(self, *args: Any, version: str | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        from core.release_email import build_release_cards, feature_shot_choices
+        from plfog.version import VERSION
+
+        self.version = version or VERSION
+        self.cards = build_release_cards(self.version)
+        # Captured *before* any per-card override mutates screenshot_url: True when the
+        # changelog named a shot for this card but it hasn't been captured yet — drives
+        # the composer's "hasn't been captured" note.
+        self._card_default_uncaptured = [bool(c.slug) and not c.screenshot_url for c in self.cards]
+        choices = feature_shot_choices()
+        for index, card in enumerate(self.cards):
+            self.fields[f"include_{index}"] = forms.BooleanField(
+                required=False,
+                initial=True,
+                label="Include",
+                widget=forms.CheckboxInput(
+                    attrs={
+                        "data-include-toggle": "1",
+                        "@change": "includedCount += $event.target.checked ? 1 : -1",
+                    }
+                ),
+            )
+            # Default to the entry's own shot only when it's actually captured; otherwise
+            # the card defaults to "No screenshot" rather than expecting a missing image.
+            initial_slug = card.slug if card.screenshot_url else ""
+            self.fields[f"screenshot_{index}"] = forms.ChoiceField(
+                choices=choices, required=False, initial=initial_slug, label="Screenshot"
+            )
+
+    def card_rows(self) -> list[dict[str, Any]]:
+        """``{card, include, screenshot, index, default_uncaptured}`` per feature, for the template list."""
+        return [
+            {
+                "card": card,
+                "include": self[f"include_{i}"],
+                "screenshot": self[f"screenshot_{i}"],
+                "index": i,
+                "default_uncaptured": self._card_default_uncaptured[i],
+            }
+            for i, card in enumerate(self.cards)
+        ]
+
+    @property
+    def included_count(self) -> int:
+        """How many cards are currently toggled on (initial for an unbound form; else submitted)."""
+        return sum(1 for i in range(len(self.cards)) if self[f"include_{i}"].value())
+
+    def clean_intro(self) -> str:
+        return sanitize_rich_html(self.cleaned_data.get("intro") or "")
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if not any(cleaned.get(f"include_{i}") for i in range(len(self.cards))):
+            raise forms.ValidationError("Include at least one feature to send.")
+        return cleaned
+
+    def cleaned_cards(self) -> list[Any]:
+        """The assembled cards with the admin's include/screenshot overrides applied.
+
+        Mutates each :class:`~core.release_email.Card` in place: ``included`` from the
+        toggle and ``screenshot_url`` re-resolved from the chosen slug (the title link
+        stays tied to the changelog entry's own feature page).
+        """
+        from core.release_email import resolve_feature_shot_url
+
+        for index, card in enumerate(self.cards):
+            card.included = bool(self.cleaned_data[f"include_{index}"])
+            card.screenshot_url = resolve_feature_shot_url(self.cleaned_data[f"screenshot_{index}"])
+        return self.cards
 
 
 class VotingSettingsForm(forms.ModelForm):

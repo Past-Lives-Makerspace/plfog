@@ -55,6 +55,8 @@ def emit(
     attachments: dict[Channel, list[Attachment]] | None = None,
     email_to: str | list[str] | None = None,
     suppress_broadcast: bool = False,
+    suppress_email: bool = False,
+    suppress_guild_broadcast: bool = False,
 ) -> EmitResult:
     """Emit one event: log activity, resolve recipients, fan out to channels.
 
@@ -95,6 +97,15 @@ def emit(
             the admin "Sitewide Announcement" composer when sending the release notes:
             the GitHub Action already posts the release to Discord on merge to ``main``,
             so the email blast must not double-post it.
+        suppress_email: When ``True``, skip the per-recipient EMAIL channel for this
+            emit (the in-app + push fan-out still runs). Used by a guild announcement
+            whose author turned "Also send email" off: members still get the in-app
+            bell, just no email.
+        suppress_guild_broadcast: When ``True``, skip ONLY the in-context guild's own
+            Discord webhook (the dual-route post in :func:`_guild_broadcast`); the
+            central/makerspace-wide broadcast still posts. Used by a guild announcement
+            whose author turned "Also post to Discord" off — that switch governs the
+            guild's own channel, not the site-wide post.
 
     Returns:
         An :class:`EmitResult` describing what was logged and delivered.
@@ -134,7 +145,7 @@ def emit(
 
     delivered: list[tuple[int, Channel]] = []
     skipped_duplicates: list[tuple[int, Channel]] = []
-    suppress_user_email = bool(explicit_emails)
+    suppress_user_email = bool(explicit_emails) or suppress_email
     for user, _reason in recipients:
         _per_recipient_fan_out(
             event_key=event_key,
@@ -152,7 +163,14 @@ def emit(
     )
 
     broadcast_channels = _broadcast_fan_out(
-        event, message_for, period, ctx, delivered, skipped_duplicates, suppress_broadcast=suppress_broadcast
+        event,
+        message_for,
+        period,
+        ctx,
+        delivered,
+        skipped_duplicates,
+        suppress_broadcast=suppress_broadcast,
+        suppress_guild_broadcast=suppress_guild_broadcast,
     )
 
     return EmitResult(
@@ -173,6 +191,7 @@ def _broadcast_fan_out(
     delivered: list[tuple[int, Channel]],
     skipped_duplicates: list[tuple[int, Channel]],
     suppress_broadcast: bool = False,
+    suppress_guild_broadcast: bool = False,
 ) -> list[Channel]:
     """Post each broadcast channel (Discord) ONCE for the event, not per recipient.
 
@@ -187,16 +206,26 @@ def _broadcast_fan_out(
     Discord channel ALSO dual-routes to the guild's own webhook — see
     :func:`_guild_broadcast`. That second post is purely additive: it claims its own
     independent ledger slot and never blocks the central post.
+
+    When the caller supplies an explicit ``ctx["discord_broadcast_webhook"]`` (the guild
+    announcement channel picker), the central DISCORD iteration is skipped entirely: the
+    chosen webhook — resolved in :func:`_guild_broadcast` — owns the single Discord post,
+    so the event does not also hit the global/route webhook. Callers that never set the
+    key (every other event) keep the byte-for-byte central-post behavior.
     """
     if suppress_broadcast:
         return []
     posted: list[Channel] = []
+    override_discord = "discord_broadcast_webhook" in ctx
     for spec in event.channels:
         channel = spec.channel
         if not channel_module.is_implemented(channel):
             continue
         adapter = channel_module.get_adapter(channel)
         if not adapter.is_broadcast:
+            continue
+        if channel is Channel.DISCORD and override_discord:
+            # The chosen-webhook override owns the single Discord post (_guild_broadcast).
             continue
         if _record_broadcast(event.key, channel, period):
             channel_module.broadcast(adapter, message_for(channel))
@@ -209,7 +238,7 @@ def _broadcast_fan_out(
     # above — a SIBLING, not nested in the central success branch — so a
     # central-duplicate re-emit can still post the guild side the first time a guild
     # webhook is added. Discord is the only broadcast channel, so this is the gate.
-    if event.has_channel(Channel.DISCORD):
+    if event.has_channel(Channel.DISCORD) and not suppress_guild_broadcast:
         _guild_broadcast(event, Channel.DISCORD, period, ctx, message_for, delivered, skipped_duplicates)
     return posted
 
@@ -225,19 +254,24 @@ def _guild_broadcast(
 ) -> None:
     """Additionally post the Discord embed to the in-context guild's own webhook.
 
-    A no-op unless the event context carries a ``guild`` whose
-    :func:`core.events.discord.guild_webhook` resolves to a non-blank URL (toggle on
-    AND a webhook set). Claims an independent ``broadcast:guild:<id>`` ledger slot so
-    it dedups separately from the central post, then posts best-effort via
-    ``post_embed`` (which logs and never raises on a bad/blank webhook), so a guild
-    failure can never block the central post that already ran.
+    A no-op unless the event context carries a ``guild``. The destination webhook is
+    resolved two ways: an explicit ``ctx["discord_broadcast_webhook"]`` (the guild
+    announcement channel picker, which may deliberately be ``""`` for "Don't post"),
+    else the guild's own :func:`core.events.discord.guild_webhook` (toggle on AND a
+    webhook set) for any other guild-scoped caller. Claims an independent
+    ``broadcast:guild:<id>`` ledger slot so it dedups separately from the central post,
+    then posts best-effort via ``post_embed`` (which logs and never raises on a
+    bad/blank webhook), so a guild failure can never block the central post.
     """
     from core.events import discord as discord_module
 
     guild = ctx.get("guild")
     if guild is None:
         return
-    webhook = discord_module.guild_webhook(guild)
+    if "discord_broadcast_webhook" in ctx:
+        webhook = ctx["discord_broadcast_webhook"]
+    else:
+        webhook = discord_module.guild_webhook(guild)
     if not webhook:
         return
     target_ref = f"broadcast:guild:{guild.pk}"

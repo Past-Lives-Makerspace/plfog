@@ -3,9 +3,24 @@
 from __future__ import annotations
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from hub.forms import ProfileSettingsForm, SiteAnnouncementForm
 from tests.membership.factories import MemberFactory
+
+
+def _real_png_bytes() -> bytes:
+    """A genuine PNG (~hundreds of bytes) that the form's ImageField accepts via Pillow.
+
+    Big enough to trip the size validator once ``MAX_UPLOAD_IMAGE_BYTES`` is lowered.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (32, 32), (200, 120, 40)).save(buf, "PNG")
+    return buf.getvalue()
 
 
 @pytest.mark.django_db
@@ -101,6 +116,54 @@ def describe_profile_settings_form():
         assert form.fields["show_email"].initial is True
         # Unset key defaults to True (public):
         assert form.fields["show_pronouns"].initial is True
+
+    def describe_invalid_photo_does_not_lose_other_edits():
+        def it_flags_only_the_photo_when_the_upload_is_too_large(settings):
+            settings.MAX_UPLOAD_IMAGE_BYTES = 10  # smaller than the real PNG below
+            member = MemberFactory(full_legal_name="Photo User")
+            photo = SimpleUploadedFile("big.png", _real_png_bytes(), content_type="image/png")
+            form = ProfileSettingsForm(
+                {"preferred_name": "Pho", "about_me": "hi"},
+                {"profile_photo": photo},
+                instance=member,
+            )
+            assert form.is_valid() is False
+            assert form.has_only_photo_errors is True
+            assert set(form.errors) == {"profile_photo"}
+            assert "MB" in form.photo_error
+
+        def it_persists_text_and_visibility_while_discarding_the_rejected_photo(settings):
+            settings.MAX_UPLOAD_IMAGE_BYTES = 10
+            member = MemberFactory(full_legal_name="Photo User", about_me="")
+            photo = SimpleUploadedFile("big.png", _real_png_bytes(), content_type="image/png")
+            form = ProfileSettingsForm(
+                {"preferred_name": "Pho", "discord_handle": "eddy", "about_me": "new bio", "show_phone": "on"},
+                {"profile_photo": photo},
+                instance=member,
+            )
+            assert form.is_valid() is False
+            assert form.has_only_photo_errors is True
+
+            saved = form.save_keeping_existing_photo()
+            saved.refresh_from_db()
+            assert saved.preferred_name == "Pho"
+            assert saved.discord_handle == "eddy"
+            assert saved.about_me == "new bio"
+            assert saved.is_public("phone") is True
+            assert saved.is_public("about_me") is False
+            assert not saved.profile_photo  # the rejected upload is never written
+
+        def it_does_not_treat_a_clean_form_as_a_photo_only_error():
+            member = MemberFactory(full_legal_name="Clean User")
+            form = ProfileSettingsForm({"preferred_name": "Ok"}, instance=member)
+            assert form.is_valid() is True
+            assert form.has_only_photo_errors is False
+
+        def it_does_not_treat_a_text_error_as_a_photo_only_error():
+            member = MemberFactory(full_legal_name="Text Err")
+            form = ProfileSettingsForm({"preferred_name": "Ok", "phone": "x" * 21}, instance=member)
+            assert form.is_valid() is False
+            assert form.has_only_photo_errors is False
 
 
 def describe_site_announcement_form():

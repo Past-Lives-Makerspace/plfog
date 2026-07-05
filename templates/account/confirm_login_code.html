@@ -8,7 +8,7 @@
 {% endblock %}
 
 {% block content %}
-{% if is_public_surface %}
+{% if is_guest_surface %}
 <div class="cp-page">
 {% block portal_content %}
 <div class="bk-themed-code bk-auth-surface">
@@ -23,6 +23,7 @@
           {{ form.code }}
           {% if form.code.errors %}<div class="bk-field-hint" style="color:#f87171">{{ form.code.errors.0 }}</div>{% endif %}
         </div>
+        {{ redirect_field }}
         <div class="bk-auth-actions">
           <button type="submit" class="bk-btn-primary">Verify &amp; sign in</button>
         </div>
@@ -56,6 +57,7 @@
         <form method="POST">
             {% csrf_token %}
             {{ form.as_p }}
+            {{ redirect_field }}
             <button type="submit" class="btn btn--primary btn--full">Verify Code</button>
         </form>
         <div class="auth-links">

@@ -9,8 +9,9 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
-from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import redirect, render
+from django.http import HttpRequest, HttpResponse, HttpResponsePermanentRedirect, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 # ── Cross-surface session relay ────────────────────────────────────────────────
@@ -139,8 +140,24 @@ def find_account(request: HttpRequest) -> HttpResponse:
 def home(request):
     """Home page view."""
     if request.user.is_authenticated:
-        return redirect("hub_guild_voting")
+        return redirect("hub_home")
     return render(request, "home.html")
+
+
+def guild_vanity_redirect(request: HttpRequest, slug: str) -> HttpResponse:
+    """Public, human-typable pastlives.app/g/<slug> → 301 to the guest guild page.
+
+    Reachable pre-login (no decorator). The default Guild manager hides soft-deleted
+    guilds, so an unknown OR soft-deleted slug 404s. A private guild (``is_public=False``)
+    also 404s — we never publicly redirect to a page that would itself 404. Permanent (301)
+    because the vanity ↔ guild mapping is stable; the QR/flyer encode THIS route so the guest
+    host can move without reprints.
+    """
+    from membership.models import Guild
+
+    guild = get_object_or_404(Guild, slug=slug, is_public=True)
+    target = f"{settings.GUILDS_BASE_URL}{reverse('hub_guild_detail', args=[guild.slug])}"
+    return HttpResponsePermanentRedirect(target)
 
 
 def newsletter_signup(request: HttpRequest) -> HttpResponse:

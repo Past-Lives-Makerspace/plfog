@@ -19,7 +19,7 @@ stack, the same one :mod:`core.events.discord` / :mod:`core.events.discord_dm` u
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 from urllib.parse import urlencode
 
 import httpx
@@ -27,6 +27,21 @@ from django.conf import settings
 
 if TYPE_CHECKING:
     from membership.models import Member
+
+
+class DiscordIdentity(NamedTuple):
+    """The pieces of a linked Discord account we care about.
+
+    Attributes:
+        user_id: The user's numeric Discord id (snowflake) — the join key for DMs.
+        handle: The user's Discord username, falling back to their global (display)
+            name. Used to pre-fill a member's blank ``discord_handle``. May be blank
+            if Discord returns neither.
+    """
+
+    user_id: str
+    handle: str
+
 
 logger = logging.getLogger(__name__)
 
@@ -111,14 +126,15 @@ def exchange_code(code: str, redirect_uri: str) -> str:
     return str(access_token)
 
 
-def fetch_user_id(access_token: str) -> str:
-    """Read the linked user's Discord id via ``GET /users/@me``.
+def fetch_identity(access_token: str) -> DiscordIdentity:
+    """Read the linked user's Discord id and handle via ``GET /users/@me``.
 
     Args:
         access_token: The bearer token from :func:`exchange_code`.
 
     Returns:
-        The user's numeric Discord id (snowflake).
+        A :class:`DiscordIdentity` with the numeric id and the user's handle
+        (``username``, falling back to ``global_name``).
 
     Raises:
         DiscordOAuthError: On a network error, a non-success status, or a response
@@ -136,14 +152,19 @@ def fetch_user_id(access_token: str) -> str:
     if not response.is_success:
         logger.warning("Discord identity fetch failed: %s %s", response.status_code, response.text[:300])
         raise DiscordOAuthError("Identity fetch returned a non-success status.")
-    user_id = response.json().get("id", "")
+    payload = response.json()
+    user_id = payload.get("id", "")
     if not user_id:
         raise DiscordOAuthError("Identity response carried no user id.")
-    return str(user_id)
+    handle = (payload.get("username") or payload.get("global_name") or "").strip()
+    return DiscordIdentity(user_id=str(user_id), handle=handle)
 
 
 def link_member_from_code(member: Member, code: str, redirect_uri: str) -> None:
-    """Complete the link: exchange the code, read the Discord id, store it on the member.
+    """Complete the link: exchange the code, read the Discord id + handle, store on the member.
+
+    The handle pre-fills the member's ``discord_handle`` only when it is blank — a value
+    the member typed is never overwritten (see :meth:`membership.models.Member.link_discord`).
 
     Args:
         member: The member linking their Discord account.
@@ -155,5 +176,5 @@ def link_member_from_code(member: Member, code: str, redirect_uri: str) -> None:
             unlinked).
     """
     access_token = exchange_code(code, redirect_uri)
-    discord_user_id = fetch_user_id(access_token)
-    member.link_discord(discord_user_id)
+    identity = fetch_identity(access_token)
+    member.link_discord(identity.user_id, handle=identity.handle)

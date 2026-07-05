@@ -87,7 +87,9 @@ def describe_guild_announcement():
         assert opted_out.user.email not in emailed
 
     def it_broadcasts_to_discord_once(linked_member):
-        guild = GuildFactory(name="Print")
+        # The channel picker owns the single Discord post: the default "Our Guild Channel"
+        # resolves to the guild's own webhook and posts exactly once (no central double-post).
+        guild = GuildFactory(name="Print", discord_webhook_url="https://discord.com/api/webhooks/1/guild")
         m1 = linked_member()
         m2 = linked_member()
         GuildMembershipFactory(guild=guild, member=m1)

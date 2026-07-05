@@ -177,6 +177,21 @@ class SiteConfiguration(models.Model):
         verbose_name="MailChimp list / audience ID",
         help_text="MailChimp list (audience) ID new subscribers are added to.",
     )
+    discord_general_webhook_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="#general-chat Discord webhook",
+        help_text="Discord webhook for #general-chat. Guild leads can post announcements here. "
+        "Blank = the option is hidden from the picker.",
+    )
+    discord_leadership_webhook_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="#leadership Discord webhook",
+        help_text="Discord webhook for #leadership. Blank = the option is hidden from the picker.",
+    )
     google_analytics_measurement_id = models.CharField(
         max_length=50,
         blank=True,

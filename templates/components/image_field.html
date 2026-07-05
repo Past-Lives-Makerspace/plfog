@@ -16,6 +16,10 @@ Parameters (pass via {% include ... with %}):
   shape             — optional, "circle" (default) or "rect"
   thumbnail_width   — optional, CSS width (default: 96px circle / 240px rect)
   thumbnail_height  — optional, CSS height (default: same as width for circle / 80px rect)
+  max_bytes         — optional, integer byte cap. When set, an oversized file is
+                      rejected client-side (before submit) with an inline message, so
+                      it never triggers a server round-trip. Should mirror the server
+                      validator (settings.MAX_UPLOAD_IMAGE_BYTES) so the two agree.
   tooltip_html      — optional, HTML rendered inside a ? bubble next to the label
   hint_html         — optional, HTML rendered as the hint text under the input
   delete_button_text   — optional, default "Delete"
@@ -51,6 +55,10 @@ Parameters (pass via {% include ... with %}):
             <span class="cls-image-upload-hint">Click or drag a file here</span>
         </label>
 
+        {% if max_bytes %}
+        <p class="pl-field-error" id="image-size-error-{{ field.auto_id }}" role="alert" style="display:none;margin-top:0.4rem;"></p>
+        {% endif %}
+
         {% if current_image %}
         <div style="margin-top:0.5rem;">
             <button type="button"
@@ -70,8 +78,21 @@ Parameters (pass via {% include ... with %}):
             const preview = document.getElementById('image-preview-{{ field.auto_id }}');
             if (!input || !preview) return;
 
+            const sizeError = document.getElementById('image-size-error-{{ field.auto_id }}');
             input.addEventListener('change', function() {
                 if (!this.files.length) return;
+                {% if max_bytes %}
+                if (this.files[0].size > {{ max_bytes }}) {
+                    const mb = ({{ max_bytes }} / 1048576).toFixed(1).replace(/\.0$/, '');
+                    if (sizeError) {
+                        sizeError.textContent = 'That image is too large (max ' + mb + ' MB). Please choose a smaller file.';
+                        sizeError.style.display = 'block';
+                    }
+                    this.value = '';
+                    return;
+                }
+                if (sizeError) { sizeError.style.display = 'none'; sizeError.textContent = ''; }
+                {% endif %}
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     preview.innerHTML = `<img src="${e.target.result}" style="width:{{ tw }};height:{{ th }};border-radius:6px;object-fit:cover;border:1px solid var(--hub-border);">`;
@@ -132,6 +153,10 @@ Parameters (pass via {% include ... with %}):
             <span class="cls-image-upload-hint">Click or drag a file here</span>
         </label>
 
+        {% if max_bytes %}
+        <p class="pl-field-error" id="image-size-error-{{ field.auto_id }}" role="alert" style="display:none;margin-top:0.4rem;"></p>
+        {% endif %}
+
         {% if current_image %}
         <div style="margin-top:0.5rem;">
             <button type="button"
@@ -151,8 +176,21 @@ Parameters (pass via {% include ... with %}):
             const preview = document.getElementById('image-preview-{{ field.auto_id }}');
             if (!input || !preview) return;
 
+            const sizeError = document.getElementById('image-size-error-{{ field.auto_id }}');
             input.addEventListener('change', function() {
                 if (!this.files.length) return;
+                {% if max_bytes %}
+                if (this.files[0].size > {{ max_bytes }}) {
+                    const mb = ({{ max_bytes }} / 1048576).toFixed(1).replace(/\.0$/, '');
+                    if (sizeError) {
+                        sizeError.textContent = 'That image is too large (max ' + mb + ' MB). Please choose a smaller file.';
+                        sizeError.style.display = 'block';
+                    }
+                    this.value = '';
+                    return;
+                }
+                if (sizeError) { sizeError.style.display = 'none'; sizeError.textContent = ''; }
+                {% endif %}
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     preview.innerHTML = `<img src="${e.target.result}" style="width:{{ tw }};height:{{ th }};border-radius:50%;object-fit:cover;border:1px solid var(--hub-border);">`;

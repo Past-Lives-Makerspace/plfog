@@ -1,0 +1,45 @@
+{% comment %}
+"Your proposed announcements" — a member's own in-flight (non-published) proposals,
+with a status pill, the reviewer's note (for changes/declined), and Edit / Withdraw
+controls. Rendered at the top of the propose page. Expects `my_proposals`. Absent when empty.
+{% endcomment %}
+{% if my_proposals %}
+<div class="hub-card pl-proposals" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Your proposed announcements</h2>
+    <div style="display:flex; flex-direction:column; gap:1rem;">
+        {% for p in my_proposals %}
+        {% with confirm_id="withdraw-ann-"|add:p.pk|stringformat:"s" %}
+        <div class="hub-card" style="padding:1rem; background:var(--hub-surface); display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+            <div style="flex:1; min-width:220px;">
+                <div style="font-weight:600; display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                    {{ p.title }}
+                    {% if p.moderation_state == "pending" %}
+                    <span class="hub-pill hub-pill--neutral">Pending review</span>
+                    {% elif p.moderation_state == "changes_requested" %}
+                    <span class="hub-pill hub-pill--warn">Changes requested</span>
+                    {% elif p.moderation_state == "declined" %}
+                    <span class="hub-pill hub-pill--danger">Declined</span>
+                    {% endif %}
+                </div>
+                <div class="hub-text-muted" style="font-size:0.8125rem; margin-top:0.25rem;">{{ p.guild.name }}</div>
+                {% if p.review_notes and p.moderation_state != "pending" %}
+                <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.5rem 0 0;">
+                    <strong>Reviewer note:</strong> {{ p.review_notes }}
+                </p>
+                {% endif %}
+            </div>
+            {% if p.moderation_state == "pending" or p.moderation_state == "changes_requested" %}
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+                <a href="{% url 'hub_guild_announcement_propose_edit' p.pk %}" class="hub-btn hub-btn--sm">Edit</a>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                        @click="$dispatch('open-confirm', '{{ confirm_id }}')">Withdraw</button>
+                {% url 'hub_guild_announcement_withdraw' p.pk as withdraw_url %}
+                {% include "components/confirm_modal.html" with confirm_id=confirm_id confirm_title="Withdraw this proposal?" confirm_message="It'll be removed and won't be reviewed." confirm_action_url=withdraw_url confirm_button_text="Withdraw proposal" %}
+            </div>
+            {% endif %}
+        </div>
+        {% endwith %}
+        {% endfor %}
+    </div>
+</div>
+{% endif %}

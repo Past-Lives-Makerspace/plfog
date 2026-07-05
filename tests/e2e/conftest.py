@@ -97,4 +97,16 @@ def login_via_code(page, live_server):
         page.locator('input[name="code"]').press("Enter")
         page.wait_for_url(lambda url: "code/confirm" not in url)
 
+        # A brand-new member lands on the hub with the one-time first-login
+        # welcome modal open — a deliberate blocking overlay (no backdrop/escape
+        # dismissal, must pick a button). That's correct on a real first sign-in,
+        # but it covers the hub pages these specs then interact with, so mark it
+        # dismissed for the member that just signed in. The next page.goto()
+        # re-renders without it. No-op when no Member exists (e.g. book-only flows).
+        from django.utils import timezone as _tz
+
+        from membership.models import Member
+
+        Member.objects.filter(user=user).update(welcome_dismissed_at=_tz.now())
+
     return _login

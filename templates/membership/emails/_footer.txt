@@ -1,4 +1,4 @@
 
-—
-Past Lives Federation of Guilds — https://members.pastlives.space
-Manage your email preferences or unsubscribe: https://members.pastlives.space/settings/
+{% load site_urls %}—
+Past Lives Federation of Guilds — {% member_base_url %}
+Manage your email preferences or unsubscribe: {% member_base_url %}/settings/

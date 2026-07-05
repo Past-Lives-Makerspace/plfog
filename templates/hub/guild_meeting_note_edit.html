@@ -3,7 +3,7 @@
 {% block content %}
 <div x-data="{}">
   <p style="margin-bottom:0.75rem;">
-    <a href="{% url 'hub_guild_meeting_notes' guild.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to meeting notes</a>
+    <a href="{% url 'hub_guild_edit' guild.pk %}?tab=meeting_notes" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to {{ guild.name }} · Meeting Notes</a>
   </p>
   <h1 class="hub-page-title">{% if note.pk %}Edit meeting notes{% else %}Add meeting notes{% endif %}</h1>
 
@@ -92,7 +92,7 @@
 
     <div style="display:flex; gap:1rem;">
       <button type="submit" class="pl-btn pl-btn--primary">Save</button>
-      <a href="{% url 'hub_guild_meeting_notes' guild.pk %}" class="pl-btn pl-btn--secondary">Cancel</a>
+      <a href="{% url 'hub_guild_edit' guild.pk %}?tab=meeting_notes" class="pl-btn pl-btn--secondary">Cancel</a>
     </div>
   </form>
 </div>

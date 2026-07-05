@@ -1,0 +1,14 @@
+{% comment %}
+Responsive feature screenshot for a release-email card. Renders nothing when there
+is no url, so a not-yet-captured feature simply drops the image (text-only card).
+Params:
+  url  — the hosted (R2) image URL; empty → renders nothing.
+  alt  — descriptive alt text (the feature label); email must be legible with images off.
+  link — optional absolute URL wrapping the image (the feature page).
+The image sits at the top of the card, so it carries the card's top corner radius.
+{% endcomment %}
+{% if url %}
+{% if link %}<a href="{{ link }}" style="display: block; text-decoration: none;">{% endif %}
+<img src="{{ url }}" alt="{{ alt }}" width="560" style="width: 100%; max-width: 100%; height: auto; display: block; border: 0; border-radius: 10px 10px 0 0;">
+{% if link %}</a>{% endif %}
+{% endif %}

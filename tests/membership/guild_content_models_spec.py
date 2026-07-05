@@ -108,6 +108,9 @@ def describe_guild_new_fields():
         assert guild.contact_email == ""
         assert guild.show_members is False
 
+    def it_defaults_the_faq_label_to_FAQ():
+        assert GuildFactory().faq_label == "FAQ"
+
 
 def describe_str_methods():
     def it_renders_readable_strings():

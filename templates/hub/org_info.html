@@ -1,0 +1,151 @@
+{% extends guilds_page_base|default:"hub/base.html" %}
+{% load static %}
+{% load classes_tags %}
+{% load membership_md %}
+{% block title %}Space & Org Info{% endblock %}
+
+{% block content %}
+
+{# ── Optional banner ── #}
+{% if page.banner_image %}
+<div class="pl-guild-hero"
+     {% if can_edit %}
+     x-data="heroPlacement({
+         updateUrl: '{% url 'hub_hero_adjust' %}',
+         contentTypeId: {{ org_ct_id }},
+         objectId: {{ page.pk }},
+         csrfToken: '{{ csrf_token }}',
+         initialObjectPosition: '{{ page.hero_object_position }}',
+         initialCrop: {
+             x: {{ page.hero_crop_x|default:0 }},
+             y: {{ page.hero_crop_y|default:0 }},
+             w: {{ page.hero_crop_w|default:0 }},
+             h: {{ page.hero_crop_h|default:0 }}
+         }
+     })"
+     {% endif %}>
+    <img class="pl-guild-hero__img"
+         src="{{ page.banner_image.url }}"
+         alt="Past Lives Makerspace"
+         {% if can_edit %}
+         x-ref="heroImg"
+         :style="'object-position: ' + objectPosition"
+         {% else %}
+         style="object-position: {{ page.hero_object_position }};"
+         {% endif %}>
+    <div class="pl-guild-hero__overlay"></div>
+    {% if can_edit %}
+    <div class="pl-guild-hero__content">
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+            <button type="button" class="pl-btn pl-btn--secondary"
+                    @click="startAdjusting()" x-show="!isAdjusting" :disabled="isLoading" title="Adjust Placement">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                </svg>
+                <span x-text="isLoading ? '...' : 'Adjust'"></span>
+            </button>
+            <div x-show="isAdjusting" x-cloak class="pl-hero-adjust" style="background:rgba(0,0,0,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
+                <div style="display:flex; flex-direction:column; gap:2px;">
+                    <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Vertical</label>
+                    <input type="range" min="0" max="100" x-model="posY" style="width:120px; cursor:pointer;">
+                </div>
+                <div style="display:flex; flex-direction:column; gap:2px;">
+                    <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Horizontal</label>
+                    <input type="range" min="0" max="100" x-model="posX" style="width:120px; cursor:pointer;">
+                </div>
+            </div>
+            <button type="button" class="pl-btn pl-btn--primary" @click="save()" x-show="isAdjusting" :disabled="isLoading">
+                <span x-text="isLoading ? '...' : 'Save'"></span>
+            </button>
+            <button type="button" class="pl-btn pl-btn--secondary" @click="cancel()" x-show="isAdjusting" :disabled="isLoading">Cancel</button>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{# ── Header + purpose blurb ── #}
+{% if can_edit %}
+    {% url 'hub_org_info_edit' as org_edit_url %}
+    {% include "components/page_header.html" with title="Space & Org Info" description="How our space and organization work — the floor plan, parking, who to contact, and our code of conduct, all in one place." action_url=org_edit_url action_label="Edit this page" action_class="hub-btn hub-btn--sm" %}
+{% else %}
+    {% include "components/page_header.html" with title="Space & Org Info" description="How our space and organization work — the floor plan, parking, who to contact, and our code of conduct, all in one place." %}
+{% endif %}
+
+{% if page.intro %}
+<div class="hub-card" style="margin-bottom:1.5rem;">
+    <div class="pl-md">{{ page.intro|guild_markdown }}</div>
+</div>
+{% endif %}
+
+<div class="pl-guild-grid">
+    <main>
+        {# ── Map & Facilities (prominent, near top) ── #}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">Map &amp; Facilities</h2>
+            {% include "hub/_org_floorplan.html" %}
+        </section>
+
+        {% if page.parking %}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">Parking &amp; Arrival</h2>
+            <div class="pl-md">{{ page.parking|guild_markdown }}</div>
+        </section>
+        {% endif %}
+
+        {% if page.who_to_contact %}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">Who's Who &amp; Who to Contact</h2>
+            <div class="pl-md">{{ page.who_to_contact|guild_markdown }}</div>
+        </section>
+        {% endif %}
+
+        {% if faq_items %}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">FAQ</h2>
+            {% for item in faq_items %}
+            <div x-data="{ open: false }">
+                <div class="pl-guild-faq__q" @click="open = !open">{{ item.question }}</div>
+                <div class="pl-guild-faq__a" x-show="open" x-cloak>
+                    <div class="pl-md">{{ item.answer|guild_markdown }}</div>
+                    {% if item.video_url %}{% with vid=item.video_url|youtube_embed_id %}{% if vid %}
+                    <div class="pl-guild-video" style="margin-top:0.75rem;">
+                        <iframe src="https://www.youtube-nocookie.com/embed/{{ vid }}" title="{{ item.question }}" allowfullscreen></iframe>
+                    </div>
+                    {% endif %}{% endwith %}{% endif %}
+                    {% if item.has_document %}
+                    <div style="margin-top:0.75rem;">
+                        <a href="{{ item.document_href }}" class="hub-btn hub-btn--sm"{% if item.document %} download{% else %} target="_blank" rel="noopener nofollow noreferrer"{% endif %}>{% if item.document %}📄{% else %}🔗{% endif %} {{ item.document_display_name }}</a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        {% if page.code_of_conduct or page.code_of_conduct_url %}
+        <section class="pl-guild-section">
+            <h2 class="pl-guild-section__h2">Code of Conduct</h2>
+            {% if page.code_of_conduct %}
+            <div class="pl-md">{{ page.code_of_conduct|guild_markdown }}</div>
+            {% else %}
+            <p class="hub-text-muted" style="margin-top:0;">Our full code of conduct lives in a shared document.</p>
+            <a href="{{ page.code_of_conduct_url }}" class="pl-btn pl-btn--secondary" target="_blank" rel="noopener noreferrer" hx-boost="false">Read the Code of Conduct →</a>
+            {% endif %}
+        </section>
+        {% endif %}
+    </main>
+
+    <aside>
+        {% if links %}
+        <div class="hub-card">
+            <h3 class="hub-detail-label">Resources</h3>
+            <div class="pl-guild-links">
+                {% for link in links %}<a href="{{ link.url }}" target="_blank" rel="noopener" hx-boost="false">{{ link.label }}</a>{% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </aside>
+</div>
+{% endblock %}

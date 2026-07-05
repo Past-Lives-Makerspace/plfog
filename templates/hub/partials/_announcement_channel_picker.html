@@ -1,0 +1,36 @@
+{% load hub_tags %}
+{% comment %}
+The guild-announcement Discord channel picker — a single-choice radio group shared by the
+lead's own post form (guild_edit.html) and the member-submission approve modal (§6.4).
+
+Params (via include ... with):
+  field — a bound `discord_channel` field whose widget is `ChannelRadioSelect`
+          (its `configured_channels` drives which options are disabled).
+
+Renders one card per channel. An unconfigured channel is a real, greyed `<input disabled>`
+with a muted "Not set up yet." hint (read from the option's `data-hint`). When no channel is
+configured at all, a muted line points the lead to Site Settings.
+{% endcomment %}
+<div class="pl-form-group">
+  <label class="pl-form-label">{{ field.label }}</label>
+  <div class="pl-channel-picker" role="radiogroup" aria-label="{{ field.label }}">
+    {% for radio in field %}
+    <label class="pl-channel-option{% if radio.data.attrs.disabled %} pl-channel-option--disabled{% endif %}">
+      {{ radio.tag }}
+      <span class="pl-channel-option__label">{{ radio.choice_label }}</span>
+      {% if radio.data.attrs.disabled %}
+      <span class="pl-channel-option__hint">{{ radio.data.attrs|get_item:"data-hint" }}</span>
+      {% endif %}
+    </label>
+    {% endfor %}
+  </div>
+  {% if not field.field.widget.configured_channels %}
+  <p class="pl-channel-picker__empty">No Discord channels are set up yet — ask an admin to add them in Site Settings.</p>
+  {% endif %}
+  {% if field.errors %}
+  <ul class="pl-field-errors">
+    {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  <p class="pl-field-hint">Members hear it in the app and by email regardless — this only picks the Discord channel.</p>
+</div>

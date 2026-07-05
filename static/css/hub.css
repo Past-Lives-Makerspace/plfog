@@ -241,6 +241,13 @@ a:hover { color: var(--hub-link-hover); }
     gap: 2px;
 }
 
+.hub-sidebar__divider {
+    border: 0;
+    border-top: 1px solid var(--hub-sidebar-border);
+    margin: 0.5rem 0.75rem;
+    width: auto;
+}
+
 .hub-sidebar__link {
     display: flex;
     align-items: center;
@@ -1014,6 +1021,21 @@ a:hover { color: var(--hub-link-hover); }
     border-radius: 10px;
     background-color: rgba(238, 180, 75, 0.15);
     color: var(--color-tuscan-yellow);
+}
+
+/* A staff member's titles shown together as badges — wraps on narrow screens. */
+.pl-badge-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+/* One title badge plus its per-title Remove control on the Staff tab. */
+.pl-staff-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
 }
 
 .hub-note {
@@ -2843,6 +2865,8 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 [data-theme="light"] .pl-guild-hero--noimg .pl-guild-hero__title { color: var(--hub-text); }
 [data-theme="light"] .pl-guild-hero--noimg .pl-guild-hero__lead { color: var(--hub-text-muted); opacity: 1; }
 .pl-guild-hero__lead { font-size: 0.9375rem; opacity: 0.9; margin-top: 0.25rem; }
+/* Hero placement adjuster toolbar (x-show target — display lives in the class, never inline, per FRONTEND.md Rule 12). */
+.pl-hero-adjust { display: flex; align-items: center; gap: 1rem; }
 .pl-guild-grid { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
 .pl-guild-grid aside { display: flex; flex-direction: column; gap: 1.5rem; }
 @media (min-width: 1024px) { .pl-guild-grid { grid-template-columns: 1fr 340px; } }
@@ -2856,6 +2880,15 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-guild-gallery__item img { width: 100%; height: 100%; object-fit: cover; }
 .pl-guild-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .pl-guild-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 6px; }
+
+/* Space & Org Info — annotated floor plan / map. Reuses .pl-guild-lightbox for zoom. */
+.pl-org-map { margin: 0; }
+.pl-org-map__btn { display: block; width: 100%; padding: 0; border: 1px solid var(--hub-border); border-radius: 8px; overflow: hidden; background: var(--hub-surface); cursor: zoom-in; position: relative; }
+.pl-org-map__btn img { display: block; width: 100%; height: auto; }
+.pl-org-map__zoom { position: absolute; bottom: 0.75rem; right: 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.6rem; border-radius: 6px; background: rgba(0,0,0,0.6); color: #F4EFDD; font-size: 0.75rem; }
+.pl-org-map__caption { margin: 0.6rem 0 0; color: var(--hub-text-muted); font-size: 0.85rem; }
+.pl-org-map--empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0; padding: 2rem 1.25rem; border: 1px dashed var(--hub-border); border-radius: 8px; background: var(--hub-surface); color: var(--hub-text-muted); }
+
 .pl-guild-faq__q { font-weight: 600; cursor: pointer; padding: 0.75rem 0; border-top: 1px solid var(--hub-border); }
 .pl-guild-faq__a { padding-bottom: 0.75rem; color: var(--hub-text-muted); }
 .pl-guild-roster { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -2952,3 +2985,593 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-profile-section { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--hub-border); }
 .pl-profile-section__title { font-size: 1rem; font-weight: 700; margin: 0 0 0.5rem; }
 .pl-commission-note { display: block; margin-top: 0.5rem; }
+
+/* ========================================
+   Member Home / Dashboard
+   ======================================== */
+
+/* Shared section heading + card spacing for the home blocks. */
+.pl-home-heading {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0 0 1rem;
+}
+.pl-home-block { margin-bottom: 1.5rem; }
+
+/* Empty-state line inside a home block. */
+.pl-home-empty {
+    color: var(--hub-text-muted);
+    font-size: 0.9375rem;
+    margin: 0;
+}
+.pl-home-empty a { color: var(--hub-link); font-weight: 500; }
+.pl-home-empty a:hover { color: var(--hub-link-hover); }
+
+/* --- Finish-your-profile nudge --- */
+.pl-nudge {
+    position: relative;
+    margin-bottom: 1.5rem;
+    border-left: 3px solid var(--color-tuscan-yellow);
+}
+.pl-nudge__lead { margin: 0 0 0.75rem; max-width: 60ch; }
+.pl-nudge__close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+.pl-nudge__close:hover { background: var(--hub-surface); color: var(--hub-text); }
+.pl-nudge__progress {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+    max-width: 320px;
+}
+.pl-nudge__bar { height: 100%; background: var(--color-tuscan-yellow); border-radius: 999px; }
+.pl-nudge__list {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+    padding: 0;
+}
+.pl-nudge__list li {
+    font-size: 0.8125rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+}
+.pl-nudge__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+/* --- Get started onboarding checklist --- */
+.pl-onboarding {
+    position: relative;
+    margin-bottom: 1.5rem;
+    border-left: 3px solid var(--color-tuscan-yellow);
+}
+.pl-onboarding__title { margin-bottom: 0.35rem; padding-right: 2.25rem; }
+.pl-onboarding__lead { margin: 0 0 1rem; max-width: 60ch; }
+.pl-onboarding__close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+.pl-onboarding__close:hover { background: var(--hub-surface); color: var(--hub-text); }
+.pl-onboarding__steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+.pl-onboarding-step {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 10px;
+    color: var(--hub-text);
+    text-decoration: none;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.pl-onboarding-step:hover { border-color: var(--color-tuscan-yellow); background: var(--hub-surface); }
+.pl-onboarding-step__status {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: var(--hub-text-muted);
+}
+.pl-onboarding-step--done .pl-onboarding-step__status { color: var(--color-tuscan-yellow); }
+.pl-onboarding-step__body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+.pl-onboarding-step__label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-weight: 500;
+}
+.pl-onboarding-step__note { font-size: 0.8125rem; }
+.pl-onboarding-step__tag {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+}
+.pl-onboarding-step__go { flex: 0 0 auto; display: inline-flex; color: var(--hub-text-muted); }
+.pl-onboarding__progress { margin: 0; font-size: 0.875rem; }
+
+/* --- Quick links --- */
+.pl-quicklinks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+.pl-quicklink {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 10px;
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.1s ease, background-color 0.15s ease;
+}
+.pl-quicklink:hover {
+    border-color: var(--color-tuscan-yellow);
+    background: var(--hub-surface);
+    transform: translateY(-1px);
+}
+.pl-quicklink__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: rgba(238, 180, 75, 0.15);
+    color: var(--color-tuscan-yellow);
+}
+.pl-quicklink__label { font-size: 0.9375rem; font-weight: 500; }
+
+/* --- Your upcoming --- */
+.pl-upcoming { list-style: none; margin: 0; padding: 0; }
+.pl-upcoming__item + .pl-upcoming__item { border-top: 1px solid var(--hub-border); }
+.pl-upcoming__link {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    text-decoration: none;
+    color: var(--hub-text);
+}
+.pl-upcoming__link:hover .pl-upcoming__title { color: var(--hub-link); }
+.pl-upcoming__when {
+    flex-shrink: 0;
+    width: 6.5rem;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+}
+.pl-upcoming__date { font-size: 0.875rem; font-weight: 700; }
+.pl-upcoming__time { font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-upcoming__body { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.pl-upcoming__title { font-size: 0.9375rem; font-weight: 500; }
+.pl-upcoming__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+}
+.pl-upcoming__kind {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.1rem 0.45rem;
+    border-radius: 10px;
+    background: var(--hub-blue-soft);
+    color: var(--hub-blue);
+}
+
+/* --- Latest announcements --- */
+.pl-ann-list { list-style: none; margin: 0; padding: 0; }
+.pl-ann { padding: 0.85rem 0; }
+.pl-ann + .pl-ann { border-top: 1px solid var(--hub-border); }
+.pl-ann__title { font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.2rem; }
+.pl-ann__meta { font-size: 0.8125rem; margin-bottom: 0.4rem; }
+.pl-ann__meta a { color: var(--hub-link); font-weight: 500; }
+.pl-ann__meta a:hover { color: var(--hub-link-hover); }
+.pl-ann__body { font-size: 0.875rem; color: var(--hub-text-muted); margin: 0; }
+
+/* --- Your guilds (chips) --- */
+.pl-guild-chips { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.pl-guild-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.8rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    text-decoration: none;
+    font-size: 0.875rem;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.pl-guild-chip:hover { border-color: var(--color-tuscan-yellow); background: var(--hub-card-bg); }
+.pl-guild-chip__logo { flex-shrink: 0; }
+.pl-guild-chip__name { font-weight: 500; }
+.pl-guild-chip__badge {
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.1rem 0.4rem;
+    border-radius: 8px;
+    background: rgba(238, 180, 75, 0.15);
+    color: var(--color-tuscan-yellow);
+}
+
+/* Home blocks stack their date column on narrow screens. */
+@media (max-width: 520px) {
+    .pl-upcoming__link { flex-direction: column; gap: 0.25rem; }
+    .pl-upcoming__when { flex-direction: row; gap: 0.5rem; width: auto; }
+}
+
+/* Guild editor "Share & Print" QR preview. The QR SVG (segno, scale=1) is tiny
+   at intrinsic size, so scale it up to a fixed preview box. */
+.pl-qr-preview {
+    flex: 0 0 auto;
+    width: 140px;
+    height: 140px;
+    padding: 8px;
+    background: #ffffff;
+    border: 1px solid var(--hub-border);
+    border-radius: 6px;
+}
+
+.pl-qr-preview svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* ========================================
+   My Guilds settings tab — per-guild join/leave toggle list.
+   Layout only; every color comes from theme tokens (hub-card wrapper, --hub-text,
+   --hub-text-muted, --hub-border) and the switch is the already-themed pl-toggle,
+   so this reads correctly on both Obsidian (dark) and Slate (light) with no rules
+   of its own. Reflows to a single column; no table, no fixed widths, no h-scroll.
+   ======================================== */
+.pl-guild-toggle-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.pl-guild-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--hub-border);
+    transition: opacity 0.15s ease;
+}
+
+.pl-guild-toggle-row:first-child {
+    border-top: 0;
+}
+
+/* In-flight: the whole row dims and locks while its join/leave POST is on the wire.
+   htmx tags only the firing element with .htmx-request, so the toggle carries
+   hx-indicator="closest .pl-guild-toggle-row" to lift the class up to the row. */
+.pl-guild-toggle-row.htmx-request {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.pl-guild-toggle-row__info {
+    /* min-width:0 lets the hint truncate instead of stretching the flex row. */
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.pl-guild-toggle-row__name {
+    color: var(--hub-text);
+    font-weight: 500;
+}
+
+.pl-guild-toggle-row__hint {
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Guild-announcement Discord channel picker ─────────────────────────────
+   A single-choice radio group (one-of-N destination). Theme tokens only — no
+   inline background/color, no --surface. Verified on dark (Obsidian) + light
+   (Slate). See templates/hub/partials/_announcement_channel_picker.html. */
+.pl-channel-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.pl-channel-option {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+}
+
+.pl-channel-option input[type="radio"] {
+    flex: 0 0 auto;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: none;
+    accent-color: var(--color-tuscan-yellow);
+    cursor: pointer;
+}
+
+.pl-channel-option__label {
+    flex: 1 1 auto;
+}
+
+.pl-channel-option__hint {
+    flex: 0 0 auto;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+
+/* :checked lives on the input; style the enclosing label via :has (option card). */
+.pl-channel-option:has(input:checked) {
+    border-color: var(--color-tuscan-yellow);
+    background: var(--hub-elevated);
+}
+
+.pl-channel-option--disabled,
+.pl-channel-option:has(input:disabled) {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.pl-channel-option--disabled input[type="radio"] {
+    cursor: not-allowed;
+}
+
+.pl-channel-picker__empty {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+
+/* ============================================================================
+   Release-update email composer + preview  (Site Settings → Announcements)
+   Admin-page chrome only — the iframe content is the email itself.
+   ========================================================================== */
+.pl-announce-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    max-width: 760px;
+}
+
+.pl-release-form__error {
+    background: var(--color-error-bg);
+    border: 1px solid var(--color-error);
+    border-radius: 6px;
+    padding: 0.6rem 0.85rem;
+    color: var(--color-error);
+    font-size: 0.875rem;
+}
+.pl-release-form__warn {
+    margin: 0;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    font-style: italic;
+}
+.pl-release-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.pl-release-cards__title {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--hub-text);
+}
+.pl-release-cards__hint {
+    margin: -0.25rem 0 0.25rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-release-card {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 1rem;
+    align-items: start;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+.pl-release-card__name {
+    display: block;
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+}
+.pl-release-card__bullets {
+    margin: 0.4rem 0 0;
+    padding-left: 1.1rem;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+.pl-release-card__bullets li { margin-bottom: 0.2rem; }
+.pl-release-card__note {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--hub-link);
+}
+.pl-release-card__controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+.pl-release-actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 0.25rem;
+}
+
+/* --- The upgraded preview (device frame, inbox row, HTML/plain-text toggle) --- */
+.pl-email-preview__title {
+    margin: 0 0 0.25rem;
+    font-size: 0.95rem;
+    color: var(--hub-text);
+}
+.pl-email-preview__lead {
+    margin: 0 0 0.9rem;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+.pl-email-preview__inbox {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px 8px 0 0;
+    background: var(--hub-elevated);
+}
+.pl-email-preview__from { font-size: 0.75rem; color: var(--hub-text-muted); font-weight: 700; }
+.pl-email-preview__subject { font-size: 0.9375rem; color: var(--hub-text); font-weight: 700; }
+.pl-email-preview__preheader { font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-email-preview__toolbar {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--hub-border);
+    border-top: none;
+    background: var(--hub-surface);
+}
+.pl-seg {
+    display: inline-flex;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 6px;
+    overflow: hidden;
+}
+.pl-seg__btn {
+    border: none;
+    background: transparent;
+    color: var(--hub-text-muted);
+    font-family: var(--font-body);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    padding: 0.35rem 0.85rem;
+    cursor: pointer;
+}
+.pl-seg__btn + .pl-seg__btn { border-left: 1px solid var(--hub-border-strong); }
+.pl-seg__btn--active {
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+}
+.pl-email-preview__pane { display: block; }
+.pl-email-preview__frame {
+    display: flex;
+    justify-content: center;
+    overflow-x: auto;
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    background: var(--hub-surface);
+}
+.pl-email-preview__iframe {
+    height: 620px;
+    max-width: 100%;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 8px;
+    background: #fff;
+}
+.pl-email-preview__text {
+    margin: 0;
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    background: var(--hub-input-bg);
+    color: var(--hub-text);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 620px;
+    overflow-y: auto;
+}
+
+@media (max-width: 640px) {
+    .pl-release-card { grid-template-columns: 1fr; }
+}

@@ -3,7 +3,7 @@
 import pytest
 from django.test import RequestFactory
 
-from core.context_processors import app_version, feature_flags, google_analytics, registration_mode, surface
+from core.context_processors import app_version, feature_flags, google_analytics, registration_mode, surface, theme
 from core.models import SiteConfiguration
 from plfog.version import CHANGELOG, VERSION
 
@@ -120,10 +120,32 @@ def describe_surface():
         assert result == {
             "surface": "public",
             "is_public_surface": True,
+            "is_guilds_surface": False,
+            "is_guest_surface": True,
             "MEMBER_HOST": settings.MEMBER_HOST,
             "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
+            "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "guilds_page_base": "hub/base.html",
             "parent_template": "classes/base_public.html",
+        }
+
+    def it_reports_guilds_when_request_surface_is_guilds(settings):
+        rf = RequestFactory()
+        request = rf.get("/")
+        request.surface = "guilds"
+        result = surface(request)
+        assert result == {
+            "surface": "guilds",
+            "is_public_surface": False,
+            "is_guilds_surface": True,
+            "is_guest_surface": True,
+            "MEMBER_HOST": settings.MEMBER_HOST,
+            "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
+            "BOOK_BASE_URL": settings.BOOK_BASE_URL,
+            "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "guilds_page_base": "guilds/base_public.html",
+            "parent_template": "guilds/base_public.html",
         }
 
     def it_reports_members_when_request_surface_is_members(settings):
@@ -134,9 +156,13 @@ def describe_surface():
         assert result == {
             "surface": "members",
             "is_public_surface": False,
+            "is_guilds_surface": False,
+            "is_guest_surface": False,
             "MEMBER_HOST": settings.MEMBER_HOST,
             "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
+            "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "guilds_page_base": "hub/base.html",
             "parent_template": "base.html",
         }
 
@@ -149,11 +175,32 @@ def describe_surface():
         assert result == {
             "surface": "members",
             "is_public_surface": False,
+            "is_guilds_surface": False,
+            "is_guest_surface": False,
             "MEMBER_HOST": settings.MEMBER_HOST,
             "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
+            "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "guilds_page_base": "hub/base.html",
             "parent_template": "base.html",
         }
+
+
+def describe_theme():
+    def it_exposes_empty_domain_by_default(settings):
+        # Default (local dev): host-only cookie, no domain attribute.
+        settings.THEME_COOKIE_DOMAIN = ""
+        rf = RequestFactory()
+        request = rf.get("/")
+        assert theme(request) == {"theme_cookie_domain": ""}
+
+    def it_exposes_the_configured_parent_domain(settings):
+        # Production scopes the theme cookie to the .pastlives.app registrable
+        # domain so the choice is shared across the hub and guilds surfaces.
+        settings.THEME_COOKIE_DOMAIN = ".pastlives.app"
+        rf = RequestFactory()
+        request = rf.get("/")
+        assert theme(request) == {"theme_cookie_domain": ".pastlives.app"}
 
 
 def describe_notification_badge():

@@ -23,6 +23,10 @@ _BRAND_NEW_KEYS = {
     "event.guild_published",
     "event.community_published",
     "event.lead_meeting_published",
+    "guild_announcement.submitted",
+    "guild_announcement.approved",
+    "guild_announcement.changes_requested",
+    "guild_announcement.declined",
 }
 
 

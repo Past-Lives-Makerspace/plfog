@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
 from decimal import Decimal
@@ -14,6 +15,7 @@ from django.db import models
 from django.db.models import BooleanField, Case, CharField, DecimalField, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.functional import cached_property
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
@@ -202,6 +204,61 @@ class MemberQuerySet(models.QuerySet):
         ).distinct()
 
 
+@dataclass(frozen=True)
+class ProfileCompleteness:
+    """Result of :attr:`Member.profile_completeness` — a profile-completion checklist.
+
+    ``missing`` is the ordered list of still-empty field labels (member-friendly text),
+    ``complete`` is True when nothing is missing, and ``percent`` is the 0–100 share of
+    checked fields that are filled in. Pure derived data — drives the home dashboard's
+    "Finish your profile" nudge and any progress display from one source of truth.
+
+    ``essentials_complete`` is the same check *excluding the directory-listing preference*
+    — every profile **content** signal (photo, bio, pronouns, Discord) is filled, regardless
+    of whether the member opts to be listed. The onboarding gate uses this so a member who
+    legitimately hides from the directory is still counted as onboarded (``complete`` would
+    leave them stuck forever). See :attr:`Member.is_onboarded`.
+    """
+
+    missing: list[str]
+    complete: bool
+    percent: int
+    essentials_complete: bool
+
+
+@dataclass(frozen=True)
+class OnboardingStep:
+    """One row in the home "Get started" onboarding checklist (:attr:`Member.onboarding`).
+
+    A derived status row that links to the existing page which completes it — the member
+    never adds/removes/toggles steps here, they *do* them elsewhere. ``optional`` marks the
+    recommended-but-not-required voting step; ``hint`` carries the profile percent while
+    that step is undone (empty otherwise).
+    """
+
+    key: str
+    label: str
+    done: bool
+    url: str
+    optional: bool
+    hint: str
+
+
+@dataclass(frozen=True)
+class OnboardingChecklist:
+    """The three-step home onboarding checklist for a member (:attr:`Member.onboarding`).
+
+    ``required_done`` / ``required_total`` count only the non-optional steps (profile +
+    guilds), so the optional voting step can never make the progress read "2 of 3" forever;
+    ``complete`` mirrors :attr:`Member.is_onboarded`.
+    """
+
+    steps: list[OnboardingStep]
+    required_done: int
+    required_total: int
+    complete: bool
+
+
 class Member(models.Model):
     # Queryset annotation (set by MemberQuerySet.with_lease_totals)
     total_monthly_rent: Decimal
@@ -341,7 +398,11 @@ class Member(models.Model):
     cancellation_date = models.DateField(null=True, blank=True)
     committed_until = models.DateField(null=True, blank=True)
     show_in_directory = models.BooleanField(
-        default=False, help_text="Whether this member appears in the public member directory."
+        default=True,
+        help_text=(
+            "Whether this member appears in the public member directory. New members are listed by "
+            "default; they can opt out any time in profile settings."
+        ),
     )
     directory_visibility = models.JSONField(
         default=dict,
@@ -372,6 +433,22 @@ class Member(models.Model):
     )
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    welcome_dismissed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the member dismissed the first-login 'set up your profile' welcome modal "
+            "(null = not dismissed yet). Set once they act on it, so it never shows again."
+        ),
+    )
+    onboarding_dismissed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the member dismissed the home 'Get started' checklist card; null = never "
+            "dismissed. Does NOT affect is_onboarded — only hides the card."
+        ),
+    )
     leases = GenericRelation(
         "Lease",
         content_type_field="content_type",
@@ -417,16 +494,163 @@ class Member(models.Model):
         """Whether this member has a verified Discord account linked for DM notifications."""
         return bool(self.discord_user_id)
 
-    def link_discord(self, discord_user_id: str) -> None:
+    @property
+    def has_started_profile(self) -> bool:
+        """Whether the member has customized any part of their profile yet.
+
+        True once a photo, bio, pronouns, or Discord (typed handle or a linked
+        account) is set. Drives the first-login welcome nudge: brand-new members
+        with an empty profile see it once; anyone who has already customized
+        anything never does — without touching or backfilling existing rows.
+        """
+        return bool(self.profile_photo or self.about_me or self.pronouns or self.discord_handle or self.discord_user_id)
+
+    @property
+    def profile_completeness(self) -> ProfileCompleteness:
+        """Which member-directory profile fields are filled in, as a checklist + percent.
+
+        Checks the public-facing fields a new member is nudged to complete: a photo, a
+        short bio, pronouns, a Discord link (a typed handle or a verified linked account),
+        and being listed in the member directory. Returns the still-missing field labels,
+        a complete flag, and a 0–100 percent, so the home dashboard's "Finish your profile"
+        card reads from one source. Kept in step with :attr:`has_started_profile` (the same
+        photo/bio/pronouns/Discord signals) so the first-login modal and this persistent
+        nudge never disagree. Pure derived data — no query, no migration.
+        """
+        content_checks: list[tuple[str, bool]] = [
+            ("Profile photo", bool(self.profile_photo)),
+            ("Short bio", bool(self.about_me)),
+            ("Pronouns", bool(self.pronouns)),
+            ("Discord link", bool(self.discord_is_linked or self.discord_handle)),
+        ]
+        # The directory-listing preference is an opt-out, not a "content" signal — it's part
+        # of the completeness percent/checklist but is EXCLUDED from ``essentials_complete``
+        # (the onboarding gate), so opting out never blocks onboarding.
+        checks: list[tuple[str, bool]] = [*content_checks, ("Directory listing", bool(self.show_in_directory))]
+        missing = [label for label, ok in checks if not ok]
+        filled = len(checks) - len(missing)
+        percent = round(filled / len(checks) * 100)
+        essentials_complete = all(ok for _, ok in content_checks)
+        return ProfileCompleteness(
+            missing=missing, complete=not missing, percent=percent, essentials_complete=essentials_complete
+        )
+
+    def dismiss_welcome(self) -> None:
+        """Mark the first-login profile welcome modal as dismissed so it never shows again."""
+        self.welcome_dismissed_at = timezone.now()
+        self.save(update_fields=["welcome_dismissed_at"])
+
+    # --- Home onboarding ("Get started" checklist) ---
+
+    @cached_property
+    def _profile_essentials_done(self) -> bool:
+        """Whether the profile **content** essentials are filled (photo/bio/pronouns/Discord).
+
+        Reads :attr:`profile_completeness` but uses its ``essentials_complete`` — which
+        excludes the directory-listing opt-out — so a member who hides from the directory
+        is still onboardable. Cached so the three onboarding reads don't recompute it.
+        """
+        return self.profile_completeness.essentials_complete
+
+    @cached_property
+    def _has_joined_guild(self) -> bool:
+        """Whether the member has officially joined at least one guild. Cached (one query)."""
+        return self.joined_guilds.exists()
+
+    @property
+    def _has_voting_preference(self) -> bool:
+        """Whether the member has set a guild funding vote (a :class:`VotePreference` row)."""
+        return VotePreference.objects.filter(member=self).exists()
+
+    @property
+    def is_onboarded(self) -> bool:
+        """Whether the member has finished the required first-week setup.
+
+        True once their profile **content essentials** are filled AND they've joined at
+        least one guild. Voting is a recommended, **optional** step and does NOT affect
+        this. Uses ``_profile_essentials_done`` (not ``profile_completeness.complete``) so
+        the directory-listing opt-out can never make a member permanently un-onboardable.
+        """
+        return self._profile_essentials_done and self._has_joined_guild
+
+    @property
+    def onboarding(self) -> OnboardingChecklist:
+        """The three-step home "Get started" checklist for this member.
+
+        Each step is a derived status row linking to the page that completes it — the
+        profile editor, the My Guilds settings tab, and the voting page. ``required_done`` /
+        ``required_total`` count only profile + guilds (voting is optional); ``complete``
+        equals :attr:`is_onboarded`.
+        """
+        from django.urls import reverse
+
+        profile = self.profile_completeness
+        profile_done = profile.essentials_complete
+        steps = [
+            OnboardingStep(
+                key="profile",
+                label="Set up your profile",
+                done=profile_done,
+                url=f"{reverse('hub_user_settings')}?tab=profile",
+                optional=False,
+                hint="" if profile_done else f"{profile.percent}% complete",
+            ),
+            OnboardingStep(
+                key="guilds",
+                label="Join your guilds",
+                done=self._has_joined_guild,
+                url=f"{reverse('hub_user_settings')}?tab=guilds",
+                optional=False,
+                hint="",
+            ),
+            OnboardingStep(
+                key="voting",
+                label="Set a voting preference",
+                done=self._has_voting_preference,
+                url=reverse("hub_guild_voting"),
+                optional=True,
+                hint="",
+            ),
+        ]
+        required = [step for step in steps if not step.optional]
+        required_done = sum(1 for step in required if step.done)
+        return OnboardingChecklist(
+            steps=steps,
+            required_done=required_done,
+            required_total=len(required),
+            complete=required_done == len(required),
+        )
+
+    @property
+    def show_onboarding(self) -> bool:
+        """Whether to show the home "Get started" card: not onboarded and not dismissed."""
+        return self.onboarding_dismissed_at is None and not self.is_onboarded
+
+    def dismiss_onboarding(self) -> None:
+        """Hide the home "Get started" checklist card (sticky). Does not affect is_onboarded."""
+        self.onboarding_dismissed_at = timezone.now()
+        self.save(update_fields=["onboarding_dismissed_at"])
+
+    def link_discord(self, discord_user_id: str, handle: str = "") -> None:
         """Record a verified Discord account id for DM notifications.
 
         Stores the snowflake and stamps :attr:`discord_linked_at`. Called by the OAuth
         linking service (:func:`core.events.discord_oauth.link_member_from_code`) after
         the member authorizes the FOG bot.
+
+        Args:
+            discord_user_id: The member's numeric Discord id (snowflake).
+            handle: The member's Discord username (or global name). Used to fill
+                :attr:`discord_handle` **only when it is currently blank** — a handle the
+                member typed themselves is never overwritten.
         """
         self.discord_user_id = discord_user_id.strip()
         self.discord_linked_at = timezone.now()
-        self.save(update_fields=["discord_user_id", "discord_linked_at"])
+        update_fields = ["discord_user_id", "discord_linked_at"]
+        if handle and not self.discord_handle:
+            self.discord_handle = handle.strip()
+            update_fields.append("discord_handle")
+        self.save(update_fields=update_fields)
 
     def unlink_discord(self) -> None:
         """Clear the linked Discord account (the member opts out of DMs entirely)."""
@@ -603,6 +827,11 @@ class Member(models.Model):
     def staffed_guilds(self) -> models.QuerySet[Guild]:
         """Guilds this member leads or holds any staff role on (i.e. has lead authority)."""
         return Guild.objects.filter(models.Q(guild_lead=self) | models.Q(staff_memberships__member=self)).distinct()
+
+    @property
+    def joined_guilds(self) -> models.QuerySet[Guild]:
+        """Guilds this member has explicitly joined (via :class:`GuildMembership`), name-ordered."""
+        return Guild.objects.filter(memberships__member=self).order_by("name")
 
     @property
     def is_instructor(self) -> bool:
@@ -816,6 +1045,14 @@ class GuildManager(models.Manager["Guild"]):
     def get_queryset(self) -> models.QuerySet[Guild]:
         return super().get_queryset().filter(deleted_at__isnull=True)
 
+    def directory(self) -> models.QuerySet[Guild]:
+        """Active, public guilds for the directory: featured first, then alphabetical.
+
+        Guilds marked private (``is_public=False``) never appear on the public guilds
+        site — they stay visible to members inside the hub only.
+        """
+        return self.filter(is_active=True, is_public=True).order_by("-is_featured", "name")
+
 
 class Guild(HeroCropMixin, models.Model):
     # Queryset annotation (set by GuildAdmin.get_queryset)
@@ -841,6 +1078,14 @@ class Guild(HeroCropMixin, models.Model):
         blank=True,
         default="",
         help_text="Member-facing description or announcement shown on the guild page.",
+    )
+    essential_rules = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Short essential/safety rules shown on your printable flyer. "
+            "Keep it brief — your full About is too long to print."
+        ),
     )
     banner_image = models.ImageField(
         upload_to="guilds/banners/",
@@ -929,6 +1174,16 @@ class Guild(HeroCropMixin, models.Model):
     show_members = models.BooleanField(
         default=False, help_text="Show the opt-in members roster on the public guild page."
     )
+    is_featured = models.BooleanField(
+        default=False, help_text="Pin this guild to the top of the public guilds directory."
+    )
+    is_public = models.BooleanField(
+        default=True,
+        help_text=(
+            "When off, this guild's page is hidden from the public guilds site "
+            "(guilds.pastlives.app) — members can still see it in the hub."
+        ),
+    )
     featured_class = models.ForeignKey(
         "classes.ClassOffering",
         null=True,
@@ -936,6 +1191,11 @@ class Guild(HeroCropMixin, models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
         help_text="A class to spotlight at the top of the guild page.",
+    )
+    faq_label = models.CharField(
+        max_length=50,
+        default="FAQ",
+        help_text="Heading for this guild's FAQ / info section on the guild page — e.g. 'Ceramics Info'.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(
@@ -966,6 +1226,38 @@ class Guild(HeroCropMixin, models.Model):
         from membership.logos import logo_prefix_for
 
         return logo_prefix_for(self.name)
+
+    @property
+    def vanity_url(self) -> str:
+        """Absolute, human-typable share URL, e.g. https://pastlives.app/g/ceramics/.
+
+        Lives on the member host and 301-redirects to the public guest guild page. It is
+        the single source of truth for what the QR encodes and the flyer prints.
+        """
+        from django.urls import reverse
+
+        return f"{settings.MEMBER_BASE_URL}{reverse('guild_vanity', args=[self.slug])}"
+
+    def qr_svg(self) -> str:
+        """Inline SVG markup of this guild's vanity-URL QR (crisp at any print size)."""
+        import io
+
+        import segno
+
+        # segno's SVG writer emits bytes, so buffer as bytes and decode to markup.
+        buf = io.BytesIO()
+        segno.make(self.vanity_url, error="m").save(buf, kind="svg", scale=1, xmldecl=False, svgns=True)
+        return buf.getvalue().decode("utf-8")
+
+    def qr_png_bytes(self) -> bytes:
+        """PNG bytes of the same QR (segno's native writer — no Pillow)."""
+        import io
+
+        import segno
+
+        buf = io.BytesIO()
+        segno.make(self.vanity_url, error="m").save(buf, kind="png", scale=10, border=2)
+        return buf.getvalue()
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.slug:
@@ -1075,6 +1367,38 @@ class Guild(HeroCropMixin, models.Model):
             rows = by_title[title]
             rows.sort(key=lambda s: (s.member.full_legal_name or "").lower())
             grouped.append((title, rows))
+        return grouped
+
+    @staticmethod
+    def _staff_title_sort_key(staff: GuildStaffMembership) -> tuple[int, str]:
+        """Order a staff row's title: presets first (role-declaration order), then custom titles alphabetically.
+
+        Shared by the title-ordering in :meth:`staff_by_member` so a person's badges read the same way the
+        :meth:`staff_by_role` headings do.
+        """
+        role_order = {role.value: index for index, role in enumerate(GuildStaffMembership.Role)}
+        if staff.role:
+            return (role_order[staff.role], "")
+        return (len(role_order), staff.custom_title.lower())
+
+    def staff_by_member(self) -> list[tuple[Member, list[GuildStaffMembership]]]:
+        """Each staff member once, with all their staff-title rows, for badge display.
+
+        Members are sorted by name (case-insensitive, matching :meth:`staff_by_role`). Within a member,
+        rows are ordered presets-first (role-declaration order) then custom titles alphabetically. Built
+        from a single ``select_related`` query, so iterating the result hits no extra queries.
+        """
+        members: dict[int, Member] = {}
+        rows_by_member: dict[int, list[GuildStaffMembership]] = {}
+        for staff in self.staff_memberships.select_related("member"):
+            members[staff.member_id] = staff.member
+            rows_by_member.setdefault(staff.member_id, []).append(staff)
+        ordered_ids = sorted(rows_by_member, key=lambda mid: (members[mid].full_legal_name or "").lower())
+        grouped: list[tuple[Member, list[GuildStaffMembership]]] = []
+        for member_id in ordered_ids:
+            rows = rows_by_member[member_id]
+            rows.sort(key=self._staff_title_sort_key)
+            grouped.append((members[member_id], rows))
         return grouped
 
     def leadership_members(self) -> list[Member]:
@@ -1271,10 +1595,199 @@ class GuildLink(models.Model):
         return f"{self.label} ({self.guild.name})"
 
 
+class OrgInfoPage(HeroCropMixin, models.Model):
+    """Singleton (pk=1) org-wide info page: map, parking, who-to-contact, code of conduct.
+
+    Reuses the guild page's content shapes (hero banner, Markdown sections, FAQ, links)
+    but is org-scoped and never participates in guild voting, funding, or the directory.
+    Load the one row via :meth:`load`, exactly like ``SiteConfiguration``.
+    """
+
+    banner_image = models.ImageField(
+        upload_to="org/banner/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text="Optional hero banner across the top of the Space & Org Info page.",
+    )
+    intro = models.TextField(
+        blank=True,
+        default="",
+        help_text="Welcome / overview blurb shown at the top of the page. Supports Markdown.",
+    )
+    floorplan_image = models.ImageField(
+        upload_to="org/floorplan/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text="Annotated floor plan — guild locations, restrooms, emergency exits. Click-to-zoom on the page.",
+    )
+    floorplan_caption = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        help_text="Caption shown under the map, e.g. 'Guild locations, restrooms, and emergency exits.'",
+    )
+    parking = models.TextField(
+        blank=True,
+        default="",
+        help_text="Parking & arrival info. Supports Markdown.",
+    )
+    who_to_contact = models.TextField(
+        blank=True,
+        default="",
+        help_text="Org structure / who's-who / who to contact for what. Supports Markdown (a list or headings).",
+    )
+    code_of_conduct = models.TextField(
+        blank=True,
+        default="",
+        help_text="Code of conduct body. Supports Markdown. Leave blank to link out instead.",
+    )
+    code_of_conduct_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional external Code of Conduct link, used only when the body above is blank.",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this page was last edited.")
+
+    class Meta:
+        verbose_name = "Space & Org Info Page"
+        verbose_name_plural = "Space & Org Info Page"
+
+    def __str__(self) -> str:
+        return "Space & Org Info"
+
+    def get_hero_image_field_name(self) -> str:
+        return "banner_image"
+
+    @property
+    def has_code_of_conduct(self) -> bool:
+        """True when a written body or an external link is set — drives the section/nav."""
+        return bool(self.code_of_conduct or self.code_of_conduct_url)
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        from django.conf import settings
+
+        self.pk = 1
+        delete_orphan_on_replace(self, "banner_image")
+        delete_orphan_on_replace(self, "floorplan_image")
+        # Normalize the floor plan at the HERO long edge (larger than gallery) so its
+        # annotations stay legible when a member zooms in.
+        normalize_field_if_uploaded(self, "floorplan_image", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> "OrgInfoPage":
+        """Load the singleton row, creating it with defaults if needed."""
+        obj, _created = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class OrgFAQItem(models.Model):
+    """A question/answer pair in the Space & Org Info page FAQ — mirrors ``GuildFAQItem``.
+
+    An answer may also carry a YouTube embed and/or one attached document — either an
+    uploaded file or a link to an external doc (at most one of the two).
+    """
+
+    page = models.ForeignKey(
+        OrgInfoPage, on_delete=models.CASCADE, related_name="faq_items", help_text="Parent org-info page."
+    )
+    question = models.CharField(max_length=500, help_text="The question.")
+    answer = models.TextField(help_text="The answer.")
+    video_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional YouTube link shown with this answer (watch, youtu.be, embed, or shorts URL).",
+    )
+    document = models.FileField(
+        upload_to="org/faq/",
+        blank=True,
+        validators=[validate_document],
+        help_text="Optional document (PDF, Word, slides, spreadsheet…) shown with this answer. "
+        "Leave blank to link an external doc instead.",
+    )
+    document_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional link to an external doc for this answer. Leave blank if you uploaded a file.",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order"]
+        constraints = [
+            # A document is optional, but it can't be BOTH an upload and a link.
+            models.CheckConstraint(
+                condition=Q(document="") | Q(document_url=""),
+                name="ck_orgfaqitem_doc_not_both",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.question
+
+    @property
+    def has_document(self) -> bool:
+        return bool(self.document) or bool(self.document_url)
+
+    @property
+    def document_display_name(self) -> str:
+        """The uploaded file's base name, else the link URL, else ``""``."""
+        if self.document and self.document.name:
+            return self.document.name.rsplit("/", 1)[-1]
+        return self.document_url
+
+    @property
+    def document_href(self) -> str:
+        """Where the document link points — the uploaded file's URL or the external link."""
+        return self.document.url if self.document else self.document_url
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "document")
+        super().save(*args, **kwargs)
+
+
+class OrgLink(models.Model):
+    """A named external link shown in the Space & Org Info page sidebar — mirrors ``GuildLink``."""
+
+    page = models.ForeignKey(
+        OrgInfoPage, on_delete=models.CASCADE, related_name="links", help_text="Parent org-info page."
+    )
+    label = models.CharField(max_length=100, help_text="Display text, e.g. 'Member Guide'.")
+    url = models.URLField(help_text="Destination URL.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order"]
+
+    def __str__(self) -> str:
+        return f"{self.label} (Space & Org Info)"
+
+
 class GuildAnnouncementQuerySet(models.QuerySet):
     def active(self) -> "GuildAnnouncementQuerySet":
         """Announcements still showing — no expiry, or expiring today or later."""
         return self.filter(Q(expires_at__isnull=True) | Q(expires_at__gte=timezone.localdate()))
+
+    def published(self) -> "GuildAnnouncementQuerySet":
+        """Only announcements that are live — a lead's direct post or an approved proposal.
+
+        Everything a member reads on the guild page, home feed, or activity list must be
+        Published; a pending/changes-requested/declined proposal is never public.
+        """
+        return self.filter(moderation_state=GuildAnnouncement.ModerationState.PUBLISHED)
+
+    def awaiting_review(self) -> "GuildAnnouncementQuerySet":
+        """Member proposals waiting on a lead/admin decision (the reviewer queue)."""
+        return self.filter(moderation_state=GuildAnnouncement.ModerationState.PENDING)
+
+    def for_member(self, member: "Member") -> "GuildAnnouncementQuerySet":
+        """Announcements from the guilds this member has explicitly joined."""
+        return self.filter(guild__memberships__member=member)
+
+
+class InvalidAnnouncementTransition(ValueError):
+    """Raised when a :class:`GuildAnnouncement` lifecycle method is called from a state
+    that does not permit it (e.g. approving an already-declined proposal)."""
 
 
 class GuildAnnouncement(models.Model):
@@ -1303,6 +1816,63 @@ class GuildAnnouncement(models.Model):
         blank=True,
         help_text="Last day this announcement shows on the guild page. Blank = never expires.",
     )
+    send_email = models.BooleanField(
+        default=True,
+        help_text="Also email this announcement to members who joined the guild.",
+    )
+
+    class DiscordChannel(models.TextChoices):
+        GUILD = "guild", "Our Guild Channel"
+        GENERAL = "general", "#general-chat"
+        LEADERSHIP = "leadership", "#leadership"
+        NONE = "none", "Don't post to Discord"
+
+    discord_channel = models.CharField(
+        max_length=20,
+        choices=DiscordChannel.choices,
+        default=DiscordChannel.GUILD,
+        help_text="Which Discord channel this announcement posted to (or 'none').",
+    )
+
+    class ModerationState(models.TextChoices):
+        PUBLISHED = "published", "Published"  # live on the guild page (a lead post or an approved proposal)
+        PENDING = "pending", "Pending review"  # a member's proposal awaiting a decision; not yet public
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"  # sent back to the proposer to edit + resubmit
+        DECLINED = "declined", "Declined"  # turned down; never posted
+
+    # --- Moderation (member-proposal review lifecycle) ------------------------
+    moderation_state = models.CharField(
+        max_length=20,
+        choices=ModerationState.choices,
+        default=ModerationState.PUBLISHED,
+        help_text=(
+            "Where this announcement is in the review flow. Leads/staff/admins post already "
+            "Published; a member's proposal starts Pending until a lead or admin approves it."
+        ),
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The member who proposed this announcement (for posts that went through review).",
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The lead or admin who approved, declined, or requested changes.",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True, help_text="When the review decision was recorded.")
+    review_notes = models.TextField(
+        blank=True,
+        default="",
+        help_text="The reviewer's note to the proposer (shown on a decline or a changes-requested).",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this announcement was last edited.")
 
     objects = GuildAnnouncementQuerySet.as_manager()
 
@@ -1317,6 +1887,34 @@ class GuildAnnouncement(models.Model):
         """Visible on the page — never expires, or the expiry is today or later."""
         return self.expires_at is None or self.expires_at >= timezone.localdate()
 
+    def resolve_discord_webhook(self) -> str:
+        """Map :attr:`discord_channel` to the webhook URL this announcement posts to.
+
+        Returns ``""`` for :attr:`DiscordChannel.NONE` or any channel whose webhook is
+        unset — the emit path treats a blank result as "no Discord post" (a stripped,
+        best-effort echo). The makerspace-wide #general-chat / #leadership webhooks live
+        on :class:`core.models.SiteConfiguration`; "Our Guild Channel" is the guild's own
+        ``discord_webhook_url``.
+
+        Returns:
+            The chosen webhook URL, or ``""`` when the channel is "none" or unconfigured.
+
+        Raises:
+            ValueError: If ``discord_channel`` holds an unknown value (fail loudly).
+        """
+        from core.models import SiteConfiguration
+
+        channel = self.discord_channel
+        if channel == self.DiscordChannel.GUILD:
+            return (self.guild.discord_webhook_url or "").strip()
+        if channel == self.DiscordChannel.GENERAL:
+            return (SiteConfiguration.load().discord_general_webhook_url or "").strip()
+        if channel == self.DiscordChannel.LEADERSHIP:
+            return (SiteConfiguration.load().discord_leadership_webhook_url or "").strip()
+        if channel == self.DiscordChannel.NONE:
+            return ""
+        raise ValueError(f"Unknown Discord channel '{channel}' on announcement {self.pk}.")
+
     def notify_members(self) -> None:
         """Emit ``guild.announcement`` to the guild's members (Decision 4).
 
@@ -1324,6 +1922,13 @@ class GuildAnnouncement(models.Model):
         site-wide); they receive an in-app bell row (always), an email (opt-out), and
         a single Discord broadcast. The copy is DB-editable; the merge fields come from
         this announcement. Called once by the create view after the row is saved.
+
+        The author's controls are honored here: when ``send_email`` is off the
+        per-recipient email channel is suppressed (the in-app bell still fires), and the
+        persisted ``discord_channel`` choice picks exactly where the single Discord echo
+        posts (:meth:`resolve_discord_webhook`). A resolved webhook of ``""`` (the "Don't
+        post to Discord" choice, or an unconfigured channel) suppresses the guild
+        broadcast entirely — the bell + email still deliver.
 
         The ``period`` is keyed to this announcement's pk so re-saving never double-
         notifies, while a different announcement (a different pk) still notifies.
@@ -1334,6 +1939,7 @@ class GuildAnnouncement(models.Model):
         from membership.orientations import _absolute_url
 
         guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
+        webhook = self.resolve_discord_webhook()
         emit(
             "guild_announcement",
             actor=self.author,
@@ -1345,9 +1951,239 @@ class GuildAnnouncement(models.Model):
                 "announcement_title": self.title,
                 "announcement_body": self.body,
                 "guild_url": guild_url,
+                "discord_broadcast_webhook": webhook,
             },
             url=guild_url,
             period=f"announcement:{self.pk}",
+            suppress_email=not self.send_email,
+            suppress_guild_broadcast=(webhook == ""),
+        )
+
+    # --- Review lifecycle (member proposals) ----------------------------------
+
+    def submit_for_review(self, *, submitted_by: "User") -> None:
+        """Enter (or re-enter) the review queue — the member-proposal path.
+
+        Used for BOTH the first submit and a resubmit after a changes-requested edit.
+        Sets ``PENDING``, records the proposer as the author (so the eventual post is
+        credited to them), clears any prior verdict, and notifies the guild's leadership.
+        A pending proposal is never public — nothing posts until :meth:`approve`.
+
+        Raises:
+            InvalidAnnouncementTransition: If the announcement is already published or declined.
+        """
+        if self.pk is not None and self.moderation_state not in (
+            self.ModerationState.PENDING,
+            self.ModerationState.CHANGES_REQUESTED,
+        ):
+            raise InvalidAnnouncementTransition(
+                f"Cannot submit an announcement in state '{self.moderation_state}' for review."
+            )
+        self.moderation_state = self.ModerationState.PENDING
+        self.submitted_by = submitted_by
+        self.author = submitted_by
+        self.reviewed_by = None
+        self.reviewed_at = None
+        self.review_notes = ""
+        if self.pk is None:
+            self.save()
+        else:
+            self.save(
+                update_fields=[
+                    "moderation_state",
+                    "submitted_by",
+                    "author",
+                    "reviewed_by",
+                    "reviewed_at",
+                    "review_notes",
+                    "updated_at",
+                ]
+            )
+        self._emit_submitted()
+
+    def withdraw(self, *, by: "User") -> None:
+        """The proposer pulls back their own not-yet-published proposal — deletes the row.
+
+        Raises:
+            InvalidAnnouncementTransition: If the announcement is published or declined.
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED):
+            raise InvalidAnnouncementTransition(f"Cannot withdraw an announcement in state '{self.moderation_state}'.")
+        self.delete()
+
+    def approve(
+        self,
+        *,
+        reviewer: "User",
+        send_email: bool | None = None,
+        discord_channel: str | None = None,
+    ) -> None:
+        """Single reviewer decision → live. Records the reviewer, posts it, notifies.
+
+        The reviewer — not the proposer — owns the outbound channels: pass ``send_email``
+        to set whether the opt-out guild-member email goes out, and ``discord_channel`` to
+        choose which Discord channel the single echo posts to. Both default to the values
+        already on the row when omitted, so the send options live and persist here rather
+        than being mutated by the caller.
+
+        Resets ``published_at`` to now so the announcement sorts and dates from when it
+        actually went live (not when it was drafted), then fires :meth:`notify_members`
+        (the guild-page post, the opt-out guild-member email, and the guild's Discord
+        post) and tells the proposer it's up.
+
+        Raises:
+            InvalidAnnouncementTransition: If the announcement is not awaiting a decision.
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED):
+            raise InvalidAnnouncementTransition(f"Cannot approve an announcement in state '{self.moderation_state}'.")
+        if send_email is not None:
+            self.send_email = send_email
+        if discord_channel:
+            self.discord_channel = discord_channel
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.moderation_state = self.ModerationState.PUBLISHED
+        self.published_at = timezone.now()
+        self.save(
+            update_fields=[
+                "reviewed_by",
+                "reviewed_at",
+                "moderation_state",
+                "published_at",
+                "send_email",
+                "discord_channel",
+                "updated_at",
+            ]
+        )
+        self.notify_members()
+        self._emit_decision(
+            "guild_announcement.approved",
+            url=self._guild_url(),
+            period=f"announcement:{self.pk}:approved",
+        )
+
+    def request_changes(self, *, reviewer: "User", notes: str) -> None:
+        """Send a pending proposal back to the proposer with a note to fix + resubmit.
+
+        Raises:
+            InvalidAnnouncementTransition: If the announcement is not currently pending.
+            ValueError: If ``notes`` is blank (a changes request must explain what to fix).
+        """
+        if self.moderation_state != self.ModerationState.PENDING:
+            raise InvalidAnnouncementTransition(
+                f"Cannot request changes on an announcement in state '{self.moderation_state}'."
+            )
+        if not (notes or "").strip():
+            raise ValueError("A changes request needs a note so the proposer knows what to fix.")
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        self.moderation_state = self.ModerationState.CHANGES_REQUESTED
+        self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        from django.urls import reverse
+
+        edit_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_guild_announcement_propose_edit', args=[self.pk])}"
+        self._emit_decision(
+            "guild_announcement.changes_requested",
+            url=edit_url,
+            period=f"announcement:{self.pk}:changes:{self.reviewed_at.timestamp()}",
+        )
+
+    def decline(self, *, reviewer: "User", notes: str) -> None:
+        """Reject a proposal (it was never posted — nothing to unwind).
+
+        Raises:
+            InvalidAnnouncementTransition: If the announcement is not awaiting a decision.
+            ValueError: If ``notes`` is blank (a decline must explain why).
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED):
+            raise InvalidAnnouncementTransition(f"Cannot decline an announcement in state '{self.moderation_state}'.")
+        if not (notes or "").strip():
+            raise ValueError("A decline needs a note so the proposer knows why.")
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        self.moderation_state = self.ModerationState.DECLINED
+        self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        self._emit_decision(
+            "guild_announcement.declined",
+            url=self._guild_url(),
+            period=f"announcement:{self.pk}:declined",
+        )
+
+    def _guild_url(self) -> str:
+        """Absolute URL of this announcement's guild page (for notification links)."""
+        from django.urls import reverse
+
+        from membership.orientations import _absolute_url
+
+        return _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
+
+    def _proposer_display_name(self) -> str:
+        """A friendly name for the proposer, for notification copy."""
+        user = self.submitted_by
+        if user is None:
+            return "A Past Lives member"
+        full = (user.get_full_name() or "").strip()
+        if full:
+            return full
+        member = getattr(user, "member", None)
+        if member is not None and member.display_name:
+            return member.display_name
+        return user.get_username()
+
+    def _emit_submitted(self) -> None:
+        """Notify the guild's leadership that a member's announcement awaits review.
+
+        A fresh, timestamped ``period`` per submit round so a resubmit re-notifies
+        reviewers instead of being deduped away by :func:`core.events.emit.emit`.
+        """
+        from django.urls import reverse
+
+        from core.events.emit import emit
+
+        review_url = (
+            f"{settings.MEMBER_BASE_URL}{reverse('hub_guild_announcement_review_queue')}#announcement-{self.pk}"
+        )
+        emit(
+            "guild_announcement.submitted",
+            actor=self.submitted_by,
+            target=self,
+            context={
+                "guild": self.guild,
+                "guild_name": self.guild.name,
+                "announcement_title": self.title,
+                "proposer_name": self._proposer_display_name(),
+                "review_url": review_url,
+            },
+            url=review_url,
+            period=f"announcement:{self.pk}:submitted:{timezone.now().timestamp()}",
+        )
+
+    def _emit_decision(self, event_key: str, *, url: str, period: str) -> None:
+        """Notify the proposer of a reviewer decision (approve / changes / decline).
+
+        Builds the full superset context; each event's curated copy uses only its own
+        documented placeholders (extra keys are ignored by the safe renderer).
+        """
+        from core.events.emit import emit
+
+        emit(
+            event_key,
+            actor=self.reviewed_by,
+            target=self,
+            context={
+                "user": self.submitted_by,
+                "guild": self.guild,
+                "guild_name": self.guild.name,
+                "announcement_title": self.title,
+                "announcement_body": self.body,
+                "review_notes": self.review_notes,
+                "guild_url": self._guild_url(),
+                "action_url": url,
+            },
+            url=url,
+            period=period,
         )
 
 
@@ -1599,6 +2435,14 @@ class CommunityEventQuerySet(models.QuerySet):
 
     def site_wide(self) -> CommunityEventQuerySet:
         return self.filter(guild__isnull=True)
+
+    def for_member(self, member: "Member") -> CommunityEventQuerySet:
+        """Site-wide events plus events from the guilds this member has joined.
+
+        The personalized home feed: a member sees every makerspace-wide community/lead
+        event and the meetings of guilds they belong to, but not other guilds' meetings.
+        """
+        return self.filter(Q(guild__isnull=True) | Q(guild__memberships__member=member))
 
 
 class CommunityEvent(models.Model):
