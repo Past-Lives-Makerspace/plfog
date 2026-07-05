@@ -1,6 +1,6 @@
-{# My Guilds — one on/off row per active guild. Each toggle auto-saves over HTMX
+{% comment %}My Guilds — one on/off row per active guild. Each toggle auto-saves over HTMX
    (join on check, leave on uncheck) and returns a toast; there is no page-level Save.
-   The toggles carry their own hx-post, so this partial must live OUTSIDE any <form>. #}
+   The toggles carry their own hx-post, so this partial must live OUTSIDE any <form>.{% endcomment %}
 <div class="hub-card">
   <h2 class="pl-notif-title">My Guilds</h2>
   <p class="hub-text-muted pl-notif-intro">

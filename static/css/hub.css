@@ -241,6 +241,13 @@ a:hover { color: var(--hub-link-hover); }
     gap: 2px;
 }
 
+.hub-sidebar__divider {
+    border: 0;
+    border-top: 1px solid var(--hub-sidebar-border);
+    margin: 0.5rem 0.75rem;
+    width: auto;
+}
+
 .hub-sidebar__link {
     display: flex;
     align-items: center;

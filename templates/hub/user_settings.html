@@ -377,8 +377,8 @@
     </div>
 
     {# -------- Guilds tab -------- #}
-    {# Sits outside every <form>: its per-row toggles carry their own hx-post, so a
-       wrapping <form> would orphan them (the nested-form/submit bug). No page Save. #}
+    {% comment %}Sits outside every <form>: its per-row toggles carry their own hx-post, so a
+       wrapping <form> would orphan them (the nested-form/submit bug). No page Save.{% endcomment %}
     <div x-show="tab === 'guilds'" x-cloak>
         {% include "hub/partials/_my_guilds.html" %}
     </div>
