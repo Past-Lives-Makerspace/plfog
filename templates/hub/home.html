@@ -9,31 +9,9 @@
 {% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." %}
 {% endwith %}
 
-{# --- Finish your profile (persistent nudge — shows only while incomplete) --- #}
-{% if not profile.complete %}
-<div class="hub-card pl-nudge"
-     x-data="{ dismissed: localStorage.getItem('plHomeNudgeDismissed') === '1' }"
-     x-show="!dismissed" x-cloak>
-    <button type="button" class="pl-nudge__close"
-            @click="dismissed = true; localStorage.setItem('plHomeNudgeDismissed', '1')"
-            aria-label="Dismiss">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-    </button>
-    <h2 class="pl-home-heading">Finish setting up your profile</h2>
-    <p class="hub-text-muted pl-nudge__lead">
-        A complete profile helps other members find and connect with you. You're {{ profile.percent }}% there — still to add:
-    </p>
-    <div class="pl-nudge__progress" aria-hidden="true">
-        <div class="pl-nudge__bar" style="width: {{ profile.percent }}%;"></div>
-    </div>
-    <ul class="pl-nudge__list">
-        {% for item in profile.missing %}<li>{{ item }}</li>{% endfor %}
-    </ul>
-    <div class="pl-nudge__actions">
-        <a href="{% url 'hub_user_settings' %}?tab=profile" class="hub-btn hub-btn--primary hub-btn--sm">Edit your profile</a>
-        <a href="{% url 'hub_org_info' %}" class="hub-btn hub-btn--ghost hub-btn--sm">New here? Space &amp; Org Info</a>
-    </div>
-</div>
+{# --- Get started onboarding checklist (shows until onboarded or dismissed) --- #}
+{% if show_onboarding %}
+{% include "hub/partials/_onboarding_checklist.html" %}
 {% endif %}
 
 {# --- Quick links --- #}

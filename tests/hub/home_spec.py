@@ -216,42 +216,119 @@ def describe_hub_home_view():
             assert response.context["my_guilds"] == []
             assert b"haven't joined any guilds yet" in response.content
 
-    def describe_profile_nudge():
-        def it_shows_when_incomplete(client: Client):
-            _member_user("incomplete")
-            client.login(username="incomplete", password="pass")
-
-            response = client.get(reverse("hub_home"))
-
-            assert response.context["profile"].complete is False
-            assert b"Finish setting up your profile" in response.content
-
-        def it_hides_when_complete(client: Client):
-            user = _member_user("complete")
-            member = user.member
+    def describe_onboarding_card():
+        def _onboard(member: Member) -> None:
+            """Bring a member to onboarded: profile essentials filled + one joined guild."""
             member.profile_photo = "members/profile/a.png"
             member.about_me = "Maker."
             member.pronouns = Member.Pronouns.THEY_THEM
             member.discord_user_id = "123456789012345678"
-            member.show_in_directory = True
             member.save()
-            client.login(username="complete", password="pass")
+            GuildMembershipFactory(guild=GuildFactory(name="Ceramics"), member=member)
+
+        def it_shows_the_get_started_card_for_a_new_member(client: Client):
+            _member_user("newbie")
+            client.login(username="newbie", password="pass")
 
             response = client.get(reverse("hub_home"))
 
-            assert response.context["profile"].complete is True
-            assert b"Finish setting up your profile" not in response.content
+            assert response.context["show_onboarding"] is True
+            assert b"Get started at Past Lives" in response.content
 
-        def it_links_to_profile_settings(client: Client):
-            _member_user("nudgelink")
-            client.login(username="nudgelink", password="pass")
+        def it_replaces_the_old_profile_nudge(client: Client):
+            _member_user("nonudge")
+            client.login(username="nonudge", password="pass")
+
+            content = client.get(reverse("hub_home")).content
+
+            # The standalone nudge is folded into the card — it must not also ship.
+            assert b"Finish setting up your profile" not in content
+
+        def it_renders_three_rows_linking_to_each_page(client: Client):
+            _member_user("rows")
+            client.login(username="rows", password="pass")
+
+            content = client.get(reverse("hub_home")).content.decode()
+
+            assert f"{reverse('hub_user_settings')}?tab=profile" in content
+            assert f"{reverse('hub_user_settings')}?tab=guilds" in content
+            assert reverse("hub_guild_voting") in content
+
+        def it_tags_the_voting_row_optional(client: Client):
+            _member_user("optrow")
+            client.login(username="optrow", password="pass")
+
+            content = client.get(reverse("hub_home")).content
+
+            assert b"Optional" in content
+
+        def it_shows_required_only_progress(client: Client):
+            _member_user("progress")
+            client.login(username="progress", password="pass")
+
+            content = client.get(reverse("hub_home")).content
+
+            assert b"0 of 2 done" in content
+
+        def it_renders_the_dismiss_control(client: Client):
+            _member_user("dismisser")
+            client.login(username="dismisser", password="pass")
+
+            content = client.get(reverse("hub_home")).content.decode()
+
+            assert reverse("hub_onboarding_dismiss") in content
+            assert 'hx-swap="outerHTML"' in content
+
+        def it_is_absent_once_onboarded(client: Client):
+            user = _member_user("done")
+            _onboard(user.member)
+            client.login(username="done", password="pass")
 
             response = client.get(reverse("hub_home"))
 
-            assert reverse("hub_user_settings") in response.content.decode()
+            assert response.context["show_onboarding"] is False
+            assert b"Get started at Past Lives" not in response.content
+
+        def it_is_absent_once_dismissed(client: Client):
+            user = _member_user("hid")
+            user.member.dismiss_onboarding()
+            client.login(username="hid", password="pass")
+
+            response = client.get(reverse("hub_home"))
+
+            assert response.context["show_onboarding"] is False
+            assert b"Get started at Past Lives" not in response.content
 
 
 def describe_build_home_context():
+    def it_includes_the_onboarding_checklist_and_gate():
+        from hub.home import build_home_context
+
+        MembershipPlanFactory()
+        member = MemberFactory()
+
+        ctx = build_home_context(member)
+
+        assert [step.key for step in ctx["onboarding"].steps] == ["profile", "guilds", "voting"]
+        assert ctx["show_onboarding"] is True
+
+    def it_hides_the_gate_for_an_onboarded_member():
+        from hub.home import build_home_context
+
+        MembershipPlanFactory()
+        member = MemberFactory(
+            profile_photo="members/profile/a.png",
+            about_me="Maker.",
+            pronouns=Member.Pronouns.THEY_THEM,
+            discord_user_id="123456789012345678",
+        )
+        GuildMembershipFactory(guild=GuildFactory(name="Metals"), member=member)
+
+        ctx = build_home_context(member)
+
+        assert ctx["show_onboarding"] is False
+        assert ctx["onboarding"].complete is True
+
     def it_caps_each_section():
         from hub.home import ANNOUNCEMENTS_CAP, UPCOMING_CAP, build_home_context
 

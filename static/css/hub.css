@@ -3058,6 +3058,90 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 }
 .pl-nudge__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 
+/* --- Get started onboarding checklist --- */
+.pl-onboarding {
+    position: relative;
+    margin-bottom: 1.5rem;
+    border-left: 3px solid var(--color-tuscan-yellow);
+}
+.pl-onboarding__title { margin-bottom: 0.35rem; padding-right: 2.25rem; }
+.pl-onboarding__lead { margin: 0 0 1rem; max-width: 60ch; }
+.pl-onboarding__close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+.pl-onboarding__close:hover { background: var(--hub-surface); color: var(--hub-text); }
+.pl-onboarding__steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+.pl-onboarding-step {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 10px;
+    color: var(--hub-text);
+    text-decoration: none;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.pl-onboarding-step:hover { border-color: var(--color-tuscan-yellow); background: var(--hub-surface); }
+.pl-onboarding-step__status {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: var(--hub-text-muted);
+}
+.pl-onboarding-step--done .pl-onboarding-step__status { color: var(--color-tuscan-yellow); }
+.pl-onboarding-step__body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+.pl-onboarding-step__label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-weight: 500;
+}
+.pl-onboarding-step__note { font-size: 0.8125rem; }
+.pl-onboarding-step__tag {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+}
+.pl-onboarding-step__go { flex: 0 0 auto; display: inline-flex; color: var(--hub-text-muted); }
+.pl-onboarding__progress { margin: 0; font-size: 0.875rem; }
+
 /* --- Quick links --- */
 .pl-quicklinks {
     display: grid;

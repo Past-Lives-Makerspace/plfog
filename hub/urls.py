@@ -187,6 +187,7 @@ urlpatterns = [
         name="hub_guild_product_delete",
     ),
     path("welcome/dismiss/", views.welcome_dismiss, name="hub_welcome_dismiss"),
+    path("settings/onboarding/dismiss/", views.onboarding_dismiss, name="hub_onboarding_dismiss"),
     path("settings/", views.user_settings, name="hub_user_settings"),
     path(
         "settings/profile-photo/delete/",

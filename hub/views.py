@@ -109,6 +109,27 @@ def welcome_dismiss(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
+@require_POST
+def onboarding_dismiss(request: HttpRequest) -> HttpResponse:
+    """Dismiss the home "Get started" onboarding checklist card (HTMX; empty 200 + toast).
+
+    Returns an empty **200** body so the card's ``hx-swap="outerHTML"`` removes it — a 204
+    would run no swap and leave the card in place. Sticky: the model records the dismissal so
+    it never comes back. No dead end — the toast names where the member can still finish setup.
+    """
+    member = _get_member(request)
+    if member is not None:
+        member.dismiss_onboarding()
+    response = HttpResponse("")
+    trigger_toast(
+        response,
+        "You can finish setup anytime — Settings → Guilds, your profile, and the voting page.",
+        "info",
+    )
+    return response
+
+
+@login_required
 def guild_voting(request: HttpRequest) -> HttpResponse:
     """Guild voting page — members submit or update their persistent guild preferences."""
     member = _get_member(request)

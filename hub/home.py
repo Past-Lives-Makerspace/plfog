@@ -60,16 +60,18 @@ class GuildShortcut:
 def build_home_context(member: Member) -> dict[str, Any]:
     """Assemble the Member Home context for a linked member.
 
-    Returns the four home blocks — ``upcoming`` (capped, soonest-first), ``announcements``
+    Returns the home blocks — ``upcoming`` (capped, soonest-first), ``announcements``
     (active guild announcements from joined guilds), ``my_guilds`` (joined, lead/staff
-    flagged), and ``profile`` (the completeness checklist). All business logic lives on
-    ``membership`` managers/props; this only fetches, normalizes, sorts, and caps.
+    flagged), and the ``onboarding`` "Get started" checklist with its ``show_onboarding``
+    gate (built ONCE here, not re-derived per property in the template). All business logic
+    lives on ``membership`` managers/props; this only fetches, normalizes, sorts, and caps.
     """
     return {
         "upcoming": _upcoming_items(member),
         "announcements": _announcements(member),
         "my_guilds": _my_guilds(member),
-        "profile": member.profile_completeness,
+        "onboarding": member.onboarding,
+        "show_onboarding": member.show_onboarding,
     }
 
 
