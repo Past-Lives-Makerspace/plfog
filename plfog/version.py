@@ -9,6 +9,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.20.5",
         "date": "2026-07-04",
         "title": "A “Get started” checklist to help you settle in",
+        "screenshot": "home",
         "changes": [
             (
                 "New members now get a friendly “Get started” card on the home page that walks you through the "
@@ -34,6 +35,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.20.3",
         "date": "2026-07-04",
         "title": "Choose which guilds you're in — right from Settings",
+        "screenshot": "my-guilds",
         "changes": [
             (
                 "There's a new Guilds tab in Settings with a simple on/off switch for every guild. Flip one on to "
@@ -47,6 +49,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.20.2",
         "date": "2026-07-04",
         "title": "Suggest an announcement for your guild",
+        "screenshot": "guild-directory",
         "changes": [
             (
                 "Anyone can now suggest an announcement for a guild — a guild lead (or an admin) reviews it before it "
@@ -82,6 +85,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.20.1",
         "date": "2026-07-03",
         "title": "One place for how our space works",
+        "screenshot": "org-info",
         "changes": [
             (
                 "New Space & Org Info page in the sidebar — one spot for how the space and the organization work: a "
@@ -120,6 +124,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.20.1",
         "date": "2026-07-03",
         "title": "Your profile is safer to edit — and you're listed by default",
+        "screenshot": "member-directory",
         "changes": [
             (
                 "Editing your profile is safer: if a photo you upload is too large, we now keep the rest of your "
