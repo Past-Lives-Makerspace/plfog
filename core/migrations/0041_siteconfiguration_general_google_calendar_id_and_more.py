@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("core", "0039_siteconfiguration_class_registration_disabled_note_and_more"),
+        ("core", "0040_siteconfiguration_discord_general_webhook_url_and_more"),
     ]
 
     operations = [

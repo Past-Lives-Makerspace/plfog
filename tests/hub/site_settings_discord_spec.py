@@ -30,6 +30,9 @@ def _settings_post(**overrides: str) -> dict[str, str]:
         "registration_mode": "invite_only",
         "discord_general_webhook_url": "",
         "discord_leadership_webhook_url": "",
+        # The site-settings page is one <form> spanning all tabs, so every save
+        # carries member_event_policy (a required Calendar-tab field) — mirror that.
+        "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
         "feeds-TOTAL_FORMS": "0",
         "feeds-INITIAL_FORMS": "0",
         "feeds-MIN_NUM_FORMS": "0",

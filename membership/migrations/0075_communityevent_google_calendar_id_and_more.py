@@ -30,7 +30,7 @@ def reverse_set_existing_events(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0071_guild_is_public"),
+        ("membership", "0074_member_onboarding_dismissed_at"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

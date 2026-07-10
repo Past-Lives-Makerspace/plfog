@@ -76,6 +76,41 @@ def describe_SurfaceMiddleware():
             middleware(request)
             assert request.surface == "public"
 
+    def describe_canonical_domain_redirect():
+        # The .app hosts must stay in ALLOWED_HOSTS so the request reaches the
+        # middleware at all (get_host validates); we then 301 it to the member host.
+        _APP_HOSTS = override_settings(
+            ALLOWED_HOSTS=["pastlives.app", "www.pastlives.app", "members.pastlives.space"],
+            MEMBER_HOST="members.pastlives.space",
+        )
+
+        @_APP_HOSTS
+        def it_301s_pastlives_app_to_the_member_host():
+            request, middleware = _build("pastlives.app", "/guilds/")
+            response = middleware(request)
+            assert response.status_code == 301
+            assert response["Location"] == "https://members.pastlives.space/guilds/"
+
+        @_APP_HOSTS
+        def it_301s_the_www_variant_too():
+            request, middleware = _build("www.pastlives.app", "/")
+            response = middleware(request)
+            assert response.status_code == 301
+            assert response["Location"] == "https://members.pastlives.space/"
+
+        @_APP_HOSTS
+        def it_preserves_the_query_string():
+            request, middleware = _build("pastlives.app", "/members/", query="tab=profile")
+            response = middleware(request)
+            assert response.status_code == 301
+            assert response["Location"] == "https://members.pastlives.space/members/?tab=profile"
+
+        @_APP_HOSTS
+        def it_does_not_redirect_the_member_host():
+            request, middleware = _build("members.pastlives.space", "/guilds/")
+            response = middleware(request)
+            assert response.status_code == 200
+
     def describe_root_path_on_public():
         def it_redirects_root_to_classes_catalog():
             request, middleware = _build("book.pastlives.space", "/")
