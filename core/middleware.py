@@ -36,7 +36,7 @@ from collections.abc import Callable
 from urllib.parse import quote
 
 from django.conf import settings
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, HttpResponseRedirect
 
 
 class SurfaceMiddleware:
@@ -47,6 +47,12 @@ class SurfaceMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         host = request.get_host().split(":", 1)[0].lower()
+
+        # Redirect legacy pastlives.app URLs to the canonical members domain.
+        if host in {"pastlives.app", "www.pastlives.app"}:
+            qs = f"?{request.META['QUERY_STRING']}" if request.META.get("QUERY_STRING") else ""
+            return HttpResponsePermanentRedirect(f"https://{settings.MEMBER_HOST}{request.path}{qs}")
+
         public_hosts: set[str] = set(getattr(settings, "PUBLIC_HOSTS", []))
         guilds_hosts: set[str] = set(getattr(settings, "GUILDS_HOSTS", []))
 

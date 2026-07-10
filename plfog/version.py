@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.0"
+VERSION = "0.21.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.21.0",
-        "date": "2026-07-03",
+        "version": "0.21.1",
+        "date": "2026-07-10",
         "title": "Propose events for the Community Calendar",
         "changes": [
             (
@@ -91,6 +91,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.20.1",
         "date": "2026-07-03",
         "title": "A home page when you sign in",
+        "screenshot": "home",
         "changes": [
             (
                 "Signing in now takes you to a real home page: what's coming up for you (your orientations, your "
@@ -103,6 +104,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.20.1",
         "date": "2026-07-03",
         "title": "One place for how our space works",
+        "screenshot": "org-info",
         "changes": [
             (
                 "New Space & Org Info page in the sidebar — one spot for how the space and the organization work: a "
@@ -141,6 +143,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.20.1",
         "date": "2026-07-03",
         "title": "Your profile is safer to edit — and you're listed by default",
+        "screenshot": "member-directory",
         "changes": [
             (
                 "Editing your profile is safer: if a photo you upload is too large, we now keep the rest of your "
