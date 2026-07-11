@@ -47,3 +47,12 @@ def describe_class_permalink():
         resp = client.get(permalink)
         assert resp.status_code == 302
         assert resp["Location"] == reverse("classes:public_class_detail", args=["renamed-demo"])
+
+
+def describe_class_edit_share_section():
+    def it_shows_the_qr_share_section_on_the_admin_edit_page(admin_user, client, free_offering, db):
+        client.force_login(admin_user)
+        resp = client.get(reverse("classes:admin_class_edit", args=[free_offering.pk]))
+        assert resp.status_code == 200
+        assert b"pl-qr-preview" in resp.content
+        assert b"Download QR (SVG)" in resp.content

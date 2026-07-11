@@ -1,30 +1,53 @@
 {% comment %}
-Share & Print block for a class — its public page as a scannable, printable QR plus
-SVG/PNG downloads. Shown on both the admin and teach edit forms; expects `offering`.
-The QR always renders (the slug URL is permanent); the note adapts to publish state.
+Share & Print card for a class — its public page as a scannable, printable QR plus a
+share link and SVG/PNG downloads. Sits in the right half of the class-edit split; expects
+`offering` (saved). The link + QR both use the slug-proof permalink (offering.qr_url), so
+they always match and a printed code survives a slug change.
 {% endcomment %}
-<div class="hub-card" style="padding:1.5rem; margin-top:2.5rem; margin-bottom:1.5rem;">
-  <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Share &amp; Print</h2>
-  <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start;">
-    <div style="flex:1 1 20rem; min-width:16rem;">
-      <div class="hub-form-group" style="margin-bottom:0.35rem;">
-        <label for="class-public-url">Public link</label>
-        <input id="class-public-url" type="text" readonly value="{{ offering.public_url }}" onclick="this.select()">
-      </div>
-      {% if offering.status == 'published' %}
-      <p class="hub-text-muted" style="font-size:0.75rem; margin:0 0 1rem;">
-        Print this QR on signage or hand it out — it opens the class's public page.
-      </p>
-      {% else %}
-      <p class="hub-text-muted" style="font-size:0.75rem; margin:0 0 1rem;">
-        This QR opens the class's public page — it goes live once the class is published.
-      </p>
-      {% endif %}
-      <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-        <a href="{% url 'classes:class_qr' offering.pk 'svg' %}" class="hub-btn">Download QR (SVG)</a>
-        <a href="{% url 'classes:class_qr' offering.pk 'png' %}" class="hub-btn">Download QR (PNG)</a>
-      </div>
-    </div>
+<div class="hub-card pl-class-share" x-data="classShare()">
+  <h2 class="hub-detail-label pl-class-share__title">Share &amp; Print</h2>
+  <p class="hub-text-muted pl-class-share__hint">
+    {% if offering.status == 'published' %}
+      This QR opens the class's public page — print it on signage, add it to a flyer, or hand it out.
+    {% else %}
+      This QR opens the class's public page once it's published. You can print it now — the link stays the same.
+    {% endif %}
+  </p>
+  <div class="pl-class-share__qr">
     <div class="pl-qr-preview" aria-hidden="true">{{ offering.qr_svg|safe }}</div>
+    <span class="pl-class-share__qr-caption">Scan to open</span>
+  </div>
+  <div class="hub-form-group pl-class-share__field">
+    <label for="class-share-url">Share link</label>
+    <div class="pl-class-share__link">
+      <input id="class-share-url" x-ref="url" type="text" readonly value="{{ offering.qr_url }}" onclick="this.select()">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
+              @click="copy()" x-text="copied ? 'Copied!' : 'Copy'">Copy</button>
+    </div>
+  </div>
+  <div class="pl-class-share__actions">
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_qr' offering.pk 'svg' %}">Download QR (SVG)</a>
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_qr' offering.pk 'png' %}">Download QR (PNG)</a>
   </div>
 </div>
+<script>
+  // Copy that works in both local http and prod https (clipboard API needs a secure
+  // context, so fall back to selecting the field + execCommand off https).
+  function classShare() {
+    return {
+      copied: false,
+      copy() {
+        const el = this.$refs.url;
+        el.focus();
+        el.select();
+        if (window.isSecureContext && navigator.clipboard) {
+          navigator.clipboard.writeText(el.value);
+        } else {
+          document.execCommand('copy');
+        }
+        this.copied = true;
+        setTimeout(() => { this.copied = false; }, 1500);
+      },
+    };
+  }
+</script>

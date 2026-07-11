@@ -6,8 +6,29 @@
 </h2>
 <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
+    {# Identity fields (left) + the Share & Print card (right), 6/6 on desktop, stacked on mobile. #}
+    <div class="pl-edit-split">
+        <div class="pl-edit-split__main">
+            {% for field in form %}
+                {% if field.name == 'title' or field.name == 'slug' or field.name == 'category' or field.name == 'instructor' %}
+                    {% include "components/form_field.html" with field=field %}
+                {% endif %}
+            {% endfor %}
+        </div>
+        <aside class="pl-edit-split__side">
+            {% if offering and offering.pk %}
+                {% include "classes/_components/class_qr_share.html" %}
+            {% else %}
+                <div class="hub-card pl-class-share">
+                    <h2 class="hub-detail-label pl-class-share__title">Share &amp; Print</h2>
+                    <p class="hub-text-muted pl-class-share__hint">A QR code and share link for this class appear here once you save it.</p>
+                </div>
+            {% endif %}
+        </aside>
+    </div>
     {% for field in form %}
-        {% if field.name == 'image' %}
+        {% if field.name == 'title' or field.name == 'slug' or field.name == 'category' or field.name == 'instructor' %}{# rendered in the split above #}
+        {% elif field.name == 'image' %}
             {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image crop_field=form.hero_crop offering=offering %}
         {% elif field.name == 'hero_crop' %}
         {% elif field.name == 'scheduling_type' %}{# rendered as a guided chooser just above the dates #}
@@ -51,9 +72,6 @@
     <button type="submit" class="hub-btn hub-btn--sm">+ Offer on another set of dates</button>
     <p style="color:var(--hub-text-muted); font-size:0.8rem; margin:0.4rem 0 0;">Runs this same class again on a different date-set. Creates a draft copy with no dates yet — add the new dates, then publish. It stays grouped under this class on the public page.</p>
 </form>
-{% endif %}
-{% if mode == 'edit' and offering and offering.pk %}
-    {% include "classes/_components/class_qr_share.html" %}
 {% endif %}
 <link rel="stylesheet" href="{% static 'css/session-calendar.css' %}">
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>

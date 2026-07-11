@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.5"
+VERSION = "0.21.6"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.6",
+        "date": "2026-07-11",
+        "title": "A QR code for every class",
+        "changes": [
+            (
+                "Every class now has its own QR code and share link right on its edit page — download it as an image, "
+                "print it on a flyer or a door sign, and anyone who scans it lands straight on the class's page to "
+                "read more or sign up."
+            ),
+            (
+                "The code keeps working even if the class's web address changes later, so anything you've already "
+                "printed stays good."
+            ),
+        ],
+    },
     {
         "version": "0.21.5",
         "date": "2026-07-11",
@@ -23,22 +39,6 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             (
                 "Every upcoming event on the screens now shows a QR code and a short link, so you can scan it and pull "
                 "up the full details on your phone."
-            ),
-        ],
-    },
-    {
-        "version": "0.21.5",
-        "date": "2026-07-11",
-        "title": "A QR code for every class",
-        "changes": [
-            (
-                "Every class now has its own QR code and share link right on its edit page — download it as an image, "
-                "print it on a flyer or a door sign, and anyone who scans it lands straight on the class's page to "
-                "read more or sign up."
-            ),
-            (
-                "The code keeps working even if the class's web address changes later, so anything you've already "
-                "printed stays good."
             ),
         ],
     },

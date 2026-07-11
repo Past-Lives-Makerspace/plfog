@@ -3329,6 +3329,86 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     height: 100%;
 }
 
+/* Class "Share & Print" — a vertical card that sits in the right half of the edit split. */
+.pl-class-share__title {
+    margin: 0 0 0.35rem;
+}
+
+.pl-class-share__hint {
+    font-size: 0.8125rem;
+    margin: 0 0 1.25rem;
+}
+
+.pl-class-share__qr {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.pl-class-share .pl-qr-preview {
+    width: 168px;
+    height: 168px;
+}
+
+.pl-class-share__qr-caption {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+
+.pl-class-share__field {
+    margin-bottom: 1rem;
+}
+
+.pl-class-share__link {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.pl-class-share__link input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.pl-class-share__link .hub-btn {
+    flex: 0 0 auto;
+    min-width: 4.75rem;
+}
+
+.pl-class-share__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+/* Class-edit 6/6 split: identity fields (title, slug, category, instructor) on the left,
+   the Share & Print card on the right. Stacks on narrow screens with the QR card on top. */
+.pl-edit-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    align-items: start;
+    margin-bottom: 0.5rem;
+}
+
+.pl-edit-split__main {
+    min-width: 0;
+}
+
+@media (max-width: 800px) {
+    .pl-edit-split {
+        grid-template-columns: 1fr;
+    }
+    .pl-edit-split__side {
+        order: -1;
+    }
+}
+
 /* ========================================
    My Guilds settings tab — per-guild join/leave toggle list.
    Layout only; every color comes from theme tokens (hub-card wrapper, --hub-text,
