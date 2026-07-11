@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.2"
+VERSION = "0.21.3"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.3",
+        "date": "2026-07-10",
+        "title": "Your notifications, on their own page",
+        "changes": [
+            (
+                "The bell in the top bar now opens a full Notifications page instead of a cramped little pop-up — "
+                "much easier to read and scroll on your phone."
+            ),
+            (
+                "Unread notifications are highlighted, and tapping one jumps you straight to whatever it's about. "
+                '"Mark all as read" clears your unread count in a single tap.'
+            ),
+        ],
+    },
     {
         "version": "0.21.2",
         "date": "2026-07-10",

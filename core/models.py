@@ -13,6 +13,8 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser
+
     from classes.models import Registration
 
 
@@ -815,6 +817,18 @@ class SiteActivity(models.Model):
         return activity
 
 
+class NotificationQuerySet(models.QuerySet["Notification"]):
+    """Querysets for the member Notifications page — filters live here, not in the view."""
+
+    def for_user(self, user: AbstractBaseUser) -> NotificationQuerySet:
+        """This user's notifications, newest-first (relies on Meta.ordering)."""
+        return self.filter(user=user)
+
+    def unread(self) -> NotificationQuerySet:
+        """Only notifications the user hasn't read yet."""
+        return self.filter(read_at__isnull=True)
+
+
 class Notification(models.Model):
     """One in-app bell entry for one user. Always created on dispatch (non-optional)."""
 
@@ -825,6 +839,8 @@ class Notification(models.Model):
     url = models.CharField(max_length=500, blank=True, default="", help_text="Where clicking navigates.")
     read_at = models.DateTimeField(null=True, blank=True, help_text="Set when the user reads it.")
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    objects = NotificationQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at"]

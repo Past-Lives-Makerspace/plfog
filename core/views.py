@@ -317,14 +317,19 @@ def site_activity(request: HttpRequest) -> HttpResponse:
     )
 
 
+_NOTIFICATIONS_PAGE_SIZE = 20
+
+
 @login_required
-def notification_feed(request: HttpRequest) -> HttpResponse:
-    """HTMX partial: the user's 15 most recent notifications."""
+def notification_list(request: HttpRequest) -> HttpResponse:
+    """The member's full Notifications page — newest-first, paginated, unread emphasized."""
     from .models import Notification
 
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    items = Notification.objects.filter(user=user)[:15]
-    return render(request, "hub/_notification_feed.html", {"notifications": items})
+    qs = Notification.objects.for_user(user)
+    paginator = Paginator(qs, _NOTIFICATIONS_PAGE_SIZE)
+    page = paginator.get_page(request.GET.get("page", 1))
+    return render(request, "hub/notifications.html", {"page": page, "unread_count": qs.unread().count()})
 
 
 @login_required
@@ -354,11 +359,13 @@ def notification_read(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 @login_required
 def notification_read_all(request: HttpRequest) -> HttpResponse:
-    """Mark all the user's notifications read."""
+    """Mark all the user's notifications read, then return to the Notifications page."""
+    from django.contrib import messages
     from django.utils import timezone
 
     from .models import Notification
 
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    Notification.objects.filter(user=user, read_at__isnull=True).update(read_at=timezone.now())
-    return HttpResponse(status=204)
+    Notification.objects.for_user(user).unread().update(read_at=timezone.now())
+    messages.success(request, "You're all caught up.")
+    return redirect("notification_list")

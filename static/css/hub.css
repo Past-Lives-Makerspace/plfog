@@ -2879,21 +2879,27 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     color: var(--hub-text);
 }
 
-.pl-bell { position: relative; }
-.pl-bell__btn { position: relative; background: none; border: none; color: var(--hub-text); cursor: pointer; padding: 0.4rem; border-radius: 6px; }
+/* Topbar notification bell — a plain link to the Notifications page (no dropdown). */
+.pl-bell__btn { position: relative; background: none; border: none; color: var(--hub-text); cursor: pointer; padding: 0.4rem; border-radius: 6px; text-decoration: none; }
 .pl-bell__btn:hover { background: rgba(255,255,255,0.06); }
+[data-theme="light"] .pl-bell__btn:hover { background: rgba(0,0,0,0.06); }
 .pl-bell__badge { position: absolute; top: 0; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #ef4444; color: #fff; font-size: 0.625rem; line-height: 16px; text-align: center; font-weight: 700; }
-.pl-bell__panel { position: absolute; right: 0; top: calc(100% + 8px); width: 340px; max-height: 420px; overflow-y: auto; background: var(--hub-card-bg); border: 1px solid var(--hub-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); z-index: 50; }
-.pl-bell__header { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid var(--hub-border); font-weight: 600; }
-.pl-bell__mark { background: none; border: none; color: var(--color-tuscan-yellow); cursor: pointer; font-size: 0.8125rem; }
+
+/* Notifications page (hub/notifications.html) — responsive header + pager. */
+.pl-notes__header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.pl-notes__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.pl-notes__pager { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; align-items: center; margin-top: 1.5rem; }
+
+/* Notification rows. */
 .pl-note { border-bottom: 1px solid var(--hub-border); }
-.pl-note__btn { display: flex; flex-direction: column; gap: 0.15rem; width: 100%; text-align: left; background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--hub-text); }
+.pl-note__btn { display: flex; flex-direction: column; gap: 0.15rem; width: 100%; min-width: 0; text-align: left; background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--hub-text); }
 .pl-note__btn:hover { background: rgba(255,255,255,0.04); }
+[data-theme="light"] .pl-note__btn:hover { background: rgba(0,0,0,0.04); }
 .pl-note--unread .pl-note__btn { background: rgba(238,180,75,0.08); }
-.pl-note__title { font-weight: 600; font-size: 0.875rem; }
-.pl-note__body { font-size: 0.8125rem; color: var(--hub-text-muted); }
+[data-theme="light"] .pl-note--unread .pl-note__btn { background: rgba(238,180,75,0.16); }
+.pl-note__title { font-weight: 600; font-size: 0.875rem; overflow-wrap: anywhere; }
+.pl-note__body { font-size: 0.8125rem; color: var(--hub-text-muted); overflow-wrap: anywhere; }
 .pl-note__time { font-size: 0.6875rem; color: var(--hub-text-muted); }
-.pl-note__empty { padding: 1.5rem 1rem; text-align: center; }
 
 /* ── Guild detail page redesign (pl-guild-*) ──────────────────────────── */
 .pl-guild-hero { position: relative; min-height: clamp(220px, 32vw, 380px); border-radius: 8px; overflow: hidden; margin-bottom: 1.5rem; display: flex; align-items: flex-end; }
