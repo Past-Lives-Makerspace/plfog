@@ -10,6 +10,8 @@ urlpatterns = [
     path("auth/relay/accept/", views.relay_accept, name="relay_accept"),
     # Health check
     path("health/", views.health_check, name="health_check"),
+    # Crawler policy — keep search engines out of /admin/ and private areas
+    path("robots.txt", views.robots_txt, name="robots_txt"),
     # Home page
     path("", views.home, name="home"),
     # Short, human-typable vanity share URL → 301 to the public guest guild page.

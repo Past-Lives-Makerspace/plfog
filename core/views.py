@@ -119,6 +119,19 @@ def health_check(request):
     return JsonResponse({"status": "ok"})
 
 
+def robots_txt(request: HttpRequest) -> HttpResponse:
+    """Serve robots.txt on the members host — keep crawlers out of /admin/ and private areas."""
+    lines = [
+        "User-agent: *",
+        "Disallow: /admin/",
+        "Disallow: /accounts/",
+        "Disallow: /settings/",
+        "Disallow: /billing/",
+        "Disallow: /tab/",
+    ]
+    return HttpResponse("\n".join(lines) + "\n", content_type="text/plain")
+
+
 def restart_login(request: HttpRequest) -> HttpResponse:
     """Clear any pending login stage and redirect to the login page."""
     clear_login(request)

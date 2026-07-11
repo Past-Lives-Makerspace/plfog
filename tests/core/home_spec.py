@@ -67,6 +67,17 @@ def describe_nav_authenticated():
         assert response.status_code == 302
         assert response.url == "/home/"
 
+    def it_has_no_admin_dashboard_link_in_the_authenticated_branch(rf):
+        # The home view redirects authed users to the hub before home.html renders, so a
+        # plain GET-as-anon assertion would be tautological. Render the template directly
+        # with an authenticated user so the is_authenticated branch actually executes.
+        from django.template.loader import render_to_string
+
+        user = get_user_model()(username="u")  # unsaved User — is_authenticated is always True
+        html = render_to_string("home.html", {"user": user, "request": rf.get("/")})
+        assert "/admin/" not in html
+        assert "admin:index" not in html  # belt-and-suspenders: no unreversed tag either
+
 
 def describe_base_template_meta():
     def it_includes_meta_description(client):

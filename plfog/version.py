@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.1"
+VERSION = "0.21.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.2",
+        "date": "2026-07-10",
+        "title": "A clearer sign-in",
+        "changes": [
+            (
+                "Fixed a confusing extra login screen some members could stumble onto (an old staff-only page). "
+                "Signing in now always uses your email code — no dead ends."
+            ),
+        ],
+    },
     {
         "version": "0.21.1",
         "date": "2026-07-10",
