@@ -105,6 +105,14 @@ body {
   color: var(--sign-text);
 }
 
+/* QR + "learn more" URL, stacked and centered — a member can scan or read the link. */
+.pl-sign-slide__more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(0.5rem, 1.5vmin, 1rem);
+}
+
 .pl-sign-slide__qr {
   width: clamp(120px, 22vmin, 320px);
   height: clamp(120px, 22vmin, 320px);
@@ -117,6 +125,98 @@ body {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.pl-sign-slide__url {
+  margin: 0;
+  font-size: clamp(1rem, 2vw, 1.75rem);
+  font-weight: 700;
+  color: var(--sign-gold);
+  word-break: break-all;
+}
+
+.pl-sign-slide__url-lead {
+  display: block;
+  margin-bottom: 0.15em;
+  font-size: 0.6em;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sign-muted);
+}
+
+/* ---- Player chrome (brand bug, countdown bar, position dots) --------------------
+   Direct children of .pl-sign-player, NOT .pl-sign-stage, so the 300s deck swap never
+   touches them. Fixed to the viewport and lifted above the slides. */
+.pl-sign-brand {
+  position: fixed;
+  top: clamp(1rem, 2.5vmin, 2rem);
+  left: clamp(1.25rem, 3vmin, 2.5rem);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  opacity: 0.9;
+}
+
+.pl-sign-brand__mark {
+  width: clamp(36px, 5vmin, 60px);
+  height: clamp(36px, 5vmin, 60px);
+  border-radius: 8px;
+}
+
+.pl-sign-brand__text {
+  font-family: "Lato", sans-serif;
+  font-weight: 900;
+  font-size: clamp(0.85rem, 1.6vmin, 1.35rem);
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  color: var(--sign-text);
+  text-align: left;
+}
+
+.pl-sign-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  z-index: 20;
+  background: rgba(244, 239, 221, 0.12);
+}
+
+.pl-sign-progress__fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--sign-gold);
+}
+
+.pl-sign-dots {
+  position: fixed;
+  bottom: clamp(1rem, 3vmin, 2.25rem);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  gap: clamp(0.5rem, 1.5vmin, 1rem);
+}
+
+.pl-sign-dot {
+  width: clamp(12px, 1.6vmin, 20px);
+  height: clamp(12px, 1.6vmin, 20px);
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: rgba(244, 239, 221, 0.28);
+  cursor: pointer;
+  transition: background 0.3s ease, transform 0.3s ease;
+}
+
+.pl-sign-dot.is-current {
+  background: var(--sign-gold);
+  transform: scale(1.25);
 }
 
 /* Event slides read as a headline over a big gold time. */

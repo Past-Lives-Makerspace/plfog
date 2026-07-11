@@ -15,7 +15,14 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import TruncDate
-from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse, StreamingHttpResponse
+from django.http import (
+    Http404,
+    HttpRequest,
+    HttpResponse,
+    HttpResponseForbidden,
+    JsonResponse,
+    StreamingHttpResponse,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -1751,6 +1758,38 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
             "mode": "create",
         },
     )
+
+
+def class_permalink(request: HttpRequest, pk: int) -> HttpResponse:
+    """Stable, slug-independent permalink → the class's current public page.
+
+    Class QR codes encode this (not the slug URL directly), so a printed QR keeps working
+    after a slug change. A temporary (302) redirect, so scanners always re-resolve to the
+    live slug rather than caching an old target.
+    """
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    return redirect("classes:public_class_detail", slug=offering.slug)
+
+
+def class_qr_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
+    """Download a class's public-page QR as SVG (default) or PNG.
+
+    Editor-gated via the shared ``can_edit_class`` check, so it works from either
+    portal — an admin, the category guild's lead/staff, or the class's own instructor.
+    """
+    from membership.permissions import can_edit_class
+
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    if not can_edit_class(request, offering):
+        return HttpResponseForbidden("You don't have access to this class.")
+    if fmt == "svg":
+        resp = HttpResponse(offering.qr_svg(), content_type="image/svg+xml")
+    elif fmt == "png":
+        resp = HttpResponse(offering.qr_png_bytes(), content_type="image/png")
+    else:
+        raise Http404
+    resp["Content-Disposition"] = f'attachment; filename="{offering.slug}-qr.{fmt}"'
+    return resp
 
 
 @classes_admin_access_required

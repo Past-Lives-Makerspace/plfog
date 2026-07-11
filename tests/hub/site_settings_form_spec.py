@@ -1,4 +1,4 @@
-"""SiteSettingsForm — the seven signage_* fields ride the shared singleton form."""
+"""SiteSettingsForm — the signage_* fields ride the shared singleton form."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ _SIGNAGE_FIELDS = [
     "signage_default_slide_seconds",
     "signage_show_events",
     "signage_event_days_ahead",
-    "signage_event_qr",
     "signage_alert_active",
     "signage_alert_heading",
     "signage_alert_message",
@@ -22,9 +21,13 @@ _SIGNAGE_FIELDS = [
 
 
 def describe_SiteSettingsForm_signage():
-    def it_declares_all_seven_signage_fields():
+    def it_declares_all_signage_fields():
         for name in _SIGNAGE_FIELDS:
             assert name in SiteSettingsForm.Meta.fields
+
+    def it_does_not_expose_the_removed_event_qr_toggle():
+        # Event slides always carry a QR now — the toggle is gone.
+        assert "signage_event_qr" not in SiteSettingsForm.Meta.fields
 
     def it_uses_a_textarea_for_the_alert_message():
         form = SiteSettingsForm()
@@ -38,7 +41,6 @@ def describe_SiteSettingsForm_signage():
             "signage_default_slide_seconds": "20",
             "signage_show_events": "on",
             "signage_event_days_ahead": "45",
-            "signage_event_qr": "on",
             "signage_alert_active": "on",
             "signage_alert_heading": "Building Closed",
             "signage_alert_message": "Back tomorrow.",

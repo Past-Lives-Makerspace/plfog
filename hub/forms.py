@@ -548,7 +548,6 @@ class SiteSettingsForm(forms.ModelForm):
             "signage_default_slide_seconds",
             "signage_show_events",
             "signage_event_days_ahead",
-            "signage_event_qr",
             "signage_alert_active",
             "signage_alert_heading",
             "signage_alert_message",

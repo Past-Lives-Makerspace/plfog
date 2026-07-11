@@ -15,7 +15,6 @@ private-guild leak) — it queries ``CommunityEvent`` directly.
 from __future__ import annotations
 
 import hashlib
-import io
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -42,6 +41,7 @@ class SignageSlideVM:
     qr_svg: str | None  # inline SVG when a QR should render
     duration_seconds: int
     meta: str = ""  # e.g. an event's when_display / location
+    url_display: str = ""  # a human-friendly "learn more" URL shown under the slide (paired with the QR)
 
 
 def build_deck(zone: SlideshowZone) -> list[SignageSlideVM]:
@@ -86,6 +86,7 @@ def deck_hash(deck: list[SignageSlideVM], config: SiteConfiguration) -> str:
                     vm.meta,
                     vm.image_url or "",
                     "q" if vm.qr_svg else "",
+                    vm.url_display,
                     str(vm.duration_seconds),
                 ]
             )
@@ -120,6 +121,7 @@ def _slide_vm(slide: SlideshowSlide, default: int) -> SignageSlideVM:
         image_url=image_url,
         qr_svg=qr,
         duration_seconds=duration,
+        url_display=_friendly_url(slide.link_url),
     )
 
 
@@ -137,16 +139,18 @@ def _event_slides(config: SiteConfiguration, default: int) -> list[SignageSlideV
         occ = _next_occurrence(event, today, horizon, now)
         if occ is None:
             continue
-        qr = _qr_svg(event.absolute_url) if config.signage_event_qr else None
+        # Every event slide carries a QR to its detail page — a member can always scan
+        # to learn more or add it to their calendar. No toggle: it's free and useful.
         meta = event.when_display + (f" · {event.location}" if event.location else "")
         vm = SignageSlideVM(
             kind="event",
             title=event.title,
             body="",
             image_url=None,
-            qr_svg=qr,
+            qr_svg=_qr_svg(event.absolute_url),
             duration_seconds=default,
             meta=meta,
+            url_display=_friendly_url(event.absolute_url),
         )
         dated.append((occ, vm))
     dated.sort(key=lambda pair: pair[0])
@@ -178,10 +182,16 @@ def _holding_vm(default: int) -> SignageSlideVM:
 
 
 def _qr_svg(url: str) -> str:
-    """Inline SVG QR of ``url`` (segno — pure Python, no Pillow), the same approach as
-    ``Guild.qr_svg``."""
-    import segno
+    """Inline, CSS-scalable SVG QR of ``url`` — delegates to the shared ``membership.qr`` helper."""
+    from membership.qr import qr_svg
 
-    buf = io.BytesIO()
-    segno.make(url, error="m").save(buf, kind="svg", scale=1, xmldecl=False, svgns=True)
-    return buf.getvalue().decode("utf-8")
+    return qr_svg(url)
+
+
+def _friendly_url(url: str) -> str:
+    """A room-legible version of ``url`` for the "learn more" caption: drop the scheme and
+    any trailing slash so ``https://pastlives.app/calendar/`` reads as ``pastlives.app/calendar``.
+    Returns ``""`` for a blank url."""
+    if not url:
+        return ""
+    return url.split("://", 1)[-1].rstrip("/")

@@ -1250,25 +1250,16 @@ class Guild(HeroCropMixin, models.Model):
         return f"{settings.MEMBER_BASE_URL}{reverse('guild_vanity', args=[self.slug])}"
 
     def qr_svg(self) -> str:
-        """Inline SVG markup of this guild's vanity-URL QR (crisp at any print size)."""
-        import io
+        """Inline, CSS-scalable SVG of this guild's vanity-URL QR (crisp at any print size)."""
+        from membership.qr import qr_svg as render_qr
 
-        import segno
-
-        # segno's SVG writer emits bytes, so buffer as bytes and decode to markup.
-        buf = io.BytesIO()
-        segno.make(self.vanity_url, error="m").save(buf, kind="svg", scale=1, xmldecl=False, svgns=True)
-        return buf.getvalue().decode("utf-8")
+        return render_qr(self.vanity_url)
 
     def qr_png_bytes(self) -> bytes:
         """PNG bytes of the same QR (segno's native writer — no Pillow)."""
-        import io
+        from membership.qr import qr_png_bytes as render_png
 
-        import segno
-
-        buf = io.BytesIO()
-        segno.make(self.vanity_url, error="m").save(buf, kind="png", scale=10, border=2)
-        return buf.getvalue()
+        return render_png(self.vanity_url)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.slug:
@@ -4229,14 +4220,10 @@ class SlideshowZone(models.Model):
         return f"{settings.SIGNAGE_BASE_URL}{reverse('signage_player', args=[self.slug])}"
 
     def qr_svg(self) -> str:
-        """Inline SVG QR of this zone's player_url — shown on the admin tab so staff can point a monitor at it."""
-        import io
+        """Inline, CSS-scalable SVG QR of this zone's player_url — shown on the admin tab so staff can point a monitor at it."""
+        from membership.qr import qr_svg as render_qr
 
-        import segno
-
-        buf = io.BytesIO()
-        segno.make(self.player_url, error="m").save(buf, kind="svg", scale=1, xmldecl=False, svgns=True)
-        return buf.getvalue().decode("utf-8")
+        return render_qr(self.player_url)
 
 
 class SlideshowSlideQuerySet(models.QuerySet):

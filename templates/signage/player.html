@@ -1,19 +1,43 @@
 {% extends "signage/base.html" %}
+{% load static %}
 
 {% block title %}{{ zone.name }} — Past Lives Makerspace{% endblock %}
 
 {% block content %}
-<div class="pl-sign-stage" x-data="signagePlayer()" x-init="init()" @htmx:after-swap.window="rescan()">
-  {% comment %}
-  The container carries the deck hash; the 300s poll sends it back so an unchanged
-  deck returns 204 + HX-Reswap:none — no swap, no jump to slide 0, no blank frame.
-  {% endcomment %}
-  <div id="pl-sign-deck" data-deck-hash="{{ deck_hash }}"
-       hx-get="{% url 'signage_deck' zone.slug %}" hx-trigger="every 300s"
-       hx-vals='js:{h: document.getElementById("pl-sign-deck").dataset.deckHash}'
-       hx-swap="innerHTML">
-    {% include "signage/_deck.html" %}
+<div class="pl-sign-player" x-data="signagePlayer()" x-init="init()"
+     @htmx:after-swap.window="rescan()"
+     @keydown.right.window="next()" @keydown.left.window="prev()" @keydown.space.window.prevent="next()">
+  <div class="pl-sign-stage">
+    {% comment %}
+    The container carries the deck hash; the 300s poll sends it back so an unchanged
+    deck returns 204 + HX-Reswap:none — no swap, no jump to slide 0, no blank frame.
+    Only #pl-sign-deck is swapped, so the brand/progress/dots chrome below survives.
+    {% endcomment %}
+    <div id="pl-sign-deck" data-deck-hash="{{ deck_hash }}"
+         hx-get="{% url 'signage_deck' zone.slug %}" hx-trigger="every 300s"
+         hx-vals='js:{h: document.getElementById("pl-sign-deck").dataset.deckHash}'
+         hx-swap="innerHTML">
+      {% include "signage/_deck.html" %}
+    </div>
   </div>
+
+  {# Persistent brand bug — the logo is always on screen. #}
+  <div class="pl-sign-brand" aria-hidden="true">
+    <img class="pl-sign-brand__mark" src="{% static 'img/favicon.png' %}" alt="" width="52" height="52">
+    <span class="pl-sign-brand__text">Past Lives<br>Makerspace</span>
+  </div>
+
+  {# Countdown bar — fills over the current slide's duration, so you can see the advance coming. #}
+  <div class="pl-sign-progress" aria-hidden="true"><span class="pl-sign-progress__fill" x-ref="progress"></span></div>
+
+  {# Position dots — one square per slide, current highlighted. Click (or arrow-key) to jump. #}
+  <nav class="pl-sign-dots" x-show="count > 1" aria-label="Slides">
+    <template x-for="i in count" :key="i">
+      <button type="button" class="pl-sign-dot" :class="{ 'is-current': i - 1 === index }"
+              :aria-label="'Slide ' + i" :aria-current="i - 1 === index ? 'true' : 'false'"
+              @click="show(i - 1)"></button>
+    </template>
+  </nav>
 </div>
 {% endblock %}
 
@@ -22,6 +46,7 @@
   function signagePlayer() {
     return {
       index: 0,
+      count: 0,
       timer: null,
       init() {
         this.rescan();
@@ -39,6 +64,7 @@
         if (marker && container) container.dataset.deckHash = marker.dataset.deckHash;
         // Resume at the current index, clamped to the new length — not 0.
         const nodes = this.slides();
+        this.count = nodes.length;
         if (!nodes.length) return;
         if (this.index > nodes.length - 1) this.index = nodes.length - 1;
         this.show(this.index);
@@ -51,9 +77,23 @@
         // Cross-fade: toggling .is-active drives a CSS opacity transition, so the
         // old→new hand-off never flashes empty.
         nodes.forEach((node, idx) => node.classList.toggle('is-active', idx === this.index));
-        if (this.timer) clearTimeout(this.timer);
         const dur = parseInt(nodes[this.index].dataset.duration, 10) || 12;
+        this.restartProgress(dur);
+        if (this.timer) clearTimeout(this.timer);
         this.timer = setTimeout(() => this.show(this.index + 1), dur * 1000);
+      },
+      next() { this.show(this.index + 1); },
+      prev() { this.show(this.index - 1); },
+      restartProgress(dur) {
+        // Reset the fill to empty with no transition, force a reflow so that commits,
+        // then transition to full over the slide's duration — a smooth countdown bar.
+        const fill = this.$refs.progress;
+        if (!fill) return;
+        fill.style.transition = 'none';
+        fill.style.width = '0%';
+        void fill.offsetWidth;
+        fill.style.transition = 'width ' + dur + 's linear';
+        fill.style.width = '100%';
       },
       scheduleNightlyReload() {
         // Reload at the next local 04:00 — picks up deploys, sheds accumulated DOM/timers.

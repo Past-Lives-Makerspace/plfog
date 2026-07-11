@@ -1,0 +1,30 @@
+{% comment %}
+Share & Print block for a class — its public page as a scannable, printable QR plus
+SVG/PNG downloads. Shown on both the admin and teach edit forms; expects `offering`.
+The QR always renders (the slug URL is permanent); the note adapts to publish state.
+{% endcomment %}
+<div class="hub-card" style="padding:1.5rem; margin-top:2.5rem; margin-bottom:1.5rem;">
+  <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Share &amp; Print</h2>
+  <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start;">
+    <div style="flex:1 1 20rem; min-width:16rem;">
+      <div class="hub-form-group" style="margin-bottom:0.35rem;">
+        <label for="class-public-url">Public link</label>
+        <input id="class-public-url" type="text" readonly value="{{ offering.public_url }}" onclick="this.select()">
+      </div>
+      {% if offering.status == 'published' %}
+      <p class="hub-text-muted" style="font-size:0.75rem; margin:0 0 1rem;">
+        Print this QR on signage or hand it out — it opens the class's public page.
+      </p>
+      {% else %}
+      <p class="hub-text-muted" style="font-size:0.75rem; margin:0 0 1rem;">
+        This QR opens the class's public page — it goes live once the class is published.
+      </p>
+      {% endif %}
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+        <a href="{% url 'classes:class_qr' offering.pk 'svg' %}" class="hub-btn">Download QR (SVG)</a>
+        <a href="{% url 'classes:class_qr' offering.pk 'png' %}" class="hub-btn">Download QR (PNG)</a>
+      </div>
+    </div>
+    <div class="pl-qr-preview" aria-hidden="true">{{ offering.qr_svg|safe }}</div>
+  </div>
+</div>

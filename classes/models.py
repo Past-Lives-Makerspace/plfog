@@ -338,6 +338,37 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self.title
 
     @property
+    def public_url(self) -> str:
+        """Absolute URL of this class's readable public page (on the book surface)."""
+        from django.urls import reverse
+
+        from classes.emails import _absolute_url
+
+        return _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug}))
+
+    @property
+    def qr_url(self) -> str:
+        """Stable, slug-independent permalink the QR encodes — it redirects to the current
+        public page, so a printed QR keeps working even after the class's slug changes."""
+        from django.urls import reverse
+
+        from classes.emails import _absolute_url
+
+        return _absolute_url(reverse("classes:class_permalink", kwargs={"pk": self.pk}))
+
+    def qr_svg(self) -> str:
+        """Inline, CSS-scalable SVG QR of the class's stable permalink (crisp at any print size)."""
+        from membership.qr import qr_svg as render_qr
+
+        return render_qr(self.qr_url)
+
+    def qr_png_bytes(self) -> bytes:
+        """PNG bytes of the same QR — a raster download for print/handout."""
+        from membership.qr import qr_png_bytes as render_png
+
+        return render_png(self.qr_url)
+
+    @property
     def welcome_email_ready(self) -> bool:
         """True when the instructor welcome email is enabled and has subject + body.
 

@@ -20,7 +20,12 @@ Carries the fresh deck hash into the swapped content; the player copies it up on
       {% if s.title %}<h1 class="pl-sign-slide__title">{{ s.title }}</h1>{% endif %}
       {% if s.meta %}<p class="pl-sign-slide__meta">{{ s.meta }}</p>{% endif %}
       {% if s.body %}<div class="pl-sign-slide__body">{{ s.body|linebreaksbr }}</div>{% endif %}
-      {% if s.qr_svg %}<div class="pl-sign-slide__qr">{{ s.qr_svg|safe }}</div>{% endif %}
+      {% if s.qr_svg or s.url_display %}
+        <div class="pl-sign-slide__more">
+          {% if s.qr_svg %}<div class="pl-sign-slide__qr">{{ s.qr_svg|safe }}</div>{% endif %}
+          {% if s.url_display %}<p class="pl-sign-slide__url"><span class="pl-sign-slide__url-lead">Learn more</span>{{ s.url_display }}</p>{% endif %}
+        </div>
+      {% endif %}
     </section>
   {% endfor %}
 {% endif %}

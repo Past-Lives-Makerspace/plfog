@@ -144,7 +144,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' and field.name != 'signage_event_qr' and field.name != 'signage_alert_active' and field.name != 'signage_alert_heading' and field.name != 'signage_alert_message' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' and field.name != 'signage_alert_active' and field.name != 'signage_alert_heading' and field.name != 'signage_alert_message' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -418,7 +418,6 @@
       {% include "components/form_field.html" with field=form.signage_default_slide_seconds %}
       {% include "components/form_field.html" with field=form.signage_event_days_ahead %}
       {% include "components/form_field.html" with field=form.signage_show_events %}
-      {% include "components/form_field.html" with field=form.signage_event_qr %}
 
       <div class="pl-slideshow-alert-controls">
         <h3 style="margin:0 0 0.25rem;font-size:0.95rem;color:var(--hub-text);">Emergency takeover</h3>

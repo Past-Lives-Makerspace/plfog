@@ -52,6 +52,33 @@ def describe_build_deck():
             deck = build_deck(zone)
             assert not any(vm.kind == "event" for vm in deck)
 
+    def describe_event_qr_and_learn_more():
+        def it_always_puts_a_qr_on_every_event_slide():
+            _config(signage_show_events=True)
+            zone = SlideshowZoneFactory()
+            CommunityEventFactory(community=True, title="Community Potluck")
+            deck = build_deck(zone)
+            event_vm = next(vm for vm in deck if vm.kind == "event")
+            assert event_vm.qr_svg is not None
+            assert "<svg" in event_vm.qr_svg
+
+        def it_shows_a_scheme_stripped_learn_more_url_on_event_slides():
+            _config(signage_show_events=True)
+            zone = SlideshowZoneFactory()
+            CommunityEventFactory(community=True, title="Community Potluck")
+            deck = build_deck(zone)
+            event_vm = next(vm for vm in deck if vm.kind == "event")
+            assert event_vm.url_display
+            assert "://" not in event_vm.url_display
+
+        def it_gives_a_custom_slide_a_learn_more_url_even_without_a_qr():
+            _config(signage_show_events=False)
+            zone = SlideshowZoneFactory()
+            SlideshowSlideFactory(show_qr=False, link_url="https://pastlives.app/calendar/")
+            deck = build_deck(zone)
+            assert deck[0].qr_svg is None
+            assert deck[0].url_display == "pastlives.app/calendar"
+
     def describe_horizon_and_cap():
         def it_excludes_events_beyond_the_look_ahead_window():
             _config(signage_show_events=True, signage_event_days_ahead=30)

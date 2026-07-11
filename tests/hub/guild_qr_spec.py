@@ -33,6 +33,7 @@ def describe_guild_qr_download():
         assert resp["Content-Type"] == "image/svg+xml"
         assert resp["Content-Disposition"] == f'attachment; filename="{guild.slug}-qr.svg"'
         assert b"<svg" in resp.content
+        assert b"viewBox" in resp.content  # scales to its box instead of drawing tiny
 
     def it_serves_a_png_attachment_to_a_lead(client: Client):
         user = _user_with_role("lead_png")
