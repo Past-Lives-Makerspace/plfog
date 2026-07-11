@@ -15,6 +15,8 @@ from core.release_email import (
     feature_page_url,
     feature_shot_choices,
     feature_shot_key,
+    line_entries,
+    parse_lines,
     render_release_email,
     resolve_feature_shot_url,
     save_feature_shot,
@@ -143,6 +145,44 @@ def describe_feature_shot_choices():
         assert all(value != "org-info" for value, _label in choices)
 
 
+def describe_line_entries():
+    def it_filters_to_a_single_line_newest_first(fixture_changelog):
+        assert [str(e["title"]) for e in line_entries(["0.20"])] == [
+            "A home page when you sign in",
+            "One place for how our space works",
+        ]
+
+    def it_spans_several_lines_preserving_changelog_order(fixture_changelog):
+        titles = [str(e["title"]) for e in line_entries(["0.20", "0.19"])]
+        # CHANGELOG order (newest-first) is preserved across the union — the older
+        # 0.19 line lands last, after both 0.20 entries.
+        assert titles == [
+            "A home page when you sign in",
+            "One place for how our space works",
+            "An older release line",
+        ]
+
+    def it_returns_empty_for_a_line_with_no_entries(fixture_changelog):
+        assert line_entries(["3.0"]) == []
+
+
+def describe_parse_lines():
+    def it_parses_and_trims_a_comma_list():
+        assert parse_lines(" 0.20 , 0.21 ") == ["0.20", "0.21"]
+
+    def it_raises_on_an_empty_value():
+        with pytest.raises(ValueError, match="at least one"):
+            parse_lines("  ")
+
+    def it_raises_on_a_token_that_is_not_major_minor():
+        with pytest.raises(ValueError, match="MAJOR.MINOR"):
+            parse_lines("0.20,banana")
+
+    def it_raises_on_a_full_version_token():
+        with pytest.raises(ValueError, match="MAJOR.MINOR"):
+            parse_lines("0.20.5")
+
+
 def describe_build_release_cards():
     def it_yields_one_card_per_current_line_entry_newest_first(db, fixture_changelog, fake_storage):
         cards = build_release_cards("0.20.5")
@@ -154,6 +194,19 @@ def describe_build_release_cards():
     def it_excludes_other_major_minor_lines(db, fixture_changelog, fake_storage):
         cards = build_release_cards("0.20.5")
         assert all("older release line" not in c.title for c in cards)
+
+    def describe_when_given_explicit_lines():
+        # These run against the REAL CHANGELOG (no fixture) so the 0.20 + 0.21 batches
+        # are both present — that is exactly the span the release email needs to cover.
+        def it_spans_both_named_lines(db, fake_storage):
+            titles = [c.title for c in build_release_cards("0.21.4", lines=["0.20", "0.21"])]
+            assert "A home page when you sign in" in titles  # a 0.20 feature
+            assert "Your notifications, on their own page" in titles  # a 0.21 feature
+
+        def it_scopes_to_only_the_named_line(db, fake_storage):
+            titles = [c.title for c in build_release_cards("0.21.4", lines=["0.21"])]
+            assert "Your notifications, on their own page" in titles
+            assert "A home page when you sign in" not in titles  # 0.20 is out of scope
 
     def it_links_the_title_when_the_slug_maps_to_a_feature_page(db, fixture_changelog, fake_storage, settings):
         settings.MEMBER_BASE_URL = "https://members.example"
@@ -220,6 +273,15 @@ def describe_render_release_email():
         assert "A home page when you sign in" in html
         assert "One place for how our space works" not in html
         assert "One place for how our space works" not in text
+
+    def describe_when_spanning_lines():
+        # Real CHANGELOG so 0.20 + 0.21 both exist; the badge tracks the newest line.
+        def it_badges_the_newest_selected_line(db, fake_storage):
+            cards = build_release_cards("0.21.4", lines=["0.20", "0.21"])
+            html, _text = render_release_email(
+                "0.21.4", subject="s", preheader="p", intro="", cards=cards, lines=["0.20", "0.21"]
+            )
+            assert "v0.21" in html  # newest of the spanned lines drives the badge
 
     def describe_with_no_entries_for_the_line():
         def it_renders_without_a_date(db, fixture_changelog, fake_storage):

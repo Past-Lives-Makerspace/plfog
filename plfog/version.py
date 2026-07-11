@@ -27,6 +27,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.21.3",
         "date": "2026-07-10",
         "title": "Your notifications, on their own page",
+        "screenshot": "notifications",
         "changes": [
             (
                 "The bell in the top bar now opens a full Notifications page instead of a cramped little pop-up — "
@@ -53,6 +54,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.21.1",
         "date": "2026-07-10",
         "title": "Propose events for the Community Calendar",
+        "screenshot": "community-calendar",
         "changes": [
             (
                 "You can now propose an event for the Community Calendar right from FOG — add the date, time, and "

@@ -181,10 +181,14 @@ def _seed_member_hub(member: Member) -> None:
 
     Guilds (for the directory + My Guilds toggles), two official memberships for the
     signed-in member, a published announcement (for the home dashboard), a filled-in
-    Space & Org Info page, and a few more members for the directory. This seeding is
-    the bulk of the capture effort and grows with each FeaturePage in the registry.
+    Space & Org Info page, a few notifications (for the Notifications page), a published
+    upcoming community event (for the Community Calendar), and a few more members for the
+    directory. This seeding is the bulk of the capture effort and grows with each
+    FeaturePage in the registry.
     """
+    from core.models import Notification
     from tests.membership.factories import (
+        CommunityEventFactory,
         GuildAnnouncementFactory,
         GuildFactory,
         GuildMembershipFactory,
@@ -209,6 +213,29 @@ def _seed_member_hub(member: Member) -> None:
         parking="Free lot on the north side; street parking is open after 6pm.",
         who_to_contact="Front desk for access, your guild lead for studio-specific questions.",
         code_of_conduct="Be kind, clean your station, and ask before borrowing tools.",
+    )
+    # Notifications page (0.21.3): a couple bell rows — one unread (highlighted), one read.
+    if member.user is not None:
+        Notification.objects.create(
+            user=member.user,
+            trigger="class_published",
+            title="New class: Intro to Lost-Wax Casting",
+            body="A new class just went live in the Metalworking guild — grab a seat.",
+            url="/classes/",
+        )
+        Notification.objects.create(
+            user=member.user,
+            trigger="guild_announcement",
+            title="Ceramics Guild: Spring glaze restock is in",
+            body="New celadons and a fresh batch of clay just landed.",
+            url="/guilds/",
+            read_at=timezone.now(),
+        )
+    # Community Calendar (0.21.1): a published, upcoming site-wide event for the Events tab.
+    CommunityEventFactory(
+        community=True,
+        title="Open Studio Night",
+        starts_at=timezone.now() + timedelta(days=5),
     )
     MemberFactory.create_batch(4)
 

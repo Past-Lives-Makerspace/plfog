@@ -20,6 +20,7 @@ in ``templates/membership/emails/`` and a parallel plain-text body, so the
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -72,6 +73,8 @@ FEATURE_PAGES: list[FeaturePage] = [
     FeaturePage(slug="org-info", label="Space & Org Info page", url_name="hub_org_info"),
     FeaturePage(slug="member-directory", label="Member directory", url_name="hub_member_directory"),
     FeaturePage(slug="guild-directory", label="Guilds directory", url_name="hub_guild_directory"),
+    FeaturePage(slug="notifications", label="Notifications page", url_name="notification_list"),
+    FeaturePage(slug="community-calendar", label="Community Calendar", url_name="hub_community_calendar"),
 ]
 
 
@@ -145,23 +148,62 @@ def feature_shot_choices() -> list[tuple[str, str]]:
     return choices
 
 
-def current_line_entries(version: str) -> list[dict[str, str | list[str]]]:
-    """The CHANGELOG entries sharing ``version``'s ``MAJOR.MINOR`` line (newest first)."""
+# A ``--lines`` token must look like a bare ``MAJOR.MINOR`` (e.g. ``0.21``), not a full version.
+_LINE_RE = re.compile(r"^\d+\.\d+$")
+
+
+def _minor(version: str) -> str:
+    """The ``MAJOR.MINOR`` line a version string belongs to (``"0.21.4"`` → ``"0.21"``)."""
+    return ".".join(str(version).split(".")[:2])
+
+
+def line_entries(lines: list[str]) -> list[dict[str, str | list[str]]]:
+    """CHANGELOG entries whose ``MAJOR.MINOR`` line is in ``lines`` (newest first).
+
+    Preserves CHANGELOG order (already newest-first), so an email spanning several
+    lines interleaves them exactly as the changelog lists them. Generalizes
+    :func:`current_line_entries` from one line to a set — so one email can cover the
+    0.20 *and* 0.21 feature batches at once.
+    """
     from plfog.version import CHANGELOG
 
-    minor = ".".join(version.split(".")[:2])
-    return [e for e in CHANGELOG if ".".join(str(e["version"]).split(".")[:2]) == minor]
+    wanted = set(lines)
+    return [e for e in CHANGELOG if _minor(str(e["version"])) in wanted]
 
 
-def build_release_cards(version: str) -> list[Card]:
-    """One :class:`Card` per current-line changelog entry (newest first).
+def current_line_entries(version: str) -> list[dict[str, str | list[str]]]:
+    """The CHANGELOG entries sharing ``version``'s ``MAJOR.MINOR`` line (newest first)."""
+    return line_entries([_minor(version)])
 
-    Each card's default screenshot comes from the entry's optional ``screenshot``
+
+def parse_lines(raw: str) -> list[str]:
+    """Parse a ``--lines 0.20,0.21`` CLI value into ``["0.20", "0.21"]``.
+
+    Each token must look like a ``MAJOR.MINOR`` line; a malformed token (or an empty
+    list) raises :class:`ValueError` so the calling command fails loudly rather than
+    silently sending an empty or wrong-scoped email.
+    """
+    parsed = [chunk.strip() for chunk in raw.split(",") if chunk.strip()]
+    if not parsed:
+        raise ValueError("--lines must name at least one MAJOR.MINOR line, e.g. 0.20,0.21")
+    for token in parsed:
+        if not _LINE_RE.match(token):
+            raise ValueError(f"--lines entries must look like MAJOR.MINOR (got {token!r})")
+    return parsed
+
+
+def build_release_cards(version: str, lines: list[str] | None = None) -> list[Card]:
+    """One :class:`Card` per changelog entry in scope (newest first).
+
+    Scope is ``version``'s current line by default (unchanged, backward-compatible);
+    pass ``lines`` (e.g. ``["0.20", "0.21"]``) to span several release lines in one
+    email. Each card's default screenshot comes from the entry's optional ``screenshot``
     slug; the title links to that feature's page when the slug is known. The composer
     later overrides ``included`` / ``screenshot_url`` per card.
     """
     cards: list[Card] = []
-    for entry in current_line_entries(version):
+    entries = current_line_entries(version) if lines is None else line_entries(lines)
+    for entry in entries:
         # ``screenshot`` is a genuinely optional, additive key — absent on every
         # legacy entry — so a default here is correct, not a silent-fallback bug.
         slug = str(entry.get("screenshot", ""))
@@ -207,15 +249,21 @@ def render_release_email(
     preheader: str,
     intro: str,
     cards: list[Card],
+    lines: list[str] | None = None,
 ) -> tuple[str, str]:
     """Assemble the hybrid release email — returns ``(html, text)``.
 
     Only ``included`` cards render. ``intro`` is sanitized rich HTML shown on the light
-    body; the hero band's version badge + date come from the current release line. The
-    ``.txt`` part mirrors the HTML so the two never drift.
+    body; the hero band's version badge + date come from the release line by default, or
+    from the NEWEST entry across ``lines`` when spanning several lines (so a 0.20+0.21
+    email still reads "v0.21" with the latest date). The ``.txt`` part mirrors the HTML
+    so the two never drift.
     """
-    entries = current_line_entries(version)
-    minor_label = "v" + ".".join(version.split(".")[:2])
+    entries = current_line_entries(version) if lines is None else line_entries(lines)
+    # Version badge: the current line by default; when spanning lines, the NEWEST
+    # selected entry (CHANGELOG is newest-first) drives it — a 0.20+0.21 email reads "v0.21".
+    badge_version = version if lines is None else (str(entries[0]["version"]) if entries else version)
+    minor_label = "v" + _minor(badge_version)
     release_date = str(entries[0]["date"]) if entries else ""
     included = [c for c in cards if c.included]
     cta_url = _release_cta_url()
