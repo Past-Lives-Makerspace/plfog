@@ -2,9 +2,27 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.3"
+VERSION = "0.21.4"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.4",
+        "date": "2026-07-10",
+        "title": "Screens around the space",
+        "changes": [
+            (
+                "The monitors around the makerspace now run a slow, full-screen slideshow of what's coming up — "
+                "upcoming events, handy tips about the space, flyers, and the occasional guild announcement — "
+                "updating on their own throughout the day."
+            ),
+            (
+                "Admins can build and reorder slides, set up a screen for each area (woodshop, lobby, classroom), and "
+                'even put up a single "building closed"-style alert on every screen at once, all from the new '
+                "Slideshow tab in Site Settings."
+            ),
+            "Some slides show a QR code you can scan to jump straight to the details on your phone.",
+        ],
+    },
     {
         "version": "0.21.3",
         "date": "2026-07-10",

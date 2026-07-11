@@ -35,4 +35,10 @@ urlpatterns = [
     path("notifications/unread-count/", views.notification_unread_count, name="notification_unread_count"),
     path("notifications/<int:pk>/read/", views.notification_read, name="notification_read"),
     path("notifications/read-all/", views.notification_read_all, name="notification_read_all"),
+    # Signage slideshow (public kiosk). Registered LAST so any real member route
+    # wins — a bare /<zone-slug>/ only falls through to the player when nothing else
+    # matched. Both views raise Http404 off the signage surface (see core.views), and
+    # the middleware allowlist only permits these names on slideshow.pastlives.space.
+    path("<slug:zone_slug>/", views.signage_player, name="signage_player"),
+    path("<slug:zone_slug>/deck/", views.signage_deck, name="signage_deck"),
 ]

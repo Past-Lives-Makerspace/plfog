@@ -36,6 +36,8 @@ from membership.models import (
     OrientationSlot,
     Skill,
     SkillCategory,
+    SlideshowSlide,
+    SlideshowZone,
     Space,
     VotePreference,
 )
@@ -395,3 +397,25 @@ class LeaseFactory(factory.django.DjangoModelFactory):
     base_price = Decimal("200.00")
     monthly_rent = Decimal("200.00")
     start_date = factory.LazyFunction(lambda: timezone.now().date() - timedelta(days=30))
+
+
+class SlideshowZoneFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = SlideshowZone
+
+    name = factory.Sequence(lambda n: f"Zone {n}")
+    slug = factory.Sequence(lambda n: f"zone-{n}")
+    is_enabled = True
+    sort_order = factory.Sequence(lambda n: n)
+
+
+class SlideshowSlideFactory(factory.django.DjangoModelFactory):
+    """A custom slide by default. Use the ``announcement`` kind + ``announcement=`` for a mirror."""
+
+    class Meta:
+        model = SlideshowSlide
+
+    kind = SlideshowSlide.Kind.CUSTOM
+    title = factory.Sequence(lambda n: f"Slide {n}")
+    is_enabled = True
+    sort_order = factory.Sequence(lambda n: n)

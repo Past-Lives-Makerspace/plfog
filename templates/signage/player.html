@@ -1,0 +1,69 @@
+{% extends "signage/base.html" %}
+
+{% block title %}{{ zone.name }} — Past Lives Makerspace{% endblock %}
+
+{% block content %}
+<div class="pl-sign-stage" x-data="signagePlayer()" x-init="init()" @htmx:after-swap.window="rescan()">
+  {% comment %}
+  The container carries the deck hash; the 300s poll sends it back so an unchanged
+  deck returns 204 + HX-Reswap:none — no swap, no jump to slide 0, no blank frame.
+  {% endcomment %}
+  <div id="pl-sign-deck" data-deck-hash="{{ deck_hash }}"
+       hx-get="{% url 'signage_deck' zone.slug %}" hx-trigger="every 300s"
+       hx-vals='js:{h: document.getElementById("pl-sign-deck").dataset.deckHash}'
+       hx-swap="innerHTML">
+    {% include "signage/_deck.html" %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function signagePlayer() {
+    return {
+      index: 0,
+      timer: null,
+      init() {
+        this.rescan();
+        this.scheduleNightlyReload();
+      },
+      slides() {
+        return Array.from(this.$root.querySelectorAll('.pl-sign-slide'));
+      },
+      rescan() {
+        // Called on load and whenever the deck actually changed (a real swap fired
+        // after-swap). Copy the freshly-swapped content's hash up onto the container so
+        // the next poll compares against current content (stops an infinite re-swap).
+        const marker = this.$root.querySelector('#pl-sign-hash');
+        const container = document.getElementById('pl-sign-deck');
+        if (marker && container) container.dataset.deckHash = marker.dataset.deckHash;
+        // Resume at the current index, clamped to the new length — not 0.
+        const nodes = this.slides();
+        if (!nodes.length) return;
+        if (this.index > nodes.length - 1) this.index = nodes.length - 1;
+        this.show(this.index);
+      },
+      show(i) {
+        const nodes = this.slides();
+        const n = nodes.length;
+        if (!n) return;
+        this.index = ((i % n) + n) % n;
+        // Cross-fade: toggling .is-active drives a CSS opacity transition, so the
+        // old→new hand-off never flashes empty.
+        nodes.forEach((node, idx) => node.classList.toggle('is-active', idx === this.index));
+        if (this.timer) clearTimeout(this.timer);
+        const dur = parseInt(nodes[this.index].dataset.duration, 10) || 12;
+        this.timer = setTimeout(() => this.show(this.index + 1), dur * 1000);
+      },
+      scheduleNightlyReload() {
+        // Reload at the next local 04:00 — picks up deploys, sheds accumulated DOM/timers.
+        const now = new Date();
+        const next = new Date(now);
+        next.setHours(4, 0, 0, 0);
+        if (next <= now) next.setDate(next.getDate() + 1);
+        setTimeout(() => location.reload(), next - now);
+      },
+    };
+  }
+</script>
+{% endblock %}

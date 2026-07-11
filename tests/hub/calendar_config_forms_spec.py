@@ -32,6 +32,9 @@ def _settings_payload(**overrides: str) -> dict:
     data = {
         "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+        # Signage global fields are required PositiveIntegerFields on the shared form.
+        "signage_default_slide_seconds": "12",
+        "signage_event_days_ahead": "30",
         "submitted_tab": "calendar",
         "feeds-TOTAL_FORMS": "0",
         "feeds-INITIAL_FORMS": "0",

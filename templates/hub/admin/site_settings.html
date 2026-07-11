@@ -129,6 +129,12 @@
             class="vote-tab">
       Discord
     </button>
+    <button type="button"
+            @click="tab = 'slideshow'"
+            :class="{ 'vote-tab--active': tab === 'slideshow' }"
+            class="vote-tab">
+      Slideshow
+    </button>
   </div>
 
   <form method="post" id="site-settings-form" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
@@ -138,7 +144,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' and field.name != 'signage_event_qr' and field.name != 'signage_alert_active' and field.name != 'signage_alert_heading' and field.name != 'signage_alert_message' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -395,10 +401,242 @@
       {% include "components/form_field.html" with field=form.discord_leadership_webhook_url %}
     </div>
 
+    {# -------- Slideshow tab · Block A (Part 1: global + emergency alert) -------- #}
+    {% comment %}
+    These are plain SiteConfiguration fields, so they ride THIS shared form and its
+    "Save settings" button. The zones/slides editors are separate forms in Block B,
+    after this form's close tag (you can't nest forms). Layout is in a class (Rule 12).
+    {% endcomment %}
+    <div x-show="tab === 'slideshow'" x-cloak class="pl-slideshow-tab-a">
+      <div>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Slideshow</h2>
+        <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+          The wall-monitor slideshow. Set the global timing and the emergency takeover here;
+          build screens and slides below.
+        </p>
+      </div>
+      {% include "components/form_field.html" with field=form.signage_default_slide_seconds %}
+      {% include "components/form_field.html" with field=form.signage_event_days_ahead %}
+      {% include "components/form_field.html" with field=form.signage_show_events %}
+      {% include "components/form_field.html" with field=form.signage_event_qr %}
+
+      <div class="pl-slideshow-alert-controls">
+        <h3 style="margin:0 0 0.25rem;font-size:0.95rem;color:var(--hub-text);">Emergency takeover</h3>
+        <p style="margin:0 0 0.75rem;color:var(--hub-text-muted);font-size:0.8125rem;">
+          A single "building closed"-style alert on every screen at once. Flip it off to
+          resume the normal rotation.
+        </p>
+        {% include "components/form_field.html" with field=form.signage_alert_active field_hint="When on, every screen shows ONLY this alert until you turn it off." %}
+        {% include "components/form_field.html" with field=form.signage_alert_heading %}
+        {% include "components/form_field.html" with field=form.signage_alert_message %}
+      </div>
+    </div>
+
     <div x-show="tab !== 'announcements'">
       <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
     </div>
   </form>
+
+  {# -------- Slideshow tab · Block B (Parts 2 & 3: zones + slides editors) -------- #}
+  {% comment %}
+  Each editor is its OWN form, a sibling of #site-settings-form (never nested — you
+  can't nest forms; that would orphan these Save buttons). Mirrors the FAQ/Links
+  editors on the guild edit page. Layout is in a class (Rule 12).
+  {% endcomment %}
+  <div x-show="tab === 'slideshow'" x-cloak class="pl-slideshow-tab-b">
+
+    {# ---- Part 2: Zones (screens) ---- #}
+    <form method="post" action="{% url 'hub_admin_slideshow_zones_save' %}" class="site-settings-form">
+      {% csrf_token %}
+      <div class="hub-card" style="padding:1.5rem;">
+        <h2 class="hub-detail-label" style="margin-top:0;margin-bottom:0.25rem;">Screens</h2>
+        <p class="hub-text-muted" style="font-size:0.8125rem;margin:0 0 1rem;">
+          Each screen (woodshop, lobby, classroom) gets its own set-and-forget URL — point a monitor at it once.
+        </p>
+        {{ zone_formset.management_form }}
+        <div id="zone-rows" class="pl-slideshow-rows">
+          {% for f in zone_formset %}
+            <div class="hub-card pl-slideshow-row">
+              {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+              {% include "components/form_field.html" with field=f.name %}
+              {% include "components/form_field.html" with field=f.slug %}
+              {% include "components/form_field.html" with field=f.is_enabled %}
+              {% include "components/form_field.html" with field=f.sort_order %}
+              {% if f.instance.pk %}
+                <div class="pl-slideshow-zone__setup">
+                  <div class="pl-slideshow-zone__url">{{ SIGNAGE_BASE_URL }}/{{ f.instance.slug }}/</div>
+                  <p class="pl-field-hint" style="margin:0;">Save first — the URL and QR use the <em>saved</em> slug.</p>
+                  <div class="pl-slideshow-zone__actions">
+                    <button type="button" class="hub-btn hub-btn--sm"
+                            @click="navigator.clipboard.writeText('{{ f.instance.player_url }}'); $dispatch('show-toast', {message:'URL copied', type:'info'})">Copy URL</button>
+                    <a class="hub-btn hub-btn--sm" href="{{ f.instance.player_url }}" target="_blank" rel="noopener">Preview</a>
+                  </div>
+                  <div class="pl-slideshow-zone__qr">{{ f.instance.qr_svg|safe }}</div>
+                  <p class="pl-field-hint" style="margin:0;">Preview and the QR point at slideshow.pastlives.space — they won't resolve until the signage host goes live.</p>
+                </div>
+                <div style="display:none;">{{ f.DELETE }}</div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                        onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                  Delete this screen
+                </button>
+              {% endif %}
+              {{ f.id }}
+            </div>
+          {% empty %}
+            <p class="pl-slideshow-empty">No screens yet. Add your first zone to get a URL for a monitor.</p>
+          {% endfor %}
+        </div>
+
+        <template id="zone-empty-template">
+          <div class="hub-card pl-slideshow-row">
+            {% with zone_formset.empty_form as ef %}
+              {% include "components/form_field.html" with field=ef.name %}
+              {% include "components/form_field.html" with field=ef.slug %}
+              {% include "components/form_field.html" with field=ef.is_enabled %}
+              {% include "components/form_field.html" with field=ef.sort_order %}
+              {{ ef.id }}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.pl-slideshow-row').remove();">Remove</button>
+            {% endwith %}
+          </div>
+        </template>
+
+        <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                onclick="
+                  const tpl = document.getElementById('zone-empty-template');
+                  const total = document.getElementById('id_zones-TOTAL_FORMS');
+                  const idx = parseInt(total.value, 10);
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  document.getElementById('zone-rows').appendChild(wrap.firstElementChild);
+                  total.value = idx + 1;
+                ">
+          + Add a screen
+        </button>
+
+        <div style="margin-top:1rem;">
+          <button type="submit" class="pl-btn pl-btn--primary">Save zones</button>
+        </div>
+      </div>
+    </form>
+
+    {# ---- Part 3: Slides ---- #}
+    <form method="post" action="{% url 'hub_admin_slideshow_slides_save' %}" enctype="multipart/form-data" class="site-settings-form">
+      {% csrf_token %}
+      <div class="hub-card" style="padding:1.5rem;">
+        <h2 class="hub-detail-label" style="margin-top:0;margin-bottom:0.25rem;">Slides</h2>
+        <p class="hub-text-muted" style="font-size:0.8125rem;margin:0 0 1rem;">
+          A custom slide (your own title / body / image / flyer) or a mirror of a published guild announcement.
+          Leave a slide's screen blank to show it on every screen.
+        </p>
+        {{ slide_formset.management_form }}
+        <div id="slide-rows" class="pl-slideshow-rows">
+          {% for f in slide_formset %}
+            <div class="hub-card pl-slideshow-row" x-data="{ kind: '{{ f.kind.value|default:'custom' }}' }">
+              {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+              {% include "components/form_field.html" with field=f.kind %}
+
+              <div x-show="kind === 'custom'" class="pl-slide-fields">
+                {% include "components/form_field.html" with field=f.title %}
+                {% include "components/form_field.html" with field=f.body %}
+                <div class="pl-form-group">
+                  <label class="pl-form-label" for="{{ f.image.id_for_label }}">{{ f.image.label }}</label>
+                  {% if f.instance.pk and f.instance.image %}
+                    <div class="pl-slideshow-thumb"><img src="{{ f.instance.image.url }}" alt=""></div>
+                  {% endif %}
+                  {{ f.image }}
+                  {{ f.remove_image }}
+                  <p class="pl-field-hint">Choosing a new file replaces the current image. If the form bounces on a validation error, re-attach the file — it isn't kept across a failed submit.</p>
+                  {% if f.instance.pk and f.instance.image %}
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                            onclick="document.getElementById('{{ f.remove_image.id_for_label }}').value = '1'; this.form.requestSubmit();">
+                      Remove image
+                    </button>
+                  {% endif %}
+                  {% for error in f.image.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+                </div>
+                {% include "components/form_field.html" with field=f.link_url %}
+                {% include "components/form_field.html" with field=f.show_qr %}
+              </div>
+
+              <div x-show="kind === 'announcement'" class="pl-slide-fields">
+                {% include "components/form_field.html" with field=f.announcement %}
+              </div>
+
+              {% include "components/form_field.html" with field=f.zone %}
+              {% include "components/form_field.html" with field=f.duration_seconds %}
+              <div class="pl-slideshow-daterow">
+                {% include "components/form_field.html" with field=f.starts_on %}
+                {% include "components/form_field.html" with field=f.ends_on %}
+              </div>
+              {% include "components/form_field.html" with field=f.is_enabled %}
+              {% include "components/form_field.html" with field=f.sort_order %}
+
+              {% if f.instance.pk %}
+                <div style="display:none;">{{ f.DELETE }}</div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                        onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                  Delete this slide
+                </button>
+              {% endif %}
+              {{ f.id }}
+            </div>
+          {% empty %}
+            <p class="pl-slideshow-empty">No slides yet. Add a custom slide or pull in a published announcement.</p>
+          {% endfor %}
+        </div>
+
+        <template id="slide-empty-template">
+          <div class="hub-card pl-slideshow-row" x-data="{ kind: 'custom' }">
+            {% with slide_formset.empty_form as ef %}
+              {% include "components/form_field.html" with field=ef.kind %}
+              <div x-show="kind === 'custom'" class="pl-slide-fields">
+                {% include "components/form_field.html" with field=ef.title %}
+                {% include "components/form_field.html" with field=ef.body %}
+                <div class="pl-form-group">
+                  <label class="pl-form-label" for="{{ ef.image.id_for_label }}">{{ ef.image.label }}</label>
+                  {{ ef.image }}
+                  {{ ef.remove_image }}
+                  <p class="pl-field-hint">Add a full-bleed image or flyer (JPG/PNG).</p>
+                </div>
+                {% include "components/form_field.html" with field=ef.link_url %}
+                {% include "components/form_field.html" with field=ef.show_qr %}
+              </div>
+              <div x-show="kind === 'announcement'" class="pl-slide-fields">
+                {% include "components/form_field.html" with field=ef.announcement %}
+              </div>
+              {% include "components/form_field.html" with field=ef.zone %}
+              {% include "components/form_field.html" with field=ef.duration_seconds %}
+              <div class="pl-slideshow-daterow">
+                {% include "components/form_field.html" with field=ef.starts_on %}
+                {% include "components/form_field.html" with field=ef.ends_on %}
+              </div>
+              {% include "components/form_field.html" with field=ef.is_enabled %}
+              {% include "components/form_field.html" with field=ef.sort_order %}
+              {{ ef.id }}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.pl-slideshow-row').remove();">Remove</button>
+            {% endwith %}
+          </div>
+        </template>
+
+        <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                onclick="
+                  const tpl = document.getElementById('slide-empty-template');
+                  const total = document.getElementById('id_slides-TOTAL_FORMS');
+                  const idx = parseInt(total.value, 10);
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  document.getElementById('slide-rows').appendChild(wrap.firstElementChild);
+                  total.value = idx + 1;
+                ">
+          + Add a slide
+        </button>
+
+        <div style="margin-top:1rem;">
+          <button type="submit" class="pl-btn pl-btn--primary">Save slides</button>
+        </div>
+      </div>
+    </form>
+  </div>
 
   {# -------- Announcements tab (own form — compose, preview, then send) -------- #}
   <div x-show="tab === 'announcements'" x-cloak class="pl-announce-tab">

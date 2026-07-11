@@ -3621,3 +3621,112 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 @media (max-width: 640px) {
     .pl-release-card { grid-template-columns: 1fr; }
 }
+
+/* ── Slideshow admin tab (Site Settings) ─────────────────────────────────────
+   Editor UI for the signage slideshow. Renders under hub/base.html (hub.css +
+   components.css), NOT signage.css. Layout lives in classes, never inline on an
+   x-show element (Rule 12). Controls theme via .site-settings-form / .pl-form-group. */
+.pl-slideshow-tab-a,
+.pl-slideshow-tab-b {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.pl-slideshow-alert-controls {
+    border: 1px solid rgba(248, 113, 113, 0.4);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    background: rgba(248, 113, 113, 0.06);
+}
+
+.pl-slideshow-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.pl-slideshow-row {
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Kind-switching field groups — display is in the class so Alpine's x-show only
+   toggles display:none (Rule 12), never stripping an inline display. */
+.pl-slide-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.pl-slideshow-daterow {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.pl-slideshow-daterow > * {
+    flex: 1;
+    min-width: 160px;
+}
+
+.pl-slideshow-empty {
+    color: var(--hub-text-muted);
+    font-style: italic;
+    padding: 0.75rem 0;
+}
+
+.pl-slideshow-thumb {
+    margin: 0.5rem 0;
+}
+
+.pl-slideshow-thumb img {
+    max-width: 240px;
+    max-height: 160px;
+    border-radius: 8px;
+    border: 1px solid var(--hub-border);
+}
+
+/* Per-saved-zone setup helpers: the copyable URL, QR, copy + preview buttons. */
+.pl-slideshow-zone__setup {
+    margin-top: 1rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.pl-slideshow-zone__url {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+    word-break: break-all;
+    user-select: all;
+}
+
+.pl-slideshow-zone__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.pl-slideshow-zone__qr {
+    width: 128px;
+    height: 128px;
+    padding: 0.5rem;
+    background: #ffffff;
+    border-radius: 8px;
+}
+
+.pl-slideshow-zone__qr svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+@media (max-width: 640px) {
+    .pl-slideshow-daterow { flex-direction: column; }
+}

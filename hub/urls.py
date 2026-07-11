@@ -306,6 +306,16 @@ urlpatterns = [
         name="hub_admin_user_email_toggle_verified",
     ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
+    path(
+        "manage/site-settings/slideshow/zones/save/",
+        views.admin_slideshow_zones_save,
+        name="hub_admin_slideshow_zones_save",
+    ),
+    path(
+        "manage/site-settings/slideshow/slides/save/",
+        views.admin_slideshow_slides_save,
+        name="hub_admin_slideshow_slides_save",
+    ),
     # --- Notification copy catalogue (design §2.3 + §2.4, Decision 6) ---
     path("manage/notifications/", notification_views.catalogue, name="hub_admin_notifications"),
     path(

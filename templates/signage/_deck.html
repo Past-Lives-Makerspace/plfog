@@ -1,0 +1,26 @@
+{% comment %}
+Shared by first paint AND the 300s HTMX poll. Branches once, at the top, on the
+emergency alert. The FIRST rotating slide server-renders `is-active` so slide 1 is
+visible before Alpine boots (the wall is never blank waiting on JS).
+{% endcomment %}
+{% comment %}
+Carries the fresh deck hash into the swapped content; the player copies it up onto
+#pl-sign-deck after each real swap so the next poll compares against current content.
+{% endcomment %}
+<span id="pl-sign-hash" data-deck-hash="{{ deck_hash }}" hidden></span>
+{% if config.signage_alert_active %}
+  <section class="pl-sign-slide pl-sign-alert is-active" data-duration="3600">
+    <h1 class="pl-sign-alert__heading">{{ config.signage_alert_heading }}</h1>
+    <p class="pl-sign-alert__message">{{ config.signage_alert_message|linebreaksbr }}</p>
+  </section>
+{% else %}
+  {% for s in deck %}
+    <section class="pl-sign-slide{% if forloop.first %} is-active{% endif %}{% if s.kind == 'event' %} pl-sign-slide--event{% endif %}{% if s.kind == 'holding' %} pl-sign-slide--holding{% endif %}" data-duration="{{ s.duration_seconds }}">
+      {% if s.image_url %}<img class="pl-sign-slide__img" src="{{ s.image_url }}" alt="">{% endif %}
+      {% if s.title %}<h1 class="pl-sign-slide__title">{{ s.title }}</h1>{% endif %}
+      {% if s.meta %}<p class="pl-sign-slide__meta">{{ s.meta }}</p>{% endif %}
+      {% if s.body %}<div class="pl-sign-slide__body">{{ s.body|linebreaksbr }}</div>{% endif %}
+      {% if s.qr_svg %}<div class="pl-sign-slide__qr">{{ s.qr_svg|safe }}</div>{% endif %}
+    </section>
+  {% endfor %}
+{% endif %}

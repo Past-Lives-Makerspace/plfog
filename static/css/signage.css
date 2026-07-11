@@ -1,0 +1,153 @@
+/* Signage slideshow — full-bleed dark kiosk player.
+   PLAYER ONLY. The hub never loads this file, so the tokens are declared locally
+   (a deliberate, flagged duplication — the same way guild-flyer.css carries its own
+   print palette). Obsidian/gold values from FRONTEND.md. The surface is always dark.
+   All type uses clamp() + viewport units so a headline scales from a 1080p TV to a
+   portrait tablet; the stage is 100vw × 100vh with overflow hidden (never a scrollbar). */
+
+:root {
+  --sign-bg: #0a0b10;
+  --sign-surface: #13151d;
+  --sign-text: #f4efdd;
+  --sign-muted: #8b97a8;
+  --sign-gold: #eeb44b;
+  --sign-navy: #092e4c;
+  --sign-alert-bg: #7f1d1d;
+  --sign-alert-text: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--sign-bg);
+}
+
+.pl-sign-body {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  color: var(--sign-text);
+}
+
+/* Full-viewport stage; the deck container and each slide fill it absolutely so only
+   the .is-active slide is visible (opacity/z-index cross-fade, never x-show display). */
+.pl-sign-stage {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--sign-bg);
+}
+
+.pl-sign-stage > * {
+  position: absolute;
+  inset: 0;
+}
+
+.pl-sign-slide {
+  position: absolute;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(1rem, 3vmin, 2.5rem);
+  padding: clamp(2rem, 6vmin, 6rem);
+  text-align: center;
+  opacity: 0;
+  z-index: 0;
+  transition: opacity 0.8s ease-in-out;
+  background: radial-gradient(circle at 50% 30%, rgba(9, 46, 76, 0.55), var(--sign-bg) 70%);
+}
+
+.pl-sign-slide.is-active {
+  opacity: 1;
+  z-index: 1;
+}
+
+.pl-sign-slide__img {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.pl-sign-slide__title {
+  margin: 0;
+  font-family: "Lato", sans-serif;
+  font-weight: 900;
+  font-size: clamp(2.5rem, 7vw, 7rem);
+  line-height: 1.05;
+  color: var(--sign-text);
+}
+
+.pl-sign-slide__meta {
+  margin: 0;
+  font-family: "Lato", sans-serif;
+  font-weight: 700;
+  font-size: clamp(1.25rem, 3.5vw, 3rem);
+  color: var(--sign-gold);
+}
+
+.pl-sign-slide__body {
+  max-width: 24ch;
+  font-size: clamp(1.25rem, 3vw, 2.75rem);
+  line-height: 1.4;
+  color: var(--sign-text);
+}
+
+.pl-sign-slide__qr {
+  width: clamp(120px, 22vmin, 320px);
+  height: clamp(120px, 22vmin, 320px);
+  padding: clamp(0.5rem, 1.5vmin, 1rem);
+  background: #ffffff;
+  border-radius: 12px;
+}
+
+.pl-sign-slide__qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Event slides read as a headline over a big gold time. */
+.pl-sign-slide--event .pl-sign-slide__title {
+  font-size: clamp(2rem, 6vw, 5.5rem);
+}
+
+/* Branded holding slide, so an empty deck still shows the wordmark. */
+.pl-sign-slide--holding {
+  background: linear-gradient(160deg, var(--sign-navy), var(--sign-bg));
+}
+
+/* Emergency takeover — loud, unmissable across a room. */
+.pl-sign-alert {
+  background: var(--sign-alert-bg);
+  color: var(--sign-alert-text);
+}
+
+.pl-sign-alert__heading {
+  margin: 0;
+  font-family: "Lato", sans-serif;
+  font-weight: 900;
+  font-size: clamp(3rem, 9vw, 9rem);
+  line-height: 1.05;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.pl-sign-alert__message {
+  max-width: 28ch;
+  margin: 0;
+  font-size: clamp(1.5rem, 4vw, 3.5rem);
+  line-height: 1.35;
+}

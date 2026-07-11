@@ -39,6 +39,8 @@ from hub.forms import (
     SiteAnnouncementForm,
     SiteSettingsForm,
     SkillSuggestionForm,
+    SlideshowSlideFormSet,
+    SlideshowZoneFormSet,
     VotePreferenceForm,
 )
 from hub.toast import trigger_toast
@@ -4190,7 +4192,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
-    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features", "discord"}:
+    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features", "discord", "slideshow"}:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()
@@ -4242,6 +4244,10 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             active_tab = "announcements"
 
     instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
+    from membership.models import SlideshowSlide, SlideshowZone
+
+    zone_formset = SlideshowZoneFormSet(queryset=SlideshowZone.objects.all(), prefix="zones")
+    slide_formset = SlideshowSlideFormSet(queryset=SlideshowSlide.objects.all(), prefix="slides")
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -4250,6 +4256,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             **ctx,
             "form": form,
             "feed_formset": feed_formset,
+            "zone_formset": zone_formset,
+            "slide_formset": slide_formset,
             "active_tab": active_tab,
             "classes_color_field": form["classes_calendar_color"],
             "sync_classes_field": form["sync_classes_enabled"],
@@ -4264,3 +4272,47 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "release_preview": release_preview,
         },
     )
+
+
+@fog_admin_required
+@require_POST
+def admin_slideshow_zones_save(request: HttpRequest) -> HttpResponse:
+    """Save the Slideshow tab's Zones editor (its own form, outside the settings form)."""
+    from membership.models import SlideshowZone
+
+    formset = SlideshowZoneFormSet(request.POST, queryset=SlideshowZone.objects.all(), prefix="zones")
+    if formset.is_valid():
+        instances = formset.save(commit=False)
+        for obj in formset.deleted_objects:
+            obj.delete()
+        for inst in instances:
+            # Skip a blank "+ Add" row the user never filled in.
+            if not inst.name:
+                continue
+            inst.save()
+        messages.success(request, "Zones saved.")
+    else:
+        messages.error(request, "Couldn't save the zones — check the highlighted fields.")
+    return redirect(f"{reverse('hub_admin_site_settings')}?tab=slideshow")
+
+
+@fog_admin_required
+@require_POST
+def admin_slideshow_slides_save(request: HttpRequest) -> HttpResponse:
+    """Save the Slideshow tab's Slides editor (its own multipart form, outside the settings form)."""
+    from membership.models import SlideshowSlide
+
+    formset = SlideshowSlideFormSet(request.POST, request.FILES, queryset=SlideshowSlide.objects.all(), prefix="slides")
+    if formset.is_valid():
+        instances = formset.save(commit=False)
+        for obj in formset.deleted_objects:
+            obj.delete()
+        for inst in instances:
+            # Skip a blank "+ Add" row (no title, image, or announcement).
+            if not (inst.title or inst.image or inst.announcement_id):
+                continue
+            inst.save()
+        messages.success(request, "Slides saved.")
+    else:
+        messages.error(request, "Couldn't save the slides — check the highlighted fields.")
+    return redirect(f"{reverse('hub_admin_site_settings')}?tab=slideshow")

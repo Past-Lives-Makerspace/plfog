@@ -4188,3 +4188,157 @@ class OrientationBooking(models.Model):
         """Undo a completion (a lead correcting an auto-completed no-show)."""
         self.is_completed = False
         self.save(update_fields=["is_completed"])
+
+
+# ── Signage slideshow ─────────────────────────────────────────────────────────
+# Wall-monitor digital signage (slideshow.pastlives.space). Lives here, not in
+# core, because SlideshowSlide FKs GuildAnnouncement and the deck builder reuses
+# CommunityEvent + the GuildImage image stack — all intra-app. The global/emergency
+# settings sit on core.SiteConfiguration (plain config, no FK).
+
+
+class SlideshowZone(models.Model):
+    """One physical screen location the signage slideshow plays on (woodshop, lobby, …)."""
+
+    name = models.CharField(max_length=100, help_text="Where this screen lives, e.g. 'Woodshop' or 'Lobby'.")
+    slug = models.SlugField(
+        max_length=100,
+        unique=True,
+        help_text="Used in the screen's URL: slideshow.pastlives.space/<slug>/. Point the monitor here once.",
+    )
+    is_enabled = models.BooleanField(
+        default=True,
+        help_text="Turn a screen's URL on or off. A disabled zone's URL returns 404.",
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower numbers sort first. The root URL redirects to the first enabled zone.",
+    )
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def player_url(self) -> str:
+        """Absolute, set-and-forget URL to point a monitor at, e.g. https://slideshow.pastlives.space/woodshop/."""
+        from django.urls import reverse
+
+        return f"{settings.SIGNAGE_BASE_URL}{reverse('signage_player', args=[self.slug])}"
+
+    def qr_svg(self) -> str:
+        """Inline SVG QR of this zone's player_url — shown on the admin tab so staff can point a monitor at it."""
+        import io
+
+        import segno
+
+        buf = io.BytesIO()
+        segno.make(self.player_url, error="m").save(buf, kind="svg", scale=1, xmldecl=False, svgns=True)
+        return buf.getvalue().decode("utf-8")
+
+
+class SlideshowSlideQuerySet(models.QuerySet):
+    """Visibility rules for signage slides (the fat model — one source of truth)."""
+
+    def visible(self, today: date_type | None = None) -> SlideshowSlideQuerySet:
+        """Enabled slides inside their date window.
+
+        Announcement-backed slides additionally require their linked announcement to be
+        Published AND still active (not expired) — so a slide auto-hides the moment the
+        announcement it mirrors is unpublished or expires. Custom slides skip that gate.
+        Comparisons use ``timezone.localdate()`` against the ``DateField`` bounds.
+        """
+        if today is None:
+            today = timezone.localdate()
+        window = (
+            Q(is_enabled=True)
+            & (Q(starts_on__isnull=True) | Q(starts_on__lte=today))
+            & (Q(ends_on__isnull=True) | Q(ends_on__gte=today))
+        )
+        live_announcement = ~Q(kind=SlideshowSlide.Kind.ANNOUNCEMENT) | (
+            Q(announcement__moderation_state=GuildAnnouncement.ModerationState.PUBLISHED)
+            & (Q(announcement__expires_at__isnull=True) | Q(announcement__expires_at__gte=today))
+        )
+        return self.filter(window & live_announcement)
+
+    def for_zone(self, zone: SlideshowZone) -> SlideshowSlideQuerySet:
+        """Slides pinned to this zone plus the all-zones (zone IS NULL) slides."""
+        return self.filter(Q(zone__isnull=True) | Q(zone=zone))
+
+
+class SlideshowSlide(models.Model):
+    """A single slide in the signage rotation — a custom slide or a mirrored guild announcement."""
+
+    class Kind(models.TextChoices):
+        CUSTOM = "custom", "Custom slide"
+        ANNOUNCEMENT = "announcement", "Guild announcement"
+
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.CUSTOM,
+        help_text="Custom = your own title/body/image. Guild announcement = mirror a published announcement.",
+    )
+    zone = models.ForeignKey(
+        SlideshowZone,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="slides",
+        help_text="Show only on this screen. Leave blank to show on every screen.",
+    )
+    title = models.CharField(max_length=200, blank=True, default="", help_text="Headline for a custom slide.")
+    body = models.TextField(
+        blank=True,
+        default="",
+        help_text="Body text for a custom slide — a tip about the space, a reminder, etc.",
+    )
+    image = models.ImageField(
+        upload_to="signage/slides/",
+        blank=True,
+        null=True,
+        validators=[validate_image_size],
+        help_text="Optional full-bleed image or flyer (JPG/PNG).",
+    )
+    link_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional link — shown as a QR code when 'Show QR' is on.",
+    )
+    show_qr = models.BooleanField(default=False, help_text="Render a scannable QR of the link on this slide.")
+    announcement = models.ForeignKey(
+        GuildAnnouncement,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="+",
+        help_text="The published announcement to mirror. Only used for 'Guild announcement' slides.",
+    )
+    duration_seconds = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="How long this slide shows. Leave blank to use the global default.",
+    )
+    starts_on = models.DateField(null=True, blank=True, help_text="Optional: don't show before this date.")
+    ends_on = models.DateField(null=True, blank=True, help_text="Optional: stop showing after this date.")
+    is_enabled = models.BooleanField(default=True, help_text="Turn this slide on or off without deleting it.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Lower numbers show first in the rotation.")
+
+    objects = SlideshowSlideQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        if self.title:
+            return self.title
+        if self.announcement_id:
+            return f"Announcement: {self.announcement}"
+        return f"Slide {self.pk}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "image")
+        normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)  # 2400px — wall-sized
+        super().save(*args, **kwargs)

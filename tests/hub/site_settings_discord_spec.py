@@ -33,6 +33,9 @@ def _settings_post(**overrides: str) -> dict[str, str]:
         # The site-settings page is one <form> spanning all tabs, so every save
         # carries member_event_policy (a required Calendar-tab field) — mirror that.
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+        # Signage global fields are required PositiveIntegerFields on the shared form.
+        "signage_default_slide_seconds": "12",
+        "signage_event_days_ahead": "30",
         "feeds-TOTAL_FORMS": "0",
         "feeds-INITIAL_FORMS": "0",
         "feeds-MIN_NUM_FORMS": "0",

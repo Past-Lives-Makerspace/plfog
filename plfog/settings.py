@@ -127,6 +127,24 @@ GUILDS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
     }
 )
 
+# Signage surface. SIGNAGE_HOSTS is the set of hostnames that serve the unattended
+# full-screen digital-signage slideshow (slideshow.pastlives.space). Root redirects
+# to the first enabled zone's player and only the read-only kiosk views below resolve
+# there; everything else 404s. Empty defaults are safe hooks — until DNS +
+# DJANGO_ALLOWED_HOSTS include the host, no request ever reaches the signage branch.
+# Go-live: set SIGNAGE_HOSTS=slideshow.pastlives.space and add the host to
+# ALLOWED_HOSTS. Do NOT add it to PUBLIC_HOSTS/GUILDS_HOSTS, and no
+# CSRF_TRUSTED_ORIGINS entry is needed (the player is read-only — it never POSTs).
+SIGNAGE_HOSTS = [
+    h.strip().lower() for h in os.environ.get("SIGNAGE_HOSTS", "slideshow.pastlives.space").split(",") if h.strip()
+]
+# Absolute base URL of the signage surface, used to build the set-and-forget per-zone
+# player URL and the QR staff scan to point a monitor at a screen.
+SIGNAGE_BASE_URL = os.environ.get("SIGNAGE_BASE_URL", "https://slideshow.pastlives.space").rstrip("/")
+# Precise allowlist of view names that may resolve on the signage host — just the
+# read-only player and its poll target. There is no login on this surface.
+SIGNAGE_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset({"signage_player", "signage_deck"})
+
 # Allauth needs to know about the reverse proxy to resolve client IPs for rate limiting
 ALLAUTH_TRUSTED_PROXY_COUNT = int(os.environ.get("ALLAUTH_TRUSTED_PROXY_COUNT", "0"))
 

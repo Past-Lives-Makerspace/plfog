@@ -35,6 +35,8 @@ from membership.models import (
     OrientationSlot,
     Skill,
     SkillCategory,
+    SlideshowSlide,
+    SlideshowZone,
     VotingSettings,
 )
 
@@ -543,11 +545,19 @@ class SiteSettingsForm(forms.ModelForm):
             "member_event_policy",
             "general_google_calendar_id",
             "google_calendar_sync_enabled",
+            "signage_default_slide_seconds",
+            "signage_show_events",
+            "signage_event_days_ahead",
+            "signage_event_qr",
+            "signage_alert_active",
+            "signage_alert_heading",
+            "signage_alert_message",
         ]
         widgets = {
             "classes_calendar_color": forms.TextInput(attrs={"type": "color"}),
             "class_registration_disabled_note": forms.Textarea(attrs={"rows": 3}),
             "general_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
+            "signage_alert_message": forms.Textarea(attrs={"rows": 3}),
         }
 
 
@@ -567,6 +577,138 @@ class CalendarFeedForm(forms.ModelForm):
 CalendarFeedFormSet = forms.modelformset_factory(
     CalendarFeed,
     form=CalendarFeedForm,
+    extra=0,
+    can_delete=True,
+)
+
+
+class SlideshowZoneForm(forms.ModelForm):
+    """One row in the Slideshow tab's Zones editor — one physical screen location."""
+
+    class Meta:
+        model = SlideshowZone
+        fields = ["name", "slug", "is_enabled", "sort_order"]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. Woodshop"}),
+            "slug": forms.TextInput(attrs={"placeholder": "woodshop"}),
+        }
+        help_texts = {
+            "slug": "Used in the screen URL: slideshow.pastlives.space/<slug>/. Leave blank to auto-fill from the name.",
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # The slug auto-fills from the name (below) when left blank, so it isn't required.
+        self.fields["slug"].required = False
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if cleaned.get("DELETE"):
+            return cleaned
+        if cleaned.get("name") and not cleaned.get("slug"):
+            cleaned["slug"] = slugify(cleaned["name"])
+        return cleaned
+
+
+SlideshowZoneFormSet = forms.modelformset_factory(
+    SlideshowZone,
+    form=SlideshowZoneForm,
+    extra=0,
+    can_delete=True,
+)
+
+
+class SlideshowSlideForm(forms.ModelForm):
+    """One row in the Slideshow tab's Slides editor.
+
+    A row is a custom slide OR a mirror of a published guild announcement — the ``kind``
+    select toggles which fields apply (Alpine ``x-model`` in the template). Because only
+    an admin reaches this tab, the announcement picker is the privacy-safe, admin-curated
+    opt-in the design requires.
+    """
+
+    announcement = forms.ModelChoiceField(
+        queryset=GuildAnnouncement.objects.published(),
+        required=False,
+        empty_label="— choose an announcement —",
+        help_text="Pick a published announcement to mirror. Only used for 'Guild announcement' slides.",
+    )
+    # Themed "Remove image" button drives this hidden flag (Django's raw Clear checkbox
+    # is suppressed by using a plain FileInput widget). See save().
+    remove_image = forms.BooleanField(required=False, widget=forms.HiddenInput())
+
+    class Meta:
+        model = SlideshowSlide
+        fields = [
+            "kind",
+            "zone",
+            "title",
+            "body",
+            "image",
+            "link_url",
+            "show_qr",
+            "announcement",
+            "duration_seconds",
+            "starts_on",
+            "ends_on",
+            "is_enabled",
+            "sort_order",
+        ]
+        widgets = {
+            "kind": forms.Select(attrs={"x-model": "kind"}),
+            "body": forms.Textarea(attrs={"rows": 3}),
+            "image": forms.FileInput(),
+            "starts_on": forms.DateInput(
+                attrs={"type": "date", "@click": "try { $event.currentTarget.showPicker() } catch (e) {}"}
+            ),
+            "ends_on": forms.DateInput(
+                attrs={"type": "date", "@click": "try { $event.currentTarget.showPicker() } catch (e) {}"}
+            ),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["zone"].empty_label = "All screens"  # type: ignore[attr-defined]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if cleaned.get("DELETE"):
+            return cleaned
+        has_saved_image = bool(self.instance.pk and self.instance.image)
+        has_content = bool(
+            cleaned.get("title")
+            or cleaned.get("body")
+            or cleaned.get("image")
+            or cleaned.get("link_url")
+            or cleaned.get("announcement")
+            or has_saved_image
+        )
+        if not has_content:
+            # An untouched +Add row — don't block the save with a requirement error.
+            return cleaned
+        if cleaned.get("kind") == SlideshowSlide.Kind.ANNOUNCEMENT:
+            if not cleaned.get("announcement"):
+                raise forms.ValidationError("Pick an announcement for this slide.")
+        elif not cleaned.get("title") and not cleaned.get("image") and not has_saved_image:
+            raise forms.ValidationError("Give the slide a title or an image.")
+        return cleaned
+
+    def save(self, commit: bool = True) -> SlideshowSlide:
+        instance = cast(SlideshowSlide, super().save(commit=False))
+        # Honor the "Remove image" button unless a new file was uploaded in the same submit.
+        # A plain FileInput keeps the existing file in cleaned_data, so detect a genuine new
+        # upload via request.FILES rather than the (kept-or-new) cleaned value.
+        new_upload = self.add_prefix("image") in self.files
+        if self.cleaned_data.get("remove_image") and not new_upload:
+            instance.image = None
+        if commit:
+            instance.save()
+        return instance
+
+
+SlideshowSlideFormSet = forms.modelformset_factory(
+    SlideshowSlide,
+    form=SlideshowSlideForm,
     extra=0,
     can_delete=True,
 )

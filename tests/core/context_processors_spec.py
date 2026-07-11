@@ -126,7 +126,10 @@ def describe_surface():
             "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
+            "is_signage_surface": False,
             "guilds_page_base": "hub/base.html",
+            "signage_page_base": "signage/base.html",
             "parent_template": "classes/base_public.html",
         }
 
@@ -144,7 +147,10 @@ def describe_surface():
             "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
+            "is_signage_surface": False,
             "guilds_page_base": "guilds/base_public.html",
+            "signage_page_base": "signage/base.html",
             "parent_template": "guilds/base_public.html",
         }
 
@@ -162,7 +168,10 @@ def describe_surface():
             "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
+            "is_signage_surface": False,
             "guilds_page_base": "hub/base.html",
+            "signage_page_base": "signage/base.html",
             "parent_template": "base.html",
         }
 
@@ -181,7 +190,10 @@ def describe_surface():
             "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
             "BOOK_BASE_URL": settings.BOOK_BASE_URL,
             "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
+            "is_signage_surface": False,
             "guilds_page_base": "hub/base.html",
+            "signage_page_base": "signage/base.html",
             "parent_template": "base.html",
         }
 

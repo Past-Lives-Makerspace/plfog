@@ -1,0 +1,24 @@
+{% load static %}
+<!doctype html>
+{% comment %}
+Standalone kiosk root — extends nothing. No service worker, no PWA manifest, no
+beta header/footer, no changelog modal. Forced dark, full-bleed, room-legible.
+{% endcomment %}
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="robots" content="noindex, nofollow">
+    <title>{% block title %}Past Lives Makerspace{% endblock %}</title>
+    <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/signage.css' %}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="pl-sign-body">
+    {% block content %}{% endblock %}
+    <script src="{% static 'js/htmx.min.js' %}"></script>
+    <script defer src="{% static 'js/alpine.min.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

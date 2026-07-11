@@ -250,6 +250,44 @@ class SiteConfiguration(models.Model):
             "event updates the linked Google Calendar."
         ),
     )
+    signage_default_slide_seconds = models.PositiveIntegerField(
+        default=12,
+        verbose_name="Default slide duration (seconds)",
+        help_text="Default seconds each slide shows, unless a slide overrides it.",
+    )
+    signage_show_events = models.BooleanField(
+        default=True,
+        verbose_name="Show upcoming events on screens",
+        help_text="Automatically add slides for upcoming site-wide events.",
+    )
+    signage_event_days_ahead = models.PositiveIntegerField(
+        default=30,
+        verbose_name="Event look-ahead (days)",
+        help_text="How many days ahead to pull upcoming events for the slideshow.",
+    )
+    signage_event_qr = models.BooleanField(
+        default=False,
+        verbose_name="Add a QR to event slides",
+        help_text="Add a QR code to the community calendar on auto event slides.",
+    )
+    signage_alert_active = models.BooleanField(
+        default=False,
+        verbose_name="Emergency alert active",
+        help_text="EMERGENCY: when on, every screen shows ONLY the alert below until you turn it off.",
+    )
+    signage_alert_heading = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        verbose_name="Alert heading",
+        help_text="Big alert headline, e.g. 'Building Closed'.",
+    )
+    signage_alert_message = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Alert message",
+        help_text="Alert details shown under the headline.",
+    )
 
     class Meta:
         verbose_name = "Site Settings"
