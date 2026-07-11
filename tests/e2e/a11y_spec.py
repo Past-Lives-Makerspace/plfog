@@ -1,4 +1,4 @@
-"""Accessibility (axe-core) gate for the public/book surface pages.
+"""Accessibility (axe-core) gate for the public/book surface + members/kiosk pages.
 
 The catalog, class-detail and login pages are held to full WCAG-AA on the axe
 ruleset, in both light and dark: ``ACCEPTED_DEBT`` is now empty, so ANY
@@ -6,6 +6,11 @@ violation (contrast, link-name, landmark, critical, …) fails the build.
 ``ACCEPTED_DEBT`` remains as a ratchet escape hatch — if a future change
 introduces genuinely unavoidable debt, add the rule id here with a note rather
 than silencing the whole gate.
+
+Two more surfaces get their own scans (own login/host, so they can't ride the
+public loop): the members Notifications page and the public signage player. Each
+carries its OWN allowlist so pre-existing chrome debt on those surfaces is never
+leaked onto the public gate above — the global bar stays at zero.
 
 Run with ``pytest -m e2e``.
 """
@@ -17,15 +22,35 @@ from datetime import timedelta
 from urllib.parse import urlparse
 
 from axe_playwright_python.sync_playwright import Axe
+from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering
+from tests.membership.factories import MembershipPlanFactory, SlideshowSlideFactory, SlideshowZoneFactory
 
 # Tolerated a11y debt (axe rule IDs). Currently empty — these pages are fully
 # AA-clean. Add a rule id here only as a documented, temporary escape hatch.
 ACCEPTED_DEBT: set[str] = set()
+
+# Per-surface allowlists for the two scans below (members hub / kiosk). Kept
+# separate from ACCEPTED_DEBT so the public gate never inherits their debt. Add a
+# rule id here (with a note) only for genuine pre-existing debt on that surface's
+# shared chrome — never a critical-impact rule.
+MEMBERS_HUB_DEBT: set[str] = {
+    # Pre-existing hub-chrome debt (NOT the notifications feature): the topbar
+    # ".pl-badge--version" amber pill (#eeb44b) fails AA contrast in the light theme.
+    # Shared across every authed hub page; worth its own fix, out of scope for this
+    # test-only pass. Serious, not critical — the gate still fails on anything worse.
+    "color-contrast",
+}
+SIGNAGE_DEBT: set[str] = {
+    # The kiosk is a deliberately chromeless full-screen deck: its slide <section>s
+    # aren't wrapped in a landmark (no nav/main on a wall monitor), which trips the
+    # "region" rule. By-design for an unattended sign, moderate impact — not critical.
+    "region",
+}
 
 
 def _violations(page, url):
@@ -41,6 +66,19 @@ def _violations(page, url):
             detail = f"{target} {fg.group(1) if fg else ''}".strip()
             found.append((theme, v["impact"], v["id"], len(v["nodes"]), detail))
     return found
+
+
+def _offenders_for(page, url, allowed):
+    """Scan one URL (both themes) and return the offender lines the gate should fail on.
+
+    An offender is any critical-impact violation, or any rule not in ``allowed`` — so an
+    allowlist only ever tolerates non-critical, documented debt.
+    """
+    out = []
+    for theme, impact, rule, nodes, detail in _violations(page, url):
+        if impact == "critical" or rule not in allowed:
+            out.append(f"{theme}: [{impact}] {rule} ({nodes} node(s)) — {detail}")
+    return out
 
 
 def describe_accessibility():
@@ -74,3 +112,35 @@ def describe_accessibility():
                     offenders.append(f"{name}/{theme}: [{impact}] {rule} ({nodes} node(s)) — {detail}")
 
         assert not offenders, "Critical or new (unbaselined) a11y violations:\n  " + "\n  ".join(offenders)
+
+    def it_has_no_violations_on_the_members_notifications_page(live_server, page, login_via_code):
+        # Members surface (the autouse _e2e_settings keeps the live host off PUBLIC_HOSTS),
+        # signed in through the real code flow, with an unread notification so rows render.
+        from core.models import Notification
+
+        MembershipPlanFactory()
+        email = "a11y-notes@example.com"
+        login_via_code(email)
+        user = get_user_model().objects.get(username=email)
+        Notification.objects.create(user=user, trigger="x", title="Welcome to the hub", body="Say hi in your guild.")
+
+        offenders = _offenders_for(page, f"{live_server.url}{reverse('notification_list')}", MEMBERS_HUB_DEBT)
+        assert not offenders, "Critical or new (unbaselined) a11y violations on /notifications/:\n  " + "\n  ".join(
+            offenders
+        )
+
+    def it_has_no_violations_on_the_signage_player(live_server, page, settings):
+        # Kiosk surface: point the live host at SIGNAGE_HOSTS so localhost resolves there.
+        settings.SIGNAGE_HOSTS = [urlparse(live_server.url).hostname]
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.signage_show_events = False
+        config.save()
+        zone = SlideshowZoneFactory(slug="woodshop", is_enabled=True)
+        SlideshowSlideFactory(zone=zone, title="Welcome to the space")
+
+        offenders = _offenders_for(page, f"{live_server.url}/{zone.slug}/", SIGNAGE_DEBT)
+        assert not offenders, "Critical or new (unbaselined) a11y violations on the signage player:\n  " + "\n  ".join(
+            offenders
+        )

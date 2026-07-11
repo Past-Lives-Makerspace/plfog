@@ -220,6 +220,25 @@ def _feature_pages() -> list[tuple[str, str, str]]:
     return [(fp.slug, fp.label, fp.path) for fp in FEATURE_PAGES]
 
 
+def _seed_signage() -> "object":
+    """Create an enabled zone + a couple of slides so the Slideshow tab and the kiosk
+    player both capture with real content. Returns the zone (reused by the player shot)."""
+    from tests.membership.factories import SlideshowSlideFactory, SlideshowZoneFactory
+
+    zone = SlideshowZoneFactory(name="Woodshop wall", slug="woodshop", is_enabled=True)
+    SlideshowSlideFactory(zone=zone, title="Welcome to Past Lives", body="Ask the front desk for a tour.", sort_order=0)
+    SlideshowSlideFactory(zone=zone, title="Open studio tonight", body="Doors from 6pm.", sort_order=1)
+    return zone
+
+
+def _member_hub_pages() -> list[tuple[str, str]]:
+    """(label, path) for the 0.21 member-hub feature pages on the members surface."""
+    return [
+        ("Member hub — notifications", reverse("notification_list")),
+        ("Member hub — slideshow settings", reverse("hub_admin_site_settings") + "?tab=slideshow"),
+    ]
+
+
 def _members_pages(d: dict[str, object]) -> list[tuple[str, str]]:
     """(label, path) for the admin + teaching dashboards on the members surface."""
     pub_pk = d["published"].pk
@@ -320,6 +339,7 @@ def describe_cms_screenshots():
         page.set_viewport_size({"width": 1366, "height": 900})
 
         data = _seed()
+        zone = _seed_signage()
         login_via_code(ADMIN_EMAIL)
 
         host = urlparse(live_server.url).hostname
@@ -351,6 +371,15 @@ def describe_cms_screenshots():
         settings.PUBLIC_HOSTS = ["book.pastlives.space"]
         for label, path in _members_pages(data):
             capture("Admin & teaching (members surface)", label, path)
+
+        # Pass 2b — member-hub 0.21 features (also members surface; ADMIN_EMAIL is a fog admin).
+        for label, path in _member_hub_pages():
+            capture("Member hub (members surface)", label, path)
+
+        # Pass 3 — signage kiosk surface: point the live host at SIGNAGE_HOSTS so the
+        # public player resolves, then shoot the deck.
+        settings.SIGNAGE_HOSTS = [host]
+        capture("Signage (kiosk surface)", "Signage — slideshow player", f"/{zone.slug}/")
 
         _write_index(out_dir, results)
 
