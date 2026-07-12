@@ -30,12 +30,14 @@ def describe_signage_player():
 
         config = SiteConfiguration.load()
         config.signage_show_events = False
+        # Every slide uses the global default now — keep it short so the rotation is easy to catch.
+        config.signage_default_slide_seconds = 2
         config.save()
 
         zone = SlideshowZoneFactory(slug="woodshop", is_enabled=True)
-        # Short, distinct-titled slides so the rotation window is easy to catch.
-        SlideshowSlideFactory(zone=zone, title="First Slide", duration_seconds=2, sort_order=0)
-        SlideshowSlideFactory(zone=zone, title="Second Slide", duration_seconds=2, sort_order=1)
+        # Distinct-titled slides so the rotation window is easy to catch.
+        SlideshowSlideFactory(zone=zone, title="First Slide", sort_order=0)
+        SlideshowSlideFactory(zone=zone, title="Second Slide", sort_order=1)
 
         page.goto(f"{live_server.url}/{zone.slug}/")
 

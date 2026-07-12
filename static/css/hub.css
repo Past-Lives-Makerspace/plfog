@@ -3756,15 +3756,157 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     padding: 0.75rem 0;
 }
 
-.pl-slideshow-thumb {
-    margin: 0.5rem 0;
+/* Compact slide card: a collapsed summary row that expands to the full editor. The
+   summary reads at a glance — thumbnail, title, kind, screen, on/off. */
+.pl-slide-card {
+    padding: 0;
+    overflow: hidden;
 }
 
-.pl-slideshow-thumb img {
+.pl-slide-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    width: 100%;
+    padding: 0.75rem 0.875rem;
+    background: transparent;
+    border: 0;
+    border-radius: 8px;
+    text-align: left;
+    cursor: pointer;
+    color: var(--hub-text);
+    font: inherit;
+    transition: background 0.15s ease;
+}
+
+.pl-slide-summary:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.pl-slide-summary__thumb {
+    flex: 0 0 auto;
+    width: 64px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 6px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-surface);
+}
+
+.pl-slide-summary__thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.pl-slide-summary__thumb--placeholder {
+    color: var(--hub-text-muted);
+}
+
+.pl-slide-summary__main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.pl-slide-summary__title {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pl-slide-summary__meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-slide-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-surface);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+
+.pl-slide-summary__state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.pl-slide-summary__state::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.pl-slide-summary__state--on {
+    color: #4ade80;
+}
+
+.pl-slide-summary__state--off {
+    color: var(--hub-text-muted);
+}
+
+.pl-slide-summary__chevron {
+    flex: 0 0 auto;
+    color: var(--hub-text-muted);
+    font-size: 0.8rem;
+    line-height: 1;
+    transition: transform 0.15s ease;
+}
+
+.pl-slide-summary__chevron.is-open {
+    transform: rotate(180deg);
+}
+
+/* Editor panel the summary toggle reveals. Display lives in the class, never inline on
+   the x-show element (Rule 12). */
+.pl-slide-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.5rem 0.875rem 0.875rem;
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-slide-image__label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.pl-slide-image-preview {
+    margin: 0.25rem 0;
+}
+
+.pl-slide-image-preview img {
     max-width: 240px;
-    max-height: 160px;
+    max-height: 135px;
     border-radius: 8px;
     border: 1px solid var(--hub-border);
+    display: block;
 }
 
 /* Per-saved-zone setup helpers: the copyable URL, QR, copy + preview buttons. */

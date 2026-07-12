@@ -101,7 +101,6 @@ def _slide_vm(slide: SlideshowSlide, default: int) -> SignageSlideVM:
     ``visible()``); custom slides use their own fields and render a QR from ``link_url``."""
     from membership.models import SlideshowSlide as Slide
 
-    duration = slide.duration_seconds or default
     if slide.kind == Slide.Kind.ANNOUNCEMENT:
         ann = slide.announcement
         return SignageSlideVM(
@@ -110,7 +109,7 @@ def _slide_vm(slide: SlideshowSlide, default: int) -> SignageSlideVM:
             body=ann.body if ann else "",
             image_url=None,
             qr_svg=None,
-            duration_seconds=duration,
+            duration_seconds=default,
         )
     image_url = slide.image.url if slide.image else None
     qr = _qr_svg(slide.link_url) if slide.show_qr and slide.link_url else None
@@ -120,7 +119,7 @@ def _slide_vm(slide: SlideshowSlide, default: int) -> SignageSlideVM:
         body=slide.body,
         image_url=image_url,
         qr_svg=qr,
-        duration_seconds=duration,
+        duration_seconds=default,
         url_display=_friendly_url(slide.link_url),
     )
 

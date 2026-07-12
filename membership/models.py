@@ -4303,11 +4303,6 @@ class SlideshowSlide(models.Model):
         related_name="+",
         help_text="The published announcement to mirror. Only used for 'Guild announcement' slides.",
     )
-    duration_seconds = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="How long this slide shows. Leave blank to use the global default.",
-    )
     starts_on = models.DateField(null=True, blank=True, help_text="Optional: don't show before this date.")
     ends_on = models.DateField(null=True, blank=True, help_text="Optional: stop showing after this date.")
     is_enabled = models.BooleanField(default=True, help_text="Turn this slide on or off without deleting it.")

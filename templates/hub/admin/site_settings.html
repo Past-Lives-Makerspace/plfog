@@ -530,54 +530,86 @@
         {{ slide_formset.management_form }}
         <div id="slide-rows" class="pl-slideshow-rows">
           {% for f in slide_formset %}
-            <div class="hub-card pl-slideshow-row" x-data="{ kind: '{{ f.kind.value|default:'custom' }}' }">
+            <div class="hub-card pl-slideshow-row pl-slide-card" x-data="{ kind: '{{ f.kind.value|default:'custom' }}', expanded: false }">
               {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-              {% include "components/form_field.html" with field=f.kind %}
 
-              <div x-show="kind === 'custom'" class="pl-slide-fields">
-                {% include "components/form_field.html" with field=f.title %}
-                {% include "components/form_field.html" with field=f.body %}
-                <div class="pl-form-group">
-                  <label class="pl-form-label" for="{{ f.image.id_for_label }}">{{ f.image.label }}</label>
-                  {% if f.instance.pk and f.instance.image %}
-                    <div class="pl-slideshow-thumb"><img src="{{ f.instance.image.url }}" alt=""></div>
+              {# Compact summary — a glance at the slide; click to expand and edit (button, never a submit). #}
+              <button type="button" class="pl-slide-summary" @click="expanded = !expanded" :aria-expanded="expanded">
+                <span class="pl-slide-summary__thumb{% if not f.instance.image %} pl-slide-summary__thumb--placeholder{% endif %}">
+                  {% if f.instance.image %}
+                    <img src="{{ f.instance.image.url }}" alt="">
+                  {% else %}
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="7" y1="9" x2="17" y2="9"></line><line x1="7" y1="13" x2="17" y2="13"></line><line x1="7" y1="17" x2="13" y2="17"></line></svg>
                   {% endif %}
-                  {{ f.image }}
-                  {{ f.remove_image }}
-                  <p class="pl-field-hint">Choosing a new file replaces the current image. If the form bounces on a validation error, re-attach the file — it isn't kept across a failed submit.</p>
-                  {% if f.instance.pk and f.instance.image %}
-                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
-                            onclick="document.getElementById('{{ f.remove_image.id_for_label }}').value = '1'; this.form.requestSubmit();">
-                      Remove image
-                    </button>
-                  {% endif %}
-                  {% for error in f.image.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+                </span>
+                <span class="pl-slide-summary__main">
+                  <span class="pl-slide-summary__title">{% if f.instance.kind == 'announcement' %}{{ f.instance.announcement.title|default:"Announcement slide" }}{% else %}{{ f.instance.title|default:"Untitled slide" }}{% endif %}</span>
+                  <span class="pl-slide-summary__meta">
+                    <span class="pl-slide-badge">{{ f.instance.get_kind_display|default:"Custom slide" }}</span>
+                    <span class="pl-slide-summary__screen">{% if f.instance.zone %}{{ f.instance.zone.name }}{% else %}All screens{% endif %}</span>
+                    {% if f.instance.is_enabled %}<span class="pl-slide-summary__state pl-slide-summary__state--on">On</span>{% else %}<span class="pl-slide-summary__state pl-slide-summary__state--off">Off</span>{% endif %}
+                  </span>
+                </span>
+                <span class="pl-slide-summary__chevron" :class="expanded && 'is-open'" aria-hidden="true">▾</span>
+              </button>
+
+              <div x-show="expanded" class="pl-slide-editor">
+                {% include "components/form_field.html" with field=f.kind %}
+
+                <div x-show="kind === 'custom'" class="pl-slide-fields">
+                  {% include "components/form_field.html" with field=f.title %}
+                  {% include "components/form_field.html" with field=f.body %}
+                  <div class="pl-form-group" data-slide-image>
+                    <label class="pl-form-label pl-slide-image__label" for="{{ f.image.id_for_label }}">
+                      {{ f.image.label }}
+                      <span class="pl-help" tabindex="0" aria-label="Recommended image size">
+                        <span class="pl-help__icon" aria-hidden="true">?</span>
+                        <span class="pl-help__bubble" role="tooltip">1920×1080 (16:9), JPG or PNG. Up to ~2400px wide.</span>
+                      </span>
+                    </label>
+                    <div class="pl-slide-image-preview"{% if not f.instance.image %} hidden{% endif %}>
+                      {% if f.instance.image %}<img src="{{ f.instance.image.url }}" alt="">{% endif %}
+                    </div>
+                    <label class="cls-image-upload-zone">
+                      <input type="file" name="{{ f.image.html_name }}" id="{{ f.image.id_for_label }}" accept="image/*" style="display:none;">
+                      <span class="cls-image-upload-label">{% if f.instance.image %}Replace image{% else %}+ Upload image{% endif %}</span>
+                      <span class="cls-image-upload-hint">Click or drag a file here · 1920×1080 (16:9)</span>
+                    </label>
+                    {{ f.remove_image }}
+                    <p class="pl-field-hint">Choosing a new file replaces the current image. If the form bounces on a validation error, re-attach the file — it isn't kept across a failed submit.</p>
+                    {% if f.instance.pk and f.instance.image %}
+                      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                              onclick="document.getElementById('{{ f.remove_image.id_for_label }}').value = '1'; this.form.requestSubmit();">
+                        Remove image
+                      </button>
+                    {% endif %}
+                    {% for error in f.image.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+                  </div>
+                  {% include "components/form_field.html" with field=f.link_url %}
+                  {% include "components/form_field.html" with field=f.show_qr %}
                 </div>
-                {% include "components/form_field.html" with field=f.link_url %}
-                {% include "components/form_field.html" with field=f.show_qr %}
-              </div>
 
-              <div x-show="kind === 'announcement'" class="pl-slide-fields">
-                {% include "components/form_field.html" with field=f.announcement %}
-              </div>
+                <div x-show="kind === 'announcement'" class="pl-slide-fields">
+                  {% include "components/form_field.html" with field=f.announcement %}
+                </div>
 
-              {% include "components/form_field.html" with field=f.zone %}
-              {% include "components/form_field.html" with field=f.duration_seconds %}
-              <div class="pl-slideshow-daterow">
-                {% include "components/form_field.html" with field=f.starts_on %}
-                {% include "components/form_field.html" with field=f.ends_on %}
-              </div>
-              {% include "components/form_field.html" with field=f.is_enabled %}
-              {% include "components/form_field.html" with field=f.sort_order %}
+                {% include "components/form_field.html" with field=f.zone %}
+                <div class="pl-slideshow-daterow">
+                  {% include "components/form_field.html" with field=f.starts_on %}
+                  {% include "components/form_field.html" with field=f.ends_on %}
+                </div>
+                {% include "components/form_field.html" with field=f.is_enabled %}
+                {% include "components/form_field.html" with field=f.sort_order %}
 
-              {% if f.instance.pk %}
-                <div style="display:none;">{{ f.DELETE }}</div>
-                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
-                        onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
-                  Delete this slide
-                </button>
-              {% endif %}
-              {{ f.id }}
+                {% if f.instance.pk %}
+                  <div style="display:none;">{{ f.DELETE }}</div>
+                  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                          onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                    Delete this slide
+                  </button>
+                {% endif %}
+                {{ f.id }}
+              </div>
             </div>
           {% empty %}
             <p class="pl-slideshow-empty">No slides yet. Add a custom slide or pull in a published announcement.</p>
@@ -585,34 +617,61 @@
         </div>
 
         <template id="slide-empty-template">
-          <div class="hub-card pl-slideshow-row" x-data="{ kind: 'custom' }">
+          <div class="hub-card pl-slideshow-row pl-slide-card" x-data="{ kind: 'custom', expanded: true }">
             {% with slide_formset.empty_form as ef %}
-              {% include "components/form_field.html" with field=ef.kind %}
-              <div x-show="kind === 'custom'" class="pl-slide-fields">
-                {% include "components/form_field.html" with field=ef.title %}
-                {% include "components/form_field.html" with field=ef.body %}
-                <div class="pl-form-group">
-                  <label class="pl-form-label" for="{{ ef.image.id_for_label }}">{{ ef.image.label }}</label>
-                  {{ ef.image }}
-                  {{ ef.remove_image }}
-                  <p class="pl-field-hint">Add a full-bleed image or flyer (JPG/PNG).</p>
+              <button type="button" class="pl-slide-summary" @click="expanded = !expanded" :aria-expanded="expanded">
+                <span class="pl-slide-summary__thumb pl-slide-summary__thumb--placeholder">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="7" y1="9" x2="17" y2="9"></line><line x1="7" y1="13" x2="17" y2="13"></line><line x1="7" y1="17" x2="13" y2="17"></line></svg>
+                </span>
+                <span class="pl-slide-summary__main">
+                  <span class="pl-slide-summary__title">Untitled slide</span>
+                  <span class="pl-slide-summary__meta">
+                    <span class="pl-slide-badge">Custom slide</span>
+                    <span class="pl-slide-summary__screen">All screens</span>
+                    <span class="pl-slide-summary__state pl-slide-summary__state--on">On</span>
+                  </span>
+                </span>
+                <span class="pl-slide-summary__chevron" :class="expanded && 'is-open'" aria-hidden="true">▾</span>
+              </button>
+
+              <div x-show="expanded" class="pl-slide-editor">
+                {% include "components/form_field.html" with field=ef.kind %}
+                <div x-show="kind === 'custom'" class="pl-slide-fields">
+                  {% include "components/form_field.html" with field=ef.title %}
+                  {% include "components/form_field.html" with field=ef.body %}
+                  <div class="pl-form-group" data-slide-image>
+                    <label class="pl-form-label pl-slide-image__label" for="{{ ef.image.id_for_label }}">
+                      {{ ef.image.label }}
+                      <span class="pl-help" tabindex="0" aria-label="Recommended image size">
+                        <span class="pl-help__icon" aria-hidden="true">?</span>
+                        <span class="pl-help__bubble" role="tooltip">1920×1080 (16:9), JPG or PNG. Up to ~2400px wide.</span>
+                      </span>
+                    </label>
+                    <div class="pl-slide-image-preview" hidden></div>
+                    <label class="cls-image-upload-zone">
+                      <input type="file" name="{{ ef.image.html_name }}" id="{{ ef.image.id_for_label }}" accept="image/*" style="display:none;">
+                      <span class="cls-image-upload-label">+ Upload image</span>
+                      <span class="cls-image-upload-hint">Click or drag a file here · 1920×1080 (16:9)</span>
+                    </label>
+                    {{ ef.remove_image }}
+                    <p class="pl-field-hint">Add a full-bleed image or flyer (JPG/PNG).</p>
+                  </div>
+                  {% include "components/form_field.html" with field=ef.link_url %}
+                  {% include "components/form_field.html" with field=ef.show_qr %}
                 </div>
-                {% include "components/form_field.html" with field=ef.link_url %}
-                {% include "components/form_field.html" with field=ef.show_qr %}
+                <div x-show="kind === 'announcement'" class="pl-slide-fields">
+                  {% include "components/form_field.html" with field=ef.announcement %}
+                </div>
+                {% include "components/form_field.html" with field=ef.zone %}
+                <div class="pl-slideshow-daterow">
+                  {% include "components/form_field.html" with field=ef.starts_on %}
+                  {% include "components/form_field.html" with field=ef.ends_on %}
+                </div>
+                {% include "components/form_field.html" with field=ef.is_enabled %}
+                {% include "components/form_field.html" with field=ef.sort_order %}
+                {{ ef.id }}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.pl-slideshow-row').remove();">Remove</button>
               </div>
-              <div x-show="kind === 'announcement'" class="pl-slide-fields">
-                {% include "components/form_field.html" with field=ef.announcement %}
-              </div>
-              {% include "components/form_field.html" with field=ef.zone %}
-              {% include "components/form_field.html" with field=ef.duration_seconds %}
-              <div class="pl-slideshow-daterow">
-                {% include "components/form_field.html" with field=ef.starts_on %}
-                {% include "components/form_field.html" with field=ef.ends_on %}
-              </div>
-              {% include "components/form_field.html" with field=ef.is_enabled %}
-              {% include "components/form_field.html" with field=ef.sort_order %}
-              {{ ef.id }}
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.pl-slideshow-row').remove();">Remove</button>
             {% endwith %}
           </div>
         </template>
@@ -764,6 +823,67 @@
 
       // The boosted response swaps the body; stop the counter so it doesn't dangle.
       document.addEventListener('htmx:beforeSwap', function () { clearInterval(counter); }, { once: true });
+    });
+  })();
+</script>
+<script>
+  // Slide image upload zones — ONE delegated handler on #slide-rows so drag/drop + preview
+  // work for rows added later by "+ Add a slide". (A per-field inline <script> inside the
+  // cloned #slide-empty-template innerHTML would never execute, leaving new rows dead.)
+  (function () {
+    var container = document.getElementById('slide-rows');
+    if (!container) return;
+
+    function zoneOf(el) { return el && el.closest ? el.closest('.cls-image-upload-zone') : null; }
+
+    function showPreview(zone, dataUrl) {
+      var group = zone.closest('[data-slide-image]');
+      if (group) {
+        var preview = group.querySelector('.pl-slide-image-preview');
+        if (preview) { preview.innerHTML = '<img src="' + dataUrl + '" alt="">'; preview.hidden = false; }
+      }
+      var label = zone.querySelector('.cls-image-upload-label');
+      if (label) label.textContent = 'Replace image';
+      // Keep the collapsed summary thumbnail in sync before the row is even saved.
+      var card = zone.closest('.pl-slide-card');
+      if (card) {
+        var thumb = card.querySelector('.pl-slide-summary__thumb');
+        if (thumb) { thumb.innerHTML = '<img src="' + dataUrl + '" alt="">'; thumb.classList.remove('pl-slide-summary__thumb--placeholder'); }
+      }
+    }
+
+    container.addEventListener('change', function (e) {
+      var input = e.target;
+      if (!input.matches || !input.matches('.cls-image-upload-zone input[type="file"]')) return;
+      if (!input.files || !input.files.length) return;
+      var zone = zoneOf(input);
+      if (!zone) return;
+      var reader = new FileReader();
+      reader.onload = function (ev) { showPreview(zone, ev.target.result); };
+      reader.readAsDataURL(input.files[0]);
+    });
+
+    container.addEventListener('dragover', function (e) {
+      var zone = zoneOf(e.target);
+      if (!zone) return;
+      e.preventDefault();
+      zone.classList.add('drag-hover');
+    });
+    container.addEventListener('dragleave', function (e) {
+      var zone = zoneOf(e.target);
+      if (zone) zone.classList.remove('drag-hover');
+    });
+    container.addEventListener('drop', function (e) {
+      var zone = zoneOf(e.target);
+      if (!zone) return;
+      e.preventDefault();
+      zone.classList.remove('drag-hover');
+      var input = zone.querySelector('input[type="file"]');
+      var f = e.dataTransfer.files[0];
+      if (input && f && f.type.indexOf('image/') === 0) {
+        input.files = e.dataTransfer.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     });
   })();
 </script>

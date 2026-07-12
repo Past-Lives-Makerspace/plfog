@@ -126,6 +126,20 @@ def describe_slideshow_tab_render():
         assert "x-show=\"kind === 'announcement'\"" in html
         assert "pl-slide-fields" in html  # layout lives in a class, not inline display
 
+    def it_renders_slides_as_compact_summary_rows_with_a_draggable_image_zone(client):
+        _superuser(client)
+        SlideshowSlideFactory(kind="custom", title="Flyer night")
+        html = client.get(reverse("hub_admin_site_settings")).content.decode()
+        # Collapsed-by-default summary + an Alpine expand toggle to the editor panel.
+        assert "pl-slide-summary" in html
+        assert 'x-show="expanded"' in html
+        assert "pl-slide-editor" in html
+        # Upgraded image input: the shared draggable drop-zone + a recommended-size tooltip.
+        assert "cls-image-upload-zone" in html
+        assert "1920×1080 (16:9)" in html
+        # A single delegated script drives every zone (clone-safe for "+ Add a slide").
+        assert "document.getElementById('slide-rows')" in html
+
     def it_offers_only_published_announcements_in_the_picker(client):
         _superuser(client)
         published = GuildAnnouncementFactory(title="Live post")
@@ -195,7 +209,6 @@ def describe_slide_editor_save():
             "slides-0-title": "Flyer",
             "slides-0-body": "",
             "slides-0-link_url": "",
-            "slides-0-duration_seconds": "",
             "slides-0-sort_order": "0",
             "slides-0-is_enabled": "on",
             "slides-0-image": _png_upload(),
@@ -216,7 +229,6 @@ def describe_slide_editor_save():
             "slides-0-title": "Has image",
             "slides-0-body": "",
             "slides-0-link_url": "",
-            "slides-0-duration_seconds": "",
             "slides-0-sort_order": "0",
             "slides-0-is_enabled": "on",
             "slides-0-remove_image": "1",
@@ -235,7 +247,6 @@ def describe_slide_editor_save():
             "slides-0-title": "",
             "slides-0-body": "Just a body, no title or image",
             "slides-0-link_url": "",
-            "slides-0-duration_seconds": "",
             "slides-0-sort_order": "0",
             "slides-0-is_enabled": "on",
         }

@@ -647,7 +647,6 @@ class SlideshowSlideForm(forms.ModelForm):
             "link_url",
             "show_qr",
             "announcement",
-            "duration_seconds",
             "starts_on",
             "ends_on",
             "is_enabled",

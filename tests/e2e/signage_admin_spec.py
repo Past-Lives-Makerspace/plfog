@@ -44,7 +44,6 @@ def describe_signage_admin_editor():
         # Alpine reveals once the cloned row initializes; Playwright waits for that.
         page.fill('input[name="slides-0-title"]', "Wall welcome")
         page.fill('textarea[name="slides-0-body"]', "Ask the front desk for a tour.")
-        page.fill('input[name="slides-0-duration_seconds"]', "8")
 
         # Save the slides editor form (its own form, not the settings form).
         page.get_by_role("button", name="Save slides", exact=True).click()

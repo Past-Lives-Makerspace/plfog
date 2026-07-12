@@ -97,20 +97,13 @@ def describe_build_deck():
             deck = build_deck(zone)
             assert len([vm for vm in deck if vm.kind == "event"]) == SIGNAGE_EVENT_CAP
 
-    def describe_duration_fallback():
-        def it_uses_the_global_default_when_a_slide_has_no_duration():
+    def describe_duration():
+        def it_uses_the_global_default_for_every_slide():
             _config(signage_show_events=False, signage_default_slide_seconds=15)
             zone = SlideshowZoneFactory()
-            SlideshowSlideFactory(duration_seconds=None)
+            SlideshowSlideFactory()
             deck = build_deck(zone)
             assert deck[0].duration_seconds == 15
-
-        def it_honors_a_slide_specific_duration():
-            _config(signage_show_events=False, signage_default_slide_seconds=15)
-            zone = SlideshowZoneFactory()
-            SlideshowSlideFactory(duration_seconds=25)
-            deck = build_deck(zone)
-            assert deck[0].duration_seconds == 25
 
     def describe_deck_order():
         def it_places_configured_slides_before_generated_event_slides():
