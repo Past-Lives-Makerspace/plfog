@@ -12,8 +12,6 @@
   --sign-muted: #8b97a8;
   --sign-gold: #eeb44b;
   --sign-navy: #092e4c;
-  --sign-alert-bg: #7f1d1d;
-  --sign-alert-text: #ffffff;
 }
 
 * {
@@ -229,25 +227,3 @@ body {
   background: linear-gradient(160deg, var(--sign-navy), var(--sign-bg));
 }
 
-/* Emergency takeover — loud, unmissable across a room. */
-.pl-sign-alert {
-  background: var(--sign-alert-bg);
-  color: var(--sign-alert-text);
-}
-
-.pl-sign-alert__heading {
-  margin: 0;
-  font-family: "Lato", sans-serif;
-  font-weight: 900;
-  font-size: clamp(3rem, 9vw, 9rem);
-  line-height: 1.05;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-
-.pl-sign-alert__message {
-  max-width: 28ch;
-  margin: 0;
-  font-size: clamp(1.5rem, 4vw, 3.5rem);
-  line-height: 1.35;
-}

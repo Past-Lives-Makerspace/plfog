@@ -270,25 +270,6 @@ class SiteConfiguration(models.Model):
         verbose_name="Add a QR to event slides",
         help_text="Add a QR code to the community calendar on auto event slides.",
     )
-    signage_alert_active = models.BooleanField(
-        default=False,
-        verbose_name="Emergency alert active",
-        help_text="EMERGENCY: when on, every screen shows ONLY the alert below until you turn it off.",
-    )
-    signage_alert_heading = models.CharField(
-        max_length=120,
-        blank=True,
-        default="",
-        verbose_name="Alert heading",
-        help_text="Big alert headline, e.g. 'Building Closed'.",
-    )
-    signage_alert_message = models.TextField(
-        blank=True,
-        default="",
-        verbose_name="Alert message",
-        help_text="Alert details shown under the headline.",
-    )
-
     class Meta:
         verbose_name = "Site Settings"
         verbose_name_plural = "Site Settings"

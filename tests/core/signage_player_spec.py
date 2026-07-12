@@ -88,25 +88,6 @@ def describe_signage_player():
             assert b"Past Lives Makerspace" in resp.content
             assert b"pl-sign-slide--holding" in resp.content
 
-    def describe_emergency_takeover():
-        def it_shows_only_the_alert_when_active(client):
-            from core.models import SiteConfiguration
-
-            config = SiteConfiguration.load()
-            config.signage_alert_active = True
-            config.signage_alert_heading = "Building Closed"
-            config.signage_alert_message = "We are closed today for maintenance."
-            config.save()
-            SlideshowZoneFactory(slug="woodshop")
-            SlideshowSlideFactory(title="Should Not Show", zone=None)
-
-            resp = client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST)
-            body = resp.content.decode()
-            assert "Building Closed" in body
-            assert "We are closed today for maintenance." in body
-            assert "pl-sign-alert" in body
-            assert "Should Not Show" not in body  # rotation suppressed
-
     def describe_kiosk_chrome():
         def it_registers_no_service_worker_no_manifest_no_beta(client):
             SlideshowZoneFactory(slug="woodshop")

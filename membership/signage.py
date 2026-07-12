@@ -3,8 +3,7 @@
 A small service, because it orchestrates three models (``SlideshowSlide`` +
 ``CommunityEvent`` + ``SiteConfiguration``) into an ordered list of render-ready
 view-models — cross-model orchestration belongs in a service, not a view or
-template. The emergency-alert takeover is decided in the VIEW/template (so it also
-swaps in on the next poll), never here.
+template.
 
 Event slides are the privacy-safe part: site-wide events ONLY
 (``guild__isnull=True``), expanded via the same occurrence logic the home feed
@@ -67,14 +66,11 @@ def build_deck(zone: SlideshowZone) -> list[SignageSlideVM]:
 
 
 def deck_hash(deck: list[SignageSlideVM], config: SiteConfiguration) -> str:
-    """A stable hash of the alert state + each slide's identity/content + today's local
-    date. The player renders it as ``data-deck-hash``; the poll uses it to skip a no-op
-    swap. Today's date is included so a scheduled slide dropping in or out changes it."""
+    """A stable hash of each slide's identity/content + today's local date. The player
+    renders it as ``data-deck-hash``; the poll uses it to skip a no-op swap. Today's date
+    is included so a scheduled slide dropping in or out changes it."""
     parts: list[str] = [
         str(timezone.localdate()),
-        "1" if config.signage_alert_active else "0",
-        config.signage_alert_heading,
-        config.signage_alert_message,
     ]
     for vm in deck:
         parts.append(

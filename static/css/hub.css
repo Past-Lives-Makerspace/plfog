@@ -3713,12 +3713,6 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     gap: 1.25rem;
 }
 
-.pl-slideshow-alert-controls {
-    border: 1px solid rgba(248, 113, 113, 0.4);
-    border-radius: 8px;
-    padding: 1rem 1.25rem;
-    background: rgba(248, 113, 113, 0.06);
-}
 
 .pl-slideshow-rows {
     display: flex;

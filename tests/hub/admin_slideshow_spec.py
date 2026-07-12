@@ -82,13 +82,12 @@ def describe_slideshow_tab_render():
         assert "pl-slideshow-tab-a" in html
         assert "pl-slideshow-tab-b" in html
 
-    def it_puts_the_alert_fields_inside_the_settings_form_but_not_the_editor_forms(client):
+    def it_puts_the_global_signage_fields_inside_the_settings_form_but_not_the_editor_forms(client):
         _superuser(client)
         html = client.get(reverse("hub_admin_site_settings")).content.decode()
         start = html.index('<form method="post" id="site-settings-form"')
         main_form = html[start : html.index("</form>", start)]
-        # Block A: the global/alert fields ride the shared form.
-        assert 'id="id_signage_alert_active"' in main_form
+        # Block A: the global signage fields ride the shared form.
         assert 'name="signage_default_slide_seconds"' in main_form
         # Block B: the editor forms are NOT nested inside the settings form.
         assert "slideshow/zones/save" not in main_form

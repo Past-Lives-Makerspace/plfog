@@ -144,7 +144,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' and field.name != 'signage_alert_active' and field.name != 'signage_alert_heading' and field.name != 'signage_alert_message' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -401,7 +401,7 @@
       {% include "components/form_field.html" with field=form.discord_leadership_webhook_url %}
     </div>
 
-    {# -------- Slideshow tab · Block A (Part 1: global + emergency alert) -------- #}
+    {# -------- Slideshow tab · Block A (Part 1: global timing) -------- #}
     {% comment %}
     These are plain SiteConfiguration fields, so they ride THIS shared form and its
     "Save settings" button. The zones/slides editors are separate forms in Block B,
@@ -411,27 +411,15 @@
       <div>
         <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Slideshow</h2>
         <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
-          The wall-monitor slideshow. Set the global timing and the emergency takeover here;
-          build screens and slides below.
+          The wall-monitor slideshow. Set the global timing here; build screens and slides below.
         </p>
       </div>
       {% include "components/form_field.html" with field=form.signage_default_slide_seconds %}
       {% include "components/form_field.html" with field=form.signage_event_days_ahead %}
       {% include "components/form_field.html" with field=form.signage_show_events %}
-
-      <div class="pl-slideshow-alert-controls">
-        <h3 style="margin:0 0 0.25rem;font-size:0.95rem;color:var(--hub-text);">Emergency takeover</h3>
-        <p style="margin:0 0 0.75rem;color:var(--hub-text-muted);font-size:0.8125rem;">
-          A single "building closed"-style alert on every screen at once. Flip it off to
-          resume the normal rotation.
-        </p>
-        {% include "components/form_field.html" with field=form.signage_alert_active field_hint="When on, every screen shows ONLY this alert until you turn it off." %}
-        {% include "components/form_field.html" with field=form.signage_alert_heading %}
-        {% include "components/form_field.html" with field=form.signage_alert_message %}
-      </div>
     </div>
 
-    <div x-show="tab !== 'announcements'">
+    <div x-show="tab !== 'announcements'" style="margin-bottom:1.5rem;">
       <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
     </div>
   </form>

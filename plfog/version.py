@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.7"
+VERSION = "0.21.8"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.21.7",
+        "version": "0.21.8",
         "date": "2026-07-12",
         "title": "Screens around the space",
         "changes": [
@@ -16,9 +16,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "updating on their own throughout the day."
             ),
             (
-                "Admins can build and reorder slides, set up a screen for each area (woodshop, lobby, classroom), and "
-                'even put up a single "building closed"-style alert on every screen at once, all from the new '
-                "Slideshow tab in Site Settings."
+                "Admins can build and reorder slides and set up a screen for each area (woodshop, lobby, classroom), "
+                "all from the new Slideshow tab in Site Settings."
             ),
             (
                 "Every upcoming event on the screens now shows a QR code and a short link, so you can scan it and pull "

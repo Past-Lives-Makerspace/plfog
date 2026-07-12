@@ -548,15 +548,11 @@ class SiteSettingsForm(forms.ModelForm):
             "signage_default_slide_seconds",
             "signage_show_events",
             "signage_event_days_ahead",
-            "signage_alert_active",
-            "signage_alert_heading",
-            "signage_alert_message",
         ]
         widgets = {
             "classes_calendar_color": forms.TextInput(attrs={"type": "color"}),
             "class_registration_disabled_note": forms.Textarea(attrs={"rows": 3}),
             "general_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
-            "signage_alert_message": forms.Textarea(attrs={"rows": 3}),
         }
 
 
