@@ -129,15 +129,30 @@ def describe_slideshow_tab_render():
         _superuser(client)
         SlideshowSlideFactory(kind="custom", title="Flyer night")
         html = client.get(reverse("hub_admin_site_settings")).content.decode()
-        # Collapsed-by-default summary + an Alpine expand toggle to the editor panel.
+        # Collapsed-by-default summary; only the explicit Edit button reveals the editor panel.
         assert "pl-slide-summary" in html
         assert 'x-show="expanded"' in html
         assert "pl-slide-editor" in html
+        assert "expanded ? 'Done' : 'Edit'" in html  # the per-row Edit toggle (a button, never a submit)
         # Upgraded image input: the shared draggable drop-zone + a recommended-size tooltip.
         assert "cls-image-upload-zone" in html
         assert "1920×1080 (16:9)" in html
         # A single delegated script drives every zone (clone-safe for "+ Add a slide").
         assert "document.getElementById('slide-rows')" in html
+
+    def it_renders_reorder_affordances_and_a_hidden_sort_order(client):
+        _superuser(client)
+        SlideshowSlideFactory(kind="custom", title="Flyer night")
+        html = client.get(reverse("hub_admin_site_settings")).content.decode()
+        # Drag grip (desktop) + up/down move buttons (touch fallback) on every row.
+        assert "pl-slide-grip" in html
+        assert 'draggable="true"' in html
+        assert 'data-move="up"' in html
+        assert 'data-move="down"' in html
+        # sort_order is a hidden input now — the reorder JS rewrites its value; no visible number field.
+        assert '<input type="hidden" name="slides-0-sort_order"' in html
+        # The reorder is persisted purely by the existing "Save slides" — one delegated handler drives it.
+        assert "slides:reindex" in html
 
     def it_offers_only_published_announcements_in_the_picker(client):
         _superuser(client)
@@ -237,6 +252,38 @@ def describe_slide_editor_save():
         slide.refresh_from_db()
         assert SlideshowSlide.objects.filter(pk=slide.pk).exists()  # still there
         assert not bool(slide.image)  # image cleared
+
+    def it_persists_a_reorder_from_the_hidden_sort_order_inputs(client):
+        _superuser(client)
+        first = SlideshowSlideFactory(kind="custom", title="First", sort_order=0)
+        second = SlideshowSlideFactory(kind="custom", title="Second", sort_order=1)
+        # The reorder JS rewrites each row's hidden sort_order to its new visual index, then
+        # "Save slides" POSTs it. Simulate the drag that lifts "Second" above "First".
+        data = {
+            **_slide_mgmt(2, 2),
+            "slides-0-id": str(second.pk),
+            "slides-0-kind": "custom",
+            "slides-0-title": "Second",
+            "slides-0-body": "",
+            "slides-0-link_url": "",
+            "slides-0-sort_order": "0",
+            "slides-0-is_enabled": "on",
+            "slides-1-id": str(first.pk),
+            "slides-1-kind": "custom",
+            "slides-1-title": "First",
+            "slides-1-body": "",
+            "slides-1-link_url": "",
+            "slides-1-sort_order": "1",
+            "slides-1-is_enabled": "on",
+        }
+        resp = client.post(reverse("hub_admin_slideshow_slides_save"), data)
+        assert resp.status_code == 302
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert second.sort_order == 0
+        assert first.sort_order == 1
+        # Meta.ordering = ["sort_order", "id"] renders the saved order on reload.
+        assert list(SlideshowSlide.objects.values_list("pk", flat=True)) == [second.pk, first.pk]
 
     def it_requires_a_title_or_image_for_a_custom_slide(client):
         _superuser(client)

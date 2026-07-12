@@ -3856,18 +3856,74 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     gap: 0.875rem;
     width: 100%;
     padding: 0.75rem 0.875rem;
-    background: transparent;
-    border: 0;
-    border-radius: 8px;
-    text-align: left;
-    cursor: pointer;
     color: var(--hub-text);
-    font: inherit;
+    flex-wrap: wrap;
+}
+
+/* Drag-to-reorder grip. Hidden on touch (native DnD is unreliable there) — the up/down
+   buttons drive reordering on a phone/tablet. */
+.pl-slide-grip {
+    flex: 0 0 auto;
+    cursor: grab;
+    color: var(--hub-text-muted);
+    font-size: 1.05rem;
+    line-height: 1;
+    padding: 0.25rem 0.15rem;
+    user-select: none;
+    touch-action: none;
+}
+
+.pl-slide-grip:active {
+    cursor: grabbing;
+}
+
+.pl-slide-card--dragging {
+    opacity: 0.4;
+}
+
+.pl-slide-card--drag-over {
+    box-shadow: inset 0 3px 0 0 var(--color-tuscan-yellow);
+}
+
+.pl-slide-summary__actions {
+    flex: 0 0 auto;
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.pl-slide-move {
+    display: inline-flex;
+    gap: 0.25rem;
+}
+
+.pl-slide-move__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 6px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
     transition: background 0.15s ease;
 }
 
-.pl-slide-summary:hover {
-    background: rgba(255, 255, 255, 0.03);
+.pl-slide-move__btn:hover {
+    background: var(--hub-elevated);
+}
+
+@media (hover: none) {
+    .pl-slide-grip {
+        display: none;
+    }
 }
 
 .pl-slide-summary__thumb {
@@ -3956,19 +4012,7 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     color: var(--hub-text-muted);
 }
 
-.pl-slide-summary__chevron {
-    flex: 0 0 auto;
-    color: var(--hub-text-muted);
-    font-size: 0.8rem;
-    line-height: 1;
-    transition: transform 0.15s ease;
-}
-
-.pl-slide-summary__chevron.is-open {
-    transform: rotate(180deg);
-}
-
-/* Editor panel the summary toggle reveals. Display lives in the class, never inline on
+/* Editor panel the Edit button reveals. Display lives in the class, never inline on
    the x-show element (Rule 12). */
 .pl-slide-editor {
     display: flex;

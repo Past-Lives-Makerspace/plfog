@@ -652,6 +652,9 @@ class SlideshowSlideForm(forms.ModelForm):
             "kind": forms.Select(attrs={"x-model": "kind"}),
             "body": forms.Textarea(attrs={"rows": 3}),
             "image": forms.FileInput(),
+            # Drag-to-reorder (grip handle / move buttons) rewrites this hidden value to the
+            # row's visual index; "Save slides" persists it. Never a visible number input.
+            "sort_order": forms.HiddenInput(),
             "starts_on": forms.DateInput(
                 attrs={"type": "date", "@click": "try { $event.currentTarget.showPicker() } catch (e) {}"}
             ),

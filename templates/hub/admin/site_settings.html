@@ -520,9 +520,12 @@
           {% for f in slide_formset %}
             <div class="hub-card pl-slideshow-row pl-slide-card" x-data="{ kind: '{{ f.kind.value|default:'custom' }}', expanded: false }">
               {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+              {# Hidden order value — reorder JS rewrites it to the row's visual index; "Save slides" persists it. #}
+              {{ f.sort_order }}
 
-              {# Compact summary — a glance at the slide; click to expand and edit (button, never a submit). #}
-              <button type="button" class="pl-slide-summary" @click="expanded = !expanded" :aria-expanded="expanded">
+              {# Compact summary — a read-only glance + reorder + Edit + Delete. No fields until Edit. #}
+              <div class="pl-slide-summary">
+                <span class="pl-slide-grip" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</span>
                 <span class="pl-slide-summary__thumb{% if not f.instance.image %} pl-slide-summary__thumb--placeholder{% endif %}">
                   {% if f.instance.image %}
                     <img src="{{ f.instance.image.url }}" alt="">
@@ -538,8 +541,21 @@
                     {% if f.instance.is_enabled %}<span class="pl-slide-summary__state pl-slide-summary__state--on">On</span>{% else %}<span class="pl-slide-summary__state pl-slide-summary__state--off">Off</span>{% endif %}
                   </span>
                 </span>
-                <span class="pl-slide-summary__chevron" :class="expanded && 'is-open'" aria-hidden="true">▾</span>
-              </button>
+                <span class="pl-slide-summary__actions">
+                  <span class="pl-slide-move" role="group" aria-label="Reorder slide">
+                    <button type="button" class="pl-slide-move__btn" data-move="up" title="Move up" aria-label="Move slide up">↑</button>
+                    <button type="button" class="pl-slide-move__btn" data-move="down" title="Move down" aria-label="Move slide down">↓</button>
+                  </span>
+                  <button type="button" class="hub-btn hub-btn--sm" @click="expanded = !expanded" :aria-expanded="expanded" x-text="expanded ? 'Done' : 'Edit'">Edit</button>
+                  {% if f.instance.pk %}
+                    <div style="display:none;">{{ f.DELETE }}</div>
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                            onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                      Delete
+                    </button>
+                  {% endif %}
+                </span>
+              </div>
 
               <div x-show="expanded" class="pl-slide-editor">
                 {% include "components/form_field.html" with field=f.kind %}
@@ -587,15 +603,6 @@
                   {% include "components/form_field.html" with field=f.ends_on %}
                 </div>
                 {% include "components/form_field.html" with field=f.is_enabled %}
-                {% include "components/form_field.html" with field=f.sort_order %}
-
-                {% if f.instance.pk %}
-                  <div style="display:none;">{{ f.DELETE }}</div>
-                  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
-                          onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
-                    Delete this slide
-                  </button>
-                {% endif %}
                 {{ f.id }}
               </div>
             </div>
@@ -607,7 +614,9 @@
         <template id="slide-empty-template">
           <div class="hub-card pl-slideshow-row pl-slide-card" x-data="{ kind: 'custom', expanded: true }">
             {% with slide_formset.empty_form as ef %}
-              <button type="button" class="pl-slide-summary" @click="expanded = !expanded" :aria-expanded="expanded">
+              {{ ef.sort_order }}
+              <div class="pl-slide-summary">
+                <span class="pl-slide-grip" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</span>
                 <span class="pl-slide-summary__thumb pl-slide-summary__thumb--placeholder">
                   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="7" y1="9" x2="17" y2="9"></line><line x1="7" y1="13" x2="17" y2="13"></line><line x1="7" y1="17" x2="13" y2="17"></line></svg>
                 </span>
@@ -619,8 +628,15 @@
                     <span class="pl-slide-summary__state pl-slide-summary__state--on">On</span>
                   </span>
                 </span>
-                <span class="pl-slide-summary__chevron" :class="expanded && 'is-open'" aria-hidden="true">▾</span>
-              </button>
+                <span class="pl-slide-summary__actions">
+                  <span class="pl-slide-move" role="group" aria-label="Reorder slide">
+                    <button type="button" class="pl-slide-move__btn" data-move="up" title="Move up" aria-label="Move slide up">↑</button>
+                    <button type="button" class="pl-slide-move__btn" data-move="down" title="Move down" aria-label="Move slide down">↓</button>
+                  </span>
+                  <button type="button" class="hub-btn hub-btn--sm" @click="expanded = !expanded" :aria-expanded="expanded" x-text="expanded ? 'Done' : 'Edit'">Edit</button>
+                  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" onclick="this.closest('.pl-slide-card').remove();">Remove</button>
+                </span>
+              </div>
 
               <div x-show="expanded" class="pl-slide-editor">
                 {% include "components/form_field.html" with field=ef.kind %}
@@ -656,9 +672,7 @@
                   {% include "components/form_field.html" with field=ef.ends_on %}
                 </div>
                 {% include "components/form_field.html" with field=ef.is_enabled %}
-                {% include "components/form_field.html" with field=ef.sort_order %}
                 {{ ef.id }}
-                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.pl-slideshow-row').remove();">Remove</button>
               </div>
             {% endwith %}
           </div>
@@ -671,8 +685,10 @@
                   const idx = parseInt(total.value, 10);
                   const wrap = document.createElement('div');
                   wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                  document.getElementById('slide-rows').appendChild(wrap.firstElementChild);
+                  const rows = document.getElementById('slide-rows');
+                  rows.appendChild(wrap.firstElementChild);
                   total.value = idx + 1;
+                  rows.dispatchEvent(new CustomEvent('slides:reindex'));
                 ">
           + Add a slide
         </button>
@@ -824,6 +840,14 @@
 
     function zoneOf(el) { return el && el.closest ? el.closest('.cls-image-upload-zone') : null; }
 
+    // Only react to genuine FILE drags. A row-reorder drag (from the ⠿ grip) carries no files,
+    // so it must not light up the image drop-zone.
+    function hasFiles(dt) {
+      if (!dt || !dt.types) return false;
+      for (var i = 0; i < dt.types.length; i++) { if (dt.types[i] === 'Files') return true; }
+      return false;
+    }
+
     function showPreview(zone, dataUrl) {
       var group = zone.closest('[data-slide-image]');
       if (group) {
@@ -852,16 +876,19 @@
     });
 
     container.addEventListener('dragover', function (e) {
+      if (!hasFiles(e.dataTransfer)) return;
       var zone = zoneOf(e.target);
       if (!zone) return;
       e.preventDefault();
       zone.classList.add('drag-hover');
     });
     container.addEventListener('dragleave', function (e) {
+      if (!hasFiles(e.dataTransfer)) return;
       var zone = zoneOf(e.target);
       if (zone) zone.classList.remove('drag-hover');
     });
     container.addEventListener('drop', function (e) {
+      if (!hasFiles(e.dataTransfer)) return;
       var zone = zoneOf(e.target);
       if (!zone) return;
       e.preventDefault();
@@ -872,6 +899,88 @@
         input.files = e.dataTransfer.files;
         input.dispatchEvent(new Event('change', { bubbles: true }));
       }
+    });
+  })();
+</script>
+<script>
+  // Slide reorder — ONE delegated handler on #slide-rows (clone-safe for "+ Add a slide").
+  // Desktop: native HTML5 drag from the ⠿ grip. Touch: the up/down buttons (native DnD is
+  // unreliable on touch, and the grip is hidden there via @media (hover: none)). Either path
+  // rewrites every row's hidden slides-N-sort_order to its new visual index (0,1,2…); "Save
+  // slides" persists it and Meta.ordering = ["sort_order", "id"] re-renders that order on reload.
+  (function () {
+    var container = document.getElementById('slide-rows');
+    if (!container) return;
+
+    function rows() {
+      return Array.prototype.filter.call(container.children, function (el) {
+        return el.classList && el.classList.contains('pl-slide-card');
+      });
+    }
+
+    function reindex() {
+      rows().forEach(function (row, idx) {
+        var input = row.querySelector('input[name$="-sort_order"]');
+        if (input) input.value = idx;
+      });
+    }
+
+    // A freshly-added row (appended at the bottom by "+ Add a slide") slots its order in.
+    container.addEventListener('slides:reindex', reindex);
+
+    // Up / down move buttons — the touch-friendly path, handy on desktop too.
+    container.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('[data-move]');
+      if (!btn || !container.contains(btn)) return;
+      var row = btn.closest('.pl-slide-card');
+      if (!row) return;
+      if (btn.getAttribute('data-move') === 'up') {
+        var prev = row.previousElementSibling;
+        if (prev && prev.classList.contains('pl-slide-card')) container.insertBefore(row, prev);
+      } else {
+        var next = row.nextElementSibling;
+        if (next && next.classList.contains('pl-slide-card')) container.insertBefore(next, row);
+      }
+      reindex();
+    });
+
+    // Native drag-and-drop from the grip handle (desktop).
+    var dragRow = null;
+    container.addEventListener('dragstart', function (e) {
+      var grip = e.target.closest && e.target.closest('.pl-slide-grip');
+      if (!grip) return;  // not a grip drag → leave file-drop zones to their own handler
+      dragRow = grip.closest('.pl-slide-card');
+      if (!dragRow) return;
+      dragRow.classList.add('pl-slide-card--dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('application/x-slide-reorder', '1'); } catch (err) {}
+    });
+    container.addEventListener('dragend', function () {
+      if (dragRow) dragRow.classList.remove('pl-slide-card--dragging');
+      rows().forEach(function (r) { r.classList.remove('pl-slide-card--drag-over'); });
+      dragRow = null;
+    });
+    container.addEventListener('dragover', function (e) {
+      if (!dragRow) return;  // only during a grip-initiated row drag
+      var row = e.target.closest && e.target.closest('.pl-slide-card');
+      if (!row || row === dragRow) return;
+      e.preventDefault();
+      rows().forEach(function (r) { if (r !== row) r.classList.remove('pl-slide-card--drag-over'); });
+      row.classList.add('pl-slide-card--drag-over');
+    });
+    container.addEventListener('drop', function (e) {
+      if (!dragRow) return;
+      var row = e.target.closest && e.target.closest('.pl-slide-card');
+      if (!row || row === dragRow) return;
+      e.preventDefault();
+      row.classList.remove('pl-slide-card--drag-over');
+      var list = rows();
+      if (list.indexOf(dragRow) < list.indexOf(row)) {
+        container.insertBefore(dragRow, row.nextElementSibling);
+      } else {
+        container.insertBefore(dragRow, row);
+      }
+      reindex();
     });
   })();
 </script>
