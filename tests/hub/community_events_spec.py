@@ -7,12 +7,24 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
-from django.test import Client
+from django.test import Client, override_settings
 from django.urls import reverse
 
+from core.models import SiteConfiguration
 from hub.forms import CommunityEventForm
 from membership.models import CommunityEvent, GuildStaffMembership, Member
 from tests.membership.factories import CommunityEventFactory, GuildFactory, MembershipPlanFactory
+
+ADD_HREF = b'href="/events/add/"'
+PROPOSE_HREF = b'href="/events/propose/"'
+TAB_SENTINEL = b"tab === 'events'"
+SYNC_COPY = b"synced to the shared Past Lives Google Calendar"
+
+
+def _set_policy(value: str) -> None:
+    config = SiteConfiguration.load()
+    config.member_event_policy = value
+    config.save()
 
 
 def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
@@ -231,3 +243,77 @@ def describe_events_tab_visibility():
         resp = client.get(reverse("hub_community_calendar"))
         assert b"+ Add event" in resp.content
         assert reverse("hub_event_add").encode() in resp.content
+
+
+@pytest.mark.django_db
+def describe_header_cta():
+    def it_shows_add_event_for_admin(client: Client):
+        _user_with_role("hc_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="hc_admin", password="pass")
+        resp = client.get(reverse("hub_community_calendar"))
+        assert resp.status_code == 200
+        assert ADD_HREF in resp.content
+        assert b"+ Add event" in resp.content
+
+    def it_shows_propose_for_member_when_policy_open(client: Client):
+        _user_with_role("hc_member")
+        _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
+        client.login(username="hc_member", password="pass")
+        resp = client.get(reverse("hub_community_calendar"))
+        assert PROPOSE_HREF in resp.content
+        assert b"+ Propose an event" in resp.content
+        assert ADD_HREF not in resp.content
+
+    def it_shows_propose_to_a_logged_out_visitor(client: Client):
+        # /calendar/ is public and member_can_propose doesn't check auth; default policy is APPROVAL.
+        resp = client.get(reverse("hub_community_calendar"))
+        assert resp.status_code == 200
+        assert PROPOSE_HREF in resp.content
+        assert b"+ Propose an event" in resp.content
+
+    def it_hides_cta_when_policy_disabled_and_not_admin(client: Client):
+        _user_with_role("hc_disabled")
+        _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)  # default is APPROVAL — must set explicitly
+        client.login(username="hc_disabled", password="pass")
+        resp = client.get(reverse("hub_community_calendar"))
+        assert ADD_HREF not in resp.content
+        assert PROPOSE_HREF not in resp.content
+
+    def it_renders_the_cta_exactly_once(client: Client):
+        # A member with an in-flight proposal also renders an edit link at
+        # /events/propose/<pk>/edit/ — which *starts with* the propose-new path — so the
+        # count must match the exact quoted href, never a bare substring, or it double-counts.
+        user = _user_with_role("hc_once")
+        _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
+        CommunityEventFactory(
+            community=True,
+            submitted_by=user,
+            moderation_state=CommunityEvent.ModerationState.PENDING,
+            title="Pending Proposal",
+        )
+        client.login(username="hc_once", password="pass")
+        resp = client.get(reverse("hub_community_calendar"))
+        assert resp.content.count(PROPOSE_HREF) == 1
+        # The one CTA lives in the header, above the tab bar — so it shows on the default Calendar tab.
+        assert resp.content.index(PROPOSE_HREF) < resp.content.index(TAB_SENTINEL)
+
+
+@pytest.mark.django_db
+def describe_google_sync_note():
+    def it_hides_the_sync_note_by_default(client: Client):
+        # Both gates default false, so the note must not claim sync that isn't live.
+        _user_with_role("sync_off")
+        client.login(username="sync_off", password="pass")
+        resp = client.get(reverse("hub_community_calendar"))
+        assert SYNC_COPY not in resp.content
+
+    @override_settings(GOOGLE_CALENDAR_SYNC_ENABLED=True)
+    def it_shows_the_sync_note_when_sync_is_live(client: Client):
+        # _google_sync_enabled() ANDs env + SiteConfiguration — both must be on.
+        _user_with_role("sync_on")
+        config = SiteConfiguration.load()
+        config.google_calendar_sync_enabled = True
+        config.save(update_fields=["google_calendar_sync_enabled"])
+        client.login(username="sync_on", password="pass")
+        resp = client.get(reverse("hub_community_calendar"))
+        assert SYNC_COPY in resp.content

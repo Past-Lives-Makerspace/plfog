@@ -40,15 +40,28 @@
             Events refresh automatically every 5 minutes — no need to reload the page.
         </div>
     </span>
-    {% if user.is_authenticated and not request.GET.public and not is_public_surface %}
-    <a href="?public=1" class="hub-btn hub-btn--sm hub-btn--ghost" style="margin-left:auto;" hx-boost="false" title="Preview the calendar the way a logged-out visitor sees it">View Publicly</a>
-    {% endif %}
+    <div style="margin-left:auto;display:flex;align-items:center;gap:0.625rem;flex-wrap:wrap;">
+        {% if events_can_manage %}
+        <a href="{% url 'hub_event_add' %}" class="hub-btn hub-btn--primary">+ Add event</a>
+        {% elif member_can_propose %}
+        <a href="{% url 'hub_propose_event' %}" class="hub-btn hub-btn--primary">+ Propose an event</a>
+        {% endif %}
+        {% if user.is_authenticated and not request.GET.public and not is_public_surface %}
+        <a href="?public=1" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false" title="Preview the calendar the way a logged-out visitor sees it">View Publicly</a>
+        {% endif %}
+    </div>
 </div>
 
 <p class="hub-text-muted" style="margin:-0.25rem 0 1.5rem;max-width:65ch;">
     Everything happening at the makerspace in one place — guild meetings, classes, workshops,
     and community events. Switch to the Events tab for the full list.
 </p>
+
+{% if google_sync_enabled %}
+<p class="hub-text-muted" style="margin:-0.75rem 0 1.5rem;max-width:65ch;">
+    Events added to this calendar are also synced to the shared Past Lives Google Calendar.
+</p>
+{% endif %}
 
 <div x-data="{ tab: new URLSearchParams(window.location.search).get('tab') === 'events' ? 'events' : 'calendar' }">
 
@@ -230,16 +243,11 @@
 
 {# ── Events tab: member-readable upcoming list + admin authoring ── #}
 <div x-show="tab === 'events'" x-cloak>
+    {% if can_review %}
     <div style="margin-bottom:1.5rem; display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
-        {% if events_can_manage %}
-        <a href="{% url 'hub_event_add' %}" class="pl-btn pl-btn--primary">+ Add event</a>
-        {% elif member_can_propose %}
-        <a href="{% url 'hub_propose_event' %}" class="pl-btn pl-btn--primary">+ Propose an event</a>
-        {% endif %}
-        {% if can_review %}
         <a href="{% url 'hub_event_review_queue' %}" class="hub-btn hub-btn--sm">Review queue{% if review_pending_count %} <span class="hub-pill hub-pill--warn">{{ review_pending_count }}</span>{% endif %}</a>
-        {% endif %}
     </div>
+    {% endif %}
 
     {% include "hub/partials/_my_proposed_events.html" %}
 
