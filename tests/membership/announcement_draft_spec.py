@@ -126,13 +126,15 @@ def describe_AnnouncementDraft():
         def it_returns_empty_for_the_guild_channel_without_a_guild():
             assert resolve_channel_webhook(_CHANNEL.GUILD, None) == ""
 
-        def it_returns_the_general_and_leadership_webhooks():
+        def it_returns_the_general_leadership_and_officers_webhooks():
             config = SiteConfiguration.load()
             config.discord_general_webhook_url = "https://d/gen"
             config.discord_leadership_webhook_url = "https://d/lead"
+            config.discord_officers_webhook_url = "https://d/officers"
             config.save()
             assert resolve_channel_webhook(_CHANNEL.GENERAL) == "https://d/gen"
             assert resolve_channel_webhook(_CHANNEL.LEADERSHIP) == "https://d/lead"
+            assert resolve_channel_webhook(_CHANNEL.OFFICERS) == "https://d/officers"
 
         def it_returns_empty_for_none():
             assert resolve_channel_webhook(_CHANNEL.NONE) == ""

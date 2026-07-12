@@ -320,6 +320,9 @@ def describe_AnnouncementComposeForm():
     def it_scopes_the_channel_choices_by_audience():
         assert ("guild", "Our Guild Channel") in discord_channel_choices("guild")
         assert all(value != "guild" for value, _ in discord_channel_choices("site"))
+        # The shared #guild-officers channel is offered to both guild and site-wide audiences.
+        assert ("officers", "#guild-officers") in discord_channel_choices("guild")
+        assert ("officers", "#guild-officers") in discord_channel_choices("site")
 
     def it_rejects_an_unconfigured_guild_channel():
         guild = GuildFactory()  # no webhook configured

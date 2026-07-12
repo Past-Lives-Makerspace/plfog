@@ -28,10 +28,11 @@ _Channel = GuildAnnouncement.DiscordChannel
 _HOOK = "https://discord.com/api/webhooks/9/x"
 
 
-def _set_shared(*, general: str = "", leadership: str = "") -> None:
+def _set_shared(*, general: str = "", leadership: str = "", officers: str = "") -> None:
     config = SiteConfiguration.load()
     config.discord_general_webhook_url = general
     config.discord_leadership_webhook_url = leadership
+    config.discord_officers_webhook_url = officers
     config.save()
 
 
@@ -42,10 +43,10 @@ def describe_configured_discord_channels():
     def it_includes_guild_when_the_guild_has_a_webhook():
         assert _Channel.GUILD.value in _configured_discord_channels(GuildFactory(discord_webhook_url=_HOOK))
 
-    def it_includes_general_and_leadership_from_site_config():
-        _set_shared(general=_HOOK, leadership=_HOOK)
+    def it_includes_general_leadership_and_officers_from_site_config():
+        _set_shared(general=_HOOK, leadership=_HOOK, officers=_HOOK)
         configured = _configured_discord_channels(GuildFactory())
-        assert configured == {_Channel.GENERAL.value, _Channel.LEADERSHIP.value}
+        assert configured == {_Channel.GENERAL.value, _Channel.LEADERSHIP.value, _Channel.OFFICERS.value}
 
     def it_tolerates_a_none_guild():
         assert _configured_discord_channels(None) == set()
@@ -55,9 +56,10 @@ def describe_default_discord_channel():
     def it_prefers_the_guild_channel():
         assert _default_discord_channel({_Channel.GUILD.value, _Channel.GENERAL.value}) == _Channel.GUILD.value
 
-    def it_steps_down_to_general_then_leadership():
+    def it_steps_down_to_general_then_leadership_then_officers():
         assert _default_discord_channel({_Channel.GENERAL.value}) == _Channel.GENERAL.value
         assert _default_discord_channel({_Channel.LEADERSHIP.value}) == _Channel.LEADERSHIP.value
+        assert _default_discord_channel({_Channel.OFFICERS.value}) == _Channel.OFFICERS.value
 
     def it_falls_back_to_none_when_nothing_is_configured():
         assert _default_discord_channel(set()) == _Channel.NONE.value
@@ -97,6 +99,15 @@ def describe_GuildAnnouncementForm_discord_channel():
         )
         assert form.is_valid(), form.errors
         assert form.cleaned_data["discord_channel"] == _Channel.GUILD.value
+
+    def it_accepts_the_officers_channel_when_its_shared_webhook_is_set():
+        _set_shared(officers=_HOOK)
+        form = GuildAnnouncementForm(
+            {"title": "T", "body": "B", "expires_at": "", "discord_channel": _Channel.OFFICERS.value},
+            guild=GuildFactory(),
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["discord_channel"] == _Channel.OFFICERS.value
 
     def it_accepts_dont_post_even_with_no_webhooks():
         form = GuildAnnouncementForm(
@@ -153,13 +164,13 @@ def _render_picker(guild) -> str:
 def describe_rendered_picker_partial():
     def it_disables_every_channel_and_shows_the_empty_note_when_nothing_is_configured():
         html = _render_picker(GuildFactory())
-        assert html.count('data-hint="Not set up yet."') == 3
+        assert html.count('data-hint="Not set up yet."') == 4
         assert "No Discord channels are set up yet" in html
 
     def it_enables_the_guild_option_and_hides_the_empty_note_when_configured():
         html = _render_picker(GuildFactory(discord_webhook_url=_HOOK))
-        # Only #general-chat and #leadership remain unconfigured.
-        assert html.count('data-hint="Not set up yet."') == 2
+        # Only #general-chat, #leadership, and #guild-officers remain unconfigured.
+        assert html.count('data-hint="Not set up yet."') == 3
         assert "No Discord channels are set up yet" not in html
 
     def it_always_shows_the_regardless_hint():

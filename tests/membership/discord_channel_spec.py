@@ -1,8 +1,9 @@
 """GuildAnnouncement.resolve_discord_webhook — the channel → webhook map.
 
 The persisted ``discord_channel`` picks where the single Discord echo posts: the guild's own
-channel, the makerspace-wide #general-chat / #leadership webhooks (on SiteConfiguration), or
-nowhere. A blank source resolves to "" (the emit path reads "" as "no Discord post").
+channel, the makerspace-wide #general-chat / #leadership / #guild-officers webhooks (on
+SiteConfiguration), or nowhere. A blank source resolves to "" (the emit path reads "" as
+"no Discord post").
 """
 
 from __future__ import annotations
@@ -18,12 +19,14 @@ pytestmark = pytest.mark.django_db
 _GUILD_HOOK = "https://discord.com/api/webhooks/1/guild"
 _GENERAL_HOOK = "https://discord.com/api/webhooks/2/general"
 _LEADERSHIP_HOOK = "https://discord.com/api/webhooks/3/leadership"
+_OFFICERS_HOOK = "https://discord.com/api/webhooks/4/officers"
 
 
-def _set_shared_webhooks(*, general: str = "", leadership: str = "") -> None:
+def _set_shared_webhooks(*, general: str = "", leadership: str = "", officers: str = "") -> None:
     config = SiteConfiguration.load()
     config.discord_general_webhook_url = general
     config.discord_leadership_webhook_url = leadership
+    config.discord_officers_webhook_url = officers
     config.save()
 
 
@@ -59,6 +62,17 @@ def describe_resolve_discord_webhook():
         def it_returns_blank_when_leadership_is_unset():
             _set_shared_webhooks(leadership="")
             ann = GuildAnnouncementFactory(discord_channel=GuildAnnouncement.DiscordChannel.LEADERSHIP)
+            assert ann.resolve_discord_webhook() == ""
+
+    def describe_officers_channel():
+        def it_returns_the_shared_officers_webhook():
+            _set_shared_webhooks(officers=_OFFICERS_HOOK)
+            ann = GuildAnnouncementFactory(discord_channel=GuildAnnouncement.DiscordChannel.OFFICERS)
+            assert ann.resolve_discord_webhook() == _OFFICERS_HOOK
+
+        def it_returns_blank_when_officers_is_unset():
+            _set_shared_webhooks(officers="")
+            ann = GuildAnnouncementFactory(discord_channel=GuildAnnouncement.DiscordChannel.OFFICERS)
             assert ann.resolve_discord_webhook() == ""
 
     def describe_none_channel():

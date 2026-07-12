@@ -1828,6 +1828,7 @@ class GuildAnnouncement(models.Model):
         GUILD = "guild", "Our Guild Channel"
         GENERAL = "general", "#general-chat"
         LEADERSHIP = "leadership", "#leadership"
+        OFFICERS = "officers", "#guild-officers"
         NONE = "none", "Don't post to Discord"
 
     discord_channel = models.CharField(
@@ -1895,8 +1896,8 @@ class GuildAnnouncement(models.Model):
 
         Returns ``""`` for :attr:`DiscordChannel.NONE` or any channel whose webhook is
         unset — the emit path treats a blank result as "no Discord post" (a stripped,
-        best-effort echo). The makerspace-wide #general-chat / #leadership webhooks live
-        on :class:`core.models.SiteConfiguration`; "Our Guild Channel" is the guild's own
+        best-effort echo). The makerspace-wide #general-chat / #leadership / #guild-officers
+        webhooks live on :class:`core.models.SiteConfiguration`; "Our Guild Channel" is the guild's own
         ``discord_webhook_url``.
 
         Returns:
@@ -2201,8 +2202,9 @@ def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
     Audience-agnostic twin of :meth:`GuildAnnouncement.resolve_discord_webhook` — it needs
     no announcement instance, so both the guild composer and the site-wide composer share
     one resolver. ``GUILD`` → the guild's own ``discord_webhook_url`` (``""`` when no guild
-    is given — a site-wide audience has no guild channel); ``GENERAL`` / ``LEADERSHIP`` →
-    the makerspace-wide :class:`~core.models.SiteConfiguration` webhooks; ``NONE`` → ``""``.
+    is given — a site-wide audience has no guild channel); ``GENERAL`` / ``LEADERSHIP`` /
+    ``OFFICERS`` → the makerspace-wide :class:`~core.models.SiteConfiguration` webhooks;
+    ``NONE`` → ``""``.
 
     Args:
         channel: A ``GuildAnnouncement.DiscordChannel`` value.
@@ -2223,6 +2225,8 @@ def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
         return (SiteConfiguration.load().discord_general_webhook_url or "").strip()
     if channel == channels.LEADERSHIP:
         return (SiteConfiguration.load().discord_leadership_webhook_url or "").strip()
+    if channel == channels.OFFICERS:
+        return (SiteConfiguration.load().discord_officers_webhook_url or "").strip()
     if channel == channels.NONE:
         return ""
     raise ValueError(f"Unknown Discord channel '{channel}'.")

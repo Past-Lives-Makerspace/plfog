@@ -144,7 +144,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -393,12 +393,13 @@
       <div style="margin-bottom:1.25rem;">
         <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Shared Discord channels</h2>
         <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
-          Set these so guild leads can post announcements to #general-chat and #leadership. Leave a field blank to hide that option from leads.
+          Set these so guild leads can post announcements to #general-chat, #leadership, and #guild-officers. Leave a field blank to hide that option from leads.
           In Discord: Server Settings → Integrations → Webhooks → New Webhook → pick the channel → Copy Webhook URL.
         </p>
       </div>
       {% include "components/form_field.html" with field=form.discord_general_webhook_url %}
       {% include "components/form_field.html" with field=form.discord_leadership_webhook_url %}
+      {% include "components/form_field.html" with field=form.discord_officers_webhook_url %}
     </div>
 
     {# -------- Slideshow tab · Block A (Part 1: global timing) -------- #}

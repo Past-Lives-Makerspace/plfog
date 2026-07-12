@@ -539,6 +539,7 @@ class SiteSettingsForm(forms.ModelForm):
             "google_analytics_measurement_id",
             "discord_general_webhook_url",
             "discord_leadership_webhook_url",
+            "discord_officers_webhook_url",
             "tab_payments_enabled",
             "class_registration_enabled",
             "class_registration_disabled_note",
@@ -1357,9 +1358,9 @@ class ChannelRadioSelect(forms.RadioSelect):
 def _configured_discord_channels(guild: Guild | None, config: SiteConfiguration | None = None) -> set[str]:
     """The set of :class:`GuildAnnouncement.DiscordChannel` values that have a webhook set.
 
-    ``GUILD`` when this guild has its own ``discord_webhook_url``; ``GENERAL`` / ``LEADERSHIP``
-    when the makerspace-wide :class:`~core.models.SiteConfiguration` webhooks are set. ``NONE``
-    is always selectable and is deliberately not listed here.
+    ``GUILD`` when this guild has its own ``discord_webhook_url``; ``GENERAL`` / ``LEADERSHIP`` /
+    ``OFFICERS`` when the makerspace-wide :class:`~core.models.SiteConfiguration` webhooks are set.
+    ``NONE`` is always selectable and is deliberately not listed here.
 
     Pass ``config`` to reuse an already-loaded :class:`~core.models.SiteConfiguration`
     singleton — building one picker per row (the review queue) would otherwise re-load it
@@ -1375,17 +1376,19 @@ def _configured_discord_channels(guild: Guild | None, config: SiteConfiguration 
         configured.add(channels.GENERAL.value)
     if (config.discord_leadership_webhook_url or "").strip():
         configured.add(channels.LEADERSHIP.value)
+    if (config.discord_officers_webhook_url or "").strip():
+        configured.add(channels.OFFICERS.value)
     return configured
 
 
 def _default_discord_channel(configured: set[str]) -> str:
     """The pre-selected channel: the first *configured* channel, stepping down to "Don't post".
 
-    Guild Channel → #general-chat → #leadership → Don't post (§5.3), so the picker never opens
-    pre-selected on a disabled option.
+    Guild Channel → #general-chat → #leadership → #guild-officers → Don't post (§5.3), so the
+    picker never opens pre-selected on a disabled option.
     """
     channels = GuildAnnouncement.DiscordChannel
-    for channel in (channels.GUILD, channels.GENERAL, channels.LEADERSHIP):
+    for channel in (channels.GUILD, channels.GENERAL, channels.LEADERSHIP, channels.OFFICERS):
         if channel.value in configured:
             return channel.value
     return channels.NONE.value

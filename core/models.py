@@ -199,6 +199,13 @@ class SiteConfiguration(models.Model):
         verbose_name="#leadership Discord webhook",
         help_text="Discord webhook for #leadership. Blank = the option is hidden from the picker.",
     )
+    discord_officers_webhook_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="#guild-officers Discord webhook",
+        help_text="Discord webhook for #guild-officers. Blank = the option is hidden from the picker.",
+    )
     google_analytics_measurement_id = models.CharField(
         max_length=50,
         blank=True,

@@ -1,8 +1,8 @@
-"""Site Settings → Discord tab — the two makerspace-wide webhook fields.
+"""Site Settings → Discord tab — the makerspace-wide webhook fields.
 
-Admins set #general-chat / #leadership webhooks here (via ``form_field.html``), saved by the
-existing settings POST. The fields render only on the Discord tab (excluded from the General
-loop) and live INSIDE ``#site-settings-form`` so the shared Save persists them (§6.2).
+Admins set #general-chat / #leadership / #guild-officers webhooks here (via ``form_field.html``),
+saved by the existing settings POST. The fields render only on the Discord tab (excluded from the
+General loop) and live INSIDE ``#site-settings-form`` so the shared Save persists them (§6.2).
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ def _settings_post(**overrides: str) -> dict[str, str]:
         "registration_mode": "invite_only",
         "discord_general_webhook_url": "",
         "discord_leadership_webhook_url": "",
+        "discord_officers_webhook_url": "",
         # The site-settings page is one <form> spanning all tabs, so every save
         # carries member_event_policy (a required Calendar-tab field) — mirror that.
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
@@ -47,16 +48,21 @@ def _settings_post(**overrides: str) -> dict[str, str]:
 
 
 def describe_discord_settings_save():
-    def it_persists_both_webhook_fields(client: Client):
+    def it_persists_all_webhook_fields(client: Client):
         _superuser(client)
         resp = client.post(
             reverse("hub_admin_site_settings"),
-            _settings_post(discord_general_webhook_url=_HOOK, discord_leadership_webhook_url=_HOOK),
+            _settings_post(
+                discord_general_webhook_url=_HOOK,
+                discord_leadership_webhook_url=_HOOK,
+                discord_officers_webhook_url=_HOOK,
+            ),
         )
         assert resp.status_code == 302
         config = SiteConfiguration.load()
         assert config.discord_general_webhook_url == _HOOK
         assert config.discord_leadership_webhook_url == _HOOK
+        assert config.discord_officers_webhook_url == _HOOK
 
     def it_rejects_a_malformed_webhook_url(client: Client):
         _superuser(client)
@@ -69,13 +75,14 @@ def describe_discord_settings_save():
 
 
 def describe_discord_tab_render():
-    def it_shows_the_discord_tab_and_both_fields(client: Client):
+    def it_shows_the_discord_tab_and_all_fields(client: Client):
         _superuser(client)
         resp = client.get(reverse("hub_admin_site_settings") + "?tab=discord")
         assert resp.status_code == 200
         content = resp.content.decode()
         assert 'name="discord_general_webhook_url"' in content
         assert 'name="discord_leadership_webhook_url"' in content
+        assert 'name="discord_officers_webhook_url"' in content
         assert "tab = 'discord'" in content  # the Discord tab button's @click
         assert "tab === 'discord'" in content  # the Discord tab section wrapper
 
@@ -85,6 +92,7 @@ def describe_discord_tab_render():
         # Excluded from the General loop → rendered exactly once (on the Discord tab).
         assert content.count('name="discord_general_webhook_url"') == 1
         assert content.count('name="discord_leadership_webhook_url"') == 1
+        assert content.count('name="discord_officers_webhook_url"') == 1
 
     def it_places_the_fields_inside_the_main_settings_form(client: Client):
         _superuser(client)
