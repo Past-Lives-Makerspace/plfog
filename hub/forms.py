@@ -1122,12 +1122,29 @@ class CommunityEventForm(forms.ModelForm):
 
     class Meta:
         model = CommunityEvent
-        fields = ["event_type", "guild", "title", "starts_at", "ends_at", "location", "description", "recurrence"]
+        fields = [
+            "event_type",
+            "guild",
+            "title",
+            "starts_at",
+            "ends_at",
+            "location",
+            "description",
+            "recurrence",
+            "publish_at",
+            "remind_7d",
+            "remind_3d",
+            "remind_1d",
+            "notify_happening_now",
+        ]
         widgets = {
             "starts_at": forms.DateTimeInput(
                 attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
             ),
             "ends_at": forms.DateTimeInput(
+                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
+            ),
+            "publish_at": forms.DateTimeInput(
                 attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
             ),
             "description": forms.Textarea(attrs={"rows": 4}),
@@ -1142,8 +1159,9 @@ class CommunityEventForm(forms.ModelForm):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        for name in ("starts_at", "ends_at"):
+        for name in ("starts_at", "ends_at", "publish_at"):
             cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
+        self.fields["publish_at"].label = "Announce at"
         self._as_admin = as_admin
         self._as_member = as_member
         self._fixed_guild = guild
@@ -1157,6 +1175,19 @@ class CommunityEventForm(forms.ModelForm):
         else:
             del self.fields["event_type"]
             del self.fields["guild"]
+
+    def clean_publish_at(self) -> Any:
+        """Blank ⇒ announce now (valid). A set time must be in the future and strictly
+        before the event starts (announcing after it started is a mistake)."""
+        publish_at = self.cleaned_data.get("publish_at")
+        if publish_at is None:
+            return publish_at
+        if publish_at <= timezone.now():
+            raise forms.ValidationError("Pick a time in the future.")
+        starts = self.cleaned_data.get("starts_at")
+        if starts is not None and publish_at >= starts:
+            raise forms.ValidationError("The announcement time must be before the event starts.")
+        return publish_at
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())

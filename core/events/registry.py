@@ -86,6 +86,7 @@ class Recipients(str, Enum):
     LEASE_TENANT = "lease_tenant"
     ALL_ACTIVE_MEMBERS = "all_active_members"
     ALL_GUILD_LEADS = "all_guild_leads"
+    EVENT_AUDIENCE = "event_audience"
     ALL_VOTERS = "all_voters"
     EVERYONE_WITH_LOGIN = "everyone_with_login"
     RELEASE_AUDIENCE = "release_audience"
@@ -330,6 +331,13 @@ EVENT_SUBMITTED = "event.submitted"
 EVENT_APPROVED = "event.approved"
 EVENT_CHANGES_REQUESTED = "event.changes_requested"
 EVENT_DECLINED = "event.declined"
+EVENT_REMINDER = "event.reminder"
+EVENT_HAPPENING_NOW = "event.happening_now"
+
+# event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
+# clutter the guild channel) but declares it so a lead can flip it on later; happening-now
+# posts a one-shot "starting now" to the guild channel.
+_DISCORD_OFF = ChannelSpec(Channel.DISCORD, ChannelDefault.OFF)
 
 
 _NEW_EVENTS: list[EventType] = [
@@ -583,6 +591,29 @@ _NEW_EVENTS: list[EventType] = [
         category="Events",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 18. event.reminder — a 7/3/1-day-before nudge for an upcoming community event, to the
+    #     same audience the launch announcement reached (by scope, via event_audience). In-app
+    #     on; email + Discord OFF (the bell is enough — Discord flippable later).
+    EventType(
+        key=EVENT_REMINDER,
+        label="Event reminder",
+        description="A reminder before a community event you're invited to starts.",
+        category="Events",
+        recipient=Recipients.EVENT_AUDIENCE,
+        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_OFF),
+        activity_kind=None,
+    ),
+    # 19. event.happening_now — a single "starting now" ping to the same launch audience.
+    #     In-app on, email off, Discord ON (a one-shot "starting now" in the channel is useful).
+    EventType(
+        key=EVENT_HAPPENING_NOW,
+        label="Event starting now",
+        description="A ping when a community event you're invited to begins.",
+        category="Events",
+        recipient=Recipients.EVENT_AUDIENCE,
+        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
         activity_kind=None,
     ),
 ]

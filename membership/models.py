@@ -2454,6 +2454,18 @@ class CommunityEventQuerySet(models.QuerySet):
         """Member proposals waiting on a reviewer decision."""
         return self.filter(moderation_state=CommunityEvent.ModerationState.PENDING)
 
+    def scheduled(self) -> CommunityEventQuerySet:
+        """Parked-but-not-yet-announced events (the admin management list, §6)."""
+        return self.filter(moderation_state=CommunityEvent.ModerationState.SCHEDULED)
+
+    def due_to_publish(self, now: datetime_type) -> CommunityEventQuerySet:
+        """SCHEDULED events whose publish_at has arrived (the deferred-publish set).
+
+        A NULL ``publish_at`` never satisfies ``publish_at__lte``, so a schedule that was
+        cleared can never sit here waiting — it's published immediately at edit time instead.
+        """
+        return self.filter(moderation_state=CommunityEvent.ModerationState.SCHEDULED, publish_at__lte=now)
+
     def pushed(self) -> CommunityEventQuerySet:
         """Rows FOG has pushed to Google (their iCal echo must be de-duped)."""
         return self.exclude(google_ical_uid="")
@@ -2498,6 +2510,10 @@ class CommunityEvent(models.Model):
 
     class ModerationState(models.TextChoices):
         PUBLISHED = "published", "Published"  # live on the calendar; eligible to push
+        SCHEDULED = (
+            "scheduled",
+            "Scheduled",
+        )  # approved/authored; auto-publishes at publish_at (not yet announced/pushed)
         PENDING = "pending", "Pending review"  # member proposal awaiting a decision; FOG-only
         CHANGES_REQUESTED = "changes_requested", "Changes requested"  # sent back to the proposer to edit + resubmit
         DECLINED = "declined", "Declined"  # rejected; never pushes (removed from Google if it was)
@@ -2525,6 +2541,10 @@ class CommunityEvent(models.Model):
         EventType.LEAD_MEETING: "event.lead_meeting_published",
         EventType.COMMUNITY: "event.community_published",
     }
+
+    # (toggle field, days-before) pairs for the opt-in reminder pings. One place to add
+    # an offset later; drives ``enabled_reminder_offsets`` and the reminder source.
+    REMINDER_OFFSETS: list[tuple[str, int]] = [("remind_7d", 7), ("remind_3d", 3), ("remind_1d", 1)]
 
     title = models.CharField(max_length=200, help_text="Event name shown on the calendar — e.g. 'Monthly Potluck'.")
     event_type = models.CharField(
@@ -2638,6 +2658,17 @@ class CommunityEvent(models.Model):
         help_text="Why the last Google push failed (or why it's still pending, e.g. no calendar linked). Blank when synced.",
     )
     synced_at = models.DateTimeField(null=True, blank=True, help_text="When this event last synced to Google.")
+
+    # --- Announcement scheduling + reminders ----------------------------------
+    publish_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When to announce this event. Leave blank to announce as soon as it's saved.",
+    )
+    remind_7d = models.BooleanField(default=False, help_text="Send members a reminder 7 days before it starts.")
+    remind_3d = models.BooleanField(default=False, help_text="Send members a reminder 3 days before it starts.")
+    remind_1d = models.BooleanField(default=False, help_text="Send members a reminder 1 day before it starts.")
+    notify_happening_now = models.BooleanField(default=False, help_text="Ping members when it starts.")
 
     objects = CommunityEventQuerySet.as_manager()
 
@@ -2796,6 +2827,22 @@ class CommunityEvent(models.Model):
         return when
 
     @property
+    def publish_at_display(self) -> str:
+        """Local-time 'Jul 12, 2026 · 6:00 PM' for the scheduled announcement time.
+
+        Empty string when nothing is scheduled — safe to drop straight into a message or
+        a "Scheduled for …" badge.
+        """
+        if self.publish_at is None:
+            return ""
+        local = timezone.localtime(self.publish_at)
+        return f"{local.strftime('%b %-d, %Y')} · {local.strftime('%-I:%M %p')}"
+
+    def enabled_reminder_offsets(self) -> list[int]:
+        """Days-before values whose reminder toggle is on (e.g. ``[7, 1]``)."""
+        return [days for attr, days in self.REMINDER_OFFSETS if getattr(self, attr)]
+
+    @property
     def public_url(self) -> str:
         """Absolute URL of this event's public detail page.
 
@@ -2876,6 +2923,36 @@ class CommunityEvent(models.Model):
             self.sync_state = self.SyncState.PENDING
             self.save(update_fields=["sync_state", "updated_at"])
         self.push_to_google(actor=actor)
+
+    def schedule_or_go_live(self, *, actor: User | None = None) -> None:
+        """Publish now, or park until ``publish_at``. The single create/approve entry point.
+
+        Future ``publish_at`` ⇒ ``moderation_state=SCHEDULED``, no announce/push (the cron
+        promotes it via :meth:`publish_scheduled`). Blank/past ``publish_at`` ⇒
+        ``moderation_state=PUBLISHED`` + :meth:`publish` (announce + Google push), as today.
+
+        Idempotent for a still-parked event: re-saving a ``SCHEDULED`` row with an
+        unchanged future ``publish_at`` re-sets ``SCHEDULED`` and does not announce.
+        """
+        if self.publish_at is not None and self.publish_at > timezone.now():
+            self.moderation_state = self.ModerationState.SCHEDULED
+            self.save(update_fields=["moderation_state", "updated_at"])
+            return
+        self.moderation_state = self.ModerationState.PUBLISHED
+        self.save(update_fields=["moderation_state", "updated_at"])
+        self.publish(actor=actor)
+
+    def publish_scheduled(self, *, actor: User | None = None) -> None:
+        """Promote a due SCHEDULED event to live (announce + Google push). Cron-facing.
+
+        Raises:
+            InvalidEventTransition: If not currently SCHEDULED.
+        """
+        if self.moderation_state != self.ModerationState.SCHEDULED:
+            raise InvalidEventTransition(f"Cannot publish an event in state '{self.moderation_state}'.")
+        self.moderation_state = self.ModerationState.PUBLISHED
+        self.save(update_fields=["moderation_state", "updated_at"])
+        self.publish(actor=actor)
 
     # --- Google Calendar sync (delegates to core.integrations) ----------------
 
@@ -2968,9 +3045,11 @@ class CommunityEvent(models.Model):
             raise InvalidEventTransition(f"Cannot approve an event in state '{self.moderation_state}'.")
         self.reviewed_by = reviewer
         self.reviewed_at = timezone.now()
-        self.moderation_state = self.ModerationState.PUBLISHED
-        self.save(update_fields=["reviewed_by", "reviewed_at", "moderation_state", "updated_at"])
-        self.publish(actor=reviewer)
+        self.save(update_fields=["reviewed_by", "reviewed_at", "updated_at"])
+        # Approve-before-schedule: a future publish_at parks the proposal in SCHEDULED
+        # (announced only when the cron promotes it); blank/past publishes it now. A member
+        # can never self-publish at their chosen time — only the reviewer reaches this branch.
+        self.schedule_or_go_live(actor=reviewer)
         self._emit_decision("event.approved", url=self.absolute_url, period=f"event:{self.pk}:approved")
 
     def request_changes(self, *, reviewer: User, notes: str) -> None:
@@ -3070,6 +3149,14 @@ class CommunityEvent(models.Model):
         from core.events.emit import emit
 
         base = settings.MEMBER_BASE_URL
+        scheduled = self.moderation_state == self.ModerationState.SCHEDULED
+        # The renderer does not branch (it only substitutes {{ placeholders }}), so the
+        # schedule-aware line is composed here and dropped into event.approved's copy as
+        # {{ outcome }} — an approved-but-SCHEDULED event must NOT read "now on the calendar".
+        if scheduled:
+            outcome = f"It'll be announced and added to the Community Calendar on {self.publish_at_display}."
+        else:
+            outcome = "It's now on the Community Calendar."
         emit(
             event_key,
             actor=self.reviewed_by,
@@ -3082,6 +3169,9 @@ class CommunityEvent(models.Model):
                 "edit_url": f"{base}{reverse('hub_propose_event_edit', args=[self.pk])}",
                 "propose_url": f"{base}{reverse('hub_propose_event')}",
                 "reviewer_notes": self.review_notes,
+                "publish_at": self.publish_at_display,
+                "scheduled": scheduled,
+                "outcome": outcome,
             },
             url=url,
             period=period,

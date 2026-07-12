@@ -31,6 +31,8 @@ _BRAND_NEW_KEYS = {
     "event.approved",
     "event.changes_requested",
     "event.declined",
+    "event.reminder",
+    "event.happening_now",
 }
 
 

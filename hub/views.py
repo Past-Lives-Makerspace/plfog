@@ -2420,11 +2420,17 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             if is_new:
                 event.created_by = request.user
             event.save()
-            if is_new:
-                event.publish(actor=request.user)
+            # A new event OR a still-SCHEDULED one routes through schedule_or_go_live so a
+            # future publish_at parks it and a cleared/back-dated one publishes now (no strand);
+            # editing a live event only re-pushes to Google (never re-announces).
+            if is_new or event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
+                event.schedule_or_go_live(actor=request.user)
             elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
                 event.push_to_google(actor=request.user)
-            messages.success(request, "Event saved.")
+            if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
+                messages.success(request, f"Event scheduled for {event.publish_at_display}.")
+            else:
+                messages.success(request, "Event saved.")
             return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
     else:
         form = CommunityEventForm(instance=event, guild=guild, as_admin=False)
@@ -2481,11 +2487,16 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
             if is_new:
                 event.created_by = request.user
             event.save()
-            if is_new:
-                event.publish(actor=request.user)
+            # is_new OR still-SCHEDULED → schedule_or_go_live (park a future publish_at, publish a
+            # cleared/back-dated one now); editing a live event only re-pushes to Google.
+            if is_new or event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
+                event.schedule_or_go_live(actor=request.user)
             elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
                 event.push_to_google(actor=request.user)
-            messages.success(request, "Event saved.")
+            if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
+                messages.success(request, f"Event scheduled for {event.publish_at_display}.")
+            else:
+                messages.success(request, "Event saved.")
             return redirect(cancel_url)
     else:
         form = CommunityEventForm(instance=event, as_admin=True)
@@ -3051,6 +3062,14 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     # Only PUBLISHED events reach the public list (pending/declined proposals never leak).
     cal_ctx["upcoming_events"] = CommunityEvent.objects.published().upcoming().select_related("guild")
     cal_ctx["events_can_manage"] = is_admin
+    # Admin-only: site-wide events parked in SCHEDULED are invisible on the public list and
+    # aren't in my_proposals (admin direct-creates set created_by, not submitted_by), so an
+    # admin could never find them to edit/cancel — surface them in their own section.
+    cal_ctx["scheduled_events"] = (
+        CommunityEvent.objects.scheduled().site_wide().select_related("guild").order_by("publish_at")
+        if is_admin
+        else CommunityEvent.objects.none()
+    )
 
     policy = SiteConfiguration.load().member_event_policy
     cal_ctx["member_can_propose"] = policy != SiteConfiguration.MemberEventPolicy.DISABLED

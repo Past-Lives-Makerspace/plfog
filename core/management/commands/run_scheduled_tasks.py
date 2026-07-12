@@ -39,6 +39,8 @@ class Command(BaseCommand):
             "send_lease_expiry_reminders",
             "auto_complete_orientations",
             "send_class_reminders",
+            "publish_due_events",
+            "send_event_reminders",
             "bill_tabs",
             "retry_calendar_pushes",
         ):

@@ -213,6 +213,11 @@ confirm modal carries its own POST form, and template content can't nest a form.
           <div class="hub-text-muted" style="font-size:0.8125rem;">
             {{ event.starts_at|date:"D, M j · g:i A" }}–{{ event.ends_at|date:"g:i A" }}{% if event.location %} · {{ event.location }}{% endif %}{% if event.recurrence != "none" %} · Repeats monthly{% endif %}
           </div>
+          {% if event.moderation_state == 'scheduled' %}
+          <div style="margin-top:0.35rem;">
+            <span class="hub-badge">Scheduled for {{ event.publish_at_display }}</span>
+          </div>
+          {% endif %}
           {% if google_sync_enabled %}
           <div style="margin-top:0.35rem;">
             {% include "hub/partials/_sync_badge.html" with event=event can_retry=is_admin %}

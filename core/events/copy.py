@@ -97,6 +97,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.LEASE_TENANT: "The member tenant of the lease.",
     Recipients.ALL_ACTIVE_MEMBERS: "Every active member.",
     Recipients.ALL_GUILD_LEADS: "Every guild lead, officer, and staffer (cross-guild).",
+    Recipients.EVENT_AUDIENCE: "Whoever the event's launch announcement reached — the guild's members, all guild leads, or every active member, by scope.",
     Recipients.ALL_VOTERS: "Every member eligible to vote.",
     Recipients.EVERYONE_WITH_LOGIN: "Everyone with a login (members and past members).",
     Recipients.RELEASE_AUDIENCE: "Everyone with a login, plus all active members and admins.",
@@ -779,27 +780,32 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # ``outcome`` is composed in Python (CommunityEvent._emit_decision) because the safe
+    # renderer only substitutes {{ placeholders }} — it cannot branch. It reads "It's now
+    # on the Community Calendar." for an immediate publish, or "It'll be announced and added
+    # to the Community Calendar on <date>." when the approval was scheduled for later.
     "event.approved": EventCopy(
-        placeholders=("event_title", "when", "event_url"),
+        placeholders=("event_title", "when", "event_url", "outcome"),
         sample_context={
             "event_title": "Forge Night",
             "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
             "event_url": "https://pastlives.example/events/5/",
+            "outcome": "It's now on the Community Calendar.",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="Your event is live: {{ event_title }}",
-                body_text="{{ event_title }} — {{ when }} — is now on the Community Calendar.",
+                subject="Your event was approved: {{ event_title }}",
+                body_text="{{ event_title }} — {{ when }}. {{ outcome }}",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="Your event is live: {{ event_title }}",
+                subject="Your event was approved: {{ event_title }}",
                 body_text=(
-                    "Good news — your proposed event was approved and is now on the Community Calendar.\n\n"
+                    "Good news — your proposed event was approved. {{ outcome }}\n\n"
                     "{{ event_title }}\n{{ when }}\n\n"
                     "See the event details: {{ event_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>Good news — your proposed event was approved and is now on the Community Calendar.</p>"
+                    "<p>Good news — your proposed event was approved. {{ outcome }}</p>"
                     '<p><strong><a href="{{ event_url }}">{{ event_title }}</a></strong><br>{{ when }}</p>'
                     '<p><a href="{{ event_url }}">See the event details</a></p>'
                     "<p>Past Lives Makerspace</p>"
@@ -915,6 +921,74 @@ _CURATED: dict[str, EventCopy] = {
                     "not to add it to the calendar this time:</p>"
                     "<p>{{ reviewer_notes }}</p>"
                     '<p><a href="{{ propose_url }}">Propose another event</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # event.reminder — 7/3/1-day-before nudge. In-app on; email + Discord OFF by default, but
+    # the EMAIL copy is authored (Discord inherits it via copy_for) so a channel can flip on
+    # later with no new copy. Guild name is deliberately omitted (the key serves both guild and
+    # site-wide events, and the renderer can't hide an empty guild for the site-wide case).
+    "event.reminder": EventCopy(
+        placeholders=("event_title", "days_before", "when", "location", "event_url"),
+        sample_context={
+            "event_title": "Forge Night",
+            "days_before": "3",
+            "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
+            "location": "Main Studio",
+            "event_url": "https://pastlives.example/events/5/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Reminder: {{ event_title }} is {{ days_before }} day(s) away",
+                body_text="{{ event_title }} is {{ days_before }} day(s) away — {{ when }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Reminder: {{ event_title }} is {{ days_before }} day(s) away",
+                body_text=(
+                    "{{ event_title }} is coming up in {{ days_before }} day(s) — {{ when }}.\n"
+                    "Where: {{ location }}\n\n"
+                    "See the event details: {{ event_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<h2>{{ event_title }}</h2>"
+                    "<p>Coming up in {{ days_before }} day(s) — {{ when }}</p>"
+                    "<p>Where: {{ location }}</p>"
+                    '<p><a href="{{ event_url }}">See the event details</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # event.happening_now — a single "starting now" ping. In-app on, email off, Discord ON.
+    # Discord posts the EMAIL body (copy_for fallback), so it's authored lead-first (link early)
+    # to read well as a one-line channel post AND as an email.
+    "event.happening_now": EventCopy(
+        placeholders=("event_title", "when", "location", "event_url"),
+        sample_context={
+            "event_title": "Forge Night",
+            "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
+            "location": "Main Studio",
+            "event_url": "https://pastlives.example/events/5/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ event_title }} is starting now",
+                body_text="{{ event_title }} is starting now — {{ when }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ event_title }} is starting now",
+                body_text=(
+                    "{{ event_title }} is starting now — {{ when }}.\n"
+                    "See the event details: {{ event_url }}\n"
+                    "Where: {{ location }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    '<p><strong><a href="{{ event_url }}">{{ event_title }}</a></strong> is starting now — '
+                    "{{ when }}.</p>"
+                    "<p>Where: {{ location }}</p>"
+                    '<p><a href="{{ event_url }}">See the event details</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

@@ -1063,6 +1063,14 @@ a:hover { color: var(--hub-link-hover); }
     color: var(--color-tuscan-yellow);
 }
 
+/* Alpine x-show reveal (e.g. the "schedule for later" datetime picker). A plain
+   display:block class — never an inline style="display:…", which x-show strips on
+   first reveal (FRONTEND.md rule 12). */
+.pl-reveal {
+    display: block;
+    margin-top: 1rem;
+}
+
 /* A staff member's titles shown together as badges — wraps on narrow screens. */
 .pl-badge-group {
     display: flex;

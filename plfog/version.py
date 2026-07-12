@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.10"
+VERSION = "0.21.11"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.11",
+        "date": "2026-07-12",
+        "title": "Schedule event announcements and reminders",
+        "changes": [
+            (
+                "When you add an event, you can now choose when its announcement goes out — right away or at a set "
+                "time — and turn on automatic reminders 1, 3, or 7 days before, plus a \"happening now\" heads-up "
+                "right as it begins."
+            ),
+        ],
+    },
     {
         "version": "0.21.10",
         "date": "2026-07-12",
