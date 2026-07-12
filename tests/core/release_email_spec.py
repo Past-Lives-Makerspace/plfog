@@ -29,7 +29,7 @@ FIXTURE_CHANGELOG: list[dict[str, object]] = [
     {
         "version": "0.20.5",
         "date": "2026-07-10",
-        "title": "A home page when you sign in",
+        "title": "A home base when you sign in",
         "changes": ["See what's coming up.", "Jump to everywhere you go."],
         "screenshot": "home",
     },
@@ -148,7 +148,7 @@ def describe_feature_shot_choices():
 def describe_line_entries():
     def it_filters_to_a_single_line_newest_first(fixture_changelog):
         assert [str(e["title"]) for e in line_entries(["0.20"])] == [
-            "A home page when you sign in",
+            "A home base when you sign in",
             "One place for how our space works",
         ]
 
@@ -157,7 +157,7 @@ def describe_line_entries():
         # CHANGELOG order (newest-first) is preserved across the union — the older
         # 0.19 line lands last, after both 0.20 entries.
         assert titles == [
-            "A home page when you sign in",
+            "A home base when you sign in",
             "One place for how our space works",
             "An older release line",
         ]
@@ -187,7 +187,7 @@ def describe_build_release_cards():
     def it_yields_one_card_per_current_line_entry_newest_first(db, fixture_changelog, fake_storage):
         cards = build_release_cards("0.20.5")
         assert [c.title for c in cards] == [
-            "A home page when you sign in",
+            "A home base when you sign in",
             "One place for how our space works",
         ]
 
@@ -200,13 +200,13 @@ def describe_build_release_cards():
         # are both present — that is exactly the span the release email needs to cover.
         def it_spans_both_named_lines(db, fake_storage):
             titles = [c.title for c in build_release_cards("0.21.4", lines=["0.20", "0.21"])]
-            assert "A home page when you sign in" in titles  # a 0.20 feature
+            assert "A home base when you sign in" in titles  # a 0.20 feature
             assert "Your notifications, cleaned up" in titles  # a 0.21 feature
 
         def it_scopes_to_only_the_named_line(db, fake_storage):
             titles = [c.title for c in build_release_cards("0.21.4", lines=["0.21"])]
             assert "Your notifications, cleaned up" in titles
-            assert "A home page when you sign in" not in titles  # 0.20 is out of scope
+            assert "A home base when you sign in" not in titles  # 0.20 is out of scope
 
     def it_links_the_title_when_the_slug_maps_to_a_feature_page(db, fixture_changelog, fake_storage, settings):
         settings.MEMBER_BASE_URL = "https://members.example"
@@ -231,7 +231,7 @@ def describe_render_release_email():
         assert "v0.20" in html  # version badge
         assert "2026-07-10" in html  # release date
         assert "What's new" in html
-        assert "A home page when you sign in" in html
+        assert "A home base when you sign in" in html
         assert "See what&#x27;s coming up." in html or "See what's coming up." in html  # bullet
         assert "Open Past Lives" in html  # CTA button
         assert "Here&#x27;s what shipped." in html or "Here's what shipped." in html  # intro
@@ -241,7 +241,7 @@ def describe_render_release_email():
         cards = build_release_cards("0.20.5")
         html, _text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
         assert 'src="https://cdn.example/email/features/home.png"' in html
-        assert 'alt="A home page when you sign in"' in html
+        assert 'alt="A home base when you sign in"' in html
 
     def it_renders_a_text_only_card_when_there_is_no_screenshot(db, fixture_changelog, fake_storage):
         cards = build_release_cards("0.20.5")  # nothing captured → no image on either card
@@ -260,7 +260,7 @@ def describe_render_release_email():
         )
         assert "What's new at Past Lives" in text
         assert "Here's what shipped." in text  # intro flattened
-        assert "## A home page when you sign in" in text
+        assert "## A home base when you sign in" in text
         assert "• See what's coming up." in text
         assert "## One place for how our space works" in text
         assert "Open Past Lives: " in text
@@ -270,7 +270,7 @@ def describe_render_release_email():
         cards = build_release_cards("0.20.5")
         cards[1].included = False
         html, text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
-        assert "A home page when you sign in" in html
+        assert "A home base when you sign in" in html
         assert "One place for how our space works" not in html
         assert "One place for how our space works" not in text
 
