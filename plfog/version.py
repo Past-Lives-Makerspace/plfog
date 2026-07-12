@@ -11,12 +11,12 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "Connect your Discord — guilds stay in sync",
         "changes": [
             (
-                "Connect your Discord in a couple of taps and we'll instantly set up your guilds here to match the "
-                "ones you picked in the #choose-your-guild channel — no more keeping two lists in sync by hand."
+                "Connect your Discord in a couple of taps and we'll set up your guilds here to match the ones you "
+                "picked in #choose-your-guild."
             ),
             (
-                "After that it stays mirrored both ways: react to a guild on Discord and you're joined here; join or "
-                "leave a guild here and your Discord roles update to match."
+                "After that they stay mirrored both ways: react on Discord and you're joined here; join or leave "
+                "here and your Discord roles update."
             ),
         ],
     },
@@ -26,13 +26,14 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "A simpler way to send announcements",
         "changes": [
             (
-                "Sending an announcement is now a clean step-by-step flow: write your message, decide whether it also "
-                'goes out as an email (with a live preview of exactly how it will look, and a "send a test to me" '
-                "button), then choose whether to post it to Discord and which channel."
+                "Posting an announcement is now a guided flow: write your message, then decide whether it also goes "
+                "out as an email."
             ),
+            "Preview the email live and send a test to yourself before it goes out.",
+            "Then choose whether to post to Discord and which channel — and save a draft to finish later.",
             (
-                "You can save an announcement as a draft and finish it later. Discord posts ping @everyone by default "
-                "so the whole channel sees them — switch to @here (online members only) or no ping when it's lower-key."
+                "Discord posts ping @everyone by default; switch to @here (online members only) or no ping for "
+                "lower-key notes."
             ),
         ],
     },
@@ -41,11 +42,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "date": "2026-07-12",
         "title": "Schedule event announcements and reminders",
         "changes": [
-            (
-                "When you add an event, you can now choose when its announcement goes out — right away or at a set "
-                'time — and turn on automatic reminders 1, 3, or 7 days before, plus a "happening now" heads-up '
-                "right as it begins."
-            ),
+            "When you add an event, choose when its announcement goes out — right away or at a set time.",
+            ('Turn on automatic reminders 1, 3, or 7 days before, plus a "happening now" heads-up right as it begins.'),
         ],
     },
     {
@@ -54,10 +52,10 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": 'No more false "new sign-in" emails',
         "changes": [
             (
-                'We removed the "new sign-in from a new device" security email. It was misfiring — treating ordinary '
-                "network changes (like your phone hopping onto Wi-Fi) as a brand-new device — so it kept emailing you "
-                "when nothing had actually changed. Your sign-ins are still recorded in the activity log."
+                'We removed the "new sign-in from a new device" email — it kept misfiring on ordinary network '
+                "changes and emailing you when nothing had actually changed."
             ),
+            "Your sign-ins are still recorded in the activity log.",
         ],
     },
     {
@@ -66,13 +64,11 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "A page and QR code for every event",
         "changes": [
             (
-                "Every event on the Community Calendar now has its own shareable page — the date, time, place, and "
-                'details — plus an "Add to calendar" button so anyone can drop it onto their own calendar.'
+                "Every event on the Community Calendar now has its own shareable page — date, time, place, and "
+                'details — with an "Add to calendar" button.'
             ),
-            (
-                "Each event also has its own QR code you can download and print on a flyer or a door sign; scan it and "
-                "it opens straight to the event's page. The link keeps working, so anything you've printed stays good."
-            ),
+            "Each event also gets a QR code to print on a flyer or door sign; scan it to open the event page.",
+            "The link keeps working, so anything you've printed stays good.",
         ],
     },
     {
@@ -81,17 +77,16 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "Screens around the space",
         "changes": [
             (
-                "The monitors around the makerspace now run a slow, full-screen slideshow of what's coming up — "
-                "upcoming events, handy tips about the space, flyers, and the occasional guild announcement — "
-                "updating on their own throughout the day."
+                "The monitors around the makerspace now run a full-screen slideshow of what's coming up — events, "
+                "handy tips, flyers, and the occasional guild note."
             ),
             (
-                "Admins can build and reorder slides and set up a screen for each area (woodshop, lobby, classroom), "
-                "all from the new Slideshow tab in Site Settings."
+                "Admins build and reorder slides and set up a screen for each area — woodshop, lobby, classroom — "
+                "from the new Slideshow tab in Site Settings."
             ),
             (
-                "Every upcoming event on the screens now shows a QR code and a short link, so you can scan it and pull "
-                "up the full details on your phone."
+                "Every upcoming event on the screens shows a QR code and short link, so you can scan it and see full "
+                "details on your phone."
             ),
         ],
     },
@@ -101,9 +96,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "A QR code for every class",
         "changes": [
             (
-                "Every class now has its own QR code and share link right on its edit page — download it as an image, "
-                "print it on a flyer or a door sign, and anyone who scans it lands straight on the class's page to "
-                "read more or sign up."
+                "Every class now has its own QR code and share link on its edit page — print it on a flyer or door "
+                "sign, and scans land right on the class page."
             ),
             (
                 "The code keeps working even if the class's web address changes later, so anything you've already "
@@ -118,12 +112,12 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "screenshot": "notifications",
         "changes": [
             (
-                "The bell in the top bar now opens a full Notifications page instead of a cramped little pop-up — "
-                "much easier to read and scroll on your phone."
+                "The bell in the top bar now opens a full Notifications page instead of a cramped pop-up — much "
+                "easier to read and scroll on your phone."
             ),
             (
-                "Unread notifications are highlighted, and tapping one jumps you straight to whatever it's about. "
-                '"Mark all as read" clears your unread count in a single tap.'
+                'Unread items are highlighted, tapping one jumps to what it\'s about, and "Mark all as read" clears '
+                "your count in one tap."
             ),
         ],
     },
@@ -132,10 +126,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "date": "2026-07-10",
         "title": "A clearer sign-in",
         "changes": [
-            (
-                "Fixed a confusing extra login screen some members could stumble onto (an old staff-only page). "
-                "Signing in now always uses your email code — no dead ends."
-            ),
+            "Fixed a confusing extra login screen some members could stumble onto (an old staff-only page).",
+            "Signing in now always uses your email code — no dead ends.",
         ],
     },
     {
@@ -146,17 +138,19 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "changes": [
             (
                 "You can now propose an event for the Community Calendar right from FOG — add the date, time, and "
-                "details and send it in. Your guild's leads or an admin give it a quick review, and once it's "
-                "approved it shows up on the calendar for everyone. Guild leads and admins keep posting directly, "
-                "as before."
+                "details and send it in for review."
             ),
             (
-                "Keep track of what you've proposed: edit and resubmit if a reviewer asks for a tweak, or withdraw "
-                "one you've thought better of — and you'll get a note when a lead or admin responds."
+                "A guild lead or admin gives it a quick review; once approved it shows for everyone. Leads and "
+                "admins still post directly, as before."
             ),
             (
-                "Approved events can also publish out to the makerspace's linked Google Calendars, so they reach the "
-                "wider community, not just folks in FOG."
+                "Track what you've proposed: edit and resubmit if a reviewer asks, or withdraw one — you'll get a "
+                "note when they respond."
+            ),
+            (
+                "Approved events can also publish to the makerspace's linked Google Calendars, reaching the wider "
+                "community, not just folks in FOG."
             ),
         ],
     },
