@@ -423,17 +423,14 @@ def _client_ip(request: HttpRequest) -> str:
 
 
 def _member_for_email(email: str) -> "Member | None":
-    """Verified Member matching this email, or None."""
-    from membership.models import Member
+    """Verified Member matching this email, or None.
 
-    return (
-        Member.objects.filter(
-            user__emailaddress__email__iexact=email,
-            user__emailaddress__verified=True,
-        )
-        .distinct()
-        .first()
-    )
+    Thin wrapper over the shared :func:`membership.selectors.member_for_verified_email`
+    selector (the Discord link flow uses the same lookup); behavior is unchanged.
+    """
+    from membership.selectors import member_for_verified_email
+
+    return member_for_verified_email(email)
 
 
 def _registration_initial_for_user(user: "AbstractBaseUser | AnonymousUser | None") -> dict[str, str]:

@@ -884,6 +884,12 @@ a:hover { color: var(--hub-link-hover); }
     cursor: not-allowed;
 }
 
+/* Native option popups don't inherit the select's colors (FRONTEND Rule 13). */
+.hub-form-group select option {
+    background: var(--hub-input-bg);
+    color: var(--hub-text);
+}
+
 .hub-field-hint {
     display: block;
     font-size: 0.75rem;

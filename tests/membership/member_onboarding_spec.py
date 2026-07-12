@@ -28,6 +28,17 @@ def _profile_ready_member() -> Member:
     )
 
 
+def _profile_ready_member_unlinked_discord() -> Member:
+    """Profile essentials filled via a TYPED discord_handle (no linked Discord account)."""
+    return MemberFactory(
+        profile_photo="members/profile/avatar.png",
+        about_me="Potter and welder.",
+        pronouns=Member.Pronouns.SHE_HER,
+        discord_handle="@maker",
+        discord_user_id="",
+    )
+
+
 def describe_member_is_onboarded():
     def it_is_false_for_a_brand_new_member():
         assert MemberFactory().is_onboarded is False
@@ -68,21 +79,47 @@ def describe_member_is_onboarded():
 
 
 def describe_member_onboarding():
-    def it_builds_three_steps_in_order():
+    def it_builds_four_steps_in_order():
         checklist = MemberFactory().onboarding
-        assert [step.key for step in checklist.steps] == ["profile", "guilds", "voting"]
+        assert [step.key for step in checklist.steps] == ["profile", "guilds", "discord", "voting"]
 
-    def it_marks_only_voting_optional():
+    def it_marks_discord_and_voting_optional():
         checklist = MemberFactory().onboarding
         optional = {step.key: step.optional for step in checklist.steps}
-        assert optional == {"profile": False, "guilds": False, "voting": True}
+        assert optional == {"profile": False, "guilds": False, "discord": True, "voting": True}
 
     def it_links_each_step_to_its_page():
         checklist = MemberFactory().onboarding
         urls = {step.key: step.url for step in checklist.steps}
         assert urls["profile"] == f"{reverse('hub_user_settings')}?tab=profile"
         assert urls["guilds"] == f"{reverse('hub_user_settings')}?tab=guilds"
+        assert urls["discord"] == reverse("hub_discord_connect")
         assert urls["voting"] == reverse("hub_guild_voting")
+
+    def describe_discord_step():
+        def it_is_not_done_for_a_brand_new_member():
+            step = next(s for s in MemberFactory().onboarding.steps if s.key == "discord")
+            assert step.done is False
+            assert step.hint == "We'll set up your guilds instantly"
+
+        def it_is_done_only_when_discord_is_linked():
+            member = MemberFactory(discord_user_id="123456789012345678")
+            step = next(s for s in member.onboarding.steps if s.key == "discord")
+            assert step.done is True
+            assert step.hint == ""
+
+        def it_is_not_satisfied_by_a_typed_handle_alone():
+            # A free-text discord_handle does NOT satisfy the linked-account step.
+            member = MemberFactory(discord_handle="@maker", discord_user_id="")
+            step = next(s for s in member.onboarding.steps if s.key == "discord")
+            assert step.done is False
+
+        def it_does_not_change_is_onboarded():
+            # Optional: an unlinked Discord never blocks onboarding.
+            member = _profile_ready_member_unlinked_discord()
+            GuildMembershipFactory(member=member)
+            assert member.discord_is_linked is False
+            assert member.is_onboarded is True
 
     def it_shows_the_profile_percent_hint_while_undone():
         member = MemberFactory()  # brand-new → 20% complete
@@ -97,11 +134,11 @@ def describe_member_onboarding():
         assert profile_step.hint == ""
 
     def it_reflects_completed_steps_in_done_flags():
-        member = _profile_ready_member()
+        member = _profile_ready_member()  # _profile_ready_member links Discord
         GuildMembershipFactory(member=member)
         VotePreferenceFactory(member=member)
         done = {step.key: step.done for step in member.onboarding.steps}
-        assert done == {"profile": True, "guilds": True, "voting": True}
+        assert done == {"profile": True, "guilds": True, "discord": True, "voting": True}
 
     def describe_required_progress():
         def it_counts_only_profile_and_guilds():

@@ -333,6 +333,7 @@ EVENT_CHANGES_REQUESTED = "event.changes_requested"
 EVENT_DECLINED = "event.declined"
 EVENT_REMINDER = "event.reminder"
 EVENT_HAPPENING_NOW = "event.happening_now"
+DISCORD_GUILDS_IMPORTED = "discord_guilds_imported"
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -614,6 +615,22 @@ _NEW_EVENTS: list[EventType] = [
         category="Events",
         recipient=Recipients.EVENT_AUDIENCE,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        activity_kind=None,
+    ),
+    # 20. discord_guilds_imported — the one "we set up your N guilds" confirmation sent
+    #     right after a member links Discord and their reacted/app guilds are imported.
+    #     Addressed with an explicit ``email_to`` (transactional: sends regardless of
+    #     broadcast preferences — the member just proved account control via Discord
+    #     OAuth), so this is EMAIL-only with no in-app bell row (the resolver only governs
+    #     the un-used in-app/push fan-out — keep those off). The REGISTRANT resolver reads
+    #     ``context["member"]``.
+    EventType(
+        key=DISCORD_GUILDS_IMPORTED,
+        label="Your Past Lives guilds are set up",
+        description="After linking Discord, a one-time confirmation of the guilds we set you up in.",
+        category="Guilds",
+        recipient=Recipients.REGISTRANT,
+        channels=(_EMAIL_FORCED,),
         activity_kind=None,
     ),
 ]

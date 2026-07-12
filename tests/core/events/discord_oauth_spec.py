@@ -47,7 +47,7 @@ def describe_authorize_url():
         assert params["response_type"] == ["code"]
         assert params["client_id"] == ["cid"]
         assert params["redirect_uri"] == [_REDIRECT]
-        assert params["scope"] == ["identify"]
+        assert params["scope"] == ["identify email"]
         assert params["state"] == ["state-token"]
 
 
@@ -120,6 +120,83 @@ def describe_fetch_identity():
         respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"username": "nope"}))
         with pytest.raises(DiscordOAuthError):
             discord_oauth.fetch_identity("token")
+
+
+def describe_fetch_identity_email():
+    @respx.mock
+    def it_reads_the_email_and_verified_flag():
+        respx.get(_IDENTITY_URL).mock(
+            return_value=httpx.Response(
+                200, json={"id": "7", "username": "jo", "email": "jo@example.com", "verified": True}
+            )
+        )
+        identity = discord_oauth.fetch_identity("token")
+        assert identity.email == "jo@example.com"
+        assert identity.email_verified is True
+
+    @respx.mock
+    def it_defaults_email_blank_and_unverified_when_absent():
+        respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"id": "7"}))
+        identity = discord_oauth.fetch_identity("token")
+        assert identity.email == ""
+        assert identity.email_verified is False
+
+
+def _verified_member(email: str):
+    from allauth.account.models import EmailAddress
+    from django.contrib.auth.models import User
+    from django.db.models.signals import post_save
+    from factory.django import mute_signals
+
+    from tests.membership.factories import MemberFactory
+
+    with mute_signals(post_save):
+        user = User.objects.create_user(username=f"vm_{email}", email=email)
+    member = MemberFactory()
+    member.user = user
+    member.save(update_fields=["user"])
+    EmailAddress.objects.create(user=user, email=email, verified=True, primary=True)
+    return member
+
+
+def describe_resolve_member_from_code():
+    def _mock_identity(email: str, verified: bool):
+        respx.post(_TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "tok"}))
+        respx.get(_IDENTITY_URL).mock(
+            return_value=httpx.Response(200, json={"id": "42", "username": "jo", "email": email, "verified": verified})
+        )
+
+    @respx.mock
+    @pytest.mark.django_db
+    def it_returns_the_member_on_a_verified_email_match():
+        member = _verified_member("jo@example.com")
+        _mock_identity("jo@example.com", verified=True)
+        resolved, identity = discord_oauth.resolve_member_from_code("code", _REDIRECT)
+        assert resolved == member
+        assert identity.user_id == "42"
+
+    @respx.mock
+    @pytest.mark.django_db
+    def it_returns_none_when_the_email_is_unverified():
+        _verified_member("jo@example.com")
+        _mock_identity("jo@example.com", verified=False)
+        resolved, identity = discord_oauth.resolve_member_from_code("code", _REDIRECT)
+        assert resolved is None
+        assert identity.email == "jo@example.com"
+
+    @respx.mock
+    @pytest.mark.django_db
+    def it_returns_none_when_no_verified_account_matches():
+        _mock_identity("stranger@example.com", verified=True)
+        resolved, _identity = discord_oauth.resolve_member_from_code("code", _REDIRECT)
+        assert resolved is None
+
+    @respx.mock
+    @pytest.mark.django_db
+    def it_raises_on_an_oauth_failure():
+        respx.post(_TOKEN_URL).mock(return_value=httpx.Response(400))
+        with pytest.raises(DiscordOAuthError):
+            discord_oauth.resolve_member_from_code("code", _REDIRECT)
 
 
 def describe_link_member_from_code():

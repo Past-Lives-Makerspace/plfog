@@ -169,6 +169,9 @@
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.pronouns key="pronouns" label="Pronouns" %}
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.phone key="phone" label="Phone" %}
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.discord_handle key="discord_handle" label="Discord" %}
+                    {# Connect/disconnect CTA beside the free-text handle. Only the trigger button
+                       sits here (inside the form); its confirm modal is included below, OUTSIDE the form. #}
+                    {% include "hub/partials/_discord_connect_cta.html" with member=member id_suffix="profile" %}
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.other_contact_info key="other_contact_info" label="Other contact info" %}
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.about_me key="about_me" label="About me" %}
 
@@ -298,6 +301,11 @@
             <p class="hub-text-muted">List what you make and do — members can search the directory by skill.</p>
             {% include "hub/partials/profile_skills.html" %}
         </div>
+        {# Disconnect confirm modal — OUTSIDE the profile <form> (confirm_modal renders its own <form>). #}
+        {% if member.discord_is_linked %}
+          {% url 'hub_discord_disconnect' as discord_disconnect_url %}
+          {% include "components/confirm_modal.html" with confirm_id="disconnect-discord-profile" confirm_title="Disconnect Discord?" confirm_message="You'll stop getting DMs and your guild membership will no longer sync with Discord." confirm_action_url=discord_disconnect_url confirm_button_text="Disconnect" %}
+        {% endif %}
         {% else %}
         <div class="hub-card">
             <p class="hub-text-muted">Your account is not linked to a membership profile. Contact an admin for help.</p>

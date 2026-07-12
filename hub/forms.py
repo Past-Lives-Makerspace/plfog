@@ -19,6 +19,7 @@ from core.models import CalendarFeed, SiteConfiguration
 from core.widgets import RichTextEditorWidget
 from membership.models import (
     CommunityEvent,
+    DiscordGuildEmoji,
     Guild,
     GuildAnnouncement,
     GuildFAQItem,
@@ -540,6 +541,9 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_general_webhook_url",
             "discord_leadership_webhook_url",
             "discord_officers_webhook_url",
+            "discord_server_id",
+            "discord_role_message_channel_id",
+            "discord_role_message_id",
             "tab_payments_enabled",
             "class_registration_enabled",
             "class_registration_disabled_note",
@@ -575,6 +579,80 @@ CalendarFeedFormSet = forms.modelformset_factory(
     form=CalendarFeedForm,
     extra=0,
     can_delete=True,
+)
+
+
+class DiscordGuildEmojiForm(forms.ModelForm):
+    """One row in the Site Settings → Discord tab's emoji → guild map (D2)."""
+
+    class Meta:
+        model = DiscordGuildEmoji
+        fields = ["emoji", "guild"]
+        widgets = {
+            "emoji": forms.TextInput(attrs={"placeholder": "🔥 or name:id"}),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Only active guilds are pickable (the map drives live joins).
+        guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
+        guild_field.queryset = Guild.objects.filter(is_active=True).order_by("name")
+
+
+DiscordGuildEmojiFormSet = forms.modelformset_factory(
+    DiscordGuildEmoji,
+    form=DiscordGuildEmojiForm,
+    extra=0,
+    can_delete=True,
+)
+
+
+class GuildRoleForm(forms.ModelForm):
+    """One active guild's canonical outbound Discord role id(s) (D3).
+
+    The model field is a JSON list (Glass keeps two roles in lockstep); this form
+    presents it as a single space/comma-separated text input and parses it back.
+    """
+
+    discord_role_ids = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"placeholder": "e.g. 123456789012345678"}),
+        help_text=(
+            "Discord role id(s) assigned/removed when a member joins/leaves in-app. Separate "
+            "multiple with commas or spaces (most guilds have one; a collapsed guild like Glass has "
+            "two). Blank disables outbound role sync for this guild."
+        ),
+    )
+
+    class Meta:
+        model = Guild
+        fields: list[str] = []  # ``discord_role_ids`` is handled as a declared field below.
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields["discord_role_ids"].initial = " ".join(self.instance.discord_role_ids or [])
+
+    def clean_discord_role_ids(self) -> list[str]:
+        import re
+
+        raw = self.cleaned_data.get("discord_role_ids", "") or ""
+        ids = [token for token in re.split(r"[,\s]+", raw.strip()) if token]
+        for token in ids:
+            if not token.isdigit():
+                raise forms.ValidationError(f"'{token}' is not a valid Discord role id (digits only).")
+        return ids
+
+    def save(self, commit: bool = True) -> Guild:
+        self.instance.discord_role_ids = self.cleaned_data["discord_role_ids"]
+        return cast(Guild, super().save(commit=commit))
+
+
+GuildRoleFormSet = forms.modelformset_factory(
+    Guild,
+    form=GuildRoleForm,
+    extra=0,
+    can_delete=False,
 )
 
 

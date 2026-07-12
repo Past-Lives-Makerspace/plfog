@@ -144,7 +144,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -388,18 +388,134 @@
     </div>
 
     {# -------- Discord tab -------- #}
-    {# No inline display on this x-show wrapper (FRONTEND Rule 12); the two fields flow in normal block layout. #}
-    <div x-show="tab === 'discord'" x-cloak>
-      <div style="margin-bottom:1.25rem;">
-        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Shared Discord channels</h2>
-        <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
-          Set these so guild leads can post announcements to #general-chat, #leadership, and #guild-officers. Leave a field blank to hide that option from leads.
-          In Discord: Server Settings → Integrations → Webhooks → New Webhook → pick the channel → Copy Webhook URL.
-        </p>
+    {# No inline display on this x-show wrapper (FRONTEND Rule 12); the sections flow in normal block layout. #}
+    <div x-show="tab === 'discord'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
+
+      {# ---- Shared channels (existing) ---- #}
+      <div class="hub-card" style="padding:1.5rem;">
+        <div style="margin-bottom:1.25rem;">
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Shared Discord channels</h2>
+          <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+            Set these so guild leads can post announcements to #general-chat, #leadership, and #guild-officers. Leave a field blank to hide that option from leads.
+            In Discord: Server Settings → Integrations → Webhooks → New Webhook → pick the channel → Copy Webhook URL.
+          </p>
+        </div>
+        {% include "components/form_field.html" with field=form.discord_general_webhook_url %}
+        {% include "components/form_field.html" with field=form.discord_leadership_webhook_url %}
+        {% include "components/form_field.html" with field=form.discord_officers_webhook_url %}
       </div>
-      {% include "components/form_field.html" with field=form.discord_general_webhook_url %}
-      {% include "components/form_field.html" with field=form.discord_leadership_webhook_url %}
-      {% include "components/form_field.html" with field=form.discord_officers_webhook_url %}
+
+      {# ---- D1: Connection ids (guild-role sync) ---- #}
+      <div class="hub-card" style="padding:1.5rem;">
+        <div style="margin-bottom:1.25rem;">
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Guild-role sync connection</h2>
+          <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+            The server and reaction-role message that drive two-way guild membership. Leave any field blank to disable the sync.
+          </p>
+        </div>
+        {% include "components/form_field.html" with field=form.discord_server_id field_hint="The Discord server (guild) id. Blank disables the whole two-way guild sync." %}
+        {% include "components/form_field.html" with field=form.discord_role_message_channel_id field_hint="The channel id of the reaction-role message." %}
+        {% include "components/form_field.html" with field=form.discord_role_message_id field_hint="The reaction-role message id — update if it's reposted." %}
+      </div>
+
+      {# ---- D2: Emoji → guild map (list editor) ---- #}
+      <div class="hub-card" style="padding:1.5rem;">
+        <div style="margin-bottom:1rem;">
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Emoji → guild map</h2>
+          <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+            When a member reacts to the role message with an emoji below, they join the mapped guild. Many emojis can map to one guild (collapsed guilds). Unmapped emojis are ignored.
+          </p>
+        </div>
+        {{ emoji_formset.management_form }}
+        <div class="pl-emoji-list">
+          {% for f in emoji_formset %}
+          <div class="pl-emoji-row" style="display:flex;gap:0.75rem;align-items:flex-start;flex-wrap:wrap;margin-bottom:1rem;">
+            {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
+            <div class="hub-form-group" style="margin-bottom:0;flex:1;min-width:160px;">
+              <label for="{{ f.emoji.id_for_label }}">Emoji</label>
+              {{ f.emoji }}
+              <span class="hub-field-hint">Unicode char like 🔥, or name:id for a custom emoji.</span>
+              {% for error in f.emoji.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
+            </div>
+            <div class="hub-form-group" style="margin-bottom:0;flex:1;min-width:160px;">
+              <label for="{{ f.guild.id_for_label }}">Guild</label>
+              {{ f.guild }}
+              {% for error in f.guild.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
+            </div>
+            <div>
+              {% if f.instance.pk %}
+                <div style="display:none;">{{ f.DELETE }}</div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:1.75rem;"
+                        onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">Delete</button>
+              {% else %}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:1.75rem;"
+                        onclick="this.closest('.pl-emoji-row').remove();">Remove</button>
+              {% endif %}
+            </div>
+          </div>
+          {% empty %}
+          <p class="pl-emoji-empty" style="color:var(--hub-text-muted);font-size:0.875rem;">No emoji mappings yet. Add one so reacting on Discord joins a guild.</p>
+          {% endfor %}
+        </div>
+
+        {# Hidden empty-form template, cloned by the +Add button. #}
+        <template id="pl-emoji-empty-template">
+          <div class="pl-emoji-row" style="display:flex;gap:0.75rem;align-items:flex-start;flex-wrap:wrap;margin-bottom:1rem;">
+            {% with emoji_formset.empty_form as ef %}
+            {% for hidden in ef.hidden_fields %}{{ hidden }}{% endfor %}
+            <div class="hub-form-group" style="margin-bottom:0;flex:1;min-width:160px;">
+              <label>Emoji</label>
+              {{ ef.emoji }}
+              <span class="hub-field-hint">Unicode char like 🔥, or name:id for a custom emoji.</span>
+            </div>
+            <div class="hub-form-group" style="margin-bottom:0;flex:1;min-width:160px;">
+              <label>Guild</label>
+              {{ ef.guild }}
+            </div>
+            <div>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:1.75rem;"
+                      onclick="this.closest('.pl-emoji-row').remove();">Remove</button>
+            </div>
+            {% endwith %}
+          </div>
+        </template>
+
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--secondary" style="margin-top:0.25rem;"
+                onclick="
+                  const tpl = document.getElementById('pl-emoji-empty-template');
+                  const totalInput = document.getElementById('id_emoji-TOTAL_FORMS');
+                  const idx = parseInt(totalInput.value, 10);
+                  const html = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  const list = document.querySelector('.pl-emoji-list');
+                  const empty = list.querySelector('.pl-emoji-empty');
+                  if (empty) empty.remove();
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = html;
+                  list.appendChild(wrap.firstElementChild);
+                  totalInput.value = idx + 1;
+                ">
+          + Add mapping
+        </button>
+      </div>
+
+      {# ---- D3: Canonical outbound role per guild ---- #}
+      <div class="hub-card" style="padding:1.5rem;">
+        <div style="margin-bottom:1rem;">
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Guild → Discord role</h2>
+          <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+            When a member joins or leaves a guild in the app, these role id(s) are added/removed on Discord. Blank disables outbound sync for that guild. A collapsed guild (e.g. Glass) can list two role ids in lockstep.
+          </p>
+        </div>
+        {{ role_formset.management_form }}
+        {% for f in role_formset %}
+          {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
+          <div class="hub-form-group">
+            <label for="{{ f.discord_role_ids.id_for_label }}">{{ f.instance.name }}</label>
+            {{ f.discord_role_ids }}
+            {% for error in f.discord_role_ids.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
     </div>
 
     {# -------- Slideshow tab · Block A (Part 1: global timing) -------- #}

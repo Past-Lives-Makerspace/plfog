@@ -30,7 +30,9 @@ from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
     CalendarFeedFormSet,
+    DiscordGuildEmojiFormSet,
     GuildEditForm,
+    GuildRoleFormSet,
     MemberAdminEditForm,
     MemberSkillForm,
     OrgInfoPageForm,
@@ -1628,15 +1630,17 @@ def guild_banner_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
     """Current member joins this guild (idempotent)."""
+    from core.events import discord_roles
     from membership import orientations
     from membership.models import GuildMembership
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
     if member is not None:
-        _membership, created = GuildMembership.objects.get_or_create(guild=guild, member=member)
-        if created:
+        _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, member)
+        if created or upgraded:
             orientations.member_joined_guild(guild, member)
+        discord_roles.on_membership_changed(guild, member, joined=True)
         messages.success(request, f"You joined {guild.name}.")
     return redirect("hub_guild_detail", slug=guild.slug)
 
@@ -1645,12 +1649,14 @@ def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def guild_leave(request: HttpRequest, pk: int) -> HttpResponse:
     """Current member leaves this guild."""
+    from core.events import discord_roles
     from membership.models import GuildMembership
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
     if member is not None:
         GuildMembership.objects.filter(guild=guild, member=member).delete()
+        discord_roles.on_membership_changed(guild, member, joined=False)
         messages.success(request, f"You left {guild.name}.")
     return redirect("hub_guild_detail", slug=guild.slug)
 
@@ -1665,6 +1671,7 @@ def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
     ``joined`` when checked (join) and omits the field when unchecked (leave), so the
     presence of ``joined`` in POST is the switch state.
     """
+    from core.events import discord_roles
     from membership import orientations
     from membership.models import GuildMembership
 
@@ -1675,12 +1682,14 @@ def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
         trigger_toast(response, "Your account is not linked to a membership.", "error")
         return response
     if "joined" in request.POST:
-        _membership, created = GuildMembership.objects.get_or_create(guild=guild, member=member)
-        if created:
+        _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, member)
+        if created or upgraded:
             orientations.member_joined_guild(guild, member)
+        discord_roles.on_membership_changed(guild, member, joined=True)
         trigger_toast(response, f"You joined {guild.name}.", "success")
     else:
         GuildMembership.objects.filter(guild=guild, member=member).delete()
+        discord_roles.on_membership_changed(guild, member, joined=False)
         trigger_toast(
             response,
             f"You left {guild.name}. You'll stop getting its announcements — rejoin anytime.",
@@ -4394,13 +4403,38 @@ def _handle_release_announcement_action(
     return None, form, preview
 
 
+def _discord_editor_querysets() -> tuple[Any, Any]:
+    """Querysets backing the Discord tab's emoji map (D2) and per-guild role table (D3)."""
+    from membership.models import DiscordGuildEmoji
+
+    return DiscordGuildEmoji.objects.all(), Guild.objects.filter(is_active=True).order_by("name")
+
+
 def _save_site_settings(
     request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
-) -> tuple[HttpResponse | None, SiteSettingsForm, Any]:
-    """Bind + save the settings form and calendar formset. Returns ``(redirect_or_none, form, formset)``."""
+) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any]:
+    """Bind + save the settings form, calendar formset, and (Discord tab only) the emoji
+    map + per-guild role formsets. Returns ``(redirect_or_none, form, feed_formset,
+    emoji_formset, role_formset)``.
+
+    The Discord formsets are bound + validated + saved ONLY when the Discord tab posted
+    (``submitted_tab == "discord"``) so saving any other tab never requires the Discord
+    management forms; on a Discord validation error the bound formsets are returned so no
+    typed value is lost.
+    """
+    emoji_queryset, role_queryset = _discord_editor_querysets()
+    is_discord = request.POST.get("submitted_tab") == "discord"
     form = SiteSettingsForm(request.POST, instance=config)
     feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
-    if form.is_valid() and feed_formset.is_valid():
+    if is_discord:
+        emoji_formset = DiscordGuildEmojiFormSet(request.POST, queryset=emoji_queryset, prefix="emoji")
+        role_formset = GuildRoleFormSet(request.POST, queryset=role_queryset, prefix="guildroles")
+    else:
+        emoji_formset = DiscordGuildEmojiFormSet(queryset=emoji_queryset, prefix="emoji")
+        role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
+
+    discord_ok = (emoji_formset.is_valid() and role_formset.is_valid()) if is_discord else True
+    if form.is_valid() and feed_formset.is_valid() and discord_ok:
         form.save()
         instances = feed_formset.save(commit=False)
         for obj in feed_formset.deleted_objects:
@@ -4410,10 +4444,26 @@ def _save_site_settings(
             if not inst.name and not inst.ical_url:
                 continue
             inst.save()
+        if is_discord:
+            emoji_instances: list[Any] = emoji_formset.save(commit=False)
+            for emoji_obj in emoji_formset.deleted_objects:
+                emoji_obj.delete()
+            for emoji_inst in emoji_instances:
+                # Skip blank "+ Add" rows the user never filled in.
+                if not emoji_inst.emoji:
+                    continue
+                emoji_inst.save()
+            role_formset.save()
         messages.success(request, "Site settings saved.")
         target_tab = request.POST.get("submitted_tab", active_tab)
-        return redirect(f"{reverse('hub_admin_site_settings')}?tab={target_tab}"), form, feed_formset
-    return None, form, feed_formset
+        return (
+            redirect(f"{reverse('hub_admin_site_settings')}?tab={target_tab}"),
+            form,
+            feed_formset,
+            emoji_formset,
+            role_formset,
+        )
+    return None, form, feed_formset, emoji_formset, role_formset
 
 
 @fog_admin_required
@@ -4459,17 +4509,25 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             release_mode = True
             form = SiteSettingsForm(instance=config)
             feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
+            emoji_queryset, role_queryset = _discord_editor_querysets()
+            emoji_formset = DiscordGuildEmojiFormSet(queryset=emoji_queryset, prefix="emoji")
+            role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
             response, release_form, release_preview = _handle_release_announcement_action(request, action)
             if response is not None:
                 return response
             # else fall through to render (preview, or send with validation errors)
         else:
-            response, form, feed_formset = _save_site_settings(request, config, feed_queryset, active_tab)
+            response, form, feed_formset, emoji_formset, role_formset = _save_site_settings(
+                request, config, feed_queryset, active_tab
+            )
             if response is not None:
                 return response
     else:
         form = SiteSettingsForm(instance=config)
         feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
+        emoji_queryset, role_queryset = _discord_editor_querysets()
+        emoji_formset = DiscordGuildEmojiFormSet(queryset=emoji_queryset, prefix="emoji")
+        role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
         # "Draft from latest release" — enter Release mode with a prefilled draft.
         if request.GET.get("draft") == "release":
             release_mode = True
@@ -4489,6 +4547,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             **ctx,
             "form": form,
             "feed_formset": feed_formset,
+            "emoji_formset": emoji_formset,
+            "role_formset": role_formset,
             "zone_formset": zone_formset,
             "slide_formset": slide_formset,
             "active_tab": active_tab,

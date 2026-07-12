@@ -33,6 +33,7 @@ _BRAND_NEW_KEYS = {
     "event.declined",
     "event.reminder",
     "event.happening_now",
+    "discord_guilds_imported",
 }
 
 
@@ -61,10 +62,11 @@ def describe_event_registry():
 
     def describe_channels():
         def it_includes_in_app_on_for_every_per_recipient_event():
-            # The two member-email events are email-only (the invitee has no account;
-            # the login-invite reaches someone who hasn't signed in, so an in-app bell
-            # would never be seen), so the in-app invariant holds for every OTHER event.
-            email_only = {"member.invited", "member.login_invite"}
+            # These member-email events are email-only (the invitee has no account; the
+            # login-invite reaches someone who hasn't signed in; the Discord-guilds import
+            # is a transactional email_to confirmation with no bell row), so the in-app
+            # invariant holds for every OTHER event.
+            email_only = {"member.invited", "member.login_invite", "discord_guilds_imported"}
             for event in registry.EVENTS:
                 if event.key in email_only:
                     assert event.channel(Channel.IN_APP) is None

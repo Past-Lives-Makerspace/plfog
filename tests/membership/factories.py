@@ -13,6 +13,7 @@ from factory.django import mute_signals
 
 from membership.models import (
     CommunityEvent,
+    DiscordGuildEmoji,
     FundingSnapshot,
     Guild,
     GuildAnnouncement,
@@ -253,6 +254,14 @@ class GuildMembershipFactory(factory.django.DjangoModelFactory):
 
     guild = factory.SubFactory(GuildFactory)
     member = factory.SubFactory(MemberFactory)
+
+
+class DiscordGuildEmojiFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = DiscordGuildEmoji
+
+    guild = factory.SubFactory(GuildFactory)
+    emoji = factory.Sequence(lambda n: f"emoji{n}")
 
 
 class GuildStaffMembershipFactory(factory.django.DjangoModelFactory):

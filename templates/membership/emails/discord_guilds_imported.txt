@@ -1,0 +1,13 @@
+Hi {{ greeting_name }},
+
+Your Discord is connected — we set you up in {{ guilds|length }} guild{{ guilds|length|pluralize }}.
+
+You'll now get these guilds' announcements — leave any anytime:
+{% for guild in guilds %}
+- {{ guild.name }}: {{ guild.url }}{% endfor %}
+{% if not complete %}
+A few more may still be syncing — check back in about 15 minutes.
+{% endif %}
+Manage your guilds: {{ manage_url }}
+
+{% include "membership/emails/_footer.txt" %}

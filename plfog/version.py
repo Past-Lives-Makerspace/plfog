@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.13"
+VERSION = "0.21.14"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.14",
+        "date": "2026-07-12",
+        "title": "Connect your Discord — guilds stay in sync",
+        "changes": [
+            (
+                "Connect your Discord in a couple of taps and we'll instantly set up your guilds here to match the "
+                "ones you picked in the #choose-your-guild channel — no more keeping two lists in sync by hand."
+            ),
+            (
+                "After that it stays mirrored both ways: react to a guild on Discord and you're joined here; join or "
+                "leave a guild here and your Discord roles update to match."
+            ),
+        ],
+    },
     {
         "version": "0.21.13",
         "date": "2026-07-12",

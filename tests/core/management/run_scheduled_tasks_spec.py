@@ -47,6 +47,11 @@ def describe_run_scheduled_tasks():
         called = _tasks_called(hour=9)
         assert "send_event_reminders" in called
 
+    def it_syncs_discord_guild_roles_every_tick():
+        # Idempotent + no-op when unconfigured, so the reaction reconcile runs every tick.
+        called = _tasks_called(hour=9)
+        assert "sync_discord_guild_roles" in called
+
     def it_dispatches_bill_tabs_every_tick():
         # Decision 3: bill_tabs is wired into the always-run tuple (no --force) so
         # receipts + failed-charge retries run automatically. It self-gates inside

@@ -156,11 +156,13 @@ def describe_slideshow_tab_render():
 
     def it_offers_only_published_announcements_in_the_picker(client):
         _superuser(client)
-        published = GuildAnnouncementFactory(title="Live post")
-        pending = GuildAnnouncementFactory(pending=True, title="Draft post")
+        GuildAnnouncementFactory(title="Live post")
+        GuildAnnouncementFactory(pending=True, title="Draft post")
         html = client.get(reverse("hub_admin_site_settings")).content.decode()
-        assert f'value="{published.pk}"' in html
-        assert f'value="{pending.pk}"' not in html
+        # Assert on the announcement labels (robust against unrelated value="N" ids
+        # elsewhere on the page, e.g. guild-pk option values in the Discord tab editors).
+        assert "Live post" in html
+        assert "Draft post" not in html
 
 
 def describe_zone_editor_save():

@@ -210,6 +210,9 @@ urlpatterns = [
     path("settings/discord/connect/", discord_views.discord_connect, name="hub_discord_connect"),
     path("settings/discord/callback/", discord_views.discord_callback, name="hub_discord_callback"),
     path("settings/discord/disconnect/", discord_views.discord_disconnect, name="hub_discord_disconnect"),
+    # Anon-allowed low-friction link (posted in Discord): click once → linked + guilds set up.
+    path("discord/link/", discord_views.discord_link_start, name="hub_discord_link_start"),
+    path("discord/link/callback/", discord_views.discord_link_callback, name="hub_discord_link_callback"),
     # Old settings routes redirect to the tabbed User Settings page.
     path(
         "settings/profile/",

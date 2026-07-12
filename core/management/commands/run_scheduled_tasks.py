@@ -43,6 +43,7 @@ class Command(BaseCommand):
             "send_event_reminders",
             "bill_tabs",
             "retry_calendar_pushes",
+            "sync_discord_guild_roles",
         ):
             try:
                 call_command(task, stdout=self.stdout, stderr=self.stderr)

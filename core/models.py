@@ -206,6 +206,30 @@ class SiteConfiguration(models.Model):
         verbose_name="#guild-officers Discord webhook",
         help_text="Discord webhook for #guild-officers. Blank = the option is hidden from the picker.",
     )
+    discord_server_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Discord server (guild) id",
+        help_text="The Discord server id used for role assignment (outbound guild sync). "
+        "Blank disables the whole two-way guild sync.",
+    )
+    discord_role_message_channel_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Reaction-role channel id",
+        help_text="The channel id of the reaction-role message members react on. "
+        "Blank disables the inbound reaction sync.",
+    )
+    discord_role_message_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Reaction-role message id",
+        help_text="The id of the reaction-role message — update if it's reposted. "
+        "Blank disables the inbound reaction sync.",
+    )
     google_analytics_measurement_id = models.CharField(
         max_length=50,
         blank=True,

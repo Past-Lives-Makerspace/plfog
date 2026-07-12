@@ -605,6 +605,16 @@ class Member(models.Model):
                 hint="",
             ),
             OnboardingStep(
+                key="discord",
+                label="Connect your Discord",
+                # Keyed specifically off ``discord_is_linked`` (a linked OAuth account), NOT the
+                # free-text ``discord_handle`` — a typed handle does not satisfy this step.
+                done=self.discord_is_linked,
+                url=reverse("hub_discord_connect"),
+                optional=True,
+                hint="" if self.discord_is_linked else "We'll set up your guilds instantly",
+            ),
+            OnboardingStep(
                 key="voting",
                 label="Set a voting preference",
                 done=self._has_voting_preference,
@@ -1112,6 +1122,17 @@ class Guild(HeroCropMixin, models.Model):
             "(e.g. abc123@group.calendar.google.com). Find it in Google Calendar → Settings "
             "for that calendar → 'Integrate calendar' → Calendar ID. This is NOT the iCal URL "
             "above — leave blank to keep this guild's events in FOG only."
+        ),
+    )
+    discord_role_ids = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Discord role id(s) assigned AND removed together when a member joins or leaves this "
+            "guild in the app (outbound sync). A list of role-id strings — most guilds have one; a "
+            "collapsed guild (e.g. Glass) keeps two roles in lockstep. Empty disables outbound role "
+            "sync for this guild. Asymmetry to note: outbound assigns EVERY id listed here, while "
+            "inbound (a member's Discord reaction) accepts ANY emoji mapped to the guild."
         ),
     )
     calendar_color = models.CharField(
@@ -2625,14 +2646,66 @@ class GuildMeetingNoteAttachment(models.Model):
         return self.url
 
 
+class GuildMembershipManager(models.Manager["GuildMembership"]):
+    """Every writer of a :class:`GuildMembership` goes through here so ``source`` is
+    set correctly — the anti-oscillation key for the two-way Discord sync (spec §4.5).
+
+    Because ``unique(guild, member)`` means there is exactly one row per pair, the
+    *ordering* of an in-app join and a Discord reaction matters. A bare
+    ``get_or_create`` would leave a reaction-created row at ``source="discord"`` even
+    after the member explicitly joined in-app, so a later un-react would delete a guild
+    the member actually joined. These two methods make an explicit in-app join immune to
+    inbound removal (it is promoted to — and never demoted from — ``source="app"``).
+    """
+
+    def record_app_join(self, guild: Guild, member: Member) -> tuple[GuildMembership, bool, bool]:
+        """In-app join. Create as ``source="app"``; UPGRADE an existing ``source="discord"``
+        row to ``source="app"`` (an explicit join outranks a standing reaction).
+
+        Returns ``(membership, created, upgraded)`` — ``upgraded`` is True when an existing
+        discord-sourced row was promoted, so the caller can fire the join side-effect (the
+        guild lead never heard about the silent reaction; the real join is worth a notice).
+        """
+        membership, created = self.get_or_create(guild=guild, member=member, defaults={"source": self.model.Source.APP})
+        upgraded = False
+        if not created and membership.source != self.model.Source.APP:
+            membership.source = self.model.Source.APP
+            membership.save(update_fields=["source"])
+            upgraded = True
+        return membership, created, upgraded
+
+    def record_discord_join(self, guild: Guild, member: Member) -> tuple[GuildMembership, bool]:
+        """Inbound reaction mirror. Create as ``source="discord"``; NEVER downgrade an
+        existing ``source="app"`` row (``get_or_create`` with ``defaults`` leaves it
+        untouched). Returns ``(membership, created)``.
+        """
+        return self.get_or_create(guild=guild, member=member, defaults={"source": self.model.Source.DISCORD})
+
+
 class GuildMembership(models.Model):
     """Explicit opt-in affiliation between a Member and a Guild."""
+
+    class Source(models.TextChoices):
+        APP = "app", "In-app join"
+        DISCORD = "discord", "Discord reaction"
 
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="memberships", help_text="The guild.")
     member = models.ForeignKey(
         Member, on_delete=models.CASCADE, related_name="guild_memberships", help_text="The member."
     )
     joined_at = models.DateTimeField(auto_now_add=True)
+    source = models.CharField(
+        max_length=20,
+        choices=Source.choices,
+        default=Source.APP,
+        help_text=(
+            "How this membership was created: an in-app join (app) or a Discord-reaction mirror "
+            "(discord). Inbound reaction sync only ever adds/removes 'discord' rows and never touches "
+            "'app' rows — this is what keeps the two directions from fighting."
+        ),
+    )
+
+    objects = GuildMembershipManager()
 
     class Meta:
         constraints = [
@@ -2641,6 +2714,51 @@ class GuildMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member} in {self.guild.name}"
+
+
+class DiscordGuildEmojiManager(models.Manager["DiscordGuildEmoji"]):
+    """Query helper for the Discord reaction-emoji → guild map."""
+
+    def mapping(self) -> dict[str, Guild]:
+        """``{emoji: guild}`` for every configured row, in one query.
+
+        Drives both directions of the reaction sync: a member who reacts with an emoji in
+        this map joins the mapped guild. Unmapped emojis (no row) are skipped entirely.
+        """
+        return {row.emoji: row.guild for row in self.select_related("guild")}
+
+
+class DiscordGuildEmoji(models.Model):
+    """One reaction-emoji → guild mapping for the Discord role message (admin-editable).
+
+    Many emojis may point at one guild (collapsed guilds: two Glass emojis → one Glass
+    Guild). An emoji with no row is ignored in both directions.
+    """
+
+    emoji = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text=(
+            "The reaction emoji on the Discord role message: a unicode character (e.g. 🔥) or a "
+            "custom emoji as name:id (e.g. PrisonOutreach:123456789). A member who reacts with this "
+            "joins the guild below. Many emojis may point at one guild (collapsed guilds)."
+        ),
+    )
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="discord_emojis",
+        help_text="The guild a reaction with this emoji joins the member to.",
+    )
+
+    objects = DiscordGuildEmojiManager()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["emoji"], name="uq_discordguildemoji_emoji")]
+        ordering = ["guild__name", "emoji"]
+
+    def __str__(self) -> str:
+        return f"{self.emoji} → {self.guild.name}"
 
 
 class SkillCategory(models.Model):
