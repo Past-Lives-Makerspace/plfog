@@ -201,11 +201,11 @@ def describe_build_release_cards():
         def it_spans_both_named_lines(db, fake_storage):
             titles = [c.title for c in build_release_cards("0.21.4", lines=["0.20", "0.21"])]
             assert "A home page when you sign in" in titles  # a 0.20 feature
-            assert "Your notifications, on their own page" in titles  # a 0.21 feature
+            assert "Your notifications, cleaned up" in titles  # a 0.21 feature
 
         def it_scopes_to_only_the_named_line(db, fake_storage):
             titles = [c.title for c in build_release_cards("0.21.4", lines=["0.21"])]
-            assert "Your notifications, on their own page" in titles
+            assert "Your notifications, cleaned up" in titles
             assert "A home page when you sign in" not in titles  # 0.20 is out of scope
 
     def it_links_the_title_when_the_slug_maps_to_a_feature_page(db, fixture_changelog, fake_storage, settings):

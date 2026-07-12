@@ -27,7 +27,7 @@ pytestmark = pytest.mark.django_db
 
 # Stable feature titles from the real CHANGELOG, used to prove which lines an email spans.
 V20_TITLE = "A home page when you sign in"  # a 0.20 feature
-V21_TITLE = "Your notifications, on their own page"  # a 0.21 feature
+V21_TITLE = "Your notifications, cleaned up"  # a 0.21 feature
 
 
 def _activated(email: str) -> Member:
