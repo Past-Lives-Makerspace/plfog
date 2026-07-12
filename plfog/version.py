@@ -16,8 +16,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "button), then choose whether to post it to Discord and which channel."
             ),
             (
-                "You can save an announcement as a draft and finish it later, and — when it really matters — add an "
-                "@everyone or @here ping to the Discord post (off by default)."
+                "You can save an announcement as a draft and finish it later. Discord posts ping @everyone by default "
+                "so the whole channel sees them — switch to @here (online members only) or no ping when it's lower-key."
             ),
         ],
     },

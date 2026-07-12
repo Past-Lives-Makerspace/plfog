@@ -11,7 +11,7 @@
        step: {{ start_step }},
        audience: '{{ audience_value|escapejs }}',
        alsoEmail: {{ form.send_email.value|yesno:'true,false' }},
-       mention: '{{ form.mention.value|default:'none'|escapejs }}',
+       mention: '{{ form.mention.value|default:'everyone'|escapejs }}',
        discordChannel: '{{ form.discord_channel.value|default:'none'|escapejs }}',
        recipientCount: {{ initial_recipient_count }},
        maybePreview() { if (this.step === 2 && this.alsoEmail) { this.$refs.refreshPreview.click(); } }
@@ -89,8 +89,8 @@
           </label>
           {% endfor %}
         </div>
-        <p class="pl-field-hint pl-field-hint--warn" x-show="mention !== 'none'">This pings everyone in the channel — use it sparingly.</p>
-        <p class="pl-field-hint">Off by default. A ping only notifies people in the Discord channel picked above.</p>
+        <p class="pl-field-hint pl-field-hint--warn" x-show="mention !== 'none'">This pings people in the Discord channel picked above — make it count.</p>
+        <p class="pl-field-hint">On by default. Switch to "@here" (online members only) or "No ping" if you'd rather not notify everyone.</p>
       </div>
 
       <p class="pl-wizard-reach">Reaches <strong x-text="recipientCount"></strong> member(s).</p>

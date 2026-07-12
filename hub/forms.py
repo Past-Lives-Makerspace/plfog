@@ -1658,7 +1658,7 @@ class AnnouncementComposeForm(forms.Form):
         widget.configured_channels = configured
         if not self.is_bound:
             channel_field.initial = _default_discord_channel(configured)
-            self.fields["mention"].initial = AnnouncementDraft.Mention.NONE.value
+            self.fields["mention"].initial = AnnouncementDraft.Mention.EVERYONE.value
 
         # Alpine bindings for the single-form stepper (the URL-bearing hx-get on the audience
         # select is added at render time — the form must not reverse URLs). The @click opens the
