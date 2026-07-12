@@ -47,7 +47,7 @@ from classes.factories import (
     RegistrationFactory,
 )
 from classes.models import ClassOffering, Registration, RegistrationQuestion
-from membership.models import Member, MembershipPlan
+from membership.models import Guild, Member, MembershipPlan
 
 # Whole module is opt-in: it loads ~40 pages and writes files, so we keep it out
 # of the default e2e run. The runner script sets this for you.
@@ -191,6 +191,7 @@ def _seed_member_hub(member: Member) -> None:
         CommunityEventFactory,
         GuildAnnouncementFactory,
         GuildFactory,
+        GuildFAQItemFactory,
         GuildMembershipFactory,
         MemberFactory,
         OrgInfoPageFactory,
@@ -207,6 +208,17 @@ def _seed_member_hub(member: Member) -> None:
         guild=guilds[0],
         title="Spring glaze restock is in",
         body="New celadons and a fresh batch of clay just landed. Come make something.",
+    )
+    # A couple of FAQ items so the guild detail page (the "guild pages" feature shot) shows a real FAQ.
+    GuildFAQItemFactory(
+        guild=guilds[0],
+        question="Do I need to bring my own tools?",
+        answer="Nope — the studio stocks wheels, tools, and glazes. Just bring an apron.",
+    )
+    GuildFAQItemFactory(
+        guild=guilds[0],
+        question="How do I get oriented?",
+        answer="Book a guild orientation from the guild page and a lead will show you the ropes.",
     )
     OrgInfoPageFactory(
         intro="Everything you need to know about how our space and our guilds work.",
@@ -432,13 +444,23 @@ def describe_feature_screenshots():
         login_via_code(ADMIN_EMAIL)
         page.set_viewport_size(FEATURE_SHOT_VIEWPORT)
 
+        # The static registry pages (framed viewport shots) plus two dynamic, kwargs-based pages
+        # that can't live in the static registry: the polished guild detail page (the "guild pages"
+        # card) and its print QR flyer (the "QR codes" card — shot full-page so the whole flyer fits).
+        guild = Guild.objects.get(name="Ceramics Guild")
+        targets: list[tuple[str, str, str, bool]] = [(s, lbl, p, False) for s, lbl, p in _feature_pages()]
+        targets.append(("guild-pages", "Guild page", reverse("hub_guild_detail", kwargs={"slug": guild.slug}), False))
+        targets.append(("qr-codes", "Guild QR flyer", reverse("hub_guild_flyer", kwargs={"pk": guild.pk}), True))
+
         results: list[dict[str, object]] = []
-        for slug, label, path in _feature_pages():
+        for slug, label, path, full_page in targets:
             record: dict[str, object] = {"slug": slug, "label": label, "path": path}
             try:
                 page.goto(f"{live_server.url}{path}", wait_until="networkidle", timeout=15000)
                 page.wait_for_timeout(250)  # let entrance transitions settle
-                png = page.screenshot(full_page=False)  # framed viewport shot — right shape for a card
+                if slug == "qr-codes":
+                    page.add_style_tag(content=".no-print{display:none !important}")  # drop the flyer's screen toolbar
+                png = page.screenshot(full_page=full_page)
                 record["url"] = save_feature_shot(slug, png)
                 record["ok"] = True
             except Exception as exc:  # noqa: BLE001 — one bad page must not abort the run

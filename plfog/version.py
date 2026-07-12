@@ -76,6 +76,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.21.9",
         "date": "2026-07-12",
         "title": "QR codes, QR codes, QR codes!",
+        "screenshot": "qr-codes",
         "changes": [
             (
                 "Guilds, Classes, and Events all generate their own QR code now — download a ready-to-print share "
@@ -139,6 +140,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.20.1",
         "date": "2026-07-03",
         "title": "Guild pages got a glow-up",
+        "screenshot": "guild-pages",
         "changes": [
             (
                 "Orientations, Meeting Notes, and Events are now tabs right inside the guild editor, so you set "
