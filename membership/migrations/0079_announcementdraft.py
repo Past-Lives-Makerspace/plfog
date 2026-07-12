@@ -114,7 +114,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 "ordering": ["-updated_at"],
-                "indexes": [models.Index(fields=["author", "sent_at"], name="idx_announcementdraft_author_sent")],
+                "indexes": [models.Index(fields=["author", "sent_at"], name="idx_announcementdraft_author")],
                 "constraints": [
                     models.CheckConstraint(
                         condition=models.Q(

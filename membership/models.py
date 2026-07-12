@@ -2344,7 +2344,7 @@ class AnnouncementDraft(models.Model):
     class Meta:
         ordering = ["-updated_at"]
         indexes = [
-            models.Index(fields=["author", "sent_at"], name="idx_%(class)s_author_sent"),
+            models.Index(fields=["author", "sent_at"], name="idx_%(class)s_author"),
         ]
         constraints = [
             models.CheckConstraint(

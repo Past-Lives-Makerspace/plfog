@@ -28,7 +28,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "changes": [
             (
                 "When you add an event, you can now choose when its announcement goes out — right away or at a set "
-                "time — and turn on automatic reminders 1, 3, or 7 days before, plus a \"happening now\" heads-up "
+                'time — and turn on automatic reminders 1, 3, or 7 days before, plus a "happening now" heads-up '
                 "right as it begins."
             ),
         ],
