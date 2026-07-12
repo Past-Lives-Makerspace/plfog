@@ -58,7 +58,7 @@ def describe_catalogue_access():
     def it_shows_lock_status_for_forced_events(client):
         _admin(client)
         response = client.get(reverse("hub_admin_notifications"))
-        # new_login is force_email in the legacy catalogue → renders a "Forced" badge.
+        # member.invited forces its email channel → the catalogue renders a "Forced" badge.
         assert b"Forced" in response.content
 
 

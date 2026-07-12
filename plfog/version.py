@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.9"
+VERSION = "0.21.10"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.10",
+        "date": "2026-07-12",
+        "title": 'No more false "new sign-in" emails',
+        "changes": [
+            (
+                'We removed the "new sign-in from a new device" security email. It was misfiring — treating ordinary '
+                "network changes (like your phone hopping onto Wi-Fi) as a brand-new device — so it kept emailing you "
+                "when nothing had actually changed. Your sign-ins are still recorded in the activity log."
+            ),
+        ],
+    },
     {
         "version": "0.21.9",
         "date": "2026-07-12",

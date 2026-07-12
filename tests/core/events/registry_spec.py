@@ -71,12 +71,15 @@ def describe_event_registry():
                 assert spec is not None
                 assert spec.default is ChannelDefault.ON
 
-        def it_forces_email_for_force_email_triggers():
-            event = get_event("new_login")
-            spec = event.channel(Channel.EMAIL)
-            assert spec is not None
-            assert spec.default is ChannelDefault.FORCED
-            assert spec.is_forced
+        def it_forces_email_when_a_trigger_declares_force_email():
+            # No shipping trigger sets force_email anymore, but the seed translation still
+            # honors the flag: a forced trigger seeds an EMAIL channel with the FORCED default.
+            forced = triggers.Trigger(
+                key="forced_probe", label="Probe", description="d", category="Security", force_email=True
+            )
+            email = next(spec for spec in registry._channels_from_trigger(forced) if spec.channel is Channel.EMAIL)
+            assert email.default is ChannelDefault.FORCED
+            assert email.is_forced
 
         def it_forces_email_for_the_member_invite():
             # member.invited is a forced email (the invitee must receive it).
@@ -118,8 +121,8 @@ def describe_event_registry():
         def it_routes_orientation_requested_to_orienters():
             assert get_event("orientation_requested").recipient is Recipients.GUILD_ORIENTERS
 
-        def it_routes_new_login_to_single_user():
-            assert get_event("new_login").recipient is Recipients.SINGLE_USER
+        def it_routes_login_invite_to_single_user():
+            assert get_event("member.login_invite").recipient is Recipients.SINGLE_USER
 
         def it_routes_new_member_joined_to_fog_admins():
             assert get_event("new_member_joined").recipient is Recipients.FOG_ADMINS
@@ -151,10 +154,10 @@ def describe_event_registry():
 
     def describe_eventtype_helpers():
         def it_reports_declared_channels():
-            assert get_event("new_login").has_channel(Channel.EMAIL)
+            assert get_event("class_reminder").has_channel(Channel.EMAIL)
 
         def it_reports_undeclared_channels_as_absent():
-            assert not get_event("new_login").has_channel(Channel.DISCORD)
+            assert not get_event("class_reminder").has_channel(Channel.DISCORD)
 
         def it_lists_channels_in_declared_order():
             # class_published now REPLACES the seed to add the Discord broadcast channel,

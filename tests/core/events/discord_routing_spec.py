@@ -41,7 +41,7 @@ def describe_webhook_for_event_db_routing():
 
     def it_only_routes_the_matching_event(global_webhook):
         DiscordWebhookRoute.objects.create(event_key="class_published", webhook_url=_ROUTED, is_enabled=True)
-        assert discord_module.webhook_for_event("new_login") == global_webhook
+        assert discord_module.webhook_for_event("class_reminder") == global_webhook
 
 
 def describe_route_model():
@@ -86,7 +86,9 @@ def describe_save_routing():
         assert route.webhook_url == new_url
 
     def it_stores_blank_when_blank_is_submitted_with_no_existing_route():
-        route = DiscordWebhookRoute.save_routing(event_key="new_login", submitted_url="", is_enabled=True, editor=None)
+        route = DiscordWebhookRoute.save_routing(
+            event_key="class_reminder", submitted_url="", is_enabled=True, editor=None
+        )
         assert route.webhook_url == ""
 
     def it_records_the_editor_when_one_has_a_pk():

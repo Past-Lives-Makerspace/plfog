@@ -362,34 +362,6 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
-    "new_login": EventCopy(
-        placeholders=("member_name", "device", "login_at"),
-        sample_context={
-            "member_name": "Robin Vale",
-            "device": "Chrome on macOS",
-            "login_at": "today at 9:14 AM",
-        },
-        channels={
-            Channel.IN_APP: ChannelCopy(
-                subject="New sign-in to your account",
-                body_text="A new sign-in from {{ device }} {{ login_at }}.",
-            ),
-            Channel.EMAIL: ChannelCopy(
-                subject="New sign-in to your Past Lives account",
-                body_text=(
-                    "Hi {{ member_name }},\n\n"
-                    "We noticed a new sign-in from {{ device }} {{ login_at }}. "
-                    "If this was you, no action is needed.\n\nPast Lives Makerspace"
-                ),
-                body_html=(
-                    "<p>Hi {{ member_name }},</p>"
-                    "<p>We noticed a new sign-in from <strong>{{ device }}</strong> {{ login_at }}. "
-                    "If this was you, no action is needed.</p>"
-                    "<p>Past Lives Makerspace</p>"
-                ),
-            ),
-        },
-    ),
     # --- Phase 6: net-new events (design §4) ---------------------------------
     "member.invited": EventCopy(
         placeholders=("invitee_email", "signup_url"),

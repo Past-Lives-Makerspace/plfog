@@ -219,8 +219,6 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "lease_expiring": Recipients.LEASE_TENANT,
     # Admin broadcasts
     "site_announcement": Recipients.ALL_ACTIVE_MEMBERS,
-    # Security — forced, no toggle
-    "new_login": Recipients.SINGLE_USER,
 }
 
 # Map each legacy trigger key to its SiteActivity kind where one exists today
@@ -270,12 +268,6 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     "new_member_joined": "member_signup",
     "lease_expiring": None,
     "site_announcement": "site_announcement",
-    # new_login logs NO activity via emit: ``core.signals._on_login`` writes the
-    # LOGIN SiteActivity row unconditionally for EVERY login (the new_login event
-    # only fires on a never-seen device signature). If emit also logged LOGIN, a
-    # new-signature login would write the row twice. Keeping this ``None`` makes the
-    # signal's unconditional log the single source of the LOGIN activity.
-    "new_login": None,
 }
 
 

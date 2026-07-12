@@ -270,6 +270,7 @@ class SiteConfiguration(models.Model):
         verbose_name="Add a QR to event slides",
         help_text="Add a QR code to the community calendar on auto event slides.",
     )
+
     class Meta:
         verbose_name = "Site Settings"
         verbose_name_plural = "Site Settings"
@@ -998,19 +999,6 @@ class EventDelivery(models.Model):
     def __str__(self) -> str:
         suffix = f"@{self.period}" if self.period else ""
         return f"{self.event_key}→{self.target_ref}[{self.channel}]{suffix}"
-
-
-class KnownLoginSignature(models.Model):
-    """Records (user, signature) pairs already seen, to detect new-device logins."""
-
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="login_signatures")
-    signature = models.CharField(max_length=64, help_text="Hash of the browser/device user-agent.")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["user", "signature"], name="uq_loginsignature_user_signature"),
-        ]
 
 
 class NotificationTemplate(models.Model):
