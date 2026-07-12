@@ -3803,6 +3803,162 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     .pl-release-card { grid-template-columns: 1fr; }
 }
 
+/* ── Announcement compose wizard (/announcements/compose/) ───────────────────
+   One Alpine-stepper page. Every step gets its display from a class (never inline
+   on an x-show element — Rule 12); every color is a theme token. */
+.pl-wizard-lead {
+    color: var(--hub-text-muted);
+    margin: -0.5rem 0 1.25rem;
+    max-width: 60ch;
+}
+.pl-wizard { display: flex; flex-direction: column; gap: 1.5rem; }
+.pl-wizard-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.pl-wizard-nav__step {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+.pl-wizard-nav__n {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 50%;
+    background: var(--hub-elevated);
+    color: var(--hub-text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+.pl-wizard-nav__step.is-active {
+    border-color: var(--color-tuscan-yellow);
+    color: var(--hub-text);
+}
+.pl-wizard-nav__step.is-active .pl-wizard-nav__n {
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+}
+.pl-wizard-nav__step.is-done .pl-wizard-nav__n {
+    background: var(--hub-blue);
+    color: #fff;
+}
+.pl-wizard-step { display: block; }
+.pl-wizard-field { display: block; }
+.pl-wizard-errors { margin-bottom: 1rem; }
+.pl-wizard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-wizard-preview {
+    display: block;
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 10px;
+    background: var(--hub-surface);
+}
+.pl-wizard-preview__bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+.pl-wizard-preview__pane { min-height: 200px; }
+.pl-wizard-preview__loading {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    padding: 2rem 1rem;
+    text-align: center;
+}
+.pl-wizard-preview__frame {
+    max-height: 520px;
+    overflow: auto;
+}
+.pl-wizard-preview__iframe {
+    width: 100%;
+    height: 520px;
+    max-width: 100%;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 0 0 8px 8px;
+    background: #fff;
+}
+.pl-wizard-reach {
+    margin: 1.25rem 0 0;
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+}
+.pl-mention-picker { display: block; margin-top: 1.25rem; }
+.pl-field-hint--warn {
+    color: var(--color-tuscan-yellow);
+    font-weight: 600;
+    margin-top: 0.35rem;
+}
+.pl-spin {
+    display: none;
+    width: 13px;
+    height: 13px;
+    vertical-align: -2px;
+    margin-right: 4px;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: pl-spin 0.7s linear infinite;
+}
+.htmx-request .pl-spin, .pl-spin.htmx-request { display: inline-block; }
+@keyframes pl-spin { to { transform: rotate(360deg); } }
+
+/* "Your drafts" list (below the wizard) */
+.pl-drafts { margin-top: 1.5rem; }
+.pl-drafts__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+.pl-drafts__title { margin: 0; font-size: 1.05rem; }
+.pl-drafts__empty { color: var(--hub-text-muted); margin: 0; }
+.pl-draft-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.85rem 0;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-draft-row__meta { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.pl-draft-row__title { color: var(--hub-text); }
+.pl-draft-row__sub { color: var(--hub-text-muted); font-size: 0.8125rem; }
+.pl-draft-row__actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+.pl-draft-row__delete { margin-left: 0.25rem; }
+
+@media (max-width: 480px) {
+    .pl-draft-row { align-items: flex-start; }
+    .pl-draft-row__actions { width: 100%; }
+    .pl-wizard-actions .hub-btn { flex: 1 1 auto; }
+}
+
 /* ── Slideshow admin tab (Site Settings) ─────────────────────────────────────
    Editor UI for the signage slideshow. Renders under hub/base.html (hub.css +
    components.css), NOT signage.css. Layout lives in classes, never inline on an

@@ -132,6 +132,13 @@ def build_embed_payload(message: Message) -> dict[str, object]:
     event's ``title`` and ``body`` (as the embed description); ``url`` makes the
     title a clickable link when present.
 
+    When ``message.discord_mention`` is set (``"@here"`` / ``"@everyone"``), the ping
+    is added as top-level ``content`` — embeds themselves never notify anyone, so the
+    literal must ride in the message body — and ``allowed_mentions`` is set to
+    ``{"parse": ["everyone"]}``, the single Discord flag that authorizes BOTH ``@here``
+    and ``@everyone`` to actually fire (without it Discord renders the text but suppresses
+    the ping). A blank mention leaves the payload byte-identical to before.
+
     Args:
         message: The rendered :class:`core.events.channels.Message`.
 
@@ -145,7 +152,11 @@ def build_embed_payload(message: Message) -> dict[str, object]:
     }
     if message.url:
         embed["url"] = message.url
-    return {"embeds": [embed]}
+    payload: dict[str, object] = {"embeds": [embed]}
+    if message.discord_mention:
+        payload["content"] = message.discord_mention
+        payload["allowed_mentions"] = {"parse": ["everyone"]}
+    return payload
 
 
 def post_embed(webhook_url: str, message: Message) -> bool:

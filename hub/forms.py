@@ -1528,7 +1528,8 @@ class GuildAnnouncementDecisionForm(forms.Form):
 class SiteAnnouncementForm(forms.Form):
     """Admin form to broadcast a site-wide announcement to activated members.
 
-    Drives the Site Settings → Announcements composer (preview-then-send). ``body``
+    Drives the **Django-admin** composer (``plfog.admin_views.site_announcement`` at
+    ``/admin/announcement/``) — a separate surface from the hub compose wizard. ``body``
     accepts simple HTML (paragraphs / links) — it rides into the branded email shell.
     """
 
@@ -1552,6 +1553,161 @@ class SiteAnnouncementForm(forms.Form):
         if not body:
             raise forms.ValidationError("Add a message before sending.")
         return body
+
+
+def split_audience(raw: str) -> tuple[str, Guild | None]:
+    """Split the combined compose audience value into ``(audience, guild)``.
+
+    The wizard's single ``<select name="audience">`` carries one value per option —
+    ``"site"`` for everyone, or ``"guild:<pk>"`` for a specific guild — so the UI stays
+    one control while the model keeps its two fields (``audience`` + ``guild``). A
+    ``"guild:<pk>"`` whose pk doesn't resolve returns ``(GUILD, None)`` (the form / view
+    then reject it). An unrecognized value returns ``("", None)``.
+    """
+    from membership.models import AnnouncementDraft
+
+    if raw == AnnouncementDraft.Audience.SITE.value:
+        return AnnouncementDraft.Audience.SITE.value, None
+    if raw.startswith("guild:"):
+        pk = raw.split(":", 1)[1]
+        guild = Guild.objects.filter(pk=pk).first() if pk.isdigit() else None
+        return AnnouncementDraft.Audience.GUILD.value, guild
+    return "", None
+
+
+def discord_channel_choices(audience: str) -> list[tuple[str, str]]:
+    """The Discord channel radio choices for an audience.
+
+    A guild audience offers its own channel plus the shared ones; a site-wide audience
+    drops "Our Guild Channel" (there is no single guild to post to). "Don't post" is
+    always present.
+    """
+    channels = GuildAnnouncement.DiscordChannel
+    from membership.models import AnnouncementDraft
+
+    if audience == AnnouncementDraft.Audience.GUILD.value:
+        return list(channels.choices)
+    return [(channel.value, channel.label) for channel in channels if channel != channels.GUILD]
+
+
+class AnnouncementComposeForm(forms.Form):
+    """The compose wizard's single form — audience + message + email + Discord + @mention.
+
+    One combined ``audience`` ``<select>`` value (``site`` / ``guild:<pk>``) is split in
+    :meth:`clean` into the model's two fields via :func:`split_audience`, so the UI stays
+    one control while the model + DB check constraint stay the source of truth. The
+    audience the caller may address is enforced by the choices built in ``__init__`` (a
+    non-admin never even sees "site") AND re-checked server-side in the send view. ``body``
+    is required to *send* but may be blank in a saved draft, so it is sanitized (never
+    rejected) here; the send view enforces non-empty.
+    """
+
+    audience = forms.ChoiceField(label="Who is this for?")
+    title = forms.CharField(max_length=300, label="Subject")
+    body = forms.CharField(
+        widget=RichTextEditorWidget(attrs={"rows": 10}),
+        required=False,
+        label="Message",
+        help_text="Format with the toolbar — the formatted version goes out by email; "
+        "the bell and Discord get a plain-text version.",
+    )
+    send_email = forms.BooleanField(required=False, initial=True, label="Also send as email")
+    discord_channel = forms.ChoiceField(required=False, widget=ChannelRadioSelect, label="Post to Discord channel")
+    mention = forms.ChoiceField(
+        required=False,
+        widget=forms.RadioSelect,
+        label="Ping members",
+    )
+    expires_at = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+        label="Hide after (optional)",
+        help_text="Guild announcements only. Leave blank to keep it up indefinitely.",
+    )
+
+    def __init__(
+        self,
+        *args: Any,
+        is_admin: bool = False,
+        editable_guilds: Any = None,
+        config: SiteConfiguration | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        from membership.models import AnnouncementDraft
+
+        self._config = config or SiteConfiguration.load()
+        cast(forms.ChoiceField, self.fields["mention"]).choices = list(AnnouncementDraft.Mention.choices)
+
+        # Audience choices: "site" (admins only) + one option per editable guild.
+        choices: list[tuple[str, str]] = []
+        if is_admin:
+            choices.append((AnnouncementDraft.Audience.SITE.value, "Everyone (site-wide)"))
+        choices.extend((f"guild:{guild.pk}", guild.name) for guild in (editable_guilds or []))
+        cast(forms.ChoiceField, self.fields["audience"]).choices = choices
+
+        # The raw audience currently in play (bound data > initial > first choice), split so
+        # the Discord picker + guild validation are scoped correctly on both GET and POST.
+        self.audience_value = self._raw_audience(choices)
+        self.current_audience, self.current_guild = split_audience(self.audience_value)
+
+        channel_field = cast(forms.ChoiceField, self.fields["discord_channel"])
+        channel_field.choices = discord_channel_choices(self.current_audience)
+        configured = _configured_discord_channels(self.current_guild, self._config)
+        widget = cast(ChannelRadioSelect, channel_field.widget)
+        widget.configured_channels = configured
+        if not self.is_bound:
+            channel_field.initial = _default_discord_channel(configured)
+            self.fields["mention"].initial = AnnouncementDraft.Mention.NONE.value
+
+        # Alpine bindings for the single-form stepper (the URL-bearing hx-get on the audience
+        # select is added at render time — the form must not reverse URLs). The @click opens the
+        # native date picker from the whole field (FRONTEND Rule 14).
+        self.fields["audience"].widget.attrs.setdefault("x-model", "audience")
+        self.fields["send_email"].widget.attrs.setdefault("x-model", "alsoEmail")
+        self.fields["mention"].widget.attrs.setdefault("x-model", "mention")
+        # Track the chosen Discord channel so the @mention picker can hide when "Don't post".
+        widget.attrs.setdefault("@change", "discordChannel = $event.target.value")
+        self.fields["expires_at"].widget.attrs.setdefault(
+            "@click", "try { $event.currentTarget.showPicker() } catch (e) {}"
+        )
+
+    def _raw_audience(self, choices: list[tuple[str, str]]) -> str:
+        """The combined audience value to scope by: bound data, else initial, else first choice."""
+        if self.is_bound:
+            return (self.data.get("audience") or "").strip()
+        initial = self.initial.get("audience")
+        if initial:
+            return str(initial)
+        return choices[0][0] if choices else ""
+
+    def clean_discord_channel(self) -> str:
+        channel = cast(str, self.cleaned_data.get("discord_channel") or "")
+        if not channel:
+            return GuildAnnouncement.DiscordChannel.NONE.value
+        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
+        if channel != GuildAnnouncement.DiscordChannel.NONE and channel not in widget.configured_channels:
+            raise forms.ValidationError(_CHANNEL_UNCONFIGURED_ERROR)
+        return channel
+
+    def clean_body(self) -> str:
+        # Blank allowed while drafting; the send view enforces non-empty. Always sanitized.
+        return sanitize_rich_html(self.cleaned_data.get("body") or "")
+
+    def clean(self) -> dict[str, Any]:
+        from membership.models import AnnouncementDraft
+
+        cleaned = cast(dict[str, Any], super().clean())
+        audience, guild = split_audience(cleaned.get("audience") or "")
+        if not audience:
+            raise forms.ValidationError("Choose who this announcement is for.")
+        cleaned["audience"] = audience
+        cleaned["guild"] = guild
+        if audience == AnnouncementDraft.Audience.GUILD.value and guild is None:
+            self.add_error("audience", "Choose a guild for this announcement.")
+        cleaned["mention"] = cleaned.get("mention") or AnnouncementDraft.Mention.NONE.value
+        cleaned["send_email"] = bool(cleaned.get("send_email"))
+        return cleaned
 
 
 class ReleaseAnnouncementForm(forms.Form):

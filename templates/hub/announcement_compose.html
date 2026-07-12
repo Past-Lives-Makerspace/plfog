@@ -1,0 +1,112 @@
+{% extends "hub/base.html" %}
+{% block title %}Compose announcement{% endblock %}
+{% block content %}
+{% include "_components/rich_editor_assets.html" %}
+
+<h1 class="hub-page-title">Compose announcement</h1>
+<p class="pl-wizard-lead">Pick who it's for, write the message, design the email, and choose the Discord channel — all in one place. Save a draft to finish later.</p>
+
+<div class="hub-card pl-wizard"
+     x-data="{
+       step: {{ start_step }},
+       audience: '{{ audience_value|escapejs }}',
+       alsoEmail: {{ form.send_email.value|yesno:'true,false' }},
+       mention: '{{ form.mention.value|default:'none'|escapejs }}',
+       discordChannel: '{{ form.discord_channel.value|default:'none'|escapejs }}',
+       recipientCount: {{ initial_recipient_count }},
+       maybePreview() { if (this.step === 2 && this.alsoEmail) { this.$refs.refreshPreview.click(); } }
+     }"
+     x-init="$watch('step', () => maybePreview()); $watch('alsoEmail', () => maybePreview())"
+     @compose-count.window="recipientCount = $event.detail.count">
+
+  <ol class="pl-wizard-nav" aria-label="Compose progress">
+    <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 1, 'is-done': step > 1 }"><span class="pl-wizard-nav__n">1</span> Audience &amp; message</li>
+    <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 2, 'is-done': step > 2 }"><span class="pl-wizard-nav__n">2</span> Email</li>
+    <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 3 }"><span class="pl-wizard-nav__n">3</span> Discord</li>
+  </ol>
+
+  <form method="post" action="{% url 'hub_compose_send' %}" x-ref="wizardForm">
+    {% csrf_token %}
+    <input type="hidden" id="compose-draft-pk" name="draft_pk" value="{{ draft.pk|default:'' }}">
+    {# The Step-1 <select name="audience"> is the single source of the audience — no hidden dup
+       (an x-show-hidden field still submits its value, so a second input would double-post). #}
+
+    {% if form.non_field_errors %}
+    <div class="pl-field-errors pl-wizard-errors">{% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}</div>
+    {% endif %}
+
+    {# ───────── Step 1 — Audience + message ───────── #}
+    <section class="pl-wizard-step" x-show="step === 1">
+      {% include "components/form_field.html" with field=form.audience field_label="Who is this for?" %}
+      {% include "components/form_field.html" with field=form.title %}
+      {% include "components/form_field.html" with field=form.body %}
+      <div class="pl-wizard-field" x-show="audience.startsWith('guild')">
+        {% include "components/form_field.html" with field=form.expires_at %}
+      </div>
+      <div class="pl-wizard-actions">
+        <button type="button" class="hub-btn hub-btn--primary" @click="step = 2">Next: email &rarr;</button>
+      </div>
+    </section>
+
+    {# ───────── Step 2 — Email design + live preview ───────── #}
+    <section class="pl-wizard-step" x-show="step === 2">
+      {% include "components/toggle.html" with field=form.send_email toggle_label="Also send as email" toggle_description="Members always get the in-app bell. Turn this on to also email them the branded message below." %}
+
+      <div class="pl-wizard-preview" x-show="alsoEmail">
+        <div class="pl-wizard-preview__bar">
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-ref="refreshPreview"
+                  hx-post="{% url 'hub_compose_preview' %}" hx-include="closest form"
+                  hx-target="#compose-preview" hx-swap="innerHTML">
+            <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Refresh preview
+          </button>
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
+                  hx-post="{% url 'hub_compose_test' %}" hx-include="closest form" hx-swap="none">
+            <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Send a test to me
+          </button>
+        </div>
+        <div id="compose-preview" class="pl-wizard-preview__pane">
+          <p class="pl-wizard-preview__loading">Building your preview&hellip;</p>
+        </div>
+      </div>
+
+      <div class="pl-wizard-actions">
+        <button type="button" class="hub-btn hub-btn--ghost" @click="step = 1">&larr; Back</button>
+        <button type="button" class="hub-btn hub-btn--primary" @click="step = 3">Next: Discord &rarr;</button>
+      </div>
+    </section>
+
+    {# ───────── Step 3 — Discord channel + opt-in @mention ───────── #}
+    <section class="pl-wizard-step" x-show="step === 3">
+      {% include "hub/partials/_compose_channel_picker.html" %}
+
+      <div class="pl-form-group pl-mention-picker" x-show="discordChannel !== 'none'">
+        <label class="pl-form-label">Ping members (optional)</label>
+        <div class="pl-channel-picker" role="radiogroup" aria-label="Ping members">
+          {% for radio in form.mention %}
+          <label class="pl-channel-option">
+            {{ radio.tag }}
+            <span class="pl-channel-option__label">{{ radio.choice_label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        <p class="pl-field-hint pl-field-hint--warn" x-show="mention !== 'none'">This pings everyone in the channel — use it sparingly.</p>
+        <p class="pl-field-hint">Off by default. A ping only notifies people in the Discord channel picked above.</p>
+      </div>
+
+      <p class="pl-wizard-reach">Reaches <strong x-text="recipientCount"></strong> member(s).</p>
+
+      <div class="pl-wizard-actions">
+        <button type="button" class="hub-btn hub-btn--ghost" @click="step = 2">&larr; Back</button>
+        <button type="button" class="hub-btn hub-btn--ghost"
+                hx-post="{% url 'hub_compose_save_draft' %}" hx-include="closest form" hx-swap="none">Save draft</button>
+        <button type="submit" class="hub-btn hub-btn--primary"
+                @click="if (!confirm(`Send to ${recipientCount} member(s)? This can't be undone.`)) $event.preventDefault()">
+          Send announcement
+        </button>
+      </div>
+    </section>
+  </form>
+</div>
+
+{% include "hub/partials/_compose_drafts_list.html" %}
+{% endblock %}

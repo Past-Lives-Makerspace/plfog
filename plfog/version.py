@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.11"
+VERSION = "0.21.12"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.12",
+        "date": "2026-07-12",
+        "title": "A simpler way to send announcements",
+        "changes": [
+            (
+                "Sending an announcement is now a clean step-by-step flow: write your message, decide whether it also "
+                'goes out as an email (with a live preview of exactly how it will look, and a "send a test to me" '
+                "button), then choose whether to post it to Discord and which channel."
+            ),
+            (
+                "You can save an announcement as a draft and finish it later, and — when it really matters — add an "
+                "@everyone or @here ping to the Discord post (off by default)."
+            ),
+        ],
+    },
     {
         "version": "0.21.11",
         "date": "2026-07-12",

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from classes.models import ClassOffering
+    from core.events.channels import Message
 
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
 
@@ -1904,20 +1905,12 @@ class GuildAnnouncement(models.Model):
         Raises:
             ValueError: If ``discord_channel`` holds an unknown value (fail loudly).
         """
-        from core.models import SiteConfiguration
+        try:
+            return resolve_channel_webhook(self.discord_channel, self.guild)
+        except ValueError as exc:
+            raise ValueError(f"Unknown Discord channel '{self.discord_channel}' on announcement {self.pk}.") from exc
 
-        channel = self.discord_channel
-        if channel == self.DiscordChannel.GUILD:
-            return (self.guild.discord_webhook_url or "").strip()
-        if channel == self.DiscordChannel.GENERAL:
-            return (SiteConfiguration.load().discord_general_webhook_url or "").strip()
-        if channel == self.DiscordChannel.LEADERSHIP:
-            return (SiteConfiguration.load().discord_leadership_webhook_url or "").strip()
-        if channel == self.DiscordChannel.NONE:
-            return ""
-        raise ValueError(f"Unknown Discord channel '{channel}' on announcement {self.pk}.")
-
-    def notify_members(self) -> None:
+    def notify_members(self, *, discord_mention: str = "", email_message: "Message | None" = None) -> None:
         """Emit ``guild.announcement`` to the guild's members (Decision 4).
 
         Recipients resolve to every active member of this guild (scoped — not
@@ -1934,9 +1927,20 @@ class GuildAnnouncement(models.Model):
 
         The ``period`` is keyed to this announcement's pk so re-saving never double-
         notifies, while a different announcement (a different pk) still notifies.
+
+        Args:
+            discord_mention: An opt-in Discord ping literal (``"@here"`` / ``"@everyone"``,
+                or ``""`` for none), threaded onto the single Discord echo. Default off, so
+                every existing caller (the guild-edit create view, the proposal-approve path)
+                is byte-unaffected.
+            email_message: A pre-rendered branded EMAIL :class:`Message` override. When given
+                (the compose wizard passes the same shell its Step-2 preview renders), it
+                replaces the default copy-mode guild email so the sent email matches the
+                preview; when ``None`` (every existing caller) the copy-mode email stands.
         """
         from django.urls import reverse
 
+        from core.events.channels import Channel
         from core.events.emit import emit
         from membership.orientations import _absolute_url
 
@@ -1957,8 +1961,10 @@ class GuildAnnouncement(models.Model):
             },
             url=guild_url,
             period=f"announcement:{self.pk}",
+            messages={Channel.EMAIL: email_message} if email_message is not None else None,
             suppress_email=not self.send_email,
             suppress_guild_broadcast=(webhook == ""),
+            discord_mention=discord_mention,
         )
 
     # --- Review lifecycle (member proposals) ----------------------------------
@@ -2187,6 +2193,314 @@ class GuildAnnouncement(models.Model):
             url=url,
             period=period,
         )
+
+
+def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
+    """Map a :class:`GuildAnnouncement.DiscordChannel` value to its webhook URL.
+
+    Audience-agnostic twin of :meth:`GuildAnnouncement.resolve_discord_webhook` — it needs
+    no announcement instance, so both the guild composer and the site-wide composer share
+    one resolver. ``GUILD`` → the guild's own ``discord_webhook_url`` (``""`` when no guild
+    is given — a site-wide audience has no guild channel); ``GENERAL`` / ``LEADERSHIP`` →
+    the makerspace-wide :class:`~core.models.SiteConfiguration` webhooks; ``NONE`` → ``""``.
+
+    Args:
+        channel: A ``GuildAnnouncement.DiscordChannel`` value.
+        guild: The guild owning the ``GUILD`` channel, or ``None`` for a site-wide send.
+
+    Returns:
+        The resolved webhook URL, or ``""`` when the channel is "none" / unconfigured.
+
+    Raises:
+        ValueError: If ``channel`` holds an unknown value (fail loudly).
+    """
+    from core.models import SiteConfiguration
+
+    channels = GuildAnnouncement.DiscordChannel
+    if channel == channels.GUILD:
+        return (guild.discord_webhook_url or "").strip() if guild is not None else ""
+    if channel == channels.GENERAL:
+        return (SiteConfiguration.load().discord_general_webhook_url or "").strip()
+    if channel == channels.LEADERSHIP:
+        return (SiteConfiguration.load().discord_leadership_webhook_url or "").strip()
+    if channel == channels.NONE:
+        return ""
+    raise ValueError(f"Unknown Discord channel '{channel}'.")
+
+
+def build_announcement_email_html(title: str, body: str) -> str:
+    """Branded announcement email HTML — one builder for the preview and the real send.
+
+    ``body`` is the rich-text editor's sanitized HTML; :func:`render_rich_email_body`
+    inline-styles it for the dark card, the escaped title rides above it as an ``<h2>``,
+    and the branded shell wraps the whole fragment. Shared by the compose wizard's live
+    preview and the EMAIL override handed to the spine, so the two are byte-faithful.
+    """
+    from django.utils.html import escape
+
+    from core.events.templates import wrap_email_html
+    from core.html_sanitize import render_rich_email_body
+
+    fragment = f"<h2>{escape(title)}</h2>{render_rich_email_body(body)}"
+    return wrap_email_html(fragment)
+
+
+class AlreadySentError(Exception):
+    """Raised when :meth:`AnnouncementDraft.send` is called on an already-sent draft."""
+
+
+class AnnouncementDraftManager(models.Manager["AnnouncementDraft"]):
+    """Queries for the compose wizard's saved drafts."""
+
+    def for_user(self, user: "User") -> "models.QuerySet[AnnouncementDraft]":
+        """This user's resumable (unsent) drafts, newest first, guild pre-fetched."""
+        return self.filter(author=user, sent_at__isnull=True).select_related("guild")
+
+
+class AnnouncementDraft(models.Model):
+    """A saved-or-sent announcement composed in the wizard (`/announcements/compose/`).
+
+    One row backs the whole three-step compose: audience + rich message (Step 1), the
+    "also email" choice (Step 2), and the Discord channel + opt-in @mention (Step 3). A
+    draft can be saved (``sent_at`` NULL), resumed, and deleted; :meth:`send` stamps
+    ``sent_at`` (mark-sent, not delete-on-send) so the resume list is a trivial
+    ``sent_at IS NULL`` filter and the sent row survives as an audit record.
+
+    A **site** send is ephemeral (emit only — site-wide announcements have no durable
+    post today and gain none here). A **guild** send additionally materializes a published
+    :class:`GuildAnnouncement` so the post shows on the guild page, the edit list, and the
+    slideshow — see :meth:`send`.
+    """
+
+    class Audience(models.TextChoices):
+        SITE = "site", "Everyone (site-wide)"
+        GUILD = "guild", "A specific guild"
+
+    class Mention(models.TextChoices):
+        NONE = "none", "No ping"
+        HERE = "here", "@here (online members)"
+        EVERYONE = "everyone", "@everyone"
+
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="announcement_drafts",
+        help_text="Whose draft this is — drives the resume list and the send actor.",
+    )
+    audience = models.CharField(
+        max_length=10,
+        choices=Audience.choices,
+        default=Audience.SITE,
+        help_text="Who hears it: everyone site-wide, or one guild's joined members.",
+    )
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="announcement_drafts",
+        help_text="The target guild — set only when the audience is a specific guild.",
+    )
+    title = models.CharField(
+        max_length=300,
+        help_text="Subject / headline. Required even to save a draft (so the list row reads well).",
+    )
+    body = models.TextField(
+        blank=True,
+        default="",
+        help_text="Sanitized rich HTML. May be blank while drafting; required to send.",
+    )
+    send_email = models.BooleanField(
+        default=True,
+        help_text="Also send this announcement as a branded email (in-app bell fires regardless).",
+    )
+    discord_channel = models.CharField(
+        max_length=20,
+        choices=GuildAnnouncement.DiscordChannel.choices,
+        default=GuildAnnouncement.DiscordChannel.NONE,
+        help_text="Which Discord channel this echoes to (or 'none'). GUILD only for a guild audience.",
+    )
+    mention = models.CharField(
+        max_length=10,
+        choices=Mention.choices,
+        default=Mention.NONE,
+        help_text="Opt-in Discord ping — none, @here (online), or @everyone. Off by default.",
+    )
+    expires_at = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Guild only: last day the materialized post shows. Blank = never; ignored for a site send.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the draft was first created.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="Last edit — drives the resume-list ordering.")
+    sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set on send. NULL = a resumable draft; non-null = an immutable sent record.",
+    )
+
+    objects = AnnouncementDraftManager()
+
+    class Meta:
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["author", "sent_at"], name="idx_%(class)s_author_sent"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(audience="guild") | models.Q(guild__isnull=False),
+                name="ck_%(class)s_guild_audience",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        state = "sent" if self.sent_at else "draft"
+        return f"{self.title} — {self.get_audience_display()} ({state})"
+
+    def _mention_literal(self) -> str:
+        """The Discord ping string for :attr:`mention` — ``""`` / ``"@here"`` / ``"@everyone"``."""
+        return {self.Mention.NONE: "", self.Mention.HERE: "@here", self.Mention.EVERYONE: "@everyone"}[
+            self.Mention(self.mention)
+        ]
+
+    def build_email_message(self, base_url: str) -> "Message":
+        """The branded EMAIL :class:`Message` for this draft — the Step-2 preview *is* this.
+
+        The one builder renders both the live preview and the override handed to the spine
+        (``emit`` for a site send, ``notify_members(email_message=…)`` for a guild send), so
+        the preview is always byte-faithful to what sends. ``base_url`` is the site root for a
+        site send and the guild-detail URL for a guild send. The text part is the flattened
+        rich body (matching the bell / Discord render).
+        """
+        from core.events.channels import Message
+        from core.html_sanitize import rich_html_to_text
+
+        body_text = rich_html_to_text(self.body)
+        trigger = "guild_announcement" if self.audience == self.Audience.GUILD else "site_announcement"
+        return Message(
+            title=self.title,
+            body=f"{self.title}\n\n{body_text}\n\n{base_url}",
+            url=base_url,
+            html_body=build_announcement_email_html(self.title, self.body),
+            trigger_kind=trigger,
+        )
+
+    def recipient_count(self) -> int:
+        """How many activated members this draft reaches right now (the confirm-dialog count).
+
+        ``SITE`` → the all-active-members audience; ``GUILD`` → the guild's joined-member
+        audience — the exact resolvers the send fans out to, so the count matches delivery.
+        """
+        from core.events import resolvers
+        from core.events.registry import Recipients
+
+        if self.audience == self.Audience.GUILD:
+            return len(resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self.guild}))
+        return len(resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {}))
+
+    @classmethod
+    def save_from_form(
+        cls, form: Any, author: "User", instance: "AnnouncementDraft | None" = None
+    ) -> "AnnouncementDraft":
+        """Upsert a draft from a validated :class:`~hub.forms.AnnouncementComposeForm`.
+
+        Creates a new row or updates ``instance`` in place from the split audience/guild and
+        the sanitized body. A ``GUILD`` audience without a guild fails loudly (also enforced
+        by the form and the DB check constraint).
+        """
+        from django.core.exceptions import ValidationError
+
+        cd = form.cleaned_data
+        draft = instance or cls(author=author)
+        draft.author = author
+        draft.audience = cd["audience"]
+        draft.guild = cd.get("guild")
+        draft.title = cd["title"]
+        draft.body = cd["body"]  # already sanitized by the form's clean_body
+        draft.send_email = cd["send_email"]
+        draft.discord_channel = cd["discord_channel"]
+        draft.mention = cd["mention"]
+        draft.expires_at = cd.get("expires_at")
+        if draft.audience == cls.Audience.GUILD and draft.guild is None:
+            raise ValidationError("Choose a guild for this announcement.")
+        draft.save()
+        return draft
+
+    def send(self) -> int:
+        """Send the announcement and mark it sent — the wizard's one "fat" transition.
+
+        Guards, then branches on audience. A **site** send is emit-only (ephemeral). A
+        **guild** send first materializes a published :class:`GuildAnnouncement` (so the
+        post lands on the guild page, the edit list, and the slideshow), then reuses the
+        tested :meth:`GuildAnnouncement.notify_members` fan-out. Returns the recipient count.
+
+        Raises:
+            AlreadySentError: If this draft was already sent.
+            ValidationError: If the body sanitizes empty, or a guild audience has no guild.
+        """
+        from django.core.exceptions import ValidationError
+        from django.urls import reverse
+
+        from core.events.channels import Channel
+        from core.events.emit import emit
+        from core.html_sanitize import rich_html_to_text, sanitize_rich_html
+        from membership.orientations import _absolute_url
+
+        if self.sent_at is not None:
+            raise AlreadySentError("This announcement was already sent.")
+        body_html = sanitize_rich_html(self.body)
+        if not body_html:
+            raise ValidationError("Add a message before sending.")
+        if self.audience == self.Audience.GUILD and self.guild is None:
+            raise ValidationError("Choose a guild for this announcement.")
+
+        mention_str = self._mention_literal()
+
+        if self.audience == self.Audience.SITE:
+            site_url = _absolute_url("/")
+            webhook = resolve_channel_webhook(self.discord_channel, None)
+            result = emit(
+                "site_announcement",
+                actor=self.author,
+                context={
+                    "member_name": "there",
+                    "announcement_title": self.title,
+                    "announcement_body": rich_html_to_text(body_html),
+                    "site_url": site_url,
+                    "discord_broadcast_webhook": webhook,
+                },
+                url=site_url,
+                period=f"announce:{self.pk}:{timezone.now():%Y%m%d%H%M%S%f}",
+                messages={Channel.EMAIL: self.build_email_message(site_url)},
+                suppress_broadcast=(webhook == ""),
+                suppress_email=not self.send_email,
+                discord_mention=mention_str,
+            )
+            count = result.recipient_count
+        else:
+            guild = cast(Guild, self.guild)  # the guard above guarantees a guild for a GUILD audience
+            guild_url = _absolute_url(reverse("hub_guild_detail", args=[guild.slug]))
+            announcement = GuildAnnouncement.objects.create(
+                guild=guild,
+                author=self.author,
+                title=self.title,
+                # The guild page + slideshow render the body as plain text (|linebreaksbr),
+                # so store the flattened rich body — the rich formatting still shows in the
+                # branded email (the draft's own body keeps the rich HTML).
+                body=rich_html_to_text(body_html),
+                expires_at=self.expires_at,
+                send_email=self.send_email,
+                discord_channel=self.discord_channel,
+            )
+            announcement.notify_members(
+                discord_mention=mention_str,
+                email_message=self.build_email_message(guild_url),
+            )
+            count = self.recipient_count()
+
+        self.sent_at = timezone.now()
+        self.save(update_fields=["sent_at", "updated_at"])
+        return count
 
 
 class GuildMeetingNote(models.Model):

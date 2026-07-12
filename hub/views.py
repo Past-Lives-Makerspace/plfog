@@ -36,7 +36,6 @@ from hub.forms import (
     OrgInfoPageForm,
     ProfileSettingsForm,
     ReleaseAnnouncementForm,
-    SiteAnnouncementForm,
     SiteSettingsForm,
     SkillSuggestionForm,
     SlideshowSlideFormSet,
@@ -655,7 +654,6 @@ def _guild_edit_context(
     save via their own endpoint (the FAQ/Links idiom), so their formsets are unbound here.
     """
     from hub.forms import (
-        GuildAnnouncementForm,
         GuildEmailsForm,
         GuildFAQItemFormSet,
         GuildLinkFormSet,
@@ -673,7 +671,6 @@ def _guild_edit_context(
         "form": form if form is not None else GuildEditForm(instance=guild),
         "faq_formset": GuildFAQItemFormSet(instance=guild, prefix="faq"),
         "link_formset": GuildLinkFormSet(instance=guild, prefix="links"),
-        "announcement_form": GuildAnnouncementForm(guild=guild),
         "staff_by_member": guild.staff_by_member(),
         "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
         "is_admin": _viewing_as_admin(request),
@@ -1797,27 +1794,285 @@ def guild_image_alt_update(request: HttpRequest, pk: int, image_pk: int) -> Http
     return HttpResponse(status=204)
 
 
+# --- Announcement compose wizard (/announcements/compose/) -----------------------------
+# One Alpine-stepper page replacing the old site-settings plain composer AND the guild-edit
+# inline create form: Step 1 audience + rich message, Step 2 "also email" + live preview,
+# Step 3 Discord channel + opt-in @mention. Drafts (AnnouncementDraft) save / resume / delete.
+
+
+def _compose_editable_guilds(request: HttpRequest, member: Member | None) -> QuerySet[Guild]:
+    """Guilds this user may address in the composer: all active guilds for an admin, else staffed."""
+    if _viewing_as_admin(request):
+        return Guild.objects.filter(is_active=True).order_by("name")
+    if member is not None:
+        return member.staffed_guilds.filter(is_active=True).order_by("name")
+    return Guild.objects.none()
+
+
+def _can_compose(request: HttpRequest, member: Member | None) -> bool:
+    """True when the user can compose *something* — a fog admin, or a guild lead/staff."""
+    if _viewing_as_admin(request):
+        return True
+    return member is not None and member.staffed_guilds.filter(is_active=True).exists()
+
+
+def _compose_form_kwargs(request: HttpRequest) -> dict[str, Any]:
+    """Permission-derived kwargs for :class:`~hub.forms.AnnouncementComposeForm` (audience choices)."""
+    member = _get_member(request)
+    return {
+        "is_admin": _viewing_as_admin(request),
+        "editable_guilds": list(_compose_editable_guilds(request, member)),
+    }
+
+
+def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> HttpResponse | None:
+    """403 if the user can't address ``raw_audience`` (never trust the posted audience), else None."""
+    from hub.forms import split_audience
+    from membership.models import AnnouncementDraft
+
+    audience, guild = split_audience(raw_audience)
+    if audience == AnnouncementDraft.Audience.SITE.value:
+        return None if _viewing_as_admin(request) else HttpResponse("Forbidden", status=403)
+    if audience == AnnouncementDraft.Audience.GUILD.value and guild is not None and _can_edit_guild(request, guild):
+        return None
+    return HttpResponse("Forbidden", status=403)
+
+
+def _compose_count_for(audience: str, guild: Guild | None) -> int:
+    """Live recipient count for an audience (reuses the model's resolver-backed count)."""
+    from membership.models import AnnouncementDraft
+
+    if audience == AnnouncementDraft.Audience.GUILD.value and guild is None:
+        return 0
+    return AnnouncementDraft(audience=audience or AnnouncementDraft.Audience.SITE.value, guild=guild).recipient_count()
+
+
+def _draft_initial(draft: Any) -> dict[str, Any]:
+    """Form ``initial`` for resuming a draft — the combined audience value + the saved fields."""
+    from membership.models import AnnouncementDraft
+
+    audience_value = (
+        AnnouncementDraft.Audience.SITE.value
+        if draft.audience == AnnouncementDraft.Audience.SITE.value
+        else f"guild:{draft.guild_id}"
+    )
+    return {
+        "audience": audience_value,
+        "title": draft.title,
+        "body": draft.body,
+        "send_email": draft.send_email,
+        "discord_channel": draft.discord_channel,
+        "mention": draft.mention,
+        "expires_at": draft.expires_at,
+    }
+
+
+def _render_compose(request: HttpRequest, *, form: Any, draft: Any, start_step: int = 1) -> HttpResponse:
+    """Render the wizard page for GET and for an invalid-POST re-render (with field errors)."""
+    from membership.models import AnnouncementDraft
+
+    # The URL-bearing live-count refresh (fires on audience change; the form can't reverse URLs).
+    form.fields["audience"].widget.attrs.update(
+        {
+            "hx-get": reverse("hub_compose_count"),
+            "hx-trigger": "change",
+            "hx-include": "[name=audience]",
+            "hx-swap": "none",
+        }
+    )
+    count = _compose_count_for(form.current_audience, form.current_guild)
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/announcement_compose.html",
+        {
+            **ctx,
+            "form": form,
+            "draft": draft,
+            "start_step": start_step,
+            "audience_value": form.audience_value,
+            "initial_recipient_count": count,
+            "drafts": AnnouncementDraft.objects.for_user(cast(User, request.user)),
+        },
+    )
+
+
+def _compose_first_error(form: Any) -> str:
+    """A member-friendly message for the save-draft error toast (title is the common miss)."""
+    if form.errors.get("title"):
+        return "Add a subject before saving."
+    for errors in form.errors.values():
+        if errors:
+            return str(errors[0])
+    return "Fix the highlighted fields before saving."
+
+
+@login_required
+def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpResponse:
+    """The compose wizard page. GET renders all three steps + the drafts list.
+
+    A ``draft_pk`` resumes an unsent draft you own (a foreign / already-sent pk 404s);
+    ``?audience=guild:<pk>`` pre-scopes a fresh compose. A member who can compose nothing
+    (not an admin, leads no guild) is redirected to the separate propose flow.
+    """
+    from hub.forms import AnnouncementComposeForm
+    from membership.models import AnnouncementDraft
+
+    member = _get_member(request)
+    if not _can_compose(request, member):
+        return redirect("hub_guild_announcement_propose")
+
+    draft = None
+    initial: dict[str, Any] = {}
+    if draft_pk is not None:
+        draft = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+        initial = _draft_initial(draft)
+    else:
+        requested = request.GET.get("audience")
+        if requested:
+            initial["audience"] = requested
+
+    form = AnnouncementComposeForm(initial=initial, **_compose_form_kwargs(request))
+    return _render_compose(request, form=form, draft=draft, start_step=1)
+
+
 @login_required
 @require_POST
-def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
-    """Post a new announcement to a guild from the edit page. Editor only."""
-    from hub.forms import GuildAnnouncementForm
+def hub_compose_preview(request: HttpRequest) -> HttpResponse:
+    """HTMX: sanitize + brand the current title/body and return the iframe email preview."""
+    from core.html_sanitize import sanitize_rich_html
+    from membership.models import build_announcement_email_html
 
-    guild = get_object_or_404(Guild, pk=pk)
-    forbidden = _require_can_edit_guild(request, guild)
+    if not _can_compose(request, _get_member(request)):
+        return HttpResponse("Forbidden", status=403)
+    title = (request.POST.get("title") or "").strip()
+    body = sanitize_rich_html(request.POST.get("body") or "")
+    return render(
+        request,
+        "hub/partials/_compose_email_preview.html",
+        {"preview_html": build_announcement_email_html(title, body), "preview_subject": title},
+    )
+
+
+@login_required
+def hub_compose_count(request: HttpRequest) -> HttpResponse:
+    """HTMX: push the live recipient count (HX-Trigger) + OOB-swap the re-scoped channel picker."""
+    from hub.forms import AnnouncementComposeForm, split_audience
+
+    raw = request.GET.get("audience") or request.POST.get("audience") or ""
+    forbidden = _compose_audience_forbidden(request, raw)
     if forbidden is not None:
         return forbidden
-    form = GuildAnnouncementForm(request.POST, guild=guild)
-    if form.is_valid():
-        announcement = form.save(commit=False)
-        announcement.guild = guild
-        announcement.author = request.user
-        announcement.save()
-        announcement.notify_members()
-        messages.success(request, "Announcement posted.")
-    else:
-        messages.error(request, "Couldn't post the announcement — add a title and body.")
-    return redirect("hub_guild_edit", pk=guild.pk)
+    audience, guild = split_audience(raw)
+    count = _compose_count_for(audience, guild)
+    form = AnnouncementComposeForm(initial={"audience": raw}, **_compose_form_kwargs(request))
+    response = render(request, "hub/partials/_compose_channel_picker.html", {"form": form, "oob": True})
+    response["HX-Trigger"] = json.dumps({"compose-count": {"count": count}})
+    return response
+
+
+@login_required
+@require_POST
+def hub_compose_test(request: HttpRequest) -> HttpResponse:
+    """HTMX: send a branded test of the current draft to the author's own inbox (never the spine)."""
+    from core.email import send as send_email
+    from core.html_sanitize import rich_html_to_text, sanitize_rich_html
+    from membership.models import build_announcement_email_html
+
+    if not _can_compose(request, _get_member(request)):
+        return HttpResponse("Forbidden", status=403)
+    to = (cast(User, request.user).email or "").strip()
+    if not to:
+        response = HttpResponse(status=204)
+        trigger_toast(response, "Your account has no email address to send a test to.", "error")
+        return response
+    title = (request.POST.get("title") or "").strip()
+    body = sanitize_rich_html(request.POST.get("body") or "")
+    send_email(
+        to=to,
+        subject=title or "Announcement preview",
+        trigger_kind="announcement.test",
+        text_body=f"{title}\n\n{rich_html_to_text(body)}",
+        html_body=build_announcement_email_html(title, body),
+        best_effort=True,
+    )
+    response = HttpResponse(status=204)
+    trigger_toast(response, f"Test sent to {to}.")
+    return response
+
+
+@login_required
+@require_POST
+def hub_compose_save_draft(request: HttpRequest) -> HttpResponse:
+    """HTMX: upsert the draft. Valid → toast + OOB (draft_pk + list); invalid → error toast, no row."""
+    from hub.forms import AnnouncementComposeForm
+    from membership.models import AnnouncementDraft
+
+    raw = request.POST.get("audience") or ""
+    forbidden = _compose_audience_forbidden(request, raw)
+    if forbidden is not None:
+        return forbidden
+    draft_pk = request.POST.get("draft_pk") or ""
+    instance = None
+    if draft_pk:
+        instance = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+    form = AnnouncementComposeForm(request.POST, **_compose_form_kwargs(request))
+    if not form.is_valid():
+        response = HttpResponse(status=204)
+        trigger_toast(response, _compose_first_error(form), "error")
+        return response
+    draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
+    response = render(
+        request,
+        "hub/partials/_compose_save_result.html",
+        {"draft": draft, "drafts": AnnouncementDraft.objects.for_user(cast(User, request.user))},
+    )
+    trigger_toast(response, "Draft saved.")
+    return response
+
+
+@login_required
+@require_POST
+def hub_compose_send(request: HttpRequest) -> HttpResponse:
+    """Full-page POST: re-check the audience server-side, persist the draft, send, then redirect."""
+    from hub.forms import AnnouncementComposeForm
+    from membership.models import AnnouncementDraft
+
+    raw = request.POST.get("audience") or ""
+    forbidden = _compose_audience_forbidden(request, raw)
+    if forbidden is not None:
+        return forbidden
+    draft_pk = request.POST.get("draft_pk") or ""
+    instance = None
+    if draft_pk:
+        instance = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+    form = AnnouncementComposeForm(request.POST, **_compose_form_kwargs(request))
+    if not form.is_valid():
+        return _render_compose(request, form=form, draft=instance, start_step=1)
+    if not form.cleaned_data.get("body"):
+        form.add_error("body", "Add a message before sending.")
+        return _render_compose(request, form=form, draft=instance, start_step=1)
+    draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
+    count = draft.send()
+    messages.success(request, f"Announcement sent to {count} member(s).")
+    return redirect("hub_compose")
+
+
+@login_required
+@require_POST
+def hub_compose_delete_draft(request: HttpRequest, draft_pk: int) -> HttpResponse:
+    """HTMX (confirm modal): delete an unsent draft you own, then swap the refreshed list + toast."""
+    from membership.models import AnnouncementDraft
+
+    draft = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+    draft.delete()
+    response = render(
+        request,
+        "hub/partials/_compose_drafts_list.html",
+        {"drafts": AnnouncementDraft.objects.for_user(cast(User, request.user))},
+    )
+    trigger_toast(response, "Draft deleted.")
+    return response
 
 
 @login_required
@@ -4052,89 +4307,6 @@ def _activated_member_count() -> int:
     return len(resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {}))
 
 
-def _announcement_email_html(title: str, body: str) -> str:
-    """Branded announcement email HTML — shared by the preview and the real send.
-
-    ``body`` is the rich-text editor's sanitized HTML (or, for an unedited release
-    draft, legacy plain text); ``render_rich_email_body`` inline-styles it for the dark
-    card, the escaped title rides above it as an ``<h2>``, and the branded shell wraps
-    the whole fragment.
-    """
-    from django.utils.html import escape
-
-    from core.events.templates import wrap_email_html
-    from core.html_sanitize import render_rich_email_body
-
-    fragment = f"<h2>{escape(title)}</h2>{render_rich_email_body(body)}"
-    return wrap_email_html(fragment)
-
-
-def _send_site_announcement(request: HttpRequest, form: SiteAnnouncementForm) -> int:
-    """Fire ``site_announcement`` to activated members; return the recipient count.
-
-    The rich branded email is built here and handed to ``emit`` as a per-channel EMAIL
-    override (the bell + Discord still render from the plain seeded copy). Discord is
-    suppressed unless the admin ticked "Also post to Discord" — for the release send the
-    GitHub Action already posts it on merge to main, so it stays off to avoid a double.
-    """
-    from core.events.channels import Channel, Message
-    from core.events.emit import emit
-    from core.html_sanitize import rich_html_to_text
-
-    title = form.cleaned_data["title"]
-    body = form.cleaned_data["body"]  # sanitized rich HTML (SiteAnnouncementForm.clean_body)
-    body_text = rich_html_to_text(body)  # bell + Discord (and the email text part) get plain text
-    post_to_discord = form.cleaned_data["post_to_discord"]
-    site_url = request.build_absolute_uri("/")
-    email = Message(
-        title=title,
-        body=f"{title}\n\n{body_text}\n\n{site_url}",
-        url=site_url,
-        html_body=_announcement_email_html(title, body),
-        trigger_kind="site_announcement",
-    )
-    result = emit(
-        "site_announcement",
-        # Always authenticated — the view is @fog_admin_required (the else-branch never
-        # runs); the guard just narrows User | AnonymousUser to a Model for emit().
-        actor=request.user if request.user.is_authenticated else None,
-        context={
-            "member_name": "there",
-            "announcement_title": title,
-            "announcement_body": body_text,
-            "site_url": site_url,
-        },
-        url=site_url,
-        period=f"site:{dj_timezone.now():%Y%m%d%H%M%S%f}",
-        messages={Channel.EMAIL: email},
-        suppress_broadcast=not post_to_discord,
-    )
-    return result.recipient_count
-
-
-def _handle_announcement_action(
-    request: HttpRequest, action: str
-) -> tuple[HttpResponse | None, SiteAnnouncementForm, dict[str, object] | None]:
-    """Process an Announcements-tab POST. Returns ``(redirect_or_none, form, preview)``.
-
-    ``announce_send`` (valid) returns a redirect; ``announce_preview`` (valid) returns a
-    preview dict; an invalid form returns the bound form so the tab re-renders with errors.
-    """
-    form = SiteAnnouncementForm(request.POST)
-    if not form.is_valid():
-        return None, form, None
-    if action == "announce_send":
-        count = _send_site_announcement(request, form)
-        messages.success(request, f"Announcement sent to {count} member(s).")
-        return redirect(f"{reverse('hub_admin_site_settings')}?tab=announcements"), form, None
-    preview: dict[str, object] = {
-        "html": _announcement_email_html(form.cleaned_data["title"], form.cleaned_data["body"]),
-        "count": _activated_member_count(),
-        "post_to_discord": form.cleaned_data["post_to_discord"],
-    }
-    return None, form, preview
-
-
 def _release_announcement_initial() -> dict[str, str]:
     """Prefilled subject / preheader / intro for a fresh Release-mode draft."""
     from core.release_email import current_line_entries
@@ -4152,10 +4324,9 @@ def _release_announcement_initial() -> dict[str, str]:
 def _send_release_announcement(request: HttpRequest, subject: str, html: str, text: str, summary: str) -> int:
     """Fire the release-update ``site_announcement`` to activated members; return the count.
 
-    Same mechanism as :func:`_send_site_announcement` — a per-channel EMAIL override on the
-    spine, Discord suppressed (the GitHub Action auto-posts on merge), and a **timestamp-
-    unique** period (NOT version-keyed) so an admin who caught a bad card can send a
-    corrected version and have it actually deliver.
+    A per-channel EMAIL override on the spine, Discord suppressed (the GitHub Action
+    auto-posts on merge), and a **timestamp-unique** period (NOT version-keyed) so an admin
+    who caught a bad card can send a corrected version and have it actually deliver.
     """
     from core.events.channels import Channel, Message
     from core.events.emit import emit
@@ -4262,8 +4433,6 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()
-    announce_form = SiteAnnouncementForm()
-    announce_preview: dict[str, object] | None = None
     release_mode = False
     release_form: ReleaseAnnouncementForm | None = None
     release_preview: dict[str, object] | None = None
@@ -4282,17 +4451,15 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             url = reverse("hub_admin_site_settings")
             return redirect(f"{url}?tab=legacy-cms")
 
-        # Announcements tab — preview-then-send, separate from the settings form.
+        # Announcements tab — the Release composer (preview-then-send), separate from the
+        # settings form. The plain sitewide composer moved to the /announcements/compose/
+        # wizard, so only the release mode (mode=release) is handled here now.
         if action in ("announce_preview", "announce_send", "announce_test"):
             active_tab = "announcements"
+            release_mode = True
             form = SiteSettingsForm(instance=config)
             feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
-            # The Release composer submits mode=release; the freeform composer does not.
-            if request.POST.get("mode") == "release":
-                release_mode = True
-                response, release_form, release_preview = _handle_release_announcement_action(request, action)
-            else:
-                response, announce_form, announce_preview = _handle_announcement_action(request, action)
+            response, release_form, release_preview = _handle_release_announcement_action(request, action)
             if response is not None:
                 return response
             # else fall through to render (preview, or send with validation errors)
@@ -4331,8 +4498,6 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "instructor_sync_rows": instructor_sync_rows,
             "legacy_cms_unmatched": legacy_cms_unmatched,
             "config": config,
-            "announce_form": announce_form,
-            "announce_preview": announce_preview,
             "release_mode": release_mode,
             "release_form": release_form,
             "release_preview": release_preview,

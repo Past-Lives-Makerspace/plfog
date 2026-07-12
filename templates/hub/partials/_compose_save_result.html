@@ -1,0 +1,11 @@
+{% comment %}
+HTMX save-draft response (the Save-draft button uses hx-swap="none", so only these OOB swaps
+apply): the hidden draft_pk (so the next save updates the SAME row — no duplicate) and the
+refreshed drafts list.
+
+Params:
+  draft  — the just-saved AnnouncementDraft
+  drafts — the refreshed AnnouncementDraft queryset
+{% endcomment %}
+<input type="hidden" id="compose-draft-pk" name="draft_pk" value="{{ draft.pk }}" hx-swap-oob="true">
+{% include "hub/partials/_compose_drafts_list.html" with drafts=drafts oob=True %}
