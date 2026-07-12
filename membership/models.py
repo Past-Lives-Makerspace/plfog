@@ -2730,6 +2730,48 @@ class CommunityEvent(models.Model):
         interval_part = "" if interval == 1 else f"INTERVAL={interval};"
         return f"FREQ=MONTHLY;{interval_part}BYDAY={ordinal}{weekday}"
 
+    def ics_vevent_lines(self) -> list[str]:
+        """The iCal ``VEVENT`` lines (``BEGIN:VEVENT`` … ``END:VEVENT``) for this event.
+
+        Shared by the per-event :meth:`ics_document` and the combined
+        ``hub.views.calendar_export_ics`` loop so the two never drift. A recurring
+        series emits ONE ``RRULE`` (subscribers expand it themselves — no per-occurrence
+        VEVENTs); ``DESCRIPTION``/``LOCATION`` are RFC-5545 escaped.
+        """
+        from membership.ical import ical_escape
+
+        lines = [
+            "BEGIN:VEVENT",
+            f"UID:community-{self.pk}@pastlives",
+            f"SUMMARY:{ical_escape(self.title)}",
+            f"DTSTART:{self.starts_at.strftime('%Y%m%dT%H%M%SZ')}",
+            f"DTEND:{self.ends_at.strftime('%Y%m%dT%H%M%SZ')}",
+        ]
+        rrule = self.ical_rrule()
+        if rrule:
+            lines.append(f"RRULE:{rrule}")
+        if self.description:
+            lines.append(f"DESCRIPTION:{ical_escape(self.description[:250])}")
+        if self.location:
+            lines.append(f"LOCATION:{ical_escape(self.location)}")
+        lines.append("END:VEVENT")
+        return lines
+
+    def ics_document(self) -> str:
+        """A standalone single-``VEVENT`` ``VCALENDAR`` string for this event's public
+        "Add to calendar" download. Reuses :meth:`ics_vevent_lines`, so the per-event
+        add and the combined calendar export always agree."""
+        lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//Past Lives Makerspace//Community Calendar//EN",
+            "CALSCALE:GREGORIAN",
+            "METHOD:PUBLISH",
+            *self.ics_vevent_lines(),
+            "END:VCALENDAR",
+        ]
+        return "\r\n".join(lines) + "\r\n"
+
     # --- Properties -----------------------------------------------------------
 
     @property
@@ -2754,11 +2796,43 @@ class CommunityEvent(models.Model):
         return when
 
     @property
-    def absolute_url(self) -> str:
-        """Absolute Community-Calendar URL for notifications (no per-event page in v1)."""
+    def public_url(self) -> str:
+        """Absolute URL of this event's public detail page.
+
+        The page is reachable logged-out, so a QR scanned off a flyer or the wall
+        signage resolves for anyone. Events have no slug (title only), so the
+        pk-based URL is inherently stable.
+        """
         from django.urls import reverse
 
-        return f"{settings.MEMBER_BASE_URL}{reverse('hub_community_calendar')}"
+        return f"{settings.MEMBER_BASE_URL}{reverse('hub_event_detail', args=[self.pk])}"
+
+    @property
+    def qr_url(self) -> str:
+        """The URL the QR encodes — the public page directly.
+
+        Events have no slug, so the pk URL is already stable and needs no slug-proof
+        permalink redirect (unlike :class:`~classes.models.ClassOffering`). Kept as a
+        property for API parity with the class QR helpers.
+        """
+        return self.public_url
+
+    @property
+    def absolute_url(self) -> str:
+        """Absolute URL for notifications, signage, and calendar links — the event's own page."""
+        return self.public_url
+
+    def qr_svg(self) -> str:
+        """Inline, CSS-scalable SVG QR of the event's public page (crisp at any print size)."""
+        from membership.qr import qr_svg as render_qr
+
+        return render_qr(self.qr_url)
+
+    def qr_png_bytes(self) -> bytes:
+        """PNG bytes of the same QR — a raster download for print/handout."""
+        from membership.qr import qr_png_bytes as render_png
+
+        return render_png(self.qr_url)
 
     # --- Publish --------------------------------------------------------------
 

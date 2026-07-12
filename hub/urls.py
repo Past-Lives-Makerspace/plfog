@@ -227,6 +227,11 @@ urlpatterns = [
     path("events/<int:pk>/retry-sync/", views.event_retry_sync, name="hub_event_retry_sync"),
     path("events/review/", views.event_review_queue, name="hub_event_review_queue"),
     path("events/review/<int:pk>/decision/", views.event_review_decision, name="hub_event_review_decision"),
+    # Public per-event pages + QR (bare-pk route can't shadow the siblings above: it
+    # won't match the literal events/add/ nor any deeper events/<int>/<segment>/ path).
+    path("events/<int:pk>/", views.event_detail, name="hub_event_detail"),
+    path("events/<int:pk>/event.ics", views.event_ics, name="hub_event_ics"),
+    path("events/<int:pk>/qr.<str:fmt>/", views.event_qr, name="hub_event_qr"),
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
     path("manage/voting/", views.voting_overview, name="hub_admin_voting_overview"),
     path("manage/voting/history/", views.voting_history, name="hub_admin_voting_history"),

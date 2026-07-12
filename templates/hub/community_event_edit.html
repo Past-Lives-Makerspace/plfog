@@ -28,6 +28,22 @@
       {% include "components/form_field.html" with field=form.recurrence field_hint="A monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
     </div>
 
+    {# Share & Print QR. Only a published, saved event has a live public page — otherwise a
+       placeholder (no dead QR). The shared card's copy input is name-less and its controls are
+       type="button"/<a>, so it's safe inside this <form> and never rides along on Save. #}
+    {% if event.pk and event.moderation_state == 'published' %}
+      {% url 'hub_event_qr' event.pk 'svg' as event_qr_svg_url %}
+      {% url 'hub_event_qr' event.pk 'png' as event_qr_png_url %}
+      <div style="margin-bottom:1.5rem;">
+        {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the event's public page — print it on signage, add it to a flyer, or hand it out." qr_svg=event.qr_svg share_url=event.public_url svg_url=event_qr_svg_url png_url=event_qr_png_url %}
+      </div>
+    {% else %}
+      <div class="hub-card pl-qr-share" style="margin-bottom:1.5rem;">
+        <h2 class="hub-detail-label pl-qr-share__title">Share &amp; Print</h2>
+        <p class="hub-text-muted pl-qr-share__hint">A QR code and share link appear here once this event is published.</p>
+      </div>
+    {% endif %}
+
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
       Saving a new event posts an announcement to Discord and adds it to the Community Calendar. Editing an existing event won't re-announce it.{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
     </p>

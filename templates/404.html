@@ -1,0 +1,23 @@
+{% extends "hub/base.html" %}
+{% comment %}
+Friendly, themed not-found page. Extends hub/base.html so it auto-degrades for an anonymous
+scanner (public topbar, no sidebar) and stays themed for a logged-in member. Rendered by
+Django's default handler404 under DEBUG=False. It touches only context-processor vars
+(app_version) and request, so it renders safely for anon; undefined per-view vars render
+empty (never raise), so an authenticated 404 degrades gracefully too — no 500-inside-404.
+{% endcomment %}
+{% block title %}Page not found{% endblock %}
+{% block content %}
+<div class="pl-event-detail">
+  <div class="hub-card pl-event-detail__card">
+    <h1 class="hub-page-title pl-event-detail__title">We couldn't find that page.</h1>
+    <p class="hub-text-muted">The link may be out of date, or the event may have been removed.</p>
+    <div class="pl-event-detail__actions">
+      <a class="hub-btn hub-btn--primary" href="{% url 'classes:public_list' %}">Browse Past Lives classes</a>
+      {% if user.is_authenticated %}
+        <a class="hub-btn hub-btn--ghost" href="{% url 'hub_community_calendar' %}">View the Community Calendar</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

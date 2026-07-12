@@ -3329,17 +3329,19 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     height: 100%;
 }
 
-/* Class "Share & Print" — a vertical card that sits in the right half of the edit split. */
-.pl-class-share__title {
+/* "Share & Print" QR card — a vertical card shared by the class edit split (right half)
+   and the community-event edit form (full width). Layout only; every color is a theme
+   token, so it reads correctly on both Obsidian (dark) and Slate (light). */
+.pl-qr-share__title {
     margin: 0 0 0.35rem;
 }
 
-.pl-class-share__hint {
+.pl-qr-share__hint {
     font-size: 0.8125rem;
     margin: 0 0 1.25rem;
 }
 
-.pl-class-share__qr {
+.pl-qr-share__qr {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -3347,12 +3349,12 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     margin-bottom: 1.25rem;
 }
 
-.pl-class-share .pl-qr-preview {
+.pl-qr-share .pl-qr-preview {
     width: 168px;
     height: 168px;
 }
 
-.pl-class-share__qr-caption {
+.pl-qr-share__qr-caption {
     font-size: 0.7rem;
     font-weight: 600;
     letter-spacing: 0.06em;
@@ -3360,27 +3362,27 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     color: var(--hub-text-muted);
 }
 
-.pl-class-share__field {
+.pl-qr-share__field {
     margin-bottom: 1rem;
 }
 
-.pl-class-share__link {
+.pl-qr-share__link {
     display: flex;
     gap: 0.5rem;
     align-items: center;
 }
 
-.pl-class-share__link input {
+.pl-qr-share__link input {
     flex: 1 1 auto;
     min-width: 0;
 }
 
-.pl-class-share__link .hub-btn {
+.pl-qr-share__link .hub-btn {
     flex: 0 0 auto;
     min-width: 4.75rem;
 }
 
-.pl-class-share__actions {
+.pl-qr-share__actions {
     display: flex;
     gap: 0.75rem;
     flex-wrap: wrap;
@@ -3407,6 +3409,97 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     .pl-edit-split__side {
         order: -1;
     }
+}
+
+/* ========================================
+   Public event detail page (/events/<pk>/) — a centered single column of cards.
+   Layout + theme tokens only, so it reads correctly on both Obsidian (dark) and
+   Slate (light) and for the anonymous public-topbar view. Reused by templates/404.html.
+   ======================================== */
+.pl-event-detail {
+    max-width: 640px;
+    margin: 0 auto;
+}
+
+.pl-event-detail__card {
+    padding: 1.75rem;
+}
+
+.pl-event-detail__kind {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.pl-event-detail__guild {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--color-tuscan-yellow);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.pl-event-detail__guild:hover {
+    background: var(--hub-elevated);
+}
+
+.pl-event-detail__type {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+
+.pl-event-detail__badge {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border);
+    color: var(--hub-text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.pl-event-detail__title {
+    margin: 0 0 1rem;
+}
+
+.pl-event-detail__row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0 0 0.6rem;
+    color: var(--hub-text);
+}
+
+.pl-event-detail__icon {
+    flex: 0 0 auto;
+    color: var(--hub-text-muted);
+}
+
+.pl-event-detail__past {
+    margin: 0.75rem 0 0;
+    color: var(--hub-text-muted);
+    font-style: italic;
+}
+
+.pl-event-detail__description {
+    margin-top: 1.25rem;
+    color: var(--hub-text);
+    line-height: 1.6;
+}
+
+.pl-event-detail__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.75rem;
 }
 
 /* ========================================

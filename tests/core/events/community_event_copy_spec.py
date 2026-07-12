@@ -7,8 +7,9 @@ import pytest
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-from core.events.copy import placeholders_for, sample_context_for
+from core.events.copy import default_copy_for, placeholders_for, sample_context_for
 from core.events.registry import Channel, ChannelDefault, get_event
+from core.events.rendering import render_html, render_text
 from core.events.resolvers import all_guild_leads, resolve
 from membership.models import GuildStaffMembership, Member
 from tests.membership.factories import (
@@ -104,3 +105,33 @@ def describe_event_audiences():
         event = get_event("event.community_published")
         recipients = resolve(event.recipient, {})
         assert member.user.pk in {user.pk for user, _ in recipients}
+
+
+def describe_event_url_copy_points_at_the_event_page():
+    """After repointing absolute_url from the calendar to each event's own page, the
+    four event_url blocks must link to the event page (not '/calendar/') and say so."""
+
+    @pytest.mark.parametrize(
+        "key",
+        ["event.guild_published", "event.community_published", "event.lead_meeting_published", "event.approved"],
+    )
+    def it_renders_the_event_page_url_and_updated_link_text(key):
+        ctx = sample_context_for(key)
+        copy = default_copy_for(key, Channel.EMAIL)
+        html = str(render_html(copy.body_html, ctx))
+        text = render_text(copy.body_text, ctx)
+        assert "/events/5/" in html
+        assert "/events/5/" in text
+        assert "/calendar/" not in html
+        assert "/calendar/" not in text
+        assert "See the event details" in html
+        assert "See the event details" in text
+
+    @pytest.mark.parametrize("key", ["event.changes_requested", "event.declined"])
+    def it_never_surfaces_an_event_url_on_a_non_publish_decision(key):
+        # changes_requested renders edit_url only, declined renders propose_url only —
+        # neither has a live public page, so neither may carry a dead event-page link.
+        assert "event_url" not in sample_context_for(key)
+        copy = default_copy_for(key, Channel.EMAIL)
+        assert "{{ event_url }}" not in copy.body_html
+        assert "{{ event_url }}" not in copy.body_text

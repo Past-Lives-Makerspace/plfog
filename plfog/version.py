@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.8"
+VERSION = "0.21.9"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.9",
+        "date": "2026-07-12",
+        "title": "A page and QR code for every event",
+        "changes": [
+            (
+                "Every event on the Community Calendar now has its own shareable page — the date, time, place, and "
+                'details — plus an "Add to calendar" button so anyone can drop it onto their own calendar.'
+            ),
+            (
+                "Each event also has its own QR code you can download and print on a flyer or a door sign; scan it and "
+                "it opens straight to the event's page. The link keeps working, so anything you've printed stays good."
+            ),
+        ],
+    },
     {
         "version": "0.21.8",
         "date": "2026-07-12",

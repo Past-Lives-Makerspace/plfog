@@ -1,53 +1,15 @@
 {% comment %}
-Share & Print card for a class — its public page as a scannable, printable QR plus a
-share link and SVG/PNG downloads. Sits in the right half of the class-edit split; expects
-`offering` (saved). The link + QR both use the slug-proof permalink (offering.qr_url), so
-they always match and a printed code survives a slug change.
+Share & Print card for a class — thin wrapper over the shared components/qr_share_card.html.
+Expects `offering` (saved). The link + QR both use the slug-proof permalink (offering.qr_url),
+so they always match and a printed code survives a slug change.
+
+The two-state hint (published vs not-yet-published) is computed HERE and passed to the shared
+card as a single string, since the shared card takes one pre-computed hint.
 {% endcomment %}
-<div class="hub-card pl-class-share" x-data="classShare()">
-  <h2 class="hub-detail-label pl-class-share__title">Share &amp; Print</h2>
-  <p class="hub-text-muted pl-class-share__hint">
-    {% if offering.status == 'published' %}
-      This QR opens the class's public page — print it on signage, add it to a flyer, or hand it out.
-    {% else %}
-      This QR opens the class's public page once it's published. You can print it now — the link stays the same.
-    {% endif %}
-  </p>
-  <div class="pl-class-share__qr">
-    <div class="pl-qr-preview" aria-hidden="true">{{ offering.qr_svg|safe }}</div>
-    <span class="pl-class-share__qr-caption">Scan to open</span>
-  </div>
-  <div class="hub-form-group pl-class-share__field">
-    <label for="class-share-url">Share link</label>
-    <div class="pl-class-share__link">
-      <input id="class-share-url" x-ref="url" type="text" readonly value="{{ offering.qr_url }}" onclick="this.select()">
-      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
-              @click="copy()" x-text="copied ? 'Copied!' : 'Copy'">Copy</button>
-    </div>
-  </div>
-  <div class="pl-class-share__actions">
-    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_qr' offering.pk 'svg' %}">Download QR (SVG)</a>
-    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_qr' offering.pk 'png' %}">Download QR (PNG)</a>
-  </div>
-</div>
-<script>
-  // Copy that works in both local http and prod https (clipboard API needs a secure
-  // context, so fall back to selecting the field + execCommand off https).
-  function classShare() {
-    return {
-      copied: false,
-      copy() {
-        const el = this.$refs.url;
-        el.focus();
-        el.select();
-        if (window.isSecureContext && navigator.clipboard) {
-          navigator.clipboard.writeText(el.value);
-        } else {
-          document.execCommand('copy');
-        }
-        this.copied = true;
-        setTimeout(() => { this.copied = false; }, 1500);
-      },
-    };
-  }
-</script>
+{% url 'classes:class_qr' offering.pk 'svg' as class_qr_svg_url %}
+{% url 'classes:class_qr' offering.pk 'png' as class_qr_png_url %}
+{% if offering.status == 'published' %}
+  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page — print it on signage, add it to a flyer, or hand it out." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
+{% else %}
+  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it's published. You can print it now — the link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
+{% endif %}

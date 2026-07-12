@@ -640,7 +640,7 @@ _CURATED: dict[str, EventCopy] = {
             "event_title": "Forge Night",
             "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
             "location": "Main Studio",
-            "event_url": "https://pastlives.example/calendar/",
+            "event_url": "https://pastlives.example/events/5/",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -651,13 +651,13 @@ _CURATED: dict[str, EventCopy] = {
                 subject="New {{ guild_name }} event: {{ event_title }}",
                 body_text=(
                     "{{ event_title }}\n{{ when }}\nWhere: {{ location }}\n\n"
-                    "See it on the calendar: {{ event_url }}\n\nPast Lives Makerspace"
+                    "See the event details: {{ event_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<h2>{{ event_title }}</h2>"
                     "<p>{{ guild_name }} · {{ when }}</p>"
                     "<p>Where: {{ location }}</p>"
-                    '<p><a href="{{ event_url }}">See it on the Community Calendar</a></p>'
+                    '<p><a href="{{ event_url }}">See the event details</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
@@ -669,7 +669,7 @@ _CURATED: dict[str, EventCopy] = {
             "event_title": "Monthly Potluck",
             "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
             "location": "Common Area",
-            "event_url": "https://pastlives.example/calendar/",
+            "event_url": "https://pastlives.example/events/5/",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -680,13 +680,13 @@ _CURATED: dict[str, EventCopy] = {
                 subject="New community event: {{ event_title }}",
                 body_text=(
                     "{{ event_title }}\n{{ when }}\nWhere: {{ location }}\n\n"
-                    "See it on the calendar: {{ event_url }}\n\nPast Lives Makerspace"
+                    "See the event details: {{ event_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<h2>{{ event_title }}</h2>"
                     "<p>{{ when }}</p>"
                     "<p>Where: {{ location }}</p>"
-                    '<p><a href="{{ event_url }}">See it on the Community Calendar</a></p>'
+                    '<p><a href="{{ event_url }}">See the event details</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
@@ -698,7 +698,7 @@ _CURATED: dict[str, EventCopy] = {
             "event_title": "Guild Lead Meeting",
             "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
             "location": "Classroom",
-            "event_url": "https://pastlives.example/calendar/",
+            "event_url": "https://pastlives.example/events/5/",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -709,13 +709,13 @@ _CURATED: dict[str, EventCopy] = {
                 subject="Guild Lead Meeting: {{ event_title }}",
                 body_text=(
                     "{{ event_title }}\n{{ when }}\nWhere: {{ location }}\n\n"
-                    "See it on the calendar: {{ event_url }}\n\nPast Lives Makerspace"
+                    "See the event details: {{ event_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<h2>{{ event_title }}</h2>"
                     "<p>{{ when }}</p>"
                     "<p>Where: {{ location }}</p>"
-                    '<p><a href="{{ event_url }}">See it on the Community Calendar</a></p>'
+                    '<p><a href="{{ event_url }}">See the event details</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
@@ -812,7 +812,7 @@ _CURATED: dict[str, EventCopy] = {
         sample_context={
             "event_title": "Forge Night",
             "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
-            "event_url": "https://pastlives.example/calendar/",
+            "event_url": "https://pastlives.example/events/5/",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -824,12 +824,12 @@ _CURATED: dict[str, EventCopy] = {
                 body_text=(
                     "Good news — your proposed event was approved and is now on the Community Calendar.\n\n"
                     "{{ event_title }}\n{{ when }}\n\n"
-                    "See it: {{ event_url }}\n\nPast Lives Makerspace"
+                    "See the event details: {{ event_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Good news — your proposed event was approved and is now on the Community Calendar.</p>"
                     '<p><strong><a href="{{ event_url }}">{{ event_title }}</a></strong><br>{{ when }}</p>'
-                    '<p><a href="{{ event_url }}">See it on the Community Calendar</a></p>'
+                    '<p><a href="{{ event_url }}">See the event details</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

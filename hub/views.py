@@ -46,6 +46,7 @@ from hub.forms import (
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
 from membership.models import FundingSnapshot, Guild, Member, OrgInfoPage, Skill, SkillCategory, VotePreference
+from membership.ical import ical_escape
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
@@ -3110,14 +3111,6 @@ def guild_calendar_events_partial(request: HttpRequest, pk: int) -> HttpResponse
     return render(request, "hub/partials/calendar_content.html", cal_ctx)
 
 
-def _ical_escape(value: str) -> str:
-    """Escape special characters per RFC 5545 §3.3.11."""
-    value = value.replace("\\", "\\\\")
-    value = value.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n")
-    value = value.replace(";", "\\;").replace(",", "\\,")
-    return value
-
-
 @login_required
 def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     """Download a combined iCal file of all upcoming events."""
@@ -3147,7 +3140,7 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
         lines += [
             "BEGIN:VEVENT",
             f"UID:{evt.uid}",
-            f"SUMMARY:{_ical_escape(evt.title)}",
+            f"SUMMARY:{ical_escape(evt.title)}",
         ]
         if evt.all_day:
             lines += [
@@ -3160,31 +3153,17 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
                 f"DTEND:{evt.end_dt.strftime('%Y%m%dT%H%M%SZ')}",
             ]
         if evt.description:
-            lines.append(f"DESCRIPTION:{_ical_escape(evt.description[:250])}")
+            lines.append(f"DESCRIPTION:{ical_escape(evt.description[:250])}")
         if evt.location:
             lines.append(f"LOCATION:{evt.location}")
         lines.append("END:VEVENT")
 
-    # FOG-native events need their own loop — they lack the CalendarEvent attrs the
-    # loop above reads (uid / all_day). A recurring series emits ONE VEVENT carrying an
-    # RRULE so subscribers expand it themselves (no per-occurrence VEVENTs). Only
-    # PUBLISHED events export (pending/declined proposals never leave FOG).
+    # FOG-native events build their VEVENT from the shared CommunityEvent.ics_vevent_lines
+    # (same lines the per-event .ics uses, so the two never drift). A recurring series
+    # emits ONE VEVENT carrying an RRULE the subscriber expands itself. Only PUBLISHED
+    # events export (pending/declined proposals never leave FOG).
     for ev in CommunityEvent.objects.published().upcoming().select_related("guild"):
-        lines += [
-            "BEGIN:VEVENT",
-            f"UID:community-{ev.pk}@pastlives",
-            f"SUMMARY:{_ical_escape(ev.title)}",
-            f"DTSTART:{ev.starts_at.strftime('%Y%m%dT%H%M%SZ')}",
-            f"DTEND:{ev.ends_at.strftime('%Y%m%dT%H%M%SZ')}",
-        ]
-        rrule = ev.ical_rrule()
-        if rrule:
-            lines.append(f"RRULE:{rrule}")
-        if ev.description:
-            lines.append(f"DESCRIPTION:{_ical_escape(ev.description[:250])}")
-        if ev.location:
-            lines.append(f"LOCATION:{_ical_escape(ev.location)}")
-        lines.append("END:VEVENT")
+        lines += ev.ics_vevent_lines()
 
     lines.append("END:VCALENDAR")
     ical_content = "\r\n".join(lines) + "\r\n"
@@ -3192,6 +3171,74 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     response = HttpResponse(ical_content, content_type="text/calendar; charset=utf-8")
     response["Content-Disposition"] = 'attachment; filename="past-lives-calendar.ics"'
     return response
+
+
+def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """The public detail page for a Community Event — the canonical link a QR/flyer/signage
+    resolves to. **No login required** so a scanned code opens for anyone.
+
+    Only PUBLISHED events have a page; a pending/changes-requested/declined proposal (or an
+    unknown pk) 404s identically via the themed ``404.html`` — no unreviewed proposal ever
+    leaks onto a scannable URL, and a missing event never reveals its title.
+    """
+    from membership.models import CommunityEvent
+    from membership.permissions import can_edit_event
+
+    event = get_object_or_404(CommunityEvent.objects.published().select_related("guild"), pk=pk)
+    ctx = _get_hub_context(request)
+    on_member_surface = getattr(request, "surface", "members") == "members"
+    can_edit = on_member_surface and can_edit_event(request, event)
+    is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
+    return render(
+        request,
+        "hub/event_detail.html",
+        {
+            **ctx,
+            "event": event,
+            "can_edit": can_edit,
+            "is_recurring": is_recurring,
+            # A non-recurring event that has already ended is still viewable; show an honest
+            # "already taken place" note. A recurring series is ongoing, so never flag it.
+            "show_past_note": not is_recurring and event.ends_at < dj_timezone.now(),
+        },
+    )
+
+
+def event_ics(request: HttpRequest, pk: int) -> HttpResponse:
+    """The single-event ``.ics`` for the public page's "Add to calendar" button.
+
+    Public (no login) so a flyer scanner can add it to their own calendar; PUBLISHED-only,
+    like the page it belongs to.
+    """
+    from membership.models import CommunityEvent
+
+    event = get_object_or_404(CommunityEvent.objects.published(), pk=pk)
+    response = HttpResponse(event.ics_document(), content_type="text/calendar; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="event-{event.pk}.ics"'
+    return response
+
+
+def event_qr(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
+    """Download a published event's public-page QR as SVG (default) or PNG.
+
+    Editor-gated via the shared ``can_edit_event`` check (so it and the "Edit event"
+    affordance never drift). An anonymous or non-editor request gets 403 — the download is
+    an editor convenience; the public artifact is the page itself.
+    """
+    from membership.models import CommunityEvent
+    from membership.permissions import can_edit_event
+
+    event = get_object_or_404(CommunityEvent.objects.published(), pk=pk)
+    if not can_edit_event(request, event):
+        return HttpResponse("You don't have access to this event.", status=403)
+    if fmt == "svg":
+        resp = HttpResponse(event.qr_svg(), content_type="image/svg+xml")
+    elif fmt == "png":
+        resp = HttpResponse(event.qr_png_bytes(), content_type="image/png")
+    else:
+        raise Http404
+    resp["Content-Disposition"] = f'attachment; filename="event-{event.pk}-qr.{fmt}"'
+    return resp
 
 
 @require_POST
