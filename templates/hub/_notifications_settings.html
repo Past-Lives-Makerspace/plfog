@@ -7,8 +7,10 @@
     can't be turned off.
   </p>
   {% if member %}
-    {# Shared Discord CTA. It (and the confirm modal) sit OUTSIDE the notifications
-       <form> below, so the modal's own <form> never nests. #}
+    {% comment %}
+      Shared Discord CTA. It (and the confirm modal) sit OUTSIDE the notifications
+      <form> below, so the modal's own <form> never nests.
+    {% endcomment %}
     {% include "hub/partials/_discord_connect_cta.html" with member=member id_suffix="notifications" %}
     {% if member.discord_is_linked %}
       {% url 'hub_discord_disconnect' as discord_disconnect_url %}

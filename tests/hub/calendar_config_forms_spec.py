@@ -1,6 +1,6 @@
-"""BDD specs for the Screen D config forms — the three Site-Settings fields
-(member-event policy + general Google Calendar ID + the sync toggle), all on the
-one Calendar tab, and the admin gate on the settings page.
+"""BDD specs for the Screen D config forms — the Site-Settings calendar fields
+(member-event policy + Member & Public Google Calendar IDs + the sync toggle), all on
+the one Calendar tab, and the admin gate on the settings page.
 
 The one-tab layout is a correctness guarantee: because every field lives in a single
 ``<form>``, a Calendar-tab save carries ``member_event_policy`` too and can't blank it.
@@ -47,7 +47,7 @@ def _settings_payload(**overrides: str) -> dict:
 
 @pytest.mark.django_db
 def describe_site_settings_calendar_fields():
-    def it_renders_the_three_fields_on_the_calendar_tab(client):
+    def it_renders_the_calendar_fields_on_the_calendar_tab(client):
         _user("adm", fog_role=Member.FogRole.ADMIN)
         client.login(username="adm", password="pass")
         resp = client.get(reverse("hub_admin_site_settings") + "?tab=calendar")
@@ -55,24 +55,27 @@ def describe_site_settings_calendar_fields():
         body = resp.content
         assert b"Member events &amp; Google sync" in body
         assert b'name="member_event_policy"' in body
-        assert b'name="general_google_calendar_id"' in body
+        assert b'name="member_google_calendar_id"' in body
+        assert b'name="public_google_calendar_id"' in body
         assert b'name="google_calendar_sync_enabled"' in body
 
-    def it_saves_all_three_fields_from_a_calendar_tab_save(client):
+    def it_saves_all_the_fields_from_a_calendar_tab_save(client):
         _user("adm2", fog_role=Member.FogRole.ADMIN)
         client.login(username="adm2", password="pass")
         resp = client.post(
             reverse("hub_admin_site_settings"),
             _settings_payload(
                 member_event_policy=SiteConfiguration.MemberEventPolicy.OPEN,
-                general_google_calendar_id="general@group.calendar.google.com",
+                member_google_calendar_id="member@group.calendar.google.com",
+                public_google_calendar_id="public@group.calendar.google.com",
                 google_calendar_sync_enabled="on",
             ),
         )
         assert resp.status_code == 302
         config = SiteConfiguration.load()
         assert config.member_event_policy == SiteConfiguration.MemberEventPolicy.OPEN
-        assert config.general_google_calendar_id == "general@group.calendar.google.com"
+        assert config.member_google_calendar_id == "member@group.calendar.google.com"
+        assert config.public_google_calendar_id == "public@group.calendar.google.com"
         assert config.google_calendar_sync_enabled is True
 
     def it_does_not_blank_member_event_policy_on_a_calendar_tab_save(client):
@@ -88,7 +91,7 @@ def describe_site_settings_calendar_fields():
             reverse("hub_admin_site_settings"),
             _settings_payload(
                 member_event_policy=SiteConfiguration.MemberEventPolicy.OPEN,
-                general_google_calendar_id="c@group.calendar.google.com",
+                member_google_calendar_id="c@group.calendar.google.com",
             ),
         )
         assert resp.status_code == 302

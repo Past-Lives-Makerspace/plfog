@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.14"
+VERSION = "0.21.15"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.15",
+        "date": "2026-07-13",
+        "title": "Recurring events show up on the calendar",
+        "screenshot": "community-calendar",
+        "changes": [
+            (
+                "Repeating events from a linked Google calendar — like weekly Open Studio Hours — now show up "
+                "on the Community Calendar for every upcoming date, not just the very first one."
+            ),
+        ],
+    },
     {
         "version": "0.21.14",
         "date": "2026-07-12",

@@ -89,7 +89,6 @@ class GuildEditForm(forms.ModelForm):
             "essential_rules",
             "banner_image",
             "calendar_url",
-            "google_calendar_id",
             "calendar_color",
             "youtube_url",
             "meeting_cadence",
@@ -121,7 +120,6 @@ class GuildEditForm(forms.ModelForm):
                 },
             ),
             "calendar_url": forms.URLInput(attrs={"placeholder": "https://calendar.google.com/calendar/ical/..."}),
-            "google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "calendar_color": forms.TextInput(
                 attrs={"type": "color", "class": "pl-color-input"},
             ),
@@ -548,7 +546,8 @@ class SiteSettingsForm(forms.ModelForm):
             "class_registration_enabled",
             "class_registration_disabled_note",
             "member_event_policy",
-            "general_google_calendar_id",
+            "member_google_calendar_id",
+            "public_google_calendar_id",
             "google_calendar_sync_enabled",
             "signage_default_slide_seconds",
             "signage_show_events",
@@ -557,7 +556,8 @@ class SiteSettingsForm(forms.ModelForm):
         widgets = {
             "classes_calendar_color": forms.TextInput(attrs={"type": "color"}),
             "class_registration_disabled_note": forms.Textarea(attrs={"rows": 3}),
-            "general_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
+            "member_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
+            "public_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
         }
 
 
@@ -1210,6 +1210,7 @@ class CommunityEventForm(forms.ModelForm):
             "location",
             "description",
             "recurrence",
+            "google_calendar_target",
             "publish_at",
             "remind_7d",
             "remind_3d",
@@ -1241,6 +1242,9 @@ class CommunityEventForm(forms.ModelForm):
         for name in ("starts_at", "ends_at", "publish_at"):
             cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
         self.fields["publish_at"].label = "Announce at"
+        # The picker is a <select> that always submits a value in the UI; keep it forgiving so a
+        # value-less POST falls back to the model default (MEMBER) rather than erroring.
+        self.fields["google_calendar_target"].required = False
         self._as_admin = as_admin
         self._as_member = as_member
         self._fixed_guild = guild
@@ -1254,6 +1258,10 @@ class CommunityEventForm(forms.ModelForm):
         else:
             del self.fields["event_type"]
             del self.fields["guild"]
+
+    def clean_google_calendar_target(self) -> str:
+        """Coerce a blank/omitted picker value to the default MEMBER calendar."""
+        return self.cleaned_data.get("google_calendar_target") or CommunityEvent.GoogleCalendarTarget.MEMBER
 
     def clean_publish_at(self) -> Any:
         """Blank ⇒ announce now (valid). A set time must be in the future and strictly

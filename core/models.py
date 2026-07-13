@@ -263,14 +263,26 @@ class SiteConfiguration(models.Model):
             "before it's published. Leads, staff, and admins always post directly."
         ),
     )
-    general_google_calendar_id = models.CharField(
+    member_google_calendar_id = models.CharField(
         max_length=255,
         blank=True,
         default="",
-        verbose_name="General Google Calendar ID",
+        verbose_name="Member Google Calendar ID",
         help_text=(
-            "Google Calendar ID for site-wide community events (Calendar Settings → Integrate calendar → "
-            "Calendar ID — NOT the iCal URL). Blank keeps site-wide events in FOG only."
+            "Google Calendar ID for the members-only makerspace calendar — where events set to the "
+            "'Member' calendar sync to (Calendar Settings → Integrate calendar → Calendar ID, NOT the "
+            "iCal URL). Blank keeps 'Member' events in FOG only."
+        ),
+    )
+    public_google_calendar_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Public Google Calendar ID",
+        help_text=(
+            "Google Calendar ID for the outward-facing public calendar — where events set to the "
+            "'Public' calendar sync to (Calendar Settings → Integrate calendar → Calendar ID, NOT the "
+            "iCal URL). Blank keeps 'Public' events in FOG only."
         ),
     )
     google_calendar_sync_enabled = models.BooleanField(

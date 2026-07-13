@@ -112,6 +112,30 @@ def _make_urlopen(ical_bytes: bytes):
     return _fake
 
 
+def _recurring_ical(uid: str = "weekly-001@test.com", summary: str = "Open Studio Hours", weeks_ago: int = 2) -> bytes:
+    """A WEEKLY recurring event whose series began in the *past*.
+
+    Rendered without expansion, only the past seed exists and nothing shows on an upcoming-only
+    calendar — the exact bug. The parser must materialize the upcoming occurrences.
+    """
+    start = (timezone.now() - timedelta(weeks=weeks_ago)).replace(microsecond=0)
+    end = start + timedelta(hours=4)
+    fmt = "%Y%m%dT%H%M%SZ"
+    return textwrap.dedent(f"""\
+        BEGIN:VCALENDAR
+        VERSION:2.0
+        PRODID:-//Test//Test//EN
+        BEGIN:VEVENT
+        UID:{uid}
+        SUMMARY:{summary}
+        DTSTART:{start.strftime(fmt)}
+        DTEND:{end.strftime(fmt)}
+        RRULE:FREQ=WEEKLY
+        END:VEVENT
+        END:VCALENDAR
+    """).encode()
+
+
 def describe_calendar_service():
     def describe_sync_guild_calendar():
         def it_creates_calendar_events_for_a_guild():
@@ -193,6 +217,49 @@ def describe_calendar_service():
             assert count == 1
             assert CalendarEvent.objects.filter(guild=guild).count() == 1
             assert CalendarEvent.objects.get(guild=guild).title == "Valid Event"
+
+    def describe_recurring_feed_expansion():
+        def it_materializes_upcoming_occurrences_of_a_past_recurring_series():
+            from hub.calendar_service import sync_guild_calendar
+
+            guild = GuildFactory(calendar_url="https://calendar.google.com/calendar/ical/test.ics")
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_make_urlopen(_recurring_ical())):
+                count = sync_guild_calendar(guild)
+            events = CalendarEvent.objects.filter(guild=guild, uid="weekly-001@test.com")
+            # Weekly across the 180-day horizon → many rows, one per occurrence.
+            assert count == events.count()
+            assert events.count() > 4
+            # The fix: at least one occurrence lands in the future (the lone past seed would show none).
+            assert events.filter(start_dt__gte=timezone.now()).exists()
+
+        def it_gives_each_occurrence_a_distinct_recurrence_id():
+            from hub.calendar_service import sync_guild_calendar
+
+            guild = GuildFactory(calendar_url="https://calendar.google.com/calendar/ical/test.ics")
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_make_urlopen(_recurring_ical())):
+                sync_guild_calendar(guild)
+            events = CalendarEvent.objects.filter(guild=guild, uid="weekly-001@test.com")
+            recurrence_ids = list(events.values_list("recurrence_id", flat=True))
+            assert "" not in recurrence_ids  # every occurrence is stamped
+            assert len(set(recurrence_ids)) == len(recurrence_ids)  # all distinct → no collapse
+
+        def it_gives_a_one_off_event_a_blank_recurrence_id():
+            from hub.calendar_service import sync_guild_calendar
+
+            guild = GuildFactory(calendar_url="https://calendar.google.com/calendar/ical/test.ics")
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
+                sync_guild_calendar(guild)  # SAMPLE_ICAL: two one-off events
+            assert CalendarEvent.objects.filter(guild=guild).exclude(recurrence_id="").count() == 0
+
+        def it_is_idempotent_across_resyncs():
+            from hub.calendar_service import sync_guild_calendar
+
+            guild = GuildFactory(calendar_url="https://calendar.google.com/calendar/ical/test.ics")
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_make_urlopen(_recurring_ical())):
+                first = sync_guild_calendar(guild)
+                sync_guild_calendar(guild)
+            # Re-sync updates occurrences in place (same uid+recurrence_id key) — no duplication.
+            assert CalendarEvent.objects.filter(guild=guild, uid="weekly-001@test.com").count() == first
 
     def describe_sync_general_calendar():
         def it_creates_general_events_with_null_guild():

@@ -40,7 +40,8 @@ def _calendar_event(uid: str, title: str, *, days: int = 3) -> CalendarEvent:
 def _enable_config() -> None:
     config = SiteConfiguration.load()
     config.google_calendar_sync_enabled = True
-    config.save(update_fields=["google_calendar_sync_enabled"])
+    config.member_google_calendar_id = CALENDAR_ID  # default event target is MEMBER
+    config.save(update_fields=["google_calendar_sync_enabled", "member_google_calendar_id"])
 
 
 def _lead(client: Client, username: str, **guild_kwargs) -> tuple[User, object]:
@@ -118,7 +119,7 @@ def describe_echo_dedup_in_the_ics_export():
 
 def describe_create_pushes():
     def it_keeps_the_fog_event_when_the_push_fails_on_create(client: Client):
-        user, guild = _lead(client, "pf1", google_calendar_id=CALENDAR_ID)
+        user, guild = _lead(client, "pf1")
         _enable_config()
         with (
             patch.object(GoogleCalendarClient, "from_settings", return_value=_failing_client()),
@@ -131,10 +132,7 @@ def describe_create_pushes():
 
     def it_pushes_a_new_admin_event(client: Client):
         _admin(client, "ad1")
-        _enable_config()
-        config = SiteConfiguration.load()
-        config.general_google_calendar_id = CALENDAR_ID
-        config.save(update_fields=["general_google_calendar_id"])
+        _enable_config()  # sets the Member calendar id; a new admin event defaults to the MEMBER target
         inserted = MagicMock(return_value={"id": "adm1", "iCalUID": "adm1@google.com"})
         fake = MagicMock(spec=GoogleCalendarClient)
         fake.enabled = True
@@ -150,7 +148,7 @@ def describe_create_pushes():
 
 def describe_edit_repushes():
     def it_repushes_a_published_event_on_edit(client: Client):
-        user, guild = _lead(client, "ed1", google_calendar_id=CALENDAR_ID)
+        user, guild = _lead(client, "ed1")
         event = CommunityEventFactory(guild=guild, google_event_id="ge1", sync_state=CommunityEvent.SyncState.SYNCED)
         _enable_config()
         update = MagicMock(return_value={"id": "ge1", "iCalUID": "ge1@google.com"})
@@ -167,7 +165,7 @@ def describe_edit_repushes():
         fake.insert_event.assert_not_called()
 
     def it_keeps_the_fog_edit_when_the_push_fails(client: Client):
-        user, guild = _lead(client, "ed2", google_calendar_id=CALENDAR_ID)
+        user, guild = _lead(client, "ed2")
         event = CommunityEventFactory(guild=guild, google_event_id="ge2", sync_state=CommunityEvent.SyncState.SYNCED)
         _enable_config()
         with patch.object(GoogleCalendarClient, "from_settings", return_value=_failing_client()):
@@ -179,7 +177,7 @@ def describe_edit_repushes():
 
 def describe_delete_removes_from_google_first():
     def it_calls_remove_from_google_before_delete(client: Client):
-        user, guild = _lead(client, "dl1", google_calendar_id=CALENDAR_ID)
+        user, guild = _lead(client, "dl1")
         event = CommunityEventFactory(guild=guild, pushed=True)
         _enable_config()
         seen_pk: list[int | None] = []

@@ -63,7 +63,6 @@
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Calendar Integration</h2>
       <div class="pl-form-grid">
         {% include "components/form_field.html" with field=form.calendar_url %}
-        {% include "components/form_field.html" with field=form.google_calendar_id field_hint="This guild's events push to this Google calendar. It's the Calendar ID (…@group.calendar.google.com) from Calendar Settings → Integrate calendar — not the iCal link above. Leave blank to keep this guild's events in FOG only." %}
         {% include "components/form_field.html" with field=form.calendar_color %}
       </div>
     </div>
