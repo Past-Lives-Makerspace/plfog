@@ -63,7 +63,6 @@ from classes.models import (
     ClassApproval,
     ClassImage,
     ClassOffering,
-    ClassSession,
     ClassSettings,
     CmsActivity,
     DiscountCode,
@@ -73,6 +72,12 @@ from classes.models import (
 from core.models import SiteConfiguration
 
 _ViewFunc = Callable[..., HttpResponse]
+
+# Timeframe windows for the public catalog's "When" filter. Keys are the raw
+# GET values; values are the horizon in days. "all"/absent/unknown → no upper
+# bound (all upcoming). Kept in one named place so the three magic numbers
+# don't scatter across the view and templates.
+WITHIN_DAYS = {"30": 30, "90": 90, "180": 180}
 
 
 def _browsable_classes() -> Any:
@@ -176,6 +181,15 @@ def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
     if request.GET.get("upcoming") == "1":
         qs = qs.exclude(first_session_at__isnull=True)
 
+    within = request.GET.get("within", "").strip()
+    if within in WITHIN_DAYS:
+        horizon = timezone.now() + timedelta(days=WITHIN_DAYS[within])
+        # Keep flexible/undated classes in every window — they mirror bookable()'s
+        # own rule that a flexible class always qualifies (it has no fixed date to
+        # fall outside the window). A bare `first_session_at__lte` would silently
+        # drop them, since bookable() annotates first_session_at as NULL for them.
+        qs = qs.filter(Q(first_session_at__lte=horizon) | Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE))
+
     return qs
 
 
@@ -194,6 +208,8 @@ def public_list(request: HttpRequest) -> HttpResponse:
     members_only = request.GET.get("members_only") == "1"
     free_only = request.GET.get("free") == "1"
     upcoming_only = request.GET.get("upcoming") == "1"
+    selected_within = request.GET.get("within", "all")
+    selected_within_days = WITHIN_DAYS.get(selected_within)
 
     classes_qs = _apply_browse_filters(_browsable_classes(), request)
     catalog_groups = _grouped_catalog(classes_qs)
@@ -236,6 +252,12 @@ def public_list(request: HttpRequest) -> HttpResponse:
     filter_qs.pop("page", None)
     filter_querystring = filter_qs.urlencode()
 
+    # Same querystring minus 'within' — powers the empty-state "Show all upcoming"
+    # escape, which widens the timeframe while preserving every other filter.
+    no_within = filter_qs.copy()
+    no_within.pop("within", None)
+    filter_querystring_no_within = no_within.urlencode()
+
     active_filter_count = sum(
         1
         for v in (
@@ -249,6 +271,12 @@ def public_list(request: HttpRequest) -> HttpResponse:
         if v
     )
 
+    # HTMX partial: return just the results grid so the filter form can swap
+    # in place without rerendering hero + filter chrome. Computed once so the
+    # OOB hero-count block renders only on HTMX responses (never as a stray
+    # duplicate inside the embedded include on a full page load).
+    is_htmx = bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
+
     context = {
         "settings_obj": settings_obj,
         "site_config": SiteConfiguration.load(),
@@ -261,18 +289,22 @@ def public_list(request: HttpRequest) -> HttpResponse:
         "members_only": members_only,
         "free_only": free_only,
         "upcoming_only": upcoming_only,
+        "selected_within": selected_within,
+        "selected_within_days": selected_within_days,
         "active_filter_count": active_filter_count,
         "page_obj": page_obj,
         "paginator": paginator,
         "filter_querystring": filter_querystring,
-        "upcoming_session_count": ClassSession.objects.upcoming_public_count(),
-        "total_instructors": classes_qs.values("instructor_id").exclude(instructor_id__isnull=True).distinct().count(),
+        "filter_querystring_no_within": filter_querystring_no_within,
+        "is_htmx": is_htmx,
+        # The hero "Classes" tile is driven by paginator.count (see the template);
+        # Guilds and Instructors both reflect the full browsable universe so they
+        # stay stable while the live "Classes" count tracks the current filter.
+        "total_instructors": len(instructors_for_filter),
         "total_categories": len(categories),
     }
 
-    # HTMX partial: return just the results grid so the filter form can swap
-    # in place without rerendering hero + filter chrome.
-    if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"):
+    if is_htmx:
         return render(request, "classes/public/_list_results.html", context)
     return render(request, "classes/public/list.html", context)
 
