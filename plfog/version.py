@@ -2,9 +2,28 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.14"
+VERSION = "0.21.18"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.18",
+        "date": "2026-07-13",
+        "title": "Pick your timeframe on the class catalog",
+        "changes": [
+            (
+                "The class catalog now has a “When” menu — see everything upcoming, or narrow to the next 30, 90, "
+                "or 180 days. It starts on “All upcoming,” so nothing is hidden until you choose to focus."
+            ),
+            (
+                "The big number at the top now matches the classes you actually see below — no more “32 upcoming” "
+                "up top while only a handful of classes show."
+            ),
+            (
+                "Narrowing to a short window that has nothing in it now tells you so and offers a one-tap “Show all "
+                "upcoming” to widen back out."
+            ),
+        ],
+    },
     {
         "version": "0.21.14",
         "date": "2026-07-12",
