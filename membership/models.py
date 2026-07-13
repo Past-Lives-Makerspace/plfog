@@ -1442,10 +1442,10 @@ class GuildStaffMembership(models.Model):
     """
 
     class Role(models.TextChoices):
-        CO_LEAD = "co_lead", "Co-Guild Lead"
+        CO_LEAD = "co_lead", "Guild Lead"
         SECRETARY = "secretary", "Secretary"
         TREASURER = "treasurer", "Treasurer"
-        ORIENTER = "orienter", "Orienter"
+        ORIENTER = "orienter", "Orientator"
 
     guild = models.ForeignKey(
         Guild,

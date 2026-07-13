@@ -35,7 +35,7 @@ def describe_GuildStaffMembership():
 
         def it_falls_back_to_the_preset_role_label():
             sm = GuildStaffMembershipFactory(role=Role.ORIENTER)
-            assert sm.display_title == "Orienter"
+            assert sm.display_title == "Orientator"
 
     def describe_constraints():
         def it_rejects_a_row_with_neither_role_nor_custom_title():
@@ -85,7 +85,7 @@ def describe_Guild_staff_helpers():
             GuildStaffMembershipFactory(guild=guild, member=MemberFactory(), role=Role.ORIENTER)
             GuildStaffMembershipFactory(guild=guild, member=MemberFactory(), role=Role.CO_LEAD)
             labels = [label for label, _ in guild.staff_by_role()]
-            assert labels == ["Co-Guild Lead", "Secretary", "Orienter"]
+            assert labels == ["Guild Lead", "Secretary", "Orientator"]
 
         def it_sorts_members_within_a_role_by_name():
             guild = GuildFactory()
@@ -127,7 +127,7 @@ def describe_Guild_staff_helpers():
             grouped = guild.staff_by_member()
             assert [m.pk for m, _rows in grouped] == [member.pk]
             titles = [sm.display_title for sm in grouped[0][1]]
-            assert titles == ["Orienter", "Glaze Technician"]
+            assert titles == ["Orientator", "Glaze Technician"]
 
         def it_orders_a_members_titles_presets_first_then_custom_alphabetically():
             guild = GuildFactory()
@@ -137,7 +137,7 @@ def describe_Guild_staff_helpers():
             GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Glaze Technician")
             GuildStaffMembershipFactory(guild=guild, member=member, role=Role.CO_LEAD)
             titles = [sm.display_title for sm in guild.staff_by_member()[0][1]]
-            assert titles == ["Co-Guild Lead", "Treasurer", "Glaze Technician", "Studio Technician"]
+            assert titles == ["Guild Lead", "Treasurer", "Glaze Technician", "Studio Technician"]
 
         def it_sorts_members_by_name_case_insensitively():
             guild = GuildFactory()
