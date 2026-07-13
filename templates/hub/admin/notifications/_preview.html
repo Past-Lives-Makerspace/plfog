@@ -53,10 +53,12 @@ literal is rendered as markup).
   {% if wrapped_html %}
   <div class="ntf-pv-block">
     <p class="ntf-pv-label">As it arrives (branded)</p>
-    {# srcdoc is an HTML ATTRIBUTE — it must be attribute-escaped, so use plain
-       {{ wrapped_html }} (NOT |safe). Django's autoescape turns the document's inline
-       style quotes into &quot; so the attribute doesn't terminate early. |safe here
-       would emit raw quotes and render a broken/empty iframe. #}
+    {% comment %}
+      srcdoc is an HTML ATTRIBUTE — it must be attribute-escaped, so use plain
+      {{ wrapped_html }} (NOT |safe). Django's autoescape turns the document's inline
+      style quotes into &quot; so the attribute doesn't terminate early. |safe here
+      would emit raw quotes and render a broken/empty iframe.
+    {% endcomment %}
     <iframe class="ntf-pv-frame" title="Branded email preview" srcdoc="{{ wrapped_html }}"></iframe>
   </div>
   {% endif %}

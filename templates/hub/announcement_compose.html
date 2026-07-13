@@ -28,8 +28,10 @@
   <form method="post" action="{% url 'hub_compose_send' %}" x-ref="wizardForm">
     {% csrf_token %}
     <input type="hidden" id="compose-draft-pk" name="draft_pk" value="{{ draft.pk|default:'' }}">
-    {# The Step-1 <select name="audience"> is the single source of the audience — no hidden dup
-       (an x-show-hidden field still submits its value, so a second input would double-post). #}
+    {% comment %}
+      The Step-1 <select name="audience"> is the single source of the audience — no hidden dup
+      (an x-show-hidden field still submits its value, so a second input would double-post).
+    {% endcomment %}
 
     {% if form.non_field_errors %}
     <div class="pl-field-errors pl-wizard-errors">{% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}</div>

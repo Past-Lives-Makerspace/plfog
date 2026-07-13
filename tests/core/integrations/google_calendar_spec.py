@@ -19,16 +19,24 @@ from core.models import SiteConfiguration
 from membership.models import CommunityEvent
 from tests.membership.factories import CommunityEventFactory, GuildFactory
 
-CALENDAR_ID = "guildcal@group.calendar.google.com"
-GENERAL_CALENDAR_ID = "general@group.calendar.google.com"
+CALENDAR_ID = "storedcal@group.calendar.google.com"  # a previously-stored calendar id (remove/delete cases)
+MEMBER_CALENDAR_ID = "member@group.calendar.google.com"
+PUBLIC_CALENDAR_ID = "public@group.calendar.google.com"
 
 
 def _enable_config() -> SiteConfiguration:
-    """Turn the admin runtime toggle on (the second of the two sync gates)."""
+    """Turn the admin runtime toggle on (the second sync gate) and set both target calendars."""
     config = SiteConfiguration.load()
     config.google_calendar_sync_enabled = True
-    config.general_google_calendar_id = GENERAL_CALENDAR_ID
-    config.save(update_fields=["google_calendar_sync_enabled", "general_google_calendar_id"])
+    config.member_google_calendar_id = MEMBER_CALENDAR_ID
+    config.public_google_calendar_id = PUBLIC_CALENDAR_ID
+    config.save(
+        update_fields=[
+            "google_calendar_sync_enabled",
+            "member_google_calendar_id",
+            "public_google_calendar_id",
+        ]
+    )
     return config
 
 
@@ -55,7 +63,7 @@ def describe_push_community_event():
     def describe_when_sync_is_disabled():
         def it_marks_pending_with_a_reason_and_makes_no_api_call():
             # Config toggle off (default) → disabled regardless of a valid target.
-            event = CommunityEventFactory(guild=GuildFactory(google_calendar_id=CALENDAR_ID))
+            event = CommunityEventFactory()
             client = _fake_client(enabled=False)
             with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=client):
                 gc.push_community_event(event)
@@ -65,38 +73,72 @@ def describe_push_community_event():
             client.update_event.assert_not_called()
 
     def describe_when_no_target_calendar():
-        def it_marks_pending_for_a_guild_with_no_calendar():
-            _enable_config()
-            event = CommunityEventFactory(guild=GuildFactory(google_calendar_id=""))
+        def it_marks_pending_when_the_member_calendar_is_unset():
+            config = SiteConfiguration.load()
+            config.google_calendar_sync_enabled = True
+            config.member_google_calendar_id = ""
+            config.save(update_fields=["google_calendar_sync_enabled", "member_google_calendar_id"])
+            event = CommunityEventFactory()  # default target = MEMBER
             with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=_fake_client()):
                 gc.push_community_event(event)
             assert event.sync_state == CommunityEvent.SyncState.PENDING
             assert event.sync_error == gc.GoogleCalendarConfig.NO_CALENDAR
 
-        def it_marks_pending_for_a_site_wide_event_with_no_general_calendar():
+        def it_marks_pending_when_the_public_calendar_is_unset():
             config = SiteConfiguration.load()
             config.google_calendar_sync_enabled = True
-            config.general_google_calendar_id = ""
-            config.save(update_fields=["google_calendar_sync_enabled", "general_google_calendar_id"])
-            event = CommunityEventFactory(community=True)
+            config.public_google_calendar_id = ""
+            config.save(update_fields=["google_calendar_sync_enabled", "public_google_calendar_id"])
+            event = CommunityEventFactory(google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC)
             with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=_fake_client()):
                 gc.push_community_event(event)
             assert event.sync_state == CommunityEvent.SyncState.PENDING
             assert event.sync_error == gc.GoogleCalendarConfig.NO_CALENDAR
+
+    def describe_target_calendar():
+        def it_routes_a_member_event_to_the_member_calendar():
+            _enable_config()
+            event = CommunityEventFactory()  # default target = MEMBER
+            insert = MagicMock(return_value={"id": "m1", "iCalUID": "m1@google.com"})
+            client = _fake_client(insert_event=insert)
+            with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=client):
+                gc.push_community_event(event)
+            assert insert.call_args.args[0] == MEMBER_CALENDAR_ID
+            assert event.google_calendar_id == MEMBER_CALENDAR_ID
+
+        def it_routes_a_public_event_to_the_public_calendar():
+            _enable_config()
+            event = CommunityEventFactory(google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC)
+            insert = MagicMock(return_value={"id": "p1", "iCalUID": "p1@google.com"})
+            client = _fake_client(insert_event=insert)
+            with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=client):
+                gc.push_community_event(event)
+            assert insert.call_args.args[0] == PUBLIC_CALENDAR_ID
+            assert event.google_calendar_id == PUBLIC_CALENDAR_ID
+
+        def it_routes_a_guild_event_by_target_not_by_guild():
+            # Retired per-guild calendars: a guild event follows its target like any other event.
+            _enable_config()
+            event = CommunityEventFactory(guild=GuildFactory())  # default target = MEMBER
+            insert = MagicMock(return_value={"id": "g1", "iCalUID": "g1@google.com"})
+            client = _fake_client(insert_event=insert)
+            with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=client):
+                gc.push_community_event(event)
+            assert insert.call_args.args[0] == MEMBER_CALENDAR_ID
 
     def describe_insert():
         def it_inserts_and_stores_the_returned_ids():
             _enable_config()
-            event = CommunityEventFactory(guild=GuildFactory(google_calendar_id=CALENDAR_ID))
+            event = CommunityEventFactory()
             insert = MagicMock(return_value={"id": "new123", "iCalUID": "new123@google.com"})
             client = _fake_client(insert_event=insert)
             with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=client):
                 gc.push_community_event(event)
             insert.assert_called_once()
-            assert insert.call_args.args[0] == CALENDAR_ID
+            assert insert.call_args.args[0] == MEMBER_CALENDAR_ID
             assert event.google_event_id == "new123"
             assert event.google_ical_uid == "new123@google.com"
-            assert event.google_calendar_id == CALENDAR_ID
+            assert event.google_calendar_id == MEMBER_CALENDAR_ID
             assert event.sync_state == CommunityEvent.SyncState.SYNCED
             assert event.synced_at is not None
             assert event.sync_error == ""
@@ -104,7 +146,7 @@ def describe_push_community_event():
 
         def it_synthesizes_an_ical_uid_when_google_omits_it():
             _enable_config()
-            event = CommunityEventFactory(guild=GuildFactory(google_calendar_id=CALENDAR_ID))
+            event = CommunityEventFactory()
             client = _fake_client(insert_event=MagicMock(return_value={"id": "onlyid"}))
             with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=client):
                 gc.push_community_event(event)
@@ -113,22 +155,20 @@ def describe_push_community_event():
     def describe_update():
         def it_updates_an_already_pushed_event_instead_of_inserting():
             _enable_config()
-            event = CommunityEventFactory(
-                guild=GuildFactory(google_calendar_id=CALENDAR_ID), google_event_id="existing1"
-            )
+            event = CommunityEventFactory(google_event_id="existing1")
             update = MagicMock(return_value={"id": "existing1", "iCalUID": "existing1@google.com"})
             client = _fake_client(update_event=update)
             with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=client):
                 gc.push_community_event(event)
             update.assert_called_once()
-            assert update.call_args.args[:2] == (CALENDAR_ID, "existing1")
+            assert update.call_args.args[:2] == (MEMBER_CALENDAR_ID, "existing1")
             client.insert_event.assert_not_called()
             assert event.sync_state == CommunityEvent.SyncState.SYNCED
 
     def describe_failure():
         def it_marks_failed_with_a_truncated_error_and_never_raises():
             _enable_config()
-            event = CommunityEventFactory(guild=GuildFactory(google_calendar_id=CALENDAR_ID))
+            event = CommunityEventFactory()
             long_error = gc.GoogleCalendarError("x" * 900)
             client = _fake_client(insert_event=MagicMock(side_effect=long_error))
             with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=client):
@@ -142,11 +182,7 @@ def describe_push_community_event():
 def describe_remove_community_event():
     def it_deletes_when_ids_are_present():
         _enable_config()
-        event = CommunityEventFactory(
-            guild=GuildFactory(google_calendar_id=CALENDAR_ID),
-            google_event_id="gid1",
-            google_calendar_id=CALENDAR_ID,
-        )
+        event = CommunityEventFactory(google_event_id="gid1", google_calendar_id=CALENDAR_ID)
         delete = MagicMock()
         client = _fake_client(delete_event=delete)
         with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=client):
@@ -270,7 +306,7 @@ def describe__build_event_body():
 def describe_CommunityEvent_push_to_google():
     def it_persists_the_sync_fields_after_a_successful_push():
         _enable_config()
-        event = CommunityEventFactory(guild=GuildFactory(google_calendar_id=CALENDAR_ID))
+        event = CommunityEventFactory()
         client = _fake_client(insert_event=MagicMock(return_value={"id": "saved1", "iCalUID": "saved1@google.com"}))
         with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=client):
             event.push_to_google()
@@ -280,7 +316,7 @@ def describe_CommunityEvent_push_to_google():
 
     def it_persists_a_failed_state_without_raising():
         _enable_config()
-        event = CommunityEventFactory(guild=GuildFactory(google_calendar_id=CALENDAR_ID))
+        event = CommunityEventFactory()
         client = _fake_client(insert_event=MagicMock(side_effect=gc.GoogleCalendarError("nope")))
         with patch.object(gc.GoogleCalendarClient, "from_settings", return_value=client):
             event.push_to_google()

@@ -251,8 +251,10 @@
 
     {% include "hub/partials/_my_proposed_events.html" %}
 
-    {# Admin-only: site-wide events parked in SCHEDULED. Absent for non-admins (scheduled_events is
-       empty), and absent when there are none — so a parked event stays findable/editable/cancellable. #}
+    {% comment %}
+      Admin-only: site-wide events parked in SCHEDULED. Absent for non-admins (scheduled_events is
+      empty), and absent when there are none — so a parked event stays findable/editable/cancellable.
+    {% endcomment %}
     {% if scheduled_events %}
     <div class="hub-card pl-scheduled-events" style="padding:1.5rem; margin-bottom:1.5rem;">
         <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Scheduled — not yet announced</h2>

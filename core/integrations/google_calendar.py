@@ -206,7 +206,10 @@ def push_community_event(event: CommunityEvent, *, actor: User | None = None) ->
 
     client = GoogleCalendarClient.from_settings()
     config = SiteConfiguration.load()
-    target = event.guild.google_calendar_id if event.guild is not None else config.general_google_calendar_id
+    if event.google_calendar_target == CE.GoogleCalendarTarget.PUBLIC:
+        target = config.public_google_calendar_id
+    else:
+        target = config.member_google_calendar_id
 
     if not (client.enabled and config.google_calendar_sync_enabled):
         _mark(event, CE.SyncState.PENDING, GoogleCalendarConfig.SYNC_OFF)
