@@ -46,6 +46,11 @@ class CalendarEntry:
 
     @property
     def source_key(self) -> str:
+        # Only classes route by their guild's color. Orientation stays "orientation"
+        # and community stays "community" even though those entries also carry a guild
+        # object — don't recolor them by guild.
+        if self.source == "classes" and self.guild is not None:
+            return str(self.guild.pk)
         return self.source
 
     @property

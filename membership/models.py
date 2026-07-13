@@ -4416,8 +4416,14 @@ class CalendarEvent(models.Model):
 
     @property
     def source_key(self) -> str:
-        """Key used to look up this event's display color in the source_colors dict."""
-        if self.source == self.Source.GUILD and self.guild_id:
+        """Key used to look up this event's display color in the source_colors dict.
+
+        A guild event **or a guild-run class** keys by its guild, so a class inherits
+        its guild's calendar color even though its ``source`` is ``classes``. A general
+        event keys by its feed; anything else (a class with no guild) keys by its raw
+        source. Safe because only GUILD and CLASSES rows ever carry a ``guild``.
+        """
+        if self.guild_id:
             return str(self.guild_id)
         if self.source == self.Source.GENERAL and self.feed_id:
             return f"feed-{self.feed_id}"
