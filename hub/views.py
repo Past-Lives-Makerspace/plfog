@@ -527,9 +527,14 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     upcoming_classes = guild_classes.bookable().select_related("instructor")[:4]
     calendar = _get_calendar_context(request, guild=guild)
     calendar["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
-    guild_cal_filters = ["classes", "orientation", "community"]
-    if guild.calendar_url:
-        guild_cal_filters.append(str(guild.pk))
+    # Seed the guild-tab defaults with each legend guild's key (this guild always
+    # earns one — its classes key by str(pk)) plus the "Other classes" fallback only
+    # when a no-guild class shows here, so the guild's own classes are visible + on.
+    guild_cal_filters = ["orientation", "community"]
+    if calendar["has_ungrouped_classes"]:
+        guild_cal_filters.append("classes")
+    for g in calendar["legend_guilds"]:
+        guild_cal_filters.append(str(g.pk))
     calendar["default_filters_json"] = json.dumps(guild_cal_filters).replace('"', '\\"')
     pulse = _guild_pulse(guild)
 
@@ -3120,6 +3125,27 @@ _CALENDAR_PAGE_SIZE = 10
 _COMMUNITY_CALENDAR_COLOR = "#3d8bd4"
 
 
+def _calendar_legend_guilds(
+    all_events: list[Any], guilds_with_calendars: list[Any], guild: "Guild | None"
+) -> list[Any]:
+    """Guilds that get a legend/filter toggle for the current calendar view.
+
+    A guild earns a toggle when it owns a guild-colored chip in the window — a class
+    row carries its guild even without an iCal URL, so a class-only guild qualifies.
+    The Community Calendar (``guild=None``) unions those with every configured-feed
+    guild so a returning member's saved toggle persists with no events this window; a
+    single guild's page scopes to that guild alone so other guilds never get a dead
+    toggle. Sorted by name for a stable legend order.
+    """
+    event_guilds = {e.guild for e in all_events if e.guild is not None and e.source_key == str(e.guild.pk)}
+    if guild is None:
+        return sorted(set(guilds_with_calendars) | event_guilds, key=lambda g: g.name)
+    scoped_guilds = set(event_guilds)
+    if guild.calendar_url:
+        scoped_guilds.add(guild)
+    return sorted(scoped_guilds, key=lambda g: g.name)
+
+
 def _get_calendar_context(
     request: HttpRequest,
     week_offset: int = 0,
@@ -3215,8 +3241,14 @@ def _get_calendar_context(
     }
     for feed in calendar_feeds:
         source_colors[f"feed-{feed.pk}"] = feed.color
-    for g in guilds_with_calendars:
+
+    legend_guilds = _calendar_legend_guilds(all_events, guilds_with_calendars, guild)
+    for g in legend_guilds:
         source_colors[str(g.pk)] = g.calendar_color
+
+    # True when a class in this window has no guild → keep the generic "Other classes"
+    # fallback toggle/color for it (a class with a guild groups under that guild instead).
+    has_ungrouped_classes = any(e.source_key == "classes" for e in all_events)
 
     # Group events by date for calendar grid dots
     events_by_date: dict = defaultdict(list)
@@ -3260,6 +3292,8 @@ def _get_calendar_context(
         "event_page": event_page,
         "event_total_pages": total_pages,
         "guilds_with_calendars": guilds_with_calendars,
+        "legend_guilds": legend_guilds,
+        "has_ungrouped_classes": has_ungrouped_classes,
         "calendar_feeds": calendar_feeds,
         "classes_enabled": classes_enabled,
         "classes_color": classes_color,
@@ -3309,9 +3343,9 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     default_filters = ["community"]
     for feed in cal_ctx["calendar_feeds"]:
         default_filters.append(f"feed-{feed.pk}")
-    if cal_ctx["classes_enabled"]:
+    if cal_ctx["has_ungrouped_classes"]:
         default_filters.append("classes")
-    for g in cal_ctx["guilds_with_calendars"]:
+    for g in cal_ctx["legend_guilds"]:
         default_filters.append(str(g.pk))
 
     cal_ctx["default_filters_json"] = json.dumps(default_filters).replace('"', '\\"')

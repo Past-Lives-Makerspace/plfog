@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.14"
+VERSION = "0.21.17"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.17",
+        "date": "2026-07-13",
+        "title": "Classes grouped by guild on the calendar",
+        "screenshot": "community-calendar",
+        "changes": [
+            (
+                "Class events on the Community Calendar now sit under their guild's own filter and legend, so you "
+                "can show or hide any one guild's classes with a tap. Each guild's classes take on its calendar "
+                "color too — set a color on your guild page to make yours stand out."
+            ),
+        ],
+    },
     {
         "version": "0.21.14",
         "date": "2026-07-12",
