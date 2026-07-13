@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.15"
+VERSION = "0.21.18"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.21.15",
+        "version": "0.21.18",
         "date": "2026-07-13",
         "title": "Recurring events show up on the calendar",
         "screenshot": "community-calendar",
@@ -14,6 +14,41 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             (
                 "Repeating events from a linked Google calendar — like weekly Open Studio Hours — now show up "
                 "on the Community Calendar for every upcoming date, not just the very first one."
+            ),
+        ],
+    },
+    {
+        "version": "0.21.18",
+        "date": "2026-07-13",
+        "title": "Classes grouped by guild on the calendar",
+        "screenshot": "community-calendar",
+        "changes": [
+            (
+                "Class events on the Community Calendar now sit under their guild's own filter and legend, so you "
+                "can show or hide any one guild's classes with a tap — and each guild's classes take on its "
+                "calendar color. Set a color on your guild page to make yours stand out."
+            ),
+        ],
+    },
+    {
+        "version": "0.21.18",
+        "date": "2026-07-13",
+        "title": "Pick your timeframe on the class catalog",
+        "changes": [
+            (
+                "The class catalog now lets you choose how far ahead to look — the next 30, 90, or 180 days, or "
+                "everything upcoming — and the count at the top finally matches exactly what's shown."
+            ),
+        ],
+    },
+    {
+        "version": "0.21.18",
+        "date": "2026-07-13",
+        "title": "Clearer guild staff titles",
+        "changes": [
+            (
+                "Guild staff titles read better now: you can name someone a “Guild Lead” (not only “Co-Guild "
+                "Lead”), and the “Orienter” role is now “Orientator.”"
             ),
         ],
     },
