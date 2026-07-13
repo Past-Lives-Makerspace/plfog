@@ -115,7 +115,9 @@ class GoogleCalendarClient:
         """
         try:
             return request.execute()
-        except Exception as exc:  # noqa: BLE001 — HttpError + auth/transport/socket must degrade, not 500
+        except Exception as exc:
+            # Broad by design: HttpError + google.auth transport/refresh + socket errors must
+            # all degrade to a recorded sync_error, never 500 the caller (see the docstring).
             raise GoogleCalendarError(str(exc)) from exc
 
 

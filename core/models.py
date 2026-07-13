@@ -985,10 +985,14 @@ class EventDelivery(models.Model):
     )
     channel = models.CharField(max_length=20, help_text="The channel key the event was delivered on.")
     period = models.CharField(
-        max_length=40,
+        max_length=120,
         blank=True,
         default="",
-        help_text="Dedupe window bucket — empty for one-shot, else e.g. '2026-06' for monthly.",
+        help_text=(
+            "Dedupe window bucket — empty for one-shot, else e.g. '2026-06' for monthly, or a "
+            "per-object token like 'event:1234:submitted:1752345678.123456'. Wide enough for the "
+            "timestamp-suffixed periods (~42+ chars) that resubmission/reminder emits build."
+        ),
     )
     status = models.CharField(
         max_length=10,
