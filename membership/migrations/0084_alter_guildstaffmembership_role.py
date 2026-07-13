@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0082_alter_discordguildemoji_emoji"),
+        ("membership", "0083_calendar_recurrence_and_member_public_targets"),
     ]
 
     operations = [
