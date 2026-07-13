@@ -32,6 +32,26 @@ def describe_run_scheduled_tasks():
         called = _tasks_called(hour=9)
         assert "take_cycle_snapshot" in called
 
+    def it_retries_calendar_pushes_every_tick():
+        # Self-gating (no-op when Google sync is off), so it slots into the always-run tuple.
+        called = _tasks_called(hour=9)
+        assert "retry_calendar_pushes" in called
+
+    def it_publishes_due_events_every_tick():
+        # Idempotent (state-guarded), so the deferred-publish promotion runs every tick.
+        called = _tasks_called(hour=9)
+        assert "publish_due_events" in called
+
+    def it_sends_event_reminders_every_tick():
+        # Idempotent (per-(event, offset) period dedupe), so reminders run every tick.
+        called = _tasks_called(hour=9)
+        assert "send_event_reminders" in called
+
+    def it_syncs_discord_guild_roles_every_tick():
+        # Idempotent + no-op when unconfigured, so the reaction reconcile runs every tick.
+        called = _tasks_called(hour=9)
+        assert "sync_discord_guild_roles" in called
+
     def it_dispatches_bill_tabs_every_tick():
         # Decision 3: bill_tabs is wired into the always-run tuple (no --force) so
         # receipts + failed-charge retries run automatically. It self-gates inside

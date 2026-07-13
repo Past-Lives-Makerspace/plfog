@@ -1,0 +1,37 @@
+{% comment %}
+"Your drafts" — the resumable (unsent) AnnouncementDrafts for this user. Root id=compose-drafts
+so a delete (hx-target outerHTML) or a save (oob) can swap it whole. Each row: title, audience,
+last-updated, a Resume link, and a margin-spaced Delete (per-row confirm modal).
+
+Params:
+  drafts — the AnnouncementDraft queryset (AnnouncementDraft.objects.for_user)
+  oob    — when truthy, marks this as an out-of-band swap (for the save response)
+{% endcomment %}
+<section id="compose-drafts" class="hub-card pl-drafts"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="pl-drafts__header">
+    <h2 class="pl-drafts__title">Your drafts</h2>
+    <a href="{% url 'hub_compose' %}" class="hub-btn hub-btn--sm">+ New announcement</a>
+  </div>
+  {% for d in drafts %}
+  {% url 'hub_compose_delete_draft' d.pk as del_url %}
+  {% with cid=d.pk|stringformat:"s" %}
+  <div class="pl-draft-row">
+    <div class="pl-draft-row__meta">
+      <strong class="pl-draft-row__title">{{ d.title|default:"(untitled)" }}</strong>
+      <span class="pl-draft-row__sub">
+        {% if d.audience == 'site' %}Everyone (site-wide){% else %}{{ d.guild.name }}{% endif %}
+        &middot; updated {{ d.updated_at|timesince }} ago
+      </span>
+    </div>
+    <div class="pl-draft-row__actions">
+      <a href="{% url 'hub_compose_resume' d.pk %}" class="hub-btn hub-btn--sm">Resume</a>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--danger pl-draft-row__delete"
+              @click="$dispatch('open-confirm', 'del-draft-{{ cid }}')">Delete</button>
+    </div>
+  </div>
+  {% include "components/confirm_modal.html" with confirm_id="del-draft-"|add:cid confirm_title="Delete this draft?" confirm_message="This can't be undone." confirm_hx_post=del_url confirm_hx_target="#compose-drafts" confirm_button_text="Delete draft" %}
+  {% endwith %}
+  {% empty %}
+  <p class="pl-drafts__empty">No saved drafts yet — save one to pick it up later.</p>
+  {% endfor %}
+</section>

@@ -47,7 +47,7 @@ from classes.factories import (
     RegistrationFactory,
 )
 from classes.models import ClassOffering, Registration, RegistrationQuestion
-from membership.models import Member, MembershipPlan
+from membership.models import Guild, Member, MembershipPlan
 
 # Whole module is opt-in: it loads ~40 pages and writes files, so we keep it out
 # of the default e2e run. The runner script sets this for you.
@@ -181,12 +181,17 @@ def _seed_member_hub(member: Member) -> None:
 
     Guilds (for the directory + My Guilds toggles), two official memberships for the
     signed-in member, a published announcement (for the home dashboard), a filled-in
-    Space & Org Info page, and a few more members for the directory. This seeding is
-    the bulk of the capture effort and grows with each FeaturePage in the registry.
+    Space & Org Info page, a few notifications (for the Notifications page), a published
+    upcoming community event (for the Community Calendar), and a few more members for the
+    directory. This seeding is the bulk of the capture effort and grows with each
+    FeaturePage in the registry.
     """
+    from core.models import Notification
     from tests.membership.factories import (
+        CommunityEventFactory,
         GuildAnnouncementFactory,
         GuildFactory,
+        GuildFAQItemFactory,
         GuildMembershipFactory,
         MemberFactory,
         OrgInfoPageFactory,
@@ -204,11 +209,45 @@ def _seed_member_hub(member: Member) -> None:
         title="Spring glaze restock is in",
         body="New celadons and a fresh batch of clay just landed. Come make something.",
     )
+    # A couple of FAQ items so the guild detail page (the "guild pages" feature shot) shows a real FAQ.
+    GuildFAQItemFactory(
+        guild=guilds[0],
+        question="Do I need to bring my own tools?",
+        answer="Nope — the studio stocks wheels, tools, and glazes. Just bring an apron.",
+    )
+    GuildFAQItemFactory(
+        guild=guilds[0],
+        question="How do I get oriented?",
+        answer="Book a guild orientation from the guild page and a lead will show you the ropes.",
+    )
     OrgInfoPageFactory(
         intro="Everything you need to know about how our space and our guilds work.",
         parking="Free lot on the north side; street parking is open after 6pm.",
         who_to_contact="Front desk for access, your guild lead for studio-specific questions.",
         code_of_conduct="Be kind, clean your station, and ask before borrowing tools.",
+    )
+    # Notifications page (0.21.3): a couple bell rows — one unread (highlighted), one read.
+    if member.user is not None:
+        Notification.objects.create(
+            user=member.user,
+            trigger="class_published",
+            title="New class: Intro to Lost-Wax Casting",
+            body="A new class just went live in the Metalworking guild — grab a seat.",
+            url="/classes/",
+        )
+        Notification.objects.create(
+            user=member.user,
+            trigger="guild_announcement",
+            title="Ceramics Guild: Spring glaze restock is in",
+            body="New celadons and a fresh batch of clay just landed.",
+            url="/guilds/",
+            read_at=timezone.now(),
+        )
+    # Community Calendar (0.21.1): a published, upcoming site-wide event for the Events tab.
+    CommunityEventFactory(
+        community=True,
+        title="Open Studio Night",
+        starts_at=timezone.now() + timedelta(days=5),
     )
     MemberFactory.create_batch(4)
 
@@ -218,6 +257,25 @@ def _feature_pages() -> list[tuple[str, str, str]]:
     from core.release_email import FEATURE_PAGES
 
     return [(fp.slug, fp.label, fp.path) for fp in FEATURE_PAGES]
+
+
+def _seed_signage() -> "object":
+    """Create an enabled zone + a couple of slides so the Slideshow tab and the kiosk
+    player both capture with real content. Returns the zone (reused by the player shot)."""
+    from tests.membership.factories import SlideshowSlideFactory, SlideshowZoneFactory
+
+    zone = SlideshowZoneFactory(name="Woodshop wall", slug="woodshop", is_enabled=True)
+    SlideshowSlideFactory(zone=zone, title="Welcome to Past Lives", body="Ask the front desk for a tour.", sort_order=0)
+    SlideshowSlideFactory(zone=zone, title="Open studio tonight", body="Doors from 6pm.", sort_order=1)
+    return zone
+
+
+def _member_hub_pages() -> list[tuple[str, str]]:
+    """(label, path) for the 0.21 member-hub feature pages on the members surface."""
+    return [
+        ("Member hub — notifications", reverse("notification_list")),
+        ("Member hub — slideshow settings", reverse("hub_admin_site_settings") + "?tab=slideshow"),
+    ]
 
 
 def _members_pages(d: dict[str, object]) -> list[tuple[str, str]]:
@@ -320,6 +378,7 @@ def describe_cms_screenshots():
         page.set_viewport_size({"width": 1366, "height": 900})
 
         data = _seed()
+        zone = _seed_signage()
         login_via_code(ADMIN_EMAIL)
 
         host = urlparse(live_server.url).hostname
@@ -352,6 +411,15 @@ def describe_cms_screenshots():
         for label, path in _members_pages(data):
             capture("Admin & teaching (members surface)", label, path)
 
+        # Pass 2b — member-hub 0.21 features (also members surface; ADMIN_EMAIL is a fog admin).
+        for label, path in _member_hub_pages():
+            capture("Member hub (members surface)", label, path)
+
+        # Pass 3 — signage kiosk surface: point the live host at SIGNAGE_HOSTS so the
+        # public player resolves, then shoot the deck.
+        settings.SIGNAGE_HOSTS = [host]
+        capture("Signage (kiosk surface)", "Signage — slideshow player", f"/{zone.slug}/")
+
         _write_index(out_dir, results)
 
         captured = sum(1 for r in results if r["ok"])
@@ -376,13 +444,23 @@ def describe_feature_screenshots():
         login_via_code(ADMIN_EMAIL)
         page.set_viewport_size(FEATURE_SHOT_VIEWPORT)
 
+        # The static registry pages (framed viewport shots) plus two dynamic, kwargs-based pages
+        # that can't live in the static registry: the polished guild detail page (the "guild pages"
+        # card) and its print QR flyer (the "QR codes" card — shot full-page so the whole flyer fits).
+        guild = Guild.objects.get(name="Ceramics Guild")
+        targets: list[tuple[str, str, str, bool]] = [(s, lbl, p, False) for s, lbl, p in _feature_pages()]
+        targets.append(("guild-pages", "Guild page", reverse("hub_guild_detail", kwargs={"slug": guild.slug}), False))
+        targets.append(("qr-codes", "Guild QR flyer", reverse("hub_guild_flyer", kwargs={"pk": guild.pk}), True))
+
         results: list[dict[str, object]] = []
-        for slug, label, path in _feature_pages():
+        for slug, label, path, full_page in targets:
             record: dict[str, object] = {"slug": slug, "label": label, "path": path}
             try:
                 page.goto(f"{live_server.url}{path}", wait_until="networkidle", timeout=15000)
                 page.wait_for_timeout(250)  # let entrance transitions settle
-                png = page.screenshot(full_page=False)  # framed viewport shot — right shape for a card
+                if slug == "qr-codes":
+                    page.add_style_tag(content=".no-print{display:none !important}")  # drop the flyer's screen toolbar
+                png = page.screenshot(full_page=full_page)
                 record["url"] = save_feature_shot(slug, png)
                 record["ok"] = True
             except Exception as exc:  # noqa: BLE001 — one bad page must not abort the run

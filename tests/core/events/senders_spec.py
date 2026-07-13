@@ -42,15 +42,15 @@ def describe_email_shell_override_is_not_double_wrapped():
 
 def describe_fixed_html_body_is_not_wrapped():
     def it_delivers_an_explicit_full_document_verbatim():
-        # The new-login alert renders a standalone full document and passes it to emit
+        # The login-code email renders a standalone full document and passes it to emit
         # as html_body (the fixed-message path) — it must arrive byte-identical.
         user = User.objects.create_user(username="nl", email="nl@example.com")
-        doc = render_to_string("core/email/new_login.html", {"settings_url": "/settings/"})
+        doc = render_to_string("account/email/login_code_message.html", {"code": "123456"})
         emit(
-            "new_login",
+            "member.login_invite",
             actor=user,
             context={"user": user},
-            title="New login",
+            title="Sign in",
             body="b",
             html_body=doc,
         )

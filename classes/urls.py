@@ -132,6 +132,10 @@ urlpatterns = [
     path("admin/settings/waivers/", views.admin_settings, name="admin_settings"),
     # Legacy CMS image proxy — must come before the bare slug catch-all below.
     path("_legacy-image/", views_legacy_image.legacy_image, name="legacy_image"),
+    # Class QR download (editor-gated) — before the bare slug catch-all below.
+    path("<int:pk>/qr.<str:fmt>/", views.class_qr_download, name="class_qr"),
+    # Stable QR permalink → redirects to the class's current public page (slug-proof).
+    path("c/<int:pk>/", views.class_permalink, name="class_permalink"),
     # Public registration — must come before the bare slug catch-all below.
     path("<slug:slug>/register/", views.register, name="register"),
     path("<slug:slug>/register/success/", views.register_success, name="register_success"),

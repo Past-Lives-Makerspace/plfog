@@ -30,20 +30,24 @@ from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
     CalendarFeedFormSet,
+    DiscordGuildEmojiFormSet,
     GuildEditForm,
+    GuildRoleFormSet,
     MemberAdminEditForm,
     MemberSkillForm,
     OrgInfoPageForm,
     ProfileSettingsForm,
     ReleaseAnnouncementForm,
-    SiteAnnouncementForm,
     SiteSettingsForm,
     SkillSuggestionForm,
+    SlideshowSlideFormSet,
+    SlideshowZoneFormSet,
     VotePreferenceForm,
 )
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
 from membership.models import FundingSnapshot, Guild, Member, OrgInfoPage, Skill, SkillCategory, VotePreference
+from membership.ical import ical_escape
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
@@ -624,6 +628,16 @@ def _require_admin(request: HttpRequest) -> HttpResponse | None:
     return None
 
 
+def _google_sync_enabled() -> bool:
+    """True only when Google Calendar push is on at BOTH gates: the ``GOOGLE_CALENDAR_SYNC_ENABLED``
+    env master switch (credentials present on the server) AND the admin runtime toggle in Site
+    Settings. Drives the sync-state badges (Screens C/E) — when False they stay hidden entirely,
+    so spaces not using Google never see a "pending forever" badge.
+    """
+    env_on = bool(getattr(settings, "GOOGLE_CALENDAR_SYNC_ENABLED", False))
+    return env_on and SiteConfiguration.load().google_calendar_sync_enabled
+
+
 def _guild_edit_context(
     request: HttpRequest,
     guild: Guild,
@@ -642,7 +656,6 @@ def _guild_edit_context(
     save via their own endpoint (the FAQ/Links idiom), so their formsets are unbound here.
     """
     from hub.forms import (
-        GuildAnnouncementForm,
         GuildEmailsForm,
         GuildFAQItemFormSet,
         GuildLinkFormSet,
@@ -660,10 +673,10 @@ def _guild_edit_context(
         "form": form if form is not None else GuildEditForm(instance=guild),
         "faq_formset": GuildFAQItemFormSet(instance=guild, prefix="faq"),
         "link_formset": GuildLinkFormSet(instance=guild, prefix="links"),
-        "announcement_form": GuildAnnouncementForm(guild=guild),
         "staff_by_member": guild.staff_by_member(),
         "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
         "is_admin": _viewing_as_admin(request),
+        "google_sync_enabled": _google_sync_enabled(),
         "notes": guild.meeting_notes.prefetch_related("attachments"),
         "events": guild.events.upcoming().select_related("guild"),
         "orientation_form": (
@@ -1617,15 +1630,17 @@ def guild_banner_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
     """Current member joins this guild (idempotent)."""
+    from core.events import discord_roles
     from membership import orientations
     from membership.models import GuildMembership
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
     if member is not None:
-        _membership, created = GuildMembership.objects.get_or_create(guild=guild, member=member)
-        if created:
+        _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, member)
+        if created or upgraded:
             orientations.member_joined_guild(guild, member)
+        discord_roles.on_membership_changed(guild, member, joined=True)
         messages.success(request, f"You joined {guild.name}.")
     return redirect("hub_guild_detail", slug=guild.slug)
 
@@ -1634,12 +1649,14 @@ def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def guild_leave(request: HttpRequest, pk: int) -> HttpResponse:
     """Current member leaves this guild."""
+    from core.events import discord_roles
     from membership.models import GuildMembership
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
     if member is not None:
         GuildMembership.objects.filter(guild=guild, member=member).delete()
+        discord_roles.on_membership_changed(guild, member, joined=False)
         messages.success(request, f"You left {guild.name}.")
     return redirect("hub_guild_detail", slug=guild.slug)
 
@@ -1654,6 +1671,7 @@ def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
     ``joined`` when checked (join) and omits the field when unchecked (leave), so the
     presence of ``joined`` in POST is the switch state.
     """
+    from core.events import discord_roles
     from membership import orientations
     from membership.models import GuildMembership
 
@@ -1664,12 +1682,14 @@ def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
         trigger_toast(response, "Your account is not linked to a membership.", "error")
         return response
     if "joined" in request.POST:
-        _membership, created = GuildMembership.objects.get_or_create(guild=guild, member=member)
-        if created:
+        _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, member)
+        if created or upgraded:
             orientations.member_joined_guild(guild, member)
+        discord_roles.on_membership_changed(guild, member, joined=True)
         trigger_toast(response, f"You joined {guild.name}.", "success")
     else:
         GuildMembership.objects.filter(guild=guild, member=member).delete()
+        discord_roles.on_membership_changed(guild, member, joined=False)
         trigger_toast(
             response,
             f"You left {guild.name}. You'll stop getting its announcements — rejoin anytime.",
@@ -1783,27 +1803,282 @@ def guild_image_alt_update(request: HttpRequest, pk: int, image_pk: int) -> Http
     return HttpResponse(status=204)
 
 
+# --- Announcement compose wizard (/announcements/compose/) -----------------------------
+# One Alpine-stepper page replacing the old site-settings plain composer AND the guild-edit
+# inline create form: Step 1 audience + rich message, Step 2 "also email" + live preview,
+# Step 3 Discord channel + opt-in @mention. Drafts (AnnouncementDraft) save / resume / delete.
+
+
+def _compose_editable_guilds(request: HttpRequest, member: Member | None) -> QuerySet[Guild]:
+    """Guilds this user may address in the composer: all active guilds for an admin, else staffed."""
+    if _viewing_as_admin(request):
+        return Guild.objects.filter(is_active=True).order_by("name")
+    if member is not None:
+        return member.staffed_guilds.filter(is_active=True).order_by("name")
+    return Guild.objects.none()
+
+
+def _can_compose(request: HttpRequest, member: Member | None) -> bool:
+    """True when the user can compose *something* — a fog admin, or a guild lead/staff."""
+    if _viewing_as_admin(request):
+        return True
+    return member is not None and member.staffed_guilds.filter(is_active=True).exists()
+
+
+def _compose_form_kwargs(request: HttpRequest) -> dict[str, Any]:
+    """Permission-derived kwargs for :class:`~hub.forms.AnnouncementComposeForm` (audience choices)."""
+    member = _get_member(request)
+    return {
+        "is_admin": _viewing_as_admin(request),
+        "editable_guilds": list(_compose_editable_guilds(request, member)),
+    }
+
+
+def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> HttpResponse | None:
+    """403 if the user can't address ``raw_audience`` (never trust the posted audience), else None."""
+    from hub.forms import split_audience
+    from membership.models import AnnouncementDraft
+
+    audience, guild = split_audience(raw_audience)
+    if audience == AnnouncementDraft.Audience.SITE.value:
+        return None if _viewing_as_admin(request) else HttpResponse("Forbidden", status=403)
+    if audience == AnnouncementDraft.Audience.GUILD.value and guild is not None and _can_edit_guild(request, guild):
+        return None
+    return HttpResponse("Forbidden", status=403)
+
+
+def _compose_count_for(audience: str, guild: Guild | None) -> int:
+    """Live recipient count for an audience (reuses the model's resolver-backed count)."""
+    from membership.models import AnnouncementDraft
+
+    if audience == AnnouncementDraft.Audience.GUILD.value and guild is None:
+        return 0
+    return AnnouncementDraft(audience=audience or AnnouncementDraft.Audience.SITE.value, guild=guild).recipient_count()
+
+
+def _draft_initial(draft: Any) -> dict[str, Any]:
+    """Form ``initial`` for resuming a draft — the combined audience value + the saved fields."""
+    from membership.models import AnnouncementDraft
+
+    audience_value = (
+        AnnouncementDraft.Audience.SITE.value
+        if draft.audience == AnnouncementDraft.Audience.SITE.value
+        else f"guild:{draft.guild_id}"
+    )
+    return {
+        "audience": audience_value,
+        "title": draft.title,
+        "body": draft.body,
+        "send_email": draft.send_email,
+        "discord_channel": draft.discord_channel,
+        "mention": draft.mention,
+        "expires_at": draft.expires_at,
+    }
+
+
+def _render_compose(request: HttpRequest, *, form: Any, draft: Any, start_step: int = 1) -> HttpResponse:
+    """Render the wizard page for GET and for an invalid-POST re-render (with field errors)."""
+    from membership.models import AnnouncementDraft
+
+    # The URL-bearing live-count refresh (fires on audience change; the form can't reverse URLs).
+    form.fields["audience"].widget.attrs.update(
+        {
+            "hx-get": reverse("hub_compose_count"),
+            "hx-trigger": "change",
+            "hx-include": "[name=audience]",
+            "hx-swap": "none",
+        }
+    )
+    count = _compose_count_for(form.current_audience, form.current_guild)
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/announcement_compose.html",
+        {
+            **ctx,
+            "form": form,
+            "draft": draft,
+            "start_step": start_step,
+            "audience_value": form.audience_value,
+            "initial_recipient_count": count,
+            "drafts": AnnouncementDraft.objects.for_user(cast(User, request.user)),
+        },
+    )
+
+
+def _compose_first_error(form: Any) -> str:
+    """A member-friendly message for the save-draft error toast (title is the common miss)."""
+    if form.errors.get("title"):
+        return "Add a subject before saving."
+    for errors in form.errors.values():
+        if errors:
+            return str(errors[0])
+    return "Fix the highlighted fields before saving."
+
+
+@login_required
+def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpResponse:
+    """The compose wizard page. GET renders all three steps + the drafts list.
+
+    A ``draft_pk`` resumes an unsent draft you own (a foreign / already-sent pk 404s);
+    ``?audience=guild:<pk>`` pre-scopes a fresh compose. A member who can compose nothing
+    (not an admin, leads no guild) is redirected to the separate propose flow.
+    """
+    from hub.forms import AnnouncementComposeForm
+    from membership.models import AnnouncementDraft
+
+    member = _get_member(request)
+    if not _can_compose(request, member):
+        return redirect("hub_guild_announcement_propose")
+
+    draft = None
+    initial: dict[str, Any] = {}
+    if draft_pk is not None:
+        draft = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+        initial = _draft_initial(draft)
+    else:
+        requested = request.GET.get("audience")
+        if requested:
+            initial["audience"] = requested
+
+    form = AnnouncementComposeForm(initial=initial, **_compose_form_kwargs(request))
+    return _render_compose(request, form=form, draft=draft, start_step=1)
+
+
 @login_required
 @require_POST
-def guild_announcement_create(request: HttpRequest, pk: int) -> HttpResponse:
-    """Post a new announcement to a guild from the edit page. Editor only."""
-    from hub.forms import GuildAnnouncementForm
+def hub_compose_preview(request: HttpRequest) -> HttpResponse:
+    """HTMX: sanitize + brand the current title/body and return the iframe email preview."""
+    from core.html_sanitize import sanitize_rich_html
+    from membership.models import build_announcement_email_html
 
-    guild = get_object_or_404(Guild, pk=pk)
-    forbidden = _require_can_edit_guild(request, guild)
+    if not _can_compose(request, _get_member(request)):
+        return HttpResponse("Forbidden", status=403)
+    title = (request.POST.get("title") or "").strip()
+    body = sanitize_rich_html(request.POST.get("body") or "")
+    return render(
+        request,
+        "hub/partials/_compose_email_preview.html",
+        {"preview_html": build_announcement_email_html(title, body), "preview_subject": title},
+    )
+
+
+@login_required
+def hub_compose_count(request: HttpRequest) -> HttpResponse:
+    """HTMX: push the live recipient count (HX-Trigger) + OOB-swap the re-scoped channel picker."""
+    from hub.forms import AnnouncementComposeForm, split_audience
+
+    raw = request.GET.get("audience") or request.POST.get("audience") or ""
+    forbidden = _compose_audience_forbidden(request, raw)
     if forbidden is not None:
         return forbidden
-    form = GuildAnnouncementForm(request.POST, guild=guild)
-    if form.is_valid():
-        announcement = form.save(commit=False)
-        announcement.guild = guild
-        announcement.author = request.user
-        announcement.save()
-        announcement.notify_members()
-        messages.success(request, "Announcement posted.")
-    else:
-        messages.error(request, "Couldn't post the announcement — add a title and body.")
-    return redirect("hub_guild_edit", pk=guild.pk)
+    audience, guild = split_audience(raw)
+    count = _compose_count_for(audience, guild)
+    form = AnnouncementComposeForm(initial={"audience": raw}, **_compose_form_kwargs(request))
+    response = render(request, "hub/partials/_compose_channel_picker.html", {"form": form, "oob": True})
+    response["HX-Trigger"] = json.dumps({"compose-count": {"count": count}})
+    return response
+
+
+@login_required
+@require_POST
+def hub_compose_test(request: HttpRequest) -> HttpResponse:
+    """HTMX: send a branded test of the current draft to the author's own inbox (never the spine)."""
+    from core.email import send as send_email
+    from core.html_sanitize import rich_html_to_text, sanitize_rich_html
+    from membership.models import build_announcement_email_html
+
+    if not _can_compose(request, _get_member(request)):
+        return HttpResponse("Forbidden", status=403)
+    to = (cast(User, request.user).email or "").strip()
+    if not to:
+        response = HttpResponse(status=204)
+        trigger_toast(response, "Your account has no email address to send a test to.", "error")
+        return response
+    title = (request.POST.get("title") or "").strip()
+    body = sanitize_rich_html(request.POST.get("body") or "")
+    send_email(
+        to=to,
+        subject=title or "Announcement preview",
+        trigger_kind="announcement.test",
+        text_body=f"{title}\n\n{rich_html_to_text(body)}",
+        html_body=build_announcement_email_html(title, body),
+        best_effort=True,
+    )
+    response = HttpResponse(status=204)
+    trigger_toast(response, f"Test sent to {to}.")
+    return response
+
+
+@login_required
+@require_POST
+def hub_compose_save_draft(request: HttpRequest) -> HttpResponse:
+    """HTMX: upsert the draft. Valid → toast + OOB (draft_pk + list); invalid → error toast, no row."""
+    from hub.forms import AnnouncementComposeForm
+    from membership.models import AnnouncementDraft
+
+    raw = request.POST.get("audience") or ""
+    forbidden = _compose_audience_forbidden(request, raw)
+    if forbidden is not None:
+        return forbidden
+    draft_pk = request.POST.get("draft_pk") or ""
+    instance = None
+    if draft_pk:
+        instance = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+    form = AnnouncementComposeForm(request.POST, **_compose_form_kwargs(request))
+    if not form.is_valid():
+        response = HttpResponse(status=204)
+        trigger_toast(response, _compose_first_error(form), "error")
+        return response
+    draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
+    response = render(
+        request,
+        "hub/partials/_compose_save_result.html",
+        {"draft": draft, "drafts": AnnouncementDraft.objects.for_user(cast(User, request.user))},
+    )
+    trigger_toast(response, "Draft saved.")
+    return response
+
+
+@login_required
+@require_POST
+def hub_compose_send(request: HttpRequest) -> HttpResponse:
+    """Full-page POST: re-check the audience server-side, persist the draft, send, then redirect."""
+    from hub.forms import AnnouncementComposeForm
+    from membership.models import AnnouncementDraft
+
+    raw = request.POST.get("audience") or ""
+    forbidden = _compose_audience_forbidden(request, raw)
+    if forbidden is not None:
+        return forbidden
+    draft_pk = request.POST.get("draft_pk") or ""
+    instance = None
+    if draft_pk:
+        instance = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+    form = AnnouncementComposeForm(request.POST, require_body=True, **_compose_form_kwargs(request))
+    if not form.is_valid():
+        return _render_compose(request, form=form, draft=instance, start_step=1)
+    draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
+    count = draft.send()
+    messages.success(request, f"Announcement sent to {count} member(s).")
+    return redirect("hub_compose")
+
+
+@login_required
+@require_POST
+def hub_compose_delete_draft(request: HttpRequest, draft_pk: int) -> HttpResponse:
+    """HTMX (confirm modal): delete an unsent draft you own, then swap the refreshed list + toast."""
+    from membership.models import AnnouncementDraft
+
+    draft = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+    draft.delete()
+    response = render(
+        request,
+        "hub/partials/_compose_drafts_list.html",
+        {"drafts": AnnouncementDraft.objects.for_user(cast(User, request.user))},
+    )
+    trigger_toast(response, "Draft deleted.")
+    return response
 
 
 @login_required
@@ -2406,9 +2681,17 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             if is_new:
                 event.created_by = request.user
             event.save()
-            if is_new:
-                event.announce(actor=request.user)
-            messages.success(request, "Event saved.")
+            # A new event OR a still-SCHEDULED one routes through schedule_or_go_live so a
+            # future publish_at parks it and a cleared/back-dated one publishes now (no strand);
+            # editing a live event only re-pushes to Google (never re-announces).
+            if is_new or event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
+                event.schedule_or_go_live(actor=request.user)
+            elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
+                event.push_to_google(actor=request.user)
+            if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
+                messages.success(request, f"Event scheduled for {event.publish_at_display}.")
+            else:
+                messages.success(request, "Event saved.")
             return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
     else:
         form = CommunityEventForm(instance=event, guild=guild, as_admin=False)
@@ -2423,6 +2706,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             "event": event,
             "form": form,
             "cancel_url": f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events",
+            "google_sync_enabled": _google_sync_enabled(),
         },
     )
 
@@ -2437,7 +2721,9 @@ def guild_event_delete(request: HttpRequest, pk: int, event_pk: int) -> HttpResp
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
-    get_object_or_404(CommunityEvent, pk=event_pk, guild=guild).delete()
+    event = get_object_or_404(CommunityEvent, pk=event_pk, guild=guild)
+    event.remove_from_google()  # best-effort; must run before the FOG row is gone
+    event.delete()
     messages.success(request, "Event deleted.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
 
@@ -2462,9 +2748,16 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
             if is_new:
                 event.created_by = request.user
             event.save()
-            if is_new:
-                event.announce(actor=request.user)
-            messages.success(request, "Event saved.")
+            # is_new OR still-SCHEDULED → schedule_or_go_live (park a future publish_at, publish a
+            # cleared/back-dated one now); editing a live event only re-pushes to Google.
+            if is_new or event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
+                event.schedule_or_go_live(actor=request.user)
+            elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
+                event.push_to_google(actor=request.user)
+            if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
+                messages.success(request, f"Event scheduled for {event.publish_at_display}.")
+            else:
+                messages.success(request, "Event saved.")
             return redirect(cancel_url)
     else:
         form = CommunityEventForm(instance=event, as_admin=True)
@@ -2473,7 +2766,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
     return render(
         request,
         "hub/community_event_edit.html",
-        {**ctx, "event": event, "form": form, "cancel_url": cancel_url},
+        {**ctx, "event": event, "form": form, "cancel_url": cancel_url, "google_sync_enabled": _google_sync_enabled()},
     )
 
 
@@ -2486,8 +2779,245 @@ def event_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
     forbidden = _require_admin(request)
     if forbidden is not None:
         return forbidden
-    get_object_or_404(CommunityEvent, pk=event_pk).delete()
+    event = get_object_or_404(CommunityEvent, pk=event_pk)
+    event.remove_from_google()  # best-effort; must run before the FOG row is gone
+    event.delete()
     messages.success(request, "Event deleted.")
+    return redirect(reverse("hub_community_calendar") + "?tab=events")
+
+
+# --- Member event proposals + reviewer queue --------------------------------
+
+
+@dataclass(frozen=True)
+class _ReviewScope:
+    """A requester's event-review authority.
+
+    ``can_review`` gates access at all; an ``is_admin`` reviewer covers every guild +
+    site-wide, while a lead/staffer covers only their staffed ``guilds``. Built by
+    :func:`_reviewer_guild_scope`; apply it via :meth:`scoped` / :meth:`pending`.
+    """
+
+    can_review: bool
+    is_admin: bool = False
+    guilds: Any = None  # a Guild queryset for a lead/staffer; None for an admin or forbidden
+
+    def scoped(self, events: QuerySet) -> QuerySet:
+        """Narrow a ``CommunityEvent`` queryset to what this scope may act on."""
+        return events if self.is_admin else events.filter(guild__in=self.guilds)
+
+    def pending(self) -> QuerySet:
+        """The pending proposals visible to this scope — an empty set when it can't review."""
+        from membership.models import CommunityEvent
+
+        if not self.can_review:
+            return CommunityEvent.objects.none()
+        awaiting = (
+            CommunityEvent.objects.awaiting_review().select_related("guild", "submitted_by").order_by("starts_at")
+        )
+        return self.scoped(awaiting)
+
+
+def _reviewer_guild_scope(request: HttpRequest) -> _ReviewScope:
+    """The requester's event-review authority (admin / lead-scoped / none)."""
+    if _viewing_as_admin(request):
+        return _ReviewScope(can_review=True, is_admin=True)
+    member = _get_member(request)
+    if member is not None and member.staffed_guilds.exists():
+        return _ReviewScope(can_review=True, guilds=member.staffed_guilds)
+    return _ReviewScope(can_review=False)
+
+
+@login_required
+def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
+    """Member "Propose an event" page — create a new proposal, or edit/resubmit an
+    owned Pending/Changes-requested one.
+
+    On create the member-event policy decides the outcome: ``DISABLED`` → 403;
+    ``OPEN`` → publish immediately; ``APPROVAL`` → submit to the review queue. Editing
+    always re-submits for review (a changes-requested proposal returns to Pending).
+    """
+    from hub.forms import CommunityEventForm
+    from membership.models import CommunityEvent
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    policy = SiteConfiguration.load().member_event_policy
+    Policy = SiteConfiguration.MemberEventPolicy
+    editable_states = [
+        CommunityEvent.ModerationState.PENDING,
+        CommunityEvent.ModerationState.CHANGES_REQUESTED,
+    ]
+    if pk is None:
+        if policy == Policy.DISABLED:
+            return HttpResponse("Forbidden", status=403)
+        event = CommunityEvent()
+        editing = False
+    else:
+        event = get_object_or_404(CommunityEvent, pk=pk, submitted_by=user, moderation_state__in=editable_states)
+        editing = True
+
+    cancel_url = reverse("hub_community_calendar") + "?tab=events"
+
+    if request.method == "POST":
+        form = CommunityEventForm(request.POST, instance=event, as_member=True)
+        if form.is_valid():
+            event = form.save(commit=False)
+            published = event.propose(by=user, guild=form.cleaned_data.get("guild"), policy=policy, editing=editing)
+            if published:
+                messages.success(request, "Your event is live on the Community Calendar.")
+            else:
+                messages.success(
+                    request,
+                    "Thanks — your event was submitted for review. You'll get a note when a lead or admin responds.",
+                )
+            return redirect(cancel_url)
+    else:
+        form = CommunityEventForm(instance=event, as_member=True)
+
+    ctx = _get_hub_context(request)
+    my_proposals = (
+        CommunityEvent.objects.filter(submitted_by=user)
+        .exclude(moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+        .select_related("guild")
+        .order_by("-updated_at")
+    )
+    return render(
+        request,
+        "hub/propose_event.html",
+        {
+            **ctx,
+            "event": event,
+            "form": form,
+            "editing": editing,
+            "policy": policy,
+            "cancel_url": cancel_url,
+            "my_proposals": my_proposals,
+        },
+    )
+
+
+@login_required
+@require_POST
+def event_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
+    """The proposer withdraws (deletes) their own not-yet-published proposal. POST only."""
+    from membership.models import CommunityEvent
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    event = get_object_or_404(
+        CommunityEvent,
+        pk=pk,
+        submitted_by=user,
+        moderation_state__in=[
+            CommunityEvent.ModerationState.PENDING,
+            CommunityEvent.ModerationState.CHANGES_REQUESTED,
+        ],
+    )
+    event.withdraw(by=user)
+    messages.success(request, "Proposal withdrawn.")
+    return redirect(reverse("hub_community_calendar") + "?tab=events")
+
+
+@login_required
+def event_review_queue(request: HttpRequest) -> HttpResponse:
+    """The reviewer queue — pending proposals a lead/admin can approve, send back, or decline."""
+    scope = _reviewer_guild_scope(request)
+    if not scope.can_review:
+        return HttpResponse("Forbidden", status=403)
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/event_review_queue.html",
+        {
+            **ctx,
+            "pending_events": scope.pending(),
+            "decision_form": None,
+            "open_decision_for": None,
+            "open_decision_kind": "",
+            "decision_note_value": "",
+            "decision_note_error": "",
+        },
+    )
+
+
+@login_required
+@require_POST
+def event_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
+    """Record a reviewer's decision (approve / request changes / decline) on a proposal."""
+    from hub.forms import EventDecisionForm
+    from membership.models import CommunityEvent, InvalidEventTransition
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    scope = _reviewer_guild_scope(request)
+    if not scope.can_review:
+        return HttpResponse("Forbidden", status=403)
+
+    # Fetch scoped to the reviewer's authority (a lead can only touch their guilds' events),
+    # but NOT to a moderation state — a stale decision surfaces as a friendly "already
+    # handled" via the model guard rather than a bare 404.
+    event = get_object_or_404(scope.scoped(CommunityEvent.objects.all()), pk=pk)
+
+    # Approve carries its decision in the query string (a plain confirm modal posts no
+    # notes field); changes/decline post the decision + notes in the body.
+    data = request.POST.copy()
+    if not data.get("decision"):
+        data["decision"] = request.GET.get("decision", "")
+    form = EventDecisionForm(data)
+    if not form.is_valid():
+        kind = data.get("decision", "")
+        return render(
+            request,
+            "hub/event_review_queue.html",
+            {
+                **_get_hub_context(request),
+                "pending_events": scope.pending(),
+                "decision_form": form,
+                "open_decision_for": event.pk,
+                "open_decision_kind": kind,
+                "decision_note_value": data.get("notes", ""),
+                "decision_note_error": " ".join(str(e) for e in form.errors.get("notes", [])),
+            },
+        )
+
+    decision = form.cleaned_data["decision"]
+    notes = form.cleaned_data["notes"]
+    try:
+        if decision == "approve":
+            event.approve(reviewer=user)
+            messages.success(request, "Event approved and published.")
+        elif decision == "changes":
+            event.request_changes(reviewer=user, notes=notes)
+            messages.success(request, "Sent back to the proposer for changes.")
+        else:
+            event.decline(reviewer=user, notes=notes)
+            messages.success(request, "Proposal declined.")
+    except InvalidEventTransition:
+        messages.info(request, "That event was already handled.")
+    return redirect("hub_event_review_queue")
+
+
+@login_required
+@require_POST
+def event_retry_sync(request: HttpRequest, pk: int) -> HttpResponse:
+    """Re-push a single event to Google now (the "Retry sync now" button on a FAILED sync
+    badge). Admin-only; best-effort — records the outcome and reports the new sync state so
+    an admin who just fixed the Calendar ID / sharing doesn't wait up to 15 min for the cron.
+    """
+    from membership.models import CommunityEvent
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    event = get_object_or_404(CommunityEvent, pk=pk)
+    event.push_to_google()
+    if event.sync_state == CommunityEvent.SyncState.SYNCED:
+        messages.success(request, "Event synced to Google Calendar.")
+    elif event.sync_state == CommunityEvent.SyncState.FAILED:
+        messages.error(request, f"Sync failed: {event.sync_error}")
+    else:
+        messages.info(request, event.sync_error or "Sync is still pending.")
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
     return redirect(reverse("hub_community_calendar") + "?tab=events")
 
 
@@ -2612,7 +3142,7 @@ def _get_calendar_context(
     from collections import defaultdict
 
     from core.models import CalendarFeed, SiteConfiguration
-    from membership.models import CalendarEvent, Guild
+    from membership.models import CalendarEvent, CommunityEvent, Guild
 
     now = dj_timezone.now()
     today = now.date()
@@ -2634,6 +3164,10 @@ def _get_calendar_context(
     events_qs = CalendarEvent.objects.filter(start_dt__date__gte=fetch_from, start_dt__date__lte=fetch_to)
     if guild is not None:
         events_qs = events_qs.filter(guild=guild)
+    # Echo de-dup: hide the iCal copy of any event FOG itself pushed to Google (the daily
+    # read re-imports it as a CalendarEvent whose UID matches our stored google_ical_uid),
+    # so a FOG event never shows twice on the calendar.
+    events_qs = events_qs.exclude(uid__in=CommunityEvent.objects.pushed().values_list("google_ical_uid", flat=True))
     # CalendarEvent rows, optionally merged with synthetic guild entries (classes/orientations)
     # that duck-type CalendarEvent — hence the Any element type.
     all_events: list[Any] = list(events_qs.select_related("guild", "feed").order_by("start_dt"))
@@ -2784,8 +3318,36 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     cal_ctx["events_url"] = reverse("hub_community_calendar_events")
 
     view_as = getattr(request, "view_as", None)
-    cal_ctx["upcoming_events"] = CommunityEvent.objects.upcoming().select_related("guild")
-    cal_ctx["events_can_manage"] = bool(view_as is not None and view_as.is_admin)
+    is_admin = bool(view_as is not None and view_as.is_admin)
+    # Only PUBLISHED events reach the public list (pending/declined proposals never leak).
+    cal_ctx["upcoming_events"] = CommunityEvent.objects.published().upcoming().select_related("guild")
+    cal_ctx["events_can_manage"] = is_admin
+    # Admin-only: site-wide events parked in SCHEDULED are invisible on the public list and
+    # aren't in my_proposals (admin direct-creates set created_by, not submitted_by), so an
+    # admin could never find them to edit/cancel — surface them in their own section.
+    cal_ctx["scheduled_events"] = (
+        CommunityEvent.objects.scheduled().site_wide().select_related("guild").order_by("publish_at")
+        if is_admin
+        else CommunityEvent.objects.none()
+    )
+
+    policy = SiteConfiguration.load().member_event_policy
+    cal_ctx["member_can_propose"] = policy != SiteConfiguration.MemberEventPolicy.DISABLED
+    cal_ctx["google_sync_enabled"] = _google_sync_enabled()
+
+    # Reviewer queue link + count, and the member's own in-flight proposals (Screen A′).
+    scope = _reviewer_guild_scope(request)
+    cal_ctx["can_review"] = scope.can_review
+    cal_ctx["review_pending_count"] = scope.pending().count()
+    if request.user.is_authenticated:
+        cal_ctx["my_proposals"] = (
+            CommunityEvent.objects.filter(submitted_by=request.user)
+            .exclude(moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+            .select_related("guild")
+            .order_by("-updated_at")
+        )
+    else:
+        cal_ctx["my_proposals"] = CommunityEvent.objects.none()
     return render(request, "hub/community_calendar.html", {**ctx, **cal_ctx})
 
 
@@ -2827,14 +3389,6 @@ def guild_calendar_events_partial(request: HttpRequest, pk: int) -> HttpResponse
     return render(request, "hub/partials/calendar_content.html", cal_ctx)
 
 
-def _ical_escape(value: str) -> str:
-    """Escape special characters per RFC 5545 §3.3.11."""
-    value = value.replace("\\", "\\\\")
-    value = value.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n")
-    value = value.replace(";", "\\;").replace(",", "\\,")
-    return value
-
-
 @login_required
 def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     """Download a combined iCal file of all upcoming events."""
@@ -2842,8 +3396,11 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
 
     now = dj_timezone.now()
     horizon = now + timedelta(days=90)
+    # Echo de-dup: exclude the iCal re-import of any event FOG pushed to Google (matched by
+    # the stored google_ical_uid), so the export never carries a FOG event twice.
     events = (
         CalendarEvent.objects.filter(start_dt__gte=now, start_dt__lte=horizon)
+        .exclude(uid__in=CommunityEvent.objects.pushed().values_list("google_ical_uid", flat=True))
         .select_related("guild")
         .order_by("start_dt")
     )
@@ -2861,7 +3418,7 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
         lines += [
             "BEGIN:VEVENT",
             f"UID:{evt.uid}",
-            f"SUMMARY:{_ical_escape(evt.title)}",
+            f"SUMMARY:{ical_escape(evt.title)}",
         ]
         if evt.all_day:
             lines += [
@@ -2874,30 +3431,17 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
                 f"DTEND:{evt.end_dt.strftime('%Y%m%dT%H%M%SZ')}",
             ]
         if evt.description:
-            lines.append(f"DESCRIPTION:{_ical_escape(evt.description[:250])}")
+            lines.append(f"DESCRIPTION:{ical_escape(evt.description[:250])}")
         if evt.location:
             lines.append(f"LOCATION:{evt.location}")
         lines.append("END:VEVENT")
 
-    # FOG-native events need their own loop — they lack the CalendarEvent attrs the
-    # loop above reads (uid / all_day). A recurring series emits ONE VEVENT carrying an
-    # RRULE so subscribers expand it themselves (no per-occurrence VEVENTs).
-    for ev in CommunityEvent.objects.upcoming().select_related("guild"):
-        lines += [
-            "BEGIN:VEVENT",
-            f"UID:community-{ev.pk}@pastlives",
-            f"SUMMARY:{_ical_escape(ev.title)}",
-            f"DTSTART:{ev.starts_at.strftime('%Y%m%dT%H%M%SZ')}",
-            f"DTEND:{ev.ends_at.strftime('%Y%m%dT%H%M%SZ')}",
-        ]
-        rrule = ev.ical_rrule()
-        if rrule:
-            lines.append(f"RRULE:{rrule}")
-        if ev.description:
-            lines.append(f"DESCRIPTION:{_ical_escape(ev.description[:250])}")
-        if ev.location:
-            lines.append(f"LOCATION:{_ical_escape(ev.location)}")
-        lines.append("END:VEVENT")
+    # FOG-native events build their VEVENT from the shared CommunityEvent.ics_vevent_lines
+    # (same lines the per-event .ics uses, so the two never drift). A recurring series
+    # emits ONE VEVENT carrying an RRULE the subscriber expands itself. Only PUBLISHED
+    # events export (pending/declined proposals never leave FOG).
+    for ev in CommunityEvent.objects.published().upcoming().select_related("guild"):
+        lines += ev.ics_vevent_lines()
 
     lines.append("END:VCALENDAR")
     ical_content = "\r\n".join(lines) + "\r\n"
@@ -2905,6 +3449,74 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     response = HttpResponse(ical_content, content_type="text/calendar; charset=utf-8")
     response["Content-Disposition"] = 'attachment; filename="past-lives-calendar.ics"'
     return response
+
+
+def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """The public detail page for a Community Event — the canonical link a QR/flyer/signage
+    resolves to. **No login required** so a scanned code opens for anyone.
+
+    Only PUBLISHED events have a page; a pending/changes-requested/declined proposal (or an
+    unknown pk) 404s identically via the themed ``404.html`` — no unreviewed proposal ever
+    leaks onto a scannable URL, and a missing event never reveals its title.
+    """
+    from membership.models import CommunityEvent
+    from membership.permissions import can_edit_event
+
+    event = get_object_or_404(CommunityEvent.objects.published().select_related("guild"), pk=pk)
+    ctx = _get_hub_context(request)
+    on_member_surface = getattr(request, "surface", "members") == "members"
+    can_edit = on_member_surface and can_edit_event(request, event)
+    is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
+    return render(
+        request,
+        "hub/event_detail.html",
+        {
+            **ctx,
+            "event": event,
+            "can_edit": can_edit,
+            "is_recurring": is_recurring,
+            # A non-recurring event that has already ended is still viewable; show an honest
+            # "already taken place" note. A recurring series is ongoing, so never flag it.
+            "show_past_note": not is_recurring and event.ends_at < dj_timezone.now(),
+        },
+    )
+
+
+def event_ics(request: HttpRequest, pk: int) -> HttpResponse:
+    """The single-event ``.ics`` for the public page's "Add to calendar" button.
+
+    Public (no login) so a flyer scanner can add it to their own calendar; PUBLISHED-only,
+    like the page it belongs to.
+    """
+    from membership.models import CommunityEvent
+
+    event = get_object_or_404(CommunityEvent.objects.published(), pk=pk)
+    response = HttpResponse(event.ics_document(), content_type="text/calendar; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="event-{event.pk}.ics"'
+    return response
+
+
+def event_qr(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
+    """Download a published event's public-page QR as SVG (default) or PNG.
+
+    Editor-gated via the shared ``can_edit_event`` check (so it and the "Edit event"
+    affordance never drift). An anonymous or non-editor request gets 403 — the download is
+    an editor convenience; the public artifact is the page itself.
+    """
+    from membership.models import CommunityEvent
+    from membership.permissions import can_edit_event
+
+    event = get_object_or_404(CommunityEvent.objects.published(), pk=pk)
+    if not can_edit_event(request, event):
+        return HttpResponse("You don't have access to this event.", status=403)
+    if fmt == "svg":
+        resp = HttpResponse(event.qr_svg(), content_type="image/svg+xml")
+    elif fmt == "png":
+        resp = HttpResponse(event.qr_png_bytes(), content_type="image/png")
+    else:
+        raise Http404
+    resp["Content-Disposition"] = f'attachment; filename="event-{event.pk}-qr.{fmt}"'
+    return resp
 
 
 @require_POST
@@ -3699,89 +4311,6 @@ def _activated_member_count() -> int:
     return len(resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {}))
 
 
-def _announcement_email_html(title: str, body: str) -> str:
-    """Branded announcement email HTML — shared by the preview and the real send.
-
-    ``body`` is the rich-text editor's sanitized HTML (or, for an unedited release
-    draft, legacy plain text); ``render_rich_email_body`` inline-styles it for the dark
-    card, the escaped title rides above it as an ``<h2>``, and the branded shell wraps
-    the whole fragment.
-    """
-    from django.utils.html import escape
-
-    from core.events.templates import wrap_email_html
-    from core.html_sanitize import render_rich_email_body
-
-    fragment = f"<h2>{escape(title)}</h2>{render_rich_email_body(body)}"
-    return wrap_email_html(fragment)
-
-
-def _send_site_announcement(request: HttpRequest, form: SiteAnnouncementForm) -> int:
-    """Fire ``site_announcement`` to activated members; return the recipient count.
-
-    The rich branded email is built here and handed to ``emit`` as a per-channel EMAIL
-    override (the bell + Discord still render from the plain seeded copy). Discord is
-    suppressed unless the admin ticked "Also post to Discord" — for the release send the
-    GitHub Action already posts it on merge to main, so it stays off to avoid a double.
-    """
-    from core.events.channels import Channel, Message
-    from core.events.emit import emit
-    from core.html_sanitize import rich_html_to_text
-
-    title = form.cleaned_data["title"]
-    body = form.cleaned_data["body"]  # sanitized rich HTML (SiteAnnouncementForm.clean_body)
-    body_text = rich_html_to_text(body)  # bell + Discord (and the email text part) get plain text
-    post_to_discord = form.cleaned_data["post_to_discord"]
-    site_url = request.build_absolute_uri("/")
-    email = Message(
-        title=title,
-        body=f"{title}\n\n{body_text}\n\n{site_url}",
-        url=site_url,
-        html_body=_announcement_email_html(title, body),
-        trigger_kind="site_announcement",
-    )
-    result = emit(
-        "site_announcement",
-        # Always authenticated — the view is @fog_admin_required (the else-branch never
-        # runs); the guard just narrows User | AnonymousUser to a Model for emit().
-        actor=request.user if request.user.is_authenticated else None,
-        context={
-            "member_name": "there",
-            "announcement_title": title,
-            "announcement_body": body_text,
-            "site_url": site_url,
-        },
-        url=site_url,
-        period=f"site:{dj_timezone.now():%Y%m%d%H%M%S%f}",
-        messages={Channel.EMAIL: email},
-        suppress_broadcast=not post_to_discord,
-    )
-    return result.recipient_count
-
-
-def _handle_announcement_action(
-    request: HttpRequest, action: str
-) -> tuple[HttpResponse | None, SiteAnnouncementForm, dict[str, object] | None]:
-    """Process an Announcements-tab POST. Returns ``(redirect_or_none, form, preview)``.
-
-    ``announce_send`` (valid) returns a redirect; ``announce_preview`` (valid) returns a
-    preview dict; an invalid form returns the bound form so the tab re-renders with errors.
-    """
-    form = SiteAnnouncementForm(request.POST)
-    if not form.is_valid():
-        return None, form, None
-    if action == "announce_send":
-        count = _send_site_announcement(request, form)
-        messages.success(request, f"Announcement sent to {count} member(s).")
-        return redirect(f"{reverse('hub_admin_site_settings')}?tab=announcements"), form, None
-    preview: dict[str, object] = {
-        "html": _announcement_email_html(form.cleaned_data["title"], form.cleaned_data["body"]),
-        "count": _activated_member_count(),
-        "post_to_discord": form.cleaned_data["post_to_discord"],
-    }
-    return None, form, preview
-
-
 def _release_announcement_initial() -> dict[str, str]:
     """Prefilled subject / preheader / intro for a fresh Release-mode draft."""
     from core.release_email import current_line_entries
@@ -3799,10 +4328,9 @@ def _release_announcement_initial() -> dict[str, str]:
 def _send_release_announcement(request: HttpRequest, subject: str, html: str, text: str, summary: str) -> int:
     """Fire the release-update ``site_announcement`` to activated members; return the count.
 
-    Same mechanism as :func:`_send_site_announcement` — a per-channel EMAIL override on the
-    spine, Discord suppressed (the GitHub Action auto-posts on merge), and a **timestamp-
-    unique** period (NOT version-keyed) so an admin who caught a bad card can send a
-    corrected version and have it actually deliver.
+    A per-channel EMAIL override on the spine, Discord suppressed (the GitHub Action
+    auto-posts on merge), and a **timestamp-unique** period (NOT version-keyed) so an admin
+    who caught a bad card can send a corrected version and have it actually deliver.
     """
     from core.events.channels import Channel, Message
     from core.events.emit import emit
@@ -3870,13 +4398,38 @@ def _handle_release_announcement_action(
     return None, form, preview
 
 
+def _discord_editor_querysets() -> tuple[Any, Any]:
+    """Querysets backing the Discord tab's emoji map (D2) and per-guild role table (D3)."""
+    from membership.models import DiscordGuildEmoji
+
+    return DiscordGuildEmoji.objects.all(), Guild.objects.filter(is_active=True).order_by("name")
+
+
 def _save_site_settings(
     request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
-) -> tuple[HttpResponse | None, SiteSettingsForm, Any]:
-    """Bind + save the settings form and calendar formset. Returns ``(redirect_or_none, form, formset)``."""
+) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any]:
+    """Bind + save the settings form, calendar formset, and (Discord tab only) the emoji
+    map + per-guild role formsets. Returns ``(redirect_or_none, form, feed_formset,
+    emoji_formset, role_formset)``.
+
+    The Discord formsets are bound + validated + saved ONLY when the Discord tab posted
+    (``submitted_tab == "discord"``) so saving any other tab never requires the Discord
+    management forms; on a Discord validation error the bound formsets are returned so no
+    typed value is lost.
+    """
+    emoji_queryset, role_queryset = _discord_editor_querysets()
+    is_discord = request.POST.get("submitted_tab") == "discord"
     form = SiteSettingsForm(request.POST, instance=config)
     feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
-    if form.is_valid() and feed_formset.is_valid():
+    if is_discord:
+        emoji_formset = DiscordGuildEmojiFormSet(request.POST, queryset=emoji_queryset, prefix="emoji")
+        role_formset = GuildRoleFormSet(request.POST, queryset=role_queryset, prefix="guildroles")
+    else:
+        emoji_formset = DiscordGuildEmojiFormSet(queryset=emoji_queryset, prefix="emoji")
+        role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
+
+    discord_ok = (emoji_formset.is_valid() and role_formset.is_valid()) if is_discord else True
+    if form.is_valid() and feed_formset.is_valid() and discord_ok:
         form.save()
         instances = feed_formset.save(commit=False)
         for obj in feed_formset.deleted_objects:
@@ -3886,10 +4439,26 @@ def _save_site_settings(
             if not inst.name and not inst.ical_url:
                 continue
             inst.save()
+        if is_discord:
+            emoji_instances: list[Any] = emoji_formset.save(commit=False)
+            for emoji_obj in emoji_formset.deleted_objects:
+                emoji_obj.delete()
+            for emoji_inst in emoji_instances:
+                # Skip blank "+ Add" rows the user never filled in.
+                if not emoji_inst.emoji:
+                    continue
+                emoji_inst.save()
+            role_formset.save()
         messages.success(request, "Site settings saved.")
         target_tab = request.POST.get("submitted_tab", active_tab)
-        return redirect(f"{reverse('hub_admin_site_settings')}?tab={target_tab}"), form, feed_formset
-    return None, form, feed_formset
+        return (
+            redirect(f"{reverse('hub_admin_site_settings')}?tab={target_tab}"),
+            form,
+            feed_formset,
+            emoji_formset,
+            role_formset,
+        )
+    return None, form, feed_formset, emoji_formset, role_formset
 
 
 @fog_admin_required
@@ -3905,12 +4474,10 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
-    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features", "discord"}:
+    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features", "discord", "slideshow"}:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()
-    announce_form = SiteAnnouncementForm()
-    announce_preview: dict[str, object] | None = None
     release_mode = False
     release_form: ReleaseAnnouncementForm | None = None
     release_preview: dict[str, object] | None = None
@@ -3929,27 +4496,33 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             url = reverse("hub_admin_site_settings")
             return redirect(f"{url}?tab=legacy-cms")
 
-        # Announcements tab — preview-then-send, separate from the settings form.
+        # Announcements tab — the Release composer (preview-then-send), separate from the
+        # settings form. The plain sitewide composer moved to the /announcements/compose/
+        # wizard, so only the release mode (mode=release) is handled here now.
         if action in ("announce_preview", "announce_send", "announce_test"):
             active_tab = "announcements"
+            release_mode = True
             form = SiteSettingsForm(instance=config)
             feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
-            # The Release composer submits mode=release; the freeform composer does not.
-            if request.POST.get("mode") == "release":
-                release_mode = True
-                response, release_form, release_preview = _handle_release_announcement_action(request, action)
-            else:
-                response, announce_form, announce_preview = _handle_announcement_action(request, action)
+            emoji_queryset, role_queryset = _discord_editor_querysets()
+            emoji_formset = DiscordGuildEmojiFormSet(queryset=emoji_queryset, prefix="emoji")
+            role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
+            response, release_form, release_preview = _handle_release_announcement_action(request, action)
             if response is not None:
                 return response
             # else fall through to render (preview, or send with validation errors)
         else:
-            response, form, feed_formset = _save_site_settings(request, config, feed_queryset, active_tab)
+            response, form, feed_formset, emoji_formset, role_formset = _save_site_settings(
+                request, config, feed_queryset, active_tab
+            )
             if response is not None:
                 return response
     else:
         form = SiteSettingsForm(instance=config)
         feed_formset = CalendarFeedFormSet(queryset=feed_queryset, prefix="feeds")
+        emoji_queryset, role_queryset = _discord_editor_querysets()
+        emoji_formset = DiscordGuildEmojiFormSet(queryset=emoji_queryset, prefix="emoji")
+        role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
         # "Draft from latest release" — enter Release mode with a prefilled draft.
         if request.GET.get("draft") == "release":
             release_mode = True
@@ -3957,6 +4530,10 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             active_tab = "announcements"
 
     instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
+    from membership.models import SlideshowSlide, SlideshowZone
+
+    zone_formset = SlideshowZoneFormSet(queryset=SlideshowZone.objects.all(), prefix="zones")
+    slide_formset = SlideshowSlideFormSet(queryset=SlideshowSlide.objects.all(), prefix="slides")
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -3965,6 +4542,10 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             **ctx,
             "form": form,
             "feed_formset": feed_formset,
+            "emoji_formset": emoji_formset,
+            "role_formset": role_formset,
+            "zone_formset": zone_formset,
+            "slide_formset": slide_formset,
             "active_tab": active_tab,
             "classes_color_field": form["classes_calendar_color"],
             "sync_classes_field": form["sync_classes_enabled"],
@@ -3972,10 +4553,52 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "instructor_sync_rows": instructor_sync_rows,
             "legacy_cms_unmatched": legacy_cms_unmatched,
             "config": config,
-            "announce_form": announce_form,
-            "announce_preview": announce_preview,
             "release_mode": release_mode,
             "release_form": release_form,
             "release_preview": release_preview,
         },
     )
+
+
+@fog_admin_required
+@require_POST
+def admin_slideshow_zones_save(request: HttpRequest) -> HttpResponse:
+    """Save the Slideshow tab's Zones editor (its own form, outside the settings form)."""
+    from membership.models import SlideshowZone
+
+    formset = SlideshowZoneFormSet(request.POST, queryset=SlideshowZone.objects.all(), prefix="zones")
+    if formset.is_valid():
+        instances = formset.save(commit=False)
+        for obj in formset.deleted_objects:
+            obj.delete()
+        for inst in instances:
+            # Skip a blank "+ Add" row the user never filled in.
+            if not inst.name:
+                continue
+            inst.save()
+        messages.success(request, "Zones saved.")
+    else:
+        messages.error(request, "Couldn't save the zones — check the highlighted fields.")
+    return redirect(f"{reverse('hub_admin_site_settings')}?tab=slideshow")
+
+
+@fog_admin_required
+@require_POST
+def admin_slideshow_slides_save(request: HttpRequest) -> HttpResponse:
+    """Save the Slideshow tab's Slides editor (its own multipart form, outside the settings form)."""
+    from membership.models import SlideshowSlide
+
+    formset = SlideshowSlideFormSet(request.POST, request.FILES, queryset=SlideshowSlide.objects.all(), prefix="slides")
+    if formset.is_valid():
+        instances = formset.save(commit=False)
+        for obj in formset.deleted_objects:
+            obj.delete()
+        for inst in instances:
+            # Skip a blank "+ Add" row (no title, image, or announcement).
+            if not (inst.title or inst.image or inst.announcement_id):
+                continue
+            inst.save()
+        messages.success(request, "Slides saved.")
+    else:
+        messages.error(request, "Couldn't save the slides — check the highlighted fields.")
+    return redirect(f"{reverse('hub_admin_site_settings')}?tab=slideshow")

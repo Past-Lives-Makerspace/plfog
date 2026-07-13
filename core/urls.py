@@ -10,6 +10,8 @@ urlpatterns = [
     path("auth/relay/accept/", views.relay_accept, name="relay_accept"),
     # Health check
     path("health/", views.health_check, name="health_check"),
+    # Crawler policy — keep search engines out of /admin/ and private areas
+    path("robots.txt", views.robots_txt, name="robots_txt"),
     # Home page
     path("", views.home, name="home"),
     # Short, human-typable vanity share URL → 301 to the public guest guild page.
@@ -28,9 +30,15 @@ urlpatterns = [
     path("webpush/unsubscribe/", views.unsubscribe, name="webpush_unsubscribe"),
     # Staff activity dashboard
     path("manage/activity/", views.site_activity, name="manage_activity"),
-    # Notification bell feed
-    path("notifications/", views.notification_feed, name="notification_feed"),
+    # Member notifications page
+    path("notifications/", views.notification_list, name="notification_list"),
     path("notifications/unread-count/", views.notification_unread_count, name="notification_unread_count"),
     path("notifications/<int:pk>/read/", views.notification_read, name="notification_read"),
     path("notifications/read-all/", views.notification_read_all, name="notification_read_all"),
+    # Signage slideshow (public kiosk). Registered LAST so any real member route
+    # wins — a bare /<zone-slug>/ only falls through to the player when nothing else
+    # matched. Both views raise Http404 off the signage surface (see core.views), and
+    # the middleware allowlist only permits these names on slideshow.pastlives.space.
+    path("<slug:zone_slug>/", views.signage_player, name="signage_player"),
+    path("<slug:zone_slug>/deck/", views.signage_deck, name="signage_deck"),
 ]

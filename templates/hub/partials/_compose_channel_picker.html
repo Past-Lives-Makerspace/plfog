@@ -1,0 +1,16 @@
+{% comment %}
+Step-3 Discord channel picker, wrapped in the OOB target (#compose-discord-picker) so an
+audience change can re-scope it server-side (a site-wide audience drops "Our Guild Channel").
+Rendered inline on the wizard page and returned as an hx-swap-oob partial by hub_compose_count.
+
+The x-init seeds/refreshes the Alpine `discordChannel` var from the checked radio (so the @mention
+picker can hide itself when "Don't post" is chosen) on first render AND after each OOB re-scope.
+
+Params:
+  form — the AnnouncementComposeForm (its bound discord_channel field)
+  oob  — when truthy, marks this as an out-of-band swap
+{% endcomment %}
+<div id="compose-discord-picker"{% if oob %} hx-swap-oob="true"{% endif %}
+     x-init="discordChannel = ($el.querySelector('[name=discord_channel]:checked') || {}).value || discordChannel">
+  {% include "hub/partials/_announcement_channel_picker.html" with field=form.discord_channel %}
+</div>

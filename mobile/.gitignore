@@ -1,0 +1,26 @@
+# Node
+node_modules/
+
+# Android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+
+# iOS build artifacts
+ios/App/Pods/
+ios/App/build/
+ios/App/App/public/
+ios/App/output/
+DerivedData/
+*.xcuserstate
+
+# Signing secrets — NEVER commit these
+*.keystore
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+key.properties

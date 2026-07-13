@@ -109,10 +109,6 @@ TRIGGERS: list[Trigger] = [
     Trigger("lease_expiring", "Lease expiring soon", "Your space lease ends within 30 days.", "Spaces"),
     # Admin broadcasts
     Trigger("site_announcement", "Makerspace-wide announcement", "Staff posted a site-wide notice.", "Announcements"),
-    # Security — forced, no toggle
-    Trigger(
-        "new_login", "New login detected", "Your account was accessed from a new device.", "Security", force_email=True
-    ),
 ]
 
 _BY_KEY = {t.key: t for t in TRIGGERS}

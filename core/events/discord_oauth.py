@@ -37,10 +37,17 @@ class DiscordIdentity(NamedTuple):
         handle: The user's Discord username, falling back to their global (display)
             name. Used to pre-fill a member's blank ``discord_handle``. May be blank
             if Discord returns neither.
+        email: The email on the Discord account (blank if Discord returns none). Used
+            by the no-login link flow to match an existing verified Past Lives account.
+        email_verified: Whether Discord itself verified that email (``verified`` on
+            ``/users/@me``). The no-login auto-link fires ONLY when this is True — an
+            unverified email proves nothing.
     """
 
     user_id: str
     handle: str
+    email: str = ""
+    email_verified: bool = False
 
 
 logger = logging.getLogger(__name__)
@@ -49,8 +56,9 @@ AUTHORIZE_URL = "https://discord.com/oauth2/authorize"
 TOKEN_URL = "https://discord.com/api/v10/oauth2/token"
 IDENTITY_URL = "https://discord.com/api/v10/users/@me"
 
-# Only the identity is needed to learn the member's Discord id; no guild/message scope.
-_SCOPE = "identify"
+# ``identify`` learns the member's Discord id; ``email`` lets the no-login link flow
+# match the account by its verified email (spec §5.1).
+_SCOPE = "identify email"
 _DEFAULT_TIMEOUT_SECONDS = 10.0
 
 
@@ -157,7 +165,42 @@ def fetch_identity(access_token: str) -> DiscordIdentity:
     if not user_id:
         raise DiscordOAuthError("Identity response carried no user id.")
     handle = (payload.get("username") or payload.get("global_name") or "").strip()
-    return DiscordIdentity(user_id=str(user_id), handle=handle)
+    return DiscordIdentity(
+        user_id=str(user_id),
+        handle=handle,
+        email=(payload.get("email") or "").strip(),
+        email_verified=bool(payload.get("verified", False)),
+    )
+
+
+def resolve_member_from_code(code: str, redirect_uri: str) -> tuple[Member | None, DiscordIdentity]:
+    """Exchange an OAuth ``code``, fetch the identity, and match it to a verified account.
+
+    The no-login link flow (spec §5.1): if Discord verified the email AND it matches
+    exactly one verified Past Lives account, return that member; otherwise return
+    ``(None, identity)`` so the caller can fall back to a friendly "log in to confirm".
+    A pre-signup member with a verified email but no linked User is (correctly) not
+    found by :func:`membership.selectors.member_for_verified_email`, so they also land
+    on the log-in fallback.
+
+    Args:
+        code: The authorization code from the OAuth callback.
+        redirect_uri: The callback URL used throughout the flow.
+
+    Returns:
+        ``(member_or_none, identity)`` — the identity is always returned so the caller
+        can apply the downstream link guards (already-linked-elsewhere, etc.).
+
+    Raises:
+        DiscordOAuthError: If any step of the OAuth flow fails.
+    """
+    from membership.selectors import member_for_verified_email
+
+    access_token = exchange_code(code, redirect_uri)
+    identity = fetch_identity(access_token)
+    if not (identity.email_verified and identity.email):
+        return None, identity
+    return member_for_verified_email(identity.email), identity
 
 
 def link_member_from_code(member: Member, code: str, redirect_uri: str) -> None:

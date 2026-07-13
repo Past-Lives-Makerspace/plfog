@@ -166,6 +166,10 @@ def describe_profile_settings_form():
             assert form.has_only_photo_errors is False
 
 
+# NOTE: The hub Site Settings plain composer + the guild-edit composer moved to the
+# /announcements/compose/ wizard (AnnouncementComposeForm), covered by
+# tests/hub/announcement_compose_spec.py + tests/membership/announcement_draft_spec.py.
+# SiteAnnouncementForm still backs the separate Django-admin composer (/admin/announcement/).
 def describe_site_announcement_form():
     def it_sanitizes_the_body_and_strips_script():
         form = SiteAnnouncementForm(

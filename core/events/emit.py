@@ -21,6 +21,7 @@ swallow ordinary delivery errors; this is the structural guarantee).
 
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING, Any
 
 from django.db import IntegrityError
@@ -57,6 +58,7 @@ def emit(
     suppress_broadcast: bool = False,
     suppress_email: bool = False,
     suppress_guild_broadcast: bool = False,
+    discord_mention: str = "",
 ) -> EmitResult:
     """Emit one event: log activity, resolve recipients, fan out to channels.
 
@@ -106,6 +108,11 @@ def emit(
             central/makerspace-wide broadcast still posts. Used by a guild announcement
             whose author turned "Also post to Discord" off — that switch governs the
             guild's own channel, not the site-wide post.
+        discord_mention: An opt-in Discord ping literal (``"@here"`` / ``"@everyone"``,
+            or ``""`` for none). Stamped onto ONLY the DISCORD-channel :class:`Message`
+            (via :func:`dataclasses.replace` in ``message_for``), so the embed post carries
+            the ping ``content`` + ``allowed_mentions`` gate. Blank leaves every payload
+            byte-identical. Only the announcement composer sets it.
 
     Returns:
         An :class:`EmitResult` describing what was logged and delivered.
@@ -138,10 +145,16 @@ def emit(
 
     def message_for(channel: Channel) -> Message:
         if channel in channel_messages:
-            return channel_messages[channel]
-        if fixed_message is not None:
-            return fixed_message
-        return templates.rendered_message(event_key, channel, ctx, url=url)
+            base = channel_messages[channel]
+        elif fixed_message is not None:
+            base = fixed_message
+        else:
+            base = templates.rendered_message(event_key, channel, ctx, url=url)
+        # Stamp the opt-in ping onto ONLY the Discord message — one funnel covers both the
+        # central broadcast and the chosen-webhook/guild post (both route through here).
+        if channel is Channel.DISCORD and discord_mention:
+            return dataclasses.replace(base, discord_mention=discord_mention)
+        return base
 
     delivered: list[tuple[int, Channel]] = []
     skipped_duplicates: list[tuple[int, Channel]] = []
@@ -207,11 +220,13 @@ def _broadcast_fan_out(
     :func:`_guild_broadcast`. That second post is purely additive: it claims its own
     independent ledger slot and never blocks the central post.
 
-    When the caller supplies an explicit ``ctx["discord_broadcast_webhook"]`` (the guild
+    When the caller supplies an explicit ``ctx["discord_broadcast_webhook"]`` (the
     announcement channel picker), the central DISCORD iteration is skipped entirely: the
     chosen webhook — resolved in :func:`_guild_broadcast` — owns the single Discord post,
-    so the event does not also hit the global/route webhook. Callers that never set the
-    key (every other event) keep the byte-for-byte central-post behavior.
+    so the event does not also hit the global/route webhook. This holds **with or without a
+    guild** in context: a site-wide announcement routed to #general / #leadership (no guild)
+    still posts through :func:`_guild_broadcast`. Callers that never set the key (every other
+    event) keep the byte-for-byte central-post behavior.
     """
     if suppress_broadcast:
         return []
@@ -252,29 +267,36 @@ def _guild_broadcast(
     delivered: list[tuple[int, Channel]],
     skipped_duplicates: list[tuple[int, Channel]],
 ) -> None:
-    """Additionally post the Discord embed to the in-context guild's own webhook.
+    """Post the Discord embed to a chosen / guild-own webhook (the picker's single post).
 
-    A no-op unless the event context carries a ``guild``. The destination webhook is
-    resolved two ways: an explicit ``ctx["discord_broadcast_webhook"]`` (the guild
-    announcement channel picker, which may deliberately be ``""`` for "Don't post"),
-    else the guild's own :func:`core.events.discord.guild_webhook` (toggle on AND a
-    webhook set) for any other guild-scoped caller. Claims an independent
-    ``broadcast:guild:<id>`` ledger slot so it dedups separately from the central post,
-    then posts best-effort via ``post_embed`` (which logs and never raises on a
-    bad/blank webhook), so a guild failure can never block the central post.
+    The destination webhook is resolved two ways:
+
+    * an explicit ``ctx["discord_broadcast_webhook"]`` (the announcement channel picker,
+      which may deliberately be ``""`` for "Don't post") — this posts **whether or not a
+      guild is in context**, so a *site-wide* announcement that routed to #general /
+      #leadership (no guild) still fires. The ledger slot keys to
+      ``broadcast:guild:<id>`` when a guild exists, else the stable ``broadcast:chosen``
+      so a guild-less picker post still dedups independently of the central slot.
+    * else the in-context guild's own :func:`core.events.discord.guild_webhook` (toggle
+      on AND a webhook set) for any other guild-scoped caller — a no-op without a guild.
+
+    Claims an independent ledger slot so it dedups separately from the central post, then
+    posts best-effort via ``post_embed`` (which logs and never raises on a bad/blank
+    webhook), so a chosen/guild failure can never block the central post.
     """
     from core.events import discord as discord_module
 
     guild = ctx.get("guild")
-    if guild is None:
-        return
     if "discord_broadcast_webhook" in ctx:
         webhook = ctx["discord_broadcast_webhook"]
+        target_ref = f"broadcast:guild:{guild.pk}" if guild is not None else "broadcast:chosen"
     else:
+        if guild is None:
+            return
         webhook = discord_module.guild_webhook(guild)
+        target_ref = f"broadcast:guild:{guild.pk}"
     if not webhook:
         return
-    target_ref = f"broadcast:guild:{guild.pk}"
     if _record_broadcast(event.key, channel, period, target_ref=target_ref):
         discord_module.post_embed(webhook, message_for(channel))
         delivered.append((0, channel))

@@ -1,0 +1,26 @@
+{% comment %}
+Google Calendar sync-state badge for an event row (FRONTEND Screen C / E).
+
+Params:
+  event      — the CommunityEvent whose sync_state drives the badge
+  can_retry  — truthy → show the admin-only "Retry sync now" button on a FAILED row
+
+Render this only inside a {% if google_sync_enabled %} guard on the caller — it
+draws nothing for IDLE (an unpublished / unmanaged row), so a wrapper that shows
+whenever any badge could appear is safe.
+{% endcomment %}
+{% if event.sync_state == "synced" %}
+<span class="pl-sync-badge pl-sync-badge--synced">Synced to Google ✓</span>
+{% elif event.sync_state == "pending" %}
+<span class="pl-sync-badge pl-sync-badge--pending">Sync pending{% if event.sync_error %} · {{ event.sync_error }}{% endif %}</span>
+{% elif event.sync_state == "failed" %}
+<span class="pl-sync-badge pl-sync-badge--failed">Sync failed</span>
+{% if event.sync_error %}<span class="pl-sync-badge__reason">{{ event.sync_error }}</span>{% endif %}
+{% if can_retry %}
+<form method="post" action="{% url 'hub_event_retry_sync' event.pk %}" style="display:inline;">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <button type="submit" class="pl-btn pl-btn--sm">Retry sync now</button>
+</form>
+{% endif %}
+{% endif %}

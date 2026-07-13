@@ -76,6 +76,41 @@ def describe_SurfaceMiddleware():
             middleware(request)
             assert request.surface == "public"
 
+    def describe_canonical_domain_redirect():
+        # The .app hosts must stay in ALLOWED_HOSTS so the request reaches the
+        # middleware at all (get_host validates); we then 301 it to the member host.
+        _APP_HOSTS = override_settings(
+            ALLOWED_HOSTS=["pastlives.app", "www.pastlives.app", "members.pastlives.space"],
+            MEMBER_HOST="members.pastlives.space",
+        )
+
+        @_APP_HOSTS
+        def it_301s_pastlives_app_to_the_member_host():
+            request, middleware = _build("pastlives.app", "/guilds/")
+            response = middleware(request)
+            assert response.status_code == 301
+            assert response["Location"] == "https://members.pastlives.space/guilds/"
+
+        @_APP_HOSTS
+        def it_301s_the_www_variant_too():
+            request, middleware = _build("www.pastlives.app", "/")
+            response = middleware(request)
+            assert response.status_code == 301
+            assert response["Location"] == "https://members.pastlives.space/"
+
+        @_APP_HOSTS
+        def it_preserves_the_query_string():
+            request, middleware = _build("pastlives.app", "/members/", query="tab=profile")
+            response = middleware(request)
+            assert response.status_code == 301
+            assert response["Location"] == "https://members.pastlives.space/members/?tab=profile"
+
+        @_APP_HOSTS
+        def it_does_not_redirect_the_member_host():
+            request, middleware = _build("members.pastlives.space", "/guilds/")
+            response = middleware(request)
+            assert response.status_code == 200
+
     def describe_root_path_on_public():
         def it_redirects_root_to_classes_catalog():
             request, middleware = _build("book.pastlives.space", "/")
@@ -246,6 +281,78 @@ def describe_guilds_surface():
 
     def it_404s_a_path_that_does_not_resolve():
         request, middleware = _build("guilds.pastlives.app", "/totally/unknown/xyz/")
+        with pytest.raises(Http404):
+            middleware(request)
+
+
+def describe_signage_surface():
+    @pytest.fixture(autouse=True)
+    def _signage_settings():
+        with override_settings(
+            ALLOWED_HOSTS=[
+                "slideshow.pastlives.space",
+                "members.pastlives.space",
+                "testserver",
+            ],
+            SIGNAGE_HOSTS=["slideshow.pastlives.space"],
+            SIGNAGE_BASE_URL="https://slideshow.pastlives.space",
+            MEMBER_HOST="members.pastlives.space",
+        ):
+            yield
+
+    def it_sets_surface_to_signage_for_the_signage_host(db):
+        request, middleware = _build("slideshow.pastlives.space", "/woodshop/")
+        middleware(request)
+        assert request.surface == "signage"
+
+    def it_redirects_root_to_the_first_enabled_zone(db):
+        from membership.models import SlideshowZone
+
+        SlideshowZone.objects.create(name="Lobby", slug="lobby", sort_order=1)
+        SlideshowZone.objects.create(name="Woodshop", slug="woodshop", sort_order=0)
+        request, middleware = _build("slideshow.pastlives.space", "/")
+        response = middleware(request)
+        assert response.status_code == 302
+        assert response["Location"] == "/woodshop/"
+
+    def it_skips_disabled_zones_when_picking_the_root_target(db):
+        from membership.models import SlideshowZone
+
+        SlideshowZone.objects.create(name="Woodshop", slug="woodshop", sort_order=0, is_enabled=False)
+        SlideshowZone.objects.create(name="Lobby", slug="lobby", sort_order=1)
+        request, middleware = _build("slideshow.pastlives.space", "/")
+        response = middleware(request)
+        assert response.status_code == 302
+        assert response["Location"] == "/lobby/"
+
+    def it_renders_a_holding_page_at_root_when_no_zones_exist(db):
+        request, middleware = _build("slideshow.pastlives.space", "/")
+        response = middleware(request)
+        assert response.status_code == 200
+        assert b"No screens configured yet" in response.content
+
+    @pytest.mark.parametrize("path", ["/woodshop/", "/woodshop/deck/"])
+    def it_allows_the_player_and_deck_views(db, path):
+        request, middleware = _build("slideshow.pastlives.space", path)
+        response = middleware(request)
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/settings/",  # hub_user_settings
+            "/members/",  # hub_member_directory
+            "/guilds/1/edit/",  # guild editor
+            "/guilds/1/products/add/",  # product admin
+        ],
+    )
+    def it_404s_views_that_are_not_kiosk_views(db, path):
+        request, middleware = _build("slideshow.pastlives.space", path)
+        with pytest.raises(Http404):
+            middleware(request)
+
+    def it_404s_a_path_that_does_not_resolve(db):
+        request, middleware = _build("slideshow.pastlives.space", "/totally/unknown/xyz/")
         with pytest.raises(Http404):
             middleware(request)
 

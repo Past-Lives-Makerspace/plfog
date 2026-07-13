@@ -49,8 +49,10 @@ def describe_emit():
 
         def it_force_emails_ignoring_preferences():
             user = User.objects.create_user(username="sec", email="sec@example.com")
-            emit("new_login", context={"user": user}, title="New login", body="b")
-            assert TransactionalEmailLog.objects.filter(trigger_kind="new_login", to_email=user.email).exists()
+            emit("member.login_invite", context={"user": user}, title="Sign in", body="b")
+            assert TransactionalEmailLog.objects.filter(
+                trigger_kind="member.login_invite", to_email=user.email
+            ).exists()
 
         def it_does_not_deliver_channels_the_event_does_not_declare(linked_member):
             # class_cancelled declares in_app + email + push (no discord), so emit must

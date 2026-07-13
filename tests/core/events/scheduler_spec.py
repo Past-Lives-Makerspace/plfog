@@ -12,13 +12,13 @@ from core.models import EventDelivery
 
 
 def _occurrence(*, anchor, offset, period, member=None, title="Hi", body="There"):
-    """A minimal single-user occurrence for the ``new_login`` event (in_app + email).
+    """A minimal single-user occurrence for the ``event.approved`` event (in_app + email).
 
-    ``new_login`` resolves via SINGLE_USER (the explicit ``user`` in context) and
+    ``event.approved`` resolves via SINGLE_USER (the explicit ``user`` in context) and
     has an in-app channel, so it exercises the per-recipient fan-out + dedupe.
     """
     return ScheduledOccurrence(
-        event_key="new_login",
+        event_key="event.approved",
         anchor=anchor,
         offset=offset,
         context={"user": member.user if member is not None else None},
@@ -39,7 +39,7 @@ def describe_run_due():
 
         assert fired == 1
         assert EventDelivery.objects.filter(
-            event_key="new_login",
+            event_key="event.approved",
             target_ref=f"user:{member.user.pk}",
             channel=Channel.IN_APP.value,
             period="2026-06",
@@ -103,10 +103,12 @@ def describe_run_sources():
 def describe_ScheduledOccurrence():
     def it_reports_due_via_the_window_math():
         now = timezone.now()
-        occ = ScheduledOccurrence(event_key="new_login", anchor=now + timedelta(hours=48), offset=timedelta(hours=-48))
+        occ = ScheduledOccurrence(
+            event_key="event.approved", anchor=now + timedelta(hours=48), offset=timedelta(hours=-48)
+        )
         assert occ.is_due(now=now) is True
         not_yet = ScheduledOccurrence(
-            event_key="new_login", anchor=now + timedelta(hours=72), offset=timedelta(hours=-48)
+            event_key="event.approved", anchor=now + timedelta(hours=72), offset=timedelta(hours=-48)
         )
         assert not_yet.is_due(now=now) is False
 

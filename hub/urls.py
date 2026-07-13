@@ -92,11 +92,6 @@ urlpatterns = [
         name="hub_guild_image_alt",
     ),
     path(
-        "guilds/<int:pk>/announcements/new/",
-        views.guild_announcement_create,
-        name="hub_guild_announcement_create",
-    ),
-    path(
         "guilds/<int:pk>/announcements/<int:announcement_pk>/delete/",
         views.guild_announcement_delete,
         name="hub_guild_announcement_delete",
@@ -105,6 +100,19 @@ urlpatterns = [
         "guilds/<int:pk>/announcements/<int:announcement_pk>/edit/",
         views.guild_announcement_edit,
         name="hub_guild_announcement_edit",
+    ),
+    # Announcement compose wizard (admins: site-wide; guild leads/staff: their guilds).
+    path("announcements/compose/", views.hub_compose, name="hub_compose"),
+    path("announcements/compose/preview/", views.hub_compose_preview, name="hub_compose_preview"),
+    path("announcements/compose/count/", views.hub_compose_count, name="hub_compose_count"),
+    path("announcements/compose/test/", views.hub_compose_test, name="hub_compose_test"),
+    path("announcements/compose/save/", views.hub_compose_save_draft, name="hub_compose_save_draft"),
+    path("announcements/compose/send/", views.hub_compose_send, name="hub_compose_send"),
+    path("announcements/compose/<int:draft_pk>/", views.hub_compose, name="hub_compose_resume"),
+    path(
+        "announcements/compose/<int:draft_pk>/delete/",
+        views.hub_compose_delete_draft,
+        name="hub_compose_delete_draft",
     ),
     # Member-proposed announcements (any logged-in member proposes; a lead/admin reviews).
     path(
@@ -202,6 +210,9 @@ urlpatterns = [
     path("settings/discord/connect/", discord_views.discord_connect, name="hub_discord_connect"),
     path("settings/discord/callback/", discord_views.discord_callback, name="hub_discord_callback"),
     path("settings/discord/disconnect/", discord_views.discord_disconnect, name="hub_discord_disconnect"),
+    # Anon-allowed low-friction link (posted in Discord): click once → linked + guilds set up.
+    path("discord/link/", discord_views.discord_link_start, name="hub_discord_link_start"),
+    path("discord/link/callback/", discord_views.discord_link_callback, name="hub_discord_link_callback"),
     # Old settings routes redirect to the tabbed User Settings page.
     path(
         "settings/profile/",
@@ -220,6 +231,18 @@ urlpatterns = [
     path("events/add/", views.event_edit, name="hub_event_add"),
     path("events/<int:event_pk>/edit/", views.event_edit, name="hub_event_edit"),
     path("events/<int:event_pk>/delete/", views.event_delete, name="hub_event_delete"),
+    # Member event proposals + reviewer queue.
+    path("events/propose/", views.propose_event, name="hub_propose_event"),
+    path("events/propose/<int:pk>/edit/", views.propose_event, name="hub_propose_event_edit"),
+    path("events/<int:pk>/withdraw/", views.event_withdraw, name="hub_event_withdraw"),
+    path("events/<int:pk>/retry-sync/", views.event_retry_sync, name="hub_event_retry_sync"),
+    path("events/review/", views.event_review_queue, name="hub_event_review_queue"),
+    path("events/review/<int:pk>/decision/", views.event_review_decision, name="hub_event_review_decision"),
+    # Public per-event pages + QR (bare-pk route can't shadow the siblings above: it
+    # won't match the literal events/add/ nor any deeper events/<int>/<segment>/ path).
+    path("events/<int:pk>/", views.event_detail, name="hub_event_detail"),
+    path("events/<int:pk>/event.ics", views.event_ics, name="hub_event_ics"),
+    path("events/<int:pk>/qr.<str:fmt>/", views.event_qr, name="hub_event_qr"),
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
     path("manage/voting/", views.voting_overview, name="hub_admin_voting_overview"),
     path("manage/voting/history/", views.voting_history, name="hub_admin_voting_history"),
@@ -299,6 +322,16 @@ urlpatterns = [
         name="hub_admin_user_email_toggle_verified",
     ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
+    path(
+        "manage/site-settings/slideshow/zones/save/",
+        views.admin_slideshow_zones_save,
+        name="hub_admin_slideshow_zones_save",
+    ),
+    path(
+        "manage/site-settings/slideshow/slides/save/",
+        views.admin_slideshow_slides_save,
+        name="hub_admin_slideshow_slides_save",
+    ),
     # --- Notification copy catalogue (design §2.3 + §2.4, Decision 6) ---
     path("manage/notifications/", notification_views.catalogue, name="hub_admin_notifications"),
     path(

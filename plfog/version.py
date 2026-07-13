@@ -2,79 +2,105 @@
 
 from __future__ import annotations
 
-VERSION = "0.20.5"
+VERSION = "0.21.14"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
+        "version": "0.21.14",
+        "date": "2026-07-12",
+        "title": "Your Guilds, wherever you are",
+        "screenshot": "my-guilds",
+        "changes": [
+            (
+                "There's a simple on/off switch for every Guild in Settings — flip one to officially join (and get "
+                "its announcements) or flip it off to leave."
+            ),
+            (
+                "And now you can pick your Guilds right from the #choose-your-guild channel on Discord — it syncs "
+                "both ways with your guilds here!"
+            ),
+        ],
+    },
+    {
+        "version": "0.21.13",
+        "date": "2026-07-12",
+        "title": "A better way to run announcements",
+        "changes": [
+            (
+                "Anyone can now suggest an announcement for their guild — a lead or admin reviews it before it posts, "
+                "and you can track or tweak your suggestion."
+            ),
+            (
+                "And the tool itself got an upgrade: ping @everyone on Discord, preview the email live, save drafts, "
+                "and choose exactly which channel it lands in."
+            ),
+        ],
+    },
+    {
+        "version": "0.21.11",
+        "date": "2026-07-12",
+        "title": "Community events, leveled up",
+        "screenshot": "community-calendar",
+        "changes": [
+            (
+                "Anyone can now propose an event for the Community Calendar — a guild lead or admin gives it a quick "
+                "thumbs-up and it's live for everyone!"
+            ),
+            (
+                'Every event gets its own shareable page with all the details and an "Add to calendar" button — '
+                "easy to share and save!"
+            ),
+            (
+                "Pick when an event's announcement goes out, and switch on reminders 1, 3, or 7 days ahead plus a "
+                '"happening now" heads-up!'
+            ),
+        ],
+    },
+    {
+        "version": "0.21.10",
+        "date": "2026-07-12",
+        "title": "Your notifications, cleaned up",
+        "screenshot": "notifications",
+        "changes": [
+            (
+                "The bell up top now opens a full Notifications page instead of a cramped little dropdown — way "
+                "easier to read and scroll on your phone!"
+            ),
+            (
+                'And we retired the buggy "new sign-in from a new device" email that cried wolf over normal network '
+                "changes — your sign-ins are still logged, just no more noise!"
+            ),
+        ],
+    },
+    {
+        "version": "0.21.9",
+        "date": "2026-07-12",
+        "title": "QR codes, QR codes, QR codes!",
+        "screenshot": "qr-codes",
+        "changes": [
+            (
+                "Guilds, Classes, and Events all generate their own QR code now — download a ready-to-print share "
+                "card and put it on a flyer or a door sign!"
+            ),
+            (
+                "Scan it and you land right on the page, and the link keeps working even if the address changes — "
+                "so your printouts never go stale!"
+            ),
+        ],
+    },
+    {
         "version": "0.20.5",
         "date": "2026-07-04",
-        "title": "A “Get started” checklist to help you settle in",
+        "title": "A home base when you sign in",
+        "screenshot": "home",
         "changes": [
             (
-                "New members now get a friendly “Get started” card on the home page that walks you through the "
-                "first few steps — finishing your profile, officially joining your guilds, and setting a voting "
-                "preference — each linking right to where you do it and checking off as you go. Dismiss it anytime; "
-                "it never gets in your way."
-            ),
-        ],
-    },
-    {
-        "version": "0.20.4",
-        "date": "2026-07-04",
-        "title": "Our update emails got a fresh look",
-        "changes": [
-            (
-                "The 'what's new' email we send when the app updates got a big glow-up — a clean, sectioned layout "
-                "that walks through each new feature one at a time, often with a screenshot of it in action, instead "
-                "of one long list. Easier to skim, and a lot nicer to look at."
-            ),
-        ],
-    },
-    {
-        "version": "0.20.3",
-        "date": "2026-07-04",
-        "title": "Choose which guilds you're in — right from Settings",
-        "changes": [
-            (
-                "There's a new Guilds tab in Settings with a simple on/off switch for every guild. Flip one on to "
-                "officially join — you'll start getting that guild's announcement emails and show up on its roster — "
-                "and flip it off to leave. It's the first easy way to leave a guild you're no longer part of, and your "
-                "changes save the moment you tap."
-            ),
-        ],
-    },
-    {
-        "version": "0.20.2",
-        "date": "2026-07-04",
-        "title": "Suggest an announcement for your guild",
-        "changes": [
-            (
-                "Anyone can now suggest an announcement for a guild — a guild lead (or an admin) reviews it before it "
-                "goes up. Look for 'Suggest an announcement' on any guild page."
+                "Signing in now lands you on a real home page — what's coming up for you, the latest from your "
+                "guilds, and quick links to everywhere you go."
             ),
             (
-                "You can track your suggestions from the same page: see whether each one is still pending, edit and "
-                "resubmit it if a lead asks for changes, or withdraw it — and you'll get a note when a lead responds."
-            ),
-            (
-                "When a lead approves a suggestion, they choose whether to also email the guild's members and post it "
-                "to the guild's Discord — the same options they have for their own posts."
-            ),
-            (
-                "Guild leads and admins also get a quick 'View public page' button on a guild page, to see the guild "
-                "exactly as a guest would."
-            ),
-        ],
-    },
-    {
-        "version": "0.20.1",
-        "date": "2026-07-03",
-        "title": "A home page when you sign in",
-        "changes": [
-            (
-                "Signing in now takes you to a real home page: what's coming up for you (your orientations, your "
-                "guilds' meetings and events, and classes at the space), the latest from your guilds, quick links to "
-                "everywhere you go, and a nudge to finish setting up your profile."
+                'New here? A friendly "Get started" checklist walks you through your profile, joining guilds, and '
+                "setting a voting preference — dismiss it anytime."
             ),
         ],
     },
@@ -82,79 +108,64 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "version": "0.20.1",
         "date": "2026-07-03",
         "title": "One place for how our space works",
+        "screenshot": "org-info",
         "changes": [
             (
-                "New Space & Org Info page in the sidebar — one spot for how the space and the organization work: a "
-                "map of the space (guild locations, restrooms, and emergency exits), parking, who to contact for "
-                "what, and the code of conduct. The Member Guide and Code of Conduct now live right here instead of "
-                "in separate Google Docs."
+                "A new Space & Org Info page in the sidebar: a map of the space (guild spots, restrooms, exits), "
+                "parking, who to contact, and the code of conduct."
+            ),
+            (
+                "The Member Guide and Code of Conduct now live right here, instead of scattered across separate "
+                "Google Docs."
             ),
         ],
     },
     {
         "version": "0.20.1",
         "date": "2026-07-03",
-        "title": "Guild pages: more polish and clearer announcements",
+        "title": "Your profile & the member directory",
+        "screenshot": "member-directory",
         "changes": [
             (
-                "Editing a guild page is smoother — Orientations, Meeting Notes, and Events are now tabs right inside "
-                "the editor instead of separate pages, so you stay in one place while you set everything up."
+                "Editing your profile is safer — if a photo's too big, we keep the rest of your changes instead of "
+                "losing them while you swap in a smaller one."
             ),
             (
-                "When you post a guild announcement you can now choose whether to also email everyone who's joined, "
-                "and pick exactly where it goes on Discord — your guild's own channel, #general-chat, or #leadership "
-                "(or nowhere) — and your guild's welcome and thank-you emails now live on the new Announcements/Emails "
-                "tab."
-            ),
-            (
-                "Guild staff now show up once with all their titles together as badges, so someone can be an Orienter "
-                "and a Glaze Technician without appearing twice."
-            ),
-            (
-                "You can now rename a guild's FAQ section to whatever fits — like 'Ceramics Info' — and FAQ answers "
-                "can include clickable links and simple formatting, not just plain text."
+                "New members show in the directory by default (you can still hide yourself or any detail), and "
+                "connecting Discord fills in your handle for you."
             ),
         ],
     },
     {
         "version": "0.20.1",
         "date": "2026-07-03",
-        "title": "Your profile is safer to edit — and you're listed by default",
+        "title": "Guild pages got a glow-up",
+        "screenshot": "guild-pages",
         "changes": [
             (
-                "Editing your profile is safer: if a photo you upload is too large, we now keep the rest of your "
-                "changes — pronouns, Discord, about-you, and your visibility choices — instead of losing them while "
-                "you swap in a smaller picture."
+                "Orientations, Meeting Notes, and Events are now tabs right inside the guild editor, so you set "
+                "everything up in one place."
             ),
             (
-                "New members now appear in the member directory by default, so you're never hidden by accident. You "
-                "can still hide yourself, or any single detail, anytime from Settings."
-            ),
-            "When you connect your Discord account, we now fill in your Discord handle for you.",
-            (
-                "New here? A friendly welcome now greets you on your first sign-in and points you to set up your "
-                "profile."
+                "Post a guild announcement to email plus your pick of Discord channel, staff show once with all "
+                "their titles, and FAQs can be renamed and take links."
             ),
         ],
     },
     {
         "version": "0.20.1",
         "date": "2026-07-03",
-        "title": "Clearer pages, a tidier calendar, and a theme that follows you",
+        "title": "A few smaller touches",
         "changes": [
             (
-                "More pages now tell you what they're for right at the top — so it's clear, for example, that the "
-                "Orientations page is where guild leads track and manage orientations, and what the Member Directory "
-                "is for."
+                "A cleaner sign-in — we removed a confusing old staff-only login page, so it's always just your "
+                "email code now."
             ),
             (
-                "Classes that have already started no longer linger on the Community Calendar — it now matches the "
-                "Class Catalog, so you won't run into a class you can't actually book."
+                "Pages tell you what they're for up top, already-started classes drop off the Community Calendar, "
+                "and your light or dark theme follows you around."
             ),
-            (
-                "Your light or dark theme choice now sticks as you move between parts of the member site, instead of "
-                "flipping back on you."
-            ),
+            'And our "what\'s new" update emails got a fresh, easy-to-skim look — like this one!',
         ],
     },
     {

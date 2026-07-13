@@ -80,6 +80,12 @@
     --color-success: #7bc88f;
     --color-success-bg: rgba(123, 200, 143, 0.12);
 
+    /* Google Calendar sync-state badge (Screen C) — theme tokens so the badge
+       stays legible on both Obsidian (here) and Slate (overridden below). */
+    --pl-sync-synced: #6ee7b7;
+    --pl-sync-pending: #8b97a8;
+    --pl-sync-failed: #f0a0a0;
+
     --font-heading: 'Lato', system-ui, -apple-system, sans-serif;
     --font-body: 'Inter', system-ui, -apple-system, sans-serif;
 
@@ -124,6 +130,11 @@
     /* Darker amber for gold text on white (~5:1 contrast, passes AA). */
     --hub-link: #9c5e0d;
     --hub-link-hover: #7e4b09;
+
+    /* Sync badge — darker greens/reds that pass contrast on white cards. */
+    --pl-sync-synced: #1f7a52;
+    --pl-sync-pending: #5b6675;
+    --pl-sync-failed: #b03030;
 }
 
 /* ========================================
@@ -393,6 +404,31 @@ a:hover { color: var(--hub-link-hover); }
 .hub-pill--danger { background: rgba(224, 85, 85, 0.16); color: #f0a0a0; }
 
 /* ========================================
+   Google Calendar sync-state badge (Screen C / E)
+   Shown per event row when Google sync is on. Colors come from theme tokens
+   defined for both :root (Obsidian) and [data-theme="light"] (Slate) above —
+   no hardcoded hex here, so the badge tracks the theme in both directions.
+   ======================================== */
+.pl-sync-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.pl-sync-badge--synced { color: var(--pl-sync-synced); }
+.pl-sync-badge--pending { color: var(--pl-sync-pending); }
+.pl-sync-badge--failed { color: var(--pl-sync-failed); }
+/* The failure/config-gap reason, on its own line beneath the badge — visible
+   inline text, never a title-tooltip (dead on touch, FRONTEND Screen C). */
+.pl-sync-badge__reason {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+}
+
+/* ========================================
    Invites panel — Manage Members page
    #invites-list is the HTMX-swappable region.
    ======================================== */
@@ -463,6 +499,10 @@ a:hover { color: var(--hub-link-hover); }
    ("Hasn't signed in yet" / "Non-member user"), Review fix #8. */
 [data-theme="light"] .pl-members-table .hub-pill--neutral { color: #5b6675; }
 [data-theme="light"] .pl-members-table .hub-pill--danger { color: #b03030; }
+/* "Your proposed events" status pills (Community Calendar Events tab + propose page):
+   the shared amber/red pills need a darker text on the light theme to stay readable. */
+[data-theme="light"] .pl-proposals .hub-pill--warn { color: #9a6a00; }
+[data-theme="light"] .pl-proposals .hub-pill--danger { color: #b03030; }
 @media (max-width: 640px) {
     .pl-invite-row__actions {
         width: 100%;
@@ -844,6 +884,12 @@ a:hover { color: var(--hub-link-hover); }
     cursor: not-allowed;
 }
 
+/* Native option popups don't inherit the select's colors (FRONTEND Rule 13). */
+.hub-form-group select option {
+    background: var(--hub-input-bg);
+    color: var(--hub-text);
+}
+
 .hub-field-hint {
     display: block;
     font-size: 0.75rem;
@@ -1021,6 +1067,14 @@ a:hover { color: var(--hub-link-hover); }
     border-radius: 10px;
     background-color: rgba(238, 180, 75, 0.15);
     color: var(--color-tuscan-yellow);
+}
+
+/* Alpine x-show reveal (e.g. the "schedule for later" datetime picker). A plain
+   display:block class — never an inline style="display:…", which x-show strips on
+   first reveal (FRONTEND.md rule 12). */
+.pl-reveal {
+    display: block;
+    margin-top: 1rem;
 }
 
 /* A staff member's titles shown together as badges — wraps on narrow screens. */
@@ -2839,21 +2893,27 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     color: var(--hub-text);
 }
 
-.pl-bell { position: relative; }
-.pl-bell__btn { position: relative; background: none; border: none; color: var(--hub-text); cursor: pointer; padding: 0.4rem; border-radius: 6px; }
+/* Topbar notification bell — a plain link to the Notifications page (no dropdown). */
+.pl-bell__btn { position: relative; background: none; border: none; color: var(--hub-text); cursor: pointer; padding: 0.4rem; border-radius: 6px; text-decoration: none; }
 .pl-bell__btn:hover { background: rgba(255,255,255,0.06); }
+[data-theme="light"] .pl-bell__btn:hover { background: rgba(0,0,0,0.06); }
 .pl-bell__badge { position: absolute; top: 0; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #ef4444; color: #fff; font-size: 0.625rem; line-height: 16px; text-align: center; font-weight: 700; }
-.pl-bell__panel { position: absolute; right: 0; top: calc(100% + 8px); width: 340px; max-height: 420px; overflow-y: auto; background: var(--hub-card-bg); border: 1px solid var(--hub-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); z-index: 50; }
-.pl-bell__header { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid var(--hub-border); font-weight: 600; }
-.pl-bell__mark { background: none; border: none; color: var(--color-tuscan-yellow); cursor: pointer; font-size: 0.8125rem; }
+
+/* Notifications page (hub/notifications.html) — responsive header + pager. */
+.pl-notes__header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.pl-notes__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.pl-notes__pager { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; align-items: center; margin-top: 1.5rem; }
+
+/* Notification rows. */
 .pl-note { border-bottom: 1px solid var(--hub-border); }
-.pl-note__btn { display: flex; flex-direction: column; gap: 0.15rem; width: 100%; text-align: left; background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--hub-text); }
+.pl-note__btn { display: flex; flex-direction: column; gap: 0.15rem; width: 100%; min-width: 0; text-align: left; background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--hub-text); }
 .pl-note__btn:hover { background: rgba(255,255,255,0.04); }
+[data-theme="light"] .pl-note__btn:hover { background: rgba(0,0,0,0.04); }
 .pl-note--unread .pl-note__btn { background: rgba(238,180,75,0.08); }
-.pl-note__title { font-weight: 600; font-size: 0.875rem; }
-.pl-note__body { font-size: 0.8125rem; color: var(--hub-text-muted); }
+[data-theme="light"] .pl-note--unread .pl-note__btn { background: rgba(238,180,75,0.16); }
+.pl-note__title { font-weight: 600; font-size: 0.875rem; overflow-wrap: anywhere; }
+.pl-note__body { font-size: 0.8125rem; color: var(--hub-text-muted); overflow-wrap: anywhere; }
 .pl-note__time { font-size: 0.6875rem; color: var(--hub-text-muted); }
-.pl-note__empty { padding: 1.5rem 1rem; text-align: center; }
 
 /* ── Guild detail page redesign (pl-guild-*) ──────────────────────────── */
 .pl-guild-hero { position: relative; min-height: clamp(220px, 32vw, 380px); border-radius: 8px; overflow: hidden; margin-bottom: 1.5rem; display: flex; align-items: flex-end; }
@@ -3283,6 +3343,179 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     height: 100%;
 }
 
+/* "Share & Print" QR card — a vertical card shared by the class edit split (right half)
+   and the community-event edit form (full width). Layout only; every color is a theme
+   token, so it reads correctly on both Obsidian (dark) and Slate (light). */
+.pl-qr-share__title {
+    margin: 0 0 0.35rem;
+}
+
+.pl-qr-share__hint {
+    font-size: 0.8125rem;
+    margin: 0 0 1.25rem;
+}
+
+.pl-qr-share__qr {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.pl-qr-share .pl-qr-preview {
+    width: 168px;
+    height: 168px;
+}
+
+.pl-qr-share__qr-caption {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+
+.pl-qr-share__field {
+    margin-bottom: 1rem;
+}
+
+.pl-qr-share__link {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.pl-qr-share__link input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.pl-qr-share__link .hub-btn {
+    flex: 0 0 auto;
+    min-width: 4.75rem;
+}
+
+.pl-qr-share__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+/* Class-edit 6/6 split: identity fields (title, slug, category, instructor) on the left,
+   the Share & Print card on the right. Stacks on narrow screens with the QR card on top. */
+.pl-edit-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    align-items: start;
+    margin-bottom: 0.5rem;
+}
+
+.pl-edit-split__main {
+    min-width: 0;
+}
+
+@media (max-width: 800px) {
+    .pl-edit-split {
+        grid-template-columns: 1fr;
+    }
+    .pl-edit-split__side {
+        order: -1;
+    }
+}
+
+/* ========================================
+   Public event detail page (/events/<pk>/) — a centered single column of cards.
+   Layout + theme tokens only, so it reads correctly on both Obsidian (dark) and
+   Slate (light) and for the anonymous public-topbar view. Reused by templates/404.html.
+   ======================================== */
+.pl-event-detail {
+    max-width: 640px;
+    margin: 0 auto;
+}
+
+.pl-event-detail__card {
+    padding: 1.75rem;
+}
+
+.pl-event-detail__kind {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.pl-event-detail__guild {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--color-tuscan-yellow);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.pl-event-detail__guild:hover {
+    background: var(--hub-elevated);
+}
+
+.pl-event-detail__type {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+
+.pl-event-detail__badge {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border);
+    color: var(--hub-text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.pl-event-detail__title {
+    margin: 0 0 1rem;
+}
+
+.pl-event-detail__row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0 0 0.6rem;
+    color: var(--hub-text);
+}
+
+.pl-event-detail__icon {
+    flex: 0 0 auto;
+    color: var(--hub-text-muted);
+}
+
+.pl-event-detail__past {
+    margin: 0.75rem 0 0;
+    color: var(--hub-text-muted);
+    font-style: italic;
+}
+
+.pl-event-detail__description {
+    margin-top: 1.25rem;
+    color: var(--hub-text);
+    line-height: 1.6;
+}
+
+.pl-event-detail__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.75rem;
+}
+
 /* ========================================
    My Guilds settings tab — per-guild join/leave toggle list.
    Layout only; every color comes from theme tokens (hub-card wrapper, --hub-text,
@@ -3574,4 +3807,449 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 
 @media (max-width: 640px) {
     .pl-release-card { grid-template-columns: 1fr; }
+}
+
+/* ── Announcement compose wizard (/announcements/compose/) ───────────────────
+   One Alpine-stepper page. Every step gets its display from a class (never inline
+   on an x-show element — Rule 12); every color is a theme token. */
+.pl-wizard-lead {
+    color: var(--hub-text-muted);
+    margin: -0.5rem 0 1.25rem;
+    max-width: 60ch;
+}
+.pl-wizard { display: flex; flex-direction: column; gap: 1.5rem; }
+.pl-wizard-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.pl-wizard-nav__step {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+.pl-wizard-nav__n {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 50%;
+    background: var(--hub-elevated);
+    color: var(--hub-text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+.pl-wizard-nav__step.is-active {
+    border-color: var(--color-tuscan-yellow);
+    color: var(--hub-text);
+}
+.pl-wizard-nav__step.is-active .pl-wizard-nav__n {
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+}
+.pl-wizard-nav__step.is-done .pl-wizard-nav__n {
+    background: var(--hub-blue);
+    color: #fff;
+}
+.pl-wizard-step { display: block; }
+.pl-wizard-field { display: block; }
+.pl-wizard-errors { margin-bottom: 1rem; }
+.pl-wizard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-wizard-preview {
+    display: block;
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 10px;
+    background: var(--hub-surface);
+}
+.pl-wizard-preview__bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+.pl-wizard-preview__pane { min-height: 200px; }
+.pl-wizard-preview__loading {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    padding: 2rem 1rem;
+    text-align: center;
+}
+.pl-wizard-preview__frame {
+    max-height: 520px;
+    overflow: auto;
+}
+.pl-wizard-preview__iframe {
+    width: 100%;
+    height: 520px;
+    max-width: 100%;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 0 0 8px 8px;
+    background: #fff;
+}
+.pl-wizard-reach {
+    margin: 1.25rem 0 0;
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+}
+.pl-mention-picker { display: block; margin-top: 1.25rem; }
+.pl-field-hint--warn {
+    color: var(--color-tuscan-yellow);
+    font-weight: 600;
+    margin-top: 0.35rem;
+}
+.pl-spin {
+    display: none;
+    width: 13px;
+    height: 13px;
+    vertical-align: -2px;
+    margin-right: 4px;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: pl-spin 0.7s linear infinite;
+}
+.htmx-request .pl-spin, .pl-spin.htmx-request { display: inline-block; }
+@keyframes pl-spin { to { transform: rotate(360deg); } }
+
+/* "Your drafts" list (below the wizard) */
+.pl-drafts { margin-top: 1.5rem; }
+.pl-drafts__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+.pl-drafts__title { margin: 0; font-size: 1.05rem; }
+.pl-drafts__empty { color: var(--hub-text-muted); margin: 0; }
+.pl-draft-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.85rem 0;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-draft-row__meta { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.pl-draft-row__title { color: var(--hub-text); }
+.pl-draft-row__sub { color: var(--hub-text-muted); font-size: 0.8125rem; }
+.pl-draft-row__actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+.pl-draft-row__delete { margin-left: 0.25rem; }
+
+@media (max-width: 480px) {
+    .pl-draft-row { align-items: flex-start; }
+    .pl-draft-row__actions { width: 100%; }
+    .pl-wizard-actions .hub-btn { flex: 1 1 auto; }
+}
+
+/* ── Slideshow admin tab (Site Settings) ─────────────────────────────────────
+   Editor UI for the signage slideshow. Renders under hub/base.html (hub.css +
+   components.css), NOT signage.css. Layout lives in classes, never inline on an
+   x-show element (Rule 12). Controls theme via .site-settings-form / .pl-form-group. */
+.pl-slideshow-tab-a,
+.pl-slideshow-tab-b {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+
+.pl-slideshow-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.pl-slideshow-row {
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Kind-switching field groups — display is in the class so Alpine's x-show only
+   toggles display:none (Rule 12), never stripping an inline display. */
+.pl-slide-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.pl-slideshow-daterow {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.pl-slideshow-daterow > * {
+    flex: 1;
+    min-width: 160px;
+}
+
+.pl-slideshow-empty {
+    color: var(--hub-text-muted);
+    font-style: italic;
+    padding: 0.75rem 0;
+}
+
+/* Compact slide card: a collapsed summary row that expands to the full editor. The
+   summary reads at a glance — thumbnail, title, kind, screen, on/off. */
+.pl-slide-card {
+    padding: 0;
+    overflow: hidden;
+}
+
+.pl-slide-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    width: 100%;
+    padding: 0.75rem 0.875rem;
+    color: var(--hub-text);
+    flex-wrap: wrap;
+}
+
+/* Drag-to-reorder grip. Hidden on touch (native DnD is unreliable there) — the up/down
+   buttons drive reordering on a phone/tablet. */
+.pl-slide-grip {
+    flex: 0 0 auto;
+    cursor: grab;
+    color: var(--hub-text-muted);
+    font-size: 1.05rem;
+    line-height: 1;
+    padding: 0.25rem 0.15rem;
+    user-select: none;
+    touch-action: none;
+}
+
+.pl-slide-grip:active {
+    cursor: grabbing;
+}
+
+.pl-slide-card--dragging {
+    opacity: 0.4;
+}
+
+.pl-slide-card--drag-over {
+    box-shadow: inset 0 3px 0 0 var(--color-tuscan-yellow);
+}
+
+.pl-slide-summary__actions {
+    flex: 0 0 auto;
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.pl-slide-move {
+    display: inline-flex;
+    gap: 0.25rem;
+}
+
+.pl-slide-move__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 6px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
+    transition: background 0.15s ease;
+}
+
+.pl-slide-move__btn:hover {
+    background: var(--hub-elevated);
+}
+
+@media (hover: none) {
+    .pl-slide-grip {
+        display: none;
+    }
+}
+
+.pl-slide-summary__thumb {
+    flex: 0 0 auto;
+    width: 64px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 6px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-surface);
+}
+
+.pl-slide-summary__thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.pl-slide-summary__thumb--placeholder {
+    color: var(--hub-text-muted);
+}
+
+.pl-slide-summary__main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.pl-slide-summary__title {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pl-slide-summary__meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-slide-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-surface);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+
+.pl-slide-summary__state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.pl-slide-summary__state::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.pl-slide-summary__state--on {
+    color: #4ade80;
+}
+
+.pl-slide-summary__state--off {
+    color: var(--hub-text-muted);
+}
+
+/* Editor panel the Edit button reveals. Display lives in the class, never inline on
+   the x-show element (Rule 12). */
+.pl-slide-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.5rem 0.875rem 0.875rem;
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-slide-image__label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.pl-slide-image-preview {
+    margin: 0.25rem 0;
+}
+
+.pl-slide-image-preview img {
+    max-width: 240px;
+    max-height: 135px;
+    border-radius: 8px;
+    border: 1px solid var(--hub-border);
+    display: block;
+}
+
+/* Per-saved-zone setup helpers: the copyable URL, QR, copy + preview buttons. */
+.pl-slideshow-zone__setup {
+    margin-top: 1rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.pl-slideshow-zone__url {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+    word-break: break-all;
+    user-select: all;
+}
+
+.pl-slideshow-zone__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.pl-slideshow-zone__qr {
+    width: 128px;
+    height: 128px;
+    padding: 0.5rem;
+    background: #ffffff;
+    border-radius: 8px;
+}
+
+.pl-slideshow-zone__qr svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+@media (max-width: 640px) {
+    .pl-slideshow-daterow { flex-direction: column; }
 }

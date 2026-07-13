@@ -19,6 +19,7 @@ from core.models import CalendarFeed, SiteConfiguration
 from core.widgets import RichTextEditorWidget
 from membership.models import (
     CommunityEvent,
+    DiscordGuildEmoji,
     Guild,
     GuildAnnouncement,
     GuildFAQItem,
@@ -35,6 +36,8 @@ from membership.models import (
     OrientationSlot,
     Skill,
     SkillCategory,
+    SlideshowSlide,
+    SlideshowZone,
     VotingSettings,
 )
 
@@ -86,6 +89,7 @@ class GuildEditForm(forms.ModelForm):
             "essential_rules",
             "banner_image",
             "calendar_url",
+            "google_calendar_id",
             "calendar_color",
             "youtube_url",
             "meeting_cadence",
@@ -117,6 +121,7 @@ class GuildEditForm(forms.ModelForm):
                 },
             ),
             "calendar_url": forms.URLInput(attrs={"placeholder": "https://calendar.google.com/calendar/ical/..."}),
+            "google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "calendar_color": forms.TextInput(
                 attrs={"type": "color", "class": "pl-color-input"},
             ),
@@ -535,13 +540,24 @@ class SiteSettingsForm(forms.ModelForm):
             "google_analytics_measurement_id",
             "discord_general_webhook_url",
             "discord_leadership_webhook_url",
+            "discord_officers_webhook_url",
+            "discord_server_id",
+            "discord_role_message_channel_id",
+            "discord_role_message_id",
             "tab_payments_enabled",
             "class_registration_enabled",
             "class_registration_disabled_note",
+            "member_event_policy",
+            "general_google_calendar_id",
+            "google_calendar_sync_enabled",
+            "signage_default_slide_seconds",
+            "signage_show_events",
+            "signage_event_days_ahead",
         ]
         widgets = {
             "classes_calendar_color": forms.TextInput(attrs={"type": "color"}),
             "class_registration_disabled_note": forms.Textarea(attrs={"rows": 3}),
+            "general_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
         }
 
 
@@ -561,6 +577,214 @@ class CalendarFeedForm(forms.ModelForm):
 CalendarFeedFormSet = forms.modelformset_factory(
     CalendarFeed,
     form=CalendarFeedForm,
+    extra=0,
+    can_delete=True,
+)
+
+
+class DiscordGuildEmojiForm(forms.ModelForm):
+    """One row in the Site Settings → Discord tab's emoji → guild map (D2)."""
+
+    class Meta:
+        model = DiscordGuildEmoji
+        fields = ["emoji", "guild"]
+        widgets = {
+            "emoji": forms.TextInput(attrs={"placeholder": "🔥 or name:id"}),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Only active guilds are pickable (the map drives live joins).
+        guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
+        guild_field.queryset = Guild.objects.filter(is_active=True).order_by("name")
+
+
+DiscordGuildEmojiFormSet = forms.modelformset_factory(
+    DiscordGuildEmoji,
+    form=DiscordGuildEmojiForm,
+    extra=0,
+    can_delete=True,
+)
+
+
+class GuildRoleForm(forms.ModelForm):
+    """One active guild's canonical outbound Discord role id(s) (D3).
+
+    The model field is a JSON list (Glass keeps two roles in lockstep); this form
+    presents it as a single space/comma-separated text input and parses it back.
+    """
+
+    discord_role_ids = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"placeholder": "e.g. 123456789012345678"}),
+        help_text=(
+            "Discord role id(s) assigned/removed when a member joins/leaves in-app. Separate "
+            "multiple with commas or spaces (most guilds have one; a collapsed guild like Glass has "
+            "two). Blank disables outbound role sync for this guild."
+        ),
+    )
+
+    class Meta:
+        model = Guild
+        fields: list[str] = []  # ``discord_role_ids`` is handled as a declared field below.
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields["discord_role_ids"].initial = " ".join(self.instance.discord_role_ids or [])
+
+    def clean_discord_role_ids(self) -> list[str]:
+        import re
+
+        raw = self.cleaned_data.get("discord_role_ids", "") or ""
+        ids = [token for token in re.split(r"[,\s]+", raw.strip()) if token]
+        for token in ids:
+            if not token.isdigit():
+                raise forms.ValidationError(f"'{token}' is not a valid Discord role id (digits only).")
+        return ids
+
+    def save(self, commit: bool = True) -> Guild:
+        self.instance.discord_role_ids = self.cleaned_data["discord_role_ids"]
+        return cast(Guild, super().save(commit=commit))
+
+
+GuildRoleFormSet = forms.modelformset_factory(
+    Guild,
+    form=GuildRoleForm,
+    extra=0,
+    can_delete=False,
+)
+
+
+class SlideshowZoneForm(forms.ModelForm):
+    """One row in the Slideshow tab's Zones editor — one physical screen location."""
+
+    class Meta:
+        model = SlideshowZone
+        fields = ["name", "slug", "is_enabled", "sort_order"]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. Woodshop"}),
+            "slug": forms.TextInput(attrs={"placeholder": "woodshop"}),
+        }
+        help_texts = {
+            "slug": "Used in the screen URL: slideshow.pastlives.space/<slug>/. Leave blank to auto-fill from the name.",
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # The slug auto-fills from the name (below) when left blank, so it isn't required.
+        self.fields["slug"].required = False
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if cleaned.get("DELETE"):
+            return cleaned
+        if cleaned.get("name") and not cleaned.get("slug"):
+            cleaned["slug"] = slugify(cleaned["name"])
+        return cleaned
+
+
+SlideshowZoneFormSet = forms.modelformset_factory(
+    SlideshowZone,
+    form=SlideshowZoneForm,
+    extra=0,
+    can_delete=True,
+)
+
+
+class SlideshowSlideForm(forms.ModelForm):
+    """One row in the Slideshow tab's Slides editor.
+
+    A row is a custom slide OR a mirror of a published guild announcement — the ``kind``
+    select toggles which fields apply (Alpine ``x-model`` in the template). Because only
+    an admin reaches this tab, the announcement picker is the privacy-safe, admin-curated
+    opt-in the design requires.
+    """
+
+    announcement = forms.ModelChoiceField(
+        queryset=GuildAnnouncement.objects.published(),
+        required=False,
+        empty_label="— choose an announcement —",
+        help_text="Pick a published announcement to mirror. Only used for 'Guild announcement' slides.",
+    )
+    # Themed "Remove image" button drives this hidden flag (Django's raw Clear checkbox
+    # is suppressed by using a plain FileInput widget). See save().
+    remove_image = forms.BooleanField(required=False, widget=forms.HiddenInput())
+
+    class Meta:
+        model = SlideshowSlide
+        fields = [
+            "kind",
+            "zone",
+            "title",
+            "body",
+            "image",
+            "link_url",
+            "show_qr",
+            "announcement",
+            "starts_on",
+            "ends_on",
+            "is_enabled",
+            "sort_order",
+        ]
+        widgets = {
+            "kind": forms.Select(attrs={"x-model": "kind"}),
+            "body": forms.Textarea(attrs={"rows": 3}),
+            "image": forms.FileInput(),
+            # Drag-to-reorder (grip handle / move buttons) rewrites this hidden value to the
+            # row's visual index; "Save slides" persists it. Never a visible number input.
+            "sort_order": forms.HiddenInput(),
+            "starts_on": forms.DateInput(
+                attrs={"type": "date", "@click": "try { $event.currentTarget.showPicker() } catch (e) {}"}
+            ),
+            "ends_on": forms.DateInput(
+                attrs={"type": "date", "@click": "try { $event.currentTarget.showPicker() } catch (e) {}"}
+            ),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["zone"].empty_label = "All screens"  # type: ignore[attr-defined]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if cleaned.get("DELETE"):
+            return cleaned
+        has_saved_image = bool(self.instance.pk and self.instance.image)
+        has_content = bool(
+            cleaned.get("title")
+            or cleaned.get("body")
+            or cleaned.get("image")
+            or cleaned.get("link_url")
+            or cleaned.get("announcement")
+            or has_saved_image
+        )
+        if not has_content:
+            # An untouched +Add row — don't block the save with a requirement error.
+            return cleaned
+        if cleaned.get("kind") == SlideshowSlide.Kind.ANNOUNCEMENT:
+            if not cleaned.get("announcement"):
+                raise forms.ValidationError("Pick an announcement for this slide.")
+        elif not cleaned.get("title") and not cleaned.get("image") and not has_saved_image:
+            raise forms.ValidationError("Give the slide a title or an image.")
+        return cleaned
+
+    def save(self, commit: bool = True) -> SlideshowSlide:
+        instance = cast(SlideshowSlide, super().save(commit=False))
+        # Honor the "Remove image" button unless a new file was uploaded in the same submit.
+        # A plain FileInput keeps the existing file in cleaned_data, so detect a genuine new
+        # upload via request.FILES rather than the (kept-or-new) cleaned value.
+        new_upload = self.add_prefix("image") in self.files
+        if self.cleaned_data.get("remove_image") and not new_upload:
+            instance.image = None
+        if commit:
+            instance.save()
+        return instance
+
+
+SlideshowSlideFormSet = forms.modelformset_factory(
+    SlideshowSlide,
+    form=SlideshowSlideForm,
     extra=0,
     can_delete=True,
 )
@@ -967,15 +1191,31 @@ class OrientationSlotForm(forms.ModelForm):
 class CommunityEventForm(forms.ModelForm):
     """Add/edit a FOG-native community event.
 
-    One form serves both surfaces: a guild lead (``as_admin=False``) authors their
+    One form serves three surfaces: a guild lead (``as_admin=False``) authors their
     guild's events (``event_type``/``guild`` are implied by context and removed from the
-    form), while an admin (``as_admin=True``) authors site-wide events and picks the
-    type/guild. The datetime widgets are copied from :class:`OrientationSlotForm`.
+    form); an admin (``as_admin=True``) authors site-wide events and picks the
+    type/guild; and a member (``as_member=True``) proposes an event with an *optional*
+    guild picker (the type is derived — a guild picked → guild meeting, blank →
+    community). The datetime widgets are copied from :class:`OrientationSlotForm`.
     """
 
     class Meta:
         model = CommunityEvent
-        fields = ["event_type", "guild", "title", "starts_at", "ends_at", "location", "description", "recurrence"]
+        fields = [
+            "event_type",
+            "guild",
+            "title",
+            "starts_at",
+            "ends_at",
+            "location",
+            "description",
+            "recurrence",
+            "publish_at",
+            "remind_7d",
+            "remind_3d",
+            "remind_1d",
+            "notify_happening_now",
+        ]
         widgets = {
             "starts_at": forms.DateTimeInput(
                 attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
@@ -983,20 +1223,50 @@ class CommunityEventForm(forms.ModelForm):
             "ends_at": forms.DateTimeInput(
                 attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
             ),
+            "publish_at": forms.DateTimeInput(
+                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
+            ),
             "description": forms.Textarea(attrs={"rows": 4}),
         }
 
-    def __init__(self, *args: Any, guild: Guild | None = None, as_admin: bool = False, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        guild: Guild | None = None,
+        as_admin: bool = False,
+        as_member: bool = False,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
-        for name in ("starts_at", "ends_at"):
+        for name in ("starts_at", "ends_at", "publish_at"):
             cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
+        self.fields["publish_at"].label = "Announce at"
         self._as_admin = as_admin
+        self._as_member = as_member
         self._fixed_guild = guild
-        if not as_admin:
+        if as_member:
+            # The proposer picks an optional guild; the type is derived on save.
+            del self.fields["event_type"]
+            self.fields["guild"].required = False
+            self.fields["guild"].label = "Guild (optional)"
+        elif as_admin:
+            self.fields["guild"].required = False
+        else:
             del self.fields["event_type"]
             del self.fields["guild"]
-        else:
-            self.fields["guild"].required = False
+
+    def clean_publish_at(self) -> Any:
+        """Blank ⇒ announce now (valid). A set time must be in the future and strictly
+        before the event starts (announcing after it started is a mistake)."""
+        publish_at = self.cleaned_data.get("publish_at")
+        if publish_at is None:
+            return publish_at
+        if publish_at <= timezone.now():
+            raise forms.ValidationError("Pick a time in the future.")
+        starts = self.cleaned_data.get("starts_at")
+        if starts is not None and publish_at >= starts:
+            raise forms.ValidationError("The announcement time must be before the event starts.")
+        return publish_at
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
@@ -1012,6 +1282,28 @@ class CommunityEventForm(forms.ModelForm):
             site_wide = {CommunityEvent.EventType.LEAD_MEETING, CommunityEvent.EventType.COMMUNITY}
             if etype in site_wide and guild is not None:
                 self.add_error("guild", "Leave the guild blank for a site-wide event.")
+        return cleaned
+
+
+class EventDecisionForm(forms.Form):
+    """A reviewer's decision on a proposed event (approve / request changes / decline).
+
+    ``notes`` is required for the two outcomes that send the proposer a reason
+    (changes / decline), so an empty note is a real validation error — never a silent
+    redirect. Approvals need no note.
+    """
+
+    DECISION_CHOICES = [("approve", "Approve"), ("changes", "Request changes"), ("decline", "Decline")]
+
+    decision = forms.ChoiceField(choices=DECISION_CHOICES)
+    notes = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        decision = cleaned.get("decision")
+        notes = (cleaned.get("notes") or "").strip()
+        if decision in ("changes", "decline") and not notes:
+            self.add_error("notes", "Add a note so the proposer knows why.")
         return cleaned
 
 
@@ -1144,9 +1436,9 @@ class ChannelRadioSelect(forms.RadioSelect):
 def _configured_discord_channels(guild: Guild | None, config: SiteConfiguration | None = None) -> set[str]:
     """The set of :class:`GuildAnnouncement.DiscordChannel` values that have a webhook set.
 
-    ``GUILD`` when this guild has its own ``discord_webhook_url``; ``GENERAL`` / ``LEADERSHIP``
-    when the makerspace-wide :class:`~core.models.SiteConfiguration` webhooks are set. ``NONE``
-    is always selectable and is deliberately not listed here.
+    ``GUILD`` when this guild has its own ``discord_webhook_url``; ``GENERAL`` / ``LEADERSHIP`` /
+    ``OFFICERS`` when the makerspace-wide :class:`~core.models.SiteConfiguration` webhooks are set.
+    ``NONE`` is always selectable and is deliberately not listed here.
 
     Pass ``config`` to reuse an already-loaded :class:`~core.models.SiteConfiguration`
     singleton — building one picker per row (the review queue) would otherwise re-load it
@@ -1162,17 +1454,19 @@ def _configured_discord_channels(guild: Guild | None, config: SiteConfiguration 
         configured.add(channels.GENERAL.value)
     if (config.discord_leadership_webhook_url or "").strip():
         configured.add(channels.LEADERSHIP.value)
+    if (config.discord_officers_webhook_url or "").strip():
+        configured.add(channels.OFFICERS.value)
     return configured
 
 
 def _default_discord_channel(configured: set[str]) -> str:
     """The pre-selected channel: the first *configured* channel, stepping down to "Don't post".
 
-    Guild Channel → #general-chat → #leadership → Don't post (§5.3), so the picker never opens
-    pre-selected on a disabled option.
+    Guild Channel → #general-chat → #leadership → #guild-officers → Don't post (§5.3), so the
+    picker never opens pre-selected on a disabled option.
     """
     channels = GuildAnnouncement.DiscordChannel
-    for channel in (channels.GUILD, channels.GENERAL, channels.LEADERSHIP):
+    for channel in (channels.GUILD, channels.GENERAL, channels.LEADERSHIP, channels.OFFICERS):
         if channel.value in configured:
             return channel.value
     return channels.NONE.value
@@ -1315,7 +1609,8 @@ class GuildAnnouncementDecisionForm(forms.Form):
 class SiteAnnouncementForm(forms.Form):
     """Admin form to broadcast a site-wide announcement to activated members.
 
-    Drives the Site Settings → Announcements composer (preview-then-send). ``body``
+    Drives the **Django-admin** composer (``plfog.admin_views.site_announcement`` at
+    ``/admin/announcement/``) — a separate surface from the hub compose wizard. ``body``
     accepts simple HTML (paragraphs / links) — it rides into the branded email shell.
     """
 
@@ -1339,6 +1634,168 @@ class SiteAnnouncementForm(forms.Form):
         if not body:
             raise forms.ValidationError("Add a message before sending.")
         return body
+
+
+def split_audience(raw: str) -> tuple[str, Guild | None]:
+    """Split the combined compose audience value into ``(audience, guild)``.
+
+    The wizard's single ``<select name="audience">`` carries one value per option —
+    ``"site"`` for everyone, or ``"guild:<pk>"`` for a specific guild — so the UI stays
+    one control while the model keeps its two fields (``audience`` + ``guild``). A
+    ``"guild:<pk>"`` whose pk doesn't resolve returns ``(GUILD, None)`` (the form / view
+    then reject it). An unrecognized value returns ``("", None)``.
+    """
+    from membership.models import AnnouncementDraft
+
+    if raw == AnnouncementDraft.Audience.SITE.value:
+        return AnnouncementDraft.Audience.SITE.value, None
+    if raw.startswith("guild:"):
+        pk = raw.split(":", 1)[1]
+        guild = Guild.objects.filter(pk=pk).first() if pk.isdigit() else None
+        return AnnouncementDraft.Audience.GUILD.value, guild
+    return "", None
+
+
+def discord_channel_choices(audience: str) -> list[tuple[str, str]]:
+    """The Discord channel radio choices for an audience.
+
+    A guild audience offers its own channel plus the shared ones; a site-wide audience
+    drops "Our Guild Channel" (there is no single guild to post to). "Don't post" is
+    always present.
+    """
+    channels = GuildAnnouncement.DiscordChannel
+    from membership.models import AnnouncementDraft
+
+    if audience == AnnouncementDraft.Audience.GUILD.value:
+        return list(channels.choices)
+    return [(channel.value, channel.label) for channel in channels if channel != channels.GUILD]
+
+
+class AnnouncementComposeForm(forms.Form):
+    """The compose wizard's single form — audience + message + email + Discord + @mention.
+
+    One combined ``audience`` ``<select>`` value (``site`` / ``guild:<pk>``) is split in
+    :meth:`clean` into the model's two fields via :func:`split_audience`, so the UI stays
+    one control while the model + DB check constraint stay the source of truth. The
+    audience the caller may address is enforced by the choices built in ``__init__`` (a
+    non-admin never even sees "site") AND re-checked server-side in the send view. ``body``
+    may be blank in a saved draft but is required to *send* — the send path passes
+    ``require_body=True`` so ``clean_body`` rejects an empty message. Always sanitized.
+    """
+
+    audience = forms.ChoiceField(label="Who is this for?")
+    title = forms.CharField(max_length=300, label="Subject")
+    body = forms.CharField(
+        widget=RichTextEditorWidget(attrs={"rows": 10}),
+        required=False,
+        label="Message",
+        help_text="Format with the toolbar — the formatted version goes out by email; "
+        "the bell and Discord get a plain-text version.",
+    )
+    send_email = forms.BooleanField(required=False, initial=True, label="Also send as email")
+    discord_channel = forms.ChoiceField(required=False, widget=ChannelRadioSelect, label="Post to Discord channel")
+    mention = forms.ChoiceField(
+        required=False,
+        widget=forms.RadioSelect,
+        label="Ping members",
+    )
+    expires_at = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+        label="Hide after (optional)",
+        help_text="Guild announcements only. Leave blank to keep it up indefinitely.",
+    )
+
+    def __init__(
+        self,
+        *args: Any,
+        is_admin: bool = False,
+        editable_guilds: Any = None,
+        config: SiteConfiguration | None = None,
+        require_body: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        from membership.models import AnnouncementDraft
+
+        # ``require_body`` is set by the send path — a blank body is fine while drafting but
+        # must be rejected before an announcement actually goes out.
+        self._require_body = require_body
+        self._config = config or SiteConfiguration.load()
+        cast(forms.ChoiceField, self.fields["mention"]).choices = list(AnnouncementDraft.Mention.choices)
+
+        # Audience choices: "site" (admins only) + one option per editable guild.
+        choices: list[tuple[str, str]] = []
+        if is_admin:
+            choices.append((AnnouncementDraft.Audience.SITE.value, "Everyone (site-wide)"))
+        choices.extend((f"guild:{guild.pk}", guild.name) for guild in (editable_guilds or []))
+        cast(forms.ChoiceField, self.fields["audience"]).choices = choices
+
+        # The raw audience currently in play (bound data > initial > first choice), split so
+        # the Discord picker + guild validation are scoped correctly on both GET and POST.
+        self.audience_value = self._raw_audience(choices)
+        self.current_audience, self.current_guild = split_audience(self.audience_value)
+
+        channel_field = cast(forms.ChoiceField, self.fields["discord_channel"])
+        channel_field.choices = discord_channel_choices(self.current_audience)
+        configured = _configured_discord_channels(self.current_guild, self._config)
+        widget = cast(ChannelRadioSelect, channel_field.widget)
+        widget.configured_channels = configured
+        if not self.is_bound:
+            channel_field.initial = _default_discord_channel(configured)
+            self.fields["mention"].initial = AnnouncementDraft.Mention.EVERYONE.value
+
+        # Alpine bindings for the single-form stepper (the URL-bearing hx-get on the audience
+        # select is added at render time — the form must not reverse URLs). The @click opens the
+        # native date picker from the whole field (FRONTEND Rule 14).
+        self.fields["audience"].widget.attrs.setdefault("x-model", "audience")
+        self.fields["send_email"].widget.attrs.setdefault("x-model", "alsoEmail")
+        self.fields["mention"].widget.attrs.setdefault("x-model", "mention")
+        # Track the chosen Discord channel so the @mention picker can hide when "Don't post".
+        widget.attrs.setdefault("@change", "discordChannel = $event.target.value")
+        self.fields["expires_at"].widget.attrs.setdefault(
+            "@click", "try { $event.currentTarget.showPicker() } catch (e) {}"
+        )
+
+    def _raw_audience(self, choices: list[tuple[str, str]]) -> str:
+        """The combined audience value to scope by: bound data, else initial, else first choice."""
+        if self.is_bound:
+            return (self.data.get("audience") or "").strip()
+        initial = self.initial.get("audience")
+        if initial:
+            return str(initial)
+        return choices[0][0] if choices else ""
+
+    def clean_discord_channel(self) -> str:
+        channel = cast(str, self.cleaned_data.get("discord_channel") or "")
+        if not channel:
+            return GuildAnnouncement.DiscordChannel.NONE.value
+        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
+        if channel != GuildAnnouncement.DiscordChannel.NONE and channel not in widget.configured_channels:
+            raise forms.ValidationError(_CHANNEL_UNCONFIGURED_ERROR)
+        return channel
+
+    def clean_body(self) -> str:
+        # Blank allowed while drafting; required (and always sanitized) when sending.
+        body = sanitize_rich_html(self.cleaned_data.get("body") or "")
+        if self._require_body and not body:
+            raise forms.ValidationError("Add a message before sending.")
+        return body
+
+    def clean(self) -> dict[str, Any]:
+        from membership.models import AnnouncementDraft
+
+        cleaned = cast(dict[str, Any], super().clean())
+        audience, guild = split_audience(cleaned.get("audience") or "")
+        if not audience:
+            raise forms.ValidationError("Choose who this announcement is for.")
+        cleaned["audience"] = audience
+        cleaned["guild"] = guild
+        if audience == AnnouncementDraft.Audience.GUILD.value and guild is None:
+            self.add_error("audience", "Choose a guild for this announcement.")
+        cleaned["mention"] = cleaned.get("mention") or AnnouncementDraft.Mention.NONE.value
+        cleaned["send_email"] = bool(cleaned.get("send_email"))
+        return cleaned
 
 
 class ReleaseAnnouncementForm(forms.Form):

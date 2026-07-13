@@ -13,6 +13,8 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser
+
     from classes.models import Registration
 
 
@@ -104,6 +106,11 @@ class SiteConfiguration(models.Model):
         OPEN = "open", "Open"
         INVITE_ONLY = "invite_only", "Invite Only"
 
+    class MemberEventPolicy(models.TextChoices):
+        APPROVAL = "approval", "Members can propose (needs review)"  # default
+        OPEN = "open", "Members can post directly"
+        DISABLED = "disabled", "Only leads and admins can post"
+
     registration_mode = models.CharField(
         "New User Registration Mode",
         max_length=20,
@@ -192,6 +199,37 @@ class SiteConfiguration(models.Model):
         verbose_name="#leadership Discord webhook",
         help_text="Discord webhook for #leadership. Blank = the option is hidden from the picker.",
     )
+    discord_officers_webhook_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="#guild-officers Discord webhook",
+        help_text="Discord webhook for #guild-officers. Blank = the option is hidden from the picker.",
+    )
+    discord_server_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Discord server (guild) id",
+        help_text="The Discord server id used for role assignment (outbound guild sync). "
+        "Blank disables the whole two-way guild sync.",
+    )
+    discord_role_message_channel_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Reaction-role channel id",
+        help_text="The channel id of the reaction-role message members react on. "
+        "Blank disables the inbound reaction sync.",
+    )
+    discord_role_message_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Reaction-role message id",
+        help_text="The id of the reaction-role message — update if it's reposted. "
+        "Blank disables the inbound reaction sync.",
+    )
     google_analytics_measurement_id = models.CharField(
         max_length=50,
         blank=True,
@@ -215,6 +253,53 @@ class SiteConfiguration(models.Model):
         default="Online registration is paused right now. Email info@pastlives.space and we'll help you sign up.",
         verbose_name="Registration-off message",
         help_text="Shown under the disabled Register button when class registration is off.",
+    )
+    member_event_policy = models.CharField(
+        max_length=20,
+        choices=MemberEventPolicy.choices,
+        default=MemberEventPolicy.APPROVAL,
+        help_text=(
+            "Who can create Community Calendar events, and whether a member's event needs review "
+            "before it's published. Leads, staff, and admins always post directly."
+        ),
+    )
+    general_google_calendar_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="General Google Calendar ID",
+        help_text=(
+            "Google Calendar ID for site-wide community events (Calendar Settings → Integrate calendar → "
+            "Calendar ID — NOT the iCal URL). Blank keeps site-wide events in FOG only."
+        ),
+    )
+    google_calendar_sync_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Push events to Google Calendar",
+        help_text=(
+            "When on (and the Google service account is configured), publishing/editing/deleting an "
+            "event updates the linked Google Calendar."
+        ),
+    )
+    signage_default_slide_seconds = models.PositiveIntegerField(
+        default=12,
+        verbose_name="Default slide duration (seconds)",
+        help_text="Default seconds each slide shows, unless a slide overrides it.",
+    )
+    signage_show_events = models.BooleanField(
+        default=True,
+        verbose_name="Show upcoming events on screens",
+        help_text="Automatically add slides for upcoming site-wide events.",
+    )
+    signage_event_days_ahead = models.PositiveIntegerField(
+        default=30,
+        verbose_name="Event look-ahead (days)",
+        help_text="How many days ahead to pull upcoming events for the slideshow.",
+    )
+    signage_event_qr = models.BooleanField(
+        default=False,
+        verbose_name="Add a QR to event slides",
+        help_text="Add a QR code to the community calendar on auto event slides.",
     )
 
     class Meta:
@@ -783,6 +868,18 @@ class SiteActivity(models.Model):
         return activity
 
 
+class NotificationQuerySet(models.QuerySet["Notification"]):
+    """Querysets for the member Notifications page — filters live here, not in the view."""
+
+    def for_user(self, user: AbstractBaseUser) -> NotificationQuerySet:
+        """This user's notifications, newest-first (relies on Meta.ordering)."""
+        return self.filter(user=user)
+
+    def unread(self) -> NotificationQuerySet:
+        """Only notifications the user hasn't read yet."""
+        return self.filter(read_at__isnull=True)
+
+
 class Notification(models.Model):
     """One in-app bell entry for one user. Always created on dispatch (non-optional)."""
 
@@ -793,6 +890,8 @@ class Notification(models.Model):
     url = models.CharField(max_length=500, blank=True, default="", help_text="Where clicking navigates.")
     read_at = models.DateTimeField(null=True, blank=True, help_text="Set when the user reads it.")
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    objects = NotificationQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at"]
@@ -886,10 +985,14 @@ class EventDelivery(models.Model):
     )
     channel = models.CharField(max_length=20, help_text="The channel key the event was delivered on.")
     period = models.CharField(
-        max_length=40,
+        max_length=120,
         blank=True,
         default="",
-        help_text="Dedupe window bucket — empty for one-shot, else e.g. '2026-06' for monthly.",
+        help_text=(
+            "Dedupe window bucket — empty for one-shot, else e.g. '2026-06' for monthly, or a "
+            "per-object token like 'event:1234:submitted:1752345678.123456'. Wide enough for the "
+            "timestamp-suffixed periods (~42+ chars) that resubmission/reminder emits build."
+        ),
     )
     status = models.CharField(
         max_length=10,
@@ -931,19 +1034,6 @@ class EventDelivery(models.Model):
     def __str__(self) -> str:
         suffix = f"@{self.period}" if self.period else ""
         return f"{self.event_key}→{self.target_ref}[{self.channel}]{suffix}"
-
-
-class KnownLoginSignature(models.Model):
-    """Records (user, signature) pairs already seen, to detect new-device logins."""
-
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="login_signatures")
-    signature = models.CharField(max_length=64, help_text="Hash of the browser/device user-agent.")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["user", "signature"], name="uq_loginsignature_user_signature"),
-        ]
 
 
 class NotificationTemplate(models.Model):

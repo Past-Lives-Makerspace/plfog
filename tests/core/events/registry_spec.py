@@ -27,6 +27,13 @@ _BRAND_NEW_KEYS = {
     "guild_announcement.approved",
     "guild_announcement.changes_requested",
     "guild_announcement.declined",
+    "event.submitted",
+    "event.approved",
+    "event.changes_requested",
+    "event.declined",
+    "event.reminder",
+    "event.happening_now",
+    "discord_guilds_imported",
 }
 
 
@@ -55,10 +62,11 @@ def describe_event_registry():
 
     def describe_channels():
         def it_includes_in_app_on_for_every_per_recipient_event():
-            # The two member-email events are email-only (the invitee has no account;
-            # the login-invite reaches someone who hasn't signed in, so an in-app bell
-            # would never be seen), so the in-app invariant holds for every OTHER event.
-            email_only = {"member.invited", "member.login_invite"}
+            # These member-email events are email-only (the invitee has no account; the
+            # login-invite reaches someone who hasn't signed in; the Discord-guilds import
+            # is a transactional email_to confirmation with no bell row), so the in-app
+            # invariant holds for every OTHER event.
+            email_only = {"member.invited", "member.login_invite", "discord_guilds_imported"}
             for event in registry.EVENTS:
                 if event.key in email_only:
                     assert event.channel(Channel.IN_APP) is None
@@ -67,12 +75,15 @@ def describe_event_registry():
                 assert spec is not None
                 assert spec.default is ChannelDefault.ON
 
-        def it_forces_email_for_force_email_triggers():
-            event = get_event("new_login")
-            spec = event.channel(Channel.EMAIL)
-            assert spec is not None
-            assert spec.default is ChannelDefault.FORCED
-            assert spec.is_forced
+        def it_forces_email_when_a_trigger_declares_force_email():
+            # No shipping trigger sets force_email anymore, but the seed translation still
+            # honors the flag: a forced trigger seeds an EMAIL channel with the FORCED default.
+            forced = triggers.Trigger(
+                key="forced_probe", label="Probe", description="d", category="Security", force_email=True
+            )
+            email = next(spec for spec in registry._channels_from_trigger(forced) if spec.channel is Channel.EMAIL)
+            assert email.default is ChannelDefault.FORCED
+            assert email.is_forced
 
         def it_forces_email_for_the_member_invite():
             # member.invited is a forced email (the invitee must receive it).
@@ -114,8 +125,8 @@ def describe_event_registry():
         def it_routes_orientation_requested_to_orienters():
             assert get_event("orientation_requested").recipient is Recipients.GUILD_ORIENTERS
 
-        def it_routes_new_login_to_single_user():
-            assert get_event("new_login").recipient is Recipients.SINGLE_USER
+        def it_routes_login_invite_to_single_user():
+            assert get_event("member.login_invite").recipient is Recipients.SINGLE_USER
 
         def it_routes_new_member_joined_to_fog_admins():
             assert get_event("new_member_joined").recipient is Recipients.FOG_ADMINS
@@ -147,10 +158,10 @@ def describe_event_registry():
 
     def describe_eventtype_helpers():
         def it_reports_declared_channels():
-            assert get_event("new_login").has_channel(Channel.EMAIL)
+            assert get_event("class_reminder").has_channel(Channel.EMAIL)
 
         def it_reports_undeclared_channels_as_absent():
-            assert not get_event("new_login").has_channel(Channel.DISCORD)
+            assert not get_event("class_reminder").has_channel(Channel.DISCORD)
 
         def it_lists_channels_in_declared_order():
             # class_published now REPLACES the seed to add the Discord broadcast channel,

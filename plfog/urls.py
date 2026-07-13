@@ -4,6 +4,7 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
 from django.urls import include, path
 
+from plfog.admin_login import install_admin_login_redirect
 from plfog.admin_views import (
     invite_member,
     member_aliases,
@@ -13,6 +14,10 @@ from plfog.admin_views import (
     member_aliases_toggle_verified,
     site_announcement,
 )
+
+# Swap the stock admin password login for a redirect/deny. MUST run before
+# admin.site.urls is evaluated below (AdminSite.get_urls binds self.login then).
+install_admin_login_redirect()
 
 # Custom admin URLs must be before admin.site.urls
 admin_custom_urls = [

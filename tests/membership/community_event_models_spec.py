@@ -307,3 +307,85 @@ def describe_CommunityEvent():
             after_second = EventDelivery.objects.filter(period=f"event:{event.pk}:published").count()
             assert after_first >= 1
             assert after_first == after_second
+
+
+def describe_public_url_and_qr():
+    def it_public_url_is_the_event_page_under_member_base_url(db, settings):
+        settings.MEMBER_BASE_URL = "https://members.test"
+        event = CommunityEventFactory()
+        assert event.public_url == f"https://members.test/events/{event.pk}/"
+
+    def it_qr_url_and_absolute_url_equal_the_public_url(db, settings):
+        # Events have no slug, so all three resolve to the same stable pk URL.
+        settings.MEMBER_BASE_URL = "https://members.test"
+        event = CommunityEventFactory()
+        assert event.qr_url == event.public_url
+        assert event.absolute_url == event.public_url
+
+    def it_absolute_url_points_at_the_event_page_not_the_calendar(db):
+        event = CommunityEventFactory()
+        assert f"/events/{event.pk}/" in event.absolute_url
+        assert "/calendar/" not in event.absolute_url
+
+    def it_qr_svg_is_scalable(db):
+        svg = CommunityEventFactory().qr_svg()
+        assert "<svg" in svg
+        assert "viewBox" in svg  # scales to its box rather than drawing tiny
+
+    def it_qr_png_bytes_has_a_png_magic_header(db):
+        assert CommunityEventFactory().qr_png_bytes().startswith(b"\x89PNG")
+
+
+def describe_ics_document():
+    def it_wraps_a_single_vevent_in_a_vcalendar(db):
+        event = CommunityEventFactory(
+            community=True,
+            title="Potluck",
+            location="Common Area",
+            description="Bring a dish.",
+            starts_at=_aware(2026, 7, 15, 18),
+            ends_at=_aware(2026, 7, 15, 20),
+        )
+        doc = event.ics_document()
+        assert doc.startswith("BEGIN:VCALENDAR")
+        assert doc.rstrip().endswith("END:VCALENDAR")
+        assert doc.count("BEGIN:VEVENT") == 1
+        assert doc.count("END:VEVENT") == 1
+        assert f"UID:community-{event.pk}@pastlives" in doc
+        assert "DTSTART:" in doc
+        assert "DTEND:" in doc
+        assert "SUMMARY:Potluck" in doc
+
+    def it_omits_rrule_for_a_non_recurring_event(db):
+        doc = CommunityEventFactory(recurrence=CommunityEvent.Recurrence.NONE).ics_document()
+        assert "RRULE" not in doc
+
+    def it_emits_exactly_one_rrule_for_a_recurring_event(db):
+        event = CommunityEventFactory(
+            community=True,
+            recurrence=CommunityEvent.Recurrence.MONTHLY,
+            starts_at=_aware(2026, 7, 11, 18),  # 2nd Saturday
+            ends_at=_aware(2026, 7, 11, 20),
+        )
+        doc = event.ics_document()
+        assert doc.count("RRULE:") == 1
+        assert f"RRULE:{event.ical_rrule()}" in doc
+
+    def it_ical_escapes_location_and_description(db):
+        event = CommunityEventFactory(
+            community=True,
+            location="Room A, B; C",
+            description="Line one\nLine two",
+        )
+        doc = event.ics_document()
+        assert "LOCATION:Room A\\, B\\; C" in doc
+        assert "DESCRIPTION:Line one\\nLine two" in doc
+
+    def it_matches_the_lines_used_by_the_combined_export(db):
+        # The combined calendar export builds its CommunityEvent VEVENT from the same
+        # ics_vevent_lines(), so the per-event .ics and the export never drift.
+        event = CommunityEventFactory(community=True, title="Shared", location="Shop")
+        assert event.ics_vevent_lines()[0] == "BEGIN:VEVENT"
+        assert event.ics_vevent_lines()[-1] == "END:VEVENT"
+        for line in event.ics_vevent_lines():
+            assert line in event.ics_document()

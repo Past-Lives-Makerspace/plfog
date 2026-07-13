@@ -532,11 +532,14 @@ def describe_admin_site_settings():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
                 "mailchimp_list_id": "",
                 "google_analytics_measurement_id": "",
+                "signage_default_slide_seconds": "12",
+                "signage_event_days_ahead": "30",
                 "feeds-TOTAL_FORMS": "0",
                 "feeds-INITIAL_FORMS": "0",
                 "feeds-MIN_NUM_FORMS": "0",
@@ -585,11 +588,14 @@ def describe_admin_site_settings():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
                 "mailchimp_list_id": "",
                 "google_analytics_measurement_id": "",
+                "signage_default_slide_seconds": "12",
+                "signage_event_days_ahead": "30",
                 "feeds-TOTAL_FORMS": "1",
                 "feeds-INITIAL_FORMS": "0",
                 "feeds-MIN_NUM_FORMS": "0",
@@ -610,11 +616,14 @@ def describe_admin_site_settings():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
                 "mailchimp_list_id": "",
                 "google_analytics_measurement_id": "",
+                "signage_default_slide_seconds": "12",
+                "signage_event_days_ahead": "30",
                 "feeds-TOTAL_FORMS": "1",
                 "feeds-INITIAL_FORMS": "0",
                 "feeds-MIN_NUM_FORMS": "0",
@@ -636,11 +645,14 @@ def describe_admin_site_settings():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
                 "mailchimp_list_id": "",
                 "google_analytics_measurement_id": "",
+                "signage_default_slide_seconds": "12",
+                "signage_event_days_ahead": "30",
                 "feeds-TOTAL_FORMS": "1",
                 "feeds-INITIAL_FORMS": "1",
                 "feeds-MIN_NUM_FORMS": "0",
@@ -737,11 +749,14 @@ def describe_admin_site_settings_features():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
                 "mailchimp_list_id": "",
                 "google_analytics_measurement_id": "",
+                "signage_default_slide_seconds": "12",
+                "signage_event_days_ahead": "30",
                 # Both switches omitted → unchecked → False.
                 "class_registration_disabled_note": "We'll be back soon.",
                 "submitted_tab": "features",
@@ -764,11 +779,14 @@ def describe_admin_site_settings_features():
             reverse("hub_admin_site_settings"),
             data={
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
                 "mailchimp_list_id": "",
                 "google_analytics_measurement_id": "",
+                "signage_default_slide_seconds": "12",
+                "signage_event_days_ahead": "30",
                 "tab_payments_enabled": "on",
                 "class_registration_enabled": "on",
                 "class_registration_disabled_note": "",
@@ -785,111 +803,24 @@ def describe_admin_site_settings_features():
 
 
 def describe_admin_site_settings_announcements():
-    def it_renders_the_announcements_tab(client):
+    # The plain sitewide composer moved to the /announcements/compose/ wizard (covered by
+    # tests/hub/announcement_compose_spec.py + tests/membership/announcement_draft_spec.py).
+    # The Announcements tab now links to it and still hosts the sectioned Release composer.
+    def it_renders_the_announcements_tab_linking_to_the_wizard(client):
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=announcements")
         assert response.status_code == 200
-        assert b"Sitewide announcement" in response.content
+        assert reverse("hub_compose").encode() in response.content
+        assert b"Compose an announcement" in response.content
 
     def it_prefills_a_release_draft(client):
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=announcements&draft=release")
         assert response.status_code == 200
-        # "Draft from latest release" now enters the sectioned Release composer with a
+        # "Draft from latest release" enters the sectioned Release composer with a
         # prefilled subject from the current release line's changelog.
         assert response.context["release_mode"] is True
         assert b"What&#x27;s new at Past Lives:" in response.content
-
-    def it_previews_without_sending(client, mailoutbox):
-        _create_superuser(client)
-        response = client.post(
-            reverse("hub_admin_site_settings"),
-            data={
-                "action": "announce_preview",
-                # Double blank line → an empty paragraph chunk (exercises the skip path).
-                "title": "Heads up",
-                "body": "Big news.\n\n\n\nMore news.",
-                "post_to_discord": "on",
-            },
-        )
-        assert response.status_code == 200
-        assert b"Email preview" in response.content
-        assert b"<iframe" in response.content
-        assert mailoutbox == []  # a preview never sends
-
-    def it_sends_to_activated_members_only(client, mailoutbox):
-        # Admin created BEFORE the plan exists → no auto-member, so it isn't a recipient.
-        _create_superuser(client)
-        MembershipPlanFactory()
-        User.objects.create_user(username="act", email="act@x.com", password="p", last_login=timezone.now())
-        User.objects.create_user(username="never", email="never@x.com", password="p")  # never signed in
-        response = client.post(
-            reverse("hub_admin_site_settings"),
-            data={"action": "announce_send", "title": "Hello", "body": "Welcome.", "post_to_discord": ""},
-        )
-        assert response.status_code == 302
-        sent_to = {addr for message in mailoutbox for addr in message.to}
-        assert "act@x.com" in sent_to
-        assert "never@x.com" not in sent_to
-
-    def it_posts_to_discord_when_toggled_on(client):
-        from unittest.mock import patch
-
-        MembershipPlanFactory()
-        _create_superuser(client)
-        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
-            response = client.post(
-                reverse("hub_admin_site_settings"),
-                data={"action": "announce_send", "title": "Hi", "body": "x", "post_to_discord": "on"},
-            )
-        assert response.status_code == 302
-        assert mock_post.called
-
-    def it_re_renders_with_errors_on_an_invalid_send(client, mailoutbox):
-        _create_superuser(client)
-        response = client.post(
-            reverse("hub_admin_site_settings"),
-            data={"action": "announce_send", "title": "", "body": "", "post_to_discord": "on"},
-        )
-        assert response.status_code == 200
-        assert mailoutbox == []  # invalid form → nothing sent
-
-    def it_sanitizes_and_styles_the_preview(client):
-        _create_superuser(client)
-        response = client.post(
-            reverse("hub_admin_site_settings"),
-            data={
-                "action": "announce_preview",
-                "title": "Heads up",
-                "body": "<h2>Big</h2><p>news</p><script>evil()</script>",
-                "post_to_discord": "on",
-            },
-        )
-        assert response.status_code == 200
-        html = response.context["announce_preview"]["html"]
-        assert "<script" not in html  # editor HTML sanitized
-        assert "margin:24px" in html  # heading inline-styled for the dark card
-
-    def it_flattens_the_rich_body_for_the_in_app_bell(client):
-        from core.models import Notification
-
-        MembershipPlanFactory()
-        User.objects.create_user(username="bell", email="bell@x.com", password="p", last_login=timezone.now())
-        _create_superuser(client)
-        response = client.post(
-            reverse("hub_admin_site_settings"),
-            data={
-                "action": "announce_send",
-                "title": "Hi",
-                "body": "<h2>Big</h2><p>real <strong>news</strong></p>",
-                "post_to_discord": "",
-            },
-        )
-        assert response.status_code == 302
-        note = Notification.objects.filter(user__username="bell").first()
-        assert note is not None
-        assert "<" not in note.body  # bell row is flattened plain text, not HTML
-        assert "news" in note.body
 
 
 def describe_fog_admin_required():

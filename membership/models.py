@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from classes.models import ClassOffering
+    from core.events.channels import Message
 
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
 
@@ -604,6 +605,16 @@ class Member(models.Model):
                 hint="",
             ),
             OnboardingStep(
+                key="discord",
+                label="Connect your Discord",
+                # Keyed specifically off ``discord_is_linked`` (a linked OAuth account), NOT the
+                # free-text ``discord_handle`` — a typed handle does not satisfy this step.
+                done=self.discord_is_linked,
+                url=reverse("hub_discord_connect"),
+                optional=True,
+                hint="" if self.discord_is_linked else "We'll set up your guilds instantly",
+            ),
+            OnboardingStep(
                 key="voting",
                 label="Set a voting preference",
                 done=self._has_voting_preference,
@@ -1102,6 +1113,28 @@ class Guild(HeroCropMixin, models.Model):
         default="",
         help_text="Public iCal URL for this guild's Google Calendar (File → Share → Get shareable iCal link).",
     )
+    google_calendar_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "This guild's Google Calendar ID for pushing FOG-created events out to Google "
+            "(e.g. abc123@group.calendar.google.com). Find it in Google Calendar → Settings "
+            "for that calendar → 'Integrate calendar' → Calendar ID. This is NOT the iCal URL "
+            "above — leave blank to keep this guild's events in FOG only."
+        ),
+    )
+    discord_role_ids = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Discord role id(s) assigned AND removed together when a member joins or leaves this "
+            "guild in the app (outbound sync). A list of role-id strings — most guilds have one; a "
+            "collapsed guild (e.g. Glass) keeps two roles in lockstep. Empty disables outbound role "
+            "sync for this guild. Asymmetry to note: outbound assigns EVERY id listed here, while "
+            "inbound (a member's Discord reaction) accepts ANY emoji mapped to the guild."
+        ),
+    )
     calendar_color = models.CharField(
         max_length=7,
         blank=True,
@@ -1239,25 +1272,16 @@ class Guild(HeroCropMixin, models.Model):
         return f"{settings.MEMBER_BASE_URL}{reverse('guild_vanity', args=[self.slug])}"
 
     def qr_svg(self) -> str:
-        """Inline SVG markup of this guild's vanity-URL QR (crisp at any print size)."""
-        import io
+        """Inline, CSS-scalable SVG of this guild's vanity-URL QR (crisp at any print size)."""
+        from membership.qr import qr_svg as render_qr
 
-        import segno
-
-        # segno's SVG writer emits bytes, so buffer as bytes and decode to markup.
-        buf = io.BytesIO()
-        segno.make(self.vanity_url, error="m").save(buf, kind="svg", scale=1, xmldecl=False, svgns=True)
-        return buf.getvalue().decode("utf-8")
+        return render_qr(self.vanity_url)
 
     def qr_png_bytes(self) -> bytes:
         """PNG bytes of the same QR (segno's native writer — no Pillow)."""
-        import io
+        from membership.qr import qr_png_bytes as render_png
 
-        import segno
-
-        buf = io.BytesIO()
-        segno.make(self.vanity_url, error="m").save(buf, kind="png", scale=10, border=2)
-        return buf.getvalue()
+        return render_png(self.vanity_url)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.slug:
@@ -1825,6 +1849,7 @@ class GuildAnnouncement(models.Model):
         GUILD = "guild", "Our Guild Channel"
         GENERAL = "general", "#general-chat"
         LEADERSHIP = "leadership", "#leadership"
+        OFFICERS = "officers", "#guild-officers"
         NONE = "none", "Don't post to Discord"
 
     discord_channel = models.CharField(
@@ -1892,8 +1917,8 @@ class GuildAnnouncement(models.Model):
 
         Returns ``""`` for :attr:`DiscordChannel.NONE` or any channel whose webhook is
         unset — the emit path treats a blank result as "no Discord post" (a stripped,
-        best-effort echo). The makerspace-wide #general-chat / #leadership webhooks live
-        on :class:`core.models.SiteConfiguration`; "Our Guild Channel" is the guild's own
+        best-effort echo). The makerspace-wide #general-chat / #leadership / #guild-officers
+        webhooks live on :class:`core.models.SiteConfiguration`; "Our Guild Channel" is the guild's own
         ``discord_webhook_url``.
 
         Returns:
@@ -1902,20 +1927,12 @@ class GuildAnnouncement(models.Model):
         Raises:
             ValueError: If ``discord_channel`` holds an unknown value (fail loudly).
         """
-        from core.models import SiteConfiguration
+        try:
+            return resolve_channel_webhook(self.discord_channel, self.guild)
+        except ValueError as exc:
+            raise ValueError(f"Unknown Discord channel '{self.discord_channel}' on announcement {self.pk}.") from exc
 
-        channel = self.discord_channel
-        if channel == self.DiscordChannel.GUILD:
-            return (self.guild.discord_webhook_url or "").strip()
-        if channel == self.DiscordChannel.GENERAL:
-            return (SiteConfiguration.load().discord_general_webhook_url or "").strip()
-        if channel == self.DiscordChannel.LEADERSHIP:
-            return (SiteConfiguration.load().discord_leadership_webhook_url or "").strip()
-        if channel == self.DiscordChannel.NONE:
-            return ""
-        raise ValueError(f"Unknown Discord channel '{channel}' on announcement {self.pk}.")
-
-    def notify_members(self) -> None:
+    def notify_members(self, *, discord_mention: str = "", email_message: "Message | None" = None) -> None:
         """Emit ``guild.announcement`` to the guild's members (Decision 4).
 
         Recipients resolve to every active member of this guild (scoped — not
@@ -1932,9 +1949,20 @@ class GuildAnnouncement(models.Model):
 
         The ``period`` is keyed to this announcement's pk so re-saving never double-
         notifies, while a different announcement (a different pk) still notifies.
+
+        Args:
+            discord_mention: An opt-in Discord ping literal (``"@here"`` / ``"@everyone"``,
+                or ``""`` for none), threaded onto the single Discord echo. Default off, so
+                every existing caller (the guild-edit create view, the proposal-approve path)
+                is byte-unaffected.
+            email_message: A pre-rendered branded EMAIL :class:`Message` override. When given
+                (the compose wizard passes the same shell its Step-2 preview renders), it
+                replaces the default copy-mode guild email so the sent email matches the
+                preview; when ``None`` (every existing caller) the copy-mode email stands.
         """
         from django.urls import reverse
 
+        from core.events.channels import Channel
         from core.events.emit import emit
         from membership.orientations import _absolute_url
 
@@ -1955,8 +1983,10 @@ class GuildAnnouncement(models.Model):
             },
             url=guild_url,
             period=f"announcement:{self.pk}",
+            messages={Channel.EMAIL: email_message} if email_message is not None else None,
             suppress_email=not self.send_email,
             suppress_guild_broadcast=(webhook == ""),
+            discord_mention=discord_mention,
         )
 
     # --- Review lifecycle (member proposals) ----------------------------------
@@ -2187,6 +2217,317 @@ class GuildAnnouncement(models.Model):
         )
 
 
+def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
+    """Map a :class:`GuildAnnouncement.DiscordChannel` value to its webhook URL.
+
+    Audience-agnostic twin of :meth:`GuildAnnouncement.resolve_discord_webhook` — it needs
+    no announcement instance, so both the guild composer and the site-wide composer share
+    one resolver. ``GUILD`` → the guild's own ``discord_webhook_url`` (``""`` when no guild
+    is given — a site-wide audience has no guild channel); ``GENERAL`` / ``LEADERSHIP`` /
+    ``OFFICERS`` → the makerspace-wide :class:`~core.models.SiteConfiguration` webhooks;
+    ``NONE`` → ``""``.
+
+    Args:
+        channel: A ``GuildAnnouncement.DiscordChannel`` value.
+        guild: The guild owning the ``GUILD`` channel, or ``None`` for a site-wide send.
+
+    Returns:
+        The resolved webhook URL, or ``""`` when the channel is "none" / unconfigured.
+
+    Raises:
+        ValueError: If ``channel`` holds an unknown value (fail loudly).
+    """
+    from core.models import SiteConfiguration
+
+    channels = GuildAnnouncement.DiscordChannel
+    if channel == channels.GUILD:
+        return (guild.discord_webhook_url or "").strip() if guild is not None else ""
+    if channel == channels.GENERAL:
+        return (SiteConfiguration.load().discord_general_webhook_url or "").strip()
+    if channel == channels.LEADERSHIP:
+        return (SiteConfiguration.load().discord_leadership_webhook_url or "").strip()
+    if channel == channels.OFFICERS:
+        return (SiteConfiguration.load().discord_officers_webhook_url or "").strip()
+    if channel == channels.NONE:
+        return ""
+    raise ValueError(f"Unknown Discord channel '{channel}'.")
+
+
+def build_announcement_email_html(title: str, body: str) -> str:
+    """Branded announcement email HTML — one builder for the preview and the real send.
+
+    ``body`` is the rich-text editor's sanitized HTML; :func:`render_rich_email_body`
+    inline-styles it for the dark card, the escaped title rides above it as an ``<h2>``,
+    and the branded shell wraps the whole fragment. Shared by the compose wizard's live
+    preview and the EMAIL override handed to the spine, so the two are byte-faithful.
+    """
+    from django.utils.html import escape
+
+    from core.events.templates import wrap_email_html
+    from core.html_sanitize import render_rich_email_body
+
+    fragment = f"<h2>{escape(title)}</h2>{render_rich_email_body(body)}"
+    return wrap_email_html(fragment)
+
+
+class AlreadySentError(Exception):
+    """Raised when :meth:`AnnouncementDraft.send` is called on an already-sent draft."""
+
+
+class AnnouncementDraftManager(models.Manager["AnnouncementDraft"]):
+    """Queries for the compose wizard's saved drafts."""
+
+    def for_user(self, user: "User") -> "models.QuerySet[AnnouncementDraft]":
+        """This user's resumable (unsent) drafts, newest first, guild pre-fetched."""
+        return self.filter(author=user, sent_at__isnull=True).select_related("guild")
+
+
+class AnnouncementDraft(models.Model):
+    """A saved-or-sent announcement composed in the wizard (`/announcements/compose/`).
+
+    One row backs the whole three-step compose: audience + rich message (Step 1), the
+    "also email" choice (Step 2), and the Discord channel + opt-in @mention (Step 3). A
+    draft can be saved (``sent_at`` NULL), resumed, and deleted; :meth:`send` stamps
+    ``sent_at`` (mark-sent, not delete-on-send) so the resume list is a trivial
+    ``sent_at IS NULL`` filter and the sent row survives as an audit record.
+
+    A **site** send is ephemeral (emit only — site-wide announcements have no durable
+    post today and gain none here). A **guild** send additionally materializes a published
+    :class:`GuildAnnouncement` so the post shows on the guild page, the edit list, and the
+    slideshow — see :meth:`send`.
+    """
+
+    class Audience(models.TextChoices):
+        SITE = "site", "Everyone (site-wide)"
+        GUILD = "guild", "A specific guild"
+
+    class Mention(models.TextChoices):
+        NONE = "none", "No ping"
+        HERE = "here", "@here (online members)"
+        EVERYONE = "everyone", "@everyone"
+
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="announcement_drafts",
+        help_text="Whose draft this is — drives the resume list and the send actor.",
+    )
+    audience = models.CharField(
+        max_length=10,
+        choices=Audience.choices,
+        default=Audience.SITE,
+        help_text="Who hears it: everyone site-wide, or one guild's joined members.",
+    )
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="announcement_drafts",
+        help_text="The target guild — set only when the audience is a specific guild.",
+    )
+    title = models.CharField(
+        max_length=300,
+        help_text="Subject / headline. Required even to save a draft (so the list row reads well).",
+    )
+    body = models.TextField(
+        blank=True,
+        default="",
+        help_text="Sanitized rich HTML. May be blank while drafting; required to send.",
+    )
+    send_email = models.BooleanField(
+        default=True,
+        help_text="Also send this announcement as a branded email (in-app bell fires regardless).",
+    )
+    discord_channel = models.CharField(
+        max_length=20,
+        choices=GuildAnnouncement.DiscordChannel.choices,
+        default=GuildAnnouncement.DiscordChannel.NONE,
+        help_text="Which Discord channel this echoes to (or 'none'). GUILD only for a guild audience.",
+    )
+    mention = models.CharField(
+        max_length=10,
+        choices=Mention.choices,
+        default=Mention.NONE,
+        help_text="Opt-in Discord ping — none, @here (online), or @everyone. Off by default.",
+    )
+    expires_at = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Guild only: last day the materialized post shows. Blank = never; ignored for a site send.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the draft was first created.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="Last edit — drives the resume-list ordering.")
+    sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set on send. NULL = a resumable draft; non-null = an immutable sent record.",
+    )
+
+    objects = AnnouncementDraftManager()
+
+    class Meta:
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["author", "sent_at"], name="idx_%(class)s_author"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(audience="guild") | models.Q(guild__isnull=False),
+                name="ck_%(class)s_guild_audience",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        state = "sent" if self.sent_at else "draft"
+        return f"{self.title} — {self.get_audience_display()} ({state})"
+
+    def _mention_literal(self) -> str:
+        """The Discord ping string for :attr:`mention` — ``""`` / ``"@here"`` / ``"@everyone"``."""
+        return {self.Mention.NONE: "", self.Mention.HERE: "@here", self.Mention.EVERYONE: "@everyone"}[
+            self.Mention(self.mention)
+        ]
+
+    def build_email_message(self, base_url: str) -> "Message":
+        """The branded EMAIL :class:`Message` for this draft — the Step-2 preview *is* this.
+
+        The one builder renders both the live preview and the override handed to the spine
+        (``emit`` for a site send, ``notify_members(email_message=…)`` for a guild send), so
+        the preview is always byte-faithful to what sends. ``base_url`` is the site root for a
+        site send and the guild-detail URL for a guild send. The text part is the flattened
+        rich body (matching the bell / Discord render).
+        """
+        from core.events.channels import Message
+        from core.html_sanitize import rich_html_to_text
+
+        body_text = rich_html_to_text(self.body)
+        trigger = "guild_announcement" if self.audience == self.Audience.GUILD else "site_announcement"
+        return Message(
+            title=self.title,
+            body=f"{self.title}\n\n{body_text}\n\n{base_url}",
+            url=base_url,
+            html_body=build_announcement_email_html(self.title, self.body),
+            trigger_kind=trigger,
+        )
+
+    def recipient_count(self) -> int:
+        """How many activated members this draft reaches right now (the confirm-dialog count).
+
+        ``SITE`` → the all-active-members audience; ``GUILD`` → the guild's joined-member
+        audience — the exact resolvers the send fans out to, so the count matches delivery.
+        """
+        from core.events import resolvers
+        from core.events.registry import Recipients
+
+        if self.audience == self.Audience.GUILD:
+            return len(resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self.guild}))
+        return len(resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {}))
+
+    @classmethod
+    def save_from_form(
+        cls, form: Any, author: "User", instance: "AnnouncementDraft | None" = None
+    ) -> "AnnouncementDraft":
+        """Upsert a draft from a validated :class:`~hub.forms.AnnouncementComposeForm`.
+
+        Creates a new row or updates ``instance`` in place from the split audience/guild and
+        the sanitized body. A ``GUILD`` audience without a guild fails loudly (also enforced
+        by the form and the DB check constraint).
+        """
+        from django.core.exceptions import ValidationError
+
+        cd = form.cleaned_data
+        draft = instance or cls(author=author)
+        draft.author = author
+        draft.audience = cd["audience"]
+        draft.guild = cd.get("guild")
+        draft.title = cd["title"]
+        draft.body = cd["body"]  # already sanitized by the form's clean_body
+        draft.send_email = cd["send_email"]
+        draft.discord_channel = cd["discord_channel"]
+        draft.mention = cd["mention"]
+        draft.expires_at = cd.get("expires_at")
+        if draft.audience == cls.Audience.GUILD and draft.guild is None:
+            raise ValidationError("Choose a guild for this announcement.")
+        draft.save()
+        return draft
+
+    def send(self) -> int:
+        """Send the announcement and mark it sent — the wizard's one "fat" transition.
+
+        Guards, then branches on audience. A **site** send is emit-only (ephemeral). A
+        **guild** send first materializes a published :class:`GuildAnnouncement` (so the
+        post lands on the guild page, the edit list, and the slideshow), then reuses the
+        tested :meth:`GuildAnnouncement.notify_members` fan-out. Returns the recipient count.
+
+        Raises:
+            AlreadySentError: If this draft was already sent.
+            ValidationError: If the body sanitizes empty, or a guild audience has no guild.
+        """
+        from django.core.exceptions import ValidationError
+        from django.urls import reverse
+
+        from core.events.channels import Channel
+        from core.events.emit import emit
+        from core.html_sanitize import rich_html_to_text, sanitize_rich_html
+        from membership.orientations import _absolute_url
+
+        if self.sent_at is not None:
+            raise AlreadySentError("This announcement was already sent.")
+        body_html = sanitize_rich_html(self.body)
+        if not body_html:
+            raise ValidationError("Add a message before sending.")
+        if self.audience == self.Audience.GUILD and self.guild is None:
+            raise ValidationError("Choose a guild for this announcement.")
+
+        mention_str = self._mention_literal()
+
+        if self.audience == self.Audience.SITE:
+            site_url = _absolute_url("/")
+            webhook = resolve_channel_webhook(self.discord_channel, None)
+            result = emit(
+                "site_announcement",
+                actor=self.author,
+                context={
+                    "member_name": "there",
+                    "announcement_title": self.title,
+                    "announcement_body": rich_html_to_text(body_html),
+                    "site_url": site_url,
+                    "discord_broadcast_webhook": webhook,
+                },
+                url=site_url,
+                period=f"announce:{self.pk}:{timezone.now():%Y%m%d%H%M%S%f}",
+                messages={Channel.EMAIL: self.build_email_message(site_url)},
+                suppress_broadcast=(webhook == ""),
+                suppress_email=not self.send_email,
+                discord_mention=mention_str,
+            )
+            count = result.recipient_count
+        else:
+            guild = cast(Guild, self.guild)  # the guard above guarantees a guild for a GUILD audience
+            guild_url = _absolute_url(reverse("hub_guild_detail", args=[guild.slug]))
+            announcement = GuildAnnouncement.objects.create(
+                guild=guild,
+                author=self.author,
+                title=self.title,
+                # The guild page + slideshow render the body as plain text (|linebreaksbr),
+                # so store the flattened rich body — the rich formatting still shows in the
+                # branded email (the draft's own body keeps the rich HTML).
+                body=rich_html_to_text(body_html),
+                expires_at=self.expires_at,
+                send_email=self.send_email,
+                discord_channel=self.discord_channel,
+            )
+            announcement.notify_members(
+                discord_mention=mention_str,
+                email_message=self.build_email_message(guild_url),
+            )
+            count = self.recipient_count()
+
+        self.sent_at = timezone.now()
+        self.save(update_fields=["sent_at", "updated_at"])
+        return count
+
+
 class GuildMeetingNote(models.Model):
     """One meeting's notes / agenda on a guild page.
 
@@ -2305,14 +2646,66 @@ class GuildMeetingNoteAttachment(models.Model):
         return self.url
 
 
+class GuildMembershipManager(models.Manager["GuildMembership"]):
+    """Every writer of a :class:`GuildMembership` goes through here so ``source`` is
+    set correctly — the anti-oscillation key for the two-way Discord sync (spec §4.5).
+
+    Because ``unique(guild, member)`` means there is exactly one row per pair, the
+    *ordering* of an in-app join and a Discord reaction matters. A bare
+    ``get_or_create`` would leave a reaction-created row at ``source="discord"`` even
+    after the member explicitly joined in-app, so a later un-react would delete a guild
+    the member actually joined. These two methods make an explicit in-app join immune to
+    inbound removal (it is promoted to — and never demoted from — ``source="app"``).
+    """
+
+    def record_app_join(self, guild: Guild, member: Member) -> tuple[GuildMembership, bool, bool]:
+        """In-app join. Create as ``source="app"``; UPGRADE an existing ``source="discord"``
+        row to ``source="app"`` (an explicit join outranks a standing reaction).
+
+        Returns ``(membership, created, upgraded)`` — ``upgraded`` is True when an existing
+        discord-sourced row was promoted, so the caller can fire the join side-effect (the
+        guild lead never heard about the silent reaction; the real join is worth a notice).
+        """
+        membership, created = self.get_or_create(guild=guild, member=member, defaults={"source": self.model.Source.APP})
+        upgraded = False
+        if not created and membership.source != self.model.Source.APP:
+            membership.source = self.model.Source.APP
+            membership.save(update_fields=["source"])
+            upgraded = True
+        return membership, created, upgraded
+
+    def record_discord_join(self, guild: Guild, member: Member) -> tuple[GuildMembership, bool]:
+        """Inbound reaction mirror. Create as ``source="discord"``; NEVER downgrade an
+        existing ``source="app"`` row (``get_or_create`` with ``defaults`` leaves it
+        untouched). Returns ``(membership, created)``.
+        """
+        return self.get_or_create(guild=guild, member=member, defaults={"source": self.model.Source.DISCORD})
+
+
 class GuildMembership(models.Model):
     """Explicit opt-in affiliation between a Member and a Guild."""
+
+    class Source(models.TextChoices):
+        APP = "app", "In-app join"
+        DISCORD = "discord", "Discord reaction"
 
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="memberships", help_text="The guild.")
     member = models.ForeignKey(
         Member, on_delete=models.CASCADE, related_name="guild_memberships", help_text="The member."
     )
     joined_at = models.DateTimeField(auto_now_add=True)
+    source = models.CharField(
+        max_length=20,
+        choices=Source.choices,
+        default=Source.APP,
+        help_text=(
+            "How this membership was created: an in-app join (app) or a Discord-reaction mirror "
+            "(discord). Inbound reaction sync only ever adds/removes 'discord' rows and never touches "
+            "'app' rows — this is what keeps the two directions from fighting."
+        ),
+    )
+
+    objects = GuildMembershipManager()
 
     class Meta:
         constraints = [
@@ -2321,6 +2714,50 @@ class GuildMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member} in {self.guild.name}"
+
+
+class DiscordGuildEmojiManager(models.Manager["DiscordGuildEmoji"]):
+    """Query helper for the Discord reaction-emoji → guild map."""
+
+    def mapping(self) -> dict[str, Guild]:
+        """``{emoji: guild}`` for every configured row, in one query.
+
+        Drives both directions of the reaction sync: a member who reacts with an emoji in
+        this map joins the mapped guild. Unmapped emojis (no row) are skipped entirely.
+        """
+        return {row.emoji: row.guild for row in self.select_related("guild")}
+
+
+class DiscordGuildEmoji(models.Model):
+    """One reaction-emoji → guild mapping for the Discord role message (admin-editable).
+
+    Many emojis may point at one guild (collapsed guilds: two Glass emojis → one Glass
+    Guild). An emoji with no row is ignored in both directions.
+    """
+
+    emoji = models.CharField(
+        max_length=64,
+        help_text=(
+            "The reaction emoji on the Discord role message: a unicode character (e.g. 🔥) or a "
+            "custom emoji as name:id (e.g. PrisonOutreach:123456789). A member who reacts with this "
+            "joins the guild below. Many emojis may point at one guild (collapsed guilds)."
+        ),
+    )
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="discord_emojis",
+        help_text="The guild a reaction with this emoji joins the member to.",
+    )
+
+    objects = DiscordGuildEmojiManager()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["emoji"], name="uq_discordguildemoji_emoji")]
+        ordering = ["guild__name", "emoji"]
+
+    def __str__(self) -> str:
+        return f"{self.emoji} → {self.guild.name}"
 
 
 class SkillCategory(models.Model):
@@ -2444,6 +2881,41 @@ class CommunityEventQuerySet(models.QuerySet):
         """
         return self.filter(Q(guild__isnull=True) | Q(guild__memberships__member=member))
 
+    def published(self) -> CommunityEventQuerySet:
+        """Only events live on the calendar (eligible to push to Google)."""
+        return self.filter(moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+
+    def awaiting_review(self) -> CommunityEventQuerySet:
+        """Member proposals waiting on a reviewer decision."""
+        return self.filter(moderation_state=CommunityEvent.ModerationState.PENDING)
+
+    def scheduled(self) -> CommunityEventQuerySet:
+        """Parked-but-not-yet-announced events (the admin management list, §6)."""
+        return self.filter(moderation_state=CommunityEvent.ModerationState.SCHEDULED)
+
+    def due_to_publish(self, now: datetime_type) -> CommunityEventQuerySet:
+        """SCHEDULED events whose publish_at has arrived (the deferred-publish set).
+
+        A NULL ``publish_at`` never satisfies ``publish_at__lte``, so a schedule that was
+        cleared can never sit here waiting — it's published immediately at edit time instead.
+        """
+        return self.filter(moderation_state=CommunityEvent.ModerationState.SCHEDULED, publish_at__lte=now)
+
+    def pushed(self) -> CommunityEventQuerySet:
+        """Rows FOG has pushed to Google (their iCal echo must be de-duped)."""
+        return self.exclude(google_ical_uid="")
+
+    def needs_push(self) -> CommunityEventQuerySet:
+        """Published rows whose Google sync is pending or failed (the retry set)."""
+        return self.published().filter(
+            sync_state__in=[CommunityEvent.SyncState.PENDING, CommunityEvent.SyncState.FAILED]
+        )
+
+
+class InvalidEventTransition(ValueError):
+    """Raised when a :class:`CommunityEvent` lifecycle method is called from a state
+    that does not permit it (e.g. approving an already-declined proposal)."""
+
 
 class CommunityEvent(models.Model):
     """A FOG-native event on the Community Calendar (a guild meeting/event, a site-wide
@@ -2471,6 +2943,22 @@ class CommunityEvent(models.Model):
         EVERY_6_MONTHS = "every_6_months", "Every 6 months"
         YEARLY = "yearly", "Every year"
 
+    class ModerationState(models.TextChoices):
+        PUBLISHED = "published", "Published"  # live on the calendar; eligible to push
+        SCHEDULED = (
+            "scheduled",
+            "Scheduled",
+        )  # approved/authored; auto-publishes at publish_at (not yet announced/pushed)
+        PENDING = "pending", "Pending review"  # member proposal awaiting a decision; FOG-only
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"  # sent back to the proposer to edit + resubmit
+        DECLINED = "declined", "Declined"  # rejected; never pushes (removed from Google if it was)
+
+    class SyncState(models.TextChoices):
+        IDLE = "idle", "Not synced"  # nothing to push yet (unpublished, or a pre-existing/unmanaged row)
+        PENDING = "pending", "Pending"  # published and awaiting its push / re-push
+        SYNCED = "synced", "Synced"  # pushed to Google successfully
+        FAILED = "failed", "Failed"  # last push errored (retry_calendar_pushes will re-try)
+
     # Months between occurrences for each recurring choice (semi-monthly walks
     # monthly but emits two dates per month — see ``occurrences_in``).
     _MONTH_INTERVALS: dict[str, int] = {
@@ -2488,6 +2976,10 @@ class CommunityEvent(models.Model):
         EventType.LEAD_MEETING: "event.lead_meeting_published",
         EventType.COMMUNITY: "event.community_published",
     }
+
+    # (toggle field, days-before) pairs for the opt-in reminder pings. One place to add
+    # an offset later; drives ``enabled_reminder_offsets`` and the reminder source.
+    REMINDER_OFFSETS: list[tuple[str, int]] = [("remind_7d", 7), ("remind_3d", 3), ("remind_1d", 1)]
 
     title = models.CharField(max_length=200, help_text="Event name shown on the calendar — e.g. 'Monthly Potluck'.")
     event_type = models.CharField(
@@ -2533,6 +3025,85 @@ class CommunityEvent(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # --- Moderation (member-proposal review lifecycle) ------------------------
+    moderation_state = models.CharField(
+        max_length=20,
+        choices=ModerationState.choices,
+        default=ModerationState.PUBLISHED,
+        help_text=(
+            "Where this event is in the review flow. Leads/staff/admins create events already "
+            "Published; member proposals start Pending."
+        ),
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The member who proposed this event (for events that went through review).",
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The lead or admin who approved, declined, or requested changes.",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True, help_text="When the review decision was recorded.")
+    review_notes = models.TextField(
+        blank=True,
+        default="",
+        help_text="The reviewer's note to the proposer (shown on a decline or a changes-requested).",
+    )
+
+    # --- Google Calendar sync -------------------------------------------------
+    google_event_id = models.CharField(
+        max_length=1024,
+        blank=True,
+        default="",
+        help_text="The Google Calendar event id returned when FOG pushed this event. Blank until pushed.",
+    )
+    google_calendar_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Which Google calendar this event was pushed to (kept so a later edit/delete targets the right one).",
+    )
+    google_ical_uid = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text=(
+            "The pushed event's iCal UID (<id>@google.com), used to hide the echoed copy when the "
+            "daily iCal read re-imports it."
+        ),
+    )
+    sync_state = models.CharField(
+        max_length=12,
+        choices=SyncState.choices,
+        default=SyncState.IDLE,
+        help_text="Google Calendar sync status for this event.",
+    )
+    sync_error = models.TextField(
+        blank=True,
+        default="",
+        help_text="Why the last Google push failed (or why it's still pending, e.g. no calendar linked). Blank when synced.",
+    )
+    synced_at = models.DateTimeField(null=True, blank=True, help_text="When this event last synced to Google.")
+
+    # --- Announcement scheduling + reminders ----------------------------------
+    publish_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When to announce this event. Leave blank to announce as soon as it's saved.",
+    )
+    remind_7d = models.BooleanField(default=False, help_text="Send members a reminder 7 days before it starts.")
+    remind_3d = models.BooleanField(default=False, help_text="Send members a reminder 3 days before it starts.")
+    remind_1d = models.BooleanField(default=False, help_text="Send members a reminder 1 day before it starts.")
+    notify_happening_now = models.BooleanField(default=False, help_text="Ping members when it starts.")
 
     objects = CommunityEventQuerySet.as_manager()
 
@@ -2625,6 +3196,48 @@ class CommunityEvent(models.Model):
         interval_part = "" if interval == 1 else f"INTERVAL={interval};"
         return f"FREQ=MONTHLY;{interval_part}BYDAY={ordinal}{weekday}"
 
+    def ics_vevent_lines(self) -> list[str]:
+        """The iCal ``VEVENT`` lines (``BEGIN:VEVENT`` … ``END:VEVENT``) for this event.
+
+        Shared by the per-event :meth:`ics_document` and the combined
+        ``hub.views.calendar_export_ics`` loop so the two never drift. A recurring
+        series emits ONE ``RRULE`` (subscribers expand it themselves — no per-occurrence
+        VEVENTs); ``DESCRIPTION``/``LOCATION`` are RFC-5545 escaped.
+        """
+        from membership.ical import ical_escape
+
+        lines = [
+            "BEGIN:VEVENT",
+            f"UID:community-{self.pk}@pastlives",
+            f"SUMMARY:{ical_escape(self.title)}",
+            f"DTSTART:{self.starts_at.strftime('%Y%m%dT%H%M%SZ')}",
+            f"DTEND:{self.ends_at.strftime('%Y%m%dT%H%M%SZ')}",
+        ]
+        rrule = self.ical_rrule()
+        if rrule:
+            lines.append(f"RRULE:{rrule}")
+        if self.description:
+            lines.append(f"DESCRIPTION:{ical_escape(self.description[:250])}")
+        if self.location:
+            lines.append(f"LOCATION:{ical_escape(self.location)}")
+        lines.append("END:VEVENT")
+        return lines
+
+    def ics_document(self) -> str:
+        """A standalone single-``VEVENT`` ``VCALENDAR`` string for this event's public
+        "Add to calendar" download. Reuses :meth:`ics_vevent_lines`, so the per-event
+        add and the combined calendar export always agree."""
+        lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//Past Lives Makerspace//Community Calendar//EN",
+            "CALSCALE:GREGORIAN",
+            "METHOD:PUBLISH",
+            *self.ics_vevent_lines(),
+            "END:VCALENDAR",
+        ]
+        return "\r\n".join(lines) + "\r\n"
+
     # --- Properties -----------------------------------------------------------
 
     @property
@@ -2649,11 +3262,59 @@ class CommunityEvent(models.Model):
         return when
 
     @property
-    def absolute_url(self) -> str:
-        """Absolute Community-Calendar URL for notifications (no per-event page in v1)."""
+    def publish_at_display(self) -> str:
+        """Local-time 'Jul 12, 2026 · 6:00 PM' for the scheduled announcement time.
+
+        Empty string when nothing is scheduled — safe to drop straight into a message or
+        a "Scheduled for …" badge.
+        """
+        if self.publish_at is None:
+            return ""
+        local = timezone.localtime(self.publish_at)
+        return f"{local.strftime('%b %-d, %Y')} · {local.strftime('%-I:%M %p')}"
+
+    def enabled_reminder_offsets(self) -> list[int]:
+        """Days-before values whose reminder toggle is on (e.g. ``[7, 1]``)."""
+        return [days for attr, days in self.REMINDER_OFFSETS if getattr(self, attr)]
+
+    @property
+    def public_url(self) -> str:
+        """Absolute URL of this event's public detail page.
+
+        The page is reachable logged-out, so a QR scanned off a flyer or the wall
+        signage resolves for anyone. Events have no slug (title only), so the
+        pk-based URL is inherently stable.
+        """
         from django.urls import reverse
 
-        return f"{settings.MEMBER_BASE_URL}{reverse('hub_community_calendar')}"
+        return f"{settings.MEMBER_BASE_URL}{reverse('hub_event_detail', args=[self.pk])}"
+
+    @property
+    def qr_url(self) -> str:
+        """The URL the QR encodes — the public page directly.
+
+        Events have no slug, so the pk URL is already stable and needs no slug-proof
+        permalink redirect (unlike :class:`~classes.models.ClassOffering`). Kept as a
+        property for API parity with the class QR helpers.
+        """
+        return self.public_url
+
+    @property
+    def absolute_url(self) -> str:
+        """Absolute URL for notifications, signage, and calendar links — the event's own page."""
+        return self.public_url
+
+    def qr_svg(self) -> str:
+        """Inline, CSS-scalable SVG QR of the event's public page (crisp at any print size)."""
+        from membership.qr import qr_svg as render_qr
+
+        return render_qr(self.qr_url)
+
+    def qr_png_bytes(self) -> bytes:
+        """PNG bytes of the same QR — a raster download for print/handout."""
+        from membership.qr import qr_png_bytes as render_png
+
+        return render_png(self.qr_url)
 
     # --- Publish --------------------------------------------------------------
 
@@ -2680,6 +3341,314 @@ class CommunityEvent(models.Model):
             },
             url=self.absolute_url,
             period=f"event:{self.pk}:published",
+        )
+
+    # --- Review lifecycle (member proposals) ----------------------------------
+
+    def publish(self, *, actor: User | None = None) -> None:
+        """Make a PUBLISHED event live everywhere: the single "it's live now" choke point.
+
+        Fires the one-shot announcement (idempotent via its ``period``), marks the event as
+        needing a Google push (``IDLE`` → ``PENDING``), then pushes it to the linked Google
+        Calendar (best-effort — a Google outage records ``FAILED`` and never blocks this
+        call). Called by :meth:`approve` and by the direct-create views.
+        """
+        self.announce(actor=actor)
+        if self.sync_state == self.SyncState.IDLE:
+            self.sync_state = self.SyncState.PENDING
+            self.save(update_fields=["sync_state", "updated_at"])
+        self.push_to_google(actor=actor)
+
+    def schedule_or_go_live(self, *, actor: User | None = None) -> None:
+        """Publish now, or park until ``publish_at``. The single create/approve entry point.
+
+        Future ``publish_at`` ⇒ ``moderation_state=SCHEDULED``, no announce/push (the cron
+        promotes it via :meth:`publish_scheduled`). Blank/past ``publish_at`` ⇒
+        ``moderation_state=PUBLISHED`` + :meth:`publish` (announce + Google push), as today.
+
+        Idempotent for a still-parked event: re-saving a ``SCHEDULED`` row with an
+        unchanged future ``publish_at`` re-sets ``SCHEDULED`` and does not announce.
+        """
+        if self.publish_at is not None and self.publish_at > timezone.now():
+            self.moderation_state = self.ModerationState.SCHEDULED
+            self.save(update_fields=["moderation_state", "updated_at"])
+            return
+        self.moderation_state = self.ModerationState.PUBLISHED
+        self.save(update_fields=["moderation_state", "updated_at"])
+        self.publish(actor=actor)
+
+    def publish_scheduled(self, *, actor: User | None = None) -> None:
+        """Promote a due SCHEDULED event to live (announce + Google push). Cron-facing.
+
+        Raises:
+            InvalidEventTransition: If not currently SCHEDULED.
+        """
+        if self.moderation_state != self.ModerationState.SCHEDULED:
+            raise InvalidEventTransition(f"Cannot publish an event in state '{self.moderation_state}'.")
+        self.moderation_state = self.ModerationState.PUBLISHED
+        self.save(update_fields=["moderation_state", "updated_at"])
+        self.publish(actor=actor)
+
+    # --- Google Calendar sync (delegates to core.integrations) ----------------
+
+    def push_to_google(self, *, actor: User | None = None) -> None:
+        """Push this event to its linked Google Calendar and persist the sync fields.
+
+        Best-effort: the service records ``PENDING``/``FAILED`` instead of raising, so a
+        Google outage never rolls back the FOG save. Lazy-imports the service to keep the
+        ``membership → core`` layering clean (like :meth:`announce`).
+        """
+        from core.integrations.google_calendar import push_community_event
+
+        push_community_event(self, actor=actor)
+        self.save(
+            update_fields=[
+                "google_event_id",
+                "google_calendar_id",
+                "google_ical_uid",
+                "sync_state",
+                "sync_error",
+                "synced_at",
+                "updated_at",
+            ]
+        )
+
+    def remove_from_google(self) -> None:
+        """Delete this event from Google (best-effort). Call BEFORE deleting the FOG row —
+        it needs the stored ``google_event_id``/``google_calendar_id``. Never raises."""
+        from core.integrations.google_calendar import remove_community_event
+
+        remove_community_event(self)
+
+    def propose(self, *, by: User, guild: Guild | None, policy: str, editing: bool) -> bool:
+        """Route a member-proposed event to publication or the review queue.
+
+        Owns the member-facing create/resubmit logic that the "Propose an event" view used
+        to carry inline: derive ``event_type`` from the guild, attribute a brand-new
+        proposal to ``by``, then branch on the site's member-event ``policy`` — an OPEN
+        policy publishes a new proposal immediately (announce + Google push), any other
+        policy enters the review queue. An edit always re-submits for review (a
+        changes-requested proposal returns to Pending). The instance must already carry the
+        form's field values (title/time/etc.); the caller enforces the DISABLED policy gate.
+
+        Args:
+            by: The proposing member's user (the create actor + review submitter).
+            guild: The target guild, or ``None`` for a site-wide community event.
+            policy: The current ``SiteConfiguration.member_event_policy`` value.
+            editing: True when resubmitting an owned Pending/changes-requested proposal.
+
+        Returns:
+            True if the event went live immediately, False if it was queued for review.
+        """
+        from core.models import SiteConfiguration
+
+        self.guild = guild
+        self.event_type = self.EventType.GUILD_MEETING if guild is not None else self.EventType.COMMUNITY
+        if not editing:
+            self.created_by = by
+        if not editing and policy == SiteConfiguration.MemberEventPolicy.OPEN:
+            self.moderation_state = self.ModerationState.PUBLISHED
+            self.save()
+            self.publish(actor=by)
+            return True
+        # On an edit, persist the form's field changes first — submit_for_review then saves
+        # only the moderation fields (update_fields), so an edited title/time would otherwise
+        # be dropped for an already-saved row.
+        if editing:
+            self.save()
+        self.submit_for_review(submitted_by=by)
+        return False
+
+    def submit_for_review(self, *, submitted_by: User) -> None:
+        """Enter (or re-enter) the review queue — the member proposal path.
+
+        Used for BOTH the first submit and a resubmit after a changes-requested edit.
+        Sets ``PENDING``, records the proposer, clears any prior review verdict, and
+        notifies reviewers. Does NOT announce or push (a pending proposal is FOG-only).
+
+        Raises:
+            InvalidEventTransition: If the event is already published or declined.
+        """
+        if self.pk is not None and self.moderation_state not in (
+            self.ModerationState.PENDING,
+            self.ModerationState.CHANGES_REQUESTED,
+        ):
+            raise InvalidEventTransition(f"Cannot submit an event in state '{self.moderation_state}' for review.")
+        self.moderation_state = self.ModerationState.PENDING
+        self.submitted_by = submitted_by
+        self.reviewed_by = None
+        self.reviewed_at = None
+        self.review_notes = ""
+        if self.pk is None:
+            self.save()
+        else:
+            self.save(
+                update_fields=[
+                    "moderation_state",
+                    "submitted_by",
+                    "reviewed_by",
+                    "reviewed_at",
+                    "review_notes",
+                    "updated_at",
+                ]
+            )
+        self._emit_submitted()
+
+    def withdraw(self, *, by: User) -> None:
+        """The proposer pulls back their own not-yet-published proposal.
+
+        Deletes the row — it was never published, so there is no Google event or
+        announcement to unwind.
+
+        Raises:
+            InvalidEventTransition: If the event is published/declined or already pushed.
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED) or (
+            self.google_event_id
+        ):
+            raise InvalidEventTransition(f"Cannot withdraw an event in state '{self.moderation_state}'.")
+        self.delete()
+
+    def approve(self, *, reviewer: User) -> None:
+        """Single reviewer decision → live. Records the reviewer, publishes, notifies.
+
+        Raises:
+            InvalidEventTransition: If the event is not awaiting a decision.
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED):
+            raise InvalidEventTransition(f"Cannot approve an event in state '{self.moderation_state}'.")
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.save(update_fields=["reviewed_by", "reviewed_at", "updated_at"])
+        # Approve-before-schedule: a future publish_at parks the proposal in SCHEDULED
+        # (announced only when the cron promotes it); blank/past publishes it now. A member
+        # can never self-publish at their chosen time — only the reviewer reaches this branch.
+        self.schedule_or_go_live(actor=reviewer)
+        self._emit_decision("event.approved", url=self.absolute_url, period=f"event:{self.pk}:approved")
+
+    def request_changes(self, *, reviewer: User, notes: str) -> None:
+        """Send a pending proposal back to the proposer with a note to fix + resubmit.
+
+        Raises:
+            InvalidEventTransition: If the event is not currently pending.
+            ValueError: If ``notes`` is blank (a changes request must explain what to fix).
+        """
+        if self.moderation_state != self.ModerationState.PENDING:
+            raise InvalidEventTransition(f"Cannot request changes on an event in state '{self.moderation_state}'.")
+        if not (notes or "").strip():
+            raise ValueError("A changes request needs a note so the proposer knows what to fix.")
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        self.moderation_state = self.ModerationState.CHANGES_REQUESTED
+        self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        from django.urls import reverse
+
+        edit_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_propose_event_edit', args=[self.pk])}"
+        self._emit_decision(
+            "event.changes_requested",
+            url=edit_url,
+            period=f"event:{self.pk}:changes:{self.reviewed_at.timestamp()}",
+        )
+
+    def decline(self, *, reviewer: User, notes: str) -> None:
+        """Reject a proposal (it was never published — no Google/announce to unwind).
+
+        Raises:
+            InvalidEventTransition: If the event is not awaiting a decision.
+            ValueError: If ``notes`` is blank (a decline must explain why).
+        """
+        if self.moderation_state not in (self.ModerationState.PENDING, self.ModerationState.CHANGES_REQUESTED):
+            raise InvalidEventTransition(f"Cannot decline an event in state '{self.moderation_state}'.")
+        if not (notes or "").strip():
+            raise ValueError("A decline needs a note so the proposer knows why.")
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        self.moderation_state = self.ModerationState.DECLINED
+        self.save(update_fields=["reviewed_by", "reviewed_at", "review_notes", "moderation_state", "updated_at"])
+        from django.urls import reverse
+
+        propose_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_propose_event')}"
+        self._emit_decision("event.declined", url=propose_url, period=f"event:{self.pk}:declined")
+
+    def _proposer_display_name(self) -> str:
+        """A friendly name for the proposer, for notification copy."""
+        user = self.submitted_by
+        if user is None:
+            return "A Past Lives member"
+        full = (user.get_full_name() or "").strip()
+        if full:
+            return full
+        member = getattr(user, "member", None)
+        if member is not None and member.display_name:
+            return member.display_name
+        return user.get_username()
+
+    def _emit_submitted(self) -> None:
+        """Notify the guild's leadership (or admins) that a proposal awaits review.
+
+        A fresh, timestamped ``period`` per submit round so a resubmit re-notifies
+        reviewers instead of being deduped away by :func:`core.events.emit.emit`.
+        """
+        from django.urls import reverse
+
+        from core.events.emit import emit
+
+        review_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_event_review_queue')}#event-{self.pk}"
+        emit(
+            "event.submitted",
+            actor=self.submitted_by,
+            target=self,
+            context={
+                "guild": self.guild,
+                "guild_name": self.guild.name if self.guild is not None else "Site-wide",
+                "event_title": self.title,
+                "when": self.when_display,
+                "proposer_name": self._proposer_display_name(),
+                "review_url": review_url,
+            },
+            url=review_url,
+            period=f"event:{self.pk}:submitted:{timezone.now().timestamp()}",
+        )
+
+    def _emit_decision(self, event_key: str, *, url: str, period: str) -> None:
+        """Notify the proposer of a reviewer decision (approve / changes / decline).
+
+        Builds the full superset context; each event's curated copy uses only its own
+        documented placeholders (the extra keys are ignored by the safe renderer).
+        """
+        from django.urls import reverse
+
+        from core.events.emit import emit
+
+        base = settings.MEMBER_BASE_URL
+        scheduled = self.moderation_state == self.ModerationState.SCHEDULED
+        # The renderer does not branch (it only substitutes {{ placeholders }}), so the
+        # schedule-aware line is composed here and dropped into event.approved's copy as
+        # {{ outcome }} — an approved-but-SCHEDULED event must NOT read "now on the calendar".
+        if scheduled:
+            outcome = f"It'll be announced and added to the Community Calendar on {self.publish_at_display}."
+        else:
+            outcome = "It's now on the Community Calendar."
+        emit(
+            event_key,
+            actor=self.reviewed_by,
+            target=self,
+            context={
+                "user": self.submitted_by,
+                "event_title": self.title,
+                "when": self.when_display,
+                "event_url": self.absolute_url,
+                "edit_url": f"{base}{reverse('hub_propose_event_edit', args=[self.pk])}",
+                "propose_url": f"{base}{reverse('hub_propose_event')}",
+                "reviewer_notes": self.review_notes,
+                "publish_at": self.publish_at_display,
+                "scheduled": scheduled,
+                "outcome": outcome,
+            },
+            url=url,
+            period=period,
         )
 
 
@@ -3848,3 +4817,148 @@ class OrientationBooking(models.Model):
         """Undo a completion (a lead correcting an auto-completed no-show)."""
         self.is_completed = False
         self.save(update_fields=["is_completed"])
+
+
+# ── Signage slideshow ─────────────────────────────────────────────────────────
+# Wall-monitor digital signage (slideshow.pastlives.space). Lives here, not in
+# core, because SlideshowSlide FKs GuildAnnouncement and the deck builder reuses
+# CommunityEvent + the GuildImage image stack — all intra-app. The global/emergency
+# settings sit on core.SiteConfiguration (plain config, no FK).
+
+
+class SlideshowZone(models.Model):
+    """One physical screen location the signage slideshow plays on (woodshop, lobby, …)."""
+
+    name = models.CharField(max_length=100, help_text="Where this screen lives, e.g. 'Woodshop' or 'Lobby'.")
+    slug = models.SlugField(
+        max_length=100,
+        unique=True,
+        help_text="Used in the screen's URL: slideshow.pastlives.space/<slug>/. Point the monitor here once.",
+    )
+    is_enabled = models.BooleanField(
+        default=True,
+        help_text="Turn a screen's URL on or off. A disabled zone's URL returns 404.",
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower numbers sort first. The root URL redirects to the first enabled zone.",
+    )
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def player_url(self) -> str:
+        """Absolute, set-and-forget URL to point a monitor at, e.g. https://slideshow.pastlives.space/woodshop/."""
+        from django.urls import reverse
+
+        return f"{settings.SIGNAGE_BASE_URL}{reverse('signage_player', args=[self.slug])}"
+
+    def qr_svg(self) -> str:
+        """Inline, CSS-scalable SVG QR of this zone's player_url — shown on the admin tab so staff can point a monitor at it."""
+        from membership.qr import qr_svg as render_qr
+
+        return render_qr(self.player_url)
+
+
+class SlideshowSlideQuerySet(models.QuerySet):
+    """Visibility rules for signage slides (the fat model — one source of truth)."""
+
+    def visible(self, today: date_type | None = None) -> SlideshowSlideQuerySet:
+        """Enabled slides inside their date window.
+
+        Announcement-backed slides additionally require their linked announcement to be
+        Published AND still active (not expired) — so a slide auto-hides the moment the
+        announcement it mirrors is unpublished or expires. Custom slides skip that gate.
+        Comparisons use ``timezone.localdate()`` against the ``DateField`` bounds.
+        """
+        if today is None:
+            today = timezone.localdate()
+        window = (
+            Q(is_enabled=True)
+            & (Q(starts_on__isnull=True) | Q(starts_on__lte=today))
+            & (Q(ends_on__isnull=True) | Q(ends_on__gte=today))
+        )
+        live_announcement = ~Q(kind=SlideshowSlide.Kind.ANNOUNCEMENT) | (
+            Q(announcement__moderation_state=GuildAnnouncement.ModerationState.PUBLISHED)
+            & (Q(announcement__expires_at__isnull=True) | Q(announcement__expires_at__gte=today))
+        )
+        return self.filter(window & live_announcement)
+
+    def for_zone(self, zone: SlideshowZone) -> SlideshowSlideQuerySet:
+        """Slides pinned to this zone plus the all-zones (zone IS NULL) slides."""
+        return self.filter(Q(zone__isnull=True) | Q(zone=zone))
+
+
+class SlideshowSlide(models.Model):
+    """A single slide in the signage rotation — a custom slide or a mirrored guild announcement."""
+
+    class Kind(models.TextChoices):
+        CUSTOM = "custom", "Custom slide"
+        ANNOUNCEMENT = "announcement", "Guild announcement"
+
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.CUSTOM,
+        help_text="Custom = your own title/body/image. Guild announcement = mirror a published announcement.",
+    )
+    zone = models.ForeignKey(
+        SlideshowZone,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="slides",
+        help_text="Show only on this screen. Leave blank to show on every screen.",
+    )
+    title = models.CharField(max_length=200, blank=True, default="", help_text="Headline for a custom slide.")
+    body = models.TextField(
+        blank=True,
+        default="",
+        help_text="Body text for a custom slide — a tip about the space, a reminder, etc.",
+    )
+    image = models.ImageField(
+        upload_to="signage/slides/",
+        blank=True,
+        null=True,
+        validators=[validate_image_size],
+        help_text="Optional full-bleed image or flyer (JPG/PNG).",
+    )
+    link_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional link — shown as a QR code when 'Show QR' is on.",
+    )
+    show_qr = models.BooleanField(default=False, help_text="Render a scannable QR of the link on this slide.")
+    announcement = models.ForeignKey(
+        GuildAnnouncement,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="+",
+        help_text="The published announcement to mirror. Only used for 'Guild announcement' slides.",
+    )
+    starts_on = models.DateField(null=True, blank=True, help_text="Optional: don't show before this date.")
+    ends_on = models.DateField(null=True, blank=True, help_text="Optional: stop showing after this date.")
+    is_enabled = models.BooleanField(default=True, help_text="Turn this slide on or off without deleting it.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Lower numbers show first in the rotation.")
+
+    objects = SlideshowSlideQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        if self.title:
+            return self.title
+        if self.announcement_id:
+            return f"Announcement: {self.announcement}"
+        return f"Slide {self.pk}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "image")
+        normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)  # 2400px — wall-sized
+        super().save(*args, **kwargs)

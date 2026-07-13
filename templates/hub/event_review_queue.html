@@ -1,0 +1,54 @@
+{% extends "hub/base.html" %}
+{% block title %}Events awaiting review — Past Lives Makerspace{% endblock %}
+{% block content %}
+<div x-data="{}"
+     x-init="$nextTick(() => { {% if open_decision_for %}$dispatch('open-modal', '{{ open_decision_kind }}-modal-{{ open_decision_for }}'){% endif %} })">
+  <p style="margin-bottom:0.75rem;">
+    <a href="{% url 'hub_community_calendar' %}?tab=events" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to the Community Calendar</a>
+  </p>
+  <h1 class="hub-page-title">Events awaiting review</h1>
+  <p class="hub-text-muted" style="margin:-0.25rem 0 1.5rem; max-width:65ch;">
+    Member-proposed events waiting on a decision. Approving one publishes it to the calendar (and posts to Discord).
+  </p>
+
+  <div class="hub-card" style="padding:1.5rem;">
+    {% if pending_events %}
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
+      {% for event in pending_events %}
+      {% with pk_str=event.pk|stringformat:"s" %}
+      <div id="event-{{ event.pk }}" class="hub-card" style="padding:1rem; background:var(--hub-surface); display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+        <div style="flex:1; min-width:220px;">
+          <div style="font-weight:600;">{{ event.title }}</div>
+          <div class="hub-text-muted" style="font-size:0.8125rem; margin-top:0.25rem;">
+            Proposed by {{ event.submitted_by.get_full_name|default:event.submitted_by.username }} · {{ event.guild.name|default:"Site-wide" }} · {{ event.starts_at|date:"D, M j · g:i A" }}
+          </div>
+          {% if event.description %}
+          <p style="margin:0.5rem 0 0; font-size:0.875rem;">{{ event.description }}</p>
+          {% endif %}
+        </div>
+
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+          {# Approve is spaced apart from the destructive controls so it isn't fat-fingered next to Decline. #}
+          <button type="button" class="pl-btn pl-btn--primary pl-btn--sm"
+                  @click="$dispatch('open-confirm', 'approve-{{ pk_str }}')">Approve</button>
+          <span style="width:0.5rem;"></span>
+          <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                  @click="$dispatch('open-modal', 'changes-modal-{{ pk_str }}')">Request changes</button>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                  @click="$dispatch('open-modal', 'decline-modal-{{ pk_str }}')">Decline</button>
+        </div>
+
+        {% url 'hub_event_review_decision' event.pk as decision_url %}
+        {% include "components/confirm_modal.html" with confirm_id="approve-"|add:pk_str confirm_title="Approve & publish this event?" confirm_message="It goes live on the calendar and posts to Discord." confirm_action_url=decision_url|add:"?decision=approve" confirm_button_text="Approve & publish" confirm_button_style="primary" %}
+        {% include "hub/partials/_event_decision_modal.html" with event=event modal_id="changes-modal-"|add:pk_str modal_title="Request changes" decision_value="changes" submit_text="Send back for changes" submit_style="primary" intro="The proposer can edit and resubmit — tell them what to change." %}
+        {% include "hub/partials/_event_decision_modal.html" with event=event modal_id="decline-modal-"|add:pk_str modal_title="Decline event" decision_value="decline" submit_text="Decline event" submit_style="danger" intro="This removes the proposal; the proposer will be notified." %}
+      </div>
+      {% endwith %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0;">Nothing awaiting review. 🎉</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

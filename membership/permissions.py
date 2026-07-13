@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from django.http import HttpRequest
 
     from classes.models import Category, ClassOffering
-    from membership.models import Guild, Member
+    from membership.models import CommunityEvent, Guild, Member
 
 
 def is_effective_staff(request: HttpRequest) -> bool:
@@ -81,6 +81,22 @@ def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:
     if guild is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member)):
         return True
     return offering.instructor_id == member.pk
+
+
+def can_edit_event(request: HttpRequest, event: CommunityEvent) -> bool:
+    """True when this request may edit the community event.
+
+    A site-wide event (no guild) requires admin — the same gate the admin authoring
+    view (``_require_admin``) uses, so the "Edit event" affordance and the QR download
+    never drift from who may actually save it. A guild event defers to
+    :func:`can_edit_guild` (lead / staff / admin / officer). Honors ``view_as`` preview
+    like the other helpers.
+    """
+    guild = event.guild
+    if guild is None:
+        view_as = getattr(request, "view_as", None)
+        return view_as is not None and view_as.is_admin
+    return can_edit_guild(request, guild)
 
 
 def can_edit_category(request: HttpRequest, category: Category) -> bool:

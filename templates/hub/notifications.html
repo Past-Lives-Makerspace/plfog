@@ -1,0 +1,46 @@
+{% extends "hub/base.html" %}
+{% block title %}Notifications{% endblock %}
+
+{% block content %}
+<div class="pl-notes__header">
+    <h1 class="hub-page-title">Notifications</h1>
+    <div class="pl-notes__actions">
+        {% if unread_count %}
+        <form method="post" action="{% url 'notification_read_all' %}">
+            {% csrf_token %}
+            <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Mark all as read</button>
+        </form>
+        {% endif %}
+        <a href="{% url 'home' %}" class="tab-history-link">Back to Home</a>
+    </div>
+</div>
+
+<div class="hub-card">
+    {% if page.object_list %}
+    {% for n in page.object_list %}
+    <form method="post" action="{% url 'notification_read' n.pk %}" class="pl-note{% if n.is_unread %} pl-note--unread{% endif %}">
+        {% csrf_token %}
+        <button type="submit" class="pl-note__btn">
+            <span class="pl-note__title">{{ n.title }}</span>
+            <span class="pl-note__body">{{ n.body }}</span>
+            <span class="pl-note__time">{{ n.created_at|timesince }} ago</span>
+        </button>
+    </form>
+    {% endfor %}
+    {% else %}
+    <p class="hub-text-muted">You're all caught up.</p>
+    {% endif %}
+</div>
+
+{% if page.has_other_pages %}
+<nav class="pl-notes__pager" aria-label="Notifications pages">
+    {% if page.has_previous %}
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?page={{ page.previous_page_number }}">Previous</a>
+    {% endif %}
+    <span class="hub-text-muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?page={{ page.next_page_number }}">Next</a>
+    {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

@@ -115,7 +115,9 @@ def community_event_entries(fetch_from: date, fetch_to: date, guild: Guild | Non
     """
     from membership.models import CommunityEvent
 
-    qs = CommunityEvent.objects.candidates_for_window(fetch_from, fetch_to)
+    # Only PUBLISHED events surface on the calendar — pending/changes-requested/declined
+    # member proposals must never leak onto the public grid.
+    qs = CommunityEvent.objects.published().candidates_for_window(fetch_from, fetch_to)
     if guild is not None:
         qs = qs.for_guild(guild)
 

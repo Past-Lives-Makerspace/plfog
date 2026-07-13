@@ -309,7 +309,7 @@ def describe_build_home_context():
 
         ctx = build_home_context(member)
 
-        assert [step.key for step in ctx["onboarding"].steps] == ["profile", "guilds", "voting"]
+        assert [step.key for step in ctx["onboarding"].steps] == ["profile", "guilds", "discord", "voting"]
         assert ctx["show_onboarding"] is True
 
     def it_hides_the_gate_for_an_onboarded_member():

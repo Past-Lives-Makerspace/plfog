@@ -9,8 +9,29 @@
 {% endif %}
 <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
+    {# Identity fields (left) + the Share & Print card (right), 6/6 on desktop, stacked on mobile. #}
+    <div class="pl-edit-split">
+        <div class="pl-edit-split__main">
+            {% for field in form %}
+                {% if field.name == 'title' or field.name == 'category' %}
+                    {% include "components/form_field.html" with field=field %}
+                {% endif %}
+            {% endfor %}
+        </div>
+        <aside class="pl-edit-split__side">
+            {% if offering and offering.pk %}
+                {% include "classes/_components/class_qr_share.html" %}
+            {% else %}
+                <div class="hub-card pl-qr-share">
+                    <h2 class="hub-detail-label pl-qr-share__title">Share &amp; Print</h2>
+                    <p class="hub-text-muted pl-qr-share__hint">A QR code and share link for this class appear here once you save it.</p>
+                </div>
+            {% endif %}
+        </aside>
+    </div>
     {% for field in form %}
-        {% if field.name == 'image' %}
+        {% if field.name == 'title' or field.name == 'category' %}{# rendered in the split above #}
+        {% elif field.name == 'image' %}
             {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image crop_field=form.hero_crop offering=offering %}
         {% elif field.name == 'hero_crop' %}
         {% elif field.name == 'scheduling_type' %}{# rendered as a guided chooser just above the dates #}

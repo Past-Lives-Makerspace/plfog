@@ -72,6 +72,7 @@ class Recipients(str, Enum):
 
     FOG_ADMINS = "fog_admins"
     GUILD_LEADERSHIP = "guild_leadership"
+    GUILD_LEADERSHIP_OR_ADMINS = "guild_leadership_or_admins"
     GUILD_LEAD = "guild_lead"
     GUILD_MEMBERS = "guild_members"
     GUILD_ORIENTERS = "guild_orienters"
@@ -85,6 +86,7 @@ class Recipients(str, Enum):
     LEASE_TENANT = "lease_tenant"
     ALL_ACTIVE_MEMBERS = "all_active_members"
     ALL_GUILD_LEADS = "all_guild_leads"
+    EVENT_AUDIENCE = "event_audience"
     ALL_VOTERS = "all_voters"
     EVERYONE_WITH_LOGIN = "everyone_with_login"
     RELEASE_AUDIENCE = "release_audience"
@@ -218,8 +220,6 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "lease_expiring": Recipients.LEASE_TENANT,
     # Admin broadcasts
     "site_announcement": Recipients.ALL_ACTIVE_MEMBERS,
-    # Security — forced, no toggle
-    "new_login": Recipients.SINGLE_USER,
 }
 
 # Map each legacy trigger key to its SiteActivity kind where one exists today
@@ -269,12 +269,6 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     "new_member_joined": "member_signup",
     "lease_expiring": None,
     "site_announcement": "site_announcement",
-    # new_login logs NO activity via emit: ``core.signals._on_login`` writes the
-    # LOGIN SiteActivity row unconditionally for EVERY login (the new_login event
-    # only fires on a never-seen device signature). If emit also logged LOGIN, a
-    # new-signature login would write the row twice. Keeping this ``None`` makes the
-    # signal's unconditional log the single source of the LOGIN activity.
-    "new_login": None,
 }
 
 
@@ -333,6 +327,18 @@ GUILD_ANNOUNCEMENT_SUBMITTED = "guild_announcement.submitted"
 GUILD_ANNOUNCEMENT_APPROVED = "guild_announcement.approved"
 GUILD_ANNOUNCEMENT_CHANGES_REQUESTED = "guild_announcement.changes_requested"
 GUILD_ANNOUNCEMENT_DECLINED = "guild_announcement.declined"
+EVENT_SUBMITTED = "event.submitted"
+EVENT_APPROVED = "event.approved"
+EVENT_CHANGES_REQUESTED = "event.changes_requested"
+EVENT_DECLINED = "event.declined"
+EVENT_REMINDER = "event.reminder"
+EVENT_HAPPENING_NOW = "event.happening_now"
+DISCORD_GUILDS_IMPORTED = "discord_guilds_imported"
+
+# event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
+# clutter the guild channel) but declares it so a lead can flip it on later; happening-now
+# posts a one-shot "starting now" to the guild channel.
+_DISCORD_OFF = ChannelSpec(Channel.DISCORD, ChannelDefault.OFF)
 
 
 _NEW_EVENTS: list[EventType] = [
@@ -544,6 +550,87 @@ _NEW_EVENTS: list[EventType] = [
         category="Guilds",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 14. event.submitted — a member proposed a Community Calendar event; it lands in the
+    #     review queue. Goes to the guild's leadership OR (site-wide → admins). A per-person
+    #     workflow reply: in-app + email, no Discord broadcast.
+    EventType(
+        key=EVENT_SUBMITTED,
+        label="Event proposal submitted",
+        description="A member proposed a Community Calendar event that needs review.",
+        category="Events",
+        recipient=Recipients.GUILD_LEADERSHIP_OR_ADMINS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 15. event.approved — the proposer hears their event is live on the calendar.
+    EventType(
+        key=EVENT_APPROVED,
+        label="Your event was approved",
+        description="A reviewer approved a member's proposed event and it's now published.",
+        category="Events",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 16. event.changes_requested — the proposer is asked to edit + resubmit.
+    EventType(
+        key=EVENT_CHANGES_REQUESTED,
+        label="Changes requested on your event",
+        description="A reviewer asked the proposer to adjust their event and resubmit.",
+        category="Events",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 17. event.declined — the proposal was turned down.
+    EventType(
+        key=EVENT_DECLINED,
+        label="Your event wasn't approved",
+        description="A reviewer declined a member's proposed event.",
+        category="Events",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 18. event.reminder — a 7/3/1-day-before nudge for an upcoming community event, to the
+    #     same audience the launch announcement reached (by scope, via event_audience). In-app
+    #     on; email + Discord OFF (the bell is enough — Discord flippable later).
+    EventType(
+        key=EVENT_REMINDER,
+        label="Event reminder",
+        description="A reminder before a community event you're invited to starts.",
+        category="Events",
+        recipient=Recipients.EVENT_AUDIENCE,
+        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_OFF),
+        activity_kind=None,
+    ),
+    # 19. event.happening_now — a single "starting now" ping to the same launch audience.
+    #     In-app on, email off, Discord ON (a one-shot "starting now" in the channel is useful).
+    EventType(
+        key=EVENT_HAPPENING_NOW,
+        label="Event starting now",
+        description="A ping when a community event you're invited to begins.",
+        category="Events",
+        recipient=Recipients.EVENT_AUDIENCE,
+        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        activity_kind=None,
+    ),
+    # 20. discord_guilds_imported — the one "we set up your N guilds" confirmation sent
+    #     right after a member links Discord and their reacted/app guilds are imported.
+    #     Addressed with an explicit ``email_to`` (transactional: sends regardless of
+    #     broadcast preferences — the member just proved account control via Discord
+    #     OAuth), so this is EMAIL-only with no in-app bell row (the resolver only governs
+    #     the un-used in-app/push fan-out — keep those off). The REGISTRANT resolver reads
+    #     ``context["member"]``.
+    EventType(
+        key=DISCORD_GUILDS_IMPORTED,
+        label="Your Past Lives guilds are set up",
+        description="After linking Discord, a one-time confirmation of the guilds we set you up in.",
+        category="Guilds",
+        recipient=Recipients.REGISTRANT,
+        channels=(_EMAIL_FORCED,),
         activity_kind=None,
     ),
 ]

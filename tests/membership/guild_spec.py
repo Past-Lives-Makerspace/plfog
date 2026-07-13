@@ -378,15 +378,11 @@ def describe_qr_svg():
 
     @override_settings(MEMBER_BASE_URL="https://pastlives.app")
     def it_encodes_the_vanity_url():
-        import io
-
-        import segno
+        from membership.qr import qr_svg
 
         guild = GuildFactory(name="Ceramics")
-        buf = io.BytesIO()
-        segno.make(guild.vanity_url, error="m").save(buf, kind="svg", scale=1, xmldecl=False, svgns=True)
         # The QR is generated from the vanity URL specifically (not the slug or guest URL).
-        assert guild.qr_svg() == buf.getvalue().decode("utf-8")
+        assert guild.qr_svg() == qr_svg(guild.vanity_url)
 
     @override_settings(MEMBER_BASE_URL="https://pastlives.app")
     def it_differs_for_a_different_guild():

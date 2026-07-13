@@ -28,9 +28,9 @@ def describe_wants():
     def describe_forced_channels():
         def it_ignores_preferences_for_forced_email():
             user = _user()
-            # new_login forces email; an explicit opt-out row must not matter.
-            _pref(user, "new_login", Channel.EMAIL, False)
-            assert preferences.wants(user, "new_login", Channel.EMAIL) is True
+            # member.invited forces email; an explicit opt-out row must not matter.
+            _pref(user, "member.invited", Channel.EMAIL, False)
+            assert preferences.wants(user, "member.invited", Channel.EMAIL) is True
 
     def describe_email_per_channel_row():
         def it_reads_enabled_from_an_explicit_row():
@@ -82,5 +82,5 @@ def describe_enabled_channels():
         assert preferences.enabled_channels(user, "class_reminder") == [Channel.IN_APP, Channel.EMAIL]
 
     def it_includes_forced_email_without_a_row():
-        # new_login forces email; in_app on too.
-        assert preferences.enabled_channels(_user(), "new_login") == [Channel.IN_APP, Channel.EMAIL]
+        # member.invited forces email (and is email-only), so it's included with no row.
+        assert preferences.enabled_channels(_user(), "member.invited") == [Channel.EMAIL]

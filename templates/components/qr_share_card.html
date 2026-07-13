@@ -1,0 +1,57 @@
+{% comment %}
+Reusable "Share & Print" card — a scannable, printable QR of a public page plus a copy
+link and SVG/PNG downloads. Parametrized so classes and community events share one card.
+
+Parameters:
+  qr_svg    — pre-rendered inline SVG QR markup (rendered with |safe here)
+  share_url — the human-facing link shown in the copy field
+  svg_url   — download URL for the SVG QR
+  png_url   — download URL for the PNG QR
+  title     — card heading (e.g. "Share & Print")
+  hint      — a single pre-computed hint line (callers compute any conditional text)
+
+The copy input is readonly and has NO `name`, and every control is a type="button" button
+or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the event edit form)
+— it never submits or rides along on Save.
+{% endcomment %}
+<div class="hub-card pl-qr-share" x-data="qrShare()">
+  <h2 class="hub-detail-label pl-qr-share__title">{{ title }}</h2>
+  <p class="hub-text-muted pl-qr-share__hint">{{ hint }}</p>
+  <div class="pl-qr-share__qr">
+    <div class="pl-qr-preview" aria-hidden="true">{{ qr_svg|safe }}</div>
+    <span class="pl-qr-share__qr-caption">Scan to open</span>
+  </div>
+  <div class="hub-form-group pl-qr-share__field">
+    <label for="qr-share-url">Share link</label>
+    <div class="pl-qr-share__link">
+      <input id="qr-share-url" x-ref="url" type="text" readonly value="{{ share_url }}" onclick="this.select()">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
+              @click="copy()" x-text="copied ? 'Copied!' : 'Copy'">Copy</button>
+    </div>
+  </div>
+  <div class="pl-qr-share__actions">
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ svg_url }}">Download QR (SVG)</a>
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ png_url }}">Download QR (PNG)</a>
+  </div>
+</div>
+<script>
+  // Copy that works in both local http and prod https (clipboard API needs a secure
+  // context, so fall back to selecting the field + execCommand off https).
+  function qrShare() {
+    return {
+      copied: false,
+      copy() {
+        const el = this.$refs.url;
+        el.focus();
+        el.select();
+        if (window.isSecureContext && navigator.clipboard) {
+          navigator.clipboard.writeText(el.value);
+        } else {
+          document.execCommand('copy');
+        }
+        this.copied = true;
+        setTimeout(() => { this.copied = false; }, 1500);
+      },
+    };
+  }
+</script>

@@ -63,6 +63,7 @@
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Calendar Integration</h2>
       <div class="pl-form-grid">
         {% include "components/form_field.html" with field=form.calendar_url %}
+        {% include "components/form_field.html" with field=form.google_calendar_id field_hint="This guild's events push to this Google calendar. It's the Calendar ID (…@group.calendar.google.com) from Calendar Settings → Integrate calendar — not the iCal link above. Leave blank to keep this guild's events in FOG only." %}
         {% include "components/form_field.html" with field=form.calendar_color %}
       </div>
     </div>
@@ -212,6 +213,16 @@ confirm modal carries its own POST form, and template content can't nest a form.
           <div class="hub-text-muted" style="font-size:0.8125rem;">
             {{ event.starts_at|date:"D, M j · g:i A" }}–{{ event.ends_at|date:"g:i A" }}{% if event.location %} · {{ event.location }}{% endif %}{% if event.recurrence != "none" %} · Repeats monthly{% endif %}
           </div>
+          {% if event.moderation_state == 'scheduled' %}
+          <div style="margin-top:0.35rem;">
+            <span class="hub-badge">Scheduled for {{ event.publish_at_display }}</span>
+          </div>
+          {% endif %}
+          {% if google_sync_enabled %}
+          <div style="margin-top:0.35rem;">
+            {% include "hub/partials/_sync_badge.html" with event=event can_retry=is_admin %}
+          </div>
+          {% endif %}
         </div>
         <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
           <a href="{% url 'hub_guild_event_edit' guild.pk event.pk %}" class="hub-btn hub-btn--sm">Edit</a>
@@ -479,17 +490,9 @@ confirm modal carries its own POST form, and template content can't nest a form.
   {% endif %}
   {% endwith %}
   <div class="hub-card" style="padding:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Post an Announcement</h2>
-    <form method="post" action="{% url 'hub_guild_announcement_create' guild.pk %}" class="hub-form">
-      {% csrf_token %}
-      {% include "components/form_field.html" with field=announcement_form.title %}
-      {% include "components/form_field.html" with field=announcement_form.body %}
-      {% include "components/form_field.html" with field=announcement_form.expires_at %}
-      {% include "components/form_field.html" with field=announcement_form.send_email field_label="Also send email" %}
-      {% include "hub/partials/_announcement_channel_picker.html" with field=announcement_form.discord_channel %}
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.75rem 0 1rem;">Everyone who has <strong>Joined</strong> this guild will receive this announcement by email (when “Also send email” is on), plus an in-app notification.</p>
-      <button type="submit" class="pl-btn pl-btn--primary">Post Announcement</button>
-    </form>
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem;">Post an Announcement</h2>
+    <p class="hub-text-muted" style="font-size:0.875rem; margin:0 0 1rem;">Compose in the step-through wizard — write the message, design the email with a live preview, choose the Discord channel, and save a draft to finish later.</p>
+    <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}" class="hub-btn hub-btn--primary">Compose announcement &rarr;</a>
   </div>
 
   <div class="hub-card" style="margin-top:1.5rem; padding:1.5rem;">

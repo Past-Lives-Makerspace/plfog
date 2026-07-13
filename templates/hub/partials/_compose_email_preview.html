@@ -1,0 +1,15 @@
+{% comment %}
+HTMX preview target inner (#compose-preview). The branded email exactly as it will send —
+replaces the "Building your preview…" placeholder on the first (auto-fired) refresh.
+
+Params:
+  preview_html    — the full branded email HTML (autoescaped into the iframe srcdoc)
+  preview_subject — the subject line for the inbox row
+{% endcomment %}
+<div class="pl-email-preview__inbox">
+  <span class="pl-email-preview__from">Past Lives</span>
+  <span class="pl-email-preview__subject">{{ preview_subject|default:"(no subject yet)" }}</span>
+</div>
+<div class="pl-email-preview__frame pl-wizard-preview__frame">
+  <iframe srcdoc="{{ preview_html }}" title="Email preview" class="pl-email-preview__iframe pl-wizard-preview__iframe"></iframe>
+</div>

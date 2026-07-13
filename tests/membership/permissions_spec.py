@@ -14,15 +14,23 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import RequestFactory
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, UserFactory
+from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER, ViewAs
 from membership.models import GuildStaffMembership, Member
 from membership.permissions import (
     can_edit_category,
     can_edit_class,
+    can_edit_event,
     can_edit_guild,
     can_manage_orientations,
     is_effective_staff,
 )
-from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MemberFactory
+from tests.membership.factories import (
+    CommunityEventFactory,
+    GuildFactory,
+    GuildStaffMembershipFactory,
+    MemberFactory,
+    MembershipPlanFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -156,3 +164,69 @@ def describe_request_helpers_via_views():
         )
 
         assert response.status_code == 200
+
+
+def describe_can_edit_event():
+    """The request-level ``can_edit_event`` (view_as-aware): site-wide events require
+    admin; guild events defer to ``can_edit_guild`` (lead / staff / admin / officer)."""
+
+    def _member_user() -> Member:
+        MembershipPlanFactory()
+        return UserFactory().member
+
+    def _request(user, *, roles: set[str], picked: str | None = None):
+        request = RequestFactory().get("/")
+        request.user = user
+        request.view_as = ViewAs(actual=frozenset(roles), picked=picked)
+        return request
+
+    def it_lets_an_admin_edit_a_site_wide_event(db):
+        event = CommunityEventFactory(community=True)  # guild is None
+        request = _request(UserFactory(), roles={ROLE_ADMIN, ROLE_MEMBER})
+        assert can_edit_event(request, event) is True
+
+    def it_denies_a_guild_officer_on_a_site_wide_event(db):
+        # Site-wide authoring is admin-only (mirrors event_edit's _require_admin), so an
+        # officer — who CAN edit guild content — cannot edit a site-wide event.
+        event = CommunityEventFactory(community=True)
+        request = _request(UserFactory(), roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
+        assert can_edit_event(request, event) is False
+
+    def it_denies_an_admin_previewing_as_member_on_a_site_wide_event(db):
+        event = CommunityEventFactory(community=True)
+        request = _request(UserFactory(), roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
+        assert can_edit_event(request, event) is False
+
+    def it_allows_the_lead_of_the_events_guild(db):
+        lead = _member_user()
+        guild = GuildFactory(guild_lead=lead)
+        event = CommunityEventFactory(guild=guild)
+        request = _request(lead.user, roles={ROLE_MEMBER})
+        assert can_edit_event(request, event) is True
+
+    def it_allows_a_staff_member_of_the_events_guild(db):
+        staff = _member_user()
+        guild = GuildFactory()
+        GuildStaffMembershipFactory(guild=guild, member=staff, role=GuildStaffMembership.Role.SECRETARY)
+        event = CommunityEventFactory(guild=guild)
+        request = _request(staff.user, roles={ROLE_MEMBER})
+        assert can_edit_event(request, event) is True
+
+    def it_denies_a_lead_of_another_guild(db):
+        lead = _member_user()
+        GuildFactory(guild_lead=lead)
+        event = CommunityEventFactory(guild=GuildFactory())  # a different guild
+        request = _request(lead.user, roles={ROLE_MEMBER})
+        assert can_edit_event(request, event) is False
+
+    def it_denies_a_plain_member_on_a_guild_event(db):
+        plain = _member_user()
+        event = CommunityEventFactory(guild=GuildFactory())
+        request = _request(plain.user, roles={ROLE_MEMBER})
+        assert can_edit_event(request, event) is False
+
+    def it_denies_an_anonymous_request(db):
+        request = RequestFactory().get("/")
+        request.user = AnonymousUser()
+        assert can_edit_event(request, CommunityEventFactory(community=True)) is False
+        assert can_edit_event(request, CommunityEventFactory(guild=GuildFactory())) is False

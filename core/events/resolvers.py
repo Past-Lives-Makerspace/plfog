@@ -137,6 +137,18 @@ def guild_leadership(context: dict[str, Any]) -> list[Recipient]:
     return _members_to_recipients(guild.leadership_members(), "guild_leadership")
 
 
+def guild_leadership_or_admins(context: dict[str, Any]) -> list[Recipient]:
+    """UNION — the in-context guild's leadership PLUS every FOG admin (deduped).
+
+    The single-stage routing audience for a member's event proposal (§7): a guild
+    event routes to that guild's lead + staff *and* any admin; a site-wide proposal
+    (``context["guild"]`` is ``None``) resolves to admins only, because
+    :func:`guild_leadership` returns ``[]`` for a null guild. Composes the two existing
+    resolvers exactly as :func:`release_audience` composes its members.
+    """
+    return _dedupe([*guild_leadership(context), *fog_admins(context)])  # type: ignore[list-item]
+
+
 def guild_lead(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — the lead only (staff excluded), for lead-only events."""
     guild: Guild = _require(context, "guild")
@@ -365,6 +377,29 @@ def all_guild_leads(context: dict[str, Any]) -> list[Recipient]:
     return _members_to_recipients(list(leads), "all_guild_leads")
 
 
+def event_audience(context: dict[str, Any]) -> list[Recipient]:
+    """The launch-announcement audience for a community event, by scope.
+
+    Mirrors ``CommunityEvent._ANNOUNCE_EVENT``: a guild event → the guild's members;
+    a leadership meeting → all guild leads; any other site-wide event → all active
+    members. Composes the three existing resolvers (like :func:`guild_leadership_or_admins`),
+    so one ``event.reminder`` / ``event.happening_now`` key serves all three scopes.
+
+    The activation gate therefore *matches the launch announcement's*, per scope:
+    ``all_active_members`` / ``all_guild_leads`` drop never-signed-in accounts, while
+    ``guild_members`` keeps a provisioned-but-never-logged-in guild member (deliberate
+    parity with ``event.guild_published``).
+    """
+    from membership.models import CommunityEvent
+
+    guild: Guild | None = _require(context, "guild")  # value may be None (site-wide); missing key is a bug
+    if guild is not None:
+        return guild_members(context)
+    if context["event_type"] == CommunityEvent.EventType.LEAD_MEETING:
+        return all_guild_leads(context)
+    return all_active_members(context)
+
+
 def all_voters(context: dict[str, Any]) -> list[Recipient]:
     """Every member eligible to vote — paying active members with a usable account.
 
@@ -435,6 +470,7 @@ def single_user(context: dict[str, Any]) -> list[Recipient]:
 _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.FOG_ADMINS: fog_admins,
     Recipients.GUILD_LEADERSHIP: guild_leadership,
+    Recipients.GUILD_LEADERSHIP_OR_ADMINS: guild_leadership_or_admins,
     Recipients.GUILD_LEAD: guild_lead,
     Recipients.GUILD_MEMBERS: guild_members,
     Recipients.GUILD_ORIENTERS: guild_orienters,
@@ -448,6 +484,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.LEASE_TENANT: lease_tenant,
     Recipients.ALL_ACTIVE_MEMBERS: all_active_members,
     Recipients.ALL_GUILD_LEADS: all_guild_leads,
+    Recipients.EVENT_AUDIENCE: event_audience,
     Recipients.ALL_VOTERS: all_voters,
     Recipients.EVERYONE_WITH_LOGIN: everyone_with_login,
     Recipients.RELEASE_AUDIENCE: release_audience,

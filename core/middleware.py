@@ -36,19 +36,33 @@ from collections.abc import Callable
 from urllib.parse import quote
 
 from django.conf import settings
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, HttpResponseRedirect
 
 
 class SurfaceMiddleware:
-    """Route by hostname into one of three surfaces: guilds, public, or members."""
+    """Route by hostname into one of four surfaces: signage, guilds, public, or members."""
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         host = request.get_host().split(":", 1)[0].lower()
+
+        # Redirect legacy pastlives.app URLs to the canonical members domain.
+        if host in {"pastlives.app", "www.pastlives.app"}:
+            qs = f"?{request.META['QUERY_STRING']}" if request.META.get("QUERY_STRING") else ""
+            return HttpResponsePermanentRedirect(f"https://{settings.MEMBER_HOST}{request.path}{qs}")
+
         public_hosts: set[str] = set(getattr(settings, "PUBLIC_HOSTS", []))
         guilds_hosts: set[str] = set(getattr(settings, "GUILDS_HOSTS", []))
+        signage_hosts: set[str] = set(getattr(settings, "SIGNAGE_HOSTS", []))
+
+        if host in signage_hosts:
+            request.surface = "signage"  # type: ignore[attr-defined]
+            short_circuit = self._handle_signage_surface(request)
+            if short_circuit is not None:
+                return short_circuit
+            return self.get_response(request)
 
         if host in guilds_hosts:
             request.surface = "guilds"  # type: ignore[attr-defined]
@@ -92,6 +106,41 @@ class SurfaceMiddleware:
         # built-in ``account_*`` login views are allowed while the book-only
         # namespaced ``account:`` routes are not.
         if match.view_name in allowed or match.view_name.startswith("account_"):
+            return None
+        raise Http404("Not available on this surface.")
+
+    def _handle_signage_surface(self, request: HttpRequest) -> HttpResponse | None:
+        """Route the read-only kiosk surface: root → first zone, everything else gated.
+
+        The root path redirects to the first enabled zone's player (by ``sort_order``);
+        with zero zones it renders a friendly "no screens configured yet" holding page
+        (HTTP 200, not a redirect loop). Every other path must resolve to a view name in
+        ``SIGNAGE_ALLOWED_VIEW_NAMES`` (just the player + its poll target) — anything else
+        raises :class:`~django.http.Http404`, so no member route ever renders on the
+        signage host. Returns ``None`` when the request may continue to the view.
+        """
+        from django.urls import Resolver404, resolve
+
+        if request.path == "/":
+            from membership.models import SlideshowZone
+
+            zone = SlideshowZone.objects.filter(is_enabled=True).order_by("sort_order", "name").first()
+            if zone is not None:
+                return HttpResponseRedirect(f"/{zone.slug}/")
+            # Render WITHOUT the request-context chain: SurfaceMiddleware runs before
+            # AuthenticationMiddleware, so request.user isn't set yet and the usual
+            # context processors (billing tab, persona) would blow up. no_zones.html
+            # needs only {% static %}, which works request-free.
+            from django.template.loader import render_to_string
+
+            return HttpResponse(render_to_string("signage/no_zones.html"))
+
+        allowed: frozenset[str] = frozenset(getattr(settings, "SIGNAGE_ALLOWED_VIEW_NAMES", ()))
+        try:
+            match = resolve(request.path)
+        except Resolver404:
+            raise Http404("Not available on this surface.")
+        if match.view_name in allowed:
             return None
         raise Http404("Not available on this surface.")
 

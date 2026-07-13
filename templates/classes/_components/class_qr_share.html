@@ -1,0 +1,15 @@
+{% comment %}
+Share & Print card for a class — thin wrapper over the shared components/qr_share_card.html.
+Expects `offering` (saved). The link + QR both use the slug-proof permalink (offering.qr_url),
+so they always match and a printed code survives a slug change.
+
+The two-state hint (published vs not-yet-published) is computed HERE and passed to the shared
+card as a single string, since the shared card takes one pre-computed hint.
+{% endcomment %}
+{% url 'classes:class_qr' offering.pk 'svg' as class_qr_svg_url %}
+{% url 'classes:class_qr' offering.pk 'png' as class_qr_png_url %}
+{% if offering.status == 'published' %}
+  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page — print it on signage, add it to a flyer, or hand it out." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
+{% else %}
+  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it's published. You can print it now — the link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
+{% endif %}

@@ -13,6 +13,7 @@ from factory.django import mute_signals
 
 from membership.models import (
     CommunityEvent,
+    DiscordGuildEmoji,
     FundingSnapshot,
     Guild,
     GuildAnnouncement,
@@ -36,6 +37,8 @@ from membership.models import (
     OrientationSlot,
     Skill,
     SkillCategory,
+    SlideshowSlide,
+    SlideshowZone,
     Space,
     VotePreference,
 )
@@ -195,11 +198,22 @@ class GuildMeetingNoteAttachmentFactory(factory.django.DjangoModelFactory):
         )
 
 
+class UserFactory(factory.django.DjangoModelFactory):
+    """A bare auth User — for ``submitted_by`` / ``reviewed_by`` on proposals."""
+
+    class Meta:
+        model = User
+
+    username = factory.Sequence(lambda n: f"eventuser{n}")
+    email = factory.LazyAttribute(lambda o: f"{o.username}@example.com")
+
+
 class CommunityEventFactory(factory.django.DjangoModelFactory):
     """A FOG-native community event. Defaults to a guild meeting (guild set).
 
     Use the ``community`` / ``lead_meeting`` traits for the site-wide variants (which
-    null the guild to satisfy the type↔scope constraint).
+    null the guild to satisfy the type↔scope constraint); the ``pending`` / ``declined``
+    traits for member-proposal moderation states.
     """
 
     class Meta:
@@ -216,6 +230,22 @@ class CommunityEventFactory(factory.django.DjangoModelFactory):
         guild_meeting = factory.Trait(event_type=CommunityEvent.EventType.GUILD_MEETING)
         community = factory.Trait(event_type=CommunityEvent.EventType.COMMUNITY, guild=None)
         lead_meeting = factory.Trait(event_type=CommunityEvent.EventType.LEAD_MEETING, guild=None)
+        pending = factory.Trait(
+            moderation_state=CommunityEvent.ModerationState.PENDING,
+            submitted_by=factory.SubFactory(UserFactory),
+        )
+        declined = factory.Trait(
+            moderation_state=CommunityEvent.ModerationState.DECLINED,
+            submitted_by=factory.SubFactory(UserFactory),
+            reviewed_by=factory.SubFactory(UserFactory),
+            review_notes="Not a fit right now.",
+        )
+        pushed = factory.Trait(
+            google_event_id=factory.Sequence(lambda n: f"gevent{n}"),
+            google_calendar_id="cal@group.calendar.google.com",
+            google_ical_uid=factory.Sequence(lambda n: f"gevent{n}@google.com"),
+            sync_state=CommunityEvent.SyncState.SYNCED,
+        )
 
 
 class GuildMembershipFactory(factory.django.DjangoModelFactory):
@@ -224,6 +254,14 @@ class GuildMembershipFactory(factory.django.DjangoModelFactory):
 
     guild = factory.SubFactory(GuildFactory)
     member = factory.SubFactory(MemberFactory)
+
+
+class DiscordGuildEmojiFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = DiscordGuildEmoji
+
+    guild = factory.SubFactory(GuildFactory)
+    emoji = factory.Sequence(lambda n: f"emoji{n}")
 
 
 class GuildStaffMembershipFactory(factory.django.DjangoModelFactory):
@@ -368,3 +406,25 @@ class LeaseFactory(factory.django.DjangoModelFactory):
     base_price = Decimal("200.00")
     monthly_rent = Decimal("200.00")
     start_date = factory.LazyFunction(lambda: timezone.now().date() - timedelta(days=30))
+
+
+class SlideshowZoneFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = SlideshowZone
+
+    name = factory.Sequence(lambda n: f"Zone {n}")
+    slug = factory.Sequence(lambda n: f"zone-{n}")
+    is_enabled = True
+    sort_order = factory.Sequence(lambda n: n)
+
+
+class SlideshowSlideFactory(factory.django.DjangoModelFactory):
+    """A custom slide by default. Use the ``announcement`` kind + ``announcement=`` for a mirror."""
+
+    class Meta:
+        model = SlideshowSlide
+
+    kind = SlideshowSlide.Kind.CUSTOM
+    title = factory.Sequence(lambda n: f"Slide {n}")
+    is_enabled = True
+    sort_order = factory.Sequence(lambda n: n)

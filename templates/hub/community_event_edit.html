@@ -7,6 +7,12 @@
   </p>
   <h1 class="hub-page-title">{% if event.pk %}Edit event{% else %}Add event{% endif %}{% if guild %} · {{ guild.name }}{% endif %}</h1>
 
+  {% if google_sync_enabled and event.pk %}
+  <div style="margin-bottom:0.75rem;">
+    {% include "hub/partials/_sync_badge.html" with event=event %}
+  </div>
+  {% endif %}
+
   <form method="post" class="hub-form">
     {% csrf_token %}
 
@@ -22,8 +28,60 @@
       {% include "components/form_field.html" with field=form.recurrence field_hint="A monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
     </div>
 
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;"
+         x-data="{ scheduleLater: {{ form.publish_at.value|yesno:'true,false' }} }">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem;">Announcements &amp; reminders</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-top:0; margin-bottom:1.25rem;">
+        Choose when this event's announcement goes out, and whether members get a nudge before it starts.
+      </p>
+
+      {# When should this go out? — a presentational Alpine toggle; publish_at is the real field. #}
+      <div class="pl-toggle-row">
+        <div class="pl-toggle-info">
+          <div class="pl-toggle-label">Schedule the announcement for later</div>
+          <div class="pl-toggle-desc">Off announces as soon as you save. On lets you pick a date and time.</div>
+        </div>
+        <label class="pl-toggle">
+          <input type="checkbox" x-model="scheduleLater"
+                 @change="if (!scheduleLater) { document.getElementById('{{ form.publish_at.id_for_label }}').value = '' }">
+          <span class="pl-toggle__slider"></span>
+        </label>
+      </div>
+
+      <div x-show="scheduleLater" class="pl-reveal">
+        {% include "components/form_field.html" with field=form.publish_at field_hint="We'll announce it — Discord, the bell, and the calendar — at this time. Until then it stays hidden." %}
+      </div>
+
+      {# Reminders — three independent toggles, off by default. #}
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:1.25rem 0 0.5rem;">Remind members before it starts:</p>
+      {% include "components/form_field.html" with field=form.remind_7d %}
+      {% include "components/form_field.html" with field=form.remind_3d %}
+      {% include "components/form_field.html" with field=form.remind_1d %}
+
+      {# Happening now #}
+      <div style="margin-top:1.25rem;">
+        {% include "components/form_field.html" with field=form.notify_happening_now field_hint="A single ping to members when the event begins." %}
+      </div>
+    </div>
+
+    {# Share & Print QR. Only a published, saved event has a live public page — otherwise a
+       placeholder (no dead QR). The shared card's copy input is name-less and its controls are
+       type="button"/<a>, so it's safe inside this <form> and never rides along on Save. #}
+    {% if event.pk and event.moderation_state == 'published' %}
+      {% url 'hub_event_qr' event.pk 'svg' as event_qr_svg_url %}
+      {% url 'hub_event_qr' event.pk 'png' as event_qr_png_url %}
+      <div style="margin-bottom:1.5rem;">
+        {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the event's public page — print it on signage, add it to a flyer, or hand it out." qr_svg=event.qr_svg share_url=event.public_url svg_url=event_qr_svg_url png_url=event_qr_png_url %}
+      </div>
+    {% else %}
+      <div class="hub-card pl-qr-share" style="margin-bottom:1.5rem;">
+        <h2 class="hub-detail-label pl-qr-share__title">Share &amp; Print</h2>
+        <p class="hub-text-muted pl-qr-share__hint">A QR code and share link appear here once this event is published.</p>
+      </div>
+    {% endif %}
+
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
-      Saving a new event posts an announcement to Discord and adds it to the Community Calendar. Editing an existing event won't re-announce it.
+      Saving posts the announcement to Discord and adds it to the Community Calendar — right away, or on your scheduled date if you set one. Editing an already-announced event won't re-announce it.{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
     </p>
 
     <div style="display:flex; gap:1rem;">

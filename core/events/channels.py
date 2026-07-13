@@ -62,6 +62,11 @@ class Message:
     channels. ``html_body`` is optional (text-only channels ignore it); ``url`` is
     where an in-app / push click navigates; ``trigger_kind`` is the audit label
     passed to the email choke-point.
+
+    ``discord_mention`` is the opt-in ping literal (``"@here"`` / ``"@everyone"``, or
+    ``""`` for none) — only the Discord broadcast reads it (via
+    :func:`core.events.discord.build_embed_payload`); every other channel ignores it,
+    so a blank value leaves every existing payload byte-identical.
     """
 
     title: str
@@ -69,6 +74,7 @@ class Message:
     url: str = ""
     html_body: str | None = None
     trigger_kind: str = ""
+    discord_mention: str = ""
 
 
 @runtime_checkable

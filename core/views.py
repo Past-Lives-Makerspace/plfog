@@ -9,7 +9,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
-from django.http import HttpRequest, HttpResponse, HttpResponsePermanentRedirect, JsonResponse
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
@@ -117,6 +117,19 @@ def relay_accept(request: HttpRequest) -> HttpResponse:
 def health_check(request):
     """Health check endpoint."""
     return JsonResponse({"status": "ok"})
+
+
+def robots_txt(request: HttpRequest) -> HttpResponse:
+    """Serve robots.txt on the members host — keep crawlers out of /admin/ and private areas."""
+    lines = [
+        "User-agent: *",
+        "Disallow: /admin/",
+        "Disallow: /accounts/",
+        "Disallow: /settings/",
+        "Disallow: /billing/",
+        "Disallow: /tab/",
+    ]
+    return HttpResponse("\n".join(lines) + "\n", content_type="text/plain")
 
 
 def restart_login(request: HttpRequest) -> HttpResponse:
@@ -304,14 +317,19 @@ def site_activity(request: HttpRequest) -> HttpResponse:
     )
 
 
+_NOTIFICATIONS_PAGE_SIZE = 20
+
+
 @login_required
-def notification_feed(request: HttpRequest) -> HttpResponse:
-    """HTMX partial: the user's 15 most recent notifications."""
+def notification_list(request: HttpRequest) -> HttpResponse:
+    """The member's full Notifications page — newest-first, paginated, unread emphasized."""
     from .models import Notification
 
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    items = Notification.objects.filter(user=user)[:15]
-    return render(request, "hub/_notification_feed.html", {"notifications": items})
+    qs = Notification.objects.for_user(user)
+    paginator = Paginator(qs, _NOTIFICATIONS_PAGE_SIZE)
+    page = paginator.get_page(request.GET.get("page", 1))
+    return render(request, "hub/notifications.html", {"page": page, "unread_count": qs.unread().count()})
 
 
 @login_required
@@ -341,11 +359,63 @@ def notification_read(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 @login_required
 def notification_read_all(request: HttpRequest) -> HttpResponse:
-    """Mark all the user's notifications read."""
+    """Mark all the user's notifications read, then return to the Notifications page."""
+    from django.contrib import messages
     from django.utils import timezone
 
     from .models import Notification
 
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    Notification.objects.filter(user=user, read_at__isnull=True).update(read_at=timezone.now())
-    return HttpResponse(status=204)
+    Notification.objects.for_user(user).unread().update(read_at=timezone.now())
+    messages.success(request, "You're all caught up.")
+    return redirect("notification_list")
+
+
+# ── Signage slideshow (public, undecorated kiosk) ──────────────────────────────
+# The player renders BYTE-IDENTICAL public content regardless of request.user: on
+# .pastlives.space the session cookie means a logged-in admin can arrive here
+# authenticated, so these views NEVER branch content or chrome on user state. The
+# surface guard 404s the routes anywhere but the signage host (the routes live in
+# the shared urlconf, so members.pastlives.space/<slug>/ resolves here but 404s).
+
+
+def signage_player(request: HttpRequest, zone_slug: str) -> HttpResponse:
+    """Full-screen kiosk slideshow for one zone. Public, undecorated, surface-guarded."""
+    from membership.models import SlideshowZone
+    from membership.signage import build_deck, deck_hash
+
+    from .models import SiteConfiguration
+
+    if getattr(request, "surface", None) != "signage":
+        raise Http404("Not available on this surface.")
+    zone = get_object_or_404(SlideshowZone, slug=zone_slug, is_enabled=True)
+    config = SiteConfiguration.load()
+    deck = build_deck(zone)
+    ctx = {"zone": zone, "config": config, "deck": deck, "deck_hash": deck_hash(deck, config)}
+    return render(request, "signage/player.html", ctx)
+
+
+def signage_deck(request: HttpRequest, zone_slug: str) -> HttpResponse:
+    """The 300s HTMX poll target. Returns 204 + HX-Reswap:none when nothing changed."""
+    from membership.models import SlideshowZone
+    from membership.signage import build_deck, deck_hash
+
+    from .models import SiteConfiguration
+
+    if getattr(request, "surface", None) != "signage":
+        raise Http404("Not available on this surface.")
+    zone = get_object_or_404(SlideshowZone, slug=zone_slug, is_enabled=True)
+    config = SiteConfiguration.load()
+    deck = build_deck(zone)
+    current = deck_hash(deck, config)
+    if request.GET.get("h") == current:
+        # Nothing changed since the wall last rendered — skip the swap so the
+        # rotation keeps running (no jump to slide 0, no blank frame).
+        resp = HttpResponse(status=204)
+        resp["HX-Reswap"] = "none"
+        return resp
+    return render(
+        request,
+        "signage/_deck.html",
+        {"zone": zone, "config": config, "deck": deck, "deck_hash": current},
+    )

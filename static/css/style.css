@@ -437,6 +437,50 @@ p:last-child {
     box-shadow: var(--shadow-md);
 }
 
+/* Discord low-friction link landing (/discord/link/) — reuses the auth card. */
+.pl-discord-landing__badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    margin: 0 auto var(--spacing-md);
+    border-radius: 50%;
+    background-color: var(--color-surface);
+    border: 1px solid var(--border-light);
+    color: #5865F2;
+}
+
+.pl-discord-landing__guilds {
+    list-style: none;
+    margin: 0 0 var(--spacing-lg);
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.pl-discord-landing__guilds li {
+    text-align: center;
+}
+
+.pl-discord-landing__guilds a {
+    color: var(--color-tuscan-yellow);
+    text-decoration: none;
+    font-weight: 400;
+}
+
+.pl-discord-landing__guilds a:hover {
+    text-decoration: underline;
+}
+
+.pl-discord-landing__note {
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    margin: 0 0 var(--spacing-md);
+}
+
 .form-group {
     margin-bottom: var(--spacing-md);
 }

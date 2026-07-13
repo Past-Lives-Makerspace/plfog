@@ -26,7 +26,7 @@ _MESSAGES_URL = "https://discord.com/api/v10/channels/dm99/messages"
 
 
 def _message(**kw) -> Message:
-    base = dict(title="New login", body="From a new device", url="/account/", trigger_kind="new_login")
+    base = dict(title="Class reminder", body="Your class starts soon", url="/account/", trigger_kind="class_reminder")
     base.update(kw)
     return Message(**base)
 
@@ -47,13 +47,13 @@ def describe_bot_token():
 def describe_format_dm_content():
     def it_bolds_the_title_and_appends_body_and_url():
         content = discord_dm.format_dm_content(_message())
-        assert "**New login**" in content
-        assert "From a new device" in content
+        assert "**Class reminder**" in content
+        assert "Your class starts soon" in content
         assert content.endswith("/account/")
 
     def it_omits_blank_parts():
         content = discord_dm.format_dm_content(_message(title="", url=""))
-        assert content == "From a new device"
+        assert content == "Your class starts soon"
 
 
 def describe_discord_user_id_for():
@@ -117,7 +117,7 @@ def describe_post_dm():
         assert discord_dm.post_dm("555", _message()) is True
         assert chan.called and msg.called
         body = msg.calls.last.request.read().decode()
-        assert "New login" in body
+        assert "Class reminder" in body
 
     def it_is_a_noop_when_the_token_is_blank(settings):
         settings.DISCORD_BOT_TOKEN = ""
@@ -195,10 +195,12 @@ def describe_emit_to_discord_dm():
         settings.DISCORD_BOT_TOKEN = "tok"
         member = linked_member(discord_user_id="555000111")
         NotificationPreference.objects.create(
-            user=member.user, event_key="new_login", channel=Channel.DISCORD_DM.value, enabled=True
+            user=member.user, event_key="class_reminder", channel=Channel.DISCORD_DM.value, enabled=True
         )
         chan, msg = _mock_dm_ok()
-        result = emit("new_login", context={"user": member.user}, title="New login", body="From a new device")
+        result = emit(
+            "class_reminder", context={"member": member}, title="Class reminder", body="Your class starts soon"
+        )
         assert chan.called and msg.called
         assert (member.user.pk, Channel.DISCORD_DM) in result.delivered
 
@@ -207,7 +209,7 @@ def describe_emit_to_discord_dm():
         member = linked_member(discord_user_id="555000111")
         with respx.mock:
             route = respx.post(_CHANNELS_URL)
-            result = emit("new_login", context={"user": member.user}, title="New login", body="x")
+            result = emit("class_reminder", context={"member": member}, title="Class reminder", body="x")
         assert not route.called
         assert all(channel is not Channel.DISCORD_DM for _pk, channel in result.delivered)
 

@@ -1,26 +1,20 @@
-"""Guild announcements — create (which now notifies the guild's members), edit, delete.
+"""Guild announcements — edit + delete of an already-published post on the guild-edit page.
 
-Posting an announcement fires the ``guild.announcement`` event via
-``GuildAnnouncement.notify_members`` (the create view calls it after save): an in-app
-bell row + opt-out email to every guild member, plus a Discord broadcast.
+Composing/sending a guild announcement moved to the /announcements/compose/ wizard (see the
+note below); this file covers editing and deleting posts that already exist.
 """
 
 from __future__ import annotations
 
 import pytest
 from django.contrib.auth.models import User
-from django.db.models.signals import post_save
 from django.test import Client
 from django.urls import reverse
-from factory.django import mute_signals
 
-from core.models import Notification
 from membership.models import GuildAnnouncement, Member
 from tests.membership.factories import (
     GuildAnnouncementFactory,
     GuildFactory,
-    GuildMembershipFactory,
-    MemberFactory,
     MembershipPlanFactory,
 )
 
@@ -63,87 +57,11 @@ def describe_announcement_delete_permissions():
         assert GuildAnnouncement.objects.filter(pk=announcement.pk).exists()
 
 
-@pytest.mark.django_db
-def describe_announcement_create():
-    def it_creates_an_announcement_for_an_editor(client: Client):
-        _editor_user("ac")
-        client.login(username="ac", password="pw")
-        guild = GuildFactory()
-        resp = client.post(
-            reverse("hub_guild_announcement_create", args=[guild.pk]),
-            {"title": "Forge night!", "body": "This Friday.", "expires_at": "", "discord_channel": "none"},
-        )
-        assert resp.status_code == 302
-        announcement = GuildAnnouncement.objects.get(guild=guild, title="Forge night!")
-        assert announcement.body == "This Friday."
-        assert announcement.author is not None
-
-    def it_rejects_an_empty_announcement(client: Client):
-        _editor_user("ac_empty")
-        client.login(username="ac_empty", password="pw")
-        guild = GuildFactory()
-        resp = client.post(reverse("hub_guild_announcement_create", args=[guild.pk]), {"title": "", "body": ""})
-        assert resp.status_code == 302
-        assert not GuildAnnouncement.objects.filter(guild=guild).exists()
-
-    def it_notifies_the_guilds_members_on_post(client: Client):
-        _editor_user("ac_notify")
-        client.login(username="ac_notify", password="pw")
-        guild = GuildFactory()
-        # A guild member with a linked, email-bearing user receives the in-app row.
-        member = MemberFactory()
-        with mute_signals(post_save):
-            member_user = User.objects.create_user(username="gm_recipient", email="gm@example.com")
-        member.user = member_user
-        member.save(update_fields=["user"])
-        GuildMembershipFactory(guild=guild, member=member)
-
-        client.post(
-            reverse("hub_guild_announcement_create", args=[guild.pk]),
-            {"title": "Forge night!", "body": "This Friday.", "expires_at": "", "discord_channel": "none"},
-        )
-        assert Notification.objects.filter(user=member_user, trigger="guild_announcement").exists()
-
-    def it_forbids_non_editors(client: Client):
-        MembershipPlanFactory()
-        User.objects.create_user(username="plain_ac", password="pw")  # default fog_role MEMBER
-        client.login(username="plain_ac", password="pw")
-        guild = GuildFactory()
-        resp = client.post(reverse("hub_guild_announcement_create", args=[guild.pk]), {"title": "x", "body": "y"})
-        assert resp.status_code == 403
-        assert not GuildAnnouncement.objects.filter(guild=guild).exists()
-
-    def it_persists_send_options_off_when_email_is_unchecked_and_discord_is_none(client: Client):
-        # An unchecked email toggle is absent from the POST → stored as False; the picker's
-        # "Don't post to Discord" radio is the successor to the old post_to_discord=False.
-        _editor_user("ac_off")
-        client.login(username="ac_off", password="pw")
-        guild = GuildFactory()
-        client.post(
-            reverse("hub_guild_announcement_create", args=[guild.pk]),
-            {"title": "Quiet post", "body": "No email, no Discord.", "expires_at": "", "discord_channel": "none"},
-        )
-        announcement = GuildAnnouncement.objects.get(guild=guild, title="Quiet post")
-        assert announcement.send_email is False
-        assert announcement.discord_channel == GuildAnnouncement.DiscordChannel.NONE
-
-    def it_persists_send_options_on_when_email_is_checked_and_a_channel_is_picked(client: Client):
-        _editor_user("ac_on")
-        client.login(username="ac_on", password="pw")
-        guild = GuildFactory(discord_webhook_url="https://discord.com/api/webhooks/1/guild")
-        client.post(
-            reverse("hub_guild_announcement_create", args=[guild.pk]),
-            {
-                "title": "Loud post",
-                "body": "Email + Discord.",
-                "expires_at": "",
-                "send_email": "on",
-                "discord_channel": "guild",
-            },
-        )
-        announcement = GuildAnnouncement.objects.get(guild=guild, title="Loud post")
-        assert announcement.send_email is True
-        assert announcement.discord_channel == GuildAnnouncement.DiscordChannel.GUILD
+# NOTE: the guild-edit inline "Post an Announcement" *create* form (hub_guild_announcement_create)
+# was retired — guild announcements are now composed in the /announcements/compose/ wizard, which
+# materializes a published GuildAnnouncement + notifies via AnnouncementDraft.send(). That path is
+# covered by tests/membership/announcement_draft_spec.py and tests/hub/announcement_compose_spec.py.
+# The edit + delete of an already-published post (below) still live on the guild-edit page.
 
 
 @pytest.mark.django_db

@@ -129,6 +129,12 @@
             class="vote-tab">
       Discord
     </button>
+    <button type="button"
+            @click="tab = 'slideshow'"
+            :class="{ 'vote-tab--active': tab === 'slideshow' }"
+            class="vote-tab">
+      Slideshow
+    </button>
   </div>
 
   <form method="post" id="site-settings-form" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
@@ -138,7 +144,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'general_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -271,6 +277,18 @@
           {% if classes_color_field.help_text %}<small style="color:var(--hub-text-muted);">{{ classes_color_field.help_text }}</small>{% endif %}
         </div>
       </div>
+
+      {# Member-event policy + Google Calendar push — all three on this one tab so a
+         per-tab partial save can't blank one another's value (FRONTEND Screen D1). #}
+      <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Member events &amp; Google sync</h2>
+        <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
+          Control who can add Community Calendar events, and whether FOG pushes them out to a public Google Calendar.
+        </p>
+        {% include "components/form_field.html" with field=form.member_event_policy field_hint="Leads, staff, and admins always post directly. This controls what ordinary members can do." %}
+        {% include "components/form_field.html" with field=form.general_google_calendar_id field_hint="Site-wide events push here. Find the Calendar ID in Google Calendar → Settings for that calendar → Integrate calendar → Calendar ID (e.g. abc123@group.calendar.google.com). This is NOT the iCal URL." %}
+        {% include "components/form_field.html" with field=form.google_calendar_sync_enabled field_hint="Also requires the Google service account to be configured on the server." %}
+      </div>
     </div>
 
     {# -------- Legacy CMS tab -------- #}
@@ -370,23 +388,434 @@
     </div>
 
     {# -------- Discord tab -------- #}
-    {# No inline display on this x-show wrapper (FRONTEND Rule 12); the two fields flow in normal block layout. #}
-    <div x-show="tab === 'discord'" x-cloak>
-      <div style="margin-bottom:1.25rem;">
-        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Shared Discord channels</h2>
-        <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
-          Set these so guild leads can post announcements to #general-chat and #leadership. Leave a field blank to hide that option from leads.
-          In Discord: Server Settings → Integrations → Webhooks → New Webhook → pick the channel → Copy Webhook URL.
-        </p>
+    {# No inline display on this x-show wrapper (FRONTEND Rule 12); the sections flow in normal block layout. #}
+    <div x-show="tab === 'discord'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
+
+      {# ---- Shared channels (existing) ---- #}
+      <div class="hub-card" style="padding:1.5rem;">
+        <div style="margin-bottom:1.25rem;">
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Shared Discord channels</h2>
+          <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+            Set these so guild leads can post announcements to #general-chat, #leadership, and #guild-officers. Leave a field blank to hide that option from leads.
+            In Discord: Server Settings → Integrations → Webhooks → New Webhook → pick the channel → Copy Webhook URL.
+          </p>
+        </div>
+        {% include "components/form_field.html" with field=form.discord_general_webhook_url %}
+        {% include "components/form_field.html" with field=form.discord_leadership_webhook_url %}
+        {% include "components/form_field.html" with field=form.discord_officers_webhook_url %}
       </div>
-      {% include "components/form_field.html" with field=form.discord_general_webhook_url %}
-      {% include "components/form_field.html" with field=form.discord_leadership_webhook_url %}
+
+      {# ---- D1: Connection ids (guild-role sync) ---- #}
+      <div class="hub-card" style="padding:1.5rem;">
+        <div style="margin-bottom:1.25rem;">
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Guild-role sync connection</h2>
+          <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+            The server and reaction-role message that drive two-way guild membership. Leave any field blank to disable the sync.
+          </p>
+        </div>
+        {% include "components/form_field.html" with field=form.discord_server_id field_hint="The Discord server (guild) id. Blank disables the whole two-way guild sync." %}
+        {% include "components/form_field.html" with field=form.discord_role_message_channel_id field_hint="The channel id of the reaction-role message." %}
+        {% include "components/form_field.html" with field=form.discord_role_message_id field_hint="The reaction-role message id — update if it's reposted." %}
+      </div>
+
+      {# ---- D2: Emoji → guild map (list editor) ---- #}
+      <div class="hub-card" style="padding:1.5rem;">
+        <div style="margin-bottom:1rem;">
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Emoji → guild map</h2>
+          <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+            When a member reacts to the role message with an emoji below, they join the mapped guild. Many emojis can map to one guild (collapsed guilds). Unmapped emojis are ignored.
+          </p>
+        </div>
+        {{ emoji_formset.management_form }}
+        <div class="pl-emoji-list">
+          {% for f in emoji_formset %}
+          <div class="pl-emoji-row" style="display:flex;gap:0.75rem;align-items:flex-start;flex-wrap:wrap;margin-bottom:1rem;">
+            {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
+            <div class="hub-form-group" style="margin-bottom:0;flex:1;min-width:160px;">
+              <label for="{{ f.emoji.id_for_label }}">Emoji</label>
+              {{ f.emoji }}
+              <span class="hub-field-hint">Unicode char like 🔥, or name:id for a custom emoji.</span>
+              {% for error in f.emoji.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
+            </div>
+            <div class="hub-form-group" style="margin-bottom:0;flex:1;min-width:160px;">
+              <label for="{{ f.guild.id_for_label }}">Guild</label>
+              {{ f.guild }}
+              {% for error in f.guild.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
+            </div>
+            <div>
+              {% if f.instance.pk %}
+                <div style="display:none;">{{ f.DELETE }}</div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:1.75rem;"
+                        onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">Delete</button>
+              {% else %}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:1.75rem;"
+                        onclick="this.closest('.pl-emoji-row').remove();">Remove</button>
+              {% endif %}
+            </div>
+          </div>
+          {% empty %}
+          <p class="pl-emoji-empty" style="color:var(--hub-text-muted);font-size:0.875rem;">No emoji mappings yet. Add one so reacting on Discord joins a guild.</p>
+          {% endfor %}
+        </div>
+
+        {# Hidden empty-form template, cloned by the +Add button. #}
+        <template id="pl-emoji-empty-template">
+          <div class="pl-emoji-row" style="display:flex;gap:0.75rem;align-items:flex-start;flex-wrap:wrap;margin-bottom:1rem;">
+            {% with emoji_formset.empty_form as ef %}
+            {% for hidden in ef.hidden_fields %}{{ hidden }}{% endfor %}
+            <div class="hub-form-group" style="margin-bottom:0;flex:1;min-width:160px;">
+              <label>Emoji</label>
+              {{ ef.emoji }}
+              <span class="hub-field-hint">Unicode char like 🔥, or name:id for a custom emoji.</span>
+            </div>
+            <div class="hub-form-group" style="margin-bottom:0;flex:1;min-width:160px;">
+              <label>Guild</label>
+              {{ ef.guild }}
+            </div>
+            <div>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:1.75rem;"
+                      onclick="this.closest('.pl-emoji-row').remove();">Remove</button>
+            </div>
+            {% endwith %}
+          </div>
+        </template>
+
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--secondary" style="margin-top:0.25rem;"
+                onclick="
+                  const tpl = document.getElementById('pl-emoji-empty-template');
+                  const totalInput = document.getElementById('id_emoji-TOTAL_FORMS');
+                  const idx = parseInt(totalInput.value, 10);
+                  const html = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  const list = document.querySelector('.pl-emoji-list');
+                  const empty = list.querySelector('.pl-emoji-empty');
+                  if (empty) empty.remove();
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = html;
+                  list.appendChild(wrap.firstElementChild);
+                  totalInput.value = idx + 1;
+                ">
+          + Add mapping
+        </button>
+      </div>
+
+      {# ---- D3: Canonical outbound role per guild ---- #}
+      <div class="hub-card" style="padding:1.5rem;">
+        <div style="margin-bottom:1rem;">
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Guild → Discord role</h2>
+          <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+            When a member joins or leaves a guild in the app, these role id(s) are added/removed on Discord. Blank disables outbound sync for that guild. A collapsed guild (e.g. Glass) can list two role ids in lockstep.
+          </p>
+        </div>
+        {{ role_formset.management_form }}
+        {% for f in role_formset %}
+          {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
+          <div class="hub-form-group">
+            <label for="{{ f.discord_role_ids.id_for_label }}">{{ f.instance.name }}</label>
+            {{ f.discord_role_ids }}
+            {% for error in f.discord_role_ids.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
     </div>
 
-    <div x-show="tab !== 'announcements'">
+    {# -------- Slideshow tab · Block A (Part 1: global timing) -------- #}
+    {% comment %}
+    These are plain SiteConfiguration fields, so they ride THIS shared form and its
+    "Save settings" button. The zones/slides editors are separate forms in Block B,
+    after this form's close tag (you can't nest forms). Layout is in a class (Rule 12).
+    {% endcomment %}
+    <div x-show="tab === 'slideshow'" x-cloak class="pl-slideshow-tab-a">
+      <div>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Slideshow</h2>
+        <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+          The wall-monitor slideshow. Set the global timing here; build screens and slides below.
+        </p>
+      </div>
+      {% include "components/form_field.html" with field=form.signage_default_slide_seconds %}
+      {% include "components/form_field.html" with field=form.signage_event_days_ahead %}
+      {% include "components/form_field.html" with field=form.signage_show_events %}
+    </div>
+
+    <div x-show="tab !== 'announcements'" style="margin-bottom:1.5rem;">
       <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
     </div>
   </form>
+
+  {# -------- Slideshow tab · Block B (Parts 2 & 3: zones + slides editors) -------- #}
+  {% comment %}
+  Each editor is its OWN form, a sibling of #site-settings-form (never nested — you
+  can't nest forms; that would orphan these Save buttons). Mirrors the FAQ/Links
+  editors on the guild edit page. Layout is in a class (Rule 12).
+  {% endcomment %}
+  <div x-show="tab === 'slideshow'" x-cloak class="pl-slideshow-tab-b">
+
+    {# ---- Part 2: Zones (screens) ---- #}
+    <form method="post" action="{% url 'hub_admin_slideshow_zones_save' %}" class="site-settings-form">
+      {% csrf_token %}
+      <div class="hub-card" style="padding:1.5rem;">
+        <h2 class="hub-detail-label" style="margin-top:0;margin-bottom:0.25rem;">Screens</h2>
+        <p class="hub-text-muted" style="font-size:0.8125rem;margin:0 0 1rem;">
+          Each screen (woodshop, lobby, classroom) gets its own set-and-forget URL — point a monitor at it once.
+        </p>
+        {{ zone_formset.management_form }}
+        <div id="zone-rows" class="pl-slideshow-rows">
+          {% for f in zone_formset %}
+            <div class="hub-card pl-slideshow-row">
+              {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+              {% include "components/form_field.html" with field=f.name %}
+              {% include "components/form_field.html" with field=f.slug %}
+              {% include "components/form_field.html" with field=f.is_enabled %}
+              {% include "components/form_field.html" with field=f.sort_order %}
+              {% if f.instance.pk %}
+                <div class="pl-slideshow-zone__setup">
+                  <div class="pl-slideshow-zone__url">{{ SIGNAGE_BASE_URL }}/{{ f.instance.slug }}/</div>
+                  <p class="pl-field-hint" style="margin:0;">Save first — the URL and QR use the <em>saved</em> slug.</p>
+                  <div class="pl-slideshow-zone__actions">
+                    <button type="button" class="hub-btn hub-btn--sm"
+                            @click="navigator.clipboard.writeText('{{ f.instance.player_url }}'); $dispatch('show-toast', {message:'URL copied', type:'info'})">Copy URL</button>
+                    <a class="hub-btn hub-btn--sm" href="{{ f.instance.player_url }}" target="_blank" rel="noopener">Preview</a>
+                  </div>
+                  <div class="pl-slideshow-zone__qr">{{ f.instance.qr_svg|safe }}</div>
+                  <p class="pl-field-hint" style="margin:0;">Preview and the QR point at slideshow.pastlives.space — they won't resolve until the signage host goes live.</p>
+                </div>
+                <div style="display:none;">{{ f.DELETE }}</div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                        onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                  Delete this screen
+                </button>
+              {% endif %}
+              {{ f.id }}
+            </div>
+          {% empty %}
+            <p class="pl-slideshow-empty">No screens yet. Add your first zone to get a URL for a monitor.</p>
+          {% endfor %}
+        </div>
+
+        <template id="zone-empty-template">
+          <div class="hub-card pl-slideshow-row">
+            {% with zone_formset.empty_form as ef %}
+              {% include "components/form_field.html" with field=ef.name %}
+              {% include "components/form_field.html" with field=ef.slug %}
+              {% include "components/form_field.html" with field=ef.is_enabled %}
+              {% include "components/form_field.html" with field=ef.sort_order %}
+              {{ ef.id }}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.pl-slideshow-row').remove();">Remove</button>
+            {% endwith %}
+          </div>
+        </template>
+
+        <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                onclick="
+                  const tpl = document.getElementById('zone-empty-template');
+                  const total = document.getElementById('id_zones-TOTAL_FORMS');
+                  const idx = parseInt(total.value, 10);
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  document.getElementById('zone-rows').appendChild(wrap.firstElementChild);
+                  total.value = idx + 1;
+                ">
+          + Add a screen
+        </button>
+
+        <div style="margin-top:1rem;">
+          <button type="submit" class="pl-btn pl-btn--primary">Save zones</button>
+        </div>
+      </div>
+    </form>
+
+    {# ---- Part 3: Slides ---- #}
+    <form method="post" action="{% url 'hub_admin_slideshow_slides_save' %}" enctype="multipart/form-data" class="site-settings-form">
+      {% csrf_token %}
+      <div class="hub-card" style="padding:1.5rem;">
+        <h2 class="hub-detail-label" style="margin-top:0;margin-bottom:0.25rem;">Slides</h2>
+        <p class="hub-text-muted" style="font-size:0.8125rem;margin:0 0 1rem;">
+          A custom slide (your own title / body / image / flyer) or a mirror of a published guild announcement.
+          Leave a slide's screen blank to show it on every screen.
+        </p>
+        {{ slide_formset.management_form }}
+        <div id="slide-rows" class="pl-slideshow-rows">
+          {% for f in slide_formset %}
+            <div class="hub-card pl-slideshow-row pl-slide-card" x-data="{ kind: '{{ f.kind.value|default:'custom' }}', expanded: false }">
+              {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+              {# Hidden order value — reorder JS rewrites it to the row's visual index; "Save slides" persists it. #}
+              {{ f.sort_order }}
+
+              {# Compact summary — a read-only glance + reorder + Edit + Delete. No fields until Edit. #}
+              <div class="pl-slide-summary">
+                <span class="pl-slide-grip" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</span>
+                <span class="pl-slide-summary__thumb{% if not f.instance.image %} pl-slide-summary__thumb--placeholder{% endif %}">
+                  {% if f.instance.image %}
+                    <img src="{{ f.instance.image.url }}" alt="">
+                  {% else %}
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="7" y1="9" x2="17" y2="9"></line><line x1="7" y1="13" x2="17" y2="13"></line><line x1="7" y1="17" x2="13" y2="17"></line></svg>
+                  {% endif %}
+                </span>
+                <span class="pl-slide-summary__main">
+                  <span class="pl-slide-summary__title">{% if f.instance.kind == 'announcement' %}{{ f.instance.announcement.title|default:"Announcement slide" }}{% else %}{{ f.instance.title|default:"Untitled slide" }}{% endif %}</span>
+                  <span class="pl-slide-summary__meta">
+                    <span class="pl-slide-badge">{{ f.instance.get_kind_display|default:"Custom slide" }}</span>
+                    <span class="pl-slide-summary__screen">{% if f.instance.zone %}{{ f.instance.zone.name }}{% else %}All screens{% endif %}</span>
+                    {% if f.instance.is_enabled %}<span class="pl-slide-summary__state pl-slide-summary__state--on">On</span>{% else %}<span class="pl-slide-summary__state pl-slide-summary__state--off">Off</span>{% endif %}
+                  </span>
+                </span>
+                <span class="pl-slide-summary__actions">
+                  <span class="pl-slide-move" role="group" aria-label="Reorder slide">
+                    <button type="button" class="pl-slide-move__btn" data-move="up" title="Move up" aria-label="Move slide up">↑</button>
+                    <button type="button" class="pl-slide-move__btn" data-move="down" title="Move down" aria-label="Move slide down">↓</button>
+                  </span>
+                  <button type="button" class="hub-btn hub-btn--sm" @click="expanded = !expanded" :aria-expanded="expanded" x-text="expanded ? 'Done' : 'Edit'">Edit</button>
+                  {% if f.instance.pk %}
+                    <div style="display:none;">{{ f.DELETE }}</div>
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                            onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                      Delete
+                    </button>
+                  {% endif %}
+                </span>
+              </div>
+
+              <div x-show="expanded" class="pl-slide-editor">
+                {% include "components/form_field.html" with field=f.kind %}
+
+                <div x-show="kind === 'custom'" class="pl-slide-fields">
+                  {% include "components/form_field.html" with field=f.title %}
+                  {% include "components/form_field.html" with field=f.body %}
+                  <div class="pl-form-group" data-slide-image>
+                    <label class="pl-form-label pl-slide-image__label" for="{{ f.image.id_for_label }}">
+                      {{ f.image.label }}
+                      <span class="pl-help" tabindex="0" aria-label="Recommended image size">
+                        <span class="pl-help__icon" aria-hidden="true">?</span>
+                        <span class="pl-help__bubble" role="tooltip">1920×1080 (16:9), JPG or PNG. Up to ~2400px wide.</span>
+                      </span>
+                    </label>
+                    <div class="pl-slide-image-preview"{% if not f.instance.image %} hidden{% endif %}>
+                      {% if f.instance.image %}<img src="{{ f.instance.image.url }}" alt="">{% endif %}
+                    </div>
+                    <label class="cls-image-upload-zone">
+                      <input type="file" name="{{ f.image.html_name }}" id="{{ f.image.id_for_label }}" accept="image/*" style="display:none;">
+                      <span class="cls-image-upload-label">{% if f.instance.image %}Replace image{% else %}+ Upload image{% endif %}</span>
+                      <span class="cls-image-upload-hint">Click or drag a file here · 1920×1080 (16:9)</span>
+                    </label>
+                    {{ f.remove_image }}
+                    <p class="pl-field-hint">Choosing a new file replaces the current image. If the form bounces on a validation error, re-attach the file — it isn't kept across a failed submit.</p>
+                    {% if f.instance.pk and f.instance.image %}
+                      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                              onclick="document.getElementById('{{ f.remove_image.id_for_label }}').value = '1'; this.form.requestSubmit();">
+                        Remove image
+                      </button>
+                    {% endif %}
+                    {% for error in f.image.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+                  </div>
+                  {% include "components/form_field.html" with field=f.link_url %}
+                  {% include "components/form_field.html" with field=f.show_qr %}
+                </div>
+
+                <div x-show="kind === 'announcement'" class="pl-slide-fields">
+                  {% include "components/form_field.html" with field=f.announcement %}
+                </div>
+
+                {% include "components/form_field.html" with field=f.zone %}
+                <div class="pl-slideshow-daterow">
+                  {% include "components/form_field.html" with field=f.starts_on %}
+                  {% include "components/form_field.html" with field=f.ends_on %}
+                </div>
+                {% include "components/form_field.html" with field=f.is_enabled %}
+                {{ f.id }}
+              </div>
+            </div>
+          {% empty %}
+            <p class="pl-slideshow-empty">No slides yet. Add a custom slide or pull in a published announcement.</p>
+          {% endfor %}
+        </div>
+
+        <template id="slide-empty-template">
+          <div class="hub-card pl-slideshow-row pl-slide-card" x-data="{ kind: 'custom', expanded: true }">
+            {% with slide_formset.empty_form as ef %}
+              {{ ef.sort_order }}
+              <div class="pl-slide-summary">
+                <span class="pl-slide-grip" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</span>
+                <span class="pl-slide-summary__thumb pl-slide-summary__thumb--placeholder">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="7" y1="9" x2="17" y2="9"></line><line x1="7" y1="13" x2="17" y2="13"></line><line x1="7" y1="17" x2="13" y2="17"></line></svg>
+                </span>
+                <span class="pl-slide-summary__main">
+                  <span class="pl-slide-summary__title">Untitled slide</span>
+                  <span class="pl-slide-summary__meta">
+                    <span class="pl-slide-badge">Custom slide</span>
+                    <span class="pl-slide-summary__screen">All screens</span>
+                    <span class="pl-slide-summary__state pl-slide-summary__state--on">On</span>
+                  </span>
+                </span>
+                <span class="pl-slide-summary__actions">
+                  <span class="pl-slide-move" role="group" aria-label="Reorder slide">
+                    <button type="button" class="pl-slide-move__btn" data-move="up" title="Move up" aria-label="Move slide up">↑</button>
+                    <button type="button" class="pl-slide-move__btn" data-move="down" title="Move down" aria-label="Move slide down">↓</button>
+                  </span>
+                  <button type="button" class="hub-btn hub-btn--sm" @click="expanded = !expanded" :aria-expanded="expanded" x-text="expanded ? 'Done' : 'Edit'">Edit</button>
+                  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" onclick="this.closest('.pl-slide-card').remove();">Remove</button>
+                </span>
+              </div>
+
+              <div x-show="expanded" class="pl-slide-editor">
+                {% include "components/form_field.html" with field=ef.kind %}
+                <div x-show="kind === 'custom'" class="pl-slide-fields">
+                  {% include "components/form_field.html" with field=ef.title %}
+                  {% include "components/form_field.html" with field=ef.body %}
+                  <div class="pl-form-group" data-slide-image>
+                    <label class="pl-form-label pl-slide-image__label" for="{{ ef.image.id_for_label }}">
+                      {{ ef.image.label }}
+                      <span class="pl-help" tabindex="0" aria-label="Recommended image size">
+                        <span class="pl-help__icon" aria-hidden="true">?</span>
+                        <span class="pl-help__bubble" role="tooltip">1920×1080 (16:9), JPG or PNG. Up to ~2400px wide.</span>
+                      </span>
+                    </label>
+                    <div class="pl-slide-image-preview" hidden></div>
+                    <label class="cls-image-upload-zone">
+                      <input type="file" name="{{ ef.image.html_name }}" id="{{ ef.image.id_for_label }}" accept="image/*" style="display:none;">
+                      <span class="cls-image-upload-label">+ Upload image</span>
+                      <span class="cls-image-upload-hint">Click or drag a file here · 1920×1080 (16:9)</span>
+                    </label>
+                    {{ ef.remove_image }}
+                    <p class="pl-field-hint">Add a full-bleed image or flyer (JPG/PNG).</p>
+                  </div>
+                  {% include "components/form_field.html" with field=ef.link_url %}
+                  {% include "components/form_field.html" with field=ef.show_qr %}
+                </div>
+                <div x-show="kind === 'announcement'" class="pl-slide-fields">
+                  {% include "components/form_field.html" with field=ef.announcement %}
+                </div>
+                {% include "components/form_field.html" with field=ef.zone %}
+                <div class="pl-slideshow-daterow">
+                  {% include "components/form_field.html" with field=ef.starts_on %}
+                  {% include "components/form_field.html" with field=ef.ends_on %}
+                </div>
+                {% include "components/form_field.html" with field=ef.is_enabled %}
+                {{ ef.id }}
+              </div>
+            {% endwith %}
+          </div>
+        </template>
+
+        <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                onclick="
+                  const tpl = document.getElementById('slide-empty-template');
+                  const total = document.getElementById('id_slides-TOTAL_FORMS');
+                  const idx = parseInt(total.value, 10);
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  const rows = document.getElementById('slide-rows');
+                  rows.appendChild(wrap.firstElementChild);
+                  total.value = idx + 1;
+                  rows.dispatchEvent(new CustomEvent('slides:reindex'));
+                ">
+          + Add a slide
+        </button>
+
+        <div style="margin-top:1rem;">
+          <button type="submit" class="pl-btn pl-btn--primary">Save slides</button>
+        </div>
+      </div>
+    </form>
+  </div>
 
   {# -------- Announcements tab (own form — compose, preview, then send) -------- #}
   <div x-show="tab === 'announcements'" x-cloak class="pl-announce-tab">
@@ -395,57 +824,17 @@
     {% else %}
     <div>
       <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Sitewide announcement</h2>
-      <p style="color:var(--hub-text-muted);margin:0;">
-        Compose a message, preview the exact email, then send it to every <strong>activated</strong> member —
-        anyone who has signed in at least once. It lands in their notification bell and inbox. Members who've never
-        logged in are skipped.
+      <p style="color:var(--hub-text-muted);margin:0 0 1rem;">
+        The sitewide announcement composer moved to the new step-through wizard — pick who it's for,
+        design the email with a live preview, choose the Discord channel, and save a draft to finish later.
       </p>
+      <a href="{% url 'hub_compose' %}" class="hub-btn hub-btn--primary">Compose an announcement &rarr;</a>
     </div>
 
-    <div>
+    <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
       <a href="?tab=announcements&amp;draft=release" class="hub-btn hub-btn--sm">Draft from latest release</a>
       <small style="color:var(--hub-text-muted);margin-left:0.5rem;">Composes the sectioned release update, with feature cards and screenshots from this release's changelog (Discord left off — it auto-posts on deploy).</small>
     </div>
-
-    <form method="post" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;">
-      {% csrf_token %}
-      <div class="field-row">
-        <label for="{{ announce_form.title.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ announce_form.title.label }}</label>
-        {{ announce_form.title }}
-        {% if announce_form.title.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ announce_form.title.errors }}</div>{% endif %}
-      </div>
-      <div class="field-row">
-        <label for="{{ announce_form.body.id_for_label }}" style="font-weight:600;color:var(--hub-text);">{{ announce_form.body.label }}</label>
-        {{ announce_form.body }}
-        {% if announce_form.body.help_text %}<small style="color:var(--hub-text-muted);">{{ announce_form.body.help_text }}</small>{% endif %}
-        {% if announce_form.body.errors %}<div style="color:#f87171;font-size:0.8125rem;">{{ announce_form.body.errors }}</div>{% endif %}
-      </div>
-      <div class="field-row field-checkbox">
-        {{ announce_form.post_to_discord }}
-        <label for="{{ announce_form.post_to_discord.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ announce_form.post_to_discord.label }}</label>
-        {% if announce_form.post_to_discord.help_text %}<small style="color:var(--hub-text-muted);display:block;">{{ announce_form.post_to_discord.help_text }}</small>{% endif %}
-      </div>
-      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
-        <button type="submit" name="action" value="announce_preview" class="hub-btn hub-btn--primary">Preview email</button>
-        {% if announce_preview %}
-        <button type="submit" name="action" value="announce_send" class="hub-btn hub-btn--primary"
-                onclick="return confirm('Send this announcement to {{ announce_preview.count }} member{{ announce_preview.count|pluralize }}? This cannot be undone.')">
-          Send to {{ announce_preview.count }} member{{ announce_preview.count|pluralize }}
-        </button>
-        {% endif %}
-      </div>
-    </form>
-
-    {% if announce_preview %}
-    <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
-      <h3 style="margin:0 0 0.25rem;font-size:0.95rem;color:var(--hub-text);">Email preview</h3>
-      <p style="color:var(--hub-text-muted);margin:0 0 0.75rem;">
-        Exactly what lands in their inbox. Reaches <strong>{{ announce_preview.count }}</strong> activated member{{ announce_preview.count|pluralize }}{% if announce_preview.post_to_discord %}, and posts to Discord.{% else %} (Discord off).{% endif %}
-      </p>
-      <iframe srcdoc="{{ announce_preview.html }}" title="Email preview"
-              style="width:100%;height:540px;border:1px solid var(--hub-border);border-radius:8px;background:#fff;"></iframe>
-    </div>
-    {% endif %}
     {% endif %}
   </div>
 </div>
@@ -515,6 +904,160 @@
 
       // The boosted response swaps the body; stop the counter so it doesn't dangle.
       document.addEventListener('htmx:beforeSwap', function () { clearInterval(counter); }, { once: true });
+    });
+  })();
+</script>
+<script>
+  // Slide image upload zones — ONE delegated handler on #slide-rows so drag/drop + preview
+  // work for rows added later by "+ Add a slide". (A per-field inline <script> inside the
+  // cloned #slide-empty-template innerHTML would never execute, leaving new rows dead.)
+  (function () {
+    var container = document.getElementById('slide-rows');
+    if (!container) return;
+
+    function zoneOf(el) { return el && el.closest ? el.closest('.cls-image-upload-zone') : null; }
+
+    // Only react to genuine FILE drags. A row-reorder drag (from the ⠿ grip) carries no files,
+    // so it must not light up the image drop-zone.
+    function hasFiles(dt) {
+      if (!dt || !dt.types) return false;
+      for (var i = 0; i < dt.types.length; i++) { if (dt.types[i] === 'Files') return true; }
+      return false;
+    }
+
+    function showPreview(zone, dataUrl) {
+      var group = zone.closest('[data-slide-image]');
+      if (group) {
+        var preview = group.querySelector('.pl-slide-image-preview');
+        if (preview) { preview.innerHTML = '<img src="' + dataUrl + '" alt="">'; preview.hidden = false; }
+      }
+      var label = zone.querySelector('.cls-image-upload-label');
+      if (label) label.textContent = 'Replace image';
+      // Keep the collapsed summary thumbnail in sync before the row is even saved.
+      var card = zone.closest('.pl-slide-card');
+      if (card) {
+        var thumb = card.querySelector('.pl-slide-summary__thumb');
+        if (thumb) { thumb.innerHTML = '<img src="' + dataUrl + '" alt="">'; thumb.classList.remove('pl-slide-summary__thumb--placeholder'); }
+      }
+    }
+
+    container.addEventListener('change', function (e) {
+      var input = e.target;
+      if (!input.matches || !input.matches('.cls-image-upload-zone input[type="file"]')) return;
+      if (!input.files || !input.files.length) return;
+      var zone = zoneOf(input);
+      if (!zone) return;
+      var reader = new FileReader();
+      reader.onload = function (ev) { showPreview(zone, ev.target.result); };
+      reader.readAsDataURL(input.files[0]);
+    });
+
+    container.addEventListener('dragover', function (e) {
+      if (!hasFiles(e.dataTransfer)) return;
+      var zone = zoneOf(e.target);
+      if (!zone) return;
+      e.preventDefault();
+      zone.classList.add('drag-hover');
+    });
+    container.addEventListener('dragleave', function (e) {
+      if (!hasFiles(e.dataTransfer)) return;
+      var zone = zoneOf(e.target);
+      if (zone) zone.classList.remove('drag-hover');
+    });
+    container.addEventListener('drop', function (e) {
+      if (!hasFiles(e.dataTransfer)) return;
+      var zone = zoneOf(e.target);
+      if (!zone) return;
+      e.preventDefault();
+      zone.classList.remove('drag-hover');
+      var input = zone.querySelector('input[type="file"]');
+      var f = e.dataTransfer.files[0];
+      if (input && f && f.type.indexOf('image/') === 0) {
+        input.files = e.dataTransfer.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+  })();
+</script>
+<script>
+  // Slide reorder — ONE delegated handler on #slide-rows (clone-safe for "+ Add a slide").
+  // Desktop: native HTML5 drag from the ⠿ grip. Touch: the up/down buttons (native DnD is
+  // unreliable on touch, and the grip is hidden there via @media (hover: none)). Either path
+  // rewrites every row's hidden slides-N-sort_order to its new visual index (0,1,2…); "Save
+  // slides" persists it and Meta.ordering = ["sort_order", "id"] re-renders that order on reload.
+  (function () {
+    var container = document.getElementById('slide-rows');
+    if (!container) return;
+
+    function rows() {
+      return Array.prototype.filter.call(container.children, function (el) {
+        return el.classList && el.classList.contains('pl-slide-card');
+      });
+    }
+
+    function reindex() {
+      rows().forEach(function (row, idx) {
+        var input = row.querySelector('input[name$="-sort_order"]');
+        if (input) input.value = idx;
+      });
+    }
+
+    // A freshly-added row (appended at the bottom by "+ Add a slide") slots its order in.
+    container.addEventListener('slides:reindex', reindex);
+
+    // Up / down move buttons — the touch-friendly path, handy on desktop too.
+    container.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('[data-move]');
+      if (!btn || !container.contains(btn)) return;
+      var row = btn.closest('.pl-slide-card');
+      if (!row) return;
+      if (btn.getAttribute('data-move') === 'up') {
+        var prev = row.previousElementSibling;
+        if (prev && prev.classList.contains('pl-slide-card')) container.insertBefore(row, prev);
+      } else {
+        var next = row.nextElementSibling;
+        if (next && next.classList.contains('pl-slide-card')) container.insertBefore(next, row);
+      }
+      reindex();
+    });
+
+    // Native drag-and-drop from the grip handle (desktop).
+    var dragRow = null;
+    container.addEventListener('dragstart', function (e) {
+      var grip = e.target.closest && e.target.closest('.pl-slide-grip');
+      if (!grip) return;  // not a grip drag → leave file-drop zones to their own handler
+      dragRow = grip.closest('.pl-slide-card');
+      if (!dragRow) return;
+      dragRow.classList.add('pl-slide-card--dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('application/x-slide-reorder', '1'); } catch (err) {}
+    });
+    container.addEventListener('dragend', function () {
+      if (dragRow) dragRow.classList.remove('pl-slide-card--dragging');
+      rows().forEach(function (r) { r.classList.remove('pl-slide-card--drag-over'); });
+      dragRow = null;
+    });
+    container.addEventListener('dragover', function (e) {
+      if (!dragRow) return;  // only during a grip-initiated row drag
+      var row = e.target.closest && e.target.closest('.pl-slide-card');
+      if (!row || row === dragRow) return;
+      e.preventDefault();
+      rows().forEach(function (r) { if (r !== row) r.classList.remove('pl-slide-card--drag-over'); });
+      row.classList.add('pl-slide-card--drag-over');
+    });
+    container.addEventListener('drop', function (e) {
+      if (!dragRow) return;
+      var row = e.target.closest && e.target.closest('.pl-slide-card');
+      if (!row || row === dragRow) return;
+      e.preventDefault();
+      row.classList.remove('pl-slide-card--drag-over');
+      var list = rows();
+      if (list.indexOf(dragRow) < list.indexOf(row)) {
+        container.insertBefore(dragRow, row.nextElementSibling);
+      } else {
+        container.insertBefore(dragRow, row);
+      }
+      reindex();
     });
   })();
 </script>
