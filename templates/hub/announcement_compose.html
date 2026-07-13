@@ -97,8 +97,13 @@
 
       <div class="pl-wizard-actions">
         <button type="button" class="hub-btn hub-btn--ghost" @click="step = 2">&larr; Back</button>
+        {% comment %}
+          Drafts UI hidden 2026-07-13 — the "Save draft" button. The backend (hub_compose_save_draft
+          view + route) is intact and dormant; to re-enable, un-comment this button.
+          See docs/superpowers/plans/2026-07-13-hide-announcement-drafts.md
         <button type="button" class="hub-btn hub-btn--ghost"
                 hx-post="{% url 'hub_compose_save_draft' %}" hx-include="closest form" hx-swap="none">Save draft</button>
+        {% endcomment %}
         <button type="submit" class="hub-btn hub-btn--primary"
                 @click="if (!confirm(`Send to ${recipientCount} member(s)? This can't be undone.`)) $event.preventDefault()">
           Send announcement
@@ -108,5 +113,11 @@
   </form>
 </div>
 
+{% comment %}
+  Drafts UI hidden 2026-07-13 — the "Your drafts" panel. It rendered run-together guild names
+  that wrecked the composer navbar/layout. The model (AnnouncementDraft), its save/list/delete
+  views, and routes are all intact and dormant; to re-enable, un-comment this include.
+  See docs/superpowers/plans/2026-07-13-hide-announcement-drafts.md
 {% include "hub/partials/_compose_drafts_list.html" %}
+{% endcomment %}
 {% endblock %}

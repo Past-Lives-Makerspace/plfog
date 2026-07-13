@@ -1,9 +1,10 @@
 """The announcement compose wizard views (/announcements/compose/) — page, drafts, send, mention.
 
-Covers: GET renders three steps + drafts list; audience gating (admins see site-wide, leads see
-their guilds, plain members get bounced to propose); resume robustness (foreign/sent pk → 404);
-save-draft upsert + error toast; the recipient-count HTMX endpoint; the direct test-send (never
-the spine); send permission re-checks + the guild materialization; delete via confirm.
+Covers: GET renders the three steps + the send path (the drafts UI is hidden as of 2026-07-13 —
+backend intact); audience gating (admins see site-wide, leads see their guilds, plain members get
+bounced to propose); resume robustness (foreign/sent pk → 404); save-draft upsert + error toast;
+the recipient-count HTMX endpoint; the direct test-send (never the spine); send permission
+re-checks + the guild materialization; delete via confirm.
 """
 
 from __future__ import annotations
@@ -69,15 +70,32 @@ def _valid_send_data(**overrides) -> dict:
 
 
 def describe_hub_compose_page():
-    def it_renders_the_three_steps_and_the_empty_drafts_state_for_an_admin(client: Client):
+    def it_renders_the_three_steps_and_the_send_path_for_an_admin(client: Client):
         _login_admin(client)
         response = client.get(reverse("hub_compose"))
         assert response.status_code == 200
         content = response.content.decode()
+        # All three wizard steps render: audience & message → email → Discord.
         assert 'name="audience"' in content
-        assert "No saved drafts yet" in content
-        assert "+ New announcement" in content
+        assert "Audience &amp; message" in content
+        assert "Email" in content
+        assert "Discord" in content
         assert "Reaches" in content
+        # The send path is intact: one form posting to send, with a Send submit.
+        assert f'action="{reverse("hub_compose_send")}"' in content
+        assert "Send announcement" in content
+
+    def it_hides_the_drafts_panel_and_the_save_draft_button(client: Client):
+        # The drafts UI was hidden on 2026-07-13 (backend intact); neither the "Save draft"
+        # button nor the "Your drafts" panel include should reach the composer any more.
+        _login_admin(client)
+        content = client.get(reverse("hub_compose")).content.decode()
+        assert reverse("hub_compose_save_draft") not in content
+        assert ">Save draft<" not in content
+        assert 'id="compose-drafts"' not in content
+        assert "Your drafts" not in content
+        assert "No saved drafts yet" not in content
+        assert "+ New announcement" not in content
 
     def it_offers_the_site_option_to_an_admin(client: Client):
         _login_admin(client)
