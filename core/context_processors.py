@@ -75,7 +75,7 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
         "GUILDS_BASE_URL": getattr(settings, "GUILDS_BASE_URL", "https://guilds.pastlives.app"),
         "SIGNAGE_BASE_URL": getattr(settings, "SIGNAGE_BASE_URL", "https://slideshow.pastlives.space"),
         "guilds_page_base": "guilds/base_public.html" if is_guilds else "hub/base.html",
-        "signage_page_base": "signage/base.html",
+        "signage_page_base": "signage/base.html" if is_signage else "hub/base.html",
         "parent_template": (
             "guilds/base_public.html" if is_guilds else "classes/base_public.html" if is_public else "base.html"
         ),

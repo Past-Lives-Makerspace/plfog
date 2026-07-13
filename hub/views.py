@@ -2055,11 +2055,8 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     instance = None
     if draft_pk:
         instance = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
-    form = AnnouncementComposeForm(request.POST, **_compose_form_kwargs(request))
+    form = AnnouncementComposeForm(request.POST, require_body=True, **_compose_form_kwargs(request))
     if not form.is_valid():
-        return _render_compose(request, form=form, draft=instance, start_step=1)
-    if not form.cleaned_data.get("body"):
-        form.add_error("body", "Add a message before sending.")
         return _render_compose(request, form=form, draft=instance, start_step=1)
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
     count = draft.send()
@@ -2792,26 +2789,43 @@ def event_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
 # --- Member event proposals + reviewer queue --------------------------------
 
 
-def _reviewer_guild_scope(request: HttpRequest) -> Any:
-    """The requester's event-review authority.
+@dataclass(frozen=True)
+class _ReviewScope:
+    """A requester's event-review authority.
 
-    Returns ``True`` for an admin (every guild + site-wide), a ``Guild`` queryset for a
-    lead/staffer (their guilds only), or ``None`` when the request may not review.
+    ``can_review`` gates access at all; an ``is_admin`` reviewer covers every guild +
+    site-wide, while a lead/staffer covers only their staffed ``guilds``. Built by
+    :func:`_reviewer_guild_scope`; apply it via :meth:`scoped` / :meth:`pending`.
     """
+
+    can_review: bool
+    is_admin: bool = False
+    guilds: Any = None  # a Guild queryset for a lead/staffer; None for an admin or forbidden
+
+    def scoped(self, events: QuerySet) -> QuerySet:
+        """Narrow a ``CommunityEvent`` queryset to what this scope may act on."""
+        return events if self.is_admin else events.filter(guild__in=self.guilds)
+
+    def pending(self) -> QuerySet:
+        """The pending proposals visible to this scope — an empty set when it can't review."""
+        from membership.models import CommunityEvent
+
+        if not self.can_review:
+            return CommunityEvent.objects.none()
+        awaiting = (
+            CommunityEvent.objects.awaiting_review().select_related("guild", "submitted_by").order_by("starts_at")
+        )
+        return self.scoped(awaiting)
+
+
+def _reviewer_guild_scope(request: HttpRequest) -> _ReviewScope:
+    """The requester's event-review authority (admin / lead-scoped / none)."""
     if _viewing_as_admin(request):
-        return True
+        return _ReviewScope(can_review=True, is_admin=True)
     member = _get_member(request)
     if member is not None and member.staffed_guilds.exists():
-        return member.staffed_guilds
-    return None
-
-
-def _pending_for_scope(scope: Any) -> Any:
-    """The pending proposals visible to a reviewer ``scope`` (``True`` = admin/all)."""
-    from membership.models import CommunityEvent
-
-    pending = CommunityEvent.objects.awaiting_review().select_related("guild", "submitted_by").order_by("starts_at")
-    return pending if scope is True else pending.filter(guild__in=scope)
+        return _ReviewScope(can_review=True, guilds=member.staffed_guilds)
+    return _ReviewScope(can_review=False)
 
 
 @login_required
@@ -2848,25 +2862,10 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
         form = CommunityEventForm(request.POST, instance=event, as_member=True)
         if form.is_valid():
             event = form.save(commit=False)
-            guild = form.cleaned_data.get("guild")
-            event.guild = guild
-            event.event_type = (
-                CommunityEvent.EventType.GUILD_MEETING if guild is not None else CommunityEvent.EventType.COMMUNITY
-            )
-            if not editing:
-                event.created_by = user
-            if not editing and policy == Policy.OPEN:
-                event.moderation_state = CommunityEvent.ModerationState.PUBLISHED
-                event.save()
-                event.publish(actor=user)
+            published = event.propose(by=user, guild=form.cleaned_data.get("guild"), policy=policy, editing=editing)
+            if published:
                 messages.success(request, "Your event is live on the Community Calendar.")
             else:
-                # On an edit, persist the form's field changes first — submit_for_review
-                # then saves only the moderation fields (update_fields), so the edited
-                # title/time/etc. would otherwise be dropped for an already-saved row.
-                if editing:
-                    event.save()
-                event.submit_for_review(submitted_by=user)
                 messages.success(
                     request,
                     "Thanks — your event was submitted for review. You'll get a note when a lead or admin responds.",
@@ -2922,7 +2921,7 @@ def event_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
 def event_review_queue(request: HttpRequest) -> HttpResponse:
     """The reviewer queue — pending proposals a lead/admin can approve, send back, or decline."""
     scope = _reviewer_guild_scope(request)
-    if scope is None:
+    if not scope.can_review:
         return HttpResponse("Forbidden", status=403)
     ctx = _get_hub_context(request)
     return render(
@@ -2930,7 +2929,7 @@ def event_review_queue(request: HttpRequest) -> HttpResponse:
         "hub/event_review_queue.html",
         {
             **ctx,
-            "pending_events": _pending_for_scope(scope),
+            "pending_events": scope.pending(),
             "decision_form": None,
             "open_decision_for": None,
             "open_decision_kind": "",
@@ -2949,16 +2948,13 @@ def event_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
 
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
     scope = _reviewer_guild_scope(request)
-    if scope is None:
+    if not scope.can_review:
         return HttpResponse("Forbidden", status=403)
 
     # Fetch scoped to the reviewer's authority (a lead can only touch their guilds' events),
     # but NOT to a moderation state — a stale decision surfaces as a friendly "already
     # handled" via the model guard rather than a bare 404.
-    if scope is True:
-        event = get_object_or_404(CommunityEvent, pk=pk)
-    else:
-        event = get_object_or_404(CommunityEvent, pk=pk, guild__in=scope)
+    event = get_object_or_404(scope.scoped(CommunityEvent.objects.all()), pk=pk)
 
     # Approve carries its decision in the query string (a plain confirm modal posts no
     # notes field); changes/decline post the decision + notes in the body.
@@ -2973,7 +2969,7 @@ def event_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
             "hub/event_review_queue.html",
             {
                 **_get_hub_context(request),
-                "pending_events": _pending_for_scope(scope),
+                "pending_events": scope.pending(),
                 "decision_form": form,
                 "open_decision_for": event.pk,
                 "open_decision_kind": kind,
@@ -3341,9 +3337,8 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
 
     # Reviewer queue link + count, and the member's own in-flight proposals (Screen A′).
     scope = _reviewer_guild_scope(request)
-    can_review = scope is not None
-    cal_ctx["can_review"] = can_review
-    cal_ctx["review_pending_count"] = _pending_for_scope(scope).count() if can_review else 0
+    cal_ctx["can_review"] = scope.can_review
+    cal_ctx["review_pending_count"] = scope.pending().count()
     if request.user.is_authenticated:
         cal_ctx["my_proposals"] = (
             CommunityEvent.objects.filter(submitted_by=request.user)

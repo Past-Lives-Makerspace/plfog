@@ -15,7 +15,10 @@ import segno
 # NO ``viewBox``, so the QR always draws at its intrinsic ~37px however large its container
 # is — the "tiny QR in a big white box" bug. Swapping that fixed size for an equal-extent
 # ``viewBox`` lets the SVG scale to its box (every QR container styles ``svg { width/height: 100% }``).
-_QR_SIZE_ATTRS = re.compile(r'\swidth="(\d+)"\sheight="(\d+)"')
+# Match each dimension independently (order- and whitespace-tolerant) so a future segno
+# formatting change degrades to the untouched SVG rather than silently reverting to fixed size.
+_QR_WIDTH = re.compile(r'\s+width="(\d+)"')
+_QR_HEIGHT = re.compile(r'\s+height="(\d+)"')
 
 
 def qr_svg(url: str) -> str:
@@ -31,7 +34,12 @@ def qr_svg(url: str) -> str:
     buf = io.BytesIO()
     segno.make(url, error="m").save(buf, kind="svg", scale=1, xmldecl=False, svgns=True)
     svg = buf.getvalue().decode("utf-8")
-    return _QR_SIZE_ATTRS.sub(lambda m: f' viewBox="0 0 {m.group(1)} {m.group(2)}"', svg, count=1)
+    width = _QR_WIDTH.search(svg)
+    height = _QR_HEIGHT.search(svg)
+    if width is None or height is None:
+        return svg  # unexpected segno output — leave it untouched rather than mangle it
+    svg = _QR_HEIGHT.sub("", _QR_WIDTH.sub("", svg, count=1), count=1)
+    return svg.replace("<svg", f'<svg viewBox="0 0 {width.group(1)} {height.group(1)}"', 1)
 
 
 def qr_png_bytes(url: str) -> bytes:

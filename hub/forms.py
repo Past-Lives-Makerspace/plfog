@@ -1679,8 +1679,8 @@ class AnnouncementComposeForm(forms.Form):
     one control while the model + DB check constraint stay the source of truth. The
     audience the caller may address is enforced by the choices built in ``__init__`` (a
     non-admin never even sees "site") AND re-checked server-side in the send view. ``body``
-    is required to *send* but may be blank in a saved draft, so it is sanitized (never
-    rejected) here; the send view enforces non-empty.
+    may be blank in a saved draft but is required to *send* — the send path passes
+    ``require_body=True`` so ``clean_body`` rejects an empty message. Always sanitized.
     """
 
     audience = forms.ChoiceField(label="Who is this for?")
@@ -1712,11 +1712,15 @@ class AnnouncementComposeForm(forms.Form):
         is_admin: bool = False,
         editable_guilds: Any = None,
         config: SiteConfiguration | None = None,
+        require_body: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         from membership.models import AnnouncementDraft
 
+        # ``require_body`` is set by the send path — a blank body is fine while drafting but
+        # must be rejected before an announcement actually goes out.
+        self._require_body = require_body
         self._config = config or SiteConfiguration.load()
         cast(forms.ChoiceField, self.fields["mention"]).choices = list(AnnouncementDraft.Mention.choices)
 
@@ -1772,8 +1776,11 @@ class AnnouncementComposeForm(forms.Form):
         return channel
 
     def clean_body(self) -> str:
-        # Blank allowed while drafting; the send view enforces non-empty. Always sanitized.
-        return sanitize_rich_html(self.cleaned_data.get("body") or "")
+        # Blank allowed while drafting; required (and always sanitized) when sending.
+        body = sanitize_rich_html(self.cleaned_data.get("body") or "")
+        if self._require_body and not body:
+            raise forms.ValidationError("Add a message before sending.")
+        return body
 
     def clean(self) -> dict[str, Any]:
         from membership.models import AnnouncementDraft

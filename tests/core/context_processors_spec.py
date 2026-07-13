@@ -129,7 +129,7 @@ def describe_surface():
             "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
             "is_signage_surface": False,
             "guilds_page_base": "hub/base.html",
-            "signage_page_base": "signage/base.html",
+            "signage_page_base": "hub/base.html",
             "parent_template": "classes/base_public.html",
         }
 
@@ -150,7 +150,7 @@ def describe_surface():
             "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
             "is_signage_surface": False,
             "guilds_page_base": "guilds/base_public.html",
-            "signage_page_base": "signage/base.html",
+            "signage_page_base": "hub/base.html",
             "parent_template": "guilds/base_public.html",
         }
 
@@ -170,6 +170,27 @@ def describe_surface():
             "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
             "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
             "is_signage_surface": False,
+            "guilds_page_base": "hub/base.html",
+            "signage_page_base": "hub/base.html",
+            "parent_template": "base.html",
+        }
+
+    def it_reports_signage_when_request_surface_is_signage(settings):
+        rf = RequestFactory()
+        request = rf.get("/")
+        request.surface = "signage"
+        result = surface(request)
+        assert result == {
+            "surface": "signage",
+            "is_public_surface": False,
+            "is_guilds_surface": False,
+            "is_guest_surface": False,
+            "MEMBER_HOST": settings.MEMBER_HOST,
+            "MEMBER_BASE_URL": settings.MEMBER_BASE_URL,
+            "BOOK_BASE_URL": settings.BOOK_BASE_URL,
+            "GUILDS_BASE_URL": settings.GUILDS_BASE_URL,
+            "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
+            "is_signage_surface": True,
             "guilds_page_base": "hub/base.html",
             "signage_page_base": "signage/base.html",
             "parent_template": "base.html",
@@ -193,7 +214,7 @@ def describe_surface():
             "SIGNAGE_BASE_URL": settings.SIGNAGE_BASE_URL,
             "is_signage_surface": False,
             "guilds_page_base": "hub/base.html",
-            "signage_page_base": "signage/base.html",
+            "signage_page_base": "hub/base.html",
             "parent_template": "base.html",
         }
 

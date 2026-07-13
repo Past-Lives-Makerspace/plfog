@@ -83,7 +83,9 @@ class EventCopy:
 _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.FOG_ADMINS: "All FOG admins (site-wide).",
     Recipients.GUILD_LEADERSHIP: "The guild's lead and all of its staff.",
-    Recipients.GUILD_LEADERSHIP_OR_ADMINS: "The guild's lead and staff, plus all admins (admins only for site-wide events).",
+    Recipients.GUILD_LEADERSHIP_OR_ADMINS: (
+        "The guild's lead and staff, plus all admins (admins only for site-wide events)."
+    ),
     Recipients.GUILD_LEAD: "The guild's lead only.",
     Recipients.GUILD_MEMBERS: "Every active member of the guild.",
     Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orienter role.",
@@ -97,7 +99,10 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.LEASE_TENANT: "The member tenant of the lease.",
     Recipients.ALL_ACTIVE_MEMBERS: "Every active member.",
     Recipients.ALL_GUILD_LEADS: "Every guild lead, officer, and staffer (cross-guild).",
-    Recipients.EVENT_AUDIENCE: "Whoever the event's launch announcement reached — the guild's members, all guild leads, or every active member, by scope.",
+    Recipients.EVENT_AUDIENCE: (
+        "Whoever the event's launch announcement reached — the guild's members, all guild leads, "
+        "or every active member, by scope."
+    ),
     Recipients.ALL_VOTERS: "Every member eligible to vote.",
     Recipients.EVERYONE_WITH_LOGIN: "Everyone with a login (members and past members).",
     Recipients.RELEASE_AUDIENCE: "Everyone with a login, plus all active members and admins.",

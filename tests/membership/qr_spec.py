@@ -30,3 +30,16 @@ def describe_qr_svg():
 
     def it_encodes_different_urls_distinctly():
         assert qr_svg("https://pastlives.app/a") != qr_svg("https://pastlives.app/b")
+
+    def it_leaves_svg_untouched_when_segno_omits_width_and_height(monkeypatch):
+        """Defensive: if a future segno build stops stamping a fixed width/height, degrade
+        to the untouched SVG rather than crash on the missing dimension match."""
+
+        class _FakeQR:
+            def save(self, buf, **kwargs):
+                buf.write(b'<svg xmlns="http://www.w3.org/2000/svg"><path class="qrline"/></svg>')
+
+        monkeypatch.setattr("membership.qr.segno.make", lambda *args, **kwargs: _FakeQR())
+        svg = qr_svg("https://pastlives.app/x")
+        assert svg == '<svg xmlns="http://www.w3.org/2000/svg"><path class="qrline"/></svg>'
+        assert "viewBox=" not in svg

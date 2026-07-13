@@ -2737,7 +2737,6 @@ class DiscordGuildEmoji(models.Model):
 
     emoji = models.CharField(
         max_length=64,
-        unique=True,
         help_text=(
             "The reaction emoji on the Discord role message: a unicode character (e.g. 🔥) or a "
             "custom emoji as name:id (e.g. PrisonOutreach:123456789). A member who reacts with this "
@@ -3420,6 +3419,45 @@ class CommunityEvent(models.Model):
         from core.integrations.google_calendar import remove_community_event
 
         remove_community_event(self)
+
+    def propose(self, *, by: User, guild: Guild | None, policy: str, editing: bool) -> bool:
+        """Route a member-proposed event to publication or the review queue.
+
+        Owns the member-facing create/resubmit logic that the "Propose an event" view used
+        to carry inline: derive ``event_type`` from the guild, attribute a brand-new
+        proposal to ``by``, then branch on the site's member-event ``policy`` — an OPEN
+        policy publishes a new proposal immediately (announce + Google push), any other
+        policy enters the review queue. An edit always re-submits for review (a
+        changes-requested proposal returns to Pending). The instance must already carry the
+        form's field values (title/time/etc.); the caller enforces the DISABLED policy gate.
+
+        Args:
+            by: The proposing member's user (the create actor + review submitter).
+            guild: The target guild, or ``None`` for a site-wide community event.
+            policy: The current ``SiteConfiguration.member_event_policy`` value.
+            editing: True when resubmitting an owned Pending/changes-requested proposal.
+
+        Returns:
+            True if the event went live immediately, False if it was queued for review.
+        """
+        from core.models import SiteConfiguration
+
+        self.guild = guild
+        self.event_type = self.EventType.GUILD_MEETING if guild is not None else self.EventType.COMMUNITY
+        if not editing:
+            self.created_by = by
+        if not editing and policy == SiteConfiguration.MemberEventPolicy.OPEN:
+            self.moderation_state = self.ModerationState.PUBLISHED
+            self.save()
+            self.publish(actor=by)
+            return True
+        # On an edit, persist the form's field changes first — submit_for_review then saves
+        # only the moderation fields (update_fields), so an edited title/time would otherwise
+        # be dropped for an already-saved row.
+        if editing:
+            self.save()
+        self.submit_for_review(submitted_by=by)
+        return False
 
     def submit_for_review(self, *, submitted_by: User) -> None:
         """Enter (or re-enter) the review queue — the member proposal path.

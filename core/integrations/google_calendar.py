@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Any
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -89,11 +88,11 @@ class GoogleCalendarClient:
     def enabled(self) -> bool:
         return self._service is not None
 
-    def insert_event(self, calendar_id: str, body: dict) -> dict:
+    def insert_event(self, calendar_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Create an event; return the Google event resource (with ``id`` + ``iCalUID``)."""
         return self._execute(self._service.events().insert(calendarId=calendar_id, body=body))
 
-    def update_event(self, calendar_id: str, event_id: str, body: dict) -> dict:
+    def update_event(self, calendar_id: str, event_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Replace an existing event; return the updated Google event resource."""
         return self._execute(self._service.events().update(calendarId=calendar_id, eventId=event_id, body=body))
 
@@ -103,15 +102,24 @@ class GoogleCalendarClient:
 
     @staticmethod
     def _execute(request: Any) -> Any:
-        """Run a built request, translating ``googleapiclient`` ``HttpError`` into our own
-        :class:`GoogleCalendarError` so callers catch one exception type."""
+        """Run a built request, translating any failure into our own
+        :class:`GoogleCalendarError` so callers catch one exception type.
+
+        Catches broadly (like :meth:`from_settings`): the service-account token is minted
+        lazily on the first ``execute()``, so a transport/auth failure surfaces here as a
+        ``google.auth`` ``RefreshError``/``TransportError`` or a socket ``OSError`` — NOT a
+        ``googleapiclient`` ``HttpError``. Wrapping only ``HttpError`` would let those escape
+        the ``GoogleCalendarError`` guards in :func:`push_community_event` /
+        :func:`remove_community_event` and 500 the event request path, breaking this module's
+        "never raise to the caller" contract.
+        """
         try:
             return request.execute()
-        except HttpError as exc:
+        except Exception as exc:  # noqa: BLE001 — HttpError + auth/transport/socket must degrade, not 500
             raise GoogleCalendarError(str(exc)) from exc
 
 
-def _parse_service_account_info(raw: str) -> dict | None:
+def _parse_service_account_info(raw: str) -> dict[str, Any] | None:
     """Parse the service-account key from raw JSON or base64-of-JSON. ``None`` on failure."""
     for candidate in (raw, _maybe_b64_decode(raw)):
         if candidate is None:
@@ -148,7 +156,7 @@ def _display_name(user: User | None) -> str:
     return user.get_username()
 
 
-def _build_event_body(event: CommunityEvent, *, actor: User | None) -> dict:
+def _build_event_body(event: CommunityEvent, *, actor: User | None) -> dict[str, Any]:
     """Build the Google event body from a :class:`CommunityEvent`.
 
     Attribution ("Added by <name> via FOG") is appended to the description. Events are
