@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.14"
+VERSION = "0.21.16"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.21.16",
+        "date": "2026-07-13",
+        "title": "Clearer guild staff titles",
+        "changes": [
+            (
+                "We tidied up a couple of guild staff titles so they read more clearly on guild pages — "
+                '"Co-Guild Lead" now shows as "Guild Lead," and "Orienter" now shows as "Orientator."'
+            ),
+        ],
+    },
     {
         "version": "0.21.14",
         "date": "2026-07-12",
