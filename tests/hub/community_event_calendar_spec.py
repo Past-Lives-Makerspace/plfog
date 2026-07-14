@@ -143,3 +143,76 @@ def describe_ics_export():
         assert body.count("RRULE:FREQ=MONTHLY;BYDAY=2SA") == 1
         # One VEVENT for the whole series, not per-occurrence.
         assert body.count("UID:community-") == 1
+
+
+def _class_event(guild, *, days: int = 5):
+    """A class-source CalendarEvent for ``guild`` whose start falls in-window."""
+    from membership.models import CalendarEvent
+
+    now = timezone.now()
+    start = now + timedelta(days=days)
+    return CalendarEvent.objects.create(
+        guild=guild,
+        source=CalendarEvent.Source.CLASSES,
+        uid=f"local-class-{guild.pk}-{days}",
+        title="Intro to Welding",
+        start_dt=start,
+        end_dt=start + timedelta(hours=2),
+        fetched_at=now,
+    )
+
+
+def describe_guild_colored_classes():
+    """§5-6: a class inherits its guild's calendar color + legend toggle; orientation/
+    community keep their own color, and a community-only guild earns no dead toggle."""
+
+    def it_adds_the_color_of_a_guild_that_only_has_class_events():
+        guild = GuildFactory(calendar_url="", calendar_color="#C41E3A")
+        _class_event(guild)
+        ctx = _get_calendar_context(RequestFactory().get("/"))
+        assert ctx["source_colors"][str(guild.pk)] == "#C41E3A"
+
+    def it_lists_a_class_only_guild_in_legend_guilds():
+        guild = GuildFactory(calendar_url="")
+        _class_event(guild)
+        ctx = _get_calendar_context(RequestFactory().get("/"))
+        assert guild in ctx["legend_guilds"]
+
+    def it_omits_a_guild_that_only_has_a_community_event():
+        now = timezone.now()
+        guild = GuildFactory(calendar_url="")
+        CommunityEventFactory(
+            guild=guild,
+            title="Guild Social",
+            starts_at=now + timedelta(days=5),
+            ends_at=now + timedelta(days=5, hours=2),
+        )
+        ctx = _get_calendar_context(RequestFactory().get("/"))
+        # The community entry rides the grid, but a community source never earns a guild
+        # legend toggle (that would be a dead toggle controlling nothing).
+        assert "Guild Social" in [getattr(e, "title", "") for e in ctx["month_events"]]
+        assert guild not in ctx["legend_guilds"]
+        assert str(guild.pk) not in ctx["source_colors"]
+
+    def it_flags_has_ungrouped_classes_for_a_class_with_no_guild():
+        from membership.models import CalendarEvent
+
+        now = timezone.now()
+        start = now + timedelta(days=5)
+        CalendarEvent.objects.create(
+            guild=None,
+            source=CalendarEvent.Source.CLASSES,
+            uid="ungrouped-class",
+            title="Open Class",
+            start_dt=start,
+            end_dt=start + timedelta(hours=2),
+            fetched_at=now,
+        )
+        ctx = _get_calendar_context(RequestFactory().get("/"))
+        assert ctx["has_ungrouped_classes"] is True
+
+    def it_is_false_when_every_class_has_a_guild():
+        guild = GuildFactory(calendar_url="")
+        _class_event(guild)
+        ctx = _get_calendar_context(RequestFactory().get("/"))
+        assert ctx["has_ungrouped_classes"] is False

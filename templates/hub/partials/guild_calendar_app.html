@@ -19,6 +19,18 @@ Context: `cal` = the calendar context dict; `guild` = the Guild.
                 }
                 localStorage.setItem('guildCalCommunityRollout-{{ guild.pk }}', '1');
             }
+            // One-time rollout: this guild's classes used to sit under a single 'classes'
+            // toggle; they now group under the guild's own key. Migrate a returning member
+            // who had classes visible so their classes stay visible on this tab.
+            if (!localStorage.getItem('guildCalClassesRollout-{{ guild.pk }}')) {
+                if (localStorage.getItem('guildCalFilters-{{ guild.pk }}') && this.activeFilters.includes('classes')) {
+                    {% for g in cal.legend_guilds %}
+                    if (!this.activeFilters.includes('{{ g.pk }}')) { this.activeFilters.push('{{ g.pk }}'); }
+                    {% endfor %}
+                    localStorage.setItem('guildCalFilters-{{ guild.pk }}', JSON.stringify(this.activeFilters));
+                }
+                localStorage.setItem('guildCalClassesRollout-{{ guild.pk }}', '1');
+            }
         },
         setView(v) { this.calView = v; localStorage.setItem('guildCalView', v); },
         toggleFilter(key) {
@@ -66,10 +78,27 @@ Context: `cal` = the calendar context dict; `guild` = the Guild.
     </div>
 
     <div class="pl-calendar-filters">
+        {% comment %}
+        One toggle per guild that owns colored content here (classes + any iCal events),
+        even a guild with no calendar_url — its classes key by str(pk), so gating this on
+        calendar_url would leave those classes shown with no toggle to control them.
+        {% endcomment %}
+        {% for g in cal.legend_guilds %}
+        <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('{{ g.pk }}') }" @click="toggleFilter('{{ g.pk }}')" style="--filter-color: {{ g.calendar_color }};">
+            {% if g.logo_prefix %}
+            <img src="{% static 'img/guild_logos/'|add:g.logo_prefix|add:'_color.svg' %}" width="14" height="14" alt="" style="margin-right:0.25rem;">
+            {% else %}
+            <span class="pl-calendar-filter__dot" style="background: {{ g.calendar_color }};"></span>
+            {% endif %}
+            {{ g.name }}
+        </button>
+        {% endfor %}
+        {% if cal.has_ungrouped_classes %}
         <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('classes') }" @click="toggleFilter('classes')" style="--filter-color: {{ cal.classes_color|default:'#888888' }};">
             <span class="pl-calendar-filter__dot" style="background: {{ cal.classes_color|default:'#888888' }};"></span>
-            Classes
+            Other classes
         </button>
+        {% endif %}
         <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('orientation') }" @click="toggleFilter('orientation')" style="--filter-color: #EEB44B;">
             <span class="pl-calendar-filter__dot" style="background: #EEB44B;"></span>
             Orientation
@@ -78,12 +107,6 @@ Context: `cal` = the calendar context dict; `guild` = the Guild.
             <span class="pl-calendar-filter__dot" style="background: {{ cal.community_color|default:'#3d8bd4' }};"></span>
             Community events
         </button>
-        {% if guild.calendar_url %}
-        <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('{{ guild.pk }}') }" @click="toggleFilter('{{ guild.pk }}')" style="--filter-color: {{ guild.calendar_color }};">
-            <span class="pl-calendar-filter__dot" style="background: {{ guild.calendar_color }};"></span>
-            {{ guild.name }} events
-        </button>
-        {% endif %}
     </div>
 
     <div style="position:relative;">

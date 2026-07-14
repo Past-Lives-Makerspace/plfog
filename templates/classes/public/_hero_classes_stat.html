@@ -1,0 +1,3 @@
+{% comment %}The "N Classes" hero tile body — the count of visible bookable class cards
+for the current filter (paginator.count). Shared by list.html's hero and the
+OOB block in _list_results.html so the two renderings never drift.{% endcomment %}<div class="hs-n">{{ paginator.count }}</div><div class="hs-l">Class{{ paginator.count|pluralize:"es" }}</div>

@@ -25,54 +25,107 @@ def _to_datetime(val: Any) -> datetime:
     return datetime(val.year, val.month, val.day, tzinfo=dt_timezone.utc)
 
 
-def _parse_ical_events(raw_bytes: bytes) -> list[dict[str, Any]]:
-    """Parse raw iCal bytes into a list of event dicts."""
+# How far back / ahead to expand recurring feeds on each sync. Matches the class calendar's
+# 180-day horizon; the one-day look-back keeps an in-progress event visible.
+_SYNC_LOOKBACK = timedelta(days=1)
+_SYNC_HORIZON = timedelta(days=180)
+
+
+def _sync_window() -> tuple[datetime, datetime]:
+    """The [start, end] datetime window that recurring feeds are expanded over."""
+    now = timezone.now()
+    return now - _SYNC_LOOKBACK, now + _SYNC_HORIZON
+
+
+def _event_dict(component: Any, recurrence_id: str) -> dict[str, Any] | None:
+    """Build a CalendarEvent dict from an iCal VEVENT (or expanded occurrence).
+
+    Returns ``None`` for a component with no ``UID`` or no ``DTSTART`` (skip it).
+    """
+    uid = str(component.get("UID", ""))
+    dtstart = component.get("DTSTART")
+    if not uid or dtstart is None:
+        return None
+    dtend = component.get("DTEND")
+    start_val = dtstart.dt
+    end_val = dtend.dt if dtend else start_val
+    all_day = isinstance(start_val, date_type) and not isinstance(start_val, datetime)
+    summary = component.get("SUMMARY", "")
+    return {
+        "uid": uid,
+        "recurrence_id": recurrence_id,
+        "title": str(summary) if summary else "(No title)",
+        "description": str(component.get("DESCRIPTION", "")),
+        "location": str(component.get("LOCATION", "")),
+        "url": str(component.get("URL", "")),
+        "start_dt": _to_datetime(start_val),
+        "end_dt": _to_datetime(end_val),
+        "all_day": all_day,
+    }
+
+
+def _parse_ical_events(raw_bytes: bytes, window_start: datetime, window_end: datetime) -> list[dict[str, Any]]:
+    """Parse raw iCal bytes into event dicts, expanding recurring events over the window.
+
+    Two passes, so one-off and repeating events each behave correctly:
+
+    - **One-off events** are stored as-is, any date (unchanged from before) — each keeps
+      ``recurrence_id=""`` so an edited time updates the same row.
+    - **Recurring events** (a VEVENT carrying an ``RRULE``/``RDATE``) are stored upstream as a
+      single master at the series' *original* start — often months or years in the past. Rendered
+      as-is, that lone row never lands in the calendar's visible window and every future instance
+      silently vanishes (this is why weekly "Open Studio Hours" showed nothing). Instead we let
+      ``recurring_ical_events`` materialize each occurrence between ``window_start`` and
+      ``window_end`` — honoring ``EXDATE``, single-instance overrides, and timezones — and give
+      each occurrence a ``recurrence_id`` so it upserts as its own row rather than collapsing onto
+      the series' shared UID.
+    """
     import icalendar
+    import recurring_ical_events
 
     cal = icalendar.Calendar.from_ical(raw_bytes)
+
+    # UIDs whose VEVENT actually repeats — everything else is a plain one-off.
+    recurring_uids = {
+        str(component.get("UID", ""))
+        for component in cal.walk("VEVENT")
+        if component.get("RRULE") or component.get("RDATE")
+    }
+    recurring_uids.discard("")
+
     events: list[dict[str, Any]] = []
 
-    for component in cal.walk():
-        if component.name != "VEVENT":
+    # Pass 1: one-off events, stored regardless of date.
+    for component in cal.walk("VEVENT"):
+        if str(component.get("UID", "")) in recurring_uids:
             continue
+        evt = _event_dict(component, recurrence_id="")
+        if evt is not None:
+            events.append(evt)
 
-        uid = str(component.get("UID", ""))
-        if not uid:
-            continue
-
-        summary = component.get("SUMMARY", "")
-        title = str(summary) if summary else "(No title)"
-
-        dtstart = component.get("DTSTART")
-        dtend = component.get("DTEND")
-        if dtstart is None:
-            continue
-
-        start_val = dtstart.dt
-        end_val = dtend.dt if dtend else start_val
-        all_day = isinstance(start_val, date_type) and not isinstance(start_val, datetime)
-
-        events.append(
-            {
-                "uid": uid,
-                "title": title,
-                "description": str(component.get("DESCRIPTION", "")),
-                "location": str(component.get("LOCATION", "")),
-                "url": str(component.get("URL", "")),
-                "start_dt": _to_datetime(start_val),
-                "end_dt": _to_datetime(end_val),
-                "all_day": all_day,
-            }
-        )
+    # Pass 2: recurring events, one row per occurrence in the window. Expand a sub-calendar of ONLY
+    # the recurring components (plus any VTIMEZONE, so TZIDs still resolve). recurring_ical_events
+    # raises on a VEVENT with no DTSTART, so isolating the recurring series keeps one malformed
+    # one-off elsewhere in the same feed from aborting the whole expansion.
+    if recurring_uids:
+        recurring_cal = icalendar.Calendar()
+        for component in cal.walk():
+            name = getattr(component, "name", "")
+            if name == "VTIMEZONE" or (name == "VEVENT" and str(component.get("UID", "")) in recurring_uids):
+                recurring_cal.add_component(component)
+        for occurrence in recurring_ical_events.of(recurring_cal).between(window_start, window_end):
+            evt = _event_dict(occurrence, recurrence_id=_to_datetime(occurrence.get("DTSTART").dt).isoformat())
+            if evt is not None:
+                events.append(evt)
 
     return events
 
 
-def _fetch_and_parse(url: str) -> list[dict[str, Any]]:
-    """Fetch an iCal URL and return parsed event dicts."""
+def _fetch_and_parse(url: str, window_start: datetime, window_end: datetime) -> list[dict[str, Any]]:
+    """Fetch an iCal URL and return parsed event dicts expanded over the window."""
     with urllib.request.urlopen(url, timeout=10) as response:
         raw = response.read()
-    return _parse_ical_events(raw)
+    return _parse_ical_events(raw, window_start, window_end)
 
 
 def _upsert_events(
@@ -83,8 +136,9 @@ def _upsert_events(
 ) -> int:
     """Insert or update CalendarEvent records for the given source.
 
-    Uniqueness is per-``(guild, feed, uid)`` so two ``CalendarFeed`` rows whose
-    upstream calendars happen to share a UID don't clobber each other.
+    Uniqueness is per-``(guild, feed, uid, recurrence_id)`` so each occurrence of a recurring
+    series gets its own row, and two ``CalendarFeed`` rows whose upstream calendars happen to
+    share a UID don't clobber each other.
     """
     now = timezone.now()
     for evt in events:
@@ -92,6 +146,7 @@ def _upsert_events(
             guild=guild,
             feed=feed,
             uid=evt["uid"],
+            recurrence_id=evt["recurrence_id"],
             defaults={
                 "source": source,
                 "title": evt["title"],
@@ -111,7 +166,8 @@ def sync_guild_calendar(guild: Guild) -> int:
     """Fetch and sync a guild's iCal calendar. Returns events synced (0 if no URL)."""
     if not guild.calendar_url:
         return 0
-    events = _fetch_and_parse(guild.calendar_url)
+    window_start, window_end = _sync_window()
+    events = _fetch_and_parse(guild.calendar_url, window_start, window_end)
     count = _upsert_events(events, guild=guild, source="guild")
     guild.calendar_last_fetched_at = timezone.now()
     guild.save(update_fields=["calendar_last_fetched_at"])
@@ -122,7 +178,8 @@ def sync_calendar_feed(feed: CalendarFeed) -> int:
     """Fetch and sync one named CalendarFeed. Returns events synced (0 if no URL)."""
     if not feed.ical_url:
         return 0
-    events = _fetch_and_parse(feed.ical_url)
+    window_start, window_end = _sync_window()
+    events = _fetch_and_parse(feed.ical_url, window_start, window_end)
     count = _upsert_events(events, guild=None, source="general", feed=feed)
     feed.last_fetched_at = timezone.now()
     feed.save(update_fields=["last_fetched_at"])

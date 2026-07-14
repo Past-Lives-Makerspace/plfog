@@ -169,8 +169,10 @@
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.pronouns key="pronouns" label="Pronouns" %}
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.phone key="phone" label="Phone" %}
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.discord_handle key="discord_handle" label="Discord" %}
-                    {# Connect/disconnect CTA beside the free-text handle. Only the trigger button
-                       sits here (inside the form); its confirm modal is included below, OUTSIDE the form. #}
+                    {% comment %}
+                      Connect/disconnect CTA beside the free-text handle. Only the trigger button
+                      sits here (inside the form); its confirm modal is included below, OUTSIDE the form.
+                    {% endcomment %}
                     {% include "hub/partials/_discord_connect_cta.html" with member=member id_suffix="profile" %}
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.other_contact_info key="other_contact_info" label="Other contact info" %}
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.about_me key="about_me" label="About me" %}

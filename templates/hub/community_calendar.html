@@ -87,6 +87,19 @@
                 }
                 localStorage.setItem('calCommunityRollout', '1');
             }
+            // One-time rollout: classes used to share a single 'classes' toggle; they
+            // now group under each guild's key. Migrate a returning member who had
+            // classes visible so their guild-grouped classes stay visible instead of
+            // vanishing under a key that no longer controls them.
+            if (!localStorage.getItem('calGuildClassesRollout')) {
+                if (localStorage.getItem('calFilters') && this.activeFilters.includes('classes')) {
+                    {% for g in legend_guilds %}
+                    if (!this.activeFilters.includes('{{ g.pk }}')) { this.activeFilters.push('{{ g.pk }}'); }
+                    {% endfor %}
+                    localStorage.setItem('calFilters', JSON.stringify(this.activeFilters));
+                }
+                localStorage.setItem('calGuildClassesRollout', '1');
+            }
         },
         setView(v) { this.calView = v; localStorage.setItem('calView', v); },
         toggleFilter(key) {
@@ -200,16 +213,16 @@
             {{ feed.name }}
         </button>
         {% endfor %}
-        {% if classes_enabled %}
+        {% if has_ungrouped_classes %}
         <button class="pl-calendar-filter"
                 :class="{ 'pl-calendar-filter--active': isActive('classes') }"
                 @click="toggleFilter('classes')"
                 style="--filter-color: {{ classes_color }};">
             <span class="pl-calendar-filter__dot" style="background: {{ classes_color }};"></span>
-            Classes
+            Other classes
         </button>
         {% endif %}
-        {% for guild in guilds_with_calendars %}
+        {% for guild in legend_guilds %}
         <button class="pl-calendar-filter"
                 :class="{ 'pl-calendar-filter--active': isActive('{{ guild.pk }}') }"
                 @click="toggleFilter('{{ guild.pk }}')"
@@ -222,7 +235,7 @@
             {{ guild.name }}
         </button>
         {% endfor %}
-        {% if not calendar_feeds and not classes_enabled and not guilds_with_calendars %}
+        {% if not calendar_feeds and not has_ungrouped_classes and not legend_guilds %}
         <p class="pl-calendar-empty-notice">No calendars configured yet. Guild officers can add a Google Calendar link from their guild page.</p>
         {% endif %}
     </div>
@@ -251,8 +264,10 @@
 
     {% include "hub/partials/_my_proposed_events.html" %}
 
-    {# Admin-only: site-wide events parked in SCHEDULED. Absent for non-admins (scheduled_events is
-       empty), and absent when there are none — so a parked event stays findable/editable/cancellable. #}
+    {% comment %}
+      Admin-only: site-wide events parked in SCHEDULED. Absent for non-admins (scheduled_events is
+      empty), and absent when there are none — so a parked event stays findable/editable/cancellable.
+    {% endcomment %}
     {% if scheduled_events %}
     <div class="hub-card pl-scheduled-events" style="padding:1.5rem; margin-bottom:1.5rem;">
         <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Scheduled — not yet announced</h2>

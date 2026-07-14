@@ -1,10 +1,22 @@
 {% load classes_tags static %}
 {% comment %}Results grid — rendered standalone for HTMX swaps and embedded into
 list.html for the initial full-page response.{% endcomment %}
+{% if is_htmx %}
+  {% comment %}Keep the hero "Classes" tile in sync with the filtered card count.
+  Rendered ONLY on HTMX responses (is_htmx) so it never appears as a stray
+  duplicate inside #cls-results on a full page load; HTMX matches it by id and
+  swaps the real tile up in the hero.{% endcomment %}
+  <div id="hero-classes-stat" hx-swap-oob="true">{% include "classes/public/_hero_classes_stat.html" %}</div>
+{% endif %}
 <div class="cp-results__summary">
   {% if paginator.count %}
     Showing <strong>{{ page_obj.start_index }}–{{ page_obj.end_index }}</strong> of <strong>{{ paginator.count }}</strong> class{{ paginator.count|pluralize:"es" }}
     {% if paginator.num_pages > 1 %}&mdash; page {{ page_obj.number }} of {{ paginator.num_pages }}{% endif %}
+  {% elif selected_within_days %}
+    <em>No classes scheduled in the next {{ selected_within_days }} days.</em>
+    <a class="cp-results__reset-inline"
+       hx-get="{% url 'classes:public_list' %}{% if filter_querystring_no_within %}?{{ filter_querystring_no_within }}{% endif %}"
+       hx-target="#cls-results" hx-swap="innerHTML" hx-push-url="true">Show all upcoming</a>
   {% else %}
     <em>No classes match your filters.</em>
     <a href="{% url 'classes:public_list' %}" class="cp-results__reset-inline">Reset all filters</a>
