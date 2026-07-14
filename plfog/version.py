@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.18"
+VERSION = "0.21.19"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.21.18",
+        "version": "0.21.19",
+        "date": "2026-07-13",
+        "title": "Account page loads reliably again",
+        "changes": [
+            (
+                "Fixed an error that could stop your account page from loading when one of your classes was "
+                "taught by an instructor without a public profile page. Your upcoming and past classes now "
+                "show up reliably, and the instructor's name is shown either way."
+            ),
+        ],
+    },
+    {
+        "version": "0.21.19",
         "date": "2026-07-13",
         "title": "Recurring events show up on the calendar",
         "screenshot": "community-calendar",
@@ -18,7 +30,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.21.18",
+        "version": "0.21.19",
         "date": "2026-07-13",
         "title": "Classes grouped by guild on the calendar",
         "screenshot": "community-calendar",
@@ -31,7 +43,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.21.18",
+        "version": "0.21.19",
         "date": "2026-07-13",
         "title": "Pick your timeframe on the class catalog",
         "changes": [
@@ -42,7 +54,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.21.18",
+        "version": "0.21.19",
         "date": "2026-07-13",
         "title": "Clearer guild staff titles",
         "changes": [

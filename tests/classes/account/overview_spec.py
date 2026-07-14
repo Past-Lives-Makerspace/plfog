@@ -57,6 +57,27 @@ def describe_account_overview():
             assert b"Forge a Hook" in resp.content
             assert b"Registered" in resp.content
 
+    def describe_with_slugless_instructor():
+        def it_renders_the_card_without_a_500(book_client, db):
+            # An instructor Member whose instructor_slug is blank (e.g. set as an
+            # offering's instructor without being promoted) must not blow up the
+            # page: {% url 'public_instructor' '' %} raises NoReverseMatch.
+            user = UserFactory()
+            inst = InstructorFactory(instructor_slug="", full_legal_name="Pat Smith")
+            offering = ClassOfferingFactory(status="published", title="Forge a Hook", instructor=inst)
+            ClassSessionFactory(class_offering=offering, starts_at=timezone.now() + timedelta(days=5))
+            RegistrationFactory(
+                email=user.email,
+                class_offering=offering,
+                status=Registration.Status.CONFIRMED,
+            )
+            book_client.force_login(user)
+            resp = book_client.get("/account/")
+            assert resp.status_code == 200
+            # Name still shown, just not linked.
+            assert inst.display_name.encode() in resp.content
+            assert b"/classes/instructors//" not in resp.content
+
     def describe_persona_member():
         def it_shows_the_member_banner(book_client, db):
             user = UserFactory()
