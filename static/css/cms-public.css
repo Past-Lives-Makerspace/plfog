@@ -385,7 +385,7 @@ body.classes-portal {
 }
 
 .cp-page a{color:var(--gold-text);text-decoration:none;cursor:pointer}
-.cp-page a:hover{text-decoration:underline;color:var(--gold-light)}
+.cp-page a:hover{text-decoration:underline;color:var(--gold-text)}
 /* Hub button components (pl-btn) used inside the CMS public pages: the generic
    .cp-page anchor color/underline above would otherwise override their own
    styling and, on hover, paint the label the same gold as the hover background
@@ -447,7 +447,7 @@ body.classes-portal {
 .cp-page .cls-title:hover{color:var(--gold-text)}
 .cp-page .cls-inst{font-size:12px;color:var(--text2);position:relative;z-index:2}
 .cp-page .cls-inst a{color:var(--gold-text);font-weight:400;position:relative;z-index:2}
-.cp-page .cls-inst a:hover{color:var(--gold-light)}
+.cp-page .cls-inst a:hover{color:var(--gold-text)}
 .cp-page .cls-when{font-size:11px;color:var(--text3);margin-top:-2px}
 .cp-page .cls-schedule{display:flex;flex-direction:column;gap:3px;margin-top:2px}
 .cp-page .cls-schedule__row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px}
@@ -735,8 +735,8 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
 }
 .cp-detail__prose p { margin: 0 0 12px; }
 .cp-detail__prose p:last-child { margin-bottom: 0; }
-.cp-detail__prose a { color: var(--gold); font-weight: 600; }
-.cp-detail__prose a:hover { color: var(--gold-light); }
+.cp-detail__prose a { color: var(--gold-text); font-weight: 600; }
+.cp-detail__prose a:hover { color: var(--gold-text); }
 
 /* ── Video embed (responsive 16:9) ───────────── */
 .cp-detail__video {
@@ -863,16 +863,16 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   color: var(--text);
   text-decoration: none;
 }
-.cp-detail__instructor-name:hover { color: var(--gold); text-decoration: none; }
+.cp-detail__instructor-name:hover { color: var(--gold-text); text-decoration: none; }
 .cp-detail__instructor-link {
   font-size: 14px;
   font-weight: 700;
-  color: var(--gold);
+  color: var(--gold-text);
   text-decoration: none;
   letter-spacing: 0.02em;
   margin-top: 4px;
 }
-.cp-detail__instructor-link:hover { color: var(--gold-light); }
+.cp-detail__instructor-link:hover { color: var(--gold-text); }
 
 /* ── Guild card ──────────────────────────────── */
 .cp-detail__guild {
@@ -886,11 +886,11 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   margin-top: 10px;
   font-size: 14px;
   font-weight: 700;
-  color: var(--gold);
+  color: var(--gold-text);
   text-decoration: none;
   letter-spacing: 0.02em;
 }
-.cp-detail__guild-link:hover { color: var(--gold-light); }
+.cp-detail__guild-link:hover { color: var(--gold-text); }
 
 /* ── FAQ ─────────────────────────────────────── */
 .cp-detail__faq-item {
@@ -994,7 +994,7 @@ a.cp-detail__cta:hover {
 }
 a.cp-detail__cta--waitlist {
   background: transparent;
-  color: var(--gold);
+  color: var(--gold-text);
   border: 2px solid var(--gold);
   box-shadow: none;
 }
@@ -1170,8 +1170,8 @@ a.cp-detail__cta--waitlist:hover {
   cursor: pointer;
   min-height: 44px;
 }
-.cp-filter__toggle:hover { border-color: var(--gold); color: var(--gold); }
-.cp-filter__toggle--on { border-color: var(--gold); color: var(--gold); background: var(--gold-glow); }
+.cp-filter__toggle:hover { border-color: var(--gold); color: var(--gold-text); }
+.cp-filter__toggle--on { border-color: var(--gold); color: var(--gold-text); background: var(--gold-glow); }
 .cp-filter__toggle--has-active { border-color: var(--gold); }
 .cp-filter__badge {
   display: inline-flex;
@@ -1191,7 +1191,7 @@ a.cp-detail__cta--waitlist:hover {
   align-self: center;
   font-size: 14px;
   font-weight: 600;
-  color: var(--gold);
+  color: var(--gold-text);
   padding: 10px 14px;
   border-radius: 6px;
   text-decoration: none;
@@ -1224,7 +1224,7 @@ a.cp-detail__cta--waitlist:hover {
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--gold);
+  color: var(--gold-text);
   margin-bottom: 10px;
   padding: 0;
 }
@@ -1304,8 +1304,8 @@ a.cp-detail__cta--waitlist:hover {
 .cp-results__reset-inline {
   margin-left: 10px;
   font-weight: 600;
-  color: var(--gold);
+  color: var(--gold-text);
   text-decoration: none;
 }
-.cp-results__reset-inline:hover { color: var(--gold-light); text-decoration: underline; }
+.cp-results__reset-inline:hover { color: var(--gold-text); text-decoration: underline; }
 
