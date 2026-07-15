@@ -16,6 +16,7 @@ pyairtable>=3.0
 stripe>=11.0
 cryptography>=42.0
 icalendar>=6.0
+recurring-ical-events>=3.0
 pywebpush>=2.0
 markdown>=3.6
 bleach>=6.1

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Pre-push hook: mirrors CI checks to catch failures before pushing.
+# Skips Python checks when only non-Python files changed (e.g. workflows, docs).
+#
+# This is the TRACKED source of truth. Install it into your local
+# .git/hooks/pre-push (works in the main checkout and in worktrees) with:
+#     scripts/install-hooks.sh
+set -e
+
+# Determine which files changed vs the remote tracking branch
+REMOTE_REF=$(git rev-parse @{u} 2>/dev/null || echo "origin/main")
+CHANGED_FILES=$(git diff --name-only "$REMOTE_REF"...HEAD 2>/dev/null || git diff --name-only origin/main...HEAD)
+
+# Check if any Python files changed
+PYTHON_CHANGED=$(echo "$CHANGED_FILES" | grep -E '\.py$' || true)
+
+if [ -z "$PYTHON_CHANGED" ]; then
+    echo "=== No Python files changed — skipping lint/type checks ==="
+    exit 0
+fi
+
+# Run every check with the project's virtualenv tools so results match CI's
+# pinned deps. Bare ruff/mypy/python3 otherwise resolve to global ~/.local
+# installs (and Homebrew python) that drift from CI — e.g. a global mypy without
+# the project's django-stubs invents phantom errors and blocks every push.
+# Only required once we know Python actually changed.
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+if [ -d "$REPO_ROOT/.venv/bin" ]; then
+    PATH="$REPO_ROOT/.venv/bin:$PATH"
+else
+    echo "!! .venv not found at $REPO_ROOT/.venv"
+    echo "!! Pre-push checks need the project's pinned tools, not global installs."
+    echo "!! Create it once:"
+    echo "!!   python3.13 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt"
+    echo "!! (Deliberately skipping checks? git push --no-verify)"
+    exit 1
+fi
+
+echo "=== Pre-push: ruff check ==="
+ruff check .
+
+echo "=== Pre-push: ruff format ==="
+ruff format --check .
+
+echo "=== Pre-push: mypy ==="
+# mypy's django plugin initializes settings, which require DATABASE_URL. This hook
+# does not inherit the dev shell's env, so load it from .env when not already set.
+if [ -z "${DATABASE_URL:-}" ] && [ -f .env ]; then
+    DATABASE_URL=$(grep -E '^DATABASE_URL=' .env | head -1 | cut -d= -f2-)
+    DATABASE_URL=${DATABASE_URL%\"}; DATABASE_URL=${DATABASE_URL#\"}
+    export DATABASE_URL
+fi
+mypy plfog/ core/ membership/ hub/
+
+echo "=== Pre-push: no inline <style> in template extra_head blocks ==="
+python3 scripts/check_no_inline_style_in_extra_head.py
+
+echo "=== All pre-push checks passed ==="

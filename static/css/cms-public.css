@@ -1137,10 +1137,23 @@ a.cp-detail__cta--waitlist:hover {
   padding-right: 12px;
   min-width: 0;
 }
+/* Native option popups don't inherit the select's colors (FRONTEND.md rule 13) —
+   theme them explicitly so the dropdown isn't a white box on the dark theme. */
+.cp-filter__select option {
+  background: var(--bg2);
+  color: var(--text);
+}
 .cp-filter__select:focus,
 .cp-filter__price input:focus {
   outline: none;
   border-color: var(--gold);
+}
+/* Loading state: dim the results grid while an HTMX filter/timeframe request is
+   in flight (the filter form points hx-indicator at #cls-results). Opacity is
+   theme-independent, so this reads correctly on both Obsidian and Slate. */
+.cp-page #cls-results.htmx-request {
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
 }
 .cp-filter__toggle {
   display: inline-flex;

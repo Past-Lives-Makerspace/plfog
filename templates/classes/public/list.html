@@ -8,7 +8,7 @@
   <h1>Classes <span>&amp;</span> Workshops Catalog</h1>
   <p>Learn blacksmithing, lampworking, ceramics, framing, and more from working artists in Portland's largest makerspace.</p>
   <div id="hero-stats">
-    <div><div class="hs-n">{{ upcoming_session_count }}</div><div class="hs-l">Upcoming Session{{ upcoming_session_count|pluralize }}</div></div>
+    <div id="hero-classes-stat">{% include "classes/public/_hero_classes_stat.html" %}</div>
     <div><div class="hs-n">{{ total_categories }}</div><div class="hs-l">Guilds</div></div>
     <div><div class="hs-n">{{ total_instructors }}</div><div class="hs-l">Instructors</div></div>
   </div>
@@ -35,6 +35,7 @@
       hx-swap="innerHTML"
       hx-push-url="true"
       hx-trigger="change, submit"
+      hx-indicator="#cls-results"
       x-data="{ open: false }">
   <div class="cp-filter__row">
     <label class="cp-filter__field cp-filter__field--select">
@@ -44,6 +45,16 @@
         {% for cat in categories %}
           <option value="{{ cat.slug }}" {% if selected_category_slug == cat.slug %}selected{% endif %}>{{ cat.name }} ({{ cat.class_count }})</option>
         {% endfor %}
+      </select>
+    </label>
+
+    <label class="cp-filter__field cp-filter__field--select">
+      <span class="cp-filter__field-label">When</span>
+      <select name="within" class="cp-filter__select">
+        <option value="all" {% if selected_within == "all" %}selected{% endif %}>All upcoming</option>
+        <option value="30" {% if selected_within == "30" %}selected{% endif %}>Next 30 days</option>
+        <option value="90" {% if selected_within == "90" %}selected{% endif %}>Next 90 days</option>
+        <option value="180" {% if selected_within == "180" %}selected{% endif %}>Next 180 days</option>
       </select>
     </label>
 

@@ -1113,17 +1113,6 @@ class Guild(HeroCropMixin, models.Model):
         default="",
         help_text="Public iCal URL for this guild's Google Calendar (File → Share → Get shareable iCal link).",
     )
-    google_calendar_id = models.CharField(
-        max_length=255,
-        blank=True,
-        default="",
-        help_text=(
-            "This guild's Google Calendar ID for pushing FOG-created events out to Google "
-            "(e.g. abc123@group.calendar.google.com). Find it in Google Calendar → Settings "
-            "for that calendar → 'Integrate calendar' → Calendar ID. This is NOT the iCal URL "
-            "above — leave blank to keep this guild's events in FOG only."
-        ),
-    )
     discord_role_ids = models.JSONField(
         default=list,
         blank=True,
@@ -1453,10 +1442,10 @@ class GuildStaffMembership(models.Model):
     """
 
     class Role(models.TextChoices):
-        CO_LEAD = "co_lead", "Co-Guild Lead"
+        CO_LEAD = "co_lead", "Guild Lead"
         SECRETARY = "secretary", "Secretary"
         TREASURER = "treasurer", "Treasurer"
-        ORIENTER = "orienter", "Orienter"
+        ORIENTER = "orienter", "Orientator"
 
     guild = models.ForeignKey(
         Guild,
@@ -2959,6 +2948,10 @@ class CommunityEvent(models.Model):
         SYNCED = "synced", "Synced"  # pushed to Google successfully
         FAILED = "failed", "Failed"  # last push errored (retry_calendar_pushes will re-try)
 
+    class GoogleCalendarTarget(models.TextChoices):
+        MEMBER = "member", "Member calendar"  # members-only makerspace calendar (the former "General")
+        PUBLIC = "public", "Public calendar"  # the outward-facing calendar anyone can see
+
     # Months between occurrences for each recurring choice (semi-monthly walks
     # monthly but emits two dates per month — see ``occurrences_in``).
     _MONTH_INTERVALS: dict[str, int] = {
@@ -3060,6 +3053,13 @@ class CommunityEvent(models.Model):
     )
 
     # --- Google Calendar sync -------------------------------------------------
+    google_calendar_target = models.CharField(
+        max_length=10,
+        choices=GoogleCalendarTarget.choices,
+        default=GoogleCalendarTarget.MEMBER,
+        verbose_name="Which calendar",
+        help_text="Which Google calendar this event syncs to when Google sync is on — the members-only or the public one.",
+    )
     google_event_id = models.CharField(
         max_length=1024,
         blank=True,
@@ -4378,6 +4378,15 @@ class CalendarEvent(models.Model):
         help_text="Origin of this event: guild iCal, general makerspace iCal, or classes.pastlives.space.",
     )
     uid = models.CharField(max_length=500, db_index=True, help_text="iCal UID, unique within a source.")
+    recurrence_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "Occurrence start (ISO) for one instance of a recurring feed event, so each repeat is "
+            "its own row. Blank for a one-off event."
+        ),
+    )
     title = models.CharField(max_length=500, help_text="Event title from iCal SUMMARY field.")
     description = models.TextField(blank=True, help_text="Event description from iCal DESCRIPTION field.")
     location = models.CharField(max_length=500, blank=True, help_text="Event location from iCal LOCATION field.")
@@ -4395,7 +4404,9 @@ class CalendarEvent(models.Model):
             models.Index(fields=["start_dt", "end_dt"], name="idx_calendarevent_start_end"),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["guild", "feed", "uid"], name="uq_calendarevent_guild_feed_uid"),
+            models.UniqueConstraint(
+                fields=["guild", "feed", "uid", "recurrence_id"], name="uq_calendarevent_guild_feed_uid"
+            ),
         ]
         verbose_name = "Calendar Event"
         verbose_name_plural = "Calendar Events"
@@ -4405,8 +4416,14 @@ class CalendarEvent(models.Model):
 
     @property
     def source_key(self) -> str:
-        """Key used to look up this event's display color in the source_colors dict."""
-        if self.source == self.Source.GUILD and self.guild_id:
+        """Key used to look up this event's display color in the source_colors dict.
+
+        A guild event **or a guild-run class** keys by its guild, so a class inherits
+        its guild's calendar color even though its ``source`` is ``classes``. A general
+        event keys by its feed; anything else (a class with no guild) keys by its raw
+        source. Safe because only GUILD and CLASSES rows ever carry a ``guild``.
+        """
+        if self.guild_id:
             return str(self.guild_id)
         if self.source == self.Source.GENERAL and self.feed_id:
             return f"feed-{self.feed_id}"

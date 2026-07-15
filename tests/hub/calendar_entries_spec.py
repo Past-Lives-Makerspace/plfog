@@ -38,6 +38,26 @@ def describe_CalendarEntry():
         assert entry.is_in_progress is False
 
 
+@pytest.mark.django_db
+def describe_CalendarEntry_source_key():
+    def it_keys_a_class_entry_by_its_guild():
+        guild = GuildFactory()
+        assert _entry(source="classes", guild=guild).source_key == str(guild.pk)
+
+    def it_falls_back_to_classes_for_a_class_entry_with_no_guild():
+        assert _entry(source="classes", guild=None).source_key == "classes"
+
+    def it_keeps_orientation_its_own_color_even_with_a_guild():
+        # Orientation stays amber — the guild must NOT recolor it.
+        guild = GuildFactory()
+        assert _entry(source="orientation", guild=guild).source_key == "orientation"
+
+    def it_keeps_community_its_own_color_even_with_a_guild():
+        # Community stays blue — the guild must NOT recolor it.
+        guild = GuildFactory()
+        assert _entry(source="community", guild=guild).source_key == "community"
+
+
 def _guild_series(day_offsets: list[int]) -> object:
     """A guild with a published series whose sessions fall at the given day offsets."""
     guild = GuildFactory()

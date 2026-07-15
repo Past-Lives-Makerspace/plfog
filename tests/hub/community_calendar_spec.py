@@ -112,6 +112,30 @@ def _make_urlopen(ical_bytes: bytes):
     return _fake
 
 
+def _recurring_ical(uid: str = "weekly-001@test.com", summary: str = "Open Studio Hours", weeks_ago: int = 2) -> bytes:
+    """A WEEKLY recurring event whose series began in the *past*.
+
+    Rendered without expansion, only the past seed exists and nothing shows on an upcoming-only
+    calendar — the exact bug. The parser must materialize the upcoming occurrences.
+    """
+    start = (timezone.now() - timedelta(weeks=weeks_ago)).replace(microsecond=0)
+    end = start + timedelta(hours=4)
+    fmt = "%Y%m%dT%H%M%SZ"
+    return textwrap.dedent(f"""\
+        BEGIN:VCALENDAR
+        VERSION:2.0
+        PRODID:-//Test//Test//EN
+        BEGIN:VEVENT
+        UID:{uid}
+        SUMMARY:{summary}
+        DTSTART:{start.strftime(fmt)}
+        DTEND:{end.strftime(fmt)}
+        RRULE:FREQ=WEEKLY
+        END:VEVENT
+        END:VCALENDAR
+    """).encode()
+
+
 def describe_calendar_service():
     def describe_sync_guild_calendar():
         def it_creates_calendar_events_for_a_guild():
@@ -193,6 +217,49 @@ def describe_calendar_service():
             assert count == 1
             assert CalendarEvent.objects.filter(guild=guild).count() == 1
             assert CalendarEvent.objects.get(guild=guild).title == "Valid Event"
+
+    def describe_recurring_feed_expansion():
+        def it_materializes_upcoming_occurrences_of_a_past_recurring_series():
+            from hub.calendar_service import sync_guild_calendar
+
+            guild = GuildFactory(calendar_url="https://calendar.google.com/calendar/ical/test.ics")
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_make_urlopen(_recurring_ical())):
+                count = sync_guild_calendar(guild)
+            events = CalendarEvent.objects.filter(guild=guild, uid="weekly-001@test.com")
+            # Weekly across the 180-day horizon → many rows, one per occurrence.
+            assert count == events.count()
+            assert events.count() > 4
+            # The fix: at least one occurrence lands in the future (the lone past seed would show none).
+            assert events.filter(start_dt__gte=timezone.now()).exists()
+
+        def it_gives_each_occurrence_a_distinct_recurrence_id():
+            from hub.calendar_service import sync_guild_calendar
+
+            guild = GuildFactory(calendar_url="https://calendar.google.com/calendar/ical/test.ics")
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_make_urlopen(_recurring_ical())):
+                sync_guild_calendar(guild)
+            events = CalendarEvent.objects.filter(guild=guild, uid="weekly-001@test.com")
+            recurrence_ids = list(events.values_list("recurrence_id", flat=True))
+            assert "" not in recurrence_ids  # every occurrence is stamped
+            assert len(set(recurrence_ids)) == len(recurrence_ids)  # all distinct → no collapse
+
+        def it_gives_a_one_off_event_a_blank_recurrence_id():
+            from hub.calendar_service import sync_guild_calendar
+
+            guild = GuildFactory(calendar_url="https://calendar.google.com/calendar/ical/test.ics")
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
+                sync_guild_calendar(guild)  # SAMPLE_ICAL: two one-off events
+            assert CalendarEvent.objects.filter(guild=guild).exclude(recurrence_id="").count() == 0
+
+        def it_is_idempotent_across_resyncs():
+            from hub.calendar_service import sync_guild_calendar
+
+            guild = GuildFactory(calendar_url="https://calendar.google.com/calendar/ical/test.ics")
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_make_urlopen(_recurring_ical())):
+                first = sync_guild_calendar(guild)
+                sync_guild_calendar(guild)
+            # Re-sync updates occurrences in place (same uid+recurrence_id key) — no duplication.
+            assert CalendarEvent.objects.filter(guild=guild, uid="weekly-001@test.com").count() == first
 
     def describe_sync_general_calendar():
         def it_creates_general_events_with_null_guild():
@@ -557,6 +624,25 @@ def describe_community_calendar_default_filters():
         assert response.status_code == 200
         assert f"feed-{feed.pk}" in response.context["default_filters_json"]
 
+    def it_seeds_a_class_only_guilds_key_into_default_filters(client: Client):
+        # A guild whose only calendar content is a class (no iCal URL) still seeds its
+        # key into the defaults, or its newly-colored class chips render hidden on load.
+        _logged_in_user(client, username="caluser_guildkey")
+        guild = GuildFactory(name="Metalworking", calendar_url="")
+        now = timezone.now()
+        start = now + timedelta(days=5)
+        CalendarEvent.objects.create(
+            guild=guild,
+            source=CalendarEvent.Source.CLASSES,
+            uid="dfk-class",
+            title="Forge Basics",
+            start_dt=start,
+            end_dt=start + timedelta(hours=2),
+            fetched_at=now,
+        )
+        response = client.get("/calendar/")
+        assert str(guild.pk) in response.context["default_filters_json"]
+
 
 def describe_calendar_events_partial_invalid_params():
     def it_defaults_to_zero_offsets_when_params_are_non_integer(client: Client):
@@ -662,3 +748,49 @@ def describe_calendar_event_item_feed_invariant():
         assert "pl-calendar-list__register" not in html
         assert ">Classes<" not in html  # the "Classes" source badge span
         assert "Portland Makers" in html  # feed-name badge is shown instead
+
+
+def _seed_guild_class(guild, *, title: str = "Guild Fiber Workshop"):
+    """Publish a future class session under ``guild`` so it shows on the guild's tab."""
+    from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
+    from classes.models import ClassOffering
+
+    category = CategoryFactory(guild=guild)
+    offering = ClassOfferingFactory(
+        status=ClassOffering.Status.PUBLISHED,
+        category=category,
+        scheduling_type=ClassOffering.SchedulingType.SERIES_PACKAGE,
+        title=title,
+    )
+    start = timezone.now() + timedelta(days=6)
+    ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+    return offering
+
+
+def describe_guild_page_class_colors():
+    """Review-addendum #4 — the highest-risk ripple: a guild's own classes must stay
+    colored, visible-by-default, and toggleable on its own guild tab (even with no
+    iCal calendar_url), not left under a dead 'classes' toggle."""
+
+    def it_keeps_a_guilds_own_classes_visible_and_toggleable_on_its_tab(client: Client):
+        _logged_in_user(client, username="guildcal_user")
+        guild = GuildFactory(name="Fiber Arts", calendar_url="", calendar_color="#118844")
+        _seed_guild_class(guild)
+
+        response = client.get(f"/guilds/{guild.slug}/")
+        assert response.status_code == 200
+        calendar = response.context["calendar"]
+        # Colored: the guild's key carries its own color.
+        assert calendar["source_colors"][str(guild.pk)] == "#118844"
+        # Legend set: the guild earns a toggle even with no iCal calendar_url.
+        assert guild in calendar["legend_guilds"]
+        # Visible by default: the guild key seeds the guild-tab default filters.
+        assert str(guild.pk) in calendar["default_filters_json"]
+
+        html = response.content.decode()
+        # Toggleable: the legend renders a real toggle for the guild's key (un-gated from
+        # calendar_url — this is the fix that would otherwise leave no toggle at all)...
+        assert f"toggleFilter('{guild.pk}')" in html
+        # ...and the class chip is bound to that same key, not a dead 'classes' toggle.
+        assert f"isActive('{guild.pk}')" in html
+        assert "Guild Fiber Workshop" in html

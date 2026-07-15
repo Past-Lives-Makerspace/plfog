@@ -26,6 +26,7 @@
       {% include "components/form_field.html" with field=form.location field_hint="A room, address, or video link. Optional." %}
       {% include "components/form_field.html" with field=form.description field_hint="Optional details for members." %}
       {% include "components/form_field.html" with field=form.recurrence field_hint="A monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
+      {% include "components/form_field.html" with field=form.google_calendar_target field_hint="Which Google calendar this event syncs to — the members-only calendar or the outward-facing public one. Only matters when Google Calendar sync is turned on." %}
     </div>
 
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;"
@@ -64,9 +65,11 @@
       </div>
     </div>
 
-    {# Share & Print QR. Only a published, saved event has a live public page — otherwise a
-       placeholder (no dead QR). The shared card's copy input is name-less and its controls are
-       type="button"/<a>, so it's safe inside this <form> and never rides along on Save. #}
+    {% comment %}
+      Share & Print QR. Only a published, saved event has a live public page — otherwise a
+      placeholder (no dead QR). The shared card's copy input is name-less and its controls are
+      type="button"/<a>, so it's safe inside this <form> and never rides along on Save.
+    {% endcomment %}
     {% if event.pk and event.moderation_state == 'published' %}
       {% url 'hub_event_qr' event.pk 'svg' as event_qr_svg_url %}
       {% url 'hub_event_qr' event.pk 'png' as event_qr_png_url %}

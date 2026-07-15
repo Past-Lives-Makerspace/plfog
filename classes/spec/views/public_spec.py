@@ -38,6 +38,29 @@ def published_class(db):
     return offering
 
 
+@pytest.fixture
+def windowed_classes(db):
+    """Three published, dated classes at now+10d / +60d / +200d for timeframe tests."""
+    category = CategoryFactory(name="Woodshop", slug="woodshop")
+    instructor = InstructorFactory(full_legal_name="Marlo", instructor_slug="marlo")
+
+    def _make(title, slug, days):
+        offering = ClassOfferingFactory(
+            title=title,
+            slug=slug,
+            category=category,
+            instructor=instructor,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        start = timezone.now() + timedelta(days=days)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        return offering
+
+    _make("Soon Class", "soon-class", 10)
+    _make("Mid Class", "mid-class", 60)
+    _make("Far Class", "far-class", 200)
+
+
 def describe_coerce_dollars_to_cents():
     def it_returns_zero_for_invalid_string():
         from classes.views import _coerce_dollars_to_cents
@@ -63,14 +86,14 @@ def describe_public_list():
         assert b"Intro to Wheel Throwing" in response.content
         assert b"Deenie" in response.content
 
-    def it_renders_the_upcoming_session_count_in_the_hero(published_class, client):
-        # published_class seeds exactly one future session.
+    def it_renders_the_class_card_count_in_the_hero(published_class, client):
+        # published_class collapses to exactly one bookable card. The hero headline
+        # now counts visible cards (paginator.count), labeled "Class(es)" — the old
+        # "Upcoming Session(s)" tile is gone.
         response = client.get(reverse("classes:public_list"))
         body = response.content.decode()
-        assert "Upcoming Session" in body
-        # The hero tile no longer carries the old "Classes" stat label.
-        assert '<div class="hs-l">Classes</div>' not in body
-        assert '<div class="hs-n">1</div><div class="hs-l">Upcoming Session</div>' in body
+        assert "Upcoming Session" not in body
+        assert '<div class="hs-n">1</div><div class="hs-l">Class</div>' in body
 
     def it_labels_the_grouping_as_guilds_not_categories(published_class, client):
         # The "Categories → Guilds" relabel: hero stat label and filter copy read "Guild(s)".
@@ -81,9 +104,10 @@ def describe_public_list():
         assert '<div class="hs-l">Categories</div>' not in body
         assert "All categories" not in body
 
-    def it_counts_sessions_not_cards(db, client):
-        # One series offered on three future dates collapses to ONE catalog card,
-        # but contributes THREE upcoming sessions.
+    def it_counts_grouped_cards_not_sessions(db, client):
+        # One series offered on three future dates collapses to ONE catalog card.
+        # The hero now counts CARDS, so it reads 1 — and agrees with the summary,
+        # which is the whole point of the reconciliation (was: hero said 3).
         offering = ClassOfferingFactory(
             title="Three Week Forge",
             slug="three-week-forge",
@@ -95,14 +119,15 @@ def describe_public_list():
             ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
         response = client.get(reverse("classes:public_list"))
         body = response.content.decode()
-        # Hero headline counts sessions: 3.
-        assert '<div class="hs-n">3</div><div class="hs-l">Upcoming Session' in body
-        # Results summary still counts cards: 1 class.
+        # Hero headline and results summary both count cards: 1 class.
+        assert '<div class="hs-n">1</div><div class="hs-l">Class</div>' in body
         assert "of <strong>1</strong> class" in body
 
-    def it_shows_zero_gracefully_when_no_upcoming_sessions(db, client):
-        # A published class whose only session is in the past, plus a flexible
-        # (session-less) class — neither contributes an upcoming session.
+    def it_counts_a_session_less_flexible_class_as_one(db, client):
+        # A published class whose only session is in the past (dropped by bookable),
+        # plus a flexible session-less class (always bookable). Semantic flip from
+        # the old session-count: the flexible class is now ONE card, so the hero
+        # reads "1 Class," not "0."
         past_offering = ClassOfferingFactory(
             title="Yesterday's Class",
             slug="yesterdays-class",
@@ -118,7 +143,149 @@ def describe_public_list():
         )
         response = client.get(reverse("classes:public_list"))
         body = response.content.decode()
-        assert '<div class="hs-n">0</div><div class="hs-l">Upcoming Sessions</div>' in body
+        assert '<div class="hs-n">1</div><div class="hs-l">Class</div>' in body
+
+    def describe_within_timeframe_filter():
+        def it_limits_to_the_next_30_days(windowed_classes, client):
+            response = client.get(reverse("classes:public_list") + "?within=30")
+            assert b"Soon Class" in response.content
+            assert b"Mid Class" not in response.content
+            assert b"Far Class" not in response.content
+
+        def it_widens_to_90_and_180_days(windowed_classes, client):
+            at_90 = client.get(reverse("classes:public_list") + "?within=90")
+            assert b"Soon Class" in at_90.content
+            assert b"Mid Class" in at_90.content
+            assert b"Far Class" not in at_90.content
+
+            at_180 = client.get(reverse("classes:public_list") + "?within=180")
+            assert b"Far Class" not in at_180.content
+
+            all_upcoming = client.get(reverse("classes:public_list") + "?within=all")
+            assert b"Soon Class" in all_upcoming.content
+            assert b"Mid Class" in all_upcoming.content
+            assert b"Far Class" in all_upcoming.content
+
+            no_param = client.get(reverse("classes:public_list"))
+            assert b"Far Class" in no_param.content
+
+        def it_keeps_flexible_classes_in_every_window(db, client):
+            ClassOfferingFactory(
+                title="Anytime Workshop",
+                slug="anytime-workshop",
+                status=ClassOffering.Status.PUBLISHED,
+                scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            )
+            response = client.get(reverse("classes:public_list") + "?within=30")
+            assert b"Anytime Workshop" in response.content
+
+        def it_ignores_an_unknown_within_value(windowed_classes, client):
+            response = client.get(reverse("classes:public_list") + "?within=abc")
+            assert response.status_code == 200
+            assert b"Soon Class" in response.content
+            assert b"Mid Class" in response.content
+            assert b"Far Class" in response.content
+
+    def describe_hero_count_reconciliation():
+        def it_shows_the_grouped_card_count_as_the_hero_number(windowed_classes, client):
+            response = client.get(reverse("classes:public_list"))
+            body = response.content.decode()
+            # Hero headline, results summary, and rendered cards all agree at 3.
+            assert '<div class="hs-n">3</div><div class="hs-l">Classes</div>' in body
+            assert "of <strong>3</strong> class" in body
+            assert body.count('class="cls-card"') == 3
+
+        def it_returns_an_oob_hero_count_on_htmx_requests(windowed_classes, client):
+            htmx = client.get(reverse("classes:public_list") + "?within=30", HTTP_HX_REQUEST="true")
+            htmx_body = htmx.content.decode()
+            # The partial carries the OOB hero tile so the hero tracks the filtered
+            # count (within=30 → only "Soon Class" → 1 card).
+            assert 'id="hero-classes-stat"' in htmx_body
+            assert 'hx-swap-oob="true"' in htmx_body
+            assert '<div class="hs-n">1</div><div class="hs-l">Class</div>' in htmx_body
+
+            # A full page load carries exactly one hero tile (in the hero, never a
+            # stray duplicate inside the embedded results grid).
+            full = client.get(reverse("classes:public_list"))
+            full_body = full.content.decode()
+            assert full_body.count('id="hero-classes-stat"') == 1
+            assert "hx-swap-oob" not in full_body
+
+        def it_counts_a_grouped_class_once(db, client):
+            category = CategoryFactory(name="Metals", slug="metals")
+            instructor = InstructorFactory(full_legal_name="Reese", instructor_slug="reese")
+            # Same title + category → same grouping_key → one card across two dates.
+            for idx, days in enumerate((5, 12)):
+                offering = ClassOfferingFactory(
+                    title="Repeated Class",
+                    slug=f"repeated-class-{idx}",
+                    category=category,
+                    instructor=instructor,
+                    status=ClassOffering.Status.PUBLISHED,
+                )
+                start = timezone.now() + timedelta(days=days)
+                ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+            response = client.get(reverse("classes:public_list") + "?within=30")
+            body = response.content.decode()
+            assert '<div class="hs-n">1</div><div class="hs-l">Class</div>' in body
+            assert "of <strong>1</strong> class" in body
+
+    def describe_empty_timeframe_state():
+        def it_offers_a_wider_range_when_the_timeframe_is_empty(db, client):
+            offering = ClassOfferingFactory(
+                title="Far Off Class",
+                slug="far-off-class",
+                status=ClassOffering.Status.PUBLISHED,
+            )
+            start = timezone.now() + timedelta(days=200)
+            ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+            response = client.get(reverse("classes:public_list") + "?within=30")
+            assert response.status_code == 200
+            body = response.content.decode()
+            assert "next 30 days" in body
+            assert "Show all upcoming" in body
+            # The escape link drops 'within' entirely — with no other filters, its
+            # hx-get is the bare catalog URL, and no querystring carries 'within='.
+            assert f'hx-get="{reverse("classes:public_list")}"' in body
+            assert "within=" not in body
+
+        def it_preserves_other_filters_in_show_all_upcoming(db, client):
+            category = CategoryFactory(name="Ceramics", slug="ceramics")
+            offering = ClassOfferingFactory(
+                title="Distant Ceramics",
+                slug="distant-ceramics",
+                category=category,
+                status=ClassOffering.Status.PUBLISHED,
+            )
+            start = timezone.now() + timedelta(days=200)
+            ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+            response = client.get(reverse("classes:public_list") + "?within=30&category=ceramics")
+            body = response.content.decode()
+            assert "Show all upcoming" in body
+            # 'within' is dropped from the escape link; 'category' is kept.
+            escape = f'hx-get="{reverse("classes:public_list")}?category=ceramics"'
+            assert escape in body
+            assert "within=" not in body
+
+    def describe_pagination_carry_through():
+        def it_keeps_within_across_pages(db, client):
+            category = CategoryFactory(name="Fibers", slug="fibers")
+            instructor = InstructorFactory(full_legal_name="Sable", instructor_slug="sable")
+            # 26 distinct cards within 90 days → two pages (25/page).
+            for idx in range(26):
+                offering = ClassOfferingFactory(
+                    title=f"Fiber Class {idx}",
+                    slug=f"fiber-class-{idx}",
+                    category=category,
+                    instructor=instructor,
+                    status=ClassOffering.Status.PUBLISHED,
+                )
+                start = timezone.now() + timedelta(days=20)
+                ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+            response = client.get(reverse("classes:public_list") + "?within=90")
+            # The next-page link carries the timeframe forward.
+            assert b"within=90" in response.content
+            assert b"page=2" in response.content
 
     def it_hides_draft_and_pending_classes(published_class, client):
         ClassOfferingFactory(

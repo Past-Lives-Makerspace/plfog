@@ -182,6 +182,40 @@ def describe_CalendarEvent():
             )
             assert event.source_key == f"feed-{feed.pk}"
 
+        def it_returns_the_guild_key_for_a_class_with_a_guild():
+            # A guild-run class colors by its guild even though source == "classes".
+            from django.utils import timezone
+            from membership.models import CalendarEvent
+
+            guild = GuildFactory()
+            now = timezone.now()
+            event = CalendarEvent.objects.create(
+                guild=guild,
+                source=CalendarEvent.Source.CLASSES,
+                uid="class-with-guild",
+                title="Intro to Welding",
+                start_dt=now,
+                end_dt=now,
+                fetched_at=now,
+            )
+            assert event.source_key == str(guild.pk)
+
+        def it_falls_back_to_classes_for_a_class_without_a_guild():
+            from django.utils import timezone
+            from membership.models import CalendarEvent
+
+            now = timezone.now()
+            event = CalendarEvent.objects.create(
+                guild=None,
+                source=CalendarEvent.Source.CLASSES,
+                uid="class-no-guild",
+                title="Open Class",
+                start_dt=now,
+                end_dt=now,
+                fetched_at=now,
+            )
+            assert event.source_key == "classes"
+
 
 def describe_CalendarFeed():
     def it_orders_by_sort_order_then_pk():
