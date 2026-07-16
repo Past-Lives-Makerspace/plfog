@@ -85,11 +85,13 @@ def describe_ScheduledTaskRun():
         def it_returns_empty_when_nothing_has_run():
             assert ScheduledTaskRun.objects.latest_per_task() == {}
 
-        def it_stays_a_single_query(django_assert_num_queries):
-            ScheduledTaskRunFactory(task_key="a")
-            ScheduledTaskRunFactory(task_key="b")
-            ScheduledTaskRunFactory(task_key="c")
-            with django_assert_num_queries(1):
+        def it_stays_bounded_regardless_of_row_count(django_assert_num_queries):
+            # Two runs per key over several keys: aggregate the newest per key, then one
+            # fetch of just those rows — never a query per key or a full-table Python scan.
+            for key in ("a", "b", "c"):
+                ScheduledTaskRunFactory(task_key=key)
+                ScheduledTaskRunFactory(task_key=key)
+            with django_assert_num_queries(2):
                 ScheduledTaskRun.objects.latest_per_task()
 
     def describe_str():

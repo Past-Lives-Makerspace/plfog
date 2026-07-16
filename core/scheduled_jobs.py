@@ -15,9 +15,13 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.db import models
+from django.utils import timezone
+
+RUN_HISTORY_RETENTION_DAYS = 90
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -207,3 +211,17 @@ def record_run(
         raise
     else:
         run.mark_ok()
+        _prune_run_history(key)
+
+
+def _prune_run_history(key: str) -> None:
+    """Delete this task's run rows older than the retention window — self-pruning history.
+
+    Keeps the append-only ``ScheduledTaskRun`` table bounded without a separate cron job or
+    admin surface: every completed run trims its own key's stale rows past
+    ``RUN_HISTORY_RETENTION_DAYS``.
+    """
+    from core.models import ScheduledTaskRun
+
+    cutoff = timezone.now() - timedelta(days=RUN_HISTORY_RETENTION_DAYS)
+    ScheduledTaskRun.objects.filter(task_key=key, started_at__lt=cutoff).delete()

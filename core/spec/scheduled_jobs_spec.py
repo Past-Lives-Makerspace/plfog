@@ -121,3 +121,51 @@ def describe_record_run():
             assert run.failed
             assert run.error == "boom"
             assert run.finished_at is not None
+
+    def describe_retention():
+        def it_prunes_this_tasks_runs_older_than_the_window(db):
+            from datetime import timedelta
+
+            from django.utils import timezone
+
+            from core.factories import ScheduledTaskRunFactory
+            from core.scheduled_jobs import RUN_HISTORY_RETENTION_DAYS
+
+            now = timezone.now()
+            stale = ScheduledTaskRunFactory(
+                task_key="send_class_reminders", started_at=now - timedelta(days=RUN_HISTORY_RETENTION_DAYS + 1)
+            )
+            recent = ScheduledTaskRunFactory(task_key="send_class_reminders", started_at=now - timedelta(days=1))
+            with record_run("send_class_reminders", trigger=Trigger.SCHEDULED):
+                pass
+            assert not ScheduledTaskRun.objects.filter(pk=stale.pk).exists()
+            assert ScheduledTaskRun.objects.filter(pk=recent.pk).exists()
+
+        def it_only_prunes_the_running_tasks_own_history(db):
+            from datetime import timedelta
+
+            from django.utils import timezone
+
+            from core.factories import ScheduledTaskRunFactory
+            from core.scheduled_jobs import RUN_HISTORY_RETENTION_DAYS
+
+            old = timezone.now() - timedelta(days=RUN_HISTORY_RETENTION_DAYS + 5)
+            other = ScheduledTaskRunFactory(task_key="bill_tabs", started_at=old)
+            with record_run("send_class_reminders", trigger=Trigger.SCHEDULED):
+                pass
+            assert ScheduledTaskRun.objects.filter(pk=other.pk).exists()
+
+        def it_leaves_stale_history_in_place_when_the_run_fails(db):
+            from datetime import timedelta
+
+            from django.utils import timezone
+
+            from core.factories import ScheduledTaskRunFactory
+            from core.scheduled_jobs import RUN_HISTORY_RETENTION_DAYS
+
+            old = timezone.now() - timedelta(days=RUN_HISTORY_RETENTION_DAYS + 5)
+            stale = ScheduledTaskRunFactory(task_key="sync_all_sources", started_at=old)
+            with pytest.raises(ValueError, match="nope"):
+                with record_run("sync_all_sources", trigger=Trigger.SCHEDULED):
+                    raise ValueError("nope")
+            assert ScheduledTaskRun.objects.filter(pk=stale.pk).exists()

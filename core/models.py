@@ -1306,13 +1306,19 @@ class ScheduledTaskRunQuerySet(models.QuerySet["ScheduledTaskRun"]):
     """Querysets for the Automations dashboard's run history."""
 
     def latest_per_task(self) -> dict[str, ScheduledTaskRun]:
-        """The most recent run per ``task_key``, in a single query (newest-first, first
-        occurrence wins). Lets the dashboard render every job's last run in O(1) queries."""
-        latest: dict[str, ScheduledTaskRun] = {}
-        for run in self.order_by("-started_at"):
-            if run.task_key not in latest:
-                latest[run.task_key] = run
-        return latest
+        """The most recent run per ``task_key``, keyed by task_key.
+
+        Two bounded queries regardless of table size: aggregate the newest ``started_at``
+        per key, then fetch just those rows — instead of dragging the whole run history
+        into Python. Portable across SQLite and PostgreSQL (no ``DISTINCT ON``).
+        """
+        latest_started = self.values("task_key").annotate(max_started=models.Max("started_at"))
+        match = models.Q()
+        for row in latest_started:
+            match |= models.Q(task_key=row["task_key"], started_at=row["max_started"])
+        if not match:
+            return {}
+        return {run.task_key: run for run in self.filter(match)}
 
 
 class ScheduledTaskRun(models.Model):
