@@ -18,7 +18,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.8",
+        "version": "0.22.9",
         "date": "2026-07-16",
         "title": "Studio Hours on guild pages",
         "changes": [
@@ -31,7 +31,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.7",
+        "version": "0.22.9",
         "date": "2026-07-16",
         "title": "Slash commands in Discord",
         "changes": [
@@ -48,7 +48,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.5",
+        "version": "0.22.9",
         "date": "2026-07-16",
         "title": "A warm welcome when you finish orientation",
         "changes": [
@@ -60,7 +60,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.4",
+        "version": "0.22.9",
         "date": "2026-07-16",
         "title": "Know your reach before you post",
         "changes": [
@@ -72,7 +72,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.3",
+        "version": "0.22.9",
         "date": "2026-07-16",
         "title": "Jump straight to a guild's classes",
         "changes": [
@@ -84,8 +84,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.2",
-        "date": "2026-07-15",
+        "version": "0.22.9",
+        "date": "2026-07-16",
         "title": "Class reminder emails read cleanly again",
         "changes": [
             (
@@ -95,8 +95,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.1",
-        "date": "2026-07-15",
+        "version": "0.22.9",
+        "date": "2026-07-16",
         "title": "A cleaner profile, with your own contact links",
         "changes": [
             (
@@ -114,8 +114,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.0",
-        "date": "2026-07-15",
+        "version": "0.22.9",
+        "date": "2026-07-16",
         "title": "Easier-to-read class confirmation screens",
         "changes": [
             (
