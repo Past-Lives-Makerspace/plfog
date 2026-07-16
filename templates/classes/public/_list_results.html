@@ -19,7 +19,9 @@ list.html for the initial full-page response.{% endcomment %}
     {% if paginator.num_pages > 1 %}&mdash; page {{ page_obj.number }} of {{ paginator.num_pages }}{% endif %}
   {% elif selected_within_days %}
     <em>No classes scheduled in the next {{ selected_within_days }} days.</em>
+    {# href is the no-JS/keyboard fallback — without it the anchor has no link role and can't be focused. #}
     <a class="cp-results__reset-inline"
+       href="{% url 'classes:public_list' %}{% if filter_querystring_no_within %}?{{ filter_querystring_no_within }}{% endif %}"
        hx-get="{% url 'classes:public_list' %}{% if filter_querystring_no_within %}?{{ filter_querystring_no_within }}{% endif %}"
        hx-target="#cls-results" hx-swap="innerHTML" hx-push-url="true">Show all upcoming</a>
   {% else %}

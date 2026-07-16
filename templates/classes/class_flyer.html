@@ -9,12 +9,13 @@
 </head>
 <body class="pl-flyer-body">
 
-<div class="pl-flyer-toolbar no-print">
+{# header/main landmarks: keeps the standalone page navigable by assistive tech (axe: landmark-one-main/region). #}
+<header class="pl-flyer-toolbar no-print">
   <button type="button" class="pl-flyer-print-btn" onclick="window.print()">Print / Save as PDF</button>
   <p class="pl-flyer-toolbar__hint">Use your browser's Print dialog and choose “Save as PDF,” or print it for the shop wall.</p>
-</div>
+</header>
 
-<div class="pl-flyer">
+<main class="pl-flyer">
   {# 1 · Hero band — the class's own focal-cropped photo, else the legacy CMS image, else a graceful initial #}
   <div class="pl-flyer__hero">
     {% if offering.image %}
@@ -92,7 +93,7 @@
   </div>
 
   <footer class="pl-flyer__footer">Past Lives Makerspace · Portland, OR</footer>
-</div>
+</main>
 
 </body>
 </html>
