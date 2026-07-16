@@ -37,6 +37,11 @@
       hx-trigger="change, submit"
       hx-indicator="#cls-results"
       x-data="{ open: false }">
+  {% comment %}Persist the guild filter across dropdown/popover changes: the form
+  serializes only its own fields, so without this hidden input a later filter change
+  would drop ?guild= from the querystring. Reset links clear it (they point at the bare
+  catalog URL).{% endcomment %}
+  {% if selected_guild_slug %}<input type="hidden" name="guild" value="{{ selected_guild_slug }}">{% endif %}
   <div class="cp-filter__row">
     <label class="cp-filter__field cp-filter__field--select">
       <span class="cp-filter__field-label">Guild Type</span>

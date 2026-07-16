@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "0.22.2"
+VERSION = "0.22.3"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.22.3",
+        "date": "2026-07-16",
+        "title": "Jump straight to a guild's classes",
+        "changes": [
+            (
+                "Every guild page now has a “[Guild name] Classes” link that opens the class catalog "
+                "filtered to just that guild's classes — even before the guild has scheduled any. The "
+                "catalog shows a clear “Classes in [Guild]” heading so you always know the filter is on."
+            ),
+        ],
+    },
     {
         "version": "0.22.2",
         "date": "2026-07-15",

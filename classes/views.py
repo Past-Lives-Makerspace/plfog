@@ -167,6 +167,10 @@ def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
     if slug:
         qs = qs.filter(category__slug=slug)
 
+    guild_slug = request.GET.get("guild", "").strip()
+    if guild_slug:
+        qs = qs.filter(category__guild__slug=guild_slug)
+
     instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
     if instructor_slugs:
         qs = qs.filter(instructor__instructor_slug__in=instructor_slugs)
@@ -208,7 +212,14 @@ def public_list(request: HttpRequest) -> HttpResponse:
     """
     settings_obj = ClassSettings.load()
 
+    from membership.models import Guild
+
     selected_category_slug = request.GET.get("category", "").strip()
+    # Resolve the guild behind ?guild=<slug> for the active-filter heading and empty state.
+    # Fail-soft, mirroring the raw ?category= filter: an unknown slug leaves selected_guild
+    # None (the filter still yields zero rows → generic empty copy) rather than 404-ing.
+    selected_guild_slug = request.GET.get("guild", "").strip()
+    selected_guild = Guild.objects.filter(slug=selected_guild_slug).first() if selected_guild_slug else None
     selected_instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
     members_only = request.GET.get("members_only") == "1"
     free_only = request.GET.get("free") == "1"
@@ -287,6 +298,8 @@ def public_list(request: HttpRequest) -> HttpResponse:
         "site_config": SiteConfiguration.load(),
         "categories": categories,
         "selected_category_slug": selected_category_slug,
+        "selected_guild_slug": selected_guild_slug,
+        "selected_guild": selected_guild,
         "selected_instructor_slugs": selected_instructor_slugs,
         "instructors_for_filter": instructors_for_filter,
         "min_price": request.GET.get("min_price", ""),

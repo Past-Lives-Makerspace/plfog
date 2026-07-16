@@ -526,7 +526,11 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
 
     gallery_images = guild.gallery_images.all()
     faq_items = guild.faq_items.all()
-    links = guild.links.all()
+    # Prepend the always-present, virtual "[Guild] Classes" link so it leads the Links card.
+    # Only here in the detail view — never in the edit Links formset (which iterates
+    # guild.links directly), so it's structurally non-editable and non-deletable.
+    guilds_surface = getattr(request, "surface", "members") == "guilds"
+    links = [guild.classes_link(guilds_surface=guilds_surface), *guild.links.all()]
     announcements = guild.announcements.published().active()[:5]
     meeting_notes = guild.meeting_notes.prefetch_related("attachments")
     # Gate the roster on the viewer, not just the guild opt-in: an anonymous guest

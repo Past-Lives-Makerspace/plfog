@@ -1309,3 +1309,15 @@ a.cp-detail__cta--waitlist:hover {
 }
 .cp-results__reset-inline:hover { color: var(--gold-text); text-decoration: underline; }
 
+/* ── Active guild-filter heading ─────────────────── */
+.cp-results__guild {
+  max-width: var(--max);
+  margin: 0 auto 4px;
+  padding: 10px 24px 0;
+  font-family: var(--heading);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+}
+.cp-results__guild .cp-results__reset-inline { font-size: 14px; }
+

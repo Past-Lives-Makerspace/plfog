@@ -1117,6 +1117,20 @@ class MemberEmail(models.Model):
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class VirtualLink:
+    """A computed, non-stored link rendered alongside a guild's real ``GuildLink`` rows.
+
+    Duck-types the ``.label`` / ``.url`` a template reads off a real ``GuildLink``, so the
+    shared guild-detail links loop renders it identically. Used for the always-present
+    "[Guild] Classes" link (see :meth:`Guild.classes_link`) — it lives only in the render
+    context, so it needs no migration, reflects a rename, and can't be edited or deleted.
+    """
+
+    label: str
+    url: str
+
+
 class GuildManager(models.Manager["Guild"]):
     """Default manager that hides soft-deleted guilds from every query."""
 
@@ -1315,6 +1329,30 @@ class Guild(HeroCropMixin, models.Model):
         from membership.logos import logo_prefix_for
 
         return logo_prefix_for(self.name)
+
+    def classes_link(self, *, guilds_surface: bool = False) -> VirtualLink:
+        """The always-present "[Guild] Classes" link for this guild's detail page.
+
+        Virtual (never a stored :class:`GuildLink`): computed each render so its label
+        reflects a rename, it needs no migration, and it can't be edited or deleted — it
+        exists only in the detail view's ``links`` context, never in the edit Links formset.
+        The URL points at the public class catalog pre-filtered to this guild via
+        ``?guild=<slug>``.
+
+        Args:
+            guilds_surface: True when rendering on the guilds host, where the classes app
+                lives on the book host. The path is then prefixed with
+                ``settings.BOOK_BASE_URL`` (mirroring the guild page's existing cross-surface
+                class links); on the members surface it stays root-relative.
+
+        Returns:
+            A :class:`VirtualLink` with the recomputed label and surface-correct URL.
+        """
+        from django.urls import reverse
+
+        path = f"{reverse('classes:public_list')}?guild={self.slug}"
+        url = f"{settings.BOOK_BASE_URL}{path}" if guilds_surface else path
+        return VirtualLink(label=f"{self.name} Classes", url=url)
 
     @property
     def vanity_url(self) -> str:

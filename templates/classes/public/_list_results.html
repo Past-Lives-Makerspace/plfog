@@ -8,6 +8,11 @@ list.html for the initial full-page response.{% endcomment %}
   swaps the real tile up in the hero.{% endcomment %}
   <div id="hero-classes-stat" hx-swap-oob="true">{% include "classes/public/_hero_classes_stat.html" %}</div>
 {% endif %}
+{% if selected_guild %}
+  <h2 class="cp-results__guild">Classes in {{ selected_guild.name }}
+    <a href="{% url 'classes:public_list' %}" class="cp-results__reset-inline">View all classes</a>
+  </h2>
+{% endif %}
 <div class="cp-results__summary">
   {% if paginator.count %}
     Showing <strong>{{ page_obj.start_index }}–{{ page_obj.end_index }}</strong> of <strong>{{ paginator.count }}</strong> class{{ paginator.count|pluralize:"es" }}
@@ -18,7 +23,11 @@ list.html for the initial full-page response.{% endcomment %}
        hx-get="{% url 'classes:public_list' %}{% if filter_querystring_no_within %}?{{ filter_querystring_no_within }}{% endif %}"
        hx-target="#cls-results" hx-swap="innerHTML" hx-push-url="true">Show all upcoming</a>
   {% else %}
-    <em>No classes match your filters.</em>
+    {% if selected_guild %}
+      <em>No classes scheduled for {{ selected_guild.name }} yet.</em>
+    {% else %}
+      <em>No classes match your filters.</em>
+    {% endif %}
     <a href="{% url 'classes:public_list' %}" class="cp-results__reset-inline">Reset all filters</a>
   {% endif %}
 </div>
