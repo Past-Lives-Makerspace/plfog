@@ -295,6 +295,15 @@ class SiteConfiguration(models.Model):
             "event updates the linked Google Calendar."
         ),
     )
+    discord_events_sync_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Publish events to Discord",
+        help_text=(
+            "When on (and the Discord bot is configured with Manage Events), publishing/editing/deleting a "
+            "community event creates/updates/removes it in the Discord server's Events. Studio hours and "
+            "classes are never pushed."
+        ),
+    )
     signage_default_slide_seconds = models.PositiveIntegerField(
         default=12,
         verbose_name="Default slide duration (seconds)",

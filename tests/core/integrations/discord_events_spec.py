@@ -1,0 +1,415 @@
+"""BDD specs for the Discord Scheduled Events push service.
+
+All mocked — these NEVER hit Discord. ``push_community_event`` / ``remove_community_event``
+run against a fake client (``from_settings`` patched); the real client's REST methods are
+exercised through ``respx``.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+from unittest.mock import MagicMock, patch
+
+import httpx
+import pytest
+import respx
+from django.utils import timezone
+
+from core.integrations import discord_events as de
+from core.models import SiteConfiguration
+from membership.models import CommunityEvent
+from tests.membership.factories import CommunityEventFactory
+
+SERVER_ID = "server123"
+_EVENTS_URL = f"https://discord.com/api/v10/guilds/{SERVER_ID}/scheduled-events"
+
+
+def _enable_config() -> SiteConfiguration:
+    """Turn the admin runtime toggle on and set a Discord server id (the two config gates)."""
+    config = SiteConfiguration.load()
+    config.discord_events_sync_enabled = True
+    config.discord_server_id = SERVER_ID
+    config.save(update_fields=["discord_events_sync_enabled", "discord_server_id"])
+    return config
+
+
+def _fake_client(*, enabled: bool = True, server_id: str = SERVER_ID, **methods: MagicMock) -> MagicMock:
+    client = MagicMock(spec=de.DiscordScheduledEventsClient)
+    client.enabled = enabled
+    client.server_id = server_id
+    client.insert_event = methods.get("insert_event", MagicMock(return_value={"id": "evt1"}))
+    client.update_event = methods.get("update_event", MagicMock(return_value={"id": "evt1"}))
+    client.delete_event = methods.get("delete_event", MagicMock(return_value=None))
+    return client
+
+
+@pytest.mark.django_db
+def describe_push_community_event():
+    def describe_studio_hours():
+        def it_is_an_idle_noop_and_never_calls_the_api():
+            _enable_config()
+            event = CommunityEventFactory(studio_hours=True)
+            client = _fake_client()
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            assert event.discord_sync_state == CommunityEvent.SyncState.IDLE
+            assert event.discord_sync_error == de.DiscordEventsConfig.STUDIO_HOURS
+            client.insert_event.assert_not_called()
+            client.update_event.assert_not_called()
+
+    def describe_when_sync_is_disabled():
+        def it_marks_pending_with_a_reason_and_makes_no_api_call():
+            # Config toggle off (default) → the push self-gates to PENDING.
+            event = CommunityEventFactory()
+            client = _fake_client(enabled=False)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            assert event.discord_sync_state == CommunityEvent.SyncState.PENDING
+            assert event.discord_sync_error == de.DiscordEventsConfig.SYNC_OFF
+            client.insert_event.assert_not_called()
+
+        def it_marks_pending_when_only_the_config_toggle_is_off():
+            # Client "enabled" but the config toggle is off → still gated (both are required).
+            event = CommunityEventFactory()
+            client = _fake_client(enabled=True)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)  # config default off
+            assert event.discord_sync_state == CommunityEvent.SyncState.PENDING
+            client.insert_event.assert_not_called()
+
+    def describe_insert():
+        def it_inserts_and_stores_the_returned_id():
+            _enable_config()
+            event = CommunityEventFactory()
+            insert = MagicMock(return_value={"id": "new123"})
+            client = _fake_client(insert_event=insert)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            insert.assert_called_once()
+            assert insert.call_args.args[0] == SERVER_ID
+            assert event.discord_event_id == "new123"
+            assert event.discord_sync_state == CommunityEvent.SyncState.SYNCED
+            assert event.discord_synced_at is not None
+            assert event.discord_sync_error == ""
+            assert event.discord_pushed_occurrence is None
+            client.update_event.assert_not_called()
+
+    def describe_update():
+        def it_updates_an_already_pushed_event_instead_of_inserting():
+            _enable_config()
+            event = CommunityEventFactory(discord_event_id="existing1")
+            update = MagicMock(return_value={"id": "existing1"})
+            client = _fake_client(update_event=update)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            update.assert_called_once()
+            assert update.call_args.args[:2] == (SERVER_ID, "existing1")
+            client.insert_event.assert_not_called()
+            assert event.discord_sync_state == CommunityEvent.SyncState.SYNCED
+
+    def describe_recurrence():
+        def it_pushes_a_weekly_series_natively_without_a_pushed_occurrence():
+            _enable_config()
+            event = CommunityEventFactory(recurrence=CommunityEvent.Recurrence.WEEKLY)
+            insert = MagicMock(return_value={"id": "wk1"})
+            client = _fake_client(insert_event=insert)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            body = insert.call_args.args[1]
+            assert body["recurrence_rule"]["frequency"] == 2
+            assert event.discord_pushed_occurrence is None
+
+        def it_pushes_the_next_occurrence_for_an_unmappable_cadence():
+            _enable_config()
+            event = CommunityEventFactory(recurrence=CommunityEvent.Recurrence.EVERY_2_MONTHS)
+            insert = MagicMock(return_value={"id": "occ1"})
+            client = _fake_client(insert_event=insert)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            body = insert.call_args.args[1]
+            assert "recurrence_rule" not in body  # a single instance, not a native series
+            assert event.discord_event_id == "occ1"
+            assert event.discord_pushed_occurrence is not None
+
+        def it_marks_synced_without_an_event_when_no_occurrence_is_in_the_horizon():
+            _enable_config()
+            far = timezone.now() + timedelta(days=400)
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.YEARLY, starts_at=far, ends_at=far + timedelta(hours=2)
+            )
+            client = _fake_client()
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            assert event.discord_sync_state == CommunityEvent.SyncState.SYNCED
+            assert event.discord_event_id == ""
+            assert event.discord_pushed_occurrence is None
+            client.insert_event.assert_not_called()
+
+        def it_creates_a_fresh_event_when_a_single_occurrence_rolls_forward():
+            _enable_config()
+            past = timezone.now() - timedelta(days=1)
+            anchor = timezone.now() - timedelta(days=40)
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.EVERY_2_MONTHS,
+                starts_at=anchor,
+                ends_at=anchor + timedelta(hours=2),
+                discord_event_id="old1",
+                discord_sync_state=CommunityEvent.SyncState.SYNCED,
+                discord_pushed_occurrence=past,
+            )
+            insert = MagicMock(return_value={"id": "fresh2"})
+            update = MagicMock(return_value={"id": "old1"})
+            client = _fake_client(insert_event=insert, update_event=update)
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            insert.assert_called_once()  # a completed event can't be PATCHed → fresh create
+            update.assert_not_called()
+            assert event.discord_event_id == "fresh2"
+            assert event.discord_pushed_occurrence is not None
+            assert event.discord_pushed_occurrence > past
+
+    def describe_failure():
+        def it_marks_failed_with_a_truncated_error_and_never_raises():
+            _enable_config()
+            event = CommunityEventFactory()
+            client = _fake_client(insert_event=MagicMock(side_effect=de.DiscordEventsError("x" * 900)))
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)  # must not raise
+            assert event.discord_sync_state == CommunityEvent.SyncState.FAILED
+            assert len(event.discord_sync_error) == 500
+            assert event.discord_event_id == ""
+
+
+@pytest.mark.django_db
+def describe_remove_community_event():
+    def it_deletes_when_an_id_is_present():
+        _enable_config()
+        event = CommunityEventFactory(discord_event_id="evt9")
+        delete = MagicMock()
+        client = _fake_client(delete_event=delete)
+        with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+            de.remove_community_event(event)
+        delete.assert_called_once_with(SERVER_ID, "evt9")
+
+    def it_swallows_a_delete_error():
+        _enable_config()
+        event = CommunityEventFactory(discord_event_id="evt9")
+        client = _fake_client(delete_event=MagicMock(side_effect=de.DiscordEventsError("gone")))
+        with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+            de.remove_community_event(event)  # must not raise
+
+    def it_is_a_noop_when_disabled():
+        event = CommunityEventFactory(discord_event_id="evt9")
+        client = _fake_client(enabled=False)
+        with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+            de.remove_community_event(event)
+        client.delete_event.assert_not_called()
+
+    def it_is_a_noop_when_the_event_was_never_pushed():
+        _enable_config()
+        event = CommunityEventFactory()  # blank discord_event_id
+        client = _fake_client()
+        with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+            de.remove_community_event(event)
+        client.delete_event.assert_not_called()
+
+
+@pytest.mark.django_db
+def describe__build_scheduled_event_body():
+    def _event(**kwargs) -> CommunityEvent:
+        defaults = dict(
+            title="Forge Night",
+            location="Bay 3",
+            description="Bring a project.",
+            starts_at=timezone.now() + timedelta(days=3),
+            ends_at=timezone.now() + timedelta(days=3, hours=2),
+        )
+        defaults.update(kwargs)
+        return CommunityEventFactory(**defaults)
+
+    def it_builds_an_external_guild_only_body_with_required_fields():
+        body = de._build_scheduled_event_body(_event())
+        assert body["entity_type"] == 3  # EXTERNAL
+        assert body["privacy_level"] == 2  # GUILD_ONLY
+        assert "scheduled_start_time" in body
+        assert "scheduled_end_time" in body  # required for EXTERNAL
+        assert body["entity_metadata"]["location"] == "Bay 3"
+
+    def it_falls_back_to_the_default_location_when_blank():
+        body = de._build_scheduled_event_body(_event(location=""))
+        assert body["entity_metadata"]["location"] == de.DEFAULT_LOCATION
+
+    def it_ends_the_description_with_the_public_url():
+        event = _event()
+        body = de._build_scheduled_event_body(event)
+        assert body["description"].startswith("Bring a project.")
+        assert body["description"].endswith(event.public_url)
+
+    def it_truncates_the_name_to_100_chars():
+        body = de._build_scheduled_event_body(_event(title="x" * 150))
+        assert len(body["name"]) == 100
+
+    def it_truncates_the_description_to_1000_chars():
+        body = de._build_scheduled_event_body(_event(description="y" * 2000))
+        assert len(body["description"]) == 1000
+
+    def it_omits_recurrence_for_a_one_off_event():
+        body = de._build_scheduled_event_body(_event(recurrence=CommunityEvent.Recurrence.NONE))
+        assert "recurrence_rule" not in body
+
+    def it_pushes_a_given_occurrence_as_a_single_instance():
+        event = _event(recurrence=CommunityEvent.Recurrence.EVERY_2_MONTHS)
+        occ = timezone.now() + timedelta(days=10)
+        body = de._build_scheduled_event_body(event, occurrence=occ)
+        assert body["scheduled_start_time"] == occ.isoformat()
+        assert "recurrence_rule" not in body
+
+
+@pytest.mark.django_db
+def describe__recurrence_rule_for():
+    def _event(recurrence, **kwargs) -> CommunityEvent:
+        return CommunityEventFactory(recurrence=recurrence, **kwargs)
+
+    def it_returns_none_for_a_one_off():
+        assert de._recurrence_rule_for(_event(CommunityEvent.Recurrence.NONE)) is None
+
+    def it_maps_weekly_to_a_single_weekday_rule():
+        event = _event(CommunityEvent.Recurrence.WEEKLY)
+        weekday = timezone.localtime(event.starts_at).weekday()
+        assert de._recurrence_rule_for(event) == {"frequency": 2, "interval": 1, "by_weekday": [weekday]}
+
+    def it_maps_monthly_to_an_nth_weekday_rule():
+        event = _event(CommunityEvent.Recurrence.MONTHLY)
+        weekday = timezone.localtime(event.starts_at).weekday()
+        rule = de._recurrence_rule_for(event)
+        assert rule["frequency"] == 1
+        assert rule["interval"] == 1
+        assert rule["by_n_weekday"] == [{"n": event._occurrence_ordinal(), "day": weekday}]
+
+    def it_maps_a_last_weekday_ordinal_to_discord_5():
+        # A start on the 5th occurrence of its weekday → model ordinal -1 → Discord n=5.
+        start = timezone.make_aware(datetime(2026, 7, 29, 12, 0))
+        event = _event(CommunityEvent.Recurrence.MONTHLY, starts_at=start, ends_at=start + timedelta(hours=1))
+        assert event._occurrence_ordinal() == -1
+        assert de._recurrence_rule_for(event)["by_n_weekday"][0]["n"] == 5
+
+    @pytest.mark.parametrize(
+        "recurrence",
+        [
+            CommunityEvent.Recurrence.SEMI_MONTHLY,
+            CommunityEvent.Recurrence.EVERY_2_MONTHS,
+            CommunityEvent.Recurrence.EVERY_3_MONTHS,
+            CommunityEvent.Recurrence.EVERY_6_MONTHS,
+            CommunityEvent.Recurrence.YEARLY,
+        ],
+    )
+    def it_returns_none_for_the_unmappable_cadences(recurrence):
+        assert de._recurrence_rule_for(_event(recurrence)) is None
+
+
+@pytest.mark.django_db
+def describe_CommunityEvent_push_to_discord():
+    def it_persists_the_sync_fields_after_a_successful_push():
+        _enable_config()
+        event = CommunityEventFactory()
+        client = _fake_client(insert_event=MagicMock(return_value={"id": "saved1"}))
+        with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+            event.push_to_discord()
+        event.refresh_from_db()
+        assert event.discord_event_id == "saved1"
+        assert event.discord_sync_state == CommunityEvent.SyncState.SYNCED
+
+    def it_persists_a_failed_state_without_raising():
+        _enable_config()
+        event = CommunityEventFactory()
+        client = _fake_client(insert_event=MagicMock(side_effect=de.DiscordEventsError("nope")))
+        with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+            event.push_to_discord()
+        event.refresh_from_db()
+        assert event.discord_sync_state == CommunityEvent.SyncState.FAILED
+
+    def it_delegates_removal_to_the_service():
+        _enable_config()
+        event = CommunityEventFactory(discord_event_id="evt9")
+        delete = MagicMock()
+        client = _fake_client(delete_event=delete)
+        with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+            event.remove_from_discord()
+        delete.assert_called_once_with(SERVER_ID, "evt9")
+
+
+def describe_DiscordScheduledEventsClient():
+    def describe_from_settings():
+        def it_is_disabled_when_the_toggle_is_off(db, settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            config = SiteConfiguration.load()
+            config.discord_server_id = SERVER_ID
+            config.discord_events_sync_enabled = False
+            config.save(update_fields=["discord_server_id", "discord_events_sync_enabled"])
+            assert de.DiscordScheduledEventsClient.from_settings().enabled is False
+
+        def it_is_disabled_when_the_bot_token_is_blank(db, settings):
+            settings.DISCORD_BOT_TOKEN = ""
+            config = SiteConfiguration.load()
+            config.discord_server_id = SERVER_ID
+            config.discord_events_sync_enabled = True
+            config.save(update_fields=["discord_server_id", "discord_events_sync_enabled"])
+            assert de.DiscordScheduledEventsClient.from_settings().enabled is False
+
+        def it_is_disabled_when_no_server_is_linked(db, settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            config = SiteConfiguration.load()
+            config.discord_server_id = ""
+            config.discord_events_sync_enabled = True
+            config.save(update_fields=["discord_server_id", "discord_events_sync_enabled"])
+            assert de.DiscordScheduledEventsClient.from_settings().enabled is False
+
+        def it_is_enabled_when_token_server_and_toggle_are_all_set(db, settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            config = SiteConfiguration.load()
+            config.discord_server_id = SERVER_ID
+            config.discord_events_sync_enabled = True
+            config.save(update_fields=["discord_server_id", "discord_events_sync_enabled"])
+            client = de.DiscordScheduledEventsClient.from_settings()
+            assert client.enabled is True
+            assert client.server_id == SERVER_ID
+
+    def describe_api_methods():
+        @respx.mock
+        def it_inserts_via_post(settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            route = respx.post(_EVENTS_URL).mock(return_value=httpx.Response(200, json={"id": "e1"}))
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            assert client.insert_event(SERVER_ID, {"name": "x"}) == {"id": "e1"}
+            assert route.called
+
+        @respx.mock
+        def it_updates_via_patch(settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            route = respx.patch(f"{_EVENTS_URL}/e1").mock(return_value=httpx.Response(200, json={"id": "e1"}))
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            assert client.update_event(SERVER_ID, "e1", {"name": "x"}) == {"id": "e1"}
+            assert route.called
+
+        @respx.mock
+        def it_deletes_via_delete_returning_none(settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            respx.delete(f"{_EVENTS_URL}/e1").mock(return_value=httpx.Response(204))
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            assert client.delete_event(SERVER_ID, "e1") is None
+
+        @respx.mock
+        def it_wraps_a_non_2xx_as_discordeventserror(settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            respx.post(_EVENTS_URL).mock(return_value=httpx.Response(400, text="bad request"))
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            with pytest.raises(de.DiscordEventsError):
+                client.insert_event(SERVER_ID, {})
+
+        @respx.mock
+        def it_wraps_a_network_error_as_discordeventserror(settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            respx.post(_EVENTS_URL).mock(side_effect=httpx.ConnectError("boom"))
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            with pytest.raises(de.DiscordEventsError):
+                client.insert_event(SERVER_ID, {})

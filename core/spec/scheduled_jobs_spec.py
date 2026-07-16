@@ -29,6 +29,7 @@ _DISPATCHER_ALWAYS = {
     "send_event_reminders",
     "bill_tabs",
     "retry_calendar_pushes",
+    "retry_discord_event_pushes",
     "sync_discord_guild_roles",
 }
 _DISPATCHER_DAILY = {"sync_all_sources", "generate_orientation_slots"}

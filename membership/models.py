@@ -3154,6 +3154,30 @@ class CommunityEventQuerySet(models.QuerySet):
             sync_state__in=[CommunityEvent.SyncState.PENDING, CommunityEvent.SyncState.FAILED]
         )
 
+    def needs_discord_push(self) -> CommunityEventQuerySet:
+        """Published, non-studio-hours rows whose Discord sync is pending or failed (the retry set).
+
+        Excludes STUDIO_HOURS at the query level so the "ambient hours never become Scheduled
+        Events" rule is enforced in one place, not just at the push call site.
+        """
+        return (
+            self.published()
+            .exclude(event_type=CommunityEvent.EventType.STUDIO_HOURS)
+            .filter(discord_sync_state__in=[CommunityEvent.SyncState.PENDING, CommunityEvent.SyncState.FAILED])
+        )
+
+    def needs_discord_rollforward(self, now: datetime_type) -> CommunityEventQuerySet:
+        """SYNCED single-occurrence events (unmappable cadence) whose pushed occurrence has passed.
+
+        A natively-recurring event has a NULL ``discord_pushed_occurrence`` (Discord shows its
+        next instance itself), so it never enters this roll-forward set.
+        """
+        return self.published().filter(
+            discord_sync_state=CommunityEvent.SyncState.SYNCED,
+            discord_pushed_occurrence__isnull=False,
+            discord_pushed_occurrence__lt=now,
+        )
+
 
 class InvalidEventTransition(ValueError):
     """Raised when a :class:`CommunityEvent` lifecycle method is called from a state
@@ -3349,6 +3373,38 @@ class CommunityEvent(models.Model):
         help_text="Why the last Google push failed (or why it's still pending, e.g. no calendar linked). Blank when synced.",
     )
     synced_at = models.DateTimeField(null=True, blank=True, help_text="When this event last synced to Google.")
+
+    # --- Discord Scheduled Events sync ----------------------------------------
+    discord_event_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "The Discord Scheduled Event id returned when FOG pushed this event to the server's Events. "
+            "Blank until pushed."
+        ),
+    )
+    discord_sync_state = models.CharField(
+        max_length=12,
+        choices=SyncState.choices,
+        default=SyncState.IDLE,
+        help_text="Discord Events sync status for this event (independent of the Google sync state).",
+    )
+    discord_sync_error = models.TextField(
+        blank=True,
+        default="",
+        help_text="Why the last Discord push failed (or why it's still pending, e.g. sync off). Blank when synced.",
+    )
+    discord_synced_at = models.DateTimeField(null=True, blank=True, help_text="When this event last synced to Discord.")
+    discord_pushed_occurrence = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "For an unmappable-cadence event pushed to Discord as a single event, the start of the "
+            "occurrence currently live there — so the nightly roll-forward knows when it has passed. "
+            "Blank for one-off and natively-recurring events."
+        ),
+    )
 
     # --- Seed import bookkeeping ----------------------------------------------
     import_source_uid = models.CharField(
@@ -3647,14 +3703,20 @@ class CommunityEvent(models.Model):
 
         Fires the one-shot announcement (idempotent via its ``period``), marks the event as
         needing a Google push (``IDLE`` → ``PENDING``), then pushes it to the linked Google
-        Calendar (best-effort — a Google outage records ``FAILED`` and never blocks this
-        call). Called by :meth:`approve` and by the direct-create views.
+        Calendar, and likewise marks + pushes it to the Discord server's Scheduled Events
+        (both best-effort — an outage records ``FAILED`` and never blocks this call; the
+        Discord push self-gates to a no-op for studio hours and when Discord Events sync is
+        off). Called by :meth:`approve` and by the direct-create views.
         """
         self.announce(actor=actor)
         if self.sync_state == self.SyncState.IDLE:
             self.sync_state = self.SyncState.PENDING
             self.save(update_fields=["sync_state", "updated_at"])
         self.push_to_google(actor=actor)
+        if self.discord_sync_state == self.SyncState.IDLE:
+            self.discord_sync_state = self.SyncState.PENDING
+            self.save(update_fields=["discord_sync_state", "updated_at"])
+        self.push_to_discord(actor=actor)
 
     def schedule_or_go_live(self, *, actor: User | None = None) -> None:
         """Publish now, or park until ``publish_at``. The single create/approve entry point.
@@ -3714,6 +3776,37 @@ class CommunityEvent(models.Model):
         """Delete this event from Google (best-effort). Call BEFORE deleting the FOG row —
         it needs the stored ``google_event_id``/``google_calendar_id``. Never raises."""
         from core.integrations.google_calendar import remove_community_event
+
+        remove_community_event(self)
+
+    # --- Discord Scheduled Events sync (delegates to core.integrations) --------
+
+    def push_to_discord(self, *, actor: User | None = None) -> None:
+        """Push this event to the Discord server's Scheduled Events and persist the sync fields.
+
+        Best-effort: the service records ``IDLE``/``PENDING``/``FAILED`` instead of raising, so
+        a Discord outage never rolls back the FOG save. A self-gating no-op for studio hours
+        and when Discord Events sync is off. Lazy-imports the service to keep the
+        ``membership → core`` layering clean (like :meth:`push_to_google`).
+        """
+        from core.integrations.discord_events import push_community_event
+
+        push_community_event(self, actor=actor)
+        self.save(
+            update_fields=[
+                "discord_event_id",
+                "discord_sync_state",
+                "discord_sync_error",
+                "discord_synced_at",
+                "discord_pushed_occurrence",
+                "updated_at",
+            ]
+        )
+
+    def remove_from_discord(self) -> None:
+        """Delete this event from the Discord server's Scheduled Events (best-effort). Call
+        BEFORE deleting the FOG row — it needs the stored ``discord_event_id``. Never raises."""
+        from core.integrations.discord_events import remove_community_event
 
         remove_community_event(self)
 

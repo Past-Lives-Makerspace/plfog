@@ -895,9 +895,11 @@ def guild_studio_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
         for form in formset.deleted_forms:
             if form.instance.pk:
                 form.instance.remove_from_google()  # best-effort; must run before the row is deleted
+                form.instance.remove_from_discord()  # no-op for studio hours; keeps the delete paths parallel
         saved = formset.save()  # creates/updates the kept rows, deletes the flagged ones
         for event in saved:
             event.push_to_google()  # best-effort, gated — mirrors the row to the Public calendar
+            event.push_to_discord()  # no-op for studio hours (never a Scheduled Event)
         messages.success(request, "Studio hours saved.")
         return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meetings")
 
@@ -2776,6 +2778,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
                 event.schedule_or_go_live(actor=request.user)
             elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
                 event.push_to_google(actor=request.user)
+                event.push_to_discord(actor=request.user)
             if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
                 messages.success(request, f"Event scheduled for {event.publish_at_display}.")
             else:
@@ -2811,6 +2814,7 @@ def guild_event_delete(request: HttpRequest, pk: int, event_pk: int) -> HttpResp
         return forbidden
     event = get_object_or_404(CommunityEvent, pk=event_pk, guild=guild)
     event.remove_from_google()  # best-effort; must run before the FOG row is gone
+    event.remove_from_discord()  # best-effort; must run before the FOG row is gone
     event.delete()
     messages.success(request, "Event deleted.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
@@ -2842,6 +2846,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
                 event.schedule_or_go_live(actor=request.user)
             elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
                 event.push_to_google(actor=request.user)
+                event.push_to_discord(actor=request.user)
             if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
                 messages.success(request, f"Event scheduled for {event.publish_at_display}.")
             else:
@@ -2869,6 +2874,7 @@ def event_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
         return forbidden
     event = get_object_or_404(CommunityEvent, pk=event_pk)
     event.remove_from_google()  # best-effort; must run before the FOG row is gone
+    event.remove_from_discord()  # best-effort; must run before the FOG row is gone
     event.delete()
     messages.success(request, "Event deleted.")
     return redirect(reverse("hub_community_calendar") + "?tab=events")
@@ -3097,6 +3103,7 @@ def event_retry_sync(request: HttpRequest, pk: int) -> HttpResponse:
         return forbidden
     event = get_object_or_404(CommunityEvent, pk=pk)
     event.push_to_google()
+    event.push_to_discord()  # self-gates off / no-op for studio hours
     if event.sync_state == CommunityEvent.SyncState.SYNCED:
         messages.success(request, "Event synced to Google Calendar.")
     elif event.sync_state == CommunityEvent.SyncState.FAILED:

@@ -127,6 +127,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="retry_discord_event_pushes",
+        name="Retry Discord event pushes",
+        description="Re-sends events to the Discord server's Events that didn't go through, and keeps repeating events current.",
+        command="retry_discord_event_pushes",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="sync_discord_guild_roles",
         name="Sync Discord guild roles",
         description="Keeps Discord guild roles in step with members' guild membership.",
