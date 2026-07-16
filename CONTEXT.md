@@ -32,6 +32,18 @@ _Avoid_: using bare "class" for both the abstract class and a single dated run �
 A labeled contact method on a Member — `{label, value}` (e.g. "Booking email" → an address) with per-surface placement toggles (show in the member directory and/or on the instructor page). One list per Member; absorbs the old fixed website/social/other-contact fields. `phone` and `discord` remain first-class fields, not Contacts.
 _Avoid_: contact field, social link, other contact info.
 
+**Community event**:
+A dated happening on the Community Calendar (`membership.CommunityEvent`) — site-wide events, guild meetings, guild events, and studio-hours rows. Published events mirror one-way to downstream calendars (Google; Discord Scheduled Events when that ships). Not a class: a bookable class run is a **Class offering** on the book CMS.
+_Avoid_: event (unqualified, when it could mean a class session or a notification-spine event key).
+
+**Studio hours**:
+A guild's ambient standing weekly hours — a special `CommunityEvent` type (`STUDIO_HOURS`). They render on in-app calendars/cards and the public Google calendar, but are never *announced* and never become Discord Scheduled Events (ambient hours are not happenings; scarce surfaces show happenings only).
+_Avoid_: open hours, shop hours (as distinct concepts — they're all studio hours).
+
+**Discord event mirror** vs **channel announcement**:
+Two deliberately distinct Discord surfaces for the same community event: the *mirror* is its standing entry in the server's native Events UI (a Scheduled Event, one-way pushed like Google); the *announcement* is the one-shot "new event" embed posted to a channel when it publishes. Both appearing for one event is intended, not a duplicate bug. (A third surface — a weekly classes digest — is designed but paused pending marketing.)
+_Avoid_: treating the pair as duplicates; "Discord event" unqualified.
+
 **Guild** (hub):
 A member-run interest group within the makerspace (woodshop, blacksmithing, etc.), with leads, staff, and a public page. The real `membership.Guild`.
 _Avoid_: using bare "guild" for a class catalog category — that is a **Guild Type** (see below).
