@@ -118,8 +118,8 @@ class Command(BaseCommand):
     def _load_bytes(self, options: dict[str, Any]) -> bytes:
         from core.models import CalendarFeed
 
-        url = options.get("ical_url")
-        feed_name = options.get("feed")
+        url = options["ical_url"]
+        feed_name = options["feed"]
         if not url and not feed_name:
             raise CommandError("Provide --ical-url <url> or --feed <CalendarFeed name>.")
         if url and feed_name:

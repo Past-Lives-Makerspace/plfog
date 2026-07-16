@@ -608,7 +608,7 @@ CalendarFeedFormSet = forms.modelformset_factory(
 # Site Settings → Automations tab. One ``enabled`` toggle per scheduled job, saved by the
 # page's Save. The row set is fixed by the code registry (not user-managed), so ``extra=0``
 # and no add/delete — admins pause or run jobs, they don't add or remove them.
-ScheduledJobStateFormSet = forms.modelformset_factory(
+ScheduledJobStateFormSet: type[forms.BaseModelFormSet] = forms.modelformset_factory(
     ScheduledJobState,
     fields=["enabled"],
     extra=0,

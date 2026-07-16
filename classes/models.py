@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import date as date_type, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 from django.db import models
@@ -1319,7 +1319,7 @@ class DiscountCode(models.Model):
             return False
         from membership.models import Member
 
-        member = Member.objects.filter(user_id=user.pk, status=Member.Status.ACTIVE).first()
+        member = Member.objects.filter(user_id=cast("int | str", user.pk), status=Member.Status.ACTIVE).first()
         if getattr(user, "is_superuser", False) or (member is not None and member.is_fog_admin):
             return True
         if member is None or not member.can_self_approve_discounts:

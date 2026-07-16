@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 from django.db import models
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser
+    from django.contrib.auth.models import User
 
     from core.models import ScheduledTaskRun
 
@@ -177,7 +177,7 @@ def record_run(
     key: str,
     *,
     trigger: str,
-    actor: AbstractBaseUser | None = None,
+    actor: User | None = None,
 ) -> Iterator[ScheduledTaskRun]:
     """Open a ``ScheduledTaskRun`` (RUNNING), run the wrapped body, then mark it OK on a
     clean exit or FAILED (capturing the error) on an exception — and **re-raise**, so the

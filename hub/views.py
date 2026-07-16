@@ -16,6 +16,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, QuerySet
+from django.forms import BaseInlineFormSet
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -1527,7 +1528,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     member = _get_member(request)
 
     profile_form: ProfileSettingsForm | None
-    contact_formset: MemberContactFormSet | None
+    contact_formset: BaseInlineFormSet | None
     if request.method == "POST" and request.POST.get("form_id") == "profile":
         if member is None:
             messages.error(request, "Your account is not linked to a membership.")
@@ -4599,7 +4600,7 @@ def _handle_run_job(request: HttpRequest, config: Any) -> HttpResponse:
 
     _persist_automation_toggles(request, config)
     try:
-        with record_run(job.key, trigger=Trigger.MANUAL, actor=request.user):
+        with record_run(job.key, trigger=Trigger.MANUAL, actor=request.user if request.user.is_authenticated else None):
             call_command(job.command)
         messages.success(request, f"Ran {job.name}.")
     except Exception as exc:  # noqa: BLE001 — surface any command failure as a message, never a 500

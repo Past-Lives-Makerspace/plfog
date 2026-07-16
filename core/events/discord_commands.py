@@ -137,7 +137,7 @@ def resolve_guild(interaction: Interaction) -> Guild | None:
 
     explicit = _option_value(interaction, "guild")
     if explicit:
-        return Guild.objects.filter(pk=explicit).first()
+        return Guild.objects.filter(pk=str(explicit)).first()
     return Guild.objects.for_discord_channel(interaction.get("channel_id", ""))
 
 

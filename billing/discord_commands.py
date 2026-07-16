@@ -7,15 +7,20 @@ numbers to a reply builder. ``requires_link=True`` guarantees ``member`` is non-
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from core.events.discord_commands import SlashCommand, register
 from core.events.discord_interactions import reply
 from core.events.discord_replies import hub_url
+
+if TYPE_CHECKING:
+    from membership.models import Member
 
 # An interaction payload is Discord's JSON dict; the second arg is the resolved Member.
 Interaction = dict
 
 
-def _balance(interaction: Interaction, member) -> dict:  # noqa: ANN001 - Member | None, but linked so non-None
+def _balance(interaction: Interaction, member: Member | None) -> dict:
     """Render the caller's tab balance, remaining limit, and payment method — with a manage link.
 
     Feature-gated first: when My Tab & Payments is off site-wide there's no tab to read, so
@@ -28,6 +33,7 @@ def _balance(interaction: Interaction, member) -> dict:  # noqa: ANN001 - Member
     if not SiteConfiguration.load().tab_payments_enabled:
         return reply("Tab payments aren't enabled right now.", ephemeral=True)
 
+    member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
     tab, _ = Tab.objects.get_or_create(member=member)
     tab_url = hub_url("hub_tab_detail")
     setup_url = hub_url("billing_setup_payment_method")

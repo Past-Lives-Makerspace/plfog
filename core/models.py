@@ -15,7 +15,7 @@ from django.utils import timezone
 from core.scheduled_jobs import Trigger
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser
+    from django.contrib.auth.models import AbstractBaseUser, User
 
     from classes.models import Registration
 
@@ -1400,7 +1400,7 @@ class ScheduledJobStateManager(models.Manager["ScheduledJobState"]):
         row = self.filter(task_key=key).first()
         return row.enabled if row is not None else True
 
-    def set_enabled(self, key: str, enabled: bool, *, user: AbstractBaseUser | None = None) -> ScheduledJobState:
+    def set_enabled(self, key: str, enabled: bool, *, user: "User | None" = None) -> ScheduledJobState:
         """Flip a job on/off, recording who did it."""
         row, _ = self.update_or_create(
             task_key=key,

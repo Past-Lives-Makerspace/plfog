@@ -9,6 +9,7 @@ models/managers and :mod:`membership.orientations`; nothing new lands in the han
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, cast
 
 from core.events.discord_commands import SlashCommand, register
 from core.events.discord_interactions import reply
@@ -20,6 +21,9 @@ from core.events.discord_replies import (
     resolve_command_guild,
     truncate,
 )
+
+if TYPE_CHECKING:
+    from membership.models import Guild, GuildOrientationSettings, Member
 
 # An interaction payload is Discord's JSON dict; the second arg is the resolved Member | None.
 Interaction = dict
@@ -78,7 +82,7 @@ def _section_block(heading: str, items: list[tuple[datetime, str, str]], calenda
     return "\n".join(lines)
 
 
-def _whats_on(interaction: Interaction, member) -> dict:  # noqa: ANN001 - Member | None (opportunistic, unused)
+def _whats_on(interaction: Interaction, member: Member | None) -> dict:
     """List community events + class sessions in the next 7 local days, each a linked, dated line."""
     from django.utils import timezone
 
@@ -119,7 +123,7 @@ _ANSWER_LIMIT = 200
 _FIELD_LIMIT = 1024
 
 
-def _meeting_value(guild) -> str:  # noqa: ANN001 - membership.models.Guild (lazy)
+def _meeting_value(guild: Guild) -> str:
     """The guild's next-meeting text: structured date/time/location, or the free-text schedule.
 
     Prefers the computed ``next_meeting_at`` (``None`` → ``"TBA"``) with ``meeting_time`` /
@@ -147,7 +151,7 @@ def _meeting_value(guild) -> str:  # noqa: ANN001 - membership.models.Guild (laz
     return guild.meeting_schedule
 
 
-def _staff_lines(guild) -> list[str]:  # noqa: ANN001 - membership.models.Guild (lazy)
+def _staff_lines(guild: Guild) -> list[str]:
     """Lead-first lines of everyone with lead authority — each person once, with their titles."""
     lead = guild.guild_lead if guild.guild_lead_id else None
     lines: list[str] = []
@@ -163,7 +167,7 @@ def _staff_lines(guild) -> list[str]:  # noqa: ANN001 - membership.models.Guild 
     return lines
 
 
-def _info(interaction: Interaction, member) -> dict:  # noqa: ANN001 - Member | None (opportunistic, unused)
+def _info(interaction: Interaction, member: Member | None) -> dict:
     """A guild summarized as one public embed — rules, next meeting, FAQ, links, staff.
 
     Every field is guarded so a heading never renders empty; a guild with no filled-in
@@ -233,7 +237,9 @@ _SLOT_LIST_CAP = 10
 _PROPOSE_HINT = "propose your own with `date:` (YYYY-MM-DD) and `time:` (e.g. 5:30pm)"
 
 
-def _slot_disambiguation(guild, settings_obj, guild_url: str, *, prefix: str = "") -> dict:  # noqa: ANN001
+def _slot_disambiguation(
+    guild: Guild, settings_obj: GuildOrientationSettings, guild_url: str, *, prefix: str = ""
+) -> dict:
     """List the guild's bookable slots (with pks) so the member can re-run with one chosen.
 
     Falls back to the custom-time hint when custom requests are allowed, or a guild-page
@@ -256,7 +262,7 @@ def _slot_disambiguation(guild, settings_obj, guild_url: str, *, prefix: str = "
     return reply(f"{prefix}No orientation times are posted yet. Check {guild_url} for updates.", ephemeral=True)
 
 
-def _requested_reply(guild, guild_url: str, detail: str) -> dict:  # noqa: ANN001
+def _requested_reply(guild: Guild, guild_url: str, detail: str) -> dict:
     """The shared "orientation requested" success copy (posted-slot or custom ``detail``)."""
     return reply(
         f"**Orientation requested — {guild.name}** ✅\n"
@@ -267,7 +273,9 @@ def _requested_reply(guild, guild_url: str, detail: str) -> dict:  # noqa: ANN00
     )
 
 
-def _book_posted_slot(guild, member, slot_opt: str, note: str, settings_obj, guild_url: str) -> dict:  # noqa: ANN001
+def _book_posted_slot(
+    guild: Guild, member: Member, slot_opt: str, note: str, settings_obj: GuildOrientationSettings, guild_url: str
+) -> dict:
     """Book a posted slot by its pk; a bad/unknown/unavailable pk re-lists the open times."""
     from membership import orientations
     from membership.models import OrientationError
@@ -286,8 +294,14 @@ def _book_posted_slot(guild, member, slot_opt: str, note: str, settings_obj, gui
 
 
 def _book_custom(
-    guild, member, date_opt: str | None, time_opt: str | None, note: str, settings_obj, guild_url: str
-) -> dict:  # noqa: ANN001
+    guild: Guild,
+    member: Member,
+    date_opt: str | None,
+    time_opt: str | None,
+    note: str,
+    settings_obj: GuildOrientationSettings,
+    guild_url: str,
+) -> dict:
     """Propose a custom time — needs both date + time, guild must allow custom requests."""
     from membership import orientations
     from membership.models import OrientationError
@@ -311,7 +325,7 @@ def _book_custom(
     )
 
 
-def _schedule_orientation(interaction: Interaction, member) -> dict:  # noqa: ANN001 - linked Member (requires_link)
+def _schedule_orientation(interaction: Interaction, member: Member | None) -> dict:
     """Request an orientation: guard the guild + duplicates, then book a posted slot XOR a custom time.
 
     ``requires_link=True`` guarantees ``member`` is non-``None``; ``defer=True`` because this
@@ -320,6 +334,7 @@ def _schedule_orientation(interaction: Interaction, member) -> dict:  # noqa: AN
     """
     from membership.models import GuildOrientationSettings
 
+    member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
     guild = resolve_command_guild(interaction)
     if guild is None:
         return guild_not_specified_reply()
@@ -345,7 +360,7 @@ def _schedule_orientation(interaction: Interaction, member) -> dict:  # noqa: AN
     has_custom = bool(date_opt) or bool(time_opt)
     if has_slot == has_custom:  # both given or neither → show the picker
         return _slot_disambiguation(guild, settings_obj, guild_url)
-    if has_slot:
+    if slot_opt:  # truthiness (not has_slot) so the str | None narrows for _book_posted_slot
         return _book_posted_slot(guild, member, slot_opt, note, settings_obj, guild_url)
     return _book_custom(guild, member, date_opt, time_opt, note, settings_obj, guild_url)
 

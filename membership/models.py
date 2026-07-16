@@ -3428,11 +3428,11 @@ class CommunityEvent(models.Model):
             start_date = max(anchor_date, frm)
             days_ahead = (local_start.weekday() - start_date.weekday()) % 7
             cursor = start_date + timedelta(days=days_ahead)
-            occurrences: list[datetime_type] = []
+            weekly_occurrences: list[datetime_type] = []
             while cursor <= to:
-                occurrences.append(local_start.replace(year=cursor.year, month=cursor.month, day=cursor.day))
+                weekly_occurrences.append(local_start.replace(year=cursor.year, month=cursor.month, day=cursor.day))
                 cursor = cursor + timedelta(days=7)
-            return occurrences
+            return weekly_occurrences
 
         from dateutil.relativedelta import FR, MO, SA, SU, TH, TU, WE, relativedelta
 
