@@ -2127,12 +2127,13 @@ def admin_activity(request: HttpRequest) -> HttpResponse:
     email. Pagination is 50 rows; older rows fall off the bottom.
     """
     from django.core.paginator import Paginator
+    from django.http import QueryDict
 
     qs = CmsActivity.objects.select_related(
         "class_offering",
         "registration",
         "actor",
-    ).order_by("-created_at")
+    )
 
     selected_group = request.GET.get("group", "all").strip() or "all"
     if selected_group in _ACTIVITY_GROUPS:
@@ -2150,6 +2151,17 @@ def admin_activity(request: HttpRequest) -> HttpResponse:
             | Q(registration__last_name__icontains=search)
         )
 
+    # "When" is the only sortable column; default to Most Recent (newest-first).
+    sort_dir = "asc" if request.GET.get("dir") == "asc" else "desc"
+    order_prefix = "" if sort_dir == "asc" else "-"
+    qs = qs.order_by(f"{order_prefix}created_at")
+
+    base_params = QueryDict(mutable=True)
+    if selected_group != "all":
+        base_params["group"] = selected_group
+    if search:
+        base_params["q"] = search
+
     paginator = Paginator(qs, 50)
     page = paginator.get_page(request.GET.get("page") or 1)
 
@@ -2163,6 +2175,9 @@ def admin_activity(request: HttpRequest) -> HttpResponse:
             "paginator": paginator,
             "selected_group": selected_group,
             "search": search,
+            "current_sort": "created_at",
+            "current_dir": sort_dir,
+            "base_params": base_params.urlencode(),
             "groups": [
                 ("all", "All"),
                 ("classes", "Classes"),

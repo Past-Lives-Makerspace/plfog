@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.urls import reverse
+from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import CmsActivity
@@ -62,3 +65,34 @@ def describe_admin_activity():
         response = client.get(reverse("classes:admin_activity") + "?q=zzznomatchzzz")
         assert response.status_code == 200
         assert list(response.context["events"]) == []
+
+    def describe_sorting_by_when():
+        def _two_rows(when):
+            """Two activity rows, one two hours older than the other, with known created_at."""
+            older = CmsActivity.objects.create(kind=CmsActivity.Kind.CLASS_CREATED)
+            newer = CmsActivity.objects.create(kind=CmsActivity.Kind.CLASS_CREATED)
+            CmsActivity.objects.filter(pk=older.pk).update(created_at=when - timedelta(hours=2))
+            CmsActivity.objects.filter(pk=newer.pk).update(created_at=when)
+            return older, newer
+
+        def it_defaults_to_most_recent_first(admin_user, client, db):
+            older, newer = _two_rows(timezone.now())
+            client.force_login(admin_user)
+            response = client.get(reverse("classes:admin_activity"))
+            events = list(response.context["events"])
+            assert [e.pk for e in events] == [newer.pk, older.pk]
+
+        def it_flips_to_oldest_first_with_dir_asc(admin_user, client, db):
+            older, newer = _two_rows(timezone.now())
+            client.force_login(admin_user)
+            response = client.get(reverse("classes:admin_activity") + "?dir=asc")
+            events = list(response.context["events"])
+            assert [e.pk for e in events] == [older.pk, newer.pk]
+
+        def it_renders_the_when_column_as_a_sort_toggle(admin_user, client, db):
+            ClassOfferingFactory()
+            client.force_login(admin_user)
+            response = client.get(reverse("classes:admin_activity"))
+            content = response.content.decode()
+            assert "sort=created_at" in content
+            assert "dir=asc" in content

@@ -11,7 +11,7 @@
 <form method="get" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:end;margin-bottom:1.25rem;">
   <div style="display:flex;gap:6px;flex-wrap:wrap;">
     {% for value, label in groups %}
-      <a href="?group={{ value }}{% if search %}&q={{ search }}{% endif %}"
+      <a href="?group={{ value }}{% if search %}&q={{ search }}{% endif %}{% if current_dir == 'asc' %}&dir=asc{% endif %}"
          class="hub-btn hub-btn--sm {% if selected_group == value %}hub-btn--primary{% else %}hub-btn--ghost{% endif %}">
         {{ label }}
       </a>
@@ -31,7 +31,7 @@
   <table>
     <thead>
       <tr>
-        <th style="width:170px;">When</th>
+        {% sort_header "When" "created_at" current_sort current_dir base_params %}
         <th>Event</th>
         <th>Class</th>
       </tr>
@@ -79,10 +79,10 @@
   </span>
   <div style="display:flex;gap:6px;">
     {% if page_obj.has_previous %}
-      <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?group={{ selected_group }}{% if search %}&q={{ search }}{% endif %}&page={{ page_obj.previous_page_number }}">← Previous</a>
+      <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?group={{ selected_group }}{% if search %}&q={{ search }}{% endif %}{% if current_dir == 'asc' %}&dir=asc{% endif %}&page={{ page_obj.previous_page_number }}">← Previous</a>
     {% endif %}
     {% if page_obj.has_next %}
-      <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?group={{ selected_group }}{% if search %}&q={{ search }}{% endif %}&page={{ page_obj.next_page_number }}">Next →</a>
+      <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?group={{ selected_group }}{% if search %}&q={{ search }}{% endif %}{% if current_dir == 'asc' %}&dir=asc{% endif %}&page={{ page_obj.next_page_number }}">Next →</a>
     {% endif %}
   </div>
 </nav>
