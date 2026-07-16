@@ -1145,6 +1145,18 @@ class GuildManager(models.Manager["Guild"]):
         """
         return self.filter(is_active=True, is_public=True).order_by("-is_featured", "name")
 
+    def for_discord_channel(self, channel_id: str) -> Guild | None:
+        """The active guild whose Discord channel is ``channel_id``, or ``None`` if unmapped.
+
+        Used by the slash-command platform to auto-detect which guild a member means
+        when they run a guild command *in* that guild's channel. ``.first()`` (not
+        ``.get()``) so an accidental duplicate mapping degrades to the disambiguation
+        fallback instead of raising; a blank ``channel_id`` short-circuits to ``None``.
+        """
+        if not channel_id:
+            return None
+        return self.filter(is_active=True, discord_channel_id=channel_id).first()
+
 
 class Guild(HeroCropMixin, models.Model):
     # Queryset annotation (set by GuildAdmin.get_queryset)
@@ -1269,6 +1281,17 @@ class Guild(HeroCropMixin, models.Model):
         help_text=(
             "Also post this guild's announcements to your own Discord channel "
             "(in addition to the makerspace-wide channel)."
+        ),
+    )
+    discord_channel_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "This guild's Discord channel id (right-click the channel → Copy Channel ID with "
+            "Developer Mode on). When a member runs a guild slash command in this channel, we know "
+            "which guild they mean. This is NOT the webhook URL above — leave blank if you don't use "
+            "channel auto-detection."
         ),
     )
     website_url = models.URLField(

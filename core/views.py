@@ -12,6 +12,7 @@ from django.core.paginator import Paginator
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 # ── Cross-surface session relay ────────────────────────────────────────────────
@@ -117,6 +118,37 @@ def relay_accept(request: HttpRequest) -> HttpResponse:
 def health_check(request):
     """Health check endpoint."""
     return JsonResponse({"status": "ok"})
+
+
+@csrf_exempt
+@require_POST
+def discord_interactions(request: HttpRequest) -> HttpResponse:
+    """Discord Interactions Endpoint URL — the slash-command platform's single POST view.
+
+    Discord POSTs here for every interaction. Signature verification runs FIRST (before
+    JSON parse, member lookup, or any handler); a bad or missing signature is the only
+    non-2xx we ever return (``401`` — Discord requires it and probes for it). A PING is
+    answered with a PONG; an APPLICATION_COMMAND is dispatched to its handler. Every other
+    interaction type is acked with an empty ``200``. ``dispatch()`` converts any handler
+    exception into an ephemeral error reply, so Discord never sees a 5xx (which would get
+    the endpoint auto-disabled).
+    """
+    from core.events.discord_commands import dispatch
+    from core.events.discord_interactions import pong, verify_signature
+
+    if not verify_signature(
+        settings.DISCORD_INTERACTIONS_PUBLIC_KEY,
+        request.headers.get("X-Signature-Ed25519", ""),
+        request.headers.get("X-Signature-Timestamp", ""),
+        request.body,
+    ):
+        return HttpResponse(status=401)
+    interaction = json.loads(request.body)
+    if interaction["type"] == 1:  # PING
+        return JsonResponse(pong())
+    if interaction["type"] == 2:  # APPLICATION_COMMAND
+        return JsonResponse(dispatch(interaction, request))
+    return HttpResponse(status=200)  # future interaction types: ack, do nothing
 
 
 def robots_txt(request: HttpRequest) -> HttpResponse:

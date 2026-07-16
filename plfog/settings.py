@@ -340,6 +340,14 @@ DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
 DISCORD_CLIENT_ID = os.environ.get("DISCORD_CLIENT_ID", "").strip()
 DISCORD_CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET", "").strip()
 
+# Discord Interactions endpoint public key (ed25519). Every inbound interaction
+# Discord sends to /discord/interactions/ is signed; this key verifies it. Blank by
+# default so the app and tests run without it — and a blank key FAILS CLOSED (every
+# signature check returns False, so an unconfigured endpoint rejects everything with
+# a 401 rather than trusting an unsigned body). Copy it from the Discord Developer
+# Portal → your application → General Information → Public Key.
+DISCORD_INTERACTIONS_PUBLIC_KEY = os.environ.get("DISCORD_INTERACTIONS_PUBLIC_KEY", "").strip()
+
 if _R2_READY:
     _default_storage = {
         "BACKEND": "storages.backends.s3.S3Storage",
