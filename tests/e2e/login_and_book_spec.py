@@ -65,4 +65,4 @@ def describe_login_and_book():
         page.locator("button.btn-reg").click()
 
         # 5. A free registration confirms immediately on the success page.
-        expect(page.locator("body")).to_contain_text("You're in!")
+        expect(page.locator("body")).to_contain_text("You're registered")

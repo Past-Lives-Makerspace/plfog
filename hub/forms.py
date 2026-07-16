@@ -335,7 +335,7 @@ class ProfileSettingsForm(forms.ModelForm):
             "instructor_social_handle",
         ]
         widgets = {
-            "preferred_name": forms.TextInput(attrs={"placeholder": "How should we call you?"}),
+            "preferred_name": forms.TextInput(attrs={"placeholder": "What should we call you?"}),
             "phone": forms.TextInput(attrs={"placeholder": "(optional)"}),
             "discord_handle": forms.TextInput(attrs={"placeholder": "@username"}),
             "other_contact_info": forms.TextInput(attrs={"placeholder": "Instagram, Signal, etc."}),

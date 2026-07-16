@@ -3,7 +3,7 @@
 {% block tab_content %}
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;">
   <a class="hub-card" style="margin:0;text-decoration:none;" href="{% url 'classes:admin_categories' %}">
-    <h3 style="margin:0 0 4px;">Guilds</h3>
+    <h3 style="margin:0 0 4px;">Guild Types</h3>
     <p style="margin:0;color:var(--hub-text-muted);">Groupings that organize the class catalog.</p>
   </a>
   <a class="hub-card" style="margin:0;text-decoration:none;" href="{% url 'classes:admin_discount_codes' %}">
@@ -16,7 +16,7 @@
   </a>
   <a class="hub-card" style="margin:0;text-decoration:none;" href="{% url 'classes:admin_settings' %}">
     <h3 style="margin:0 0 4px;">Waivers &amp; reminders</h3>
-    <p style="margin:0;color:var(--hub-text-muted);">Liability text, model-release text, reminder timing.</p>
+    <p style="margin:0;color:var(--hub-text-muted);">Liability text, photo-release text, reminder timing.</p>
   </a>
 </div>
 {% endblock %}

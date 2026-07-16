@@ -99,8 +99,8 @@ class Category(HeroCropMixin, models.Model):
 
     class Meta:
         ordering = ["sort_order", "name"]
-        verbose_name = "Guild"
-        verbose_name_plural = "Guilds"
+        verbose_name = "Guild Type"
+        verbose_name_plural = "Guild Types"
 
     def __str__(self) -> str:
         return self.name
@@ -265,7 +265,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         help_text="Optional YouTube link (watch, youtu.be, embed, or shorts URL). Embeds on the public class page.",
     )
     requires_model_release = models.BooleanField(
-        default=False, help_text="When on, registrants also sign model release."
+        default=False, help_text="When on, registrants also sign photo release."
     )
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.DRAFT, help_text="Lifecycle status."
@@ -1241,7 +1241,7 @@ class DiscountCode(models.Model):
 class Waiver(models.Model):
     class Kind(models.TextChoices):
         LIABILITY = "liability", "Liability"
-        MODEL_RELEASE = "model_release", "Model Release"
+        MODEL_RELEASE = "model_release", "Photo Release"
 
     registration = models.ForeignKey(
         "Registration",

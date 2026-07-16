@@ -1,20 +1,20 @@
 {% extends "classes/base_public.html" %}
 {% load classes_tags %}
 
-{% block title %}Classes &amp; Workshops — Past Lives Makerspace{% endblock %}
+{% block title %}Classes — Past Lives Makerspace{% endblock %}
 
 {% block portal_content %}
 <div id="hero">
-  <h1>Classes <span>&amp;</span> Workshops Catalog</h1>
+  <h1>Classes Catalog</h1>
   <p>Learn blacksmithing, lampworking, ceramics, framing, and more from working artists in Portland's largest makerspace.</p>
   <div id="hero-stats">
     <div id="hero-classes-stat">{% include "classes/public/_hero_classes_stat.html" %}</div>
-    <div><div class="hs-n">{{ total_categories }}</div><div class="hs-l">Guilds</div></div>
+    <div><div class="hs-n">{{ total_categories }}</div><div class="hs-l">Guild Types</div></div>
     <div><div class="hs-n">{{ total_instructors }}</div><div class="hs-l">Instructors</div></div>
   </div>
   <div id="hero-cta">
     {% if request.view_as.is_admin %}
-      <a class="cta-secondary" href="{% if is_public_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'classes:admin_overview' %}">Manage Classes &amp; Workshops</a>
+      <a class="cta-secondary" href="{% if is_public_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'classes:admin_overview' %}">Manage classes</a>
     {% elif request.view_as.is_member %}
       <a class="cta-secondary" href="{% if is_public_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'classes:teach_overview' %}">Manage My Classes</a>
     {% endif %}
@@ -39,9 +39,9 @@
       x-data="{ open: false }">
   <div class="cp-filter__row">
     <label class="cp-filter__field cp-filter__field--select">
-      <span class="cp-filter__field-label">Guild</span>
+      <span class="cp-filter__field-label">Guild Type</span>
       <select name="category" class="cp-filter__select">
-        <option value="">All guilds</option>
+        <option value="">All Guild Types</option>
         {% for cat in categories %}
           <option value="{{ cat.slug }}" {% if selected_category_slug == cat.slug %}selected{% endif %}>{{ cat.name }} ({{ cat.class_count }})</option>
         {% endfor %}

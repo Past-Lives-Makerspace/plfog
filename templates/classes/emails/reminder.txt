@@ -10,7 +10,7 @@ A note from your instructor:
 Full class details (what to bring, parking, and more):
 {{ class_url }}
 
-Manage your registration (or cancel):
+Manage your registration:
 {{ self_serve_url }}
 
 See you soon!

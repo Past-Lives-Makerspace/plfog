@@ -96,11 +96,11 @@ def describe_public_list():
         assert '<div class="hs-n">1</div><div class="hs-l">Class</div>' in body
 
     def it_labels_the_grouping_as_guilds_not_categories(published_class, client):
-        # The "Categories → Guilds" relabel: hero stat label and filter copy read "Guild(s)".
+        # The "Categories → Guild Types" relabel: hero stat label and filter copy read "Guild Type(s)".
         response = client.get(reverse("classes:public_list"))
         body = response.content.decode()
-        assert '<div class="hs-l">Guilds</div>' in body
-        assert "All guilds" in body
+        assert '<div class="hs-l">Guild Types</div>' in body
+        assert "All Guild Types" in body
         assert '<div class="hs-l">Categories</div>' not in body
         assert "All categories" not in body
 
@@ -684,13 +684,13 @@ def describe_catalog_grouping():
 
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": first.slug}))
 
-        assert b"Other dates for this class" in response.content
+        assert b"Other Dates for This Class" in response.content
         assert b"forge-b" in response.content
 
     def it_omits_other_dates_when_a_class_stands_alone(published_class, client):
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
 
-        assert b"Other dates for this class" not in response.content
+        assert b"Other Dates for This Class" not in response.content
 
     def it_skips_sibling_lookup_when_the_grouping_key_is_blank(db, client):
         # A title-less offering yields an empty grouping key and must stand alone
@@ -714,7 +714,7 @@ def describe_catalog_grouping():
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
 
         assert response.status_code == 200
-        assert b"Other dates for this class" not in response.content
+        assert b"Other Dates for This Class" not in response.content
 
 
 def describe_public_instructor():

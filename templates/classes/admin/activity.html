@@ -34,7 +34,6 @@
         <th style="width:170px;">When</th>
         <th>Event</th>
         <th>Class</th>
-        <th>Actor</th>
       </tr>
     </thead>
     <tbody>
@@ -65,13 +64,6 @@
               <a href="{% url 'classes:admin_class_detail' pk=ev.class_offering.pk %}">{{ ev.class_offering.title }}</a>
             {% else %}
               <span style="color:var(--hub-text-muted);">—</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if ev.actor %}
-              {{ ev.actor.get_full_name|default:ev.actor.email }}
-            {% else %}
-              <span style="color:var(--hub-text-muted);">system</span>
             {% endif %}
           </td>
         </tr>

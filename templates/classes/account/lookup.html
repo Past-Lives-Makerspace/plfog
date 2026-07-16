@@ -6,7 +6,7 @@
     <div class="bk-auth">
       <div class="bk-auth-card">
         <div class="bk-auth-eyebrow">No account? No problem.</div>
-        <h1 class="bk-auth-title">Find your booking.</h1>
+        <h1 class="bk-auth-title">Find your class.</h1>
         <p class="bk-auth-sub">Booked as a guest? Enter your last name and the order number from your confirmation email.</p>
 
         <form method="post" novalidate>{% csrf_token %}
@@ -22,7 +22,7 @@
             {% if form.order_number.errors %}<div class="bk-field-hint" style="color:#f87171">{{ form.order_number.errors.0 }}</div>{% endif %}
           </div>
           <div class="bk-auth-actions">
-            <button type="submit" class="bk-btn-primary">Find my booking</button>
+            <button type="submit" class="bk-btn-primary">Find my class</button>
           </div>
         </form>
 

@@ -237,6 +237,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, f
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.fields["member_discount_pct"].label = "Member discount (%)"
+        self.fields["category"].label = "Guild Type"
         self.add_is_free_field()
         self.add_hero_crop_field()
         self.setup_scheduling_type_field()
@@ -290,6 +291,7 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMix
         self.teaching_member = teaching_member
         super().__init__(*args, **kwargs)
         self.fields["member_discount_pct"].label = "Member discount (%)"
+        self.fields["category"].label = "Guild Type"
         self.add_is_free_field()
         self.add_hero_crop_field()
         self.setup_scheduling_type_field()
@@ -441,6 +443,9 @@ class DiscountCodeForm(forms.ModelForm):
         labels = {
             "auto_apply": "Auto-apply for eligible registrants (no need for them to type the code)",
         }
+        help_texts = {
+            "max_uses": "Leaving the 'uses' field blank indicates unlimited uses.",
+        }
 
     def __init__(self, *args, scoped_to: ClassOffering | None = None, created_by=None, **kwargs) -> None:
         """Optionally bind this code to a single class and an audit user.
@@ -557,14 +562,14 @@ class RegistrationForm(forms.ModelForm):
     model_release_signature = forms.CharField(
         max_length=255,
         required=False,
-        label="Type your full name to sign the model release",
+        label="Type your full name to sign the photo release",
     )
     accepts_liability = forms.BooleanField(
         label="I have read and agree to the liability waiver above.",
     )
     accepts_model_release = forms.BooleanField(
         required=False,
-        label="I have read and agree to the model release above.",
+        label="I have read and agree to the photo release above.",
     )
 
     class Meta:
@@ -705,7 +710,7 @@ class RegistrationForm(forms.ModelForm):
         if not self.is_waitlist and self.offering.spots_remaining <= 0:
             raise forms.ValidationError("This class is sold out.")
         if self.offering.requires_model_release and not data.get("accepts_model_release"):
-            self.add_error("accepts_model_release", "Model release acceptance is required for this class.")
+            self.add_error("accepts_model_release", "Photo release acceptance is required for this class.")
         if not self.is_waitlist:
             # Stripe rejects USD charges under $0.50. Either drop to 0 (free) or be at/above the minimum.
             final_price = self.compute_final_price_cents()
