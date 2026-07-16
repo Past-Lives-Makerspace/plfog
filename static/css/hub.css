@@ -4262,3 +4262,18 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 @media (max-width: 640px) {
     .pl-slideshow-daterow { flex-direction: column; }
 }
+
+/* Guild announcement reach — collapsible recipient list (guild edit → Announcements tab) */
+.pl-recipient-list {
+  margin-top: 0.75rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--hub-input-border);
+  border-radius: 6px;
+  background: var(--hub-surface);
+  color: var(--hub-text);
+}
+.pl-recipient-list ul { margin: 0; padding-left: 1.1rem; }
+.pl-recipient-list li { overflow-wrap: anywhere; word-break: break-all; line-height: 1.5; }

@@ -6,10 +6,11 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db.models.signals import post_save
 from django.test import Client
 from django.urls import reverse
-
-from django.core.files.uploadedfile import SimpleUploadedFile
+from factory.django import mute_signals
 
 from billing.models import Product, ProductRevenueSplit
 from hub.forms import GuildEditForm
@@ -19,6 +20,8 @@ from tests.membership.factories import (
     GuildFactory,
     GuildFAQItemFactory,
     GuildLinkFactory,
+    GuildMembershipFactory,
+    MemberFactory,
     MembershipPlanFactory,
 )
 
@@ -38,6 +41,21 @@ def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> 
     member.save(update_fields=["fog_role"])
     member.sync_user_permissions()
     return user
+
+
+def _active_guild_member(guild: Guild, *, email: str) -> Member:
+    """An ACTIVE member joined to ``guild`` with a linked, email-bearing User (a real recipient).
+
+    Signals are muted while creating the User so ``ensure_user_has_member`` doesn't spawn a second
+    Member; we attach the User to our own factory Member instead.
+    """
+    member = MemberFactory()
+    with mute_signals(post_save):
+        user = User.objects.create_user(username=f"gm_{member.pk}", email=email)
+    member.user = user
+    member.save(update_fields=["user"])
+    GuildMembershipFactory(guild=guild, member=member)
+    return member
 
 
 def _product_post_payload(guild) -> dict:
@@ -1181,3 +1199,34 @@ def describe_guild_delete():
         assert response.status_code == 200
         assert b"Danger Zone" not in response.content
         assert reverse("hub_guild_delete", args=[guild.pk]).encode() not in response.content
+
+
+@pytest.mark.django_db
+def describe_guild_announcement_reach():
+    """The pre-compose reach line + collapsible recipient list on the Announcements tab."""
+
+    def it_shows_the_reach_count_on_the_announcements_tab(client: Client):
+        user = _user_with_role("reach_lead", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        _active_guild_member(guild, email="a@example.com")
+        _active_guild_member(guild, email="b@example.com")
+        client.login(username="reach_lead", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]) + "?tab=announcements")
+        assert response.status_code == 200
+        assert response.context["announcement_recipient_count"] == 2
+        # Assert on the specific reach-line markup, not a bare number that the "what's new"
+        # changelog widget (echoed on every hub page) could also contain.
+        assert b"<strong>2 members</strong> will receive an emailed announcement." in response.content
+        # The collapsible recipient list is rendered when there are recipients.
+        assert b'class="pl-recipient-list"' in response.content
+
+    def it_shows_the_empty_state_when_the_guild_has_no_members(client: Client):
+        user = _user_with_role("empty_lead", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="empty_lead", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]) + "?tab=announcements")
+        assert response.status_code == 200
+        assert response.context["announcement_recipient_count"] == 0
+        assert b"No members in this guild yet" in response.content
+        # No recipient list is rendered when there is nobody to list.
+        assert b"pl-recipient-list" not in response.content

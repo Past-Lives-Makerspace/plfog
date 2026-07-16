@@ -491,6 +491,28 @@ confirm modal carries its own POST form, and template content can't nest a form.
   <div class="hub-card" style="padding:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem;">Post an Announcement</h2>
     <p class="hub-text-muted" style="font-size:0.875rem; margin:0 0 1rem;">Compose in the step-through wizard — write the message, design the email with a live preview, choose the Discord channel, and save a draft to finish later.</p>
+    {% if announcement_recipient_count %}
+    <div style="margin-bottom:1.5rem;">
+      <p style="margin:0 0 0.75rem;"><strong>{{ announcement_recipient_count }} member{{ announcement_recipient_count|pluralize }}</strong> will receive an emailed announcement.</p>
+      <div x-data="{ showRecipients: false }">
+        <button type="button" class="hub-btn hub-btn--sm" @click="showRecipients = !showRecipients">
+          <span x-show="!showRecipients">Show recipients</span>
+          <span x-show="showRecipients" x-cloak>Hide recipients</span>
+        </button>
+        <div x-show="showRecipients" x-cloak class="pl-recipient-list">
+          <ul>
+            {% for email in announcement_recipient_emails %}
+            <li>{{ email }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.75rem 0 0;">You can already email your guild's members, so their addresses are shown here.</p>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.25rem 0 0;">Members without an email on file aren't counted — they won't receive the announcement.</p>
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0 0 1.5rem;">No members in this guild yet — nobody will receive announcements.</p>
+    {% endif %}
     <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}" class="hub-btn hub-btn--primary">Compose announcement &rarr;</a>
   </div>
 

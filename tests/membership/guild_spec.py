@@ -4,13 +4,19 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
+from django.contrib.auth.models import User
 from django.db import IntegrityError
+from django.db.models.signals import post_save
 from django.test import override_settings
 from django.utils import timezone
+from factory.django import mute_signals
 
+from core.events import resolvers
+from core.events.registry import Recipients
 from membership.models import Guild, Lease, Member, MembershipPlan, Space
 from tests.membership.factories import (
     GuildFactory,
+    GuildMembershipFactory,
     LeaseFactory,
     MemberFactory,
     SpaceFactory,
@@ -107,6 +113,58 @@ def describe_Guild_ordering():
         assert names == sorted(names)
         assert g1 in guilds
         assert g2 in guilds
+
+
+def describe_announcement_recipients():
+    def _joined(guild, *, email="member@example.com", status=Member.Status.ACTIVE, link_user=True):
+        """An ACTIVE member joined to ``guild``, linked to an email-bearing User by default.
+
+        Mirrors the event-spine conftest's ``linked_member`` (mute the auto-provision signal so
+        attaching our own User doesn't spawn a second Member). ``email=""`` or ``link_user=False``
+        build members the resolver must drop.
+        """
+        member = MemberFactory(status=status)
+        if link_user:
+            with mute_signals(post_save):
+                user = User.objects.create_user(username=f"gm_{member.pk}", email=email)
+            member.user = user
+            member.save(update_fields=["user"])
+        GuildMembershipFactory(guild=guild, member=member)
+        return member
+
+    def it_counts_active_members_with_email():
+        guild = GuildFactory()
+        _joined(guild, email="a@example.com")
+        _joined(guild, email="b@example.com")
+        recipients = guild.announcement_recipients()
+        assert len(recipients) == 2
+        assert {user.email for user, _reason in recipients} == {"a@example.com", "b@example.com"}
+
+    def it_excludes_members_with_no_email():
+        guild = GuildFactory()
+        _joined(guild, email="has@example.com")
+        _joined(guild, email="")  # linked User but blank email → dropped
+        _joined(guild, link_user=False)  # unlinked member → dropped
+        recipients = guild.announcement_recipients()
+        assert len(recipients) == 1
+        assert [user.email for user, _reason in recipients] == ["has@example.com"]
+
+    def it_excludes_inactive_members():
+        guild = GuildFactory()
+        _joined(guild, email="active@example.com", status=Member.Status.ACTIVE)
+        _joined(guild, email="former@example.com", status=Member.Status.FORMER)
+        recipients = guild.announcement_recipients()
+        assert [user.email for user, _reason in recipients] == ["active@example.com"]
+
+    def it_is_empty_for_a_guild_with_no_members():
+        guild = GuildFactory()
+        assert guild.announcement_recipients() == []
+
+    def it_matches_the_send_resolver():
+        guild = GuildFactory()
+        _joined(guild, email="one@example.com")
+        _joined(guild, email="two@example.com")
+        assert guild.announcement_recipients() == resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": guild})
 
 
 # ---------------------------------------------------------------------------

@@ -691,9 +691,12 @@ def _guild_edit_context(
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     ctx = _get_hub_context(request)
+    recipients = guild.announcement_recipients()
     return {
         **ctx,
         "guild": guild,
+        "announcement_recipient_count": len(recipients),
+        "announcement_recipient_emails": sorted(user.email for user, _reason in recipients),
         "form": form if form is not None else GuildEditForm(instance=guild),
         "faq_formset": GuildFAQItemFormSet(instance=guild, prefix="faq"),
         "link_formset": GuildLinkFormSet(instance=guild, prefix="links"),

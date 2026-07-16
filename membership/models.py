@@ -1535,6 +1535,18 @@ class Guild(HeroCropMixin, models.Model):
                 seen.add(staff.member_id)
         return members
 
+    def announcement_recipients(self) -> list[tuple["User", str]]:
+        """The exact ``(User, reason)`` list a guild announcement email fans out to.
+
+        Delegates to the real send resolver so the lead-facing count/list can never
+        drift from delivery. NOT directory-privacy filtered (guild members hear from
+        their own guild regardless of directory visibility) and NOT last_login-gated.
+        """
+        from core.events import resolvers
+        from core.events.registry import Recipients
+
+        return resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self})
+
 
 class GuildStaffMembership(models.Model):
     """A member's leadership role on a guild, beyond the single ``Guild.guild_lead`` FK.
