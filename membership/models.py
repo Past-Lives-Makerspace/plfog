@@ -1157,6 +1157,18 @@ class GuildManager(models.Manager["Guild"]):
             return None
         return self.filter(is_active=True, discord_channel_id=channel_id).first()
 
+    def matching(self, query: str) -> models.QuerySet[Guild]:
+        """Active guilds whose name or slug contains ``query`` (case-insensitive).
+
+        Used by the Discord slash commands to resolve a member-typed ``guild`` option
+        leniently to a guild. A blank ``query`` matches nothing (the caller then shows
+        the "which guild?" reply).
+        """
+        query = (query or "").strip()
+        if not query:
+            return self.none()
+        return self.filter(is_active=True).filter(models.Q(name__icontains=query) | models.Q(slug__icontains=query))
+
 
 class Guild(HeroCropMixin, models.Model):
     # Queryset annotation (set by GuildAdmin.get_queryset)

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.22.6"
+VERSION = "0.22.7"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.22.6",
+        "version": "0.22.7",
         "date": "2026-07-16",
         "title": "Slash commands in Discord",
         "changes": [
@@ -14,6 +14,11 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "Type /link in the Past Lives Discord to connect your Discord to your member account in "
                 "one tap — no digging through settings. Once connected, guild syncing and the rest of the "
                 "Discord goodies just work."
+            ),
+            (
+                "Four more commands to use right in Discord: /schedule-orientation to request a guild "
+                "orientation, /whats-on for the next 7 days of events and classes, /balance to check "
+                "your tab, and /info for any guild's rules, meetings, FAQ, and links."
             ),
         ],
     },
