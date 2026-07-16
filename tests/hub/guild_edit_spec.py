@@ -594,30 +594,6 @@ def describe_GuildEditForm():
         assert form.is_valid(), form.errors
         assert form.save().faq_label == "FAQ"
 
-    def it_makes_a_guild_private_when_make_private_is_checked():
-        guild = GuildFactory(name="Secret Guild", is_public=True)
-        form = GuildEditForm(
-            data={"name": "Secret Guild", "calendar_color": "#4B9FEE", "make_private": "on"},
-            instance=guild,
-        )
-        assert form.is_valid(), form.errors
-        assert form.save().is_public is False
-
-    def it_makes_a_guild_public_when_make_private_is_unchecked():
-        guild = GuildFactory(name="Reopened Guild", is_public=False)
-        form = GuildEditForm(
-            data={"name": "Reopened Guild", "calendar_color": "#4B9FEE"},  # make_private omitted = unchecked
-            instance=guild,
-        )
-        assert form.is_valid(), form.errors
-        assert form.save().is_public is True
-
-    def it_initializes_make_private_from_the_stored_is_public_value():
-        public = GuildFactory(name="Open Guild", is_public=True)
-        private = GuildFactory(name="Closed Guild", is_public=False)
-        assert GuildEditForm(instance=public).fields["make_private"].initial is False
-        assert GuildEditForm(instance=private).fields["make_private"].initial is True
-
 
 @pytest.mark.django_db
 def describe_guild_edit_page():
@@ -1096,37 +1072,17 @@ def describe_guild_content_tab_template():
 
 
 @pytest.mark.django_db
-def describe_guild_visibility_controls():
-    """The 'make this page private' toggle + its effect on the Share & Print card."""
+def describe_guild_share_and_print():
+    """The Share & Print card — every guild is public, so it always renders."""
 
-    def it_renders_the_make_private_toggle_on_the_basic_tab(client: Client):
-        _user_with_role("vis_toggle", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory()
-        client.login(username="vis_toggle", password="pass")
-        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
-        assert response.status_code == 200
-        assert b"Make this guild page private?" in response.content
-
-    def it_shows_the_share_and_print_actions_for_a_public_guild(client: Client):
+    def it_shows_the_share_and_print_actions(client: Client):
         _user_with_role("vis_pub", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory(is_public=True)
+        guild = GuildFactory()
         client.login(username="vis_pub", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert response.status_code == 200
         assert b"Download QR (SVG)" in response.content
         assert b"Open printable flyer" in response.content
-
-    def it_hides_the_share_and_print_actions_for_a_private_guild(client: Client):
-        _user_with_role("vis_priv", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory(is_public=False)
-        client.login(username="vis_priv", password="pass")
-        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
-        assert response.status_code == 200
-        # The share/QR/flyer actions are gone ...
-        assert b"Download QR (SVG)" not in response.content
-        assert b"Open printable flyer" not in response.content
-        # ... replaced with an explanatory note.
-        assert b"to share a link, QR code, and printable flyer" in response.content
 
 
 @pytest.mark.django_db

@@ -193,14 +193,13 @@ def guild_vanity_redirect(request: HttpRequest, slug: str) -> HttpResponse:
     """Public, human-typable pastlives.app/g/<slug> → 301 to the guest guild page.
 
     Reachable pre-login (no decorator). The default Guild manager hides soft-deleted
-    guilds, so an unknown OR soft-deleted slug 404s. A private guild (``is_public=False``)
-    also 404s — we never publicly redirect to a page that would itself 404. Permanent (301)
-    because the vanity ↔ guild mapping is stable; the QR/flyer encode THIS route so the guest
+    guilds, so an unknown OR soft-deleted slug 404s. Permanent (301) because the
+    vanity ↔ guild mapping is stable; the QR/flyer encode THIS route so the guest
     host can move without reprints.
     """
     from membership.models import Guild
 
-    guild = get_object_or_404(Guild, slug=slug, is_public=True)
+    guild = get_object_or_404(Guild, slug=slug)
     target = f"{settings.GUILDS_BASE_URL}{reverse('hub_guild_detail', args=[guild.slug])}"
     return HttpResponsePermanentRedirect(target)
 

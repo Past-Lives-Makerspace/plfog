@@ -65,13 +65,11 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
                 Edit
             </a>
-            {% if guild.is_public %}
             <a href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}" target="_blank" rel="noopener"
                class="pl-btn pl-btn--secondary" title="Open this guild's public page as a guest" x-show="!isAdjusting">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 View public page
             </a>
-            {% endif %}
             {% if guild.banner_image %}
                 <button type="button" class="pl-btn pl-btn--secondary"
                         @click="startAdjusting()" x-show="!isAdjusting" :disabled="isLoading" title="Adjust Placement">

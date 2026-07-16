@@ -233,32 +233,19 @@ def describe_guest_guild_page():
             assert "://" not in resp["Location"]
             assert GuildMembership.objects.filter(guild=guild, member=member).exists()
 
-    def describe_private_guild_visibility():
-        def it_404s_a_private_guild_for_anonymous_guests(client: Client):
-            guild = GuildFactory(name="Hidden Guild", is_public=False)
-            assert _guest_get(client, guild).status_code == 404
-
-        def it_404s_a_private_guild_on_the_guilds_surface_even_for_a_member(client: Client):
-            # The guest surface never exposes a private guild — leads edit it on FOG.
-            guild = GuildFactory(name="Hidden Guild", is_public=False)
-            _login_member(client)
-            assert _guest_get(client, guild).status_code == 404
-
-        def it_still_shows_a_public_guild_to_anonymous_guests(client: Client):
-            guild = GuildFactory(name="Open Guild", is_public=True)
+    def describe_guild_visibility():
+        # Every active guild is public and visible on every surface — the old
+        # is_public gate is gone, so the only way to hide a guild is is_active off.
+        def it_shows_an_active_guild_to_anonymous_guests(client: Client):
+            guild = GuildFactory(name="Open Guild")
             assert _guest_get(client, guild).status_code == 200
 
-        def it_shows_a_private_guild_to_a_logged_in_member_on_the_hub(client: Client):
-            # Member-hub viewing is never gated on is_public.
-            guild = GuildFactory(name="Hidden Guild", is_public=False)
+        def it_shows_an_active_guild_to_a_logged_in_member_on_the_hub(client: Client):
+            guild = GuildFactory(name="Open Guild")
             _login_member(client)
             resp = client.get(f"/guilds/{guild.slug}/")  # default host -> members surface
             assert resp.status_code == 200
-            assert b"Hidden Guild" in resp.content
-
-        def it_404s_a_private_guild_for_an_anonymous_visitor_on_the_hub(client: Client):
-            guild = GuildFactory(name="Hidden Guild", is_public=False)
-            assert client.get(f"/guilds/{guild.slug}/").status_code == 404
+            assert b"Open Guild" in resp.content
 
 
 def _guild_with_contactable_lead(name="Contact Guild"):

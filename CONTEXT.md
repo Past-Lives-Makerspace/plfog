@@ -48,6 +48,10 @@ _Avoid_: treating the pair as duplicates; "Discord event" unqualified.
 A member-run interest group within the makerspace (woodshop, blacksmithing, etc.), with leads, staff, and a public page. The real `membership.Guild`.
 _Avoid_: using bare "guild" for a class catalog category — that is a **Guild Type** (see below).
 
+**Private guild** (removed concept):
+There is no such thing — every active Guild is visible on every surface (hub, public guilds site, Discord). The `is_public` flag was stripped in v22 as unused (0 of 15 guilds ever set it); "hide a guild" is `is_active` off, which removes it everywhere.
+_Avoid_: private guild, hidden guild, gating anything on guild visibility.
+
 **Guild Type**:
 The catalog category a class belongs to (the `classes.Category` model). User-facing copy calls it a "Guild Type" — not "category" or bare "Guild". A Guild Type may link to a hub Guild to route a submitted class's approval to that Guild's Lead, but a Guild Type (catalog category) and a Guild (member group) are distinct.
 _Avoid_: category (in user-facing copy), class type, bare "guild".

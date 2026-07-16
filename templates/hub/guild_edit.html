@@ -38,7 +38,6 @@
         {% include "components/form_field.html" with field=form.featured_class field_label="Featured class" %}
       </div>
       {% include "components/form_field.html" with field=form.show_members %}
-      {% include "components/toggle.html" with field=form.make_private toggle_label="Make this guild page private?" toggle_description="When on, this guild's page is hidden from the public guilds site — members can still see it in the hub." %}
     </div>
   </div>
 
@@ -185,7 +184,6 @@
 {# ── Share & Print (Basic tab) — vanity URL, printable flyer, QR downloads ──── #}
 <div x-show="section === 'basic'" x-cloak class="hub-card" style="padding:1.5rem; margin-top:2.5rem; margin-bottom:1.5rem;">
   <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Share &amp; Print</h2>
-  {% if guild.is_public %}
   <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem; max-width:46rem;">
     Every guild has a short public web page. Print the flyer for the shop wall, hand out the QR code, or read the link aloud.
   </p>
@@ -206,11 +204,6 @@
     </div>
     <div class="pl-qr-preview" aria-hidden="true">{{ guild.qr_svg|safe }}</div>
   </div>
-  {% else %}
-  <p class="hub-text-muted" style="font-size:0.8125rem; margin:0; max-width:46rem;">
-    This guild's page is private — turn off <strong>“Make this guild page private?”</strong> above to share a link, QR code, and printable flyer.
-  </p>
-  {% endif %}
 </div>
 
 {% if is_admin %}

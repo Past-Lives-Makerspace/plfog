@@ -72,15 +72,6 @@ class GuildEditForm(forms.ModelForm):
         choices=_WEEK_CHOICES, coerce=int, required=False, empty_value=None, label="Week of month"
     )
     meeting_time_choice = forms.ChoiceField(choices=_MEETING_TIME_CHOICES, required=False, label="Meeting time")
-    # Stored in the positive ``is_public`` sense on the model; presented to leads as the
-    # inverse ("make private") so the checked = hidden mental model matches the label.
-    make_private = forms.BooleanField(
-        required=False,
-        label="Make this guild page private?",
-        help_text=(
-            "When on, this guild's page is hidden from the public guilds site — members can still see it in the hub."
-        ),
-    )
 
     class Meta:
         model = Guild
@@ -210,10 +201,6 @@ class GuildEditForm(forms.ModelForm):
         # empty never blocks a save of the rest of the form.
         self.fields["faq_label"].required = False
 
-        # Seed the "make private" checkbox from the stored (positive) is_public value.
-        if self.instance and self.instance.pk:
-            self.fields["make_private"].initial = not self.instance.is_public
-
         featured = cast(forms.ModelChoiceField, self.fields["featured_class"])
         if self.instance and self.instance.pk:
             featured.queryset = ClassOffering.objects.filter(
@@ -242,8 +229,6 @@ class GuildEditForm(forms.ModelForm):
             guild.meeting_time = time(int(hour_str), int(minute_str))
         else:
             guild.meeting_time = None
-        # "Make private" is the inverse of the stored positive is_public flag.
-        guild.is_public = not self.cleaned_data.get("make_private", False)
         if commit:
             guild.save()
         return guild

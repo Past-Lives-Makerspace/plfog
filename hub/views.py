@@ -503,13 +503,6 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     products = guild.products.order_by("name").prefetch_related("splits__guild")
     member = _get_member(request)
 
-    # A private guild is hidden from the public guest surface entirely: it 404s for
-    # anyone who isn't a logged-in member viewing it inside the FOG hub. Members on the
-    # members host always see the page — visibility is never gated on is_public there.
-    on_guest_surface = getattr(request, "surface", "members") != "members"
-    if not guild.is_public and (on_guest_surface or member is None):
-        raise Http404("This guild's page is private.")
-
     tab: Tab | None = None
     if member is not None:
         tab, _created = Tab.objects.get_or_create(member=member)
