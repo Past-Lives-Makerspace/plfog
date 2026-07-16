@@ -28,7 +28,12 @@ from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering
-from tests.membership.factories import MembershipPlanFactory, SlideshowSlideFactory, SlideshowZoneFactory
+from tests.membership.factories import (
+    GuildFactory,
+    MembershipPlanFactory,
+    SlideshowSlideFactory,
+    SlideshowZoneFactory,
+)
 
 # Tolerated a11y debt (axe rule IDs). Currently empty — these pages are fully
 # AA-clean. Add a rule id here only as a documented, temporary escape hatch.
@@ -126,6 +131,62 @@ def describe_accessibility():
 
         offenders = _offenders_for(page, f"{live_server.url}{reverse('notification_list')}", MEMBERS_HUB_DEBT)
         assert not offenders, "Critical or new (unbaselined) a11y violations on /notifications/:\n  " + "\n  ".join(
+            offenders
+        )
+
+    def it_has_no_violations_on_the_v22_admin_surfaces(live_server, page, login_via_code):
+        # The v22 editor pages: the guild editor's Meetings tab (studio-hours formset)
+        # and Site Settings' Automations tab. Signed in as an admin; both live on the
+        # members surface, so they share its chrome debt allowlist. The ?tab= param
+        # seeds Alpine's active section, and axe only scans what's visible.
+        MembershipPlanFactory()
+        email = "a11y-admin@example.com"
+        login_via_code(email)
+        user = get_user_model().objects.get(username=email)
+        user.is_staff = True
+        user.is_superuser = True
+        user.save(update_fields=["is_staff", "is_superuser"])
+        guild = GuildFactory(name="Ceramics Guild")
+
+        pages = {
+            "guild-edit-meetings": f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meetings",
+            "site-settings-automations": f"{reverse('hub_admin_site_settings')}?tab=automations",
+        }
+        offenders = []
+        for name, path in pages.items():
+            offenders += [f"{name} {o}" for o in _offenders_for(page, f"{live_server.url}{path}", MEMBERS_HUB_DEBT)]
+        assert not offenders, "Critical or new (unbaselined) a11y violations:\n  " + "\n  ".join(offenders)
+
+    def it_has_no_violations_on_the_class_flyer(live_server, page, login_via_code):
+        # The printable flyer is editor-gated and mostly bespoke print chrome, so it
+        # gets its own scan (as an admin) against the members-surface allowlist.
+        MembershipPlanFactory()
+        email = "a11y-flyer@example.com"
+        login_via_code(email)
+        user = get_user_model().objects.get(username=email)
+        user.is_staff = True
+        user.is_superuser = True
+        user.save(update_fields=["is_staff", "is_superuser"])
+
+        offering = ClassOfferingFactory(
+            title="Intro to Lost Wax Casting", status=ClassOffering.Status.PUBLISHED, is_private=False
+        )
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=7),
+            ends_at=timezone.now() + timedelta(days=7, hours=2),
+        )
+
+        url = f"{live_server.url}{reverse('classes:class_flyer', args=[offering.pk])}"
+        offenders = _offenders_for(page, url, MEMBERS_HUB_DEBT)
+        assert not offenders, "Critical or new (unbaselined) a11y violations on the flyer:\n  " + "\n  ".join(offenders)
+
+    def it_has_no_violations_on_the_discord_link_landing(live_server, page):
+        # The anon-allowed Discord link landing: a bare GET (no code/state) renders the
+        # oauth-failed state, which must still be a calm, accessible page with a next step.
+        url = f"{live_server.url}{reverse('hub_discord_link_callback')}"
+        offenders = _offenders_for(page, url, MEMBERS_HUB_DEBT)
+        assert not offenders, "Critical or new (unbaselined) a11y violations on the Discord landing:\n  " + "\n  ".join(
             offenders
         )
 
