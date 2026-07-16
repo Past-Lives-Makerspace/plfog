@@ -404,10 +404,12 @@
     </div>
 
     {# -------- Automations tab -------- #}
-    {# One card per scheduled job, all INSIDE #site-settings-form: the On toggles save with the
-       page's Save button, and the generic Run-now buttons are named submitters of this form. The
-       bill_tabs Run-now is the one exception — a teleported confirm modal (its own form), which
-       carries run_job=bill_tabs as a hidden field. No inline display on this x-show wrapper. #}
+    {% comment %}
+      One card per scheduled job, all INSIDE #site-settings-form: the On toggles save with the
+      page's Save button, and the generic Run-now buttons are named submitters of this form. The
+      bill_tabs Run-now is the one exception — a teleported confirm modal (its own form), which
+      carries run_job=bill_tabs as a hidden field. No inline display on this x-show wrapper.
+    {% endcomment %}
     <div x-show="tab === 'automations'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
       <div>
         <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Automations</h2>
@@ -665,10 +667,12 @@
     </div>
   </form>
 
-  {# Money-job guard for the Automations tab's "Charge member tabs" Run-now. A SIBLING of
-     #site-settings-form (never nested): the confirm modal teleports to <body> and posts its own
-     plain form carrying run_job=bill_tabs as a hidden field, reaching the same run_job handler.
-     The server passes NO --force, so bill_tabs still self-gates to a real billing day. #}
+  {% comment %}
+    Money-job guard for the Automations tab's "Charge member tabs" Run-now. A SIBLING of
+    #site-settings-form (never nested): the confirm modal teleports to <body> and posts its own
+    plain form carrying run_job=bill_tabs as a hidden field, reaching the same run_job handler.
+    The server passes NO --force, so bill_tabs still self-gates to a real billing day.
+  {% endcomment %}
   {% url 'hub_admin_site_settings' as automations_post_url %}
   {% include "components/confirm_modal.html" with confirm_id="run-bill_tabs" confirm_title="Run tab billing now?" confirm_message="This attempts real card charges. It still only runs if it's a scheduled billing day." confirm_action_url=automations_post_url confirm_button_text="Run billing" confirm_field_name="run_job" confirm_field_value="bill_tabs" %}
 

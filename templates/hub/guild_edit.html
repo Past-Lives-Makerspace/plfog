@@ -102,9 +102,11 @@
   </div>
 </form>
 
-{# ── Studio Hours (Meetings tab) — its OWN form/endpoint, OUTSIDE the main form (you can't
-     nest forms; nesting silently breaks Save). Weekly windows shown on the guild page's
-     "Studio Hours" card and mirrored to the Public Google Calendar. ──── #}
+{% comment %}
+  ── Studio Hours (Meetings tab) — its OWN form/endpoint, OUTSIDE the main form (you can't
+  nest forms; nesting silently breaks Save). Weekly windows shown on the guild page's
+  "Studio Hours" card and mirrored to the Public Google Calendar. ────
+{% endcomment %}
 <div x-show="section === 'meetings'" x-cloak>
   <form method="post" action="{% url 'hub_guild_studio_hours_save' guild.pk %}" class="hub-form">
     {% csrf_token %}
