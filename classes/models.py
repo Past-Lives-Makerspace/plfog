@@ -206,10 +206,14 @@ def _unique_slug(base: str, exclude_pk: int | None) -> str:
     """
     candidate = base
     n = 1
-    while ClassOffering.objects.filter(slug=candidate).exclude(pk=exclude_pk).exists():
+    while True:
+        taken = ClassOffering.objects.filter(slug=candidate)
+        if exclude_pk is not None:
+            taken = taken.exclude(pk=exclude_pk)
+        if not taken.exists():
+            return candidate
         n += 1
         candidate = f"{base}-{n}"
-    return candidate
 
 
 def _is_slug_unique_violation(error: IntegrityError) -> bool:
