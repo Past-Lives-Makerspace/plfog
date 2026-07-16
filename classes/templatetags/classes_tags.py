@@ -10,9 +10,7 @@ from django import template
 from django.http import QueryDict
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-
-    from classes.models import ClassApproval, DiscountCode
+    from classes.models import ClassApproval, DiscountApprover, DiscountCode
 
 register = template.Library()
 
@@ -41,15 +39,15 @@ def first_with_role(approvals: Iterable[ClassApproval], role: str) -> ClassAppro
 
 
 @register.filter
-def can_be_approved_by(code: DiscountCode, user: AbstractBaseUser | AnonymousUser | None) -> bool:
-    """Whether ``user`` may approve this discount code — the template guard for the
-    Teaching-portal Approve button.
+def approvable_by(code: DiscountCode, approver: DiscountApprover) -> bool:
+    """Whether ``code`` may be approved — the template guard for the Approve button.
 
-    Delegates to :meth:`DiscountCode.can_be_approved_by`; the model owns the rule
-    (admins approve any code, a self-approver only their own). Templates can't call
-    a model method with an argument, so this filter bridges ``request.user`` in.
+    Takes a :class:`DiscountApprover` resolved once in the view (``DiscountCode.approver_for``)
+    and reused for every row, so rendering a list of codes costs a single Member query
+    instead of one per row. The model owns the rule (admins approve any code, a
+    self-approver only their own).
     """
-    return code.can_be_approved_by(user)
+    return approver.can_approve(code)
 
 
 @register.filter

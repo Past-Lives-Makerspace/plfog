@@ -1261,6 +1261,9 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
             "instructor": teaching_member,
             "own_codes": own_codes,
             "sitewide_codes": sitewide_codes,
+            # Resolve the acting user's approval capability once (one Member query),
+            # reused per row in the template — avoids an N+1 across the code list.
+            "approver": DiscountCode.approver_for(request.user),
         },
     )
 
@@ -1467,6 +1470,9 @@ def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
             "instructor": request.teaching_member,  # type: ignore[attr-defined]
             "offering": offering,
             "codes": codes,
+            # Resolve the acting user's approval capability once (one Member query),
+            # reused per row in the template — avoids an N+1 across the code list.
+            "approver": DiscountCode.approver_for(request.user),
             **_class_workspace_counts(offering),
         },
     )

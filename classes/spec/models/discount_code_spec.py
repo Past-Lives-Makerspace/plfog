@@ -10,7 +10,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.db.utils import IntegrityError
 
 from classes.factories import ClassOfferingFactory, DiscountCodeFactory, UserFactory
-from classes.models import DiscountCode
+from classes.models import DiscountApprover, DiscountCode
 
 
 def _active_member_user(username: str, *, is_admin: bool = False, can_self_approve: bool = False):
@@ -199,3 +199,26 @@ def describe_DiscountCode():
             Member.objects.filter(user=user).delete()
             code = DiscountCodeFactory(created_by=user)
             assert code.can_be_approved_by(user) is False
+
+    def describe_approver_for():
+        def it_resolves_the_capability_in_a_single_member_query(db, django_assert_num_queries):
+            user = _active_member_user("dc-cap", can_self_approve=True)
+            with django_assert_num_queries(1):
+                approver = DiscountCode.approver_for(user)
+            assert isinstance(approver, DiscountApprover)
+            assert (approver.approves_any, approver.self_approves) == (False, True)
+
+        def it_checks_each_code_without_another_query(db, django_assert_num_queries):
+            user = _active_member_user("dc-cap2", can_self_approve=True)
+            approver = DiscountCode.approver_for(user)
+            mine = DiscountCodeFactory(created_by=user)
+            other = DiscountCodeFactory(created_by=UserFactory(username="dc-someone@example.com"))
+            # The per-row check reads created_by_id (already loaded) — no DB round-trips.
+            with django_assert_num_queries(0):
+                assert approver.can_approve(mine) is True
+                assert approver.can_approve(other) is False
+
+        def it_reports_no_capability_for_an_anonymous_user_without_a_query(db, django_assert_num_queries):
+            with django_assert_num_queries(0):
+                approver = DiscountCode.approver_for(AnonymousUser())
+            assert (approver.approves_any, approver.self_approves) == (False, False)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import secrets
 from collections.abc import Callable
 from datetime import date as date_type, datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 from django.conf import settings
 from django.db import IntegrityError, models, transaction
@@ -1247,6 +1247,27 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
         return best
 
 
+class DiscountApprover(NamedTuple):
+    """A user's discount-approval capability, resolved once so a whole list of codes
+    can be checked without a per-row Member query.
+
+    ``approves_any`` is True for an admin/superuser (may approve every code);
+    ``self_approves`` is True for a member holding ``can_self_approve_discounts`` (may
+    approve only the codes they created). ``user_pk`` is the acting user's pk, used for
+    the cheap in-Python ``created_by`` comparison.
+    """
+
+    user_pk: int | str | None
+    approves_any: bool
+    self_approves: bool
+
+    def can_approve(self, code: "DiscountCode") -> bool:
+        """Whether this approver may approve ``code`` — no DB query."""
+        if self.approves_any:
+            return True
+        return self.self_approves and code.created_by_id == self.user_pk
+
+
 class DiscountCode(models.Model):
     code = models.CharField(max_length=40, unique=True, help_text="Uppercase code — normalized on save.")
     description = models.CharField(max_length=255, blank=True, help_text="Admin-only description.")
@@ -1341,13 +1362,34 @@ class DiscountCode(models.Model):
             return False
         return True
 
+    @classmethod
+    def approver_for(cls, user: "AbstractBaseUser | AnonymousUser | None") -> DiscountApprover:
+        """Resolve ``user``'s approval capability once (a single Member query).
+
+        Callers rendering a list of codes should resolve this once and reuse the
+        returned :class:`DiscountApprover` for every row (via ``approver.can_approve(code)``)
+        instead of calling :meth:`can_be_approved_by` per row, which repeats the Member
+        lookup for the same user N times.
+
+        Admins and superusers may approve any code; every other member may approve only
+        the codes they created, and only when they hold the ``can_self_approve_discounts``
+        permission. Anonymous or unlinked users can never approve.
+        """
+        if user is None or not getattr(user, "is_authenticated", False):
+            return DiscountApprover(user_pk=None, approves_any=False, self_approves=False)
+        from membership.models import Member
+
+        member = Member.objects.filter(user_id=cast("int | str", user.pk), status=Member.Status.ACTIVE).first()
+        approves_any = bool(getattr(user, "is_superuser", False) or (member is not None and member.is_fog_admin))
+        self_approves = member is not None and member.can_self_approve_discounts
+        return DiscountApprover(user_pk=user.pk, approves_any=approves_any, self_approves=self_approves)
+
     def can_be_approved_by(self, user: "AbstractBaseUser | AnonymousUser | None") -> bool:
         """Whether ``user`` may approve (activate) this discount code.
 
-        Admins and superusers may approve any code. Every other member may
-        approve only the codes they created (the ``created_by`` audit user), and
-        only when they hold the ``can_self_approve_discounts`` permission.
-        Anonymous or unlinked users can never approve.
+        Convenience for a single-code check (e.g. the approve action guard). When
+        checking many codes for one user, resolve :meth:`approver_for` once and call
+        ``approver.can_approve(code)`` per row to avoid an N+1 on the Member lookup.
 
         Args:
             user: The acting user (may be anonymous or ``None``).
@@ -1355,16 +1397,7 @@ class DiscountCode(models.Model):
         Returns:
             ``True`` when the user is authorized to flip ``is_approved`` on this code.
         """
-        if user is None or not getattr(user, "is_authenticated", False):
-            return False
-        from membership.models import Member
-
-        member = Member.objects.filter(user_id=cast("int | str", user.pk), status=Member.Status.ACTIVE).first()
-        if getattr(user, "is_superuser", False) or (member is not None and member.is_fog_admin):
-            return True
-        if member is None or not member.can_self_approve_discounts:
-            return False
-        return self.created_by_id == user.pk
+        return self.approver_for(user).can_approve(self)
 
     def approve(self, user: "AbstractBaseUser | AnonymousUser | None" = None) -> None:
         """Mark this discount code approved so it becomes usable.
