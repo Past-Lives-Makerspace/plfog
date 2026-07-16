@@ -26,7 +26,7 @@ import logging
 
 import httpx
 
-from core.events.discord_dm import _API_BASE, _auth_headers, bot_token
+from core.events.discord_dm import API_BASE, _auth_headers, bot_token
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ def ack_deferred(interaction_id: str, token: str, *, ephemeral: bool = True) -> 
     """
     try:
         response = httpx.post(
-            f"{_API_BASE}/interactions/{interaction_id}/{token}/callback",
+            f"{API_BASE}/interactions/{interaction_id}/{token}/callback",
             json=deferred_ack(ephemeral=ephemeral),
             headers=_auth_headers(),
             timeout=_DEFAULT_TIMEOUT_SECONDS,
@@ -182,7 +182,7 @@ def send_followup(token: str, *, content: str, embeds: list[dict] | None = None)
         payload["embeds"] = embeds
     try:
         response = httpx.patch(
-            f"{_API_BASE}/webhooks/{client_id()}/{token}/messages/@original",
+            f"{API_BASE}/webhooks/{client_id()}/{token}/messages/@original",
             json=payload,
             headers=_auth_headers(),
             timeout=_DEFAULT_TIMEOUT_SECONDS,

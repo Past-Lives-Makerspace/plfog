@@ -59,6 +59,11 @@ class Command(BaseCommand):
         raw = self._load_bytes(options)
         dry_run = bool(options["dry_run"])
         guilds = list(Guild.objects.all())
+        # Preload every already-imported UID in one query, then dedupe in memory — no per-VEVENT
+        # exists() round-trip. Newly created UIDs are added so a repeat within this file is skipped.
+        existing_uids = set(
+            CommunityEvent.objects.exclude(import_source_uid="").values_list("import_source_uid", flat=True)
+        )
         rows: list[tuple[str, str, str, str, str]] = []
         created = 0
         skipped = 0
@@ -88,7 +93,7 @@ class Command(BaseCommand):
                 skipped += 1
                 continue
             recurrence = recurrence_for_rrule(seed.rrule)
-            if CommunityEvent.objects.filter(import_source_uid=seed.uid).exists():
+            if seed.uid in existing_uids:
                 rows.append((seed.summary, match.name, event_type.label, recurrence.label, "exists, skipped"))
                 skipped += 1
                 continue
@@ -106,6 +111,7 @@ class Command(BaseCommand):
                     moderation_state=CommunityEvent.ModerationState.PUBLISHED,
                     import_source_uid=seed.uid,
                 )
+                existing_uids.add(seed.uid)
             rows.append(
                 (seed.summary, match.name, event_type.label, recurrence.label, "would create" if dry_run else "created")
             )

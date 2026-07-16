@@ -26,7 +26,7 @@ from core.events.discord_dm import bot_token
 
 logger = logging.getLogger(__name__)
 
-_API_BASE = "https://discord.com/api/v10"
+API_BASE = "https://discord.com/api/v10"
 _DEFAULT_TIMEOUT_SECONDS = 5.0
 _PAGE_LIMIT = 100
 _MAX_RATE_LIMIT_RETRIES = 2
@@ -65,7 +65,7 @@ def fetch_reactors(channel_id: str, message_id: str, emoji: str) -> ReactorPage:
         return ReactorPage(user_ids=user_ids, complete=False)
 
     encoded_emoji = quote(emoji, safe="")
-    base_url = f"{_API_BASE}/channels/{channel_id}/messages/{message_id}/reactions/{encoded_emoji}"
+    base_url = f"{API_BASE}/channels/{channel_id}/messages/{message_id}/reactions/{encoded_emoji}"
     headers = {"Authorization": f"Bot {bot_token()}"}
     after: str | None = None
 

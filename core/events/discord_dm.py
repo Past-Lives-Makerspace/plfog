@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_API_BASE = "https://discord.com/api/v10"
+API_BASE = "https://discord.com/api/v10"
 _DEFAULT_TIMEOUT_SECONDS = 5.0
 
 
@@ -68,7 +68,7 @@ def open_dm_channel(discord_user_id: str) -> str:
         return ""
     try:
         response = httpx.post(
-            f"{_API_BASE}/users/@me/channels",
+            f"{API_BASE}/users/@me/channels",
             json={"recipient_id": discord_user_id},
             headers=_auth_headers(),
             timeout=_DEFAULT_TIMEOUT_SECONDS,
@@ -113,7 +113,7 @@ def post_dm(discord_user_id: str, message: Message) -> bool:
         return False
     try:
         response = httpx.post(
-            f"{_API_BASE}/channels/{channel_id}/messages",
+            f"{API_BASE}/channels/{channel_id}/messages",
             json={"content": format_dm_content(message)},
             headers=_auth_headers(),
             timeout=_DEFAULT_TIMEOUT_SECONDS,

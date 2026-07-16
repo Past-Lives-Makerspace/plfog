@@ -28,8 +28,9 @@ _GUILD_ALIASES: dict[str, str] = {
 }
 
 # Title keywords → event type. Meetings are checked first so "Guild Meeting" never reads as
-# studio hours; the first list to hit wins.
-_MEETING_KEYWORDS: tuple[str, ...] = ("meeting", "guild meeting")
+# studio hours; the first list to hit wins. "meeting" is a substring of "guild meeting", so it
+# alone covers both.
+_MEETING_KEYWORDS: tuple[str, ...] = ("meeting",)
 _STUDIO_HOURS_KEYWORDS: tuple[str, ...] = ("studio hours", "open studio", "shop hours")
 
 

@@ -6,7 +6,7 @@ to the caller** — a Discord outage records a ``discord_sync_error`` on the eve
 FOG save proceeds regardless.
 
 The bot REST auth is reused verbatim from :mod:`core.events.discord_dm`
-(``bot_token`` / ``_auth_headers`` / ``_API_BASE``). Two gates make a client ``enabled``:
+(``bot_token`` / ``_auth_headers`` / ``API_BASE``). Two gates make a client ``enabled``:
 the admin runtime toggle (``SiteConfiguration.discord_events_sync_enabled``) and a linked
 Discord server (``SiteConfiguration.discord_server_id``) plus a non-blank
 ``DISCORD_BOT_TOKEN``. Any blank → a disabled client, never a raise.
@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from core.events.discord_dm import _API_BASE, _auth_headers, bot_token
+from core.events.discord_dm import API_BASE, _auth_headers, bot_token
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -129,7 +129,7 @@ class DiscordScheduledEventsClient:
         try:
             response = httpx.request(
                 method,
-                f"{_API_BASE}{path}",
+                f"{API_BASE}{path}",
                 json=json,
                 headers=_auth_headers(),
                 timeout=_TIMEOUT_SECONDS,
@@ -253,16 +253,16 @@ def push_community_event(event: CommunityEvent, *, actor: User | None = None) ->
     and rolled forward nightly (§5.3); when it has already rolled past its stored occurrence
     the old Discord event has auto-completed and cannot be PATCHed, so a fresh one is created.
     """
-    from core.models import SiteConfiguration
     from membership.models import CommunityEvent as CE
 
     if event.event_type == CE.EventType.STUDIO_HOURS:
         _mark(event, CE.SyncState.IDLE, DiscordEventsConfig.STUDIO_HOURS)
         return
 
+    # from_settings() already folds discord_events_sync_enabled into client.enabled, so this
+    # guard needs no second SiteConfiguration.load() — one config query per event, not two.
     client = DiscordScheduledEventsClient.from_settings()
-    config = SiteConfiguration.load()
-    if not (client.enabled and config.discord_events_sync_enabled):
+    if not client.enabled:
         _mark(event, CE.SyncState.PENDING, DiscordEventsConfig.SYNC_OFF)
         return
 

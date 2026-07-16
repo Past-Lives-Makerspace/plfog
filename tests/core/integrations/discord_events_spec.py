@@ -59,22 +59,15 @@ def describe_push_community_event():
 
     def describe_when_sync_is_disabled():
         def it_marks_pending_with_a_reason_and_makes_no_api_call():
-            # Config toggle off (default) → the push self-gates to PENDING.
+            # Config toggle off (default) → from_settings() returns a disabled client and the
+            # push self-gates to PENDING. (from_settings folding the toggle into `enabled` is
+            # covered by describe_from_settings, so client.enabled is the single gate here.)
             event = CommunityEventFactory()
             client = _fake_client(enabled=False)
             with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
                 de.push_community_event(event)
             assert event.discord_sync_state == CommunityEvent.SyncState.PENDING
             assert event.discord_sync_error == de.DiscordEventsConfig.SYNC_OFF
-            client.insert_event.assert_not_called()
-
-        def it_marks_pending_when_only_the_config_toggle_is_off():
-            # Client "enabled" but the config toggle is off → still gated (both are required).
-            event = CommunityEventFactory()
-            client = _fake_client(enabled=True)
-            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
-                de.push_community_event(event)  # config default off
-            assert event.discord_sync_state == CommunityEvent.SyncState.PENDING
             client.insert_event.assert_not_called()
 
     def describe_insert():

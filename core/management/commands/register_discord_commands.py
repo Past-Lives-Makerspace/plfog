@@ -20,7 +20,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from core.events import discord_dm
 from core.events.discord_commands import SlashCommand, all_commands
-from core.events.discord_dm import _API_BASE
+from core.events.discord_dm import API_BASE
 from core.events.discord_oauth import client_id
 from core.models import SiteConfiguration
 
@@ -67,7 +67,7 @@ class Command(BaseCommand):
                     "before registering guild-scoped commands."
                 )
             self._register(
-                f"{_API_BASE}/applications/{application_id}/guilds/{server_id}/commands",
+                f"{API_BASE}/applications/{application_id}/guilds/{server_id}/commands",
                 guild_commands,
                 token,
                 dry_run=dry_run,
@@ -76,7 +76,7 @@ class Command(BaseCommand):
 
         if not options["guild_only"]:
             self._register(
-                f"{_API_BASE}/applications/{application_id}/commands",
+                f"{API_BASE}/applications/{application_id}/commands",
                 global_commands,
                 token,
                 dry_run=dry_run,
