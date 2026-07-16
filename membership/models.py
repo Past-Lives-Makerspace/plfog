@@ -4,8 +4,10 @@ import re
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
+from datetime import time as time_type
+from datetime import timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -96,6 +98,26 @@ def _compute_next_meeting(
     if candidate < today:
         candidate = _nth_weekday(first + relativedelta(months=interval), wd, week_of_month)
     return candidate
+
+
+def _format_time_range(start: datetime_type, end: datetime_type) -> str:
+    """'6:00–9:00 PM' when both share a meridiem, else '11:00 AM–1:00 PM' (local datetimes)."""
+    if start.strftime("%p") == end.strftime("%p"):
+        return f"{start.strftime('%-I:%M')}–{end.strftime('%-I:%M %p')}"
+    return f"{start.strftime('%-I:%M %p')}–{end.strftime('%-I:%M %p')}"
+
+
+class NextMeeting(NamedTuple):
+    """A guild's soonest upcoming meeting, for the two "Next Meeting" surfaces.
+
+    ``when`` is the start datetime (aware). ``has_time`` is False only for a legacy cadence
+    that has no ``meeting_time`` set, so the card can render the date without a bogus midnight
+    time; an event-derived meeting always carries a real time and its own ``location``.
+    """
+
+    when: datetime_type
+    location: str
+    has_time: bool
 
 
 # ---------------------------------------------------------------------------
@@ -1473,6 +1495,78 @@ class Guild(HeroCropMixin, models.Model):
             override=self.meeting_next_override,
             is_tba=self.meeting_is_tba,
         )
+
+    def studio_hours(self) -> list[CommunityEvent]:
+        """This guild's standing STUDIO_HOURS rows, ordered by weekday-of-anchor then time.
+
+        Iterates the prefetched ``events`` cache (the guild page prefetches it), so rendering
+        the Studio Hours card and its sibling helpers adds no extra query per guild.
+        """
+        rows = [
+            event
+            for event in self.events.all()
+            if event.event_type == CommunityEvent.EventType.STUDIO_HOURS
+            and event.moderation_state == CommunityEvent.ModerationState.PUBLISHED
+        ]
+        return sorted(
+            rows,
+            key=lambda event: (
+                timezone.localtime(event.starts_at).weekday(),
+                timezone.localtime(event.starts_at).time(),
+            ),
+        )
+
+    def studio_hours_display(self) -> list[dict[str, str]]:
+        """Render dicts (``weekday_label`` / ``time_range`` / ``location`` / ``note``) for the
+        guild-page Studio Hours card, one per standing block. Empty list ⇒ the card shows its
+        "No studio hours set yet." empty state."""
+        blocks: list[dict[str, str]] = []
+        for row in self.studio_hours():
+            local_start = timezone.localtime(row.starts_at)
+            local_end = timezone.localtime(row.ends_at)
+            blocks.append(
+                {
+                    "weekday_label": f"{local_start.strftime('%A')}s",
+                    "time_range": _format_time_range(local_start, local_end),
+                    "location": row.location,
+                    "note": row.description,
+                }
+            )
+        return blocks
+
+    def next_meeting_occurrence(self) -> NextMeeting | None:
+        """The soonest upcoming meeting, across event-based GUILD_MEETING occurrences and the
+        legacy cadence — so a weekly meeting entered as an event surfaces in the "Next Meeting"
+        card without duplicating recurrence logic.
+
+        Returns a :class:`NextMeeting` (``when`` datetime + ``location`` + ``has_time``) so both
+        the aside card and the stat chip render coherently: an event carries its own time and
+        location; the legacy cadence carries ``meeting_time``/``meeting_location`` only when set.
+        ``None`` ⇒ TBA. Reads the prefetched ``events`` cache (no per-guild query).
+        """
+        now = timezone.now()
+        today = timezone.localdate()
+        horizon = today + timedelta(days=370)
+        candidates: list[NextMeeting] = []
+        for event in self.events.all():
+            if (
+                event.event_type != CommunityEvent.EventType.GUILD_MEETING
+                or event.moderation_state != CommunityEvent.ModerationState.PUBLISHED
+            ):
+                continue
+            for occurrence in event.occurrences_in(today, horizon):
+                if occurrence >= now:
+                    candidates.append(NextMeeting(when=occurrence, location=event.location, has_time=True))
+                    break
+        legacy_date = self.next_meeting_at
+        if legacy_date is not None:
+            aware = timezone.make_aware(datetime_type.combine(legacy_date, self.meeting_time or time_type()))
+            candidates.append(
+                NextMeeting(when=aware, location=self.meeting_location, has_time=self.meeting_time is not None)
+            )
+        if not candidates:
+            return None
+        return min(candidates, key=lambda candidate: candidate.when)
 
     @property
     def active_leases(self) -> models.QuerySet[Lease]:
@@ -3008,6 +3102,14 @@ class CommunityEventQuerySet(models.QuerySet):
             | (~Q(recurrence=CommunityEvent.Recurrence.NONE) & Q(starts_at__date__lte=to))
         )
 
+    def studio_hours(self) -> CommunityEventQuerySet:
+        """Only the standing STUDIO_HOURS rows (drives the editor formset queryset)."""
+        return self.filter(event_type=CommunityEvent.EventType.STUDIO_HOURS)
+
+    def meetings(self) -> CommunityEventQuerySet:
+        """Only the GUILD_MEETING rows (excludes studio hours + site-wide events)."""
+        return self.filter(event_type=CommunityEvent.EventType.GUILD_MEETING)
+
     def for_guild(self, guild: Guild) -> CommunityEventQuerySet:
         return self.filter(guild=guild)
 
@@ -3074,9 +3176,11 @@ class CommunityEvent(models.Model):
         GUILD_MEETING = "guild_meeting", "Guild meeting / event"
         LEAD_MEETING = "lead_meeting", "Guild Lead Meeting"
         COMMUNITY = "community", "Community event"
+        STUDIO_HOURS = "studio_hours", "Studio hours"
 
     class Recurrence(models.TextChoices):
         NONE = "none", "Does not repeat"
+        WEEKLY = "weekly", "Every week"
         SEMI_MONTHLY = "semi_monthly", "Twice a month"
         MONTHLY = "monthly", "Every month"
         EVERY_2_MONTHS = "every_2_months", "Every 2 months"
@@ -3155,9 +3259,9 @@ class CommunityEvent(models.Model):
         choices=Recurrence.choices,
         default=Recurrence.NONE,
         help_text=(
-            "Whether and how often this event repeats. Every repeating option recurs on the "
-            "same weekday-of-month as the start (e.g. the 2nd Saturday); 'Twice a month' adds "
-            "the same weekday two weeks later."
+            "Whether and how often this event repeats. 'Every week' repeats on the same weekday; "
+            "the monthly options recur on the same weekday-of-month as the start (e.g. the 2nd "
+            "Saturday); 'Twice a month' adds the same weekday two weeks later."
         ),
     )
     created_by = models.ForeignKey(
@@ -3246,6 +3350,17 @@ class CommunityEvent(models.Model):
     )
     synced_at = models.DateTimeField(null=True, blank=True, help_text="When this event last synced to Google.")
 
+    # --- Seed import bookkeeping ----------------------------------------------
+    import_source_uid = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text=(
+            "The iCal UID of the Public-Calendar VEVENT this row was seeded from. Set only by the "
+            "one-time seed importer; used to re-run it without duplicating. Blank for app-authored rows."
+        ),
+    )
+
     # --- Announcement scheduling + reminders ----------------------------------
     publish_at = models.DateTimeField(
         null=True,
@@ -3269,10 +3384,15 @@ class CommunityEvent(models.Model):
             ),
             models.CheckConstraint(
                 condition=(
-                    (Q(event_type="guild_meeting") & Q(guild__isnull=False))
-                    | (~Q(event_type="guild_meeting") & Q(guild__isnull=True))
+                    (Q(event_type__in=["guild_meeting", "studio_hours"]) & Q(guild__isnull=False))
+                    | (~Q(event_type__in=["guild_meeting", "studio_hours"]) & Q(guild__isnull=True))
                 ),
                 name="ck_communityevent_guild_matches_type",
+            ),
+            models.UniqueConstraint(
+                fields=["import_source_uid"],
+                condition=~Q(import_source_uid=""),
+                name="uq_communityevent_import_source_uid",
             ),
         ]
 
@@ -3298,6 +3418,21 @@ class CommunityEvent(models.Model):
         local_start = timezone.localtime(self.starts_at)
         if self.recurrence == self.Recurrence.NONE:
             return [self.starts_at] if frm <= local_start.date() <= to else []
+
+        if self.recurrence == self.Recurrence.WEEKLY:
+            # Weekly is not month-anchored, so it is expanded before the monthly machinery.
+            # Walk from the first matching weekday on/after ``frm`` (never before the anchor),
+            # advancing 7 days at a time and rebuilding each occurrence in local time so a
+            # DST boundary keeps the wall-clock time (mirrors the monthly ``replace`` below).
+            anchor_date = local_start.date()
+            start_date = max(anchor_date, frm)
+            days_ahead = (local_start.weekday() - start_date.weekday()) % 7
+            cursor = start_date + timedelta(days=days_ahead)
+            occurrences: list[datetime_type] = []
+            while cursor <= to:
+                occurrences.append(local_start.replace(year=cursor.year, month=cursor.month, day=cursor.day))
+                cursor = cursor + timedelta(days=7)
+            return occurrences
 
         from dateutil.relativedelta import FR, MO, SA, SU, TH, TU, WE, relativedelta
 
@@ -3337,6 +3472,10 @@ class CommunityEvent(models.Model):
             return ""
         local_start = timezone.localtime(self.starts_at)
         weekday = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")[local_start.weekday()]
+        if self.recurrence == self.Recurrence.WEEKLY:
+            # Weekly is not month-anchored — a plain BYDAY off the local start weekday.
+            # This is what the Google push-out (Part C) emits for studio hours + weekly meetings.
+            return f"FREQ=WEEKLY;BYDAY={weekday}"
         ordinal = self._occurrence_ordinal()
         if self.recurrence == self.Recurrence.YEARLY:
             return f"FREQ=YEARLY;BYMONTH={local_start.month};BYDAY={ordinal}{weekday}"
@@ -3400,8 +3539,8 @@ class CommunityEvent(models.Model):
     def when_display(self) -> str:
         """'Sat, Jul 12 · 6:00 PM – 8:00 PM' style, for notification copy and tooltips.
 
-        Appends ' · Repeats monthly' for a monthly series so the single launch
-        announcement makes the cadence clear.
+        Appends the recurrence label (e.g. ' · Every week') for a repeating series so the
+        single launch announcement makes the cadence clear.
         """
         local_start = timezone.localtime(self.starts_at)
         local_end = timezone.localtime(self.ends_at)
@@ -3476,7 +3615,13 @@ class CommunityEvent(models.Model):
         Called only on create. The ``guild`` rides in context for the guild-members
         resolver and the per-guild Discord fan-out (sibling routing spec); site-wide
         events carry ``guild=None`` and route centrally only.
+
+        STUDIO_HOURS rows are ambient standing hours, not an event to ping members about,
+        so they never announce (they are also absent from ``_ANNOUNCE_EVENT``) — this guard
+        makes ``publish()`` a safe no-op for the announce step on a studio-hours row.
         """
+        if self.event_type == self.EventType.STUDIO_HOURS:
+            return
         from core.events.emit import emit
 
         emit(

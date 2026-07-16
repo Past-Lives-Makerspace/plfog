@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import time
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 
@@ -1291,6 +1291,11 @@ class CommunityEventForm(forms.ModelForm):
         else:
             del self.fields["event_type"]
             del self.fields["guild"]
+            # A lead authoring a NEW guild meeting defaults to the Public calendar — Google is now
+            # a public mirror. The lead can still switch to the members-only calendar per event, and
+            # editing an existing event keeps its saved target (only the create default changes).
+            if not self.instance.pk:
+                self.fields["google_calendar_target"].initial = CommunityEvent.GoogleCalendarTarget.PUBLIC
 
     def clean_google_calendar_target(self) -> str:
         """Coerce a blank/omitted picker value to the default MEMBER calendar."""
@@ -1324,6 +1329,99 @@ class CommunityEventForm(forms.ModelForm):
             if etype in site_wide and guild is not None:
                 self.add_error("guild", "Leave the guild blank for a site-wide event.")
         return cleaned
+
+
+_STUDIO_HOURS_WEEKDAYS: list[tuple[str, str]] = [
+    ("0", "Monday"),
+    ("1", "Tuesday"),
+    ("2", "Wednesday"),
+    ("3", "Thursday"),
+    ("4", "Friday"),
+    ("5", "Saturday"),
+    ("6", "Sunday"),
+]
+
+
+def _next_weekday_anchor(weekday: int, start: time) -> datetime:
+    """The next occurrence of ``weekday`` at ``start`` (aware, Portland local); rolls to the
+    following week if this week's slot has already passed. The WEEKLY series then repeats off it."""
+    now = timezone.localtime()
+    days_ahead = (weekday - now.weekday()) % 7
+    anchor = timezone.make_aware(datetime.combine(now.date() + timedelta(days=days_ahead), start))
+    if anchor <= now:
+        anchor = timezone.make_aware(datetime.combine(now.date() + timedelta(days=days_ahead + 7), start))
+    return anchor
+
+
+class StudioHoursForm(forms.ModelForm):
+    """One weekly studio-hours block, edited as weekday + start/end time (+ optional location/note).
+
+    A light *translating* ModelForm over :class:`CommunityEvent`: the friendly declared fields map
+    to a WEEKLY, PUBLIC-targeted ``STUDIO_HOURS`` row on :meth:`save`, and on edit are derived back
+    from the row's anchor. The guild FK is pinned via ``form_kwargs`` (this is a modelformset, not an
+    inline formset). The time widgets are declared explicitly so they render ``type="time"`` with the
+    hub's dark-mode picker theming (the fields are non-model, so no widget is inferred otherwise).
+    """
+
+    weekday = forms.ChoiceField(choices=_STUDIO_HOURS_WEEKDAYS, label="Day")
+    start_time = forms.TimeField(
+        label="From",
+        widget=forms.TimeInput(attrs={"type": "time", "onclick": "this.showPicker?.()"}),
+    )
+    end_time = forms.TimeField(
+        label="To",
+        widget=forms.TimeInput(attrs={"type": "time", "onclick": "this.showPicker?.()"}),
+    )
+    location = forms.CharField(label="Location", required=False, max_length=200)
+    note = forms.CharField(label="Note", required=False, max_length=500)
+
+    class Meta:
+        model = CommunityEvent
+        fields: list[str] = []
+
+    def __init__(self, *args: Any, guild: Guild, **kwargs: Any) -> None:
+        self._guild = guild
+        super().__init__(*args, **kwargs)
+        instance = self.instance
+        if instance is not None and instance.pk:
+            local_start = timezone.localtime(instance.starts_at)
+            local_end = timezone.localtime(instance.ends_at)
+            self.fields["weekday"].initial = str(local_start.weekday())
+            self.fields["start_time"].initial = local_start.time()
+            self.fields["end_time"].initial = local_end.time()
+            self.fields["location"].initial = instance.location
+            self.fields["note"].initial = instance.description
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        start = cleaned.get("start_time")
+        end = cleaned.get("end_time")
+        if start and end and end <= start:
+            self.add_error("end_time", "End time must be after start time.")
+        return cleaned
+
+    def save(self, commit: bool = True) -> CommunityEvent:
+        event = self.instance
+        event.guild = self._guild
+        event.event_type = CommunityEvent.EventType.STUDIO_HOURS
+        event.recurrence = CommunityEvent.Recurrence.WEEKLY
+        event.google_calendar_target = CommunityEvent.GoogleCalendarTarget.PUBLIC
+        event.moderation_state = CommunityEvent.ModerationState.PUBLISHED
+        event.title = f"{self._guild.name} Studio Hours"
+        weekday = int(self.cleaned_data["weekday"])
+        event.starts_at = _next_weekday_anchor(weekday, self.cleaned_data["start_time"])
+        anchor_date = timezone.localtime(event.starts_at).date()
+        event.ends_at = timezone.make_aware(datetime.combine(anchor_date, self.cleaned_data["end_time"]))
+        event.location = self.cleaned_data.get("location") or ""
+        event.description = self.cleaned_data.get("note") or ""
+        if commit:
+            event.save()
+        return event
+
+
+StudioHoursFormSet = forms.modelformset_factory(
+    CommunityEvent, form=StudioHoursForm, fields=[], extra=0, can_delete=True
+)
 
 
 class EventDecisionForm(forms.Form):

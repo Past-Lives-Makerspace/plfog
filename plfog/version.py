@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "0.22.7"
+VERSION = "0.22.8"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.22.8",
+        "date": "2026-07-16",
+        "title": "Studio Hours on guild pages",
+        "changes": [
+            (
+                "Guild leads can now set their weekly studio hours and meetings right in the app, and "
+                "every guild page shows a Studio Hours card so you know when to drop by and chat with "
+                "the lead. Meetings can now repeat weekly, not just monthly. Your guild's public Google "
+                "Calendar stays in sync automatically."
+            ),
+        ],
+    },
     {
         "version": "0.22.7",
         "date": "2026-07-16",

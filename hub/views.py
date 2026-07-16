@@ -491,7 +491,11 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     from billing.models import Product
 
     guild = get_object_or_404(
-        Guild.objects.select_related("featured_class__instructor").prefetch_related("products__splits__guild"),
+        Guild.objects.select_related("featured_class__instructor").prefetch_related(
+            "products__splits__guild",
+            # Feeds Guild.studio_hours_display() + next_meeting_occurrence() from one cache (no N+1).
+            "events",
+        ),
         slug=slug,
     )
     ctx = _get_hub_context(request)
@@ -671,6 +675,7 @@ def _guild_edit_context(
     orientation_form: Any = None,
     emails_form: Any = None,
     rule_formset: Any = None,
+    studio_hours_formset: Any = None,
 ) -> dict[str, Any]:
     """Build the full render context for the guild edit page (all nine in-page tabs).
 
@@ -687,6 +692,7 @@ def _guild_edit_context(
         GuildOrientationSettingsForm,
         GuildStaffAddForm,
         OrientationAvailabilityFormSet,
+        StudioHoursFormSet,
     )
     from membership.models import GuildOrientationSettings
 
@@ -706,7 +712,15 @@ def _guild_edit_context(
         "is_admin": _viewing_as_admin(request),
         "google_sync_enabled": _google_sync_enabled(),
         "notes": guild.meeting_notes.prefetch_related("attachments"),
-        "events": guild.events.upcoming().select_related("guild"),
+        # Studio hours have their own Meetings-tab editor, so the Events tab lists only meetings.
+        "events": guild.events.meetings().upcoming().select_related("guild"),
+        "studio_hours_formset": (
+            studio_hours_formset
+            if studio_hours_formset is not None
+            else StudioHoursFormSet(
+                queryset=guild.events.studio_hours(), prefix="studio_hours", form_kwargs={"guild": guild}
+            )
+        ),
         "orientation_form": (
             orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
         ),
@@ -850,6 +864,43 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
 
     ctx = _guild_edit_context(request, guild, rule_formset=formset)
+    return render(request, "hub/guild_edit.html", ctx)
+
+
+@login_required
+@require_POST
+def guild_studio_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the weekly Studio Hours from their own form on the Meetings tab.
+
+    The studio-hours list editor is its own ``<form>`` (outside the main guild form, like the
+    FAQ/Links/recurring-hours editors), so it saves independently. Each row is a WEEKLY,
+    PUBLIC-targeted ``STUDIO_HOURS`` :class:`CommunityEvent`; the form does the translation.
+    Deleted rows are removed from Google *before* the FOG row is gone; saved rows are mirrored to
+    the Public calendar best-effort (a Google outage never blocks the save). Editor-gated.
+    """
+    from hub.forms import StudioHoursFormSet
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    formset = StudioHoursFormSet(
+        request.POST,
+        queryset=guild.events.studio_hours(),
+        prefix="studio_hours",
+        form_kwargs={"guild": guild},
+    )
+    if formset.is_valid():
+        for form in formset.deleted_forms:
+            if form.instance.pk:
+                form.instance.remove_from_google()  # best-effort; must run before the row is deleted
+        saved = formset.save()  # creates/updates the kept rows, deletes the flagged ones
+        for event in saved:
+            event.push_to_google()  # best-effort, gated — mirrors the row to the Public calendar
+        messages.success(request, "Studio hours saved.")
+        return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meetings")
+
+    ctx = _guild_edit_context(request, guild, studio_hours_formset=formset)
     return render(request, "hub/guild_edit.html", ctx)
 
 

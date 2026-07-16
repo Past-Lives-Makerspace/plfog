@@ -240,6 +240,10 @@ class CommunityEventFactory(factory.django.DjangoModelFactory):
         guild_meeting = factory.Trait(event_type=CommunityEvent.EventType.GUILD_MEETING)
         community = factory.Trait(event_type=CommunityEvent.EventType.COMMUNITY, guild=None)
         lead_meeting = factory.Trait(event_type=CommunityEvent.EventType.LEAD_MEETING, guild=None)
+        studio_hours = factory.Trait(
+            event_type=CommunityEvent.EventType.STUDIO_HOURS,
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+        )
         pending = factory.Trait(
             moderation_state=CommunityEvent.ModerationState.PENDING,
             submitted_by=factory.SubFactory(UserFactory),

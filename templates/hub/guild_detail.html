@@ -111,7 +111,7 @@
 <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin:0 0 1rem;">
     {% if member_count %}{% if is_guilds_surface %}<span class="hub-badge">{{ member_count }} member{{ member_count|pluralize }}</span>{% else %}<a href="{% url 'hub_member_directory' %}?guild={{ guild.pk }}" class="hub-badge" style="text-decoration:none;" title="See these members in the directory">{{ member_count }} member{{ member_count|pluralize }}</a>{% endif %}{% endif %}
     {% if class_count %}<span class="hub-badge">{{ class_count }} class{{ class_count|pluralize:"es" }}</span>{% endif %}
-    {% if guild.next_meeting_at %}<span class="hub-badge">Next meeting {{ guild.next_meeting_at|date:"M j" }}</span>{% endif %}
+    {% with next_meeting=guild.next_meeting_occurrence %}{% if next_meeting %}<span class="hub-badge">Next meeting {{ next_meeting.when|date:"M j" }}</span>{% endif %}{% endwith %}
 </div>
 
 {# Join lives in the "Get Involved" panel; leaving a guild is disabled for now. #}
@@ -241,15 +241,43 @@
         {% endwith %}
 
         <div class="hub-card">
-            <h3 class="hub-detail-label">Next Meeting</h3>
-            {% if guild.next_meeting_at %}
-            <div class="hub-member-name">{{ guild.next_meeting_at|date:"l, F j" }}</div>
-            <div class="hub-text-muted" style="font-size:0.875rem;">
-                {% if guild.meeting_time %}{{ guild.meeting_time|time:"g:i A" }}{% endif %}{% if guild.meeting_location %}{% if guild.meeting_time %} · {% endif %}{{ guild.meeting_location }}{% endif %}
+            <div style="display:flex; align-items:center; gap:0.4rem;">
+                <h3 class="hub-detail-label" style="margin-bottom:0;">Studio Hours</h3>
+                <span class="pl-help" tabindex="0" aria-label="What are studio hours?">
+                    <span class="pl-help__icon" aria-hidden="true">?</span>
+                    <span class="pl-help__bubble" role="tooltip">Come chat with the Guild Lead during these times.</span>
+                </span>
             </div>
+            {% with hours=guild.studio_hours_display %}
+            {% if hours %}
+            <div style="display:flex; flex-direction:column; gap:0.5rem; margin-top:0.5rem;">
+                {% for block in hours %}
+                <div>
+                    <div class="hub-member-name">{{ block.weekday_label }} · {{ block.time_range }}{% if block.location %} · {{ block.location }}{% endif %}</div>
+                    {% if block.note %}<div class="hub-text-muted" style="font-size:0.85rem;">{{ block.note }}</div>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="hub-text-muted" style="margin-top:0.5rem;">No studio hours set yet.</div>
+            {% endif %}
+            {% endwith %}
+        </div>
+
+        <div class="hub-card">
+            <h3 class="hub-detail-label">Next Meeting</h3>
+            {% with next_meeting=guild.next_meeting_occurrence %}
+            {% if next_meeting %}
+            <div class="hub-member-name">{{ next_meeting.when|date:"l, F j" }}</div>
+            {% if next_meeting.has_time or next_meeting.location %}
+            <div class="hub-text-muted" style="font-size:0.875rem;">
+                {% if next_meeting.has_time %}{{ next_meeting.when|date:"g:i A" }}{% endif %}{% if next_meeting.location %}{% if next_meeting.has_time %} · {% endif %}{{ next_meeting.location }}{% endif %}
+            </div>
+            {% endif %}
             {% else %}
             <div class="hub-text-muted">TBA</div>
             {% endif %}
+            {% endwith %}
         </div>
 
         <div class="hub-card">
