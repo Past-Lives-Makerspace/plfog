@@ -880,6 +880,39 @@ class ClassOffering(HeroCropMixin, models.Model):
             raw = f"{base} at Past Lives Makerspace in Portland, OR. {self.category.name} class — register online."
         return self._truncate(raw, 160)
 
+    def finalize_recurring_slug(self) -> None:
+        """Overwrite the provisional slug with the canonical date-stamped one.
+
+        Called once during creation, right after the offering's sessions are
+        attached, so the public URL reads ``slugify(title)-YYYY-MM-DD`` where the
+        date is the offering's first session date (:attr:`earliest_session_at`,
+        resolved in local time). When the offering has no sessions yet, the
+        creation date is used instead. A same-day collision with an existing
+        slug falls back to a ``-2``, ``-3``, … tiebreak. Full date — not just
+        month + year — because the same class can recur several times in one
+        month.
+
+        Local time matters: an aware session datetime stored in UTC can fall on
+        a different calendar day than the class's local date, so we convert with
+        ``localtime`` / ``localdate`` before formatting.
+
+        This is a create-only finalizer — it is never called from an edit flow,
+        so a published offering's slug (and any already-indexed URL) never
+        changes.
+        """
+        from django.utils.text import slugify
+
+        when = self.earliest_session_at
+        when_date = timezone.localtime(when).date() if when is not None else timezone.localdate()
+        base = f"{slugify(self.title) or 'class'}-{when_date:%Y-%m-%d}"
+        candidate = base
+        n = 1
+        while ClassOffering.objects.filter(slug=candidate).exclude(pk=self.pk).exists():
+            n += 1
+            candidate = f"{base}-{n}"
+        self.slug = candidate
+        self.save(update_fields=["slug"])
+
     def duplicate(self) -> "ClassOffering":
         """Clone this offering as a fresh draft with a unique slug and title."""
         base_slug = f"{self.slug}-copy"

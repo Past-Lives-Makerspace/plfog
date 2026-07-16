@@ -33,6 +33,28 @@ from classes.questions import active_questions, collect_answers, inject_fields
 from classes.templatetags.classes_tags import youtube_embed_id as _youtube_embed_id
 
 
+def _assign_provisional_slug(offering: ClassOffering) -> None:
+    """Give a not-yet-saved offering a unique title-based slug when it lacks one.
+
+    The ``slug`` column is unique and NOT NULL, so a new offering must carry a
+    valid slug before its first save — two blank slugs would collide on the
+    unique constraint. Both create forms call this to stamp a provisional
+    ``slugify(title)`` slug; the create view then calls
+    :meth:`ClassOffering.finalize_recurring_slug` once the sessions are attached
+    to upgrade it to the canonical date-stamped form. A no-op when the offering
+    already has a slug, so it never re-slugs an existing offering on edit.
+    """
+    if offering.slug:
+        return
+    base = slugify(offering.title) or "class"
+    slug = base
+    n = 1
+    while ClassOffering.objects.filter(slug=slug).exclude(pk=offering.pk).exists():
+        n += 1
+        slug = f"{base}-{n}"
+    offering.slug = slug
+
+
 def _validate_youtube_url(url: str) -> str:
     """Return a stripped YouTube URL, raising ValidationError when given a
     non-YouTube link. Empty/blank values pass through (the field is optional)."""
@@ -212,7 +234,6 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, f
         model = ClassOffering
         fields = [
             "title",
-            "slug",
             "category",
             "instructor",
             "description",
@@ -254,6 +275,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, f
         offering = super().save(commit=False)
         self.apply_is_free_to_instance(offering)
         self.apply_hero_crop_to_instance(offering)
+        _assign_provisional_slug(offering)
         if commit:
             offering.save()
             self.save_m2m()
@@ -312,14 +334,7 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMix
             offering.instructor = self.teaching_member
             if not offering.created_by_id:
                 offering.created_by = self.teaching_member
-        if not offering.slug:
-            base = slugify(offering.title) or "class"
-            slug = base
-            n = 1
-            while ClassOffering.objects.filter(slug=slug).exclude(pk=offering.pk).exists():
-                n += 1
-                slug = f"{base}-{n}"
-            offering.slug = slug
+        _assign_provisional_slug(offering)
         if commit:
             offering.save()
         return offering

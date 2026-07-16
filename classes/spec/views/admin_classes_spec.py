@@ -216,8 +216,56 @@ def describe_create_class():
         assert response.status_code == 302
         from classes.models import ClassOffering
 
-        created = ClassOffering.objects.get(slug="new-class")
+        created = ClassOffering.objects.get(title="New Class")
         assert created.status == ClassOffering.Status.PUBLISHED
+
+    def it_no_longer_exposes_a_hand_typed_slug_field(admin_user, client, db):
+        from classes.forms import ClassOfferingForm
+
+        assert "slug" not in ClassOfferingForm().fields
+
+    def it_date_stamps_the_slug_from_the_first_session(admin_user, client, db):
+        from classes.factories import CategoryFactory, InstructorFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        response = client.post(
+            reverse("classes:admin_class_create"),
+            {
+                "title": "Admin Stamped",
+                "category": cat.pk,
+                "instructor": inst.pk,
+                "price_cents": "50.00",
+                "member_discount_pct": 10,
+                "capacity": 6,
+                "scheduling_model": "fixed",
+                "scheduling_type": "single_session",
+                "description": "d",
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "flexible_note": "",
+                "private_for_name": "",
+                "recurring_pattern": "",
+                "sessions-TOTAL_FORMS": "1",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "sessions-0-starts_at": "2026-08-20T18:00",
+                "sessions-0-ends_at": "2026-08-20T20:00",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+            },
+        )
+        assert response.status_code == 302
+        offering = ClassOffering.objects.get(title="Admin Stamped")
+        assert offering.slug == "admin-stamped-2026-08-20"
 
     def it_saves_gallery_images_on_create(admin_user, client, db):
         from classes.factories import CategoryFactory, InstructorFactory
@@ -259,7 +307,7 @@ def describe_create_class():
             },
         )
         assert response.status_code == 302
-        offering = ClassOffering.objects.get(slug="gallery-class")
+        offering = ClassOffering.objects.get(title="Gallery Class")
         assert ClassImage.objects.filter(class_offering=offering).count() == 2
 
     def it_rejects_an_over_cap_gallery_batch_without_publishing(admin_user, client, db):
@@ -353,6 +401,54 @@ def describe_edit_class():
         assert response.status_code == 302
         offering.refresh_from_db()
         assert offering.title == "New Title"
+
+    def it_never_reslugs_an_existing_offering_on_edit(admin_user, client, db):
+        from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        offering = ClassOfferingFactory(
+            title="Original",
+            slug="original-2025-01-01",
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        response = client.post(
+            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            {
+                "title": "Renamed To Something Else",
+                "category": CategoryFactory().pk,
+                "instructor": InstructorFactory().pk,
+                "price_cents": f"{offering.price_cents / 100:.2f}",
+                "member_discount_pct": offering.member_discount_pct,
+                "capacity": offering.capacity,
+                "scheduling_model": offering.scheduling_model,
+                "scheduling_type": offering.scheduling_type,
+                "description": offering.description,
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "flexible_note": "",
+                "private_for_name": "",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "sessions-TOTAL_FORMS": "1",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "sessions-0-starts_at": "2026-08-20T18:00",
+                "sessions-0-ends_at": "2026-08-20T20:00",
+            },
+        )
+        assert response.status_code == 302
+        offering.refresh_from_db()
+        # Title and sessions changed, but the already-indexed slug must be left alone.
+        assert offering.title == "Renamed To Something Else"
+        assert offering.sessions.count() == 1
+        assert offering.slug == "original-2025-01-01"
 
 
 def describe_class_detail():

@@ -1068,6 +1068,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         offering = form.save()
         formset.instance = offering
         formset.save()
+        offering.finalize_recurring_slug()
         try:
             offering.add_gallery_images(request.FILES.getlist("gallery_images"))
         except ValidationError as exc:
@@ -1770,6 +1771,7 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
         offering.save()
         session_formset.instance = offering
         session_formset.save()
+        offering.finalize_recurring_slug()
         try:
             offering.add_gallery_images(request.FILES.getlist("gallery_images"))
         except ValidationError as exc:

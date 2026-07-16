@@ -194,6 +194,45 @@ def describe_instructor_create_class():
         offering = ClassOffering.objects.get(title="Gallery Class")
         assert ClassImage.objects.filter(class_offering=offering).count() == 2
 
+    def it_date_stamps_the_slug_from_the_first_session(instructor_fixture, client):
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        response = client.post(
+            reverse("classes:teach_class_create"),
+            {
+                "title": "Date Stamped",
+                "category": cat.pk,
+                "description": "d",
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "price_cents": 5000,
+                "member_discount_pct": 10,
+                "capacity": 6,
+                "scheduling_model": "fixed",
+                "scheduling_type": "single_session",
+                "flexible_note": "",
+                "recurring_pattern": "",
+                "sessions-TOTAL_FORMS": "1",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "sessions-0-starts_at": "2026-08-20T18:00",
+                "sessions-0-ends_at": "2026-08-20T20:00",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "action": "save",
+            },
+        )
+        assert response.status_code == 302
+        offering = ClassOffering.objects.get(title="Date Stamped")
+        # Not the title-only provisional slug ("date-stamped") — the finalized, date-stamped one.
+        assert offering.slug == "date-stamped-2026-08-20"
+
 
 def describe_instructor_edit_class():
     def it_refuses_editing_other_instructors_classes(instructor_fixture, other_instructor, client):

@@ -10,7 +10,7 @@
     <div class="pl-edit-split">
         <div class="pl-edit-split__main">
             {% for field in form %}
-                {% if field.name == 'title' or field.name == 'slug' or field.name == 'category' or field.name == 'instructor' %}
+                {% if field.name == 'title' or field.name == 'category' or field.name == 'instructor' %}
                     {% include "components/form_field.html" with field=field %}
                 {% endif %}
             {% endfor %}
@@ -27,7 +27,7 @@
         </aside>
     </div>
     {% for field in form %}
-        {% if field.name == 'title' or field.name == 'slug' or field.name == 'category' or field.name == 'instructor' %}{# rendered in the split above #}
+        {% if field.name == 'title' or field.name == 'category' or field.name == 'instructor' %}{# rendered in the split above #}
         {% elif field.name == 'image' %}
             {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image crop_field=form.hero_crop offering=offering %}
         {% elif field.name == 'hero_crop' %}
@@ -75,20 +75,4 @@
 {% endif %}
 <link rel="stylesheet" href="{% static 'css/session-calendar.css' %}">
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>
-<script>
-(function() {
-    const source = document.querySelector('[name="title"]');
-    const slug = document.querySelector('[name="slug"]');
-    if (!source || !slug) return;
-    let touched = slug.value.trim() !== '';
-    slug.addEventListener('input', () => { touched = true; });
-    source.addEventListener('input', () => {
-        if (touched) return;
-        slug.value = source.value.toLowerCase().trim()
-            .replace(/[^\w\s-]/g, '')
-            .replace(/[\s_-]+/g, '-')
-            .replace(/^-+|-+$/g, '');
-    });
-})();
-</script>
 {% endblock %}
