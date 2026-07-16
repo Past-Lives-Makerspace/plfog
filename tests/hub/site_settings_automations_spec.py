@@ -173,6 +173,39 @@ def describe_run_now_preserves_toggle_edits():
             client.post(URL, data=data)
         assert ScheduledJobState.objects.get(task_key="send_voting_reminders").enabled is False
 
+    def it_saves_the_legacy_cms_toggle_that_rode_along_the_run_now_post(client: Client):
+        _superuser(client)
+        data = _settings_post(legacy_cms_sync_enabled="on")
+        data["run_job"] = "send_class_reminders"
+        with patch("django.core.management.call_command"):
+            client.post(URL, data=data)
+        assert SiteConfiguration.load().legacy_cms_sync_enabled is True
+
+    def it_clears_the_legacy_cms_toggle_when_unchecked_on_the_run_now_post(client: Client):
+        _superuser(client)
+        config = SiteConfiguration.load()
+        config.legacy_cms_sync_enabled = True
+        config.save(update_fields=["legacy_cms_sync_enabled"])
+        data = _settings_post()  # legacy_cms checkbox absent = unchecked
+        data["run_job"] = "send_class_reminders"
+        with patch("django.core.management.call_command"):
+            client.post(URL, data=data)
+        assert SiteConfiguration.load().legacy_cms_sync_enabled is False
+
+
+def describe_run_now_never_writes_the_settings_singleton():
+    def it_leaves_the_config_untouched_on_a_bill_tabs_confirm_only_post(client: Client):
+        # The bill_tabs confirm modal posts only run_job + csrf — no management form and no
+        # settings fields. The run_job path must not bind/save SiteSettingsForm, so an existing
+        # config value the sparse POST omits (here legacy_cms_sync_enabled) must survive intact.
+        _superuser(client)
+        config = SiteConfiguration.load()
+        config.legacy_cms_sync_enabled = True
+        config.save(update_fields=["legacy_cms_sync_enabled"])
+        with patch("django.core.management.call_command"):
+            client.post(URL, data={"run_job": "bill_tabs"})
+        assert SiteConfiguration.load().legacy_cms_sync_enabled is True
+
 
 def describe_render_states():
     def it_shows_never_run_for_a_job_that_has_no_history(client: Client):

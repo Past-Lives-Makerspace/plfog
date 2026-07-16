@@ -4569,17 +4569,24 @@ def _resolve_automation_context(bound_formset: Any) -> tuple[list[dict[str, Any]
 
 
 def _persist_automation_toggles(request: HttpRequest, config: Any) -> None:
-    """Best-effort save of the Automations tab edits that ride along a Run-now POST (Decision 7):
-    clicking Run now must not silently discard unsaved toggle edits. Never blocks or messages —
-    the bill_tabs confirm modal posts only ``run_job`` + csrf (no management form), so there is
-    nothing to save in that case."""
-    if "jobstates-TOTAL_FORMS" in request.POST:
-        formset = ScheduledJobStateFormSet(request.POST, queryset=_automation_jobstate_queryset(), prefix="jobstates")
-        if formset.is_valid():
-            formset.save()
-    form = SiteSettingsForm(request.POST, instance=config)
-    if form.is_valid():
-        form.save()
+    """Persist the Automations-tab toggle edits that ride along a Run-now POST (Decision 7):
+    clicking Run now must not silently discard an unsaved toggle flip.
+
+    Explicitly saves ONLY the Automations toggles — the per-job jobstate formset and the
+    legacy-CMS-sync checkbox — never the full ``SiteSettingsForm``. The run_job path must not
+    write the settings singleton: the bill_tabs confirm modal posts only ``run_job`` + csrf (no
+    management form), so the ``jobstates-TOTAL_FORMS`` marker is absent and this is a no-op; an
+    Automations run-now posts the shared form but we persist just its toggles and ignore every
+    other field. Never blocks or messages."""
+    if "jobstates-TOTAL_FORMS" not in request.POST:
+        return
+    formset = ScheduledJobStateFormSet(request.POST, queryset=_automation_jobstate_queryset(), prefix="jobstates")
+    if formset.is_valid():
+        formset.save()
+    # The legacy CMS sync toggle sits on the same Automations form — persist just that one
+    # checkbox field (present = on) without binding or writing the rest of the singleton.
+    config.legacy_cms_sync_enabled = "legacy_cms_sync_enabled" in request.POST
+    config.save(update_fields=["legacy_cms_sync_enabled"])
 
 
 def _handle_run_job(request: HttpRequest, config: Any) -> HttpResponse:
