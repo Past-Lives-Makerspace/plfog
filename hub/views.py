@@ -39,6 +39,7 @@ from hub.forms import (
     OrgInfoPageForm,
     ProfileSettingsForm,
     ReleaseAnnouncementForm,
+    ScheduledJobStateFormSet,
     SiteSettingsForm,
     SkillSuggestionForm,
     SlideshowSlideFormSet,
@@ -4469,9 +4470,95 @@ def _discord_editor_querysets() -> tuple[Any, Any]:
     return DiscordGuildEmoji.objects.all(), Guild.objects.filter(is_active=True).order_by("name")
 
 
+def _automation_jobstate_queryset() -> Any:
+    """State rows for the toggleable jobs — non-toggleable ``bill_tabs`` is Run-now only, so it
+    has no editable toggle (Decision 2). Seeds any missing rows first so the formset always has
+    one to bind (feeds pattern; the panel is always in the DOM)."""
+    from core.models import ScheduledJobState
+    from core.scheduled_jobs import SCHEDULED_JOBS
+
+    ScheduledJobState.objects.sync_registry()
+    toggleable_keys = [job.key for job in SCHEDULED_JOBS if job.toggleable]
+    return ScheduledJobState.objects.filter(task_key__in=toggleable_keys)
+
+
+def _build_automation_rows(formset: Any) -> list[dict[str, Any]]:
+    """Pair every registry job with its bound toggle form (matched by ``task_key``, never by
+    position — §11 #4) and its latest run, so the Automations panel loops once."""
+    from core.models import ScheduledTaskRun
+    from core.scheduled_jobs import SCHEDULED_JOBS
+
+    forms_by_key = {form.instance.task_key: form for form in formset.forms}
+    latest = ScheduledTaskRun.objects.latest_per_task()
+    return [{"job": job, "form": forms_by_key.get(job.key), "last_run": latest.get(job.key)} for job in SCHEDULED_JOBS]
+
+
+def _bind_jobstate_formset(request: HttpRequest) -> tuple[Any, bool]:
+    """Bind the Automations toggle formset when its management form is posted, else build an
+    unbound one over the synced rows. Returns ``(formset, was_posted)``."""
+    queryset = _automation_jobstate_queryset()
+    if "jobstates-TOTAL_FORMS" in request.POST:
+        return ScheduledJobStateFormSet(request.POST, queryset=queryset, prefix="jobstates"), True
+    return ScheduledJobStateFormSet(queryset=queryset, prefix="jobstates"), False
+
+
+def _save_jobstate_formset(formset: Any, was_posted: bool) -> None:
+    """Save the Automations toggles independently of the main settings save, so a jobstate issue
+    can never block another tab from saving (§11 #11)."""
+    if was_posted and formset.is_valid():
+        formset.save()
+
+
+def _resolve_automation_context(bound_formset: Any) -> tuple[list[dict[str, Any]], Any]:
+    """The Automations tab context: reuse a bound formset from a failed save (preserving typed
+    toggle state), else a fresh one over the synced rows. Returns ``(rows, formset)``."""
+    formset = bound_formset or ScheduledJobStateFormSet(queryset=_automation_jobstate_queryset(), prefix="jobstates")
+    return _build_automation_rows(formset), formset
+
+
+def _persist_automation_toggles(request: HttpRequest, config: Any) -> None:
+    """Best-effort save of the Automations tab edits that ride along a Run-now POST (Decision 7):
+    clicking Run now must not silently discard unsaved toggle edits. Never blocks or messages —
+    the bill_tabs confirm modal posts only ``run_job`` + csrf (no management form), so there is
+    nothing to save in that case."""
+    if "jobstates-TOTAL_FORMS" in request.POST:
+        formset = ScheduledJobStateFormSet(request.POST, queryset=_automation_jobstate_queryset(), prefix="jobstates")
+        if formset.is_valid():
+            formset.save()
+    form = SiteSettingsForm(request.POST, instance=config)
+    if form.is_valid():
+        form.save()
+
+
+def _handle_run_job(request: HttpRequest, config: Any) -> HttpResponse:
+    """Run one scheduled job now (Decision 1/4/7). Resolves the job from the registry — an unknown
+    key errors with no dispatch — persists any unsaved toggle edits first, then runs the command
+    with NO ``--force`` inside ``record_run``. A raising command becomes a FAILED run + an error
+    message, never a 500 (mirrors the legacy ``sync_now`` handler)."""
+    from django.core.management import call_command
+
+    from core.scheduled_jobs import JOBS_BY_KEY, Trigger, record_run
+
+    key = request.POST.get("run_job", "")
+    redirect_url = f"{reverse('hub_admin_site_settings')}?tab=automations"
+    job = JOBS_BY_KEY.get(key)
+    if job is None:
+        messages.error(request, f"Unknown automation '{key}'.")
+        return redirect(redirect_url)
+
+    _persist_automation_toggles(request, config)
+    try:
+        with record_run(job.key, trigger=Trigger.MANUAL, actor=request.user):
+            call_command(job.command)
+        messages.success(request, f"Ran {job.name}.")
+    except Exception as exc:  # noqa: BLE001 — surface any command failure as a message, never a 500
+        messages.error(request, f"Ran {job.name} — failed: {exc}")
+    return redirect(redirect_url)
+
+
 def _save_site_settings(
     request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
-) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any]:
+) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any, Any]:
     """Bind + save the settings form, calendar formset, and (Discord tab only) the emoji
     map + per-guild role formsets. Returns ``(redirect_or_none, form, feed_formset,
     emoji_formset, role_formset)``.
@@ -4485,6 +4572,10 @@ def _save_site_settings(
     is_discord = request.POST.get("submitted_tab") == "discord"
     form = SiteSettingsForm(request.POST, instance=config)
     feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
+    # The Automations toggle formset rides the shared form (its panel is always in the DOM). Bind
+    # it when posted; it's saved independently below so a jobstate hiccup can never block another
+    # tab's save (§11 #11).
+    jobstate_formset, jobstate_posted = _bind_jobstate_formset(request)
     if is_discord:
         emoji_formset = DiscordGuildEmojiFormSet(request.POST, queryset=emoji_queryset, prefix="emoji")
         role_formset = GuildRoleFormSet(request.POST, queryset=role_queryset, prefix="guildroles")
@@ -4513,6 +4604,7 @@ def _save_site_settings(
                     continue
                 emoji_inst.save()
             role_formset.save()
+        _save_jobstate_formset(jobstate_formset, jobstate_posted)
         messages.success(request, "Site settings saved.")
         target_tab = request.POST.get("submitted_tab", active_tab)
         return (
@@ -4521,8 +4613,9 @@ def _save_site_settings(
             feed_formset,
             emoji_formset,
             role_formset,
+            jobstate_formset,
         )
-    return None, form, feed_formset, emoji_formset, role_formset
+    return None, form, feed_formset, emoji_formset, role_formset, jobstate_formset
 
 
 @fog_admin_required
@@ -4530,21 +4623,33 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     """Admin site settings — edit the SiteConfiguration singleton and its calendar feeds.
 
     Tabs: ``general``, ``calendar``, ``legacy-cms``, ``features`` (the My Tab/Payments
-    and class-registration kill switches), and ``announcements`` (a sitewide announcement
-    composer with a preview-then-send step). The Calendar tab owns a ``CalendarFeedFormSet``
-    so admins can add/remove iCal feeds inline.
+    and class-registration kill switches), ``automations`` (the scheduled-job dashboard —
+    ON/OFF toggles + Run now, from the shared job registry), and ``announcements`` (a
+    sitewide announcement composer with a preview-then-send step). The Calendar tab owns a
+    ``CalendarFeedFormSet`` so admins can add/remove iCal feeds inline.
     """
     from core.models import CalendarFeed, SiteConfiguration
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
-    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features", "discord", "slideshow"}:
+    allowed_tabs = {
+        "general",
+        "calendar",
+        "legacy-cms",
+        "automations",
+        "announcements",
+        "features",
+        "discord",
+        "slideshow",
+    }
+    if active_tab not in allowed_tabs:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()
     release_mode = False
     release_form: ReleaseAnnouncementForm | None = None
     release_preview: dict[str, object] | None = None
+    jobstate_formset: Any = None
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -4559,6 +4664,12 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"Sync failed: {exc}")
             url = reverse("hub_admin_site_settings")
             return redirect(f"{url}?tab=legacy-cms")
+
+        # Automations "Run now" — a named submitter on the shared form (generic buttons) or the
+        # teleported bill_tabs confirm modal (carries run_job as a hidden field). Handled before
+        # the settings-form save, like sync_now; it persists toggle edits then runs (Decision 1/7).
+        if "run_job" in request.POST:
+            return _handle_run_job(request, config)
 
         # Announcements tab — the Release composer (preview-then-send), separate from the
         # settings form. The plain sitewide composer moved to the /announcements/compose/
@@ -4576,7 +4687,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
                 return response
             # else fall through to render (preview, or send with validation errors)
         else:
-            response, form, feed_formset, emoji_formset, role_formset = _save_site_settings(
+            response, form, feed_formset, emoji_formset, role_formset, jobstate_formset = _save_site_settings(
                 request, config, feed_queryset, active_tab
             )
             if response is not None:
@@ -4598,6 +4709,11 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
 
     zone_formset = SlideshowZoneFormSet(queryset=SlideshowZone.objects.all(), prefix="zones")
     slide_formset = SlideshowSlideFormSet(queryset=SlideshowSlide.objects.all(), prefix="slides")
+
+    # Automations tab: reuse the bound formset from a failed save (preserves typed toggle state),
+    # else build a fresh one over the synced rows. Rows pair each registry job with its form + last run.
+    automation_rows, jobstate_formset = _resolve_automation_context(jobstate_formset)
+
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -4620,6 +4736,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "release_mode": release_mode,
             "release_form": release_form,
             "release_preview": release_preview,
+            "automation_rows": automation_rows,
+            "jobstate_formset": jobstate_formset,
         },
     )
 

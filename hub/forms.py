@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
 from core.html_sanitize import sanitize_rich_html
-from core.models import CalendarFeed, SiteConfiguration
+from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
 from core.widgets import RichTextEditorWidget
 from membership.models import (
     CommunityEvent,
@@ -602,6 +602,16 @@ CalendarFeedFormSet = forms.modelformset_factory(
     form=CalendarFeedForm,
     extra=0,
     can_delete=True,
+)
+
+
+# Site Settings → Automations tab. One ``enabled`` toggle per scheduled job, saved by the
+# page's Save. The row set is fixed by the code registry (not user-managed), so ``extra=0``
+# and no add/delete — admins pause or run jobs, they don't add or remove them.
+ScheduledJobStateFormSet = forms.modelformset_factory(
+    ScheduledJobState,
+    fields=["enabled"],
+    extra=0,
 )
 
 

@@ -37,6 +37,18 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="Show what would happen without making changes.")  # type: ignore[attr-defined]
 
     def handle(self, *args: object, **options: object) -> None:
+        from core.scheduled_jobs import Trigger, is_enabled, record_run
+
+        # This runs from its own Render cron, so its enable-gate + run-recording live here
+        # (not in the dispatcher). Absence of a state row means enabled.
+        if not is_enabled("airtable_pull"):
+            self.stdout.write(self.style.WARNING("airtable_pull is paused — skipping."))
+            return
+
+        with record_run("airtable_pull", trigger=Trigger.SCHEDULED):
+            self._pull(options)
+
+    def _pull(self, options: dict[str, object]) -> None:
         model = options["model"]
         dry_run = options["dry_run"]
 

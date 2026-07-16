@@ -5,7 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import patch
 
+import pytest
 from django.core.management import call_command
+
+# The dispatcher now records each run through ``record_run`` (a ScheduledTaskRun row),
+# so every dispatch touches the DB — even when ``call_command`` is mocked.
+pytestmark = pytest.mark.django_db
 
 
 def _tasks_called(hour: int) -> list[str]:

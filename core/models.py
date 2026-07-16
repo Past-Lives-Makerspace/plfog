@@ -12,6 +12,8 @@ from django.db import models
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from core.scheduled_jobs import Trigger
+
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser
 
@@ -1289,3 +1291,158 @@ class DiscordWebhookRoute(models.Model):
             },
         )
         return route
+
+
+class ScheduledTaskRunQuerySet(models.QuerySet["ScheduledTaskRun"]):
+    """Querysets for the Automations dashboard's run history."""
+
+    def latest_per_task(self) -> dict[str, ScheduledTaskRun]:
+        """The most recent run per ``task_key``, in a single query (newest-first, first
+        occurrence wins). Lets the dashboard render every job's last run in O(1) queries."""
+        latest: dict[str, ScheduledTaskRun] = {}
+        for run in self.order_by("-started_at"):
+            if run.task_key not in latest:
+                latest[run.task_key] = run
+        return latest
+
+
+class ScheduledTaskRun(models.Model):
+    """Append-only history of every scheduled-job run (scheduled or manual "Run now").
+
+    Written only through :func:`core.scheduled_jobs.record_run`, which opens a row RUNNING
+    and marks it OK/FAILED. History for a retired job survives (``task_key`` is a free string,
+    not a FK), so the record outlives any registry change.
+    """
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        OK = "ok", "OK"
+        FAILED = "failed", "Failed"
+
+    task_key = models.CharField(max_length=64, db_index=True, help_text="Registry key of the job this run belongs to.")
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.RUNNING,
+        help_text="Where the run got to: still running, finished OK, or failed.",
+    )
+    trigger = models.CharField(
+        max_length=16,
+        choices=Trigger.choices,
+        default=Trigger.SCHEDULED,
+        help_text="Whether the cron dispatched this run or an admin clicked Run now.",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who clicked Run now; null for scheduled runs.",
+    )
+    started_at = models.DateTimeField(default=timezone.now, db_index=True, help_text="When the run began.")
+    finished_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the run finished; null while running or if the process died mid-run.",
+    )
+    error = models.TextField(blank=True, default="", help_text="Exception text captured when the run failed.")
+
+    objects = ScheduledTaskRunQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [models.Index(fields=["task_key", "-started_at"], name="idx_taskrun_key_recent")]
+
+    def __str__(self) -> str:
+        return f"{self.task_key} {self.status} @ {self.started_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status == self.Status.OK
+
+    @property
+    def failed(self) -> bool:
+        return self.status == self.Status.FAILED
+
+    @property
+    def duration(self) -> timedelta | None:
+        """Wall-clock run time, or ``None`` while still running."""
+        if self.finished_at is None:
+            return None
+        return self.finished_at - self.started_at
+
+    @property
+    def is_stale_running(self) -> bool:
+        """A run left RUNNING for over an hour — the process almost certainly died; the
+        dashboard renders this as "Unknown" rather than a perpetual "Running…"."""
+        return self.status == self.Status.RUNNING and self.started_at < timezone.now() - timedelta(hours=1)
+
+    def mark_ok(self) -> None:
+        """Record a clean finish."""
+        self.status = self.Status.OK
+        self.finished_at = timezone.now()
+        self.save(update_fields=["status", "finished_at"])
+
+    def mark_failed(self, exc: BaseException) -> None:
+        """Record a failure and capture its message."""
+        self.status = self.Status.FAILED
+        self.finished_at = timezone.now()
+        self.error = str(exc)
+        self.save(update_fields=["status", "finished_at", "error"])
+
+
+class ScheduledJobStateManager(models.Manager["ScheduledJobState"]):
+    """The current ON/OFF state per job. Absence of a row means enabled."""
+
+    def is_enabled(self, key: str) -> bool:
+        """Whether the job may run. ``True`` when no row exists (default-on)."""
+        row = self.filter(task_key=key).first()
+        return row.enabled if row is not None else True
+
+    def set_enabled(self, key: str, enabled: bool, *, user: AbstractBaseUser | None = None) -> ScheduledJobState:
+        """Flip a job on/off, recording who did it."""
+        row, _ = self.update_or_create(
+            task_key=key,
+            defaults={
+                "enabled": enabled,
+                "updated_by": user if (user is not None and getattr(user, "pk", None)) else None,
+            },
+        )
+        return row
+
+    def sync_registry(self) -> None:
+        """Ensure a state row exists for every registry job so the toggle formset always has
+        a row to bind. Idempotent; never deletes rows (a retired job's state survives)."""
+        from core.scheduled_jobs import SCHEDULED_JOBS
+
+        for job in SCHEDULED_JOBS:
+            self.get_or_create(task_key=job.key)
+
+
+class ScheduledJobState(models.Model):
+    """Current ON/OFF state for one scheduled job. Absence of a row also means enabled, so a
+    fresh database preserves today's "everything runs" behavior with zero seeding."""
+
+    task_key = models.CharField(max_length=64, unique=True, help_text="Registry key of the job this state controls.")
+    enabled = models.BooleanField(
+        default=True, help_text="When off, the dispatcher skips this job. Absence of a row also means enabled."
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this state was last changed.")
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who last flipped this job on or off.",
+    )
+
+    objects = ScheduledJobStateManager()
+
+    class Meta:
+        ordering = ["task_key"]
+
+    def __str__(self) -> str:
+        state = "enabled" if self.enabled else "disabled"
+        return f"{self.task_key} ({state})"
