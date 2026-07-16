@@ -17,7 +17,7 @@ from django.utils import timezone
 from factory.django import mute_signals
 
 from core.events.emit import emit
-from core.events.registry import Channel, get_event
+from core.events.registry import Channel, Recipients, get_event
 from core.models import EventDelivery, Notification, NotificationPreference, SiteActivity, TransactionalEmailLog
 from membership.models import GuildAnnouncement
 from tests.membership.factories import (
@@ -264,3 +264,30 @@ def describe_release_published():
         emailed = set(TransactionalEmailLog.objects.values_list("to_email", flat=True))
         assert default_member.user.email in emailed
         assert opted_out.user.email not in emailed
+
+
+# --- 7. orientation.completed ------------------------------------------------
+
+
+def describe_orientation_completed():
+    def it_registers_orientation_completed_with_guild_members_and_discord():
+        event = get_event("orientation.completed")
+        assert event.recipient is Recipients.GUILD_MEMBERS
+        assert event.has_channel(Channel.IN_APP)
+        assert event.has_channel(Channel.DISCORD)
+        # No email channel — a light social nudge to the guild, not an inbox item.
+        assert not event.has_channel(Channel.EMAIL)
+        # activity_kind stays None: complete_orientation logs the SiteActivity itself.
+        assert event.activity_kind is None
+
+    def it_keeps_orientation_completed_placeholders_and_sample_context_in_lockstep():
+        from core.events.copy import COPY_CHANNELS, default_copy_for, placeholders_for, sample_context_for
+        from core.events.rendering import placeholders_in
+
+        placeholders = set(placeholders_for("orientation.completed"))
+        assert placeholders == set(sample_context_for("orientation.completed"))
+        for channel in COPY_CHANNELS:
+            copy = default_copy_for("orientation.completed", channel)
+            for fragment in (copy.subject, copy.body_text, copy.body_html):
+                for name in placeholders_in(fragment):
+                    assert name in placeholders

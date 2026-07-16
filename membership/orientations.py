@@ -322,6 +322,22 @@ def complete_orientation(booking: OrientationBooking) -> None:
             email_to=booking.member.primary_email,
             period=f"booking:{booking.pk}:thankyou",
         )
+    # Warm welcome to the guild's members — always fires (no opt-out), in-app + the guild's
+    # own Discord channel. Copy-mode: no title/body, rendered from the seeded catalogue copy.
+    welcome_ctx = _context(booking)  # guild, greeting_name (= member.display_name), guild_url
+    emit(
+        "orientation.completed",
+        actor=None,  # system event; the member is the subject, not the actor
+        target=booking,
+        context={
+            "guild": booking.guild,  # resolver key (guild_members) + _guild_broadcast destination
+            "member_name": booking.member.display_name,
+            "guild_name": booking.guild.name,
+            "guild_url": welcome_ctx["guild_url"],
+        },
+        url=welcome_ctx["guild_url"],  # the in-app bell row's click-through
+        period=f"booking:{booking.pk}:completed",
+    )
 
 
 def auto_complete(*, now: datetime | None = None) -> int:
