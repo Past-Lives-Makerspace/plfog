@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -16,6 +17,8 @@ from django.db.models import BooleanField, Case, CharField, DecimalField, Exists
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.functional import cached_property
+from django.utils.html import format_html
+from django.utils.safestring import SafeString
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
@@ -353,9 +356,6 @@ class Member(models.Model):
         blank=True,
         help_text="When the member linked their Discord account for DM notifications (null = not linked).",
     )
-    other_contact_info = models.CharField(
-        max_length=255, blank=True, help_text="Other ways to reach this member (Instagram, Signal, etc.)."
-    )
     pronouns = models.CharField(
         max_length=30,
         choices=Pronouns.choices,
@@ -410,7 +410,7 @@ class Member(models.Model):
         blank=True,
         help_text=(
             "Per-field public/hidden flags for the member directory card. "
-            "Keys: pronouns, phone, email, discord_handle, other_contact_info, about_me, profile_photo, skills. "
+            "Keys: pronouns, phone, email, discord_handle, about_me, profile_photo, skills. "
             "Missing key means public (default-on)."
         ),
     )
@@ -428,9 +428,9 @@ class Member(models.Model):
         blank=True,
         help_text="URL slug for this member's public instructor profile. Non-empty = teaches classes.",
     )
-    instructor_website = models.URLField(blank=True, help_text="Instructor personal site.")
-    instructor_social_handle = models.CharField(
-        max_length=255, blank=True, help_text="e.g. @handle on primary social (instructor profile)."
+    instructor_bio = models.TextField(
+        blank=True,
+        help_text="Teaching bio shown on the public instructor page — separate from the member-directory bio.",
     )
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -475,7 +475,6 @@ class Member(models.Model):
         "phone",
         "email",
         "discord_handle",
-        "other_contact_info",
         "about_me",
         "profile_photo",
         "skills",
@@ -681,6 +680,16 @@ class Member(models.Model):
     def approved_skills(self) -> models.QuerySet[MemberSkill]:
         """This member's skills whose vocabulary entry is approved, ready for display."""
         return self.skills.filter(skill__status=Skill.Status.APPROVED).select_related("skill__category")
+
+    @property
+    def directory_contacts(self) -> models.QuerySet[MemberContact]:
+        """Contacts this member has flagged to show on their member-directory card."""
+        return self.contacts.filter(show_in_directory=True)
+
+    @property
+    def instructor_page_contacts(self) -> models.QuerySet[MemberContact]:
+        """Contacts this member has flagged to show on their public instructor page."""
+        return self.contacts.filter(show_on_instructor_page=True)
 
     @property
     def primary_email(self) -> str:
@@ -1000,6 +1009,57 @@ class Member(models.Model):
         # cleans up the orphaned profile_photo file when the user replaces it.
         delete_orphan_on_replace(self, "profile_photo")
         super().save(*args, **kwargs)
+
+
+class MemberContact(models.Model):
+    """A labeled contact method on a Member, with per-surface placement.
+
+    One list per member. Absorbs the former fixed ``other_contact_info`` /
+    ``instructor_website`` / ``instructor_social_handle`` fields — a website is just a
+    contact flagged "show on instructor page." ``phone`` and ``discord_handle`` stay
+    first-class on :class:`Member`; they are not contacts.
+    """
+
+    # Naive email detection: exactly one ``@`` between non-space runs, with a dotted domain.
+    _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="contacts",
+        help_text="The member this contact belongs to.",
+    )
+    label = models.CharField(max_length=100, help_text="What to call this contact, e.g. 'Website' or 'Instagram'.")
+    value = models.CharField(max_length=255, help_text="The contact itself — an email, URL, handle, or free text.")
+    show_in_directory = models.BooleanField(default=True, help_text="Show this contact on the member's directory card.")
+    show_on_instructor_page = models.BooleanField(
+        default=False, help_text="Show this contact on the member's public instructor page."
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.label}: {self.value} ({self.member.display_name})"
+
+    @property
+    def as_link(self) -> SafeString:
+        """Render :attr:`value` as a hyperlink when it clearly is one, else escaped text.
+
+        An email address becomes a ``mailto:`` link; an ``http(s)://`` or ``www.`` URL
+        becomes an external link (``www.`` is promoted to ``https://``); anything else
+        — a social handle, a phone number, free text — renders as escaped plain text.
+        """
+        value = self.value.strip()
+        if self._EMAIL_RE.match(value):
+            return format_html('<a href="mailto:{}">{}</a>', value, value)
+        lowered = value.lower()
+        if lowered.startswith(("http://", "https://")):
+            return format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', value, value)
+        if lowered.startswith("www."):
+            return format_html('<a href="https://{}" target="_blank" rel="noopener">{}</a>', value, value)
+        return format_html("{}", value)
 
 
 # ---------------------------------------------------------------------------

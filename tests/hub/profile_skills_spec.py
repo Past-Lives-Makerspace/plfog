@@ -25,6 +25,8 @@ def describe_profile_commissions():
     def it_saves_open_for_commissions_and_note(client: Client):
         member = _login(client)
         data = {
+            "contacts-TOTAL_FORMS": "0",
+            "contacts-INITIAL_FORMS": "0",
             "form_id": "profile",
             "preferred_name": "Jo",
             "open_for_commissions": "on",

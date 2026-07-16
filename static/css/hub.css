@@ -3046,6 +3046,10 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-profile-section__title { font-size: 1rem; font-weight: 700; margin: 0 0 0.5rem; }
 .pl-commission-note { display: block; margin-top: 0.5rem; }
 
+/* Profile settings — "Edit your profile" heading + Member/Instructor sub-tabs */
+.pl-profile-heading { font-size: 1.25rem; font-weight: 700; margin: 0 0 1rem; color: var(--hub-text); }
+.pl-subtabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+
 /* ========================================
    Member Home / Dashboard
    ======================================== */

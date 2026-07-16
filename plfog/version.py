@@ -2,9 +2,28 @@
 
 from __future__ import annotations
 
-VERSION = "0.22.0"
+VERSION = "0.22.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.22.1",
+        "date": "2026-07-15",
+        "title": "A cleaner profile, with your own contact links",
+        "changes": [
+            (
+                "Your profile settings now split into a Member tab and an Instructor tab, so your teaching "
+                "info stays separate from your member-directory profile."
+            ),
+            (
+                "Instructors get a dedicated “About me as an instructor” bio for your public class "
+                "page — kept separate from the short bio on your member-directory card."
+            ),
+            (
+                "Add your own labeled contact links — a website, Instagram, a booking email — and "
+                "choose where each one shows: on your directory card, your instructor page, or both."
+            ),
+        ],
+    },
     {
         "version": "0.22.0",
         "date": "2026-07-15",

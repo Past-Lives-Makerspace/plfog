@@ -94,7 +94,7 @@
       </h1>
       {% if offering.instructor %}
       <div class="cp-detail__byline">
-        with {% if offering.instructor.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}{% if offering.instructor.instructor_social_handle %} · {{ offering.instructor.instructor_social_handle }}{% endif %}
+        with {% if offering.instructor.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}
       </div>
       {% endif %}
     </div>

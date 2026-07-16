@@ -325,14 +325,6 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMix
         return offering
 
 
-class TeachProfileForm(forms.ModelForm):
-    class Meta:
-        from membership.models import Member
-
-        model = Member
-        fields = ["preferred_name", "about_me", "profile_photo", "instructor_website", "instructor_social_handle"]
-
-
 class ClassSessionForm(forms.ModelForm):
     class Meta:
         model = ClassSession

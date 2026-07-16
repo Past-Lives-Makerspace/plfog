@@ -119,8 +119,8 @@
         {% if member.about_me and member|is_public:"about_me" %}
         <p class="directory-card__about">{{ member.about_me }}</p>
         {% endif %}
-        {% with email_visible=member|is_public:"email" phone_visible=member|is_public:"phone" discord_visible=member|is_public:"discord_handle" other_visible=member|is_public:"other_contact_info" %}
-        {% if email_visible and member.primary_email or phone_visible and member.phone or discord_visible and member.discord_handle or other_visible and member.other_contact_info %}
+        {% with email_visible=member|is_public:"email" phone_visible=member|is_public:"phone" discord_visible=member|is_public:"discord_handle" %}
+        {% if email_visible and member.primary_email or phone_visible and member.phone or discord_visible and member.discord_handle or member.visible_contacts %}
         <div class="directory-card__contact">
             {% if member.primary_email and email_visible %}
             <div class="directory-card__contact-row">
@@ -140,12 +140,12 @@
                 <span>{{ member.discord_handle }}</span>
             </div>
             {% endif %}
-            {% if member.other_contact_info and other_visible %}
+            {% for contact in member.visible_contacts %}
             <div class="directory-card__contact-row">
-                <span class="directory-card__contact-label">Other</span>
-                <span>{{ member.other_contact_info }}</span>
+                <span class="directory-card__contact-label">{{ contact.label }}</span>
+                <span>{{ contact.as_link }}</span>
             </div>
-            {% endif %}
+            {% endfor %}
         </div>
         {% endif %}
         {% endwith %}

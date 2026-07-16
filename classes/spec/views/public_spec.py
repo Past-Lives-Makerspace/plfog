@@ -17,6 +17,7 @@ from classes.factories import (
 )
 from classes.models import ClassOffering
 from membership.models import Member
+from tests.membership.factories import MemberContactFactory
 
 
 @pytest.fixture
@@ -730,6 +731,39 @@ def describe_public_instructor():
         assert response.status_code == 200
         assert b"Deenie" in response.content
         assert b"Intro to Wheel Throwing" in response.content
+
+    def it_renders_the_instructor_bio_not_the_directory_bio(db, client):
+        instructor = InstructorFactory(
+            full_legal_name="Sadie",
+            instructor_slug="sadie",
+            about_me="Member directory blurb",
+            instructor_bio="I teach glass blowing.",
+        )
+        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.instructor_slug}))
+        assert b"I teach glass blowing." in response.content
+        assert b"Member directory blurb" not in response.content
+
+    def it_renders_only_contacts_flagged_for_the_instructor_page(db, client):
+        instructor = InstructorFactory(full_legal_name="Wes", instructor_slug="wes")
+        MemberContactFactory(
+            member=instructor,
+            label="Portfolio",
+            value="https://wes.example",
+            show_on_instructor_page=True,
+            show_in_directory=False,
+        )
+        MemberContactFactory(
+            member=instructor,
+            label="PrivateNote",
+            value="secret@example.com",
+            show_on_instructor_page=False,
+            show_in_directory=True,
+        )
+        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.instructor_slug}))
+        content = response.content.decode()
+        assert "Portfolio" in content
+        assert 'href="https://wes.example"' in content
+        assert "PrivateNote" not in content
 
 
 def describe_google_analytics_gate():

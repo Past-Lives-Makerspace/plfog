@@ -34,6 +34,7 @@ from hub.forms import (
     GuildEditForm,
     GuildRoleFormSet,
     MemberAdminEditForm,
+    MemberContactFormSet,
     MemberSkillForm,
     OrgInfoPageForm,
     ProfileSettingsForm,
@@ -46,7 +47,16 @@ from hub.forms import (
 )
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
-from membership.models import FundingSnapshot, Guild, Member, OrgInfoPage, Skill, SkillCategory, VotePreference
+from membership.models import (
+    FundingSnapshot,
+    Guild,
+    Member,
+    MemberContact,
+    OrgInfoPage,
+    Skill,
+    SkillCategory,
+    VotePreference,
+)
 from membership.ical import ical_escape
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
@@ -330,6 +340,11 @@ def member_directory(request: HttpRequest) -> HttpResponse:
             ),
             "guild_memberships__guild",
             "skills__skill__category",
+            Prefetch(
+                "contacts",
+                queryset=MemberContact.objects.filter(show_in_directory=True),
+                to_attr="visible_contacts",
+            ),
         )
         .order_by("full_legal_name")
     )
@@ -1453,27 +1468,34 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     member = _get_member(request)
 
     profile_form: ProfileSettingsForm | None
+    contact_formset: MemberContactFormSet | None
     if request.method == "POST" and request.POST.get("form_id") == "profile":
         if member is None:
             messages.error(request, "Your account is not linked to a membership.")
             return redirect("hub_user_settings")
         profile_form = ProfileSettingsForm(request.POST, request.FILES, instance=member)
-        if profile_form.is_valid():
+        contact_formset = MemberContactFormSet(request.POST, instance=member, prefix="contacts")
+        contacts_ok = contact_formset.is_valid()
+        if profile_form.is_valid() and contacts_ok:
             profile_form.save()
+            contact_formset.save()
             _log_profile_updated(cast(User, request.user), member)
             messages.success(request, "Profile updated.")
             return redirect(f"{request.path}?tab=profile")
-        if profile_form.has_only_photo_errors:
+        if profile_form.has_only_photo_errors and contacts_ok:
             # A rejected photo (too large / not an image) must never discard the member's
             # other edits — save everything except the photo and flag just the photo.
             profile_form.save_keeping_existing_photo()
+            contact_formset.save()
             _log_profile_updated(cast(User, request.user), member)
             messages.warning(request, f"Your profile was saved, but the new photo wasn't: {profile_form.photo_error}")
             return redirect(f"{request.path}?tab=profile")
     elif member is not None:
         profile_form = ProfileSettingsForm(instance=member)
+        contact_formset = MemberContactFormSet(instance=member, prefix="contacts")
     else:
         profile_form = None
+        contact_formset = None
 
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
     if request.method == "POST" and request.POST.get("form_id") == "notifications":
@@ -1514,6 +1536,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             **ctx,
             "member": member,
             "profile_form": profile_form,
+            "contact_formset": contact_formset,
             "skill_categories": _skill_categories_with_approved(),
             "add_email_form": add_email_form,
             "email_addresses": email_addresses,

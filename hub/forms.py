@@ -28,6 +28,7 @@ from membership.models import (
     GuildMeetingNoteAttachment,
     GuildOrientationSettings,
     Member,
+    MemberContact,
     MemberSkill,
     OrgFAQItem,
     OrgInfoPage,
@@ -325,20 +326,17 @@ class ProfileSettingsForm(forms.ModelForm):
             "pronouns",
             "phone",
             "discord_handle",
-            "other_contact_info",
             "about_me",
             "profile_photo",
             "show_in_directory",
             "open_for_commissions",
             "commission_note",
-            "instructor_website",
-            "instructor_social_handle",
+            "instructor_bio",
         ]
         widgets = {
             "preferred_name": forms.TextInput(attrs={"placeholder": "What should we call you?"}),
             "phone": forms.TextInput(attrs={"placeholder": "(optional)"}),
             "discord_handle": forms.TextInput(attrs={"placeholder": "@username"}),
-            "other_contact_info": forms.TextInput(attrs={"placeholder": "Instagram, Signal, etc."}),
             "about_me": forms.Textarea(attrs={"rows": 3, "placeholder": "Tell other members a bit about yourself..."}),
             "commission_note": forms.Textarea(
                 attrs={
@@ -346,24 +344,45 @@ class ProfileSettingsForm(forms.ModelForm):
                     "placeholder": "e.g. Small custom woodworking, websites, AI consulting — happy to chat!",
                 }
             ),
-            "instructor_social_handle": forms.TextInput(attrs={"placeholder": "@handle"}),
+            "instructor_bio": forms.Textarea(
+                attrs={"rows": 4, "placeholder": "What you teach, your background, how you like to run a class..."}
+            ),
         }
         labels = {
             "show_in_directory": "Show me in the member directory",
             "discord_handle": "Discord",
-            "other_contact_info": "Other contact info",
             "about_me": "About me",
             "profile_photo": "Profile photo",
             "open_for_commissions": "Open for commissions",
             "commission_note": "What kind of work do you welcome?",
-            "instructor_website": "Website",
-            "instructor_social_handle": "Social handle",
+            "instructor_bio": "About me as an instructor",
         }
         help_texts = {
             "profile_photo": "Optional. Shown next to your name in the member directory. Max 5 MB.",
-            "instructor_website": "Shown on your public instructor profile.",
-            "instructor_social_handle": "Shown on your public instructor profile.",
+            "instructor_bio": "Shown on your public instructor page.",
         }
+
+
+class MemberContactForm(forms.ModelForm):
+    """A single labeled contact row on the profile settings page (mirrors ``GuildLinkForm``)."""
+
+    class Meta:
+        model = MemberContact
+        fields = ["label", "value", "show_in_directory", "show_on_instructor_page", "sort_order"]
+        widgets = {
+            "label": forms.TextInput(attrs={"placeholder": "e.g. Website, Instagram, Booking email"}),
+            "value": forms.TextInput(attrs={"placeholder": "https://…, @handle, or you@example.com"}),
+            "sort_order": forms.HiddenInput(),
+        }
+        labels = {
+            "show_in_directory": "Show in member directory",
+            "show_on_instructor_page": "Show on instructor page",
+        }
+
+
+MemberContactFormSet = forms.inlineformset_factory(
+    Member, MemberContact, form=MemberContactForm, extra=0, can_delete=True
+)
 
 
 class MemberSkillForm(forms.Form):
