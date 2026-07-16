@@ -1,0 +1,98 @@
+{% load classes_tags static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ offering.title }} — flyer · Past Lives</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/class-flyer.css' %}">
+</head>
+<body class="pl-flyer-body">
+
+<div class="pl-flyer-toolbar no-print">
+  <button type="button" class="pl-flyer-print-btn" onclick="window.print()">Print / Save as PDF</button>
+  <p class="pl-flyer-toolbar__hint">Use your browser's Print dialog and choose “Save as PDF,” or print it for the shop wall.</p>
+</div>
+
+<div class="pl-flyer">
+  {# 1 · Hero band — the class's own focal-cropped photo, else the legacy CMS image, else a graceful initial #}
+  <div class="pl-flyer__hero">
+    {% if offering.image %}
+      <img class="pl-flyer__hero-img" src="{{ offering.image.url }}" alt="{{ offering.title }}"
+           style="object-position: {{ offering.hero_object_position }};">
+    {% elif offering.legacy_image_url %}
+      <img class="pl-flyer__hero-img" src="{% url 'classes:legacy_image' %}?url={{ offering.legacy_image_url|urlencode }}" alt="{{ offering.title }}"
+           style="object-position: {{ offering.hero_object_position }};">
+    {% else %}
+      <div class="pl-flyer__hero-placeholder">{{ offering.title|make_list|first|upper }}</div>
+    {% endif %}
+  </div>
+
+  {# 2 · Header — Guild Type eyebrow, title, instructor byline #}
+  <header class="pl-flyer__header">
+    <p class="pl-flyer__cat">{{ offering.category.name }}</p>
+    <h1 class="pl-flyer__name">{{ offering.title|strip_date_suffix }}</h1>
+    {% if offering.instructor %}<p class="pl-flyer__byline">with {{ offering.instructor.display_name }}</p>{% endif %}
+  </header>
+
+  {# 3 · One-paragraph about (hidden when blank) #}
+  {% if offering.description %}
+  <p class="pl-flyer__about">{{ offering.description|striptags|truncatewords:32 }}</p>
+  {% endif %}
+
+  <div class="pl-flyer__cols">
+    <div class="pl-flyer__info">
+      {# 4 · When — every date for a series, the single date for a one-off, else flexible/TBA #}
+      <section class="pl-flyer__block">
+        <h2 class="pl-flyer__block-title">When</h2>
+        {% with sessions=offering.sessions.all %}
+          {% if sessions %}
+            {% if offering.is_series %}
+              <p class="pl-flyer__line">Series · {{ sessions|length }} session{{ sessions|length|pluralize }}</p>
+              {% for session in sessions %}
+                <p class="pl-flyer__line"><strong>{{ session.starts_at|date:"D, M j" }}</strong> · {{ session|session_time_range }}</p>
+              {% endfor %}
+            {% else %}
+              {% with session=sessions|first %}
+                <p class="pl-flyer__line"><strong>{{ session.starts_at|date:"l, F j, Y" }}</strong></p>
+                <p class="pl-flyer__line">{{ session|session_time_range }}</p>
+              {% endwith %}
+            {% endif %}
+          {% elif offering.scheduling_model == 'flexible' %}
+            <p class="pl-flyer__line">Flexible — arrange dates directly with the instructor.</p>
+          {% else %}
+            <p class="pl-flyer__line">Dates to be announced.</p>
+          {% endif %}
+        {% endwith %}
+      </section>
+
+      {# 5 · Price (Free renders as “Free” via cents_as_price) #}
+      <section class="pl-flyer__block">
+        <h2 class="pl-flyer__block-title">Price</h2>
+        <p class="pl-flyer__line"><strong>{{ offering.price_cents|cents_as_price }}</strong></p>
+        {% if offering.member_price_cents %}
+          <p class="pl-flyer__line">{{ offering.member_price_cents|cents_as_price }} for Past Lives members</p>
+        {% endif %}
+      </section>
+
+      {# 6 · Where — the studio venue #}
+      <section class="pl-flyer__block">
+        <h2 class="pl-flyer__block-title">Where</h2>
+        <p class="pl-flyer__line"><strong>Past Lives Makerspace</strong></p>
+        <p class="pl-flyer__line pl-flyer__rules">2808 SE 9th Ave, Portland, OR 97202</p>
+      </section>
+    </div>
+
+    {# 7 · QR + call-to-action panel #}
+    <aside class="pl-flyer__qr-panel">
+      <div class="pl-flyer__qr">{{ qr_svg|safe }}</div>
+      <p class="pl-flyer__qr-caption">Scan to view &amp; register.</p>
+      <p class="pl-flyer__qr-url">{{ offering.qr_url }}</p>
+    </aside>
+  </div>
+
+  <footer class="pl-flyer__footer">Past Lives Makerspace · Portland, OR</footer>
+</div>
+
+</body>
+</html>

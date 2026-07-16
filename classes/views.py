@@ -1859,6 +1859,20 @@ def class_qr_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
     return resp
 
 
+def class_flyer(request: HttpRequest, pk: int) -> HttpResponse:
+    """Print-optimized one-page flyer for a class (instructor/admin → Print → Save as PDF).
+
+    Editor-gated via the shared ``can_edit_class`` check, so it works from either
+    portal — an admin, the category guild's lead/staff, or the class's own instructor.
+    """
+    from membership.permissions import can_edit_class
+
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    if not can_edit_class(request, offering):
+        return HttpResponseForbidden("You don't have access to this class.")
+    return render(request, "classes/class_flyer.html", {"offering": offering, "qr_svg": offering.qr_svg()})
+
+
 @classes_admin_access_required
 def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering.objects.prefetch_related("gallery_images", "sessions"), pk=pk)

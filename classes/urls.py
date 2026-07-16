@@ -139,6 +139,8 @@ urlpatterns = [
     path("_legacy-image/", views_legacy_image.legacy_image, name="legacy_image"),
     # Class QR download (editor-gated) — before the bare slug catch-all below.
     path("<int:pk>/qr.<str:fmt>/", views.class_qr_download, name="class_qr"),
+    # Printable one-page class flyer (editor-gated) — before the bare slug catch-all below.
+    path("<int:pk>/flyer/", views.class_flyer, name="class_flyer"),
     # Stable QR permalink → redirects to the class's current public page (slug-proof).
     path("c/<int:pk>/", views.class_permalink, name="class_permalink"),
     # Public registration — must come before the bare slug catch-all below.

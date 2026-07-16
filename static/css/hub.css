@@ -3406,6 +3406,11 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     flex-wrap: wrap;
 }
 
+/* Printable-flyer button sits just below the Share & Print card in the edit-page aside. */
+.pl-qr-share__flyer {
+    margin-top: 0.75rem;
+}
+
 /* Class-edit 6/6 split: identity fields (title, slug, category, instructor) on the left,
    the Share & Print card on the right. Stacks on narrow screens with the QR card on top. */
 .pl-edit-split {

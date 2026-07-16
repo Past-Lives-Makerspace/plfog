@@ -13,3 +13,5 @@ card as a single string, since the shared card takes one pre-computed hint.
 {% else %}
   {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it's published. You can print it now — the link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
 {% endif %}
+{# A print-ready one-page flyer (hero photo + QR) — opens in its own tab for browser Print → Save as PDF. #}
+<a class="hub-btn hub-btn--sm hub-btn--primary pl-qr-share__flyer" href="{% url 'classes:class_flyer' offering.pk %}" target="_blank" rel="noopener">Open printable flyer</a>
