@@ -113,3 +113,20 @@ def describe_send_reminder_email():
 
         assert len(mail.outbox) == 1
         assert Notification.objects.filter(trigger="class_reminder", user=member_user).count() == 1
+
+    def it_renders_the_instructor_welcome_note_as_rich_html():
+        """The welcome note is rich HTML — the reminder email renders it as real markup,
+        not the escaped tags the old ``|linebreaks`` pipe produced."""
+        reg, _member_user, offering = _linked_registration(status=Registration.Status.CONFIRMED)
+        offering.welcome_email_enabled = True
+        offering.welcome_email_subject = "Welcome"
+        offering.welcome_email_body = "<p>Bring <strong>an apron</strong>.</p>"
+        offering.save(update_fields=["welcome_email_enabled", "welcome_email_subject", "welcome_email_body"])
+        session = ClassSessionFactory(class_offering=offering)
+
+        send_reminder_email(reg, session)
+
+        html = mail.outbox[0].alternatives[0][0]
+        assert "an apron</strong>" in html  # rendered as a real tag (may carry an inline style)
+        assert "<strong" in html
+        assert "&lt;strong&gt;" not in html  # NOT escaped

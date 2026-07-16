@@ -316,7 +316,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     )
     welcome_email_body = models.TextField(
         blank=True,
-        help_text="The welcome message sent to each new registrant. Plain text; line breaks are preserved.",
+        help_text="The welcome message sent to each new registrant. Supports rich text formatting.",
     )
     welcome_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the welcome email content was last edited."
