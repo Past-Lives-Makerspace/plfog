@@ -18,7 +18,8 @@ Parameters (pass via {% include ... with %}):
     <label class="pl-toggle">
         {{ field }}
         <span class="pl-toggle__slider"></span>
-        {# sr-only: the visible caption lives outside this label, so the control needs its own name. #}
+        {# Screen-reader name for the checkbox: the visible caption lives OUTSIDE this
+           label, so without this the control has no accessible name (axe: label, critical). #}
         <span class="sr-only">{{ toggle_label|default:field.label }}</span>
     </label>
 </div>
