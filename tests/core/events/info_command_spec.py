@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
+from django.utils import timezone
 
 from membership.discord_commands import INFO, _info
 from tests.membership.factories import (
+    CommunityEventFactory,
     GuildFactory,
     GuildFAQItemFactory,
     GuildLinkFactory,
@@ -107,13 +111,23 @@ def describe_info():
             assert "Links" not in names
 
     def describe_next_meeting():
-        def it_shows_tba_when_forced():
-            GuildFactory(name="G8", about="x", meeting_is_tba=True)
-            assert "TBA" in _field(_by_option("G8"), "Next meeting")
+        def it_shows_an_event_based_guild_meeting():
+            # A next meeting set purely as a Community Calendar event must surface — the old
+            # reimplementation only understood the legacy cadence fields and dropped it silently.
+            guild = GuildFactory(name="G8", about="x")
+            when = timezone.now() + timedelta(days=3)
+            CommunityEventFactory(guild=guild, starts_at=when, location="Studio C")
+            value = _field(_by_option("G8"), "Next meeting")
+            assert when.strftime("%A, %b %-d") in value
+            assert "Studio C" in value
 
         def it_uses_the_free_text_schedule_as_a_fallback():
             GuildFactory(name="G9", about="x", meeting_schedule="Tuesdays 6pm, Studio B")
             assert "Tuesdays 6pm" in _field(_by_option("G9"), "Next meeting")
+
+        def it_omits_the_field_for_a_tba_guild_with_no_upcoming_meeting():
+            GuildFactory(name="G8b", about="x", meeting_is_tba=True)
+            assert "Next meeting" not in _field_names(_by_option("G8b"))
 
     def describe_truncation():
         def it_trims_a_long_about_with_a_read_more_tail():

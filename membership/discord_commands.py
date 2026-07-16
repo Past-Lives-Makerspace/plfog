@@ -124,31 +124,24 @@ _FIELD_LIMIT = 1024
 
 
 def _meeting_value(guild: Guild) -> str:
-    """The guild's next-meeting text: structured date/time/location, or the free-text schedule.
+    """The guild's next-meeting text: the soonest upcoming occurrence, or the free-text schedule.
 
-    Prefers the computed ``next_meeting_at`` (``None`` → ``"TBA"``) with ``meeting_time`` /
-    ``meeting_location`` when any structured field is set; otherwise the free-text
-    ``meeting_schedule``. Returns ``""`` when nothing is configured (caller omits the field).
+    Delegates to :meth:`Guild.next_meeting_occurrence` — the same authoritative method the guild
+    page uses — so an event-based ``GUILD_MEETING`` is never dropped (the old reimplementation only
+    understood the legacy cadence fields). Formats the returned :class:`NextMeeting` tuple; falls
+    back to the free-text ``meeting_schedule`` only when there's no upcoming occurrence. Returns
+    ``""`` when nothing is configured (caller omits the field).
     """
-    from membership.models import Guild
-
-    has_structured = (
-        guild.meeting_cadence != Guild.MeetingCadence.NONE
-        or guild.meeting_time is not None
-        or bool(guild.meeting_location)
-        or guild.meeting_next_override is not None
-        or guild.meeting_is_tba
-    )
-    if has_structured:
-        when = guild.next_meeting_at
-        parts = [when.strftime("%A, %b %-d") if when is not None else "TBA"]
-        if guild.meeting_time is not None:
-            parts.append(guild.meeting_time.strftime("%-I:%M %p"))
-        value = " · ".join(parts)
-        if guild.meeting_location:
-            value += f"\n{guild.meeting_location}"
-        return value
-    return guild.meeting_schedule
+    occurrence = guild.next_meeting_occurrence()
+    if occurrence is None:
+        return guild.meeting_schedule
+    parts = [occurrence.when.strftime("%A, %b %-d")]
+    if occurrence.has_time:
+        parts.append(occurrence.when.strftime("%-I:%M %p"))
+    value = " · ".join(parts)
+    if occurrence.location:
+        value += f"\n{occurrence.location}"
+    return value
 
 
 def _staff_lines(guild: Guild) -> list[str]:
