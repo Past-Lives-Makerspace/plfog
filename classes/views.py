@@ -1295,6 +1295,24 @@ def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:teach_discount_codes")
 
 
+@teaching_member_required
+@require_POST
+def teach_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    """Approve one of the teaching member's own pending codes from the Teaching portal.
+
+    Reachable only by a member who holds ``can_self_approve_discounts`` (or an
+    admin) for a code they created — authorization is enforced by
+    ``DiscountCode.can_be_approved_by``, so a member without the permission, or
+    one acting on someone else's code, gets a 403.
+    """
+    code = get_object_or_404(DiscountCode, pk=pk)
+    if not code.can_be_approved_by(request.user):
+        return HttpResponseForbidden("You don't have permission to approve this discount code.")
+    code.approve(request.user)
+    messages.success(request, f"Discount code {code.code} approved.")
+    return redirect("classes:teach_discount_codes")
+
+
 def _teach_class_or_404(request: HttpRequest, pk: int) -> ClassOffering:
     """Scope a per-class Workspace lookup to the logged-in teaching member's own class."""
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
@@ -2533,16 +2551,18 @@ def admin_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required
 @require_POST
 def admin_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
-    """Toggle a code's approval. Admins may approve any code; a member with the
-    self-approve permission may approve only their own — enforced by
+    """Toggle a code's approval. Admins may approve/un-approve any code; a member
+    with the self-approve permission may approve only their own — enforced by
     ``DiscountCode.can_be_approved_by``."""
     code = get_object_or_404(DiscountCode, pk=pk)
     if not code.can_be_approved_by(request.user):
         return HttpResponseForbidden("You don't have permission to approve this discount code.")
-    code.is_approved = not code.is_approved
-    code.save(update_fields=["is_approved"])
-    label = "approved" if code.is_approved else "unapproved"
-    messages.success(request, f"Discount code {code.code} {label}.")
+    if code.is_approved:
+        code.unapprove()
+        messages.success(request, f"Discount code {code.code} unapproved.")
+    else:
+        code.approve(request.user)
+        messages.success(request, f"Discount code {code.code} approved.")
     return redirect("classes:admin_discount_codes")
 
 

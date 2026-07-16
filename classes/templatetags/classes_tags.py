@@ -10,7 +10,9 @@ from django import template
 from django.http import QueryDict
 
 if TYPE_CHECKING:
-    from classes.models import ClassApproval
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+
+    from classes.models import ClassApproval, DiscountCode
 
 register = template.Library()
 
@@ -36,6 +38,18 @@ def first_with_role(approvals: Iterable[ClassApproval], role: str) -> ClassAppro
         if row.role == role:
             return row
     return None
+
+
+@register.filter
+def can_be_approved_by(code: DiscountCode, user: AbstractBaseUser | AnonymousUser | None) -> bool:
+    """Whether ``user`` may approve this discount code — the template guard for the
+    Teaching-portal Approve button.
+
+    Delegates to :meth:`DiscountCode.can_be_approved_by`; the model owns the rule
+    (admins approve any code, a self-approver only their own). Templates can't call
+    a model method with an argument, so this filter bridges ``request.user`` in.
+    """
+    return code.can_be_approved_by(user)
 
 
 @register.filter

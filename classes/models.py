@@ -1266,6 +1266,32 @@ class DiscountCode(models.Model):
             return False
         return self.created_by_id == user.pk
 
+    def approve(self, user: "AbstractBaseUser | AnonymousUser | None" = None) -> None:
+        """Mark this discount code approved so it becomes usable.
+
+        Approval is a deliberate forward action — an admin, or a member with the
+        ``can_self_approve_discounts`` permission approving one of their own
+        pending codes. Idempotent: approving an already-approved code is a no-op
+        beyond the write.
+
+        Args:
+            user: The acting user. Accepted so every call site passes the
+                approver, but not recorded — the model has no approver column
+                today. Authorization is the caller's responsibility (see
+                :meth:`can_be_approved_by`).
+        """
+        self.is_approved = True
+        self.save(update_fields=["is_approved"])
+
+    def unapprove(self) -> None:
+        """Revoke approval, returning the code to pending so it can't be used.
+
+        The admin-side counterpart to :meth:`approve` — lets an admin turn an
+        approved code back off without deleting it. Idempotent.
+        """
+        self.is_approved = False
+        self.save(update_fields=["is_approved"])
+
 
 class Waiver(models.Model):
     class Kind(models.TextChoices):

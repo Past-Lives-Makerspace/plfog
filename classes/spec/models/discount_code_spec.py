@@ -120,6 +120,40 @@ def describe_DiscountCode():
             DiscountCodeFactory(class_offering=offering, auto_apply=False)
             assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) is None
 
+    def describe_approve():
+        def it_marks_the_code_approved(db):
+            code = DiscountCodeFactory(is_approved=False)
+            code.approve()
+            code.refresh_from_db()
+            assert code.is_approved is True
+
+        def it_is_idempotent_when_already_approved(db):
+            code = DiscountCodeFactory(is_approved=True)
+            code.approve()
+            code.refresh_from_db()
+            assert code.is_approved is True
+
+        def it_accepts_an_acting_user(db):
+            """The approver is passed for a future audit trail; it must not error today."""
+            approver = _active_member_user("dc-approver-model", can_self_approve=True)
+            code = DiscountCodeFactory(is_approved=False, created_by=approver)
+            code.approve(approver)
+            code.refresh_from_db()
+            assert code.is_approved is True
+
+    def describe_unapprove():
+        def it_returns_the_code_to_pending(db):
+            code = DiscountCodeFactory(is_approved=True)
+            code.unapprove()
+            code.refresh_from_db()
+            assert code.is_approved is False
+
+        def it_is_idempotent_when_already_pending(db):
+            code = DiscountCodeFactory(is_approved=False)
+            code.unapprove()
+            code.refresh_from_db()
+            assert code.is_approved is False
+
     def describe_can_be_approved_by():
         def it_denies_anonymous_or_missing_users(db):
             code = DiscountCodeFactory()

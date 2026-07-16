@@ -65,6 +65,11 @@ urlpatterns = [
         views.teach_discount_code_delete,
         name="teach_discount_code_delete",
     ),
+    path(
+        "teach/discount-codes/<int:pk>/approve/",
+        views.teach_discount_code_approve,
+        name="teach_discount_code_approve",
+    ),
     path("teach/profile/", views.teach_profile, name="teach_profile"),
     # Legacy 301 redirects — old /classes/instructor/... links in emails + bookmarks
     path("instructor/", RedirectView.as_view(pattern_name="classes:teach_overview", permanent=True)),

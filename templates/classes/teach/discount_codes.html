@@ -40,6 +40,12 @@
                 {% endif %}
             </td>
             <td style="padding:0.5rem 0.75rem; display:flex; gap:0.375rem; justify-content:flex-end;">
+                {% if not c.is_approved and c|can_be_approved_by:request.user %}
+                <form method="post" action="{% url 'classes:teach_discount_code_approve' pk=c.pk %}" style="display:inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Approve</button>
+                </form>
+                {% endif %}
                 <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_discount_code_edit' pk=c.pk %}">Edit</a>
                 <button type="button"
                         class="hub-btn hub-btn--sm hub-btn--danger"
