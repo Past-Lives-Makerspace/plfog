@@ -430,13 +430,17 @@ class DiscountCodeForm(forms.ModelForm):
             "valid_until",
             "max_uses",
             "is_active",
-            "auto_apply",
         ]
-        labels = {
-            "auto_apply": "Auto-apply for eligible registrants (no need for them to type the code)",
-        }
         help_texts = {
             "max_uses": "Leaving the 'uses' field blank indicates unlimited uses.",
+        }
+        widgets = {
+            "code": forms.TextInput(
+                attrs={
+                    "style": "text-transform:uppercase;",
+                    "oninput": "this.value = this.value.toUpperCase()",
+                }
+            ),
         }
 
     def __init__(self, *args, scoped_to: ClassOffering | None = None, created_by=None, **kwargs) -> None:
@@ -444,8 +448,9 @@ class DiscountCodeForm(forms.ModelForm):
 
         Passing ``scoped_to`` makes a class-scoped code: registrations for any
         other class won't honor it. Passing ``created_by`` records who made it
-        (and, for instructor-created class-scoped codes, auto-approves it
-        since the instructor already controls that class's pricing).
+        (and lets that member manage — and, with the self-approve permission,
+        approve — their own codes). Every new code starts unapproved regardless
+        of who creates it.
         """
         super().__init__(*args, **kwargs)
         self._scoped_to = scoped_to
@@ -461,15 +466,6 @@ class DiscountCodeForm(forms.ModelForm):
         code = super().save(commit=False)
         if self._scoped_to is not None and not code.class_offering_id:
             code.class_offering = self._scoped_to
-            # Class-scoped codes created by the instructor of that class auto-approve;
-            # the instructor already controls the class price, so admin gating adds
-            # friction without protecting anything.
-            if (
-                self._created_by is not None
-                and self._scoped_to.instructor_id
-                and self._scoped_to.instructor.user_id == self._created_by.pk  # type: ignore[union-attr]  # instructor_id guard ensures non-None
-            ):
-                code.is_approved = True
         if self._created_by is not None and not code.created_by_id:
             code.created_by = self._created_by
         if commit:
@@ -546,6 +542,12 @@ class RegistrationForm(forms.ModelForm):
         max_length=40,
         required=False,
         label="Discount code (optional)",
+        widget=forms.TextInput(
+            attrs={
+                "style": "text-transform:uppercase;",
+                "oninput": "this.value = this.value.toUpperCase()",
+            }
+        ),
     )
     liability_signature = forms.CharField(
         max_length=255,

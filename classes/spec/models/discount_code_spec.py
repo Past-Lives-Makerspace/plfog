@@ -5,16 +5,41 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.db.utils import IntegrityError
 
-from classes.factories import ClassOfferingFactory, DiscountCodeFactory
+from classes.factories import ClassOfferingFactory, DiscountCodeFactory, UserFactory
 from classes.models import DiscountCode
+
+
+def _active_member_user(username: str, *, is_admin: bool = False, can_self_approve: bool = False):
+    """A User linked to an ACTIVE Member with the given role/permission."""
+    from membership.models import Member, MembershipPlan
+
+    MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
+    user = get_user_model().objects.create_user(username=username, email=f"{username}@example.com", password="x")
+    Member.objects.update_or_create(
+        user=user,
+        defaults={
+            "full_legal_name": username.title(),
+            "fog_role": Member.FogRole.ADMIN if is_admin else Member.FogRole.MEMBER,
+            "status": Member.Status.ACTIVE,
+            "can_self_approve_discounts": can_self_approve,
+        },
+    )
+    return user
 
 
 def describe_DiscountCode():
     def it_stringifies_as_code(db):
         code = DiscountCodeFactory(code="HOLIDAY")
         assert str(code) == "HOLIDAY"
+
+    def it_defaults_to_unapproved(db):
+        """A freshly created code starts pending — approval is a deliberate act."""
+        code = DiscountCode.objects.create(code="BRANDNEW", discount_pct=10)
+        assert code.is_approved is False
 
     def describe_apply_to():
         def it_applies_percent_discount(db):
@@ -94,3 +119,49 @@ def describe_DiscountCode():
             offering = ClassOfferingFactory()
             DiscountCodeFactory(class_offering=offering, auto_apply=False)
             assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) is None
+
+    def describe_can_be_approved_by():
+        def it_denies_anonymous_or_missing_users(db):
+            code = DiscountCodeFactory()
+            assert code.can_be_approved_by(AnonymousUser()) is False
+            assert code.can_be_approved_by(None) is False
+
+        def it_allows_an_admin_member_to_approve_any_code(db):
+            admin = _active_member_user("dc-admin", is_admin=True)
+            owner = UserFactory(username="dc-owner@example.com")
+            code = DiscountCodeFactory(created_by=owner)
+            assert code.can_be_approved_by(admin) is True
+
+        def it_allows_a_superuser_without_a_member(db):
+            from membership.models import Member
+
+            user = get_user_model().objects.create_superuser(
+                username="dc-su@example.com", email="dc-su@example.com", password="x"
+            )
+            Member.objects.filter(user=user).delete()
+            code = DiscountCodeFactory()
+            assert code.can_be_approved_by(user) is True
+
+        def it_allows_the_owner_when_they_hold_the_permission(db):
+            owner = _active_member_user("dc-perm-owner", can_self_approve=True)
+            code = DiscountCodeFactory(created_by=owner)
+            assert code.can_be_approved_by(owner) is True
+
+        def it_denies_the_owner_without_the_permission(db):
+            owner = _active_member_user("dc-noperm-owner", can_self_approve=False)
+            code = DiscountCodeFactory(created_by=owner)
+            assert code.can_be_approved_by(owner) is False
+
+        def it_denies_a_permitted_member_on_someone_elses_code(db):
+            approver = _active_member_user("dc-permitted", can_self_approve=True)
+            other = UserFactory(username="dc-other@example.com")
+            code = DiscountCodeFactory(created_by=other)
+            assert code.can_be_approved_by(approver) is False
+
+        def it_denies_a_user_with_no_member(db):
+            from membership.models import Member
+
+            user = UserFactory(username="dc-nomember@example.com")
+            Member.objects.filter(user=user).delete()
+            code = DiscountCodeFactory(created_by=user)
+            assert code.can_be_approved_by(user) is False

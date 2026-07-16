@@ -521,7 +521,11 @@ class MemberAdminEditForm(forms.ModelForm):
             "status",
             "member_type",
             "show_in_directory",
+            "can_self_approve_discounts",
         ]
+        labels = {
+            "can_self_approve_discounts": "Can approve their own discount codes",
+        }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)

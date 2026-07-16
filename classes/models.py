@@ -20,7 +20,7 @@ from core.models import HeroCropMixin
 from core.validators import validate_image_size
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
     from django.core.files.uploadedfile import UploadedFile
 
     from membership.models import Member
@@ -1158,7 +1158,11 @@ class DiscountCode(models.Model):
     use_count = models.PositiveIntegerField(default=0, help_text="Incremented on each successful registration.")
     is_active = models.BooleanField(default=True, help_text="Admin toggle to disable without deleting.")
     is_approved = models.BooleanField(
-        default=True, help_text="Admin-approved codes are usable. Instructor-created codes start unapproved."
+        default=False,
+        help_text=(
+            "Codes are usable only once approved. Every new code starts unapproved until an admin — or a "
+            "member with the self-approve permission, for their own codes — approves it."
+        ),
     )
     class_offering = models.ForeignKey(
         "ClassOffering",
@@ -1236,6 +1240,31 @@ class DiscountCode(models.Model):
         if self.max_uses is not None and self.use_count >= self.max_uses:
             return False
         return True
+
+    def can_be_approved_by(self, user: "AbstractBaseUser | AnonymousUser | None") -> bool:
+        """Whether ``user`` may approve (activate) this discount code.
+
+        Admins and superusers may approve any code. Every other member may
+        approve only the codes they created (the ``created_by`` audit user), and
+        only when they hold the ``can_self_approve_discounts`` permission.
+        Anonymous or unlinked users can never approve.
+
+        Args:
+            user: The acting user (may be anonymous or ``None``).
+
+        Returns:
+            ``True`` when the user is authorized to flip ``is_approved`` on this code.
+        """
+        if user is None or not getattr(user, "is_authenticated", False):
+            return False
+        from membership.models import Member
+
+        member = Member.objects.filter(user_id=user.pk, status=Member.Status.ACTIVE).first()
+        if getattr(user, "is_superuser", False) or (member is not None and member.is_fog_admin):
+            return True
+        if member is None or not member.can_self_approve_discounts:
+            return False
+        return self.created_by_id == user.pk
 
 
 class Waiver(models.Model):

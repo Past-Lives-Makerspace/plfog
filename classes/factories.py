@@ -143,6 +143,10 @@ class DiscountCodeFactory(DjangoModelFactory):
     code = factory.Sequence(lambda n: f"CODE{n}")
     discount_pct = 20
     is_active = True
+    # Codes default to unapproved on the model (approval is a deliberate act); the
+    # factory approves by default so fixtures represent a usable code. Tests that
+    # exercise the pending state pass ``is_approved=False`` explicitly.
+    is_approved = True
 
 
 class RegistrationFactory(DjangoModelFactory):

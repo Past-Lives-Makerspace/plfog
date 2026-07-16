@@ -1241,21 +1241,16 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
             scoped_to = None
     form = DiscountCodeForm(request.POST or None, scoped_to=scoped_to, created_by=request.user)
     if request.method == "POST" and form.is_valid():
+        # Every new code starts unapproved (the model default) — a teaching
+        # member with the self-approve permission can approve their own; otherwise
+        # an admin reviews it.
         code = form.save(commit=False)
-        # Class-scoped codes created by the offering's own teaching member are
-        # auto-approved by DiscountCodeForm.save. Other teaching member codes
-        # (global, or scoped to another instructor's class) need admin review.
-        if scoped_to is None:
-            code.is_approved = False
         if scoped_to is not None and not code.class_offering_id:
             code.class_offering = scoped_to
         if not code.created_by_id:
             code.created_by = request.user
         code.save()
-        if code.is_approved:
-            messages.success(request, "Discount code created and active for this class.")
-        else:
-            messages.success(request, "Discount code created — an admin will review and approve it.")
+        messages.success(request, "Discount code created — it needs approval before it's active.")
         if scoped_to is not None:
             return redirect("classes:teach_class_edit", pk=scoped_to.pk)
         return redirect("classes:teach_discount_codes")
@@ -2535,10 +2530,15 @@ def admin_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:admin_discount_codes")
 
 
-@classes_admin_access_required
+@login_required
 @require_POST
 def admin_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    """Toggle a code's approval. Admins may approve any code; a member with the
+    self-approve permission may approve only their own — enforced by
+    ``DiscountCode.can_be_approved_by``."""
     code = get_object_or_404(DiscountCode, pk=pk)
+    if not code.can_be_approved_by(request.user):
+        return HttpResponseForbidden("You don't have permission to approve this discount code.")
     code.is_approved = not code.is_approved
     code.save(update_fields=["is_approved"])
     label = "approved" if code.is_approved else "unapproved"

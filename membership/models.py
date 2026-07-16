@@ -432,6 +432,13 @@ class Member(models.Model):
         blank=True,
         help_text="Teaching bio shown on the public instructor page — separate from the member-directory bio.",
     )
+    can_self_approve_discounts = models.BooleanField(
+        default=False,
+        help_text=(
+            "When on, this member may approve (activate) their own discount codes without waiting for an "
+            "admin. Granted per-member from the Manage Members page. Admins can approve anyone's codes."
+        ),
+    )
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     welcome_dismissed_at = models.DateTimeField(

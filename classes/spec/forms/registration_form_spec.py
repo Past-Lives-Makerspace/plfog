@@ -65,6 +65,11 @@ def _post_data(**overrides):
 
 
 def describe_RegistrationForm():
+    def it_force_uppercases_the_discount_code_input(offering, settings_obj):
+        attrs = _build_form().fields["discount_code"].widget.attrs
+        assert "text-transform:uppercase" in attrs["style"]
+        assert attrs["oninput"] == "this.value = this.value.toUpperCase()"
+
     def describe_validation():
         def it_is_valid_with_minimum_required_fields(offering, settings_obj):
             form = RegistrationForm(data=_post_data(), offering=offering, settings_obj=settings_obj)

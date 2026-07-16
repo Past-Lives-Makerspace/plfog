@@ -14,9 +14,8 @@ Example: {% include "classes/_components/class_discount_codes_section.html"
 {% if offering and offering.pk %}
 <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Discount codes for this class</h3>
 <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">
-  Codes scoped to this class only. Use them for a class-only sale, an early-bird discount, or
-  turn on <strong>Auto-apply</strong> to drop the price for every registrant without making
-  them type a code.
+  Codes scoped to this class only — use them for a class-only sale or an early-bird discount.
+  New codes need approval before they go live.
 </p>
 <div class="hub-card" style="padding:0.75rem 1rem;">
   {% with codes=offering.discount_codes.all %}

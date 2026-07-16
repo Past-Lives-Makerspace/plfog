@@ -147,6 +147,40 @@ def describe_admin_discount_codes():
             response = client.get(reverse("classes:admin_discount_code_approve", kwargs={"pk": code.pk}))
             assert response.status_code == 405
 
+        def it_forbids_a_member_without_the_permission(member_user, client, db):
+            from classes.factories import DiscountCodeFactory
+
+            client.force_login(member_user)
+            code = DiscountCodeFactory(is_approved=False)
+            response = client.post(reverse("classes:admin_discount_code_approve", kwargs={"pk": code.pk}))
+            assert response.status_code == 403
+            code.refresh_from_db()
+            assert code.is_approved is False
+
+        def it_lets_a_self_approver_approve_their_own_code(member_user, client, db):
+            from classes.factories import DiscountCodeFactory
+            from membership.models import Member
+
+            Member.objects.filter(user=member_user).update(can_self_approve_discounts=True)
+            code = DiscountCodeFactory(is_approved=False, created_by=member_user)
+            client.force_login(member_user)
+            response = client.post(reverse("classes:admin_discount_code_approve", kwargs={"pk": code.pk}))
+            assert response.status_code == 302
+            code.refresh_from_db()
+            assert code.is_approved is True
+
+        def it_forbids_a_self_approver_on_someone_elses_code(member_user, admin_user, client, db):
+            from classes.factories import DiscountCodeFactory
+            from membership.models import Member
+
+            Member.objects.filter(user=member_user).update(can_self_approve_discounts=True)
+            code = DiscountCodeFactory(is_approved=False, created_by=admin_user)
+            client.force_login(member_user)
+            response = client.post(reverse("classes:admin_discount_code_approve", kwargs={"pk": code.pk}))
+            assert response.status_code == 403
+            code.refresh_from_db()
+            assert code.is_approved is False
+
     def it_gates_behind_admin_role(member_user, client, db):
         client.force_login(member_user)
         response = client.get(reverse("classes:admin_discount_codes"))
