@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "0.22.5"
+VERSION = "0.22.6"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.22.6",
+        "date": "2026-07-16",
+        "title": "Slash commands in Discord",
+        "changes": [
+            (
+                "Type /link in the Past Lives Discord to connect your Discord to your member account in "
+                "one tap — no digging through settings. Once connected, guild syncing and the rest of the "
+                "Discord goodies just work."
+            ),
+        ],
+    },
     {
         "version": "0.22.5",
         "date": "2026-07-16",
