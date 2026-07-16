@@ -28,6 +28,7 @@ from classes.models import (
     RegistrationAnswer,
     RegistrationQuestion,
     Waiver,
+    _unique_slug,
 )
 from classes.questions import active_questions, collect_answers, inject_fields
 from classes.templatetags.classes_tags import youtube_embed_id as _youtube_embed_id
@@ -47,12 +48,7 @@ def _assign_provisional_slug(offering: ClassOffering) -> None:
     if offering.slug:
         return
     base = slugify(offering.title) or "class"
-    slug = base
-    n = 1
-    while ClassOffering.objects.filter(slug=slug).exclude(pk=offering.pk).exists():
-        n += 1
-        slug = f"{base}-{n}"
-    offering.slug = slug
+    offering.slug = _unique_slug(base, exclude_pk=offering.pk)
 
 
 def _validate_youtube_url(url: str) -> str:

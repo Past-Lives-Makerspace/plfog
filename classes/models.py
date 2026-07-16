@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Callable
 from datetime import date as date_type, datetime
 from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
-from django.db import models
+from django.db import IntegrityError, models, transaction
 from django.db.models import CheckConstraint, F, Q
 from django.utils import timezone
 from django.utils.formats import date_format
@@ -189,6 +190,63 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             )
         ).values("pk", "capacity", "used")
         return {row["pk"]: max(0, row["capacity"] - row["used"]) for row in rows}
+
+
+_SLUG_RETRY_LIMIT = 5
+
+
+def _unique_slug(base: str, exclude_pk: int | None) -> str:
+    """A slug derived from ``base`` that no other ClassOffering currently holds.
+
+    Returns ``base`` when it is free, otherwise ``base-2``, ``base-3``, … Pass the
+    offering's own ``pk`` as ``exclude_pk`` so re-checking a row against itself never
+    reads as a collision; ``None`` (a not-yet-saved offering) excludes nothing. This is
+    a check-then-set probe that closes the common case but not a genuine race — the save
+    paths pair it with :func:`_save_with_unique_slug` to retry on the unique constraint.
+    """
+    candidate = base
+    n = 1
+    while ClassOffering.objects.filter(slug=candidate).exclude(pk=exclude_pk).exists():
+        n += 1
+        candidate = f"{base}-{n}"
+    return candidate
+
+
+def _is_slug_unique_violation(error: IntegrityError) -> bool:
+    """True when ``error`` is the ClassOffering ``slug`` unique constraint failing.
+
+    Portable across SQLite ("UNIQUE constraint failed: classes_classoffering.slug") and
+    PostgreSQL ("duplicate key value ... Key (slug)=…") — both name the ``slug`` column.
+    A non-slug integrity error is left to propagate rather than pointlessly retried.
+    """
+    return "slug" in str(error).lower()
+
+
+def _save_with_unique_slug(
+    offering: "ClassOffering",
+    base: str,
+    *,
+    exclude_pk: int | None,
+    save: Callable[[], None],
+) -> None:
+    """Stamp ``offering`` with a unique slug from ``base`` and persist, retrying on a race.
+
+    Probes with :func:`_unique_slug`, then runs ``save`` inside ``transaction.atomic()`` so
+    a losing write never poisons the outer connection. If a concurrent writer claimed the
+    same slug between the probe and the save, the unique constraint raises ``IntegrityError``;
+    we re-derive the next free suffix (the winning row is now visible) and retry, bounded at
+    ``_SLUG_RETRY_LIMIT`` attempts before re-raising. A non-slug integrity error propagates
+    immediately.
+    """
+    for attempt in range(_SLUG_RETRY_LIMIT):
+        offering.slug = _unique_slug(base, exclude_pk)
+        try:
+            with transaction.atomic():
+                save()
+            return
+        except IntegrityError as error:
+            if not _is_slug_unique_violation(error) or attempt == _SLUG_RETRY_LIMIT - 1:
+                raise
 
 
 class ClassOffering(HeroCropMixin, models.Model):
@@ -932,29 +990,17 @@ class ClassOffering(HeroCropMixin, models.Model):
         when = self.earliest_session_at
         when_date = timezone.localtime(when).date() if when is not None else timezone.localdate()
         base = f"{slugify(self.title) or 'class'}-{when_date:%Y-%m-%d}"
-        candidate = base
-        n = 1
-        while ClassOffering.objects.filter(slug=candidate).exclude(pk=self.pk).exists():
-            n += 1
-            candidate = f"{base}-{n}"
-        self.slug = candidate
-        self.save(update_fields=["slug"])
+        _save_with_unique_slug(self, base, exclude_pk=self.pk, save=lambda: self.save(update_fields=["slug"]))
 
     def duplicate(self) -> "ClassOffering":
         """Clone this offering as a fresh draft with a unique slug and title."""
         base_slug = f"{self.slug}-copy"
-        slug = base_slug
-        n = 1
-        while ClassOffering.objects.filter(slug=slug).exists():
-            n += 1
-            slug = f"{base_slug}-{n}"
         self.pk = None
-        self.slug = slug
         self.title = f"{self.title} (copy)"
         self.status = self.Status.DRAFT
         self.published_at = None
         self.approved_by = None
-        self.save()
+        _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
         return self
 
     def duplicate_as_new_run(self) -> "ClassOffering":
@@ -970,18 +1016,12 @@ class ClassOffering(HeroCropMixin, models.Model):
         partial unique constraint would otherwise reject the duplicate.
         """
         base_slug = f"{self.slug}-run"
-        slug = base_slug
-        n = 1
-        while ClassOffering.objects.filter(slug=slug).exists():
-            n += 1
-            slug = f"{base_slug}-{n}"
         self.pk = None
-        self.slug = slug
         self.status = self.Status.DRAFT
         self.published_at = None
         self.approved_by = None
         self.legacy_cms_id = ""
-        self.save()
+        _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
         return self
 
 
