@@ -50,7 +50,7 @@ def describe_detail_edit_affordances():
         category = CategoryFactory()
         category.hero_image = SimpleUploadedFile("hero.gif", _GIF, content_type="image/gif")
         category.save()
-        offering = _published_with_session(slug="admin-detail", category=category)
+        offering = _published_with_session(slug="admin-detail", category=category, image="")
 
         client.force_login(admin_user)
         response = _detail(client, offering)

@@ -92,6 +92,11 @@ class ClassOfferingFactory(DjangoModelFactory):
     capacity = 6
     status = models.ClassOffering.Status.DRAFT
     scheduling_type = models.ClassOffering.SchedulingType.SINGLE_SESSION
+    # Submitting a class for review now requires its own hero photo (see
+    # ClassOffering.has_submittable_image), so a factory-built offering carries a
+    # real, readable hero by default. Pass image="" to model a class that has no
+    # photo of its own (e.g. category-hero-fallback or empty-state tests).
+    image = factory.django.ImageField(width=4, height=4, color="blue")
 
 
 class SeriesClassOfferingFactory(ClassOfferingFactory):

@@ -150,6 +150,8 @@ def describe_instructor_create_class():
                 "images-INITIAL_FORMS": "0",
                 "images-MIN_NUM_FORMS": "0",
                 "images-MAX_NUM_FORMS": "1000",
+                # A class needs a photo of its own to pass the submit gate.
+                "gallery_images": [_image_file("x.png")],
                 "action": "submit",
             },
         )

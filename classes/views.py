@@ -79,6 +79,11 @@ _ViewFunc = Callable[..., HttpResponse]
 # don't scatter across the view and templates.
 WITHIN_DAYS = {"30": 30, "90": 90, "180": 180}
 
+# Soft, non-blocking suggestion shown after a class submits with fewer than three
+# gallery photos. The hard requirement (at least one photo) lives on the model as
+# ``ClassOffering.has_submittable_image``; this is only encouragement to add more.
+_PHOTO_NUDGE_MESSAGE = "Classes with 3 or more photos get more sign-ups — consider adding a few more."
+
 
 def _browsable_classes() -> Any:
     """Published, non-private classes still open for booking, soonest first.
@@ -1077,8 +1082,14 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         else:
             submit_now = request.POST.get("action") == "submit"
             if submit_now:
-                offering.submit_for_review()
-                messages.success(request, f"Submitted “{offering.title}” for admin review.")
+                try:
+                    offering.submit_for_review()
+                except ValidationError as exc:
+                    messages.error(request, exc.messages[0])
+                else:
+                    messages.success(request, f"Submitted “{offering.title}” for admin review.")
+                    if offering.needs_photo_nudge:
+                        messages.info(request, _PHOTO_NUDGE_MESSAGE)
             else:
                 messages.success(request, f"Saved draft ‘{offering.title}’.")
             return redirect("classes:teach_class_edit", pk=offering.pk)
@@ -1110,8 +1121,14 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         formset.save()
         submit_now = request.POST.get("action") == "submit"
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
-            offering.submit_for_review()
-            messages.success(request, f"Submitted “{offering.title}” for admin review.")
+            try:
+                offering.submit_for_review()
+            except ValidationError as exc:
+                messages.error(request, exc.messages[0])
+            else:
+                messages.success(request, f"Submitted “{offering.title}” for admin review.")
+                if offering.needs_photo_nudge:
+                    messages.info(request, _PHOTO_NUDGE_MESSAGE)
         else:
             messages.success(request, "Class updated.")
         return redirect("classes:teach_class_edit", pk=offering.pk)
@@ -1143,11 +1160,17 @@ def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
     if request.method == "POST" and offering.status == ClassOffering.Status.DRAFT:
-        (first_gate,) = offering.submit_for_review()
+        try:
+            (first_gate,) = offering.submit_for_review()
+        except ValidationError as exc:
+            messages.error(request, exc.messages[0])
+            return redirect("classes:teach_class_edit", pk=offering.pk)
         messages.success(
             request,
             f"Submitted “{offering.title}” for review by {first_gate.get_role_display()}.",
         )
+        if offering.needs_photo_nudge:
+            messages.info(request, _PHOTO_NUDGE_MESSAGE)
     return redirect("classes:teach_dashboard")
 
 

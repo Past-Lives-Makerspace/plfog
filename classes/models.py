@@ -465,6 +465,12 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         if self.status != self.Status.DRAFT:
             raise ValueError(f"Only draft classes can be submitted; got {self.status}.")
+        if not self.has_submittable_image:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(
+                "Add a photo before submitting — a class needs at least its own hero image or one gallery photo."
+            )
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
         # Clear out any stale approval rows from a prior submission cycle, then
@@ -777,6 +783,27 @@ class ClassOffering(HeroCropMixin, models.Model):
         if not items and self.category and self.category.hero_image:
             items.append({"url": self.category.hero_image.url, "alt": self.category.name})
         return items
+
+    @property
+    def has_submittable_image(self) -> bool:
+        """Whether this class carries a photo good enough to submit for review.
+
+        True when the offering has its OWN hero (``image``) or at least one
+        gallery photo. The Category/Guild-Type hero fallback that
+        ``display_images`` leans on is deliberately excluded: a class must
+        supply its own photo before it can go to a reviewer.
+        """
+        return bool(self.image) or self.gallery_images.exists()
+
+    @property
+    def needs_photo_nudge(self) -> bool:
+        """Whether to gently suggest adding more gallery photos.
+
+        Classes with three or more gallery photos tend to draw more sign-ups,
+        so below that we surface a soft suggestion. This is advisory only — it
+        never blocks submission (that gate is ``has_submittable_image``).
+        """
+        return self.gallery_images.count() < 3
 
     @property
     def first_upcoming_session_at(self) -> datetime | None:

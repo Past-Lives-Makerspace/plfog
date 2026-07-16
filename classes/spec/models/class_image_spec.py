@@ -104,12 +104,12 @@ def describe_display_images():
 
     def it_falls_back_to_category_hero_when_no_images(db):
         category = CategoryFactory(hero_image=_image_file("cat.png"))
-        offering = ClassOfferingFactory(category=category)
+        offering = ClassOfferingFactory(category=category, image="")
         items = offering.display_images
         assert len(items) == 1
         assert items[0]["alt"] == category.name
 
     def it_returns_empty_when_no_images_anywhere(db):
-        offering = ClassOfferingFactory()
+        offering = ClassOfferingFactory(image="")
         # CategoryFactory by default has no hero_image, so this should be empty.
         assert offering.display_images == []
