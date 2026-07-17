@@ -2,9 +2,42 @@
 
 from __future__ import annotations
 
-VERSION = "0.22.9"
+VERSION = "0.23.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.0",
+        "date": "2026-07-17",
+        "title": "Join a guild — and get around — right from Discord",
+        "changes": [
+            (
+                "New /join-guild command: type it in the Past Lives Discord, pick your guild, and you're "
+                "in — you get your guild's Discord role and a welcome from the guild, no trip to the app. "
+                "(You can still join with the emoji reactions in #choose-your-guild too.)"
+            ),
+            (
+                "New /guide command lists every Past Lives Discord command and what it does, so it's easy "
+                "to see everything you can do without leaving Discord."
+            ),
+        ],
+    },
+    {
+        "version": "0.23.0",
+        "date": "2026-07-17",
+        "title": "Guild leads: your mailing list, your call on who gets each email",
+        "changes": [
+            (
+                "Your guild's edit page is now clearly your Guild Settings page, and its Announcements tab "
+                "has a new Your Mailing List section: see exactly who your announcements reach, add custom "
+                "email addresses beyond your members, and import a list all at once."
+            ),
+            (
+                "When you post an announcement you can now choose who gets the email — everyone's included "
+                "by default, just uncheck anyone you want to skip. Your members still see it in the app and "
+                "it still posts to your Discord channel."
+            ),
+        ],
+    },
     {
         "version": "0.22.9",
         "date": "2026-07-16",
