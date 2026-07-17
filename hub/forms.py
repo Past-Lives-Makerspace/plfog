@@ -24,6 +24,7 @@ from membership.models import (
     GuildAnnouncement,
     GuildFAQItem,
     GuildLink,
+    GuildMailingListEmail,
     GuildMeetingNote,
     GuildMeetingNoteAttachment,
     GuildOrientationSettings,
@@ -945,6 +946,20 @@ class GuildLinkForm(forms.ModelForm):
 
 
 GuildLinkFormSet = forms.inlineformset_factory(Guild, GuildLink, form=GuildLinkForm, extra=0, can_delete=True)
+
+
+class GuildMailingListEmailForm(forms.ModelForm):
+    """A single custom (non-member) mailing-list address row on the guild edit page."""
+
+    class Meta:
+        model = GuildMailingListEmail
+        fields = ["email", "label", "sort_order"]
+        widgets = {"sort_order": forms.HiddenInput()}
+
+
+GuildMailingListFormSet = forms.inlineformset_factory(
+    Guild, GuildMailingListEmail, form=GuildMailingListEmailForm, extra=0, can_delete=True
+)
 
 
 class OrgInfoPageForm(forms.ModelForm):

@@ -964,6 +964,7 @@ a:hover { color: var(--hub-link-hover); }
 .hub-form-group input[type="email"],
 .hub-form-group input[type="tel"],
 .hub-form-group input[type="number"],
+.hub-form-group input[type="file"],
 .hub-form-group select,
 .hub-form-group textarea {
     width: 100%;

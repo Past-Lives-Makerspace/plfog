@@ -148,6 +148,16 @@ urlpatterns = [
     path("guilds/<int:pk>/emails/save/", views.guild_emails_save, name="hub_guild_emails_save"),
     path("guilds/<int:pk>/faq/save/", views.guild_faq_save, name="hub_guild_faq_save"),
     path("guilds/<int:pk>/links/save/", views.guild_links_save, name="hub_guild_links_save"),
+    path(
+        "guilds/<int:pk>/mailing-list/save/",
+        views.guild_mailing_list_save,
+        name="hub_guild_mailing_list_save",
+    ),
+    path(
+        "guilds/<int:pk>/mailing-list/import/",
+        views.guild_mailing_list_import,
+        name="hub_guild_mailing_list_import",
+    ),
     # Space & Org Info page (org-wide info: map, parking, who-to-contact, code of conduct).
     path("info/", views.org_info, name="hub_org_info"),
     path("info/edit/", views.org_info_edit, name="hub_org_info_edit"),

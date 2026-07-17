@@ -670,6 +670,7 @@ def _guild_edit_context(
     emails_form: Any = None,
     rule_formset: Any = None,
     studio_hours_formset: Any = None,
+    mailing_list_formset: Any = None,
 ) -> dict[str, Any]:
     """Build the full render context for the guild edit page (all nine in-page tabs).
 
@@ -683,6 +684,7 @@ def _guild_edit_context(
         GuildEmailsForm,
         GuildFAQItemFormSet,
         GuildLinkFormSet,
+        GuildMailingListFormSet,
         GuildOrientationSettingsForm,
         GuildStaffAddForm,
         OrientationAvailabilityFormSet,
@@ -701,6 +703,11 @@ def _guild_edit_context(
         "form": form if form is not None else GuildEditForm(instance=guild),
         "faq_formset": GuildFAQItemFormSet(instance=guild, prefix="faq"),
         "link_formset": GuildLinkFormSet(instance=guild, prefix="links"),
+        "mailing_list_formset": (
+            mailing_list_formset
+            if mailing_list_formset is not None
+            else GuildMailingListFormSet(instance=guild, prefix="mailing_list")
+        ),
         "staff_by_member": guild.staff_by_member(),
         "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
         "is_admin": _viewing_as_admin(request),
@@ -2256,6 +2263,67 @@ def guild_links_save(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         messages.error(request, "Couldn't save the links — check the highlighted fields.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=content")
+
+
+@login_required
+def guild_mailing_list_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the guild's custom mailing-list addresses from the Announcements/Emails tab. Editor only.
+
+    A GET just sends the viewer to the tab. A POST validates the inline formset and saves,
+    then redirects back to the tab; an invalid POST re-renders the full guild edit page with
+    the bound formset so the row errors show inline (mirrors ``guild_emails_save``, not
+    ``guild_links_save``, so the typed input is preserved), re-opening the Announcements tab.
+    """
+    from hub.forms import GuildMailingListFormSet
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    announcements_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements"
+    if request.method != "POST":
+        return redirect(announcements_tab)
+
+    formset = GuildMailingListFormSet(request.POST, instance=guild, prefix="mailing_list")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Mailing list saved.")
+        return redirect(announcements_tab)
+
+    ctx = _guild_edit_context(request, guild, mailing_list_formset=formset)
+    ctx["active_tab"] = "announcements"
+    return render(request, "hub/guild_edit.html", ctx)
+
+
+@login_required
+@require_POST
+def guild_mailing_list_import(request: HttpRequest, pk: int) -> HttpResponse:
+    """Import custom mailing-list addresses from an uploaded CSV / text file. Editor only.
+
+    Decodes the upload and hands it to :meth:`GuildMailingListEmail.import_from_text`, which
+    parses it leniently (newlines/commas, optional 2nd column = label), skipping invalid
+    tokens, addresses already on the list, and member-collisions. Flashes the outcome summary
+    and returns to the Announcements tab.
+    """
+    from membership.models import GuildMailingListEmail
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    announcements_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements"
+    upload = request.FILES.get("import_file")
+    if upload is None:
+        messages.error(request, "Choose a CSV or text file to import.")
+        return redirect(announcements_tab)
+
+    raw_text = upload.read().decode("utf-8", errors="ignore")
+    result = GuildMailingListEmail.import_from_text(guild, raw_text)
+    if result.created_any:
+        messages.success(request, result.summary)
+    else:
+        messages.error(request, result.summary)
+    return redirect(announcements_tab)
 
 
 # ── Space & Org Info page ────────────────────────────────────────────────────

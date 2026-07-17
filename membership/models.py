@@ -1678,6 +1678,26 @@ class Guild(HeroCropMixin, models.Model):
 
         return resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self})
 
+    def mailing_list_emails_deduped(self, member_emails: set[str]) -> list[str]:
+        """The guild's custom mailing-list addresses, normalized and de-duped against members.
+
+        Returns each :class:`GuildMailingListEmail`'s address ``.strip().lower()``-normalized
+        and sorted, with any address that already belongs to a member removed. Used by BOTH
+        the lead-facing display and the delivery fan-out, so the "Your Mailing List" section
+        and the actual send can never drift.
+
+        Args:
+            member_emails: The already lower-cased member ``user.email`` addresses to exclude —
+                the same collision key the send fan-out uses (see
+                :meth:`GuildAnnouncement.notify_members`).
+
+        Returns:
+            The sorted, de-duplicated custom addresses that are not also members.
+        """
+        custom = {(row.email or "").strip().lower() for row in self.mailing_list_emails.all()}
+        custom.discard("")
+        return sorted(custom - member_emails)
+
 
 class GuildStaffMembership(models.Model):
     """A member's leadership role on a guild, beyond the single ``Guild.guild_lead`` FK.
@@ -1854,6 +1874,152 @@ class GuildLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.label} ({self.guild.name})"
+
+
+@dataclass(frozen=True)
+class MailingListImportResult:
+    """The outcome of a :meth:`GuildMailingListEmail.import_from_text` run.
+
+    Carries the per-outcome counts so the view can flash a friendly summary without
+    re-reading the database.
+    """
+
+    imported: int
+    skipped_existing: int
+    skipped_members: int
+    skipped_invalid: int
+
+    @property
+    def created_any(self) -> bool:
+        """Whether the import created at least one row (drives success vs error feedback)."""
+        return self.imported > 0
+
+    @property
+    def summary(self) -> str:
+        """A member-friendly one-line summary of the import outcome."""
+        skips: list[str] = []
+        if self.skipped_existing:
+            skips.append(f"{self.skipped_existing} already on your list")
+        if self.skipped_members == 1:
+            skips.append("1 that is a member")
+        elif self.skipped_members:
+            skips.append(f"{self.skipped_members} that are members")
+        if self.skipped_invalid:
+            skips.append(f"{self.skipped_invalid} invalid")
+        skip_clause = ""
+        if skips:
+            if len(skips) == 1:
+                skip_clause = f" Skipped {skips[0]}."
+            else:
+                skip_clause = f" Skipped {', '.join(skips[:-1])}, and {skips[-1]}."
+        if not self.created_any:
+            if skips:
+                return f"No new addresses imported.{skip_clause}"
+            return "No email addresses found in that file."
+        plural = "address" if self.imported == 1 else "addresses"
+        return f"Imported {self.imported} {plural}.{skip_clause}"
+
+
+class GuildMailingListEmail(models.Model):
+    """A non-member email address that also receives a guild's announcement emails.
+
+    Guild leads add booster / partner / personal addresses here so people who aren't
+    members of the guild still get its announcement emails. Delivery is additive — the
+    guild's members are still emailed and these addresses ride alongside, deduped against
+    the member roster (see :meth:`GuildAnnouncement.notify_members`).
+    """
+
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="mailing_list_emails",
+        help_text="The guild whose announcements this address receives.",
+    )
+    email = models.EmailField(
+        max_length=254,
+        help_text="A non-member email address that also receives this guild's announcement emails.",
+    )
+    label = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Optional — who this is (e.g. 'Front desk', 'Partner org').",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["guild", "email"], name="uq_guildmailinglistemail_guild_email"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.email} ({self.guild.name})"
+
+    @classmethod
+    def import_from_text(cls, guild: Guild, raw_text: str) -> MailingListImportResult:
+        """Bulk-add custom addresses from an uploaded / pasted list, leniently.
+
+        Splits ``raw_text`` into lines; within a line a single comma separating an email
+        from a non-email second field is read as ``email, label``, otherwise every
+        comma-separated token is treated as its own address. Each candidate email is
+        validated and lower-cased, and a row is created — skipping tokens that fail
+        validation, addresses already on the guild's custom list, and any that match a
+        member's email (case-insensitive, the same collision key delivery uses).
+
+        Args:
+            guild: The guild to import the addresses onto.
+            raw_text: The decoded file / paste contents.
+
+        Returns:
+            A :class:`MailingListImportResult` with the per-outcome counts.
+        """
+        from django.core.exceptions import ValidationError
+        from django.core.validators import validate_email
+
+        def _is_email(token: str) -> bool:
+            try:
+                validate_email(token)
+            except ValidationError:
+                return False
+            return True
+
+        member_emails = {(user.email or "").strip().lower() for user, _reason in guild.announcement_recipients()}
+        existing = {
+            (email or "").strip().lower() for email in guild.mailing_list_emails.values_list("email", flat=True)
+        }
+        next_order = (guild.mailing_list_emails.aggregate(top=models.Max("sort_order"))["top"] or 0) + 1
+
+        imported = skipped_existing = skipped_members = skipped_invalid = 0
+        for raw_line in raw_text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            fields = [field.strip() for field in raw_line.split(",") if field.strip()]
+            if not fields:
+                continue
+            if len(fields) == 2 and not _is_email(fields[1]):
+                candidates = [(fields[0], fields[1])]
+            else:
+                candidates = [(field, "") for field in fields]
+            for token, label in candidates:
+                if not _is_email(token):
+                    skipped_invalid += 1
+                    continue
+                address = token.lower()
+                if address in member_emails:
+                    skipped_members += 1
+                    continue
+                if address in existing:
+                    skipped_existing += 1
+                    continue
+                cls.objects.create(guild=guild, email=address, label=label, sort_order=next_order)
+                existing.add(address)
+                next_order += 1
+                imported += 1
+        return MailingListImportResult(
+            imported=imported,
+            skipped_existing=skipped_existing,
+            skipped_members=skipped_members,
+            skipped_invalid=skipped_invalid,
+        )
 
 
 class OrgInfoPage(HeroCropMixin, models.Model):
@@ -2205,6 +2371,15 @@ class GuildAnnouncement(models.Model):
 
         guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
         webhook = self.resolve_discord_webhook()
+        # Custom (non-member) mailing-list addresses ride along ADDITIVELY, deduped against
+        # the member roster on the lower-cased ``user.email`` key. Only when email is on —
+        # turning "Also send email" off suppresses the custom addresses too (not just members).
+        extra_emails: list[str] | None = None
+        if self.send_email:
+            member_emails = {
+                (user.email or "").strip().lower() for user, _reason in self.guild.announcement_recipients()
+            }
+            extra_emails = self.guild.mailing_list_emails_deduped(member_emails)
         emit(
             "guild_announcement",
             actor=self.author,
@@ -2224,6 +2399,7 @@ class GuildAnnouncement(models.Model):
             suppress_email=not self.send_email,
             suppress_guild_broadcast=(webhook == ""),
             discord_mention=discord_mention,
+            extra_emails=extra_emails,
         )
 
     # --- Review lifecycle (member proposals) ----------------------------------

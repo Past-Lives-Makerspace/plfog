@@ -55,6 +55,7 @@ def emit(
     messages: dict[Channel, Message] | None = None,
     attachments: dict[Channel, list[Attachment]] | None = None,
     email_to: str | list[str] | None = None,
+    extra_emails: list[str] | None = None,
     suppress_broadcast: bool = False,
     suppress_email: bool = False,
     suppress_guild_broadcast: bool = False,
@@ -94,6 +95,16 @@ def emit(
             goes to the linked user the resolver finds. Forced/opt-in preference checks
             do not gate an ``email_to`` send (it mirrors a dedicated transactional send,
             which never consulted preferences).
+        extra_emails: ADDITIVE explicit EMAIL-channel addresses — sent *in addition to* the
+            resolver's per-recipient member fan-out, NOT instead of it. Unlike ``email_to``
+            (which suppresses the member email so a dedicated transactional email owns the
+            send), ``extra_emails`` leaves the member per-recipient loop running: members still
+            get their own email while these extra addresses ride alongside. Used by a guild
+            announcement to reach the guild's custom mailing-list addresses (boosters, partner
+            orgs) without dropping members. Deduped against the resolved member recipients on
+            the lower-cased ``user.email`` key inside emit (the ledger can't catch it — the
+            member loop claims ``user:{pk}`` while the explicit loop claims ``email:{addr}``).
+            Default ``None`` → no behavior change for any existing caller.
         suppress_broadcast: When ``True``, skip every broadcast channel (Discord) for
             this emit — the per-recipient in-app + email fan-out still runs. Used by
             the admin "Sitewide Announcement" composer when sending the release notes:
@@ -131,6 +142,15 @@ def emit(
         activity = SiteActivity.log(event.activity_kind, actor=actor, target=target)
 
     recipients = resolvers.resolve(event.recipient, ctx)
+
+    # ADDITIVE extra_emails (belt-and-suspenders dedup): drop any that collide with a resolved
+    # member's (lower-cased) email so a custom address equal to a member's address sends once —
+    # the ledger can't catch it (member loop claims ``user:{pk}``, explicit loop ``email:{addr}``).
+    # These do NOT contribute to ``suppress_user_email`` — the member per-recipient loop still runs.
+    additive_emails: list[str] = []
+    if extra_emails:
+        member_emails_lower = {(user.email or "").strip().lower() for user, _reason in recipients}
+        additive_emails = [addr for addr in extra_emails if (addr or "").strip().lower() not in member_emails_lower]
 
     # Copy mode (Phase 3): when the caller passes no explicit ``title``/``body``,
     # render each channel's message from the DB-backed (or seeded-default) copy
@@ -172,7 +192,13 @@ def emit(
         )
 
     _explicit_email_fan_out(
-        event_key, explicit_emails, message_for, channel_attachments, period, delivered, skipped_duplicates
+        event_key,
+        explicit_emails + additive_emails,
+        message_for,
+        channel_attachments,
+        period,
+        delivered,
+        skipped_duplicates,
     )
 
     broadcast_channels = _broadcast_fan_out(
