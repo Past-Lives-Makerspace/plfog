@@ -10,8 +10,10 @@ from core.models import EventDelivery
 from core.release_email import (
     Card,
     FeaturePage,
+    _humanize_slug,
     _index_pages,
     build_release_cards,
+    captured_feature_slugs,
     feature_page_url,
     feature_shot_choices,
     feature_shot_key,
@@ -51,16 +53,27 @@ FIXTURE_CHANGELOG: list[dict[str, object]] = [
 class _FakeStorage:
     """A minimal default_storage stand-in: tracks which keys exist / were saved / deleted."""
 
-    def __init__(self, existing: set[str] | None = None) -> None:
+    def __init__(self, existing: set[str] | None = None, *, dir_missing: bool = False) -> None:
         self.existing = set(existing or ())
         self.saved: dict[str, bytes] = {}
         self.deleted: list[str] = []
+        # FileSystemStorage raises FileNotFoundError when the dir was never created; S3/R2
+        # returns empty. `dir_missing` reproduces the FileSystem case for the guard test.
+        self.dir_missing = dir_missing
 
     def exists(self, key: str) -> bool:
         return key in self.existing
 
     def url(self, key: str) -> str:
         return f"https://cdn.example/{key}"
+
+    def listdir(self, prefix: str) -> tuple[list[str], list[str]]:
+        """Mirror the storage backends: `(dirs, files)` where `files` are basenames."""
+        if self.dir_missing:
+            raise FileNotFoundError(prefix)
+        marker = prefix.rstrip("/") + "/"
+        files = sorted(key.rsplit("/", 1)[-1] for key in self.existing if key.startswith(marker))
+        return [], files
 
     def save(self, key: str, content: object) -> str:
         self.saved[key] = content.read()  # type: ignore[attr-defined]
@@ -135,14 +148,68 @@ def describe_feature_page_url():
         assert feature_page_url("not-a-page") == ""
 
 
+def describe_humanize_slug():
+    def it_titles_a_hyphenated_slug():
+        assert _humanize_slug("guild-pages") == "Guild pages"
+
+    def it_titles_an_underscored_slug():
+        assert _humanize_slug("qr_codes") == "Qr codes"
+
+
+def describe_captured_feature_slugs():
+    def it_returns_sorted_slugs_of_captured_pngs(fake_storage):
+        fake_storage.existing.update({"email/features/home.png", "email/features/guild-pages.png"})
+        assert captured_feature_slugs() == ["guild-pages", "home"]
+
+    def it_ignores_non_png_objects(fake_storage):
+        fake_storage.existing.update({"email/features/home.png", "email/features/notes.txt"})
+        assert captured_feature_slugs() == ["home"]
+
+    def it_returns_empty_when_nothing_is_captured(fake_storage):
+        assert captured_feature_slugs() == []
+
+    def describe_when_the_prefix_dir_is_missing():
+        def it_returns_empty_without_raising(monkeypatch):
+            # FileSystemStorage raises FileNotFoundError on a never-created dir; the guard
+            # must swallow it and report "nothing captured", not 500.
+            storage = _FakeStorage(dir_missing=True)
+            monkeypatch.setattr(release_email, "default_storage", storage)
+            assert captured_feature_slugs() == []
+
+
 def describe_feature_shot_choices():
-    def it_offers_only_captured_slugs_plus_no_screenshot(fake_storage):
+    def it_leads_with_no_screenshot(fake_storage):
+        assert feature_shot_choices()[0] == ("", "No screenshot")
+
+    def it_offers_a_captured_registry_slug_with_its_friendly_label(fake_storage):
         fake_storage.existing.add("email/features/home.png")
         choices = feature_shot_choices()
-        assert choices[0] == ("", "No screenshot")
         assert ("home", "Member home dashboard") in choices
-        # A page whose asset is not captured yet is not offered.
-        assert all(value != "org-info" for value, _label in choices)
+
+    def it_does_not_offer_a_registry_slug_with_no_asset(fake_storage):
+        fake_storage.existing.add("email/features/home.png")
+        # org-info is in the registry but was never captured → not offered.
+        assert all(value != "org-info" for value, _label in feature_shot_choices())
+
+    def it_offers_a_bespoke_captured_slug_after_the_curated_ones(fake_storage):
+        fake_storage.existing.update({"email/features/home.png", "email/features/guild-pages.png"})
+        choices = feature_shot_choices()
+        # The curated 'home' comes before the bespoke, humanized 'guild-pages'.
+        assert choices.index(("home", "Member home dashboard")) < choices.index(("guild-pages", "Guild pages"))
+
+    def it_orders_bespoke_slugs_alphabetically_after_curated(fake_storage):
+        fake_storage.existing.update({"email/features/qr-codes.png", "email/features/guild-pages.png"})
+        # Neither is in the registry, so both are appended alphabetically.
+        assert feature_shot_choices() == [
+            ("", "No screenshot"),
+            ("guild-pages", "Guild pages"),
+            ("qr-codes", "Qr codes"),
+        ]
+
+    def it_does_not_duplicate_a_slug_that_is_both_registry_and_captured(fake_storage):
+        fake_storage.existing.add("email/features/home.png")
+        values = [value for value, _label in feature_shot_choices()]
+        assert values.count("home") == 1
 
 
 def describe_line_entries():
