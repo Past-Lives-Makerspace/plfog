@@ -42,8 +42,8 @@ def describe_guild_studio_hours_editor():
         # Add a row (clones #studio-hours-empty-template, bumps TOTAL_FORMS to index 0).
         page.get_by_role("button", name="+ Add studio hours", exact=True).click()
         page.select_option('select[name="studio_hours-0-weekday"]', "1")  # Tuesday
-        page.fill('input[name="studio_hours-0-start_time"]', "14:00")
-        page.fill('input[name="studio_hours-0-end_time"]', "17:00")
+        page.select_option('select[name="studio_hours-0-start_time"]', "14:00")
+        page.select_option('select[name="studio_hours-0-end_time"]', "17:00")
         page.fill('input[name="studio_hours-0-location"]', "Kiln room")
 
         # Save the studio-hours form (its own form, not the main guild form).
@@ -56,7 +56,7 @@ def describe_guild_studio_hours_editor():
         expect(page.locator('input[name="studio_hours-0-id"]')).not_to_have_value("")
         expect(page).to_have_url(re.compile(r"tab=studio_hours"))
         expect(page.locator('select[name="studio_hours-0-weekday"]')).to_have_value("1")
-        expect(page.locator('input[name="studio_hours-0-start_time"]')).to_have_value("14:00:00")
+        expect(page.locator('select[name="studio_hours-0-start_time"]')).to_have_value("14:00")
         expect(page.locator('input[name="studio_hours-0-location"]')).to_have_value("Kiln room")
 
         # And it really landed as a weekly, published STUDIO_HOURS event on the guild.

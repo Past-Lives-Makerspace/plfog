@@ -12,6 +12,22 @@
 (function () {
     "use strict";
 
+    // Half-hour start times, 6:00 AM–9:30 PM, as {value:"HH:MM", label:"6:00 AM"} —
+    // the same half-hour grid as the hub's time dropdowns (Rule 19: no per-minute pickers).
+    const buildHalfHourTimes = () => {
+        const opts = [];
+        for (let hour = 6; hour < 22; hour++) {
+            for (const minute of [0, 30]) {
+                const value = String(hour).padStart(2, "0") + ":" + String(minute).padStart(2, "0");
+                const hour12 = hour % 12 || 12;
+                const suffix = hour < 12 ? "AM" : "PM";
+                const label = hour12 + ":" + String(minute).padStart(2, "0") + " " + suffix;
+                opts.push({ value, label });
+            }
+        }
+        return opts;
+    };
+
     const sessionCalendar = (initialSessions, initialForms) => ({
         sessions: [],
         _nextKey: 0,
@@ -21,6 +37,8 @@
         newDate: '',
         newTime: '10:00',
         newDuration: 2,
+
+        timeOptions: buildHalfHourTimes(),
 
         durationOptions: [
             { value: 1, label: '1 hour' },

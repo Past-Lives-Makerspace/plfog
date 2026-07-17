@@ -50,10 +50,44 @@ def _meeting_time_label(hour24: int, minute: int) -> str:
     return f"{hour12}:{minute:02d} {suffix}"
 
 
+def half_hour_time_choices(required: bool) -> list[tuple[str, str]]:
+    """Half-hour time-of-day slots, 6:00 AM–9:30 PM, as ("HH:MM", "6:00 AM") pairs.
+
+    The one blessed source for every time-of-day picker (Rule 19: plain half-hour
+    ``<select>``, never a per-minute ``type="time"`` input). A leading blank option is
+    included only for optional fields.
+    """
+    slots = [
+        (f"{hour:02d}:{minute:02d}", _meeting_time_label(hour, minute)) for hour in range(6, 22) for minute in (0, 30)
+    ]
+    return slots if required else [("", "—"), *slots]
+
+
+def _parse_time_choice(value: str) -> time:
+    """Parse an "HH:MM" half-hour choice into a ``datetime.time``."""
+    hour_str, minute_str = value.split(":")
+    return time(int(hour_str), int(minute_str))
+
+
+def _seed_time_choice(form: forms.BaseForm, name: str, value: time) -> None:
+    """Select ``value`` in a half-hour ``<select>``, preserving an off-grid legacy time.
+
+    Real data may hold a :15 time from before the half-hour dropdowns; append it as its
+    own option and seed it as the field/form initial so it round-trips untouched until the
+    user picks a new time. Writing the form-level initial too makes it win over a
+    ModelForm's instance-derived value.
+    """
+    field = cast(forms.ChoiceField, form.fields[name])
+    key = value.strftime("%H:%M")
+    choices = cast("list[tuple[str, str]]", field.choices)
+    if key not in {choice_value for choice_value, _ in choices}:
+        field.choices = [*choices, (key, _meeting_time_label(value.hour, value.minute))]
+    field.initial = key
+    form.initial[name] = key
+
+
 # Preset meeting times on the half hour, 6:00 AM through 9:30 PM — one easy dropdown.
-_MEETING_TIME_CHOICES: list[tuple[str, str]] = [("", "—")] + [
-    (f"{hour:02d}:{minute:02d}", _meeting_time_label(hour, minute)) for hour in range(6, 22) for minute in (0, 30)
-]
+_MEETING_TIME_CHOICES: list[tuple[str, str]] = half_hour_time_choices(required=False)
 
 
 class GuildEditForm(forms.ModelForm):
@@ -1152,15 +1186,31 @@ class GuildEmailsForm(forms.ModelForm):
 
 
 class OrientationAvailabilityForm(forms.ModelForm):
-    """A single recurring orientation-availability row."""
+    """A single recurring orientation-availability row.
+
+    Times are half-hour ``<select>`` dropdowns (Rule 19), not per-minute pickers; the
+    "HH:MM" choice is parsed back to a ``datetime.time`` on clean, and an existing off-grid
+    value is preserved via :func:`_seed_time_choice`.
+    """
+
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
+    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="End time")
 
     class Meta:
         model = OrientationAvailability
         fields = ["weekday", "start_time", "end_time", "seats", "is_active"]
-        widgets = {
-            "start_time": forms.TimeInput(attrs={"type": "time", "onclick": "this.showPicker?.()"}),
-            "end_time": forms.TimeInput(attrs={"type": "time", "onclick": "this.showPicker?.()"}),
-        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            _seed_time_choice(self, "start_time", self.instance.start_time)
+            _seed_time_choice(self, "end_time", self.instance.end_time)
+
+    def clean_start_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["start_time"])
+
+    def clean_end_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["end_time"])
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
@@ -1345,19 +1395,13 @@ class StudioHoursForm(forms.ModelForm):
     A light *translating* ModelForm over :class:`CommunityEvent`: the friendly declared fields map
     to a WEEKLY, PUBLIC-targeted ``STUDIO_HOURS`` row on :meth:`save`, and on edit are derived back
     from the row's anchor. The guild FK is pinned via ``form_kwargs`` (this is a modelformset, not an
-    inline formset). The time widgets are declared explicitly so they render ``type="time"`` with the
-    hub's dark-mode picker theming (the fields are non-model, so no widget is inferred otherwise).
+    inline formset). The times are half-hour ``<select>`` dropdowns (Rule 19) — the "HH:MM" choice
+    is parsed back to a ``datetime.time`` on clean, and an existing off-grid value is preserved.
     """
 
     weekday = forms.ChoiceField(choices=_STUDIO_HOURS_WEEKDAYS, label="Day")
-    start_time = forms.TimeField(
-        label="From",
-        widget=forms.TimeInput(attrs={"type": "time", "onclick": "this.showPicker?.()"}),
-    )
-    end_time = forms.TimeField(
-        label="To",
-        widget=forms.TimeInput(attrs={"type": "time", "onclick": "this.showPicker?.()"}),
-    )
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="From")
+    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="To")
     location = forms.CharField(label="Location", required=False, max_length=200)
     note = forms.CharField(label="Note", required=False, max_length=500)
 
@@ -1373,10 +1417,16 @@ class StudioHoursForm(forms.ModelForm):
             local_start = timezone.localtime(instance.starts_at)
             local_end = timezone.localtime(instance.ends_at)
             self.fields["weekday"].initial = str(local_start.weekday())
-            self.fields["start_time"].initial = local_start.time()
-            self.fields["end_time"].initial = local_end.time()
+            _seed_time_choice(self, "start_time", local_start.time())
+            _seed_time_choice(self, "end_time", local_end.time())
             self.fields["location"].initial = instance.location
             self.fields["note"].initial = instance.description
+
+    def clean_start_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["start_time"])
+
+    def clean_end_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["end_time"])
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())

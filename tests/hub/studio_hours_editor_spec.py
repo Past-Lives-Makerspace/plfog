@@ -119,10 +119,33 @@ def describe_StudioHoursForm():
         )
         form = StudioHoursForm(instance=event, guild=guild)
         assert form.fields["weekday"].initial == "1"
-        assert form.fields["start_time"].initial == time(18, 0)
-        assert form.fields["end_time"].initial == time(21, 0)
+        assert form.fields["start_time"].initial == "18:00"
+        assert form.fields["end_time"].initial == "21:00"
         assert form.fields["location"].initial == "Studio B"
         assert form.fields["note"].initial == "Bring clay."
+
+    def it_preserves_an_off_grid_legacy_time_until_the_user_edits_it(db):
+        # Real prod rows may hold a :15 time from before the half-hour dropdowns.
+        guild = GuildFactory()
+        event = CommunityEventFactory(
+            studio_hours=True,
+            guild=guild,
+            starts_at=_aware(2026, 7, 7, 18, 15),  # Tuesday, off the half-hour grid
+            ends_at=_aware(2026, 7, 7, 21, 15),
+        )
+        form = StudioHoursForm(instance=event, guild=guild)
+        # The off-grid value is added as its own option and pre-selected.
+        assert ("18:15", "6:15 PM") in form.fields["start_time"].choices
+        assert form.fields["start_time"].initial == "18:15"
+        # Re-submitting it unchanged round-trips the :15 time (parsed back to a real time).
+        bound = StudioHoursForm(
+            instance=event,
+            guild=guild,
+            data={"weekday": "1", "start_time": "18:15", "end_time": "21:15"},
+        )
+        assert bound.is_valid(), bound.errors
+        saved = bound.save()
+        assert timezone.localtime(saved.starts_at).time() == time(18, 15)
 
 
 def describe_studio_hours_tab_render():

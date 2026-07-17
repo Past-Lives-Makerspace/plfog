@@ -30,8 +30,11 @@ Generates hidden inputs matching Django's inline formset naming convention.
         </div>
         <div class="session-cal__add-field">
             <label class="session-cal__add-label" for="session-add-time">Start time</label>
-            <input id="session-add-time" type="time" x-model="newTime" class="session-cal__input"
-                   @click="try { $event.currentTarget.showPicker() } catch (e) {}">
+            <select id="session-add-time" x-model="newTime" class="session-cal__input">
+                <template x-for="opt in timeOptions" :key="opt.value">
+                    <option :value="opt.value" x-text="opt.label"></option>
+                </template>
+            </select>
         </div>
         <div class="session-cal__add-field">
             <label class="session-cal__add-label" for="session-add-duration">Duration</label>
