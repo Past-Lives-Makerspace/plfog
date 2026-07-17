@@ -1,6 +1,6 @@
 """End-to-end: a guild editor adds a weekly Studio Hours window, then deletes it.
 
-The Meetings tab's studio-hours editor is its OWN ``<form>`` (outside the main guild
+The Studio Hours tab's editor is its OWN ``<form>`` (outside the main guild
 form — you can't nest forms, and nesting silently breaks Save). Unit tests cover the
 formset logic; only a real browser proves the whole structure works: the tab reveals,
 the "+ Add" clone-empty_form JS builds a live row, the row's Save persists it, and the
@@ -35,8 +35,8 @@ def describe_guild_studio_hours_editor():
         user.is_superuser = True
         user.save(update_fields=["is_staff", "is_superuser"])
 
-        # Open the guild editor straight onto the Meetings tab (?tab= seeds Alpine's section).
-        page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=meetings")
+        # Open the guild editor straight onto the Studio Hours tab (?tab= seeds Alpine's section).
+        page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=studio_hours")
         expect(page.locator("body")).to_contain_text("No studio hours yet")
 
         # Add a row (clones #studio-hours-empty-template, bumps TOTAL_FORMS to index 0).
@@ -54,7 +54,7 @@ def describe_guild_studio_hours_editor():
         # only the assigned pk distinguishes the redirected page from the pre-submit
         # DOM (asserting the DB before the redirect lands races the in-flight request).
         expect(page.locator('input[name="studio_hours-0-id"]')).not_to_have_value("")
-        expect(page).to_have_url(re.compile(r"tab=meetings"))
+        expect(page).to_have_url(re.compile(r"tab=studio_hours"))
         expect(page.locator('select[name="studio_hours-0-weekday"]')).to_have_value("1")
         expect(page.locator('input[name="studio_hours-0-start_time"]')).to_have_value("14:00:00")
         expect(page.locator('input[name="studio_hours-0-location"]')).to_have_value("Kiln room")

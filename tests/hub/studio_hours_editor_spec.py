@@ -125,7 +125,7 @@ def describe_StudioHoursForm():
         assert form.fields["note"].initial == "Bring clay."
 
 
-def describe_meetings_tab_render():
+def describe_studio_hours_tab_render():
     def it_renders_the_studio_hours_editor_for_the_lead(client: Client):
         _user, guild = _lead(client, "lead_render")
         CommunityEventFactory(
@@ -150,7 +150,7 @@ def describe_guild_studio_hours_save_view():
         assert resp.status_code == 403
         assert not guild.events.studio_hours().exists()
 
-    def it_lets_the_lead_save_a_new_block_and_redirects_to_the_meetings_tab(client: Client):
+    def it_lets_the_lead_save_a_new_block_and_redirects_to_the_studio_hours_tab(client: Client):
         _user, guild = _lead(client, "lead_sh")
         resp = client.post(
             reverse("hub_guild_studio_hours_save", args=[guild.pk]),
@@ -168,7 +168,7 @@ def describe_guild_studio_hours_save_view():
             ),
         )
         assert resp.status_code == 302
-        assert "tab=meetings" in resp.headers["Location"]
+        assert "tab=studio_hours" in resp.headers["Location"]
         row = guild.events.studio_hours().get()
         assert row.recurrence == CommunityEvent.Recurrence.WEEKLY
         assert timezone.localtime(row.starts_at).weekday() == 1

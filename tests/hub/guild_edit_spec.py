@@ -683,6 +683,7 @@ def describe_guild_edit_tabs():
         for tab in (
             b"basic",
             b"meetings",
+            b"studio_hours",
             b"meeting_notes",
             b"events",
             b"orientations",

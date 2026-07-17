@@ -864,7 +864,7 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required
 @require_POST
 def guild_studio_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save the weekly Studio Hours from their own form on the Meetings tab.
+    """Save the weekly Studio Hours from their own form on the Studio Hours tab.
 
     The studio-hours list editor is its own ``<form>`` (outside the main guild form, like the
     FAQ/Links/recurring-hours editors), so it saves independently. Each row is a WEEKLY,
@@ -894,7 +894,7 @@ def guild_studio_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
             event.push_to_google()  # best-effort, gated — mirrors the row to the Public calendar
             event.push_to_discord()  # no-op for studio hours (never a Scheduled Event)
         messages.success(request, "Studio hours saved.")
-        return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meetings")
+        return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=studio_hours")
 
     ctx = _guild_edit_context(request, guild, studio_hours_formset=formset)
     return render(request, "hub/guild_edit.html", ctx)
