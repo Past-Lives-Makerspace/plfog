@@ -3,7 +3,10 @@
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
 <div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'basic' }">
-<h1 class="hub-page-title">Edit {{ guild.name }}</h1>
+<div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:0.5rem;">
+  <h1 class="hub-page-title" style="margin:0;">Edit {{ guild.name }}</h1>
+  <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Guild Page</a>
+</div>
 
 <div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;">
   <button type="button" class="vote-tab" :class="section === 'basic' ? 'vote-tab--active' : ''" @click="section = 'basic'">Basic Information</button>
