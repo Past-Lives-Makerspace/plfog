@@ -2335,7 +2335,14 @@ class GuildAnnouncement(models.Model):
         except ValueError as exc:
             raise ValueError(f"Unknown Discord channel '{self.discord_channel}' on announcement {self.pk}.") from exc
 
-    def notify_members(self, *, discord_mention: str = "", email_message: "Message | None" = None) -> None:
+    def notify_members(
+        self,
+        *,
+        discord_mention: str = "",
+        email_message: "Message | None" = None,
+        selected_user_ids: "set[int] | None" = None,
+        selected_custom_emails: "list[str] | None" = None,
+    ) -> None:
         """Emit ``guild.announcement`` to the guild's members (Decision 4).
 
         Recipients resolve to every active member of this guild (scoped — not
@@ -2362,6 +2369,15 @@ class GuildAnnouncement(models.Model):
                 (the compose wizard passes the same shell its Step-2 preview renders), it
                 replaces the default copy-mode guild email so the sent email matches the
                 preview; when ``None`` (every existing caller) the copy-mode email stands.
+            selected_user_ids: A per-announcement EMAIL **subset** of member ``pk`` values (the
+                compose wizard's recipient checklist). ``None`` (every existing caller — the
+                guild-edit create view, :meth:`approve`) emails every member as before; a set
+                narrows the member email to those ``pk`` values while the in-app bell + Discord
+                post still reach the whole guild (see ``emit(email_only_user_ids=…)``).
+            selected_custom_emails: A per-announcement subset of the guild's custom mailing-list
+                addresses (lower-cased). ``None`` (every existing caller) sends the FULL custom
+                list — the mailing-list feature is never regressed; a list narrows the additive
+                ``extra_emails`` to those addresses only. A selection only ever *narrows*.
         """
         from django.urls import reverse
 
@@ -2371,15 +2387,22 @@ class GuildAnnouncement(models.Model):
 
         guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
         webhook = self.resolve_discord_webhook()
-        # Custom (non-member) mailing-list addresses ride along ADDITIVELY, deduped against
-        # the member roster on the lower-cased ``user.email`` key. Only when email is on —
-        # turning "Also send email" off suppresses the custom addresses too (not just members).
+        # Custom (non-member) mailing-list addresses ride along ADDITIVELY, deduped against the
+        # member roster on the lower-cased ``user.email`` key. The FULL deduped list is always
+        # computed (the mailing-list choke point stays exactly as shipped) and only NARROWED when
+        # a ``selected_custom_emails`` subset is passed — so ``None`` still sends everyone. Only
+        # when email is on: turning "Also send email" off suppresses the custom addresses too.
         extra_emails: list[str] | None = None
         if self.send_email:
             member_emails = {
                 (user.email or "").strip().lower() for user, _reason in self.guild.announcement_recipients()
             }
-            extra_emails = self.guild.mailing_list_emails_deduped(member_emails)
+            all_custom = self.guild.mailing_list_emails_deduped(member_emails)
+            extra_emails = (
+                all_custom
+                if selected_custom_emails is None
+                else [addr for addr in all_custom if addr in set(selected_custom_emails)]
+            )
         emit(
             "guild_announcement",
             actor=self.author,
@@ -2400,6 +2423,7 @@ class GuildAnnouncement(models.Model):
             suppress_guild_broadcast=(webhook == ""),
             discord_mention=discord_mention,
             extra_emails=extra_emails,
+            email_only_user_ids=selected_user_ids,
         )
 
     # --- Review lifecycle (member proposals) ----------------------------------
@@ -2752,6 +2776,14 @@ class AnnouncementDraft(models.Model):
         default=True,
         help_text="Also send this announcement as a branded email (in-app bell fires regardless).",
     )
+    email_recipient_selection = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Which recipients get this announcement's email. Empty/absent = everyone (default). "
+            'Shape: {"users": [pk, …], "custom": ["addr", …]}.'
+        ),
+    )
     discord_channel = models.CharField(
         max_length=20,
         choices=GuildAnnouncement.DiscordChannel.choices,
@@ -2856,6 +2888,8 @@ class AnnouncementDraft(models.Model):
         draft.title = cd["title"]
         draft.body = cd["body"]  # already sanitized by the form's clean_body
         draft.send_email = cd["send_email"]
+        # Empty dict = "everyone" (the default); a present selection = exactly these recipients.
+        draft.email_recipient_selection = cd.get("email_recipient_selection") or {}
         draft.discord_channel = cd["discord_channel"]
         draft.mention = cd["mention"]
         draft.expires_at = cd.get("expires_at")
@@ -2864,13 +2898,23 @@ class AnnouncementDraft(models.Model):
         draft.save()
         return draft
 
-    def send(self) -> int:
+    def send(self) -> tuple[int, int]:
         """Send the announcement and mark it sent — the wizard's one "fat" transition.
 
         Guards, then branches on audience. A **site** send is emit-only (ephemeral). A
         **guild** send first materializes a published :class:`GuildAnnouncement` (so the
         post lands on the guild page, the edit list, and the slideshow), then reuses the
-        tested :meth:`GuildAnnouncement.notify_members` fan-out. Returns the recipient count.
+        tested :meth:`GuildAnnouncement.notify_members` fan-out, mapping the saved
+        ``email_recipient_selection`` (intersected with the *current* roster so stale ids
+        can't resurrect) into the per-recipient subset + the narrowed custom addresses.
+
+        Returns:
+            An ``(emailed, total)`` pair for the post-send summary. ``total`` is the full
+            addressable set (a site send: all active members; a guild send: the guild's
+            members plus its custom mailing-list addresses — the checklist). ``emailed`` is
+            how many of them this send actually emails: ``total`` when no selection was made,
+            the chosen subset when one was, and ``0`` when "Also send email" is off. Everyone
+            in ``total`` still gets the in-app bell regardless.
 
         Raises:
             AlreadySentError: If this draft was already sent.
@@ -2914,10 +2958,12 @@ class AnnouncementDraft(models.Model):
                 suppress_email=not self.send_email,
                 discord_mention=mention_str,
             )
-            count = result.recipient_count
+            total = result.recipient_count
+            counts = (total if self.send_email else 0, total)
         else:
             guild = cast(Guild, self.guild)  # the guard above guarantees a guild for a GUILD audience
             guild_url = _absolute_url(reverse("hub_guild_detail", args=[guild.slug]))
+            selected_user_ids, selected_custom_emails, counts = self._guild_email_selection(guild)
             announcement = GuildAnnouncement.objects.create(
                 guild=guild,
                 author=self.author,
@@ -2933,12 +2979,48 @@ class AnnouncementDraft(models.Model):
             announcement.notify_members(
                 discord_mention=mention_str,
                 email_message=self.build_email_message(guild_url),
+                selected_user_ids=selected_user_ids,
+                selected_custom_emails=selected_custom_emails,
             )
-            count = self.recipient_count()
 
         self.sent_at = timezone.now()
         self.save(update_fields=["sent_at", "updated_at"])
-        return count
+        return counts
+
+    def _guild_email_selection(self, guild: "Guild") -> "tuple[set[int] | None, list[str] | None, tuple[int, int]]":
+        """Resolve the saved selection against the guild's *current* roster (guild-send helper).
+
+        Returns ``(selected_user_ids, selected_custom_emails, (emailed, total))``:
+
+        * An **absent/empty** ``email_recipient_selection`` means "everyone" → ``(None, None, …)``
+          so :meth:`GuildAnnouncement.notify_members` emails the full roster (byte-identical to
+          the pre-feature send). A **present** selection is intersected with the live roster so a
+          member who left or a deleted custom row can't resurrect.
+        * ``total`` counts the guild's members + its deduped custom addresses (the checklist);
+          ``emailed`` is that total when no selection was made, the chosen subset when one was,
+          and ``0`` when email is off (the selection is moot then).
+        """
+        member_recipients = guild.announcement_recipients()
+        member_ids = {user.pk for user, _reason in member_recipients}
+        member_emails = {(user.email or "").strip().lower() for user, _reason in member_recipients}
+        all_custom = guild.mailing_list_emails_deduped(member_emails)
+        total = len(member_recipients) + len(all_custom)
+
+        selection = self.email_recipient_selection or {}
+        if not selection:
+            selected_user_ids: set[int] | None = None
+            selected_custom_emails: list[str] | None = None
+            chosen = total
+        else:
+            selected_user_ids = {int(pk) for pk in selection.get("users", [])} & member_ids
+            custom_set = set(all_custom)
+            selected_custom_emails = [
+                addr.lower() for addr in selection.get("custom", []) if addr.lower() in custom_set
+            ]
+            chosen = len(selected_user_ids) + len(selected_custom_emails)
+
+        emailed = chosen if self.send_email else 0
+        return selected_user_ids, selected_custom_emails, (emailed, total)
 
 
 class GuildMeetingNote(models.Model):

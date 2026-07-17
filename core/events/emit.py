@@ -56,6 +56,7 @@ def emit(
     attachments: dict[Channel, list[Attachment]] | None = None,
     email_to: str | list[str] | None = None,
     extra_emails: list[str] | None = None,
+    email_only_user_ids: set[int] | None = None,
     suppress_broadcast: bool = False,
     suppress_email: bool = False,
     suppress_guild_broadcast: bool = False,
@@ -105,6 +106,16 @@ def emit(
             the lower-cased ``user.email`` key inside emit (the ledger can't catch it — the
             member loop claims ``user:{pk}`` while the explicit loop claims ``email:{addr}``).
             Default ``None`` → no behavior change for any existing caller.
+        email_only_user_ids: A per-announcement EMAIL **subset** — the resolved-member ``pk``
+            values allowed to receive the email this time. When ``None`` (every existing caller) the
+            EMAIL channel fans out to every resolved user as before. When a set, the EMAIL
+            channel is delivered only to resolved users whose ``pk`` is in it; **all other
+            channels (in-app bell, push) still reach every resolved user**, and the per-user
+            ``preferences.enabled_channels`` opt-out check still runs (an opted-out member is
+            skipped even when selected). This is deliberately NOT ``email_to`` — the resolver's
+            per-recipient path and its preference gate are preserved; only the email side is
+            narrowed. Coexists with ``extra_emails`` (custom addresses ride their own additive
+            path, filtered by the caller before it reaches here).
         suppress_broadcast: When ``True``, skip every broadcast channel (Discord) for
             this emit — the per-recipient in-app + email fan-out still runs. Used by
             the admin "Sitewide Announcement" composer when sending the release notes:
@@ -180,13 +191,21 @@ def emit(
     skipped_duplicates: list[tuple[int, Channel]] = []
     suppress_user_email = bool(explicit_emails) or suppress_email
     for user, _reason in recipients:
+        # Per-announcement EMAIL subset: drop ONLY this user's email when a selection is given
+        # and they're not in it. The in-app bell + push still fan out to everyone below (only
+        # ``suppress_email`` for the EMAIL channel is flipped), and the per-user preference gate
+        # inside ``_per_recipient_fan_out`` still runs — so an opted-out selected member is still
+        # skipped. ``email_only_user_ids is None`` leaves every existing caller byte-unchanged.
+        user_suppress_email = suppress_user_email or (
+            email_only_user_ids is not None and user.pk not in email_only_user_ids
+        )
         _per_recipient_fan_out(
             event_key=event_key,
             user=user,
             message_for=message_for,
             channel_attachments=channel_attachments,
             period=period,
-            suppress_email=suppress_user_email,
+            suppress_email=user_suppress_email,
             delivered=delivered,
             skipped_duplicates=skipped_duplicates,
         )

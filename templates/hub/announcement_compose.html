@@ -14,6 +14,18 @@
        mention: '{{ form.mention.value|default:'everyone'|escapejs }}',
        discordChannel: '{{ form.discord_channel.value|default:'none'|escapejs }}',
        recipientCount: {{ initial_recipient_count }},
+       recipientsOpen: false,
+       selectedEmailCount: 0,
+       emailRecipientTotal: 0,
+       refreshEmailCount() {
+         const boxes = Array.from(document.querySelectorAll('input[name=email_recipients]'));
+         this.emailRecipientTotal = boxes.length;
+         this.selectedEmailCount = boxes.filter(b => b.checked).length;
+       },
+       selectAllRecipients(v) {
+         document.querySelectorAll('input[name=email_recipients]').forEach(b => { b.checked = v; });
+         this.refreshEmailCount();
+       },
        maybePreview() { if (this.step === 2 && this.alsoEmail) { this.$refs.refreshPreview.click(); } }
      }"
      x-init="$watch('step', () => maybePreview()); $watch('alsoEmail', () => maybePreview())"
@@ -53,6 +65,24 @@
     {# ───────── Step 2 — Email design + live preview ───────── #}
     <section class="pl-wizard-step" x-show="step === 2">
       {% include "components/toggle.html" with field=form.send_email toggle_label="Also send as email" toggle_description="Members always get the in-app bell. Turn this on to also email them the branded message below." %}
+
+      {# Email recipients — guild audiences only; a site send keeps all-subscribers (no checklist). #}
+      <div class="pl-recipient-card" x-show="alsoEmail && audience.startsWith('guild')" x-cloak>
+        <div class="pl-recipient-card__head">
+          <span class="pl-form-label pl-recipient-card__title">Email recipients</span>
+          <span class="pl-help" tabindex="0" aria-label="About email recipients">
+            <span class="pl-help__icon" aria-hidden="true">?</span>
+            <span class="pl-help__bubble" role="tooltip">Everyone is included by default. Uncheck anyone you don't want to email this time — they'll still see it in the app, and it still posts to your Discord channel.</span>
+          </span>
+        </div>
+        <p class="pl-recipient-card__summary">Emailing <strong x-text="selectedEmailCount"></strong> of <strong x-text="emailRecipientTotal"></strong></p>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-recipient-card__toggle"
+                @click="recipientsOpen = !recipientsOpen"
+                x-text="recipientsOpen ? 'Hide list' : 'Choose who to email'"></button>
+        <div class="pl-recipient-card__body" x-show="recipientsOpen" x-cloak>
+          {% include "hub/partials/_compose_recipient_picker.html" %}
+        </div>
+      </div>
 
       <div class="pl-wizard-preview" x-show="alsoEmail">
         <div class="pl-wizard-preview__bar">
@@ -95,7 +125,10 @@
         <p class="pl-field-hint">On by default. Switch to "@here" (online members only) or "No ping" if you'd rather not notify everyone.</p>
       </div>
 
-      <p class="pl-wizard-reach">Reaches <strong x-text="recipientCount"></strong> member(s).</p>
+      <p class="pl-wizard-reach">
+        <span x-show="!(alsoEmail && audience.startsWith('guild'))">Reaches <strong x-text="recipientCount"></strong> member(s).</span>
+        <span x-show="alsoEmail && audience.startsWith('guild')" x-cloak>Emailing <strong x-text="selectedEmailCount"></strong> of <strong x-text="emailRecipientTotal"></strong> · everyone in the guild still sees it in the app.</span>
+      </p>
 
       <div class="pl-wizard-actions">
         <button type="button" class="hub-btn hub-btn--ghost" @click="step = 2">&larr; Back</button>
@@ -107,7 +140,9 @@
                 hx-post="{% url 'hub_compose_save_draft' %}" hx-include="closest form" hx-swap="none">Save draft</button>
         {% endcomment %}
         <button type="submit" class="hub-btn hub-btn--primary"
-                @click="if (!confirm(`Send to ${recipientCount} member(s)? This can't be undone.`)) $event.preventDefault()">
+                @click="if (!confirm(alsoEmail && audience.startsWith('guild')
+                        ? `Email ${selectedEmailCount} of ${emailRecipientTotal} recipient(s)? Everyone in the guild still sees it in the app. This can't be undone.`
+                        : `Send to ${recipientCount} member(s)? This can't be undone.`)) $event.preventDefault()">
           Send announcement
         </button>
       </div>

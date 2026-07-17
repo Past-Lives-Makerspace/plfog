@@ -151,7 +151,7 @@ def describe_AnnouncementDraft():
             count = draft.send()
             draft.refresh_from_db()
             assert draft.sent_at is not None
-            assert count == 1
+            assert count == (1, 1)  # (emailed, total) — one active member, all emailed
 
         def it_raises_already_sent_on_a_second_send():
             author = _author()
@@ -229,7 +229,7 @@ def describe_AnnouncementDraft():
                 assert "body" in ann.body
                 assert ann.expires_at == date(2030, 1, 1)
                 assert ann.author == author
-                assert count == 1
+                assert count == (1, 1)  # (emailed, total) — one guild member, no custom addresses
 
             def it_sends_the_branded_email_override_to_guild_members(mailoutbox):
                 author = _author()

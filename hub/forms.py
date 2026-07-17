@@ -1870,6 +1870,41 @@ def discord_channel_choices(audience: str) -> list[tuple[str, str]]:
     return [(channel.value, channel.label) for channel in channels if channel != channels.GUILD]
 
 
+def announcement_recipient_choices(audience: str, guild: Guild | None) -> list[tuple[str, str]]:
+    """The email recipient checklist choices for an audience — members + custom addresses.
+
+    A **guild** audience yields one ``("user:<pk>", "<name> · <email>")`` per emailable member
+    (single-sourced from :meth:`Guild.announcement_recipients`, the exact send fan-out) followed
+    by one ``("custom:<addr>", "<addr>")`` per deduped custom mailing-list address. A **site**
+    audience (or a missing guild) yields ``[]`` — site announcements have no per-recipient
+    checklist and keep all-subscribers, so the checklist card is absent there.
+    """
+    from membership.models import AnnouncementDraft
+
+    if audience != AnnouncementDraft.Audience.GUILD.value or guild is None:
+        return []
+    recipients = guild.announcement_recipients()
+    member_emails = {(user.email or "").strip().lower() for user, _reason in recipients}
+    choices = [
+        (f"user:{user.pk}", f"{(user.get_full_name() or user.get_username()).strip()} · {user.email}")
+        for user, _reason in recipients
+    ]
+    choices += [(f"custom:{addr}", addr) for addr in guild.mailing_list_emails_deduped(member_emails)]
+    return choices
+
+
+class _RecipientChoiceField(forms.MultipleChoiceField):
+    """A multi-select that silently DROPS values no longer in the roster (never errors).
+
+    The roster can change between the wizard render and the submit (a member leaves, a custom
+    row is deleted); an unknown value must be dropped, not raised (spec §5). The form's
+    :meth:`AnnouncementComposeForm.clean` re-intersects the submission with the live choices.
+    """
+
+    def valid_value(self, value: str) -> bool:  # noqa: D102 - see class docstring
+        return True
+
+
 class AnnouncementComposeForm(forms.Form):
     """The compose wizard's single form — audience + message + email + Discord + @mention.
 
@@ -1892,6 +1927,11 @@ class AnnouncementComposeForm(forms.Form):
         "the bell and Discord get a plain-text version.",
     )
     send_email = forms.BooleanField(required=False, initial=True, label="Also send as email")
+    email_recipients = _RecipientChoiceField(
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="Email recipients",
+    )
     discord_channel = forms.ChoiceField(required=False, widget=ChannelRadioSelect, label="Post to Discord channel")
     mention = forms.ChoiceField(
         required=False,
@@ -1934,6 +1974,15 @@ class AnnouncementComposeForm(forms.Form):
         # the Discord picker + guild validation are scoped correctly on both GET and POST.
         self.audience_value = self._raw_audience(choices)
         self.current_audience, self.current_guild = split_audience(self.audience_value)
+
+        # Email recipient checklist, scoped to the audience in play (empty for a site audience).
+        # Everyone is checked by default; a resumed draft's initial (if any) wins over the default.
+        self.recipient_choices = announcement_recipient_choices(self.current_audience, self.current_guild)
+        recipient_field = cast(_RecipientChoiceField, self.fields["email_recipients"])
+        recipient_field.choices = self.recipient_choices
+        if not self.is_bound and "email_recipients" not in self.initial:
+            recipient_field.initial = [value for value, _label in self.recipient_choices]
+        recipient_field.widget.attrs.setdefault("class", "pl-recipient-checklist__box")
 
         channel_field = cast(forms.ChoiceField, self.fields["discord_channel"])
         channel_field.choices = discord_channel_choices(self.current_audience)
@@ -1994,7 +2043,33 @@ class AnnouncementComposeForm(forms.Form):
             self.add_error("audience", "Choose a guild for this announcement.")
         cleaned["mention"] = cleaned.get("mention") or AnnouncementDraft.Mention.NONE.value
         cleaned["send_email"] = bool(cleaned.get("send_email"))
+        cleaned["email_recipient_selection"] = self._clean_email_recipients(cleaned, audience)
         return cleaned
+
+    def _clean_email_recipients(self, cleaned: dict[str, Any], audience: str) -> dict[str, Any]:
+        """Turn the submitted checklist into the stored selection dict (see §5).
+
+        Drops any submitted value no longer in the live roster (a roster can change between
+        render and submit — never error), then: an all-selected submission (nothing deselected)
+        collapses to ``{}`` = "everyone" (the default, so an unchanged send stays byte-identical);
+        any other submission stores ``{"users": [...], "custom": [...]}``. A guild send with email
+        on and *nothing* selected is the one hard error — "Select none" must never silently email
+        everyone (that footgun is why an empty selection is never stored as "all"). Empty is fine
+        when the roster itself is empty, or for a site audience (no checklist).
+        """
+        from membership.models import AnnouncementDraft
+
+        valid_values = {value for value, _label in self.recipient_choices}
+        chosen = [value for value in (cleaned.get("email_recipients") or []) if value in valid_values]
+        is_guild_email = audience == AnnouncementDraft.Audience.GUILD.value and cleaned["send_email"]
+        if is_guild_email and self.recipient_choices and not chosen:
+            self.add_error(None, "Pick at least one email recipient, or turn off Also send email.")
+        if set(chosen) == valid_values:
+            return {}  # nothing deselected (or an empty roster) → everyone, the default
+        return {
+            "users": [int(value.split(":", 1)[1]) for value in chosen if value.startswith("user:")],
+            "custom": [value.split(":", 1)[1] for value in chosen if value.startswith("custom:")],
+        }
 
 
 class ReleaseAnnouncementForm(forms.Form):

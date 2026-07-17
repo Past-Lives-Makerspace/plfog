@@ -1955,7 +1955,7 @@ def _draft_initial(draft: Any) -> dict[str, Any]:
         if draft.audience == AnnouncementDraft.Audience.SITE.value
         else f"guild:{draft.guild_id}"
     )
-    return {
+    initial = {
         "audience": audience_value,
         "title": draft.title,
         "body": draft.body,
@@ -1964,6 +1964,15 @@ def _draft_initial(draft: Any) -> dict[str, Any]:
         "mention": draft.mention,
         "expires_at": draft.expires_at,
     }
+    # A present selection resumes exactly those recipients; an empty one (the default) is left
+    # unset so the form falls back to all-selected. (The drafts UI is dormant — this keeps the
+    # resume path faithful for when it returns.)
+    selection = draft.email_recipient_selection or {}
+    if selection:
+        initial["email_recipients"] = [f"user:{pk}" for pk in selection.get("users", [])] + [
+            f"custom:{addr}" for addr in selection.get("custom", [])
+        ]
+    return initial
 
 
 def _render_compose(request: HttpRequest, *, form: Any, draft: Any, start_step: int = 1) -> HttpResponse:
@@ -2055,7 +2064,12 @@ def hub_compose_preview(request: HttpRequest) -> HttpResponse:
 
 @login_required
 def hub_compose_count(request: HttpRequest) -> HttpResponse:
-    """HTMX: push the live recipient count (HX-Trigger) + OOB-swap the re-scoped channel picker."""
+    """HTMX: push the live recipient count (HX-Trigger) + OOB-swap the re-scoped channel picker.
+
+    The re-scope also OOB-swaps the email recipient checklist so a multi-guild lead who switches
+    guilds gets the new guild's roster (all checked) instead of the previous guild's — otherwise
+    the checklist would send the wrong subset.
+    """
     from hub.forms import AnnouncementComposeForm, split_audience
 
     raw = request.GET.get("audience") or request.POST.get("audience") or ""
@@ -2065,7 +2079,7 @@ def hub_compose_count(request: HttpRequest) -> HttpResponse:
     audience, guild = split_audience(raw)
     count = _compose_count_for(audience, guild)
     form = AnnouncementComposeForm(initial={"audience": raw}, **_compose_form_kwargs(request))
-    response = render(request, "hub/partials/_compose_channel_picker.html", {"form": form, "oob": True})
+    response = render(request, "hub/partials/_compose_oob_refresh.html", {"form": form})
     response["HX-Trigger"] = json.dumps({"compose-count": {"count": count}})
     return response
 
@@ -2149,8 +2163,8 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     if not form.is_valid():
         return _render_compose(request, form=form, draft=instance, start_step=1)
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
-    count = draft.send()
-    messages.success(request, f"Announcement sent to {count} member(s).")
+    emailed, total = draft.send()
+    messages.success(request, f"Emailed {emailed} of {total} · everyone sees it in the app.")
     return redirect("hub_compose")
 
 
