@@ -196,6 +196,83 @@ def request_orientation(slot: OrientationSlot, member: Member, *, note: str = ""
     return booking
 
 
+def request_custom_orientation(
+    guild: Guild, member: Member, starts_at: datetime, *, note: str = ""
+) -> OrientationBooking:
+    """Create a one-off MANUAL slot at ``starts_at`` and request it, reusing :func:`request_orientation`.
+
+    Mirrors the hub custom-request view: the guild must have ``GuildOrientationSettings``
+    that is both accepting bookings *and* allowing custom requests, else an
+    :class:`~membership.models.OrientationError`. The slot ends ``default_duration_minutes``
+    after the start, holds a single seat, and sits at the guild's ``default_location``.
+
+    Args:
+        guild: The guild to orient for.
+        member: The requesting member.
+        starts_at: The proposed start (future, validated by :func:`parse_proposed_time`).
+        note: Optional free-text note passed to the orienter.
+
+    Returns:
+        The created (REQUESTED) :class:`~membership.models.OrientationBooking`.
+
+    Raises:
+        OrientationError: If the guild isn't taking custom requests, or the booking fails.
+            A booking failure deletes the orphan slot before re-raising, so a failed custom
+            request never leaves a dangling slot.
+    """
+    from membership.models import GuildOrientationSettings, OrientationError, OrientationSlot
+
+    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
+    if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
+        raise OrientationError("This guild isn't taking custom orientation requests right now.")
+    slot = OrientationSlot.objects.create(
+        guild=guild,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(minutes=settings_obj.default_duration_minutes),
+        seats=1,
+        location=settings_obj.default_location,
+        source=OrientationSlot.Source.MANUAL,
+    )
+    try:
+        return request_orientation(slot, member, note=note)
+    except OrientationError:
+        slot.delete()
+        raise
+
+
+def parse_proposed_time(date_str: str, time_str: str) -> datetime:
+    """Parse a member's proposed orientation ``date`` + ``time`` into a future, tz-aware datetime.
+
+    ``date_str`` is ``YYYY-MM-DD``; ``time_str`` is 24h ``HH:MM`` or 12h ``h:mm am/pm``
+    (spaces optional, case-insensitive). The result is interpreted in the site timezone.
+
+    Raises:
+        OrientationError: With member-friendly copy when either part is unreadable or the
+            combined moment is not in the future.
+    """
+    from membership.models import OrientationError
+
+    _UNREADABLE = "I couldn't read that time — use YYYY-MM-DD and HH:MM."
+    try:
+        day = datetime.strptime(date_str.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        raise OrientationError(_UNREADABLE)
+    cleaned = time_str.strip().lower().replace(" ", "")
+    parsed_time = None
+    for fmt in ("%H:%M", "%I:%M%p", "%I%p"):
+        try:
+            parsed_time = datetime.strptime(cleaned, fmt).time()
+            break
+        except ValueError:
+            continue
+    if parsed_time is None:
+        raise OrientationError(_UNREADABLE)
+    starts_at = timezone.make_aware(datetime.combine(day, parsed_time))
+    if starts_at <= timezone.now():
+        raise OrientationError("That time's already past — pick a future date and time.")
+    return starts_at
+
+
 def _emit_lead_request(booking: OrientationBooking) -> None:
     """Email lead + all staff the request, and in-app-notify ALL orienters (Decision 7).
 
@@ -322,6 +399,22 @@ def complete_orientation(booking: OrientationBooking) -> None:
             email_to=booking.member.primary_email,
             period=f"booking:{booking.pk}:thankyou",
         )
+    # Warm welcome to the guild's members — always fires (no opt-out), in-app + the guild's
+    # own Discord channel. Copy-mode: no title/body, rendered from the seeded catalogue copy.
+    welcome_ctx = _context(booking)  # guild, greeting_name (= member.display_name), guild_url
+    emit(
+        "orientation.completed",
+        actor=None,  # system event; the member is the subject, not the actor
+        target=booking,
+        context={
+            "guild": booking.guild,  # resolver key (guild_members) + _guild_broadcast destination
+            "member_name": booking.member.display_name,
+            "guild_name": booking.guild.name,
+            "guild_url": welcome_ctx["guild_url"],
+        },
+        url=welcome_ctx["guild_url"],  # the in-app bell row's click-through
+        period=f"booking:{booking.pk}:completed",
+    )
 
 
 def auto_complete(*, now: datetime | None = None) -> int:

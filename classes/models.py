@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Callable
 from datetime import date as date_type, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 from django.conf import settings
-from django.db import models
+from django.db import IntegrityError, models, transaction
 from django.db.models import CheckConstraint, F, Q
 from django.utils import timezone
 from django.utils.formats import date_format
@@ -20,7 +21,7 @@ from core.models import HeroCropMixin
 from core.validators import validate_image_size
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
     from django.core.files.uploadedfile import UploadedFile
 
     from membership.models import Member
@@ -99,8 +100,8 @@ class Category(HeroCropMixin, models.Model):
 
     class Meta:
         ordering = ["sort_order", "name"]
-        verbose_name = "Guild"
-        verbose_name_plural = "Guilds"
+        verbose_name = "Guild Type"
+        verbose_name_plural = "Guild Types"
 
     def __str__(self) -> str:
         return self.name
@@ -191,6 +192,67 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         return {row["pk"]: max(0, row["capacity"] - row["used"]) for row in rows}
 
 
+_SLUG_RETRY_LIMIT = 5
+
+
+def _unique_slug(base: str, exclude_pk: int | None) -> str:
+    """A slug derived from ``base`` that no other ClassOffering currently holds.
+
+    Returns ``base`` when it is free, otherwise ``base-2``, ``base-3``, … Pass the
+    offering's own ``pk`` as ``exclude_pk`` so re-checking a row against itself never
+    reads as a collision; ``None`` (a not-yet-saved offering) excludes nothing. This is
+    a check-then-set probe that closes the common case but not a genuine race — the save
+    paths pair it with :func:`_save_with_unique_slug` to retry on the unique constraint.
+    """
+    candidate = base
+    n = 1
+    while True:
+        taken = ClassOffering.objects.filter(slug=candidate)
+        if exclude_pk is not None:
+            taken = taken.exclude(pk=exclude_pk)
+        if not taken.exists():
+            return candidate
+        n += 1
+        candidate = f"{base}-{n}"
+
+
+def _is_slug_unique_violation(error: IntegrityError) -> bool:
+    """True when ``error`` is the ClassOffering ``slug`` unique constraint failing.
+
+    Portable across SQLite ("UNIQUE constraint failed: classes_classoffering.slug") and
+    PostgreSQL ("duplicate key value ... Key (slug)=…") — both name the ``slug`` column.
+    A non-slug integrity error is left to propagate rather than pointlessly retried.
+    """
+    return "slug" in str(error).lower()
+
+
+def _save_with_unique_slug(
+    offering: "ClassOffering",
+    base: str,
+    *,
+    exclude_pk: int | None,
+    save: Callable[[], None],
+) -> None:
+    """Stamp ``offering`` with a unique slug from ``base`` and persist, retrying on a race.
+
+    Probes with :func:`_unique_slug`, then runs ``save`` inside ``transaction.atomic()`` so
+    a losing write never poisons the outer connection. If a concurrent writer claimed the
+    same slug between the probe and the save, the unique constraint raises ``IntegrityError``;
+    we re-derive the next free suffix (the winning row is now visible) and retry, bounded at
+    ``_SLUG_RETRY_LIMIT`` attempts before re-raising. A non-slug integrity error propagates
+    immediately.
+    """
+    for attempt in range(_SLUG_RETRY_LIMIT):
+        offering.slug = _unique_slug(base, exclude_pk)
+        try:
+            with transaction.atomic():
+                save()
+            return
+        except IntegrityError as error:
+            if not _is_slug_unique_violation(error) or attempt == _SLUG_RETRY_LIMIT - 1:
+                raise
+
+
 class ClassOffering(HeroCropMixin, models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
@@ -265,7 +327,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         help_text="Optional YouTube link (watch, youtu.be, embed, or shorts URL). Embeds on the public class page.",
     )
     requires_model_release = models.BooleanField(
-        default=False, help_text="When on, registrants also sign model release."
+        default=False, help_text="When on, registrants also sign photo release."
     )
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.DRAFT, help_text="Lifecycle status."
@@ -316,7 +378,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     )
     welcome_email_body = models.TextField(
         blank=True,
-        help_text="The welcome message sent to each new registrant. Plain text; line breaks are preserved.",
+        help_text="The welcome message sent to each new registrant. Supports rich text formatting.",
     )
     welcome_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the welcome email content was last edited."
@@ -465,6 +527,12 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         if self.status != self.Status.DRAFT:
             raise ValueError(f"Only draft classes can be submitted; got {self.status}.")
+        if not self.has_submittable_image:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(
+                "Add a photo before submitting — a class needs at least its own hero image or one gallery photo."
+            )
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
         # Clear out any stale approval rows from a prior submission cycle, then
@@ -779,6 +847,27 @@ class ClassOffering(HeroCropMixin, models.Model):
         return items
 
     @property
+    def has_submittable_image(self) -> bool:
+        """Whether this class carries a photo good enough to submit for review.
+
+        True when the offering has its OWN hero (``image``) or at least one
+        gallery photo. The Category/Guild-Type hero fallback that
+        ``display_images`` leans on is deliberately excluded: a class must
+        supply its own photo before it can go to a reviewer.
+        """
+        return bool(self.image) or self.gallery_images.exists()
+
+    @property
+    def needs_photo_nudge(self) -> bool:
+        """Whether to gently suggest adding more gallery photos.
+
+        Classes with three or more gallery photos tend to draw more sign-ups,
+        so below that we surface a soft suggestion. This is advisory only — it
+        never blocks submission (that gate is ``has_submittable_image``).
+        """
+        return self.gallery_images.count() < 3
+
+    @property
     def first_upcoming_session_at(self) -> datetime | None:
         session = self.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at").first()
         return session.starts_at if session else None
@@ -880,21 +969,42 @@ class ClassOffering(HeroCropMixin, models.Model):
             raw = f"{base} at Past Lives Makerspace in Portland, OR. {self.category.name} class — register online."
         return self._truncate(raw, 160)
 
+    def finalize_recurring_slug(self) -> None:
+        """Overwrite the provisional slug with the canonical date-stamped one.
+
+        Called once during creation, right after the offering's sessions are
+        attached, so the public URL reads ``slugify(title)-YYYY-MM-DD`` where the
+        date is the offering's first session date (:attr:`earliest_session_at`,
+        resolved in local time). When the offering has no sessions yet, the
+        creation date is used instead. A same-day collision with an existing
+        slug falls back to a ``-2``, ``-3``, … tiebreak. Full date — not just
+        month + year — because the same class can recur several times in one
+        month.
+
+        Local time matters: an aware session datetime stored in UTC can fall on
+        a different calendar day than the class's local date, so we convert with
+        ``localtime`` / ``localdate`` before formatting.
+
+        This is a create-only finalizer — it is never called from an edit flow,
+        so a published offering's slug (and any already-indexed URL) never
+        changes.
+        """
+        from django.utils.text import slugify
+
+        when = self.earliest_session_at
+        when_date = timezone.localtime(when).date() if when is not None else timezone.localdate()
+        base = f"{slugify(self.title) or 'class'}-{when_date:%Y-%m-%d}"
+        _save_with_unique_slug(self, base, exclude_pk=self.pk, save=lambda: self.save(update_fields=["slug"]))
+
     def duplicate(self) -> "ClassOffering":
         """Clone this offering as a fresh draft with a unique slug and title."""
         base_slug = f"{self.slug}-copy"
-        slug = base_slug
-        n = 1
-        while ClassOffering.objects.filter(slug=slug).exists():
-            n += 1
-            slug = f"{base_slug}-{n}"
         self.pk = None
-        self.slug = slug
         self.title = f"{self.title} (copy)"
         self.status = self.Status.DRAFT
         self.published_at = None
         self.approved_by = None
-        self.save()
+        _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
         return self
 
     def duplicate_as_new_run(self) -> "ClassOffering":
@@ -910,18 +1020,12 @@ class ClassOffering(HeroCropMixin, models.Model):
         partial unique constraint would otherwise reject the duplicate.
         """
         base_slug = f"{self.slug}-run"
-        slug = base_slug
-        n = 1
-        while ClassOffering.objects.filter(slug=slug).exists():
-            n += 1
-            slug = f"{base_slug}-{n}"
         self.pk = None
-        self.slug = slug
         self.status = self.Status.DRAFT
         self.published_at = None
         self.approved_by = None
         self.legacy_cms_id = ""
-        self.save()
+        _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
         return self
 
 
@@ -1147,6 +1251,27 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
         return best
 
 
+class DiscountApprover(NamedTuple):
+    """A user's discount-approval capability, resolved once so a whole list of codes
+    can be checked without a per-row Member query.
+
+    ``approves_any`` is True for an admin/superuser (may approve every code);
+    ``self_approves`` is True for a member holding ``can_self_approve_discounts`` (may
+    approve only the codes they created). ``user_pk`` is the acting user's pk, used for
+    the cheap in-Python ``created_by`` comparison.
+    """
+
+    user_pk: int | str | None
+    approves_any: bool
+    self_approves: bool
+
+    def can_approve(self, code: "DiscountCode") -> bool:
+        """Whether this approver may approve ``code`` — no DB query."""
+        if self.approves_any:
+            return True
+        return self.self_approves and code.created_by_id == self.user_pk
+
+
 class DiscountCode(models.Model):
     code = models.CharField(max_length=40, unique=True, help_text="Uppercase code — normalized on save.")
     description = models.CharField(max_length=255, blank=True, help_text="Admin-only description.")
@@ -1158,7 +1283,11 @@ class DiscountCode(models.Model):
     use_count = models.PositiveIntegerField(default=0, help_text="Incremented on each successful registration.")
     is_active = models.BooleanField(default=True, help_text="Admin toggle to disable without deleting.")
     is_approved = models.BooleanField(
-        default=True, help_text="Admin-approved codes are usable. Instructor-created codes start unapproved."
+        default=False,
+        help_text=(
+            "Codes are usable only once approved. Every new code starts unapproved until an admin — or a "
+            "member with the self-approve permission, for their own codes — approves it."
+        ),
     )
     class_offering = models.ForeignKey(
         "ClassOffering",
@@ -1237,11 +1366,74 @@ class DiscountCode(models.Model):
             return False
         return True
 
+    @classmethod
+    def approver_for(cls, user: "AbstractBaseUser | AnonymousUser | None") -> DiscountApprover:
+        """Resolve ``user``'s approval capability once (a single Member query).
+
+        Callers rendering a list of codes should resolve this once and reuse the
+        returned :class:`DiscountApprover` for every row (via ``approver.can_approve(code)``)
+        instead of calling :meth:`can_be_approved_by` per row, which repeats the Member
+        lookup for the same user N times.
+
+        Admins and superusers may approve any code; every other member may approve only
+        the codes they created, and only when they hold the ``can_self_approve_discounts``
+        permission. Anonymous or unlinked users can never approve.
+        """
+        if user is None or not getattr(user, "is_authenticated", False):
+            return DiscountApprover(user_pk=None, approves_any=False, self_approves=False)
+        from membership.models import Member
+
+        member = Member.objects.filter(user_id=cast("int | str", user.pk), status=Member.Status.ACTIVE).first()
+        approves_any = bool(getattr(user, "is_superuser", False) or (member is not None and member.is_fog_admin))
+        self_approves = member is not None and member.can_self_approve_discounts
+        return DiscountApprover(user_pk=user.pk, approves_any=approves_any, self_approves=self_approves)
+
+    def can_be_approved_by(self, user: "AbstractBaseUser | AnonymousUser | None") -> bool:
+        """Whether ``user`` may approve (activate) this discount code.
+
+        Convenience for a single-code check (e.g. the approve action guard). When
+        checking many codes for one user, resolve :meth:`approver_for` once and call
+        ``approver.can_approve(code)`` per row to avoid an N+1 on the Member lookup.
+
+        Args:
+            user: The acting user (may be anonymous or ``None``).
+
+        Returns:
+            ``True`` when the user is authorized to flip ``is_approved`` on this code.
+        """
+        return self.approver_for(user).can_approve(self)
+
+    def approve(self, user: "AbstractBaseUser | AnonymousUser | None" = None) -> None:
+        """Mark this discount code approved so it becomes usable.
+
+        Approval is a deliberate forward action — an admin, or a member with the
+        ``can_self_approve_discounts`` permission approving one of their own
+        pending codes. Idempotent: approving an already-approved code is a no-op
+        beyond the write.
+
+        Args:
+            user: The acting user. Accepted so every call site passes the
+                approver, but not recorded — the model has no approver column
+                today. Authorization is the caller's responsibility (see
+                :meth:`can_be_approved_by`).
+        """
+        self.is_approved = True
+        self.save(update_fields=["is_approved"])
+
+    def unapprove(self) -> None:
+        """Revoke approval, returning the code to pending so it can't be used.
+
+        The admin-side counterpart to :meth:`approve` — lets an admin turn an
+        approved code back off without deleting it. Idempotent.
+        """
+        self.is_approved = False
+        self.save(update_fields=["is_approved"])
+
 
 class Waiver(models.Model):
     class Kind(models.TextChoices):
         LIABILITY = "liability", "Liability"
-        MODEL_RELEASE = "model_release", "Model Release"
+        MODEL_RELEASE = "model_release", "Photo Release"
 
     registration = models.ForeignKey(
         "Registration",

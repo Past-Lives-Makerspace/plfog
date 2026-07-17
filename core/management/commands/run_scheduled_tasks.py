@@ -1,11 +1,15 @@
 """Single dispatcher for all scheduled background tasks.
 
-Runs every 15 minutes via a Render cron service. Each registered task is
-called in its own try/except so one failure cannot block the rest. Each
-task is responsible for its own idempotency.
+Runs every 15 minutes via a Render cron service. It iterates the shared job registry
+(``core/scheduled_jobs.py``) rather than hard-coded tuples, so the Automations dashboard
+in Site Settings and this dispatcher can never disagree about what runs.
 
-Time-gated tasks:
-- sync_all_sources: runs only when UTC hour == 13 (≈ 6 AM Portland).
+Each due job is:
+- skipped if it's ``EXTERNAL`` (it has its own Render cron — e.g. ``airtable_pull``),
+- skipped if it's ``DAILY`` and it isn't ~6 AM Portland (UTC hour 13),
+- skipped if an admin has paused it (``is_enabled`` is false),
+- otherwise run inside ``record_run`` (which writes a ScheduledTaskRun row) and its own
+  try/except, so one failure cannot block the rest. Each task owns its idempotency.
 """
 
 from __future__ import annotations
@@ -16,6 +20,10 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from core.scheduled_jobs import SCHEDULED_JOBS, Cadence, Trigger, is_enabled, record_run
+
+DAILY_UTC_HOUR = 13  # ~6 AM Portland
+
 
 class Command(BaseCommand):
     help = "Dispatch all scheduled background tasks. Safe to run every 15 minutes."
@@ -24,45 +32,26 @@ class Command(BaseCommand):
         now = timezone.now()
         failed: list[str] = []
 
-        # --- Always-run tasks (idempotent, no-op outside their window) ---
-        # ``bill_tabs`` self-gates: it acquires a Postgres advisory lock and exits
-        # unless ``BillingSettings.charge_frequency`` says it's billing time
-        # (``_is_billing_time``), so running it every tick (no ``--force``) is safe —
-        # it no-ops outside the configured schedule and dedupes retries via
-        # ``TabCharge.next_retry_at`` + Stripe idempotency keys. Wiring it here
-        # (Decision 3) is what finally makes receipts + failed-charge retries run
-        # automatically; no ``render.yaml`` change is needed (this dispatcher is the
-        # single 15-min cron service).
-        for task in (
-            "send_voting_reminders",
-            "take_cycle_snapshot",
-            "send_lease_expiry_reminders",
-            "auto_complete_orientations",
-            "send_class_reminders",
-            "publish_due_events",
-            "send_event_reminders",
-            "bill_tabs",
-            "retry_calendar_pushes",
-            "sync_discord_guild_roles",
-        ):
+        # ``bill_tabs`` self-gates: it acquires a Postgres advisory lock and exits unless
+        # ``BillingSettings.charge_frequency`` says it's billing time, so running it every
+        # tick (no ``--force``) is safe — it no-ops outside the configured schedule.
+        for job in SCHEDULED_JOBS:
+            if job.cadence == Cadence.EXTERNAL:
+                # Runs from its own Render cron, which records around its own work.
+                continue
+            if job.cadence == Cadence.DAILY and now.hour != DAILY_UTC_HOUR:
+                self.stdout.write(f"  – {job.key} skipped (daily, not {DAILY_UTC_HOUR}:xx UTC)")
+                continue
+            if not is_enabled(job.key):
+                self.stdout.write(f"  – {job.key} disabled")
+                continue
             try:
-                call_command(task, stdout=self.stdout, stderr=self.stderr)
-                self.stdout.write(f"  ✓ {task}")
+                with record_run(job.key, trigger=Trigger.SCHEDULED):
+                    call_command(job.command, stdout=self.stdout, stderr=self.stderr)
+                self.stdout.write(f"  ✓ {job.key}")
             except Exception as exc:
-                self.stderr.write(self.style.ERROR(f"  ✗ {task}: {exc}"))
-                failed.append(task)
-
-        # --- Daily tasks (~6 AM Portland = 13:xx UTC) ---
-        if now.hour == 13:
-            for task in ("sync_all_sources", "generate_orientation_slots"):
-                try:
-                    call_command(task, stdout=self.stdout, stderr=self.stderr)
-                    self.stdout.write(f"  ✓ {task}")
-                except Exception as exc:
-                    self.stderr.write(self.style.ERROR(f"  ✗ {task}: {exc}"))
-                    failed.append(task)
-        else:
-            self.stdout.write("  – daily tasks skipped (not 13:xx UTC)")
+                self.stderr.write(self.style.ERROR(f"  ✗ {job.key}: {exc}"))
+                failed.append(job.key)
 
         if failed:
             self.stderr.write(self.style.ERROR(f"Failed: {', '.join(failed)}"))

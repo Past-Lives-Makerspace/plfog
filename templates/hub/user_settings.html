@@ -35,6 +35,14 @@
     {# -------- Profile tab -------- #}
     <div x-show="tab === 'profile'" x-cloak>
         {% if member %}
+        <div x-data="{ ptab: 'member' }">
+        <h2 class="pl-profile-heading">Edit your profile</h2>
+        {% if member.is_instructor %}
+        <div class="pl-subtabs" role="tablist" aria-label="Profile sections">
+            <button type="button" @click="ptab = 'member'" :class="{ 'vote-tab--active': ptab === 'member' }" class="vote-tab" role="tab">Member</button>
+            <button type="button" @click="ptab = 'instructor'" :class="{ 'vote-tab--active': ptab === 'instructor' }" class="vote-tab" role="tab">Instructor</button>
+        </div>
+        {% endif %}
         <form method="post" enctype="multipart/form-data" class="hub-form pl-profile-edit"
               x-data="{
                 listed: {% if profile_form.show_in_directory.value %}true{% else %}false{% endif %},
@@ -43,7 +51,6 @@
                   phone: {% if profile_form.show_phone.value %}true{% else %}false{% endif %},
                   email: {% if profile_form.show_email.value %}true{% else %}false{% endif %},
                   discord_handle: {% if profile_form.show_discord_handle.value %}true{% else %}false{% endif %},
-                  other_contact_info: {% if profile_form.show_other_contact_info.value %}true{% else %}false{% endif %},
                   about_me: {% if profile_form.show_about_me.value %}true{% else %}false{% endif %},
                   profile_photo: {% if profile_form.show_profile_photo.value %}true{% else %}false{% endif %},
                 },
@@ -53,7 +60,6 @@
                   phone: '{{ profile_form.phone.value|default_if_none:""|escapejs }}',
                   email: '{{ user.email|escapejs }}',
                   discord_handle: '{{ profile_form.discord_handle.value|default_if_none:""|escapejs }}',
-                  other_contact_info: '{{ profile_form.other_contact_info.value|default_if_none:""|escapejs }}',
                   about_me: '{{ profile_form.about_me.value|default_if_none:""|escapejs }}',
                 },
                 photoUrl: '{% if member.profile_photo %}{{ member.profile_photo.url }}{% endif %}',
@@ -62,6 +68,9 @@
               }">
             {% csrf_token %}
             <input type="hidden" name="form_id" value="profile">
+            {{ contact_formset.management_form }}
+            {# ===== Member panel ===== #}
+            <div x-show="ptab === 'member'">
 
             {# ── Master directory toggle ── #}
             <div class="pl-profile-master">
@@ -174,34 +183,7 @@
                       sits here (inside the form); its confirm modal is included below, OUTSIDE the form.
                     {% endcomment %}
                     {% include "hub/partials/_discord_connect_cta.html" with member=member id_suffix="profile" %}
-                    {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.other_contact_info key="other_contact_info" label="Other contact info" %}
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.about_me key="about_me" label="About me" %}
-
-                    {% if member.is_instructor %}
-                    <div class="pl-profile-row" style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--hub-border);">
-                        <div class="pl-profile-row__head">
-                            <span class="pl-profile-row__label" style="font-weight:700;">Instructor profile</span>
-                            <span class="pl-vis-static" title="Shown on your public instructor page">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                                Public
-                            </span>
-                        </div>
-                    </div>
-                    <div class="pl-profile-row">
-                        <div class="pl-profile-row__head">
-                            <label for="{{ profile_form.instructor_website.id_for_label }}" class="pl-profile-row__label">Website</label>
-                        </div>
-                        {{ profile_form.instructor_website }}
-                        {% for error in profile_form.instructor_website.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
-                    </div>
-                    <div class="pl-profile-row">
-                        <div class="pl-profile-row__head">
-                            <label for="{{ profile_form.instructor_social_handle.id_for_label }}" class="pl-profile-row__label">Social handle</label>
-                        </div>
-                        {{ profile_form.instructor_social_handle }}
-                        {% for error in profile_form.instructor_social_handle.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
-                    </div>
-                    {% endif %}
 
                     {% if profile_form.non_field_errors %}
                     <ul class="hub-field-errors">
@@ -269,9 +251,6 @@
                                         <template x-if="isVisible('discord_handle') && fields.discord_handle">
                                             <div class="pl-profile-preview__contact-row"><span>Discord</span><span x-text="fields.discord_handle"></span></div>
                                         </template>
-                                        <template x-if="isVisible('other_contact_info') && fields.other_contact_info">
-                                            <div class="pl-profile-preview__contact-row"><span>Other</span><span x-text="fields.other_contact_info"></span></div>
-                                        </template>
                                     </div>
                                 </div>
                             </template>
@@ -279,6 +258,76 @@
                         <p class="pl-profile-preview__caption">Updates as you type.</p>
                     </div>
                 </aside>
+            </div>
+
+            {# ── Contact methods (unified labeled list, saved with the profile form) ── #}
+            <div class="pl-profile-section">
+                <h2 class="pl-profile-section__title">Contact methods</h2>
+                <p class="hub-text-muted" style="margin-bottom:1rem;">
+                    Other ways to reach you — a website, Instagram, a booking email. You choose where each one shows.
+                </p>
+                <div id="contact-rows" style="display:flex; flex-direction:column; gap:1rem;">
+                    {% for f in contact_formset %}
+                    <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+                        <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                            <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=f.label %}</div>
+                            <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=f.value %}</div>
+                        </div>
+                        <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-top:0.5rem;">
+                            <div>{% include "components/toggle.html" with field=f.show_in_directory toggle_label=f.show_in_directory.label %}</div>
+                            {% if member.is_instructor %}
+                            <div>{% include "components/toggle.html" with field=f.show_on_instructor_page toggle_label=f.show_on_instructor_page.label %}</div>
+                            {% endif %}
+                        </div>
+                        {% if f.instance.pk %}
+                        <div style="display:none;">{{ f.DELETE }}</div>
+                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                                onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                            Delete this contact
+                        </button>
+                        {% endif %}
+                        {{ f.id }}
+                        {{ f.sort_order }}
+                    </div>
+                    {% empty %}
+                    <p class="hub-text-muted">No contact methods yet. Add your first below.</p>
+                    {% endfor %}
+                </div>
+
+                {% comment %}Hidden empty-form template, cloned by the +Add button. toggle.html/form_field.html
+                   carry no per-row script, so a cloned row's controls work without re-binding.{% endcomment %}
+                <template id="contact-empty-template">
+                    <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+                        {% with contact_formset.empty_form as ef %}
+                        <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                            <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=ef.label %}</div>
+                            <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=ef.value %}</div>
+                        </div>
+                        <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-top:0.5rem;">
+                            <div>{% include "components/toggle.html" with field=ef.show_in_directory toggle_label=ef.show_in_directory.label %}</div>
+                            {% if member.is_instructor %}
+                            <div>{% include "components/toggle.html" with field=ef.show_on_instructor_page toggle_label=ef.show_on_instructor_page.label %}</div>
+                            {% endif %}
+                        </div>
+                        {{ ef.id }}
+                        {{ ef.sort_order }}
+                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+                        {% endwith %}
+                    </div>
+                </template>
+
+                <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                        onclick="
+                          const tpl = document.getElementById('contact-empty-template');
+                          const total = document.getElementById('id_contacts-TOTAL_FORMS');
+                          const idx = parseInt(total.value, 10);
+                          const wrap = document.createElement('div');
+                          wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                          document.getElementById('contact-rows').appendChild(wrap.firstElementChild);
+                          total.value = idx + 1;
+                        ">
+                    + Add a contact
+                </button>
             </div>
 
             {# Open for commissions — saved together with the rest of the profile form #}
@@ -291,6 +340,36 @@
                     {% include "components/form_field.html" with field=profile_form.commission_note %}
                 </div>
             </div>
+            {# ===== /Member panel ===== #}
+            </div>
+
+            {% if member.is_instructor %}
+            {# ===== Instructor panel ===== #}
+            <div x-show="ptab === 'instructor'" x-cloak>
+                <div class="pl-profile-section" style="margin-top:0; padding-top:0; border-top:0;">
+                    <h2 class="pl-profile-section__title">Instructor profile</h2>
+                    <p class="hub-text-muted" style="margin-bottom:1rem;">
+                        This is what learners see on your public instructor page.
+                    </p>
+                    <div class="pl-profile-row">
+                        <div class="pl-profile-row__head">
+                            <label for="{{ profile_form.instructor_bio.id_for_label }}" class="pl-profile-row__label">About me as an instructor</label>
+                            <span class="pl-vis-static" title="Shown on your public instructor page">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                Public
+                            </span>
+                        </div>
+                        {{ profile_form.instructor_bio }}
+                        {% for error in profile_form.instructor_bio.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
+                    </div>
+                    <p class="hub-text-muted" style="margin-top:1rem;">
+                        Add links (a website, Instagram, a booking email) under <strong>Contact methods</strong> on the
+                        Member tab, then switch on <strong>“Show on instructor page”</strong> to display them here.
+                    </p>
+                </div>
+            </div>
+            {# ===== /Instructor panel ===== #}
+            {% endif %}
 
             <div class="pl-profile-actionbar">
                 <button type="submit" class="hub-btn hub-btn--primary">Save Profile</button>
@@ -308,6 +387,7 @@
           {% url 'hub_discord_disconnect' as discord_disconnect_url %}
           {% include "components/confirm_modal.html" with confirm_id="disconnect-discord-profile" confirm_title="Disconnect Discord?" confirm_message="You'll stop getting DMs and your guild membership will no longer sync with Discord." confirm_action_url=discord_disconnect_url confirm_button_text="Disconnect" %}
         {% endif %}
+        </div>
         {% else %}
         <div class="hub-card">
             <p class="hub-text-muted">Your account is not linked to a membership profile. Contact an admin for help.</p>

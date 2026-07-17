@@ -494,6 +494,58 @@ def describe_admin_member_edit():
         target.member.refresh_from_db()
         assert target.member.full_legal_name == "Updated Name"
 
+    def it_shows_the_self_approve_discounts_toggle(client):
+        _create_superuser(client)
+        target = _create_member_user(username="dctoggle")
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        assert response.status_code == 200
+        assert b"Can approve their own discount codes" in response.content
+
+    def it_grants_the_self_approve_discounts_permission(client):
+        _create_superuser(client)
+        target = _create_member_user(username="dcgrant")
+        response = client.post(
+            reverse("hub_admin_member_edit", args=[target.member.pk]),
+            data={
+                "full_legal_name": target.member.full_legal_name,
+                "preferred_name": "",
+                "pronouns": "",
+                "discord_handle": "",
+                "about_me": "",
+                "status": Member.Status.ACTIVE,
+                "member_type": Member.MemberType.STANDARD,
+                "role": Member.FogRole.MEMBER,
+                "show_in_directory": "on",
+                "can_self_approve_discounts": "on",
+            },
+        )
+        assert response.status_code == 302
+        target.member.refresh_from_db()
+        assert target.member.can_self_approve_discounts is True
+
+    def it_clears_the_self_approve_discounts_permission_when_unchecked(client):
+        _create_superuser(client)
+        target = _create_member_user(username="dcrevoke")
+        target.member.can_self_approve_discounts = True
+        target.member.save(update_fields=["can_self_approve_discounts"])
+        response = client.post(
+            reverse("hub_admin_member_edit", args=[target.member.pk]),
+            data={
+                "full_legal_name": target.member.full_legal_name,
+                "preferred_name": "",
+                "pronouns": "",
+                "discord_handle": "",
+                "about_me": "",
+                "status": Member.Status.ACTIVE,
+                "member_type": Member.MemberType.STANDARD,
+                "role": Member.FogRole.MEMBER,
+                "show_in_directory": "on",
+            },
+        )
+        assert response.status_code == 302
+        target.member.refresh_from_db()
+        assert target.member.can_self_approve_discounts is False
+
     def it_re_renders_on_invalid_post(client):
         _create_superuser(client)
         target = _create_member_user(username="target5")

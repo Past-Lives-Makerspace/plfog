@@ -10,6 +10,9 @@ urlpatterns = [
     path("auth/relay/accept/", views.relay_accept, name="relay_accept"),
     # Health check
     path("health/", views.health_check, name="health_check"),
+    # Discord Interactions Endpoint URL (slash-command platform). Signed by Discord,
+    # csrf-exempt, no login — verified by ed25519 signature, not a session.
+    path("discord/interactions/", views.discord_interactions, name="discord_interactions"),
     # Crawler policy — keep search engines out of /admin/ and private areas
     path("robots.txt", views.robots_txt, name="robots_txt"),
     # Home page

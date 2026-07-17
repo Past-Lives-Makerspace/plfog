@@ -2,9 +2,128 @@
 
 from __future__ import annotations
 
-VERSION = "0.21.19"
+VERSION = "0.22.9"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.22.9",
+        "date": "2026-07-16",
+        "title": "Events in Discord",
+        "changes": [
+            (
+                "Community events now show up right in the Past Lives Discord server's Events tab, so "
+                "you can mark yourself interested and get reminders without leaving Discord. Each one "
+                "links back to its full event page."
+            ),
+        ],
+    },
+    {
+        "version": "0.22.9",
+        "date": "2026-07-16",
+        "title": "Studio Hours on guild pages",
+        "changes": [
+            (
+                "Guild leads can now set their weekly studio hours and meetings right in the app, and "
+                "every guild page shows a Studio Hours card so you know when to drop by and chat with "
+                "the lead. Meetings can now repeat weekly, not just monthly. Your guild's public Google "
+                "Calendar stays in sync automatically."
+            ),
+        ],
+    },
+    {
+        "version": "0.22.9",
+        "date": "2026-07-16",
+        "title": "Slash commands in Discord",
+        "changes": [
+            (
+                "Type /link in the Past Lives Discord to connect your Discord to your member account in "
+                "one tap — no digging through settings. Once connected, guild syncing and the rest of the "
+                "Discord goodies just work."
+            ),
+            (
+                "Four more commands to use right in Discord: /schedule-orientation to request a guild "
+                "orientation, /whats-on for the next 7 days of events and classes, /balance to check "
+                "your tab, and /info for any guild's rules, meetings, FAQ, and links."
+            ),
+        ],
+    },
+    {
+        "version": "0.22.9",
+        "date": "2026-07-16",
+        "title": "A warm welcome when you finish orientation",
+        "changes": [
+            (
+                "When a member completes their orientation with a guild, that guild now gets an automatic "
+                "hello — an in-app notification and a post in the guild's Discord channel — so newcomers "
+                "are welcomed the moment they're through the door."
+            ),
+        ],
+    },
+    {
+        "version": "0.22.9",
+        "date": "2026-07-16",
+        "title": "Know your reach before you post",
+        "changes": [
+            (
+                "The guild Announcements tab now shows guild leads how many members will receive their "
+                "emailed announcement, with the full recipient list a click away — so you know your "
+                "audience before you compose."
+            ),
+        ],
+    },
+    {
+        "version": "0.22.9",
+        "date": "2026-07-16",
+        "title": "Jump straight to a guild's classes",
+        "changes": [
+            (
+                "Every guild page now has a “[Guild name] Classes” link that opens the class catalog "
+                "filtered to just that guild's classes — even before the guild has scheduled any. The "
+                "catalog shows a clear “Classes in [Guild]” heading so you always know the filter is on."
+            ),
+        ],
+    },
+    {
+        "version": "0.22.9",
+        "date": "2026-07-16",
+        "title": "Class reminder emails read cleanly again",
+        "changes": [
+            (
+                "Fixed the class reminder email so the instructor's welcome note shows with its proper "
+                "formatting instead of stray code — the way it already appears in your confirmation email."
+            ),
+        ],
+    },
+    {
+        "version": "0.22.9",
+        "date": "2026-07-16",
+        "title": "A cleaner profile, with your own contact links",
+        "changes": [
+            (
+                "Your profile settings now split into a Member tab and an Instructor tab, so your teaching "
+                "info stays separate from your member-directory profile."
+            ),
+            (
+                "Instructors get a dedicated “About me as an instructor” bio for your public class "
+                "page — kept separate from the short bio on your member-directory card."
+            ),
+            (
+                "Add your own labeled contact links — a website, Instagram, a booking email — and "
+                "choose where each one shows: on your directory card, your instructor page, or both."
+            ),
+        ],
+    },
+    {
+        "version": "0.22.9",
+        "date": "2026-07-16",
+        "title": "Easier-to-read class confirmation screens",
+        "changes": [
+            (
+                "The class registration confirmation and cancellation screens had gold text that was hard to "
+                "read in light mode. The wording now shows in a clearly legible color in both light and dark themes."
+            ),
+        ],
+    },
     {
         "version": "0.21.19",
         "date": "2026-07-13",

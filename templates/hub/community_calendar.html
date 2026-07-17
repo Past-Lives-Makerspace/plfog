@@ -284,7 +284,7 @@
                         <span class="hub-badge">Scheduled for {{ event.publish_at_display }}</span>
                     </div>
                     <div class="hub-text-muted" style="font-size:0.8125rem; margin-top:0.25rem;">
-                        {{ event.get_event_type_display }} · {{ event.starts_at|date:"D, M j · g:i A" }}{% if event.recurrence != "none" %} · Repeats monthly{% endif %}
+                        {{ event.get_event_type_display }} · {{ event.starts_at|date:"D, M j · g:i A" }}{% if event.recurrence != "none" %} · {{ event.get_recurrence_display }}{% endif %}
                     </div>
                 </div>
                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
@@ -310,7 +310,7 @@
                 <div style="flex:1; min-width:220px;">
                     <div style="font-weight:600;">{{ event.title }}</div>
                     <div class="hub-text-muted" style="font-size:0.8125rem;">
-                        {{ event.get_event_type_display }} · {{ event.guild.name|default:"Site-wide" }} · {{ event.starts_at|date:"D, M j · g:i A" }}{% if event.recurrence != "none" %} · Repeats monthly{% endif %}
+                        {{ event.get_event_type_display }} · {{ event.guild.name|default:"Site-wide" }} · {{ event.starts_at|date:"D, M j · g:i A" }}{% if event.recurrence != "none" %} · {{ event.get_recurrence_display }}{% endif %}
                     </div>
                     {% if google_sync_enabled and events_can_manage %}
                     <div style="margin-top:0.35rem;">

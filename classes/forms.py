@@ -28,9 +28,27 @@ from classes.models import (
     RegistrationAnswer,
     RegistrationQuestion,
     Waiver,
+    _unique_slug,
 )
 from classes.questions import active_questions, collect_answers, inject_fields
 from classes.templatetags.classes_tags import youtube_embed_id as _youtube_embed_id
+
+
+def _assign_provisional_slug(offering: ClassOffering) -> None:
+    """Give a not-yet-saved offering a unique title-based slug when it lacks one.
+
+    The ``slug`` column is unique and NOT NULL, so a new offering must carry a
+    valid slug before its first save — two blank slugs would collide on the
+    unique constraint. Both create forms call this to stamp a provisional
+    ``slugify(title)`` slug; the create view then calls
+    :meth:`ClassOffering.finalize_recurring_slug` once the sessions are attached
+    to upgrade it to the canonical date-stamped form. A no-op when the offering
+    already has a slug, so it never re-slugs an existing offering on edit.
+    """
+    if offering.slug:
+        return
+    base = slugify(offering.title) or "class"
+    offering.slug = _unique_slug(base, exclude_pk=offering.pk)
 
 
 def _validate_youtube_url(url: str) -> str:
@@ -212,7 +230,6 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, f
         model = ClassOffering
         fields = [
             "title",
-            "slug",
             "category",
             "instructor",
             "description",
@@ -237,6 +254,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, f
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.fields["member_discount_pct"].label = "Member discount (%)"
+        self.fields["category"].label = "Guild Type"
         self.add_is_free_field()
         self.add_hero_crop_field()
         self.setup_scheduling_type_field()
@@ -253,6 +271,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, f
         offering = super().save(commit=False)
         self.apply_is_free_to_instance(offering)
         self.apply_hero_crop_to_instance(offering)
+        _assign_provisional_slug(offering)
         if commit:
             offering.save()
             self.save_m2m()
@@ -290,6 +309,7 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMix
         self.teaching_member = teaching_member
         super().__init__(*args, **kwargs)
         self.fields["member_discount_pct"].label = "Member discount (%)"
+        self.fields["category"].label = "Guild Type"
         self.add_is_free_field()
         self.add_hero_crop_field()
         self.setup_scheduling_type_field()
@@ -310,25 +330,10 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMix
             offering.instructor = self.teaching_member
             if not offering.created_by_id:
                 offering.created_by = self.teaching_member
-        if not offering.slug:
-            base = slugify(offering.title) or "class"
-            slug = base
-            n = 1
-            while ClassOffering.objects.filter(slug=slug).exclude(pk=offering.pk).exists():
-                n += 1
-                slug = f"{base}-{n}"
-            offering.slug = slug
+        _assign_provisional_slug(offering)
         if commit:
             offering.save()
         return offering
-
-
-class TeachProfileForm(forms.ModelForm):
-    class Meta:
-        from membership.models import Member
-
-        model = Member
-        fields = ["preferred_name", "about_me", "profile_photo", "instructor_website", "instructor_social_handle"]
 
 
 class ClassSessionForm(forms.ModelForm):
@@ -436,10 +441,17 @@ class DiscountCodeForm(forms.ModelForm):
             "valid_until",
             "max_uses",
             "is_active",
-            "auto_apply",
         ]
-        labels = {
-            "auto_apply": "Auto-apply for eligible registrants (no need for them to type the code)",
+        help_texts = {
+            "max_uses": "Leaving the 'uses' field blank indicates unlimited uses.",
+        }
+        widgets = {
+            "code": forms.TextInput(
+                attrs={
+                    "style": "text-transform:uppercase;",
+                    "oninput": "this.value = this.value.toUpperCase()",
+                }
+            ),
         }
 
     def __init__(self, *args, scoped_to: ClassOffering | None = None, created_by=None, **kwargs) -> None:
@@ -447,8 +459,9 @@ class DiscountCodeForm(forms.ModelForm):
 
         Passing ``scoped_to`` makes a class-scoped code: registrations for any
         other class won't honor it. Passing ``created_by`` records who made it
-        (and, for instructor-created class-scoped codes, auto-approves it
-        since the instructor already controls that class's pricing).
+        (and lets that member manage — and, with the self-approve permission,
+        approve — their own codes). Every new code starts unapproved regardless
+        of who creates it.
         """
         super().__init__(*args, **kwargs)
         self._scoped_to = scoped_to
@@ -464,15 +477,6 @@ class DiscountCodeForm(forms.ModelForm):
         code = super().save(commit=False)
         if self._scoped_to is not None and not code.class_offering_id:
             code.class_offering = self._scoped_to
-            # Class-scoped codes created by the instructor of that class auto-approve;
-            # the instructor already controls the class price, so admin gating adds
-            # friction without protecting anything.
-            if (
-                self._created_by is not None
-                and self._scoped_to.instructor_id
-                and self._scoped_to.instructor.user_id == self._created_by.pk  # type: ignore[union-attr]  # instructor_id guard ensures non-None
-            ):
-                code.is_approved = True
         if self._created_by is not None and not code.created_by_id:
             code.created_by = self._created_by
         if commit:
@@ -549,6 +553,12 @@ class RegistrationForm(forms.ModelForm):
         max_length=40,
         required=False,
         label="Discount code (optional)",
+        widget=forms.TextInput(
+            attrs={
+                "style": "text-transform:uppercase;",
+                "oninput": "this.value = this.value.toUpperCase()",
+            }
+        ),
     )
     liability_signature = forms.CharField(
         max_length=255,
@@ -557,14 +567,14 @@ class RegistrationForm(forms.ModelForm):
     model_release_signature = forms.CharField(
         max_length=255,
         required=False,
-        label="Type your full name to sign the model release",
+        label="Type your full name to sign the photo release",
     )
     accepts_liability = forms.BooleanField(
         label="I have read and agree to the liability waiver above.",
     )
     accepts_model_release = forms.BooleanField(
         required=False,
-        label="I have read and agree to the model release above.",
+        label="I have read and agree to the photo release above.",
     )
 
     class Meta:
@@ -705,7 +715,7 @@ class RegistrationForm(forms.ModelForm):
         if not self.is_waitlist and self.offering.spots_remaining <= 0:
             raise forms.ValidationError("This class is sold out.")
         if self.offering.requires_model_release and not data.get("accepts_model_release"):
-            self.add_error("accepts_model_release", "Model release acceptance is required for this class.")
+            self.add_error("accepts_model_release", "Photo release acceptance is required for this class.")
         if not self.is_waitlist:
             # Stripe rejects USD charges under $0.50. Either drop to 0 (free) or be at/above the minimum.
             final_price = self.compute_final_price_cents()

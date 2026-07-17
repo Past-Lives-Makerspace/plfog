@@ -118,6 +118,12 @@
       Features
     </button>
     <button type="button"
+            @click="tab = 'automations'"
+            :class="{ 'vote-tab--active': tab === 'automations' }"
+            class="vote-tab">
+      Automations
+    </button>
+    <button type="button"
             @click="tab = 'announcements'"
             :class="{ 'vote-tab--active': tab === 'announcements' }"
             class="vote-tab">
@@ -144,7 +150,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -292,11 +298,17 @@
         {% include "components/form_field.html" with field=form.member_google_calendar_id field_hint="Events set to the 'Member' calendar push here. Find the Calendar ID in Google Calendar → Settings for that calendar → Integrate calendar → Calendar ID (e.g. abc123@group.calendar.google.com). This is NOT the iCal URL." %}
         {% include "components/form_field.html" with field=form.public_google_calendar_id field_hint="Events set to the 'Public' calendar push here. Same place in Google Calendar → Settings → Integrate calendar → Calendar ID. This is NOT the iCal URL." %}
         {% include "components/form_field.html" with field=form.google_calendar_sync_enabled field_hint="Also requires the Google service account to be configured on the server." %}
+        {% include "components/form_field.html" with field=form.discord_events_sync_enabled field_hint="When on, publishing or editing a community event also creates it in the Discord server's Events. Requires the bot's Manage Events permission and a Discord server id set above. Studio hours and classes are never published to Discord." %}
       </div>
     </div>
 
     {# -------- Legacy CMS tab -------- #}
     <div x-show="tab === 'legacy-cms'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
+
+      <p class="pl-automation-callout">
+        "Sync offerings from legacy CMS" is the nightly automatic pull. Unchecked = it's OFF.
+        Manage it alongside every scheduled job on the <a href="?tab=automations">Automations tab</a>.
+      </p>
 
       {# Toggle #}
       <div>
@@ -326,7 +338,7 @@
         <div id="sync-now-wrap"
              data-estimate="{{ config.legacy_cms_last_sync_duration|default_if_none:'' }}"
              style="display:flex;flex-direction:column;gap:0.6rem;align-items:flex-start;max-width:320px;">
-          <button type="submit" name="action" value="sync_now" id="sync-now-btn" class="hub-btn hub-btn--sm hub-btn--primary">
+          <button type="submit" name="action" value="sync_now" id="sync-now-btn" data-run-now class="hub-btn hub-btn--sm hub-btn--primary">
             <span class="sync-spinner" aria-hidden="true"></span>
             <span class="sync-now-label">Sync Now</span>
           </button>
@@ -389,6 +401,116 @@
       {% include "components/form_field.html" with field=form.tab_payments_enabled %}
       {% include "components/form_field.html" with field=form.class_registration_enabled %}
       {% include "components/form_field.html" with field=form.class_registration_disabled_note %}
+    </div>
+
+    {# -------- Automations tab -------- #}
+    {% comment %}
+      One card per scheduled job, all INSIDE #site-settings-form: the On toggles save with the
+      page's Save button, and the generic Run-now buttons are named submitters of this form. The
+      bill_tabs Run-now is the one exception — a teleported confirm modal (its own form), which
+      carries run_job=bill_tabs as a hidden field. No inline display on this x-show wrapper.
+    {% endcomment %}
+    <div x-show="tab === 'automations'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
+      <div>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Automations</h2>
+        <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+          Every scheduled background job — what it does, when it last ran, and whether it's on. Jobs are defined
+          by the app; you can pause one or run it now, but not add or remove them. Pausing a job stops it running
+          on schedule until you turn it back on.
+        </p>
+      </div>
+
+      {{ jobstate_formset.management_form }}
+
+      <div class="pl-automation-list">
+        {% for row in automation_rows %}
+        <div class="pl-automation-card{% if row.form and not row.form.instance.enabled %} pl-automation-card--paused{% endif %}">
+
+          <div class="pl-automation-main">
+            <div class="pl-automation-name">
+              {{ row.job.name }}
+              {% if row.job.money_job %}<span class="pl-automation-badge">charges cards</span>{% endif %}
+            </div>
+            <div class="pl-automation-desc">{{ row.job.description }}</div>
+            {% if row.form and not row.form.instance.enabled %}
+            <div class="pl-automation-paused">Paused — won't run on schedule.</div>
+            {% endif %}
+          </div>
+
+          <div class="pl-automation-cell">
+            <span class="pl-automation-cell-label">Schedule</span>
+            <span class="pl-automation-schedule">{{ row.job.schedule_label }}</span>
+          </div>
+
+          <div class="pl-automation-cell">
+            <span class="pl-automation-cell-label">Last run</span>
+            <span class="pl-automation-lastrun">
+              {% if row.last_run %}
+                {% if row.last_run.succeeded %}
+                  <span class="hub-pill hub-pill--ok">OK</span>
+                  <span class="pl-automation-time">{{ row.last_run.finished_at|date:"N j, g:i A" }} ({{ row.last_run.finished_at|timesince }} ago)</span>
+                {% elif row.last_run.failed %}
+                  <span class="hub-pill hub-pill--danger">Failed</span>
+                  <span class="pl-automation-time">{{ row.last_run.started_at|date:"N j, g:i A" }}</span>
+                  {% if row.last_run.error %}<span class="pl-automation-error" title="{{ row.last_run.error }}">{{ row.last_run.error|truncatechars:80 }}</span>{% endif %}
+                {% elif row.last_run.is_stale_running %}
+                  <span class="hub-pill hub-pill--neutral">Unknown</span>
+                {% else %}
+                  <span class="hub-pill hub-pill--warn">Running…</span>
+                {% endif %}
+              {% else %}
+                <span class="hub-pill hub-pill--neutral">Never run</span>
+                <span class="pl-automation-time">—</span>
+              {% endif %}
+            </span>
+          </div>
+
+          <div class="pl-automation-cell">
+            <span class="pl-automation-cell-label">Status</span>
+            {% if row.form %}
+              <div style="display:none;">{{ row.form.id }}</div>
+              {% include "components/toggle.html" with field=row.form.enabled %}
+            {% else %}
+              <span class="hub-pill hub-pill--primary">Always on</span>
+            {% endif %}
+          </div>
+
+          <div class="pl-automation-cell pl-automation-run">
+            <span class="pl-automation-cell-label">Run</span>
+            {% if row.job.money_job %}
+              <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                      @click="$dispatch('open-confirm', 'run-{{ row.job.key }}')">Run now</button>
+            {% else %}
+              <button type="submit" name="run_job" value="{{ row.job.key }}" data-run-now
+                      class="hub-btn hub-btn--sm hub-btn--primary">
+                <span class="sync-spinner" aria-hidden="true"></span>
+                <span class="sync-now-label">Run now</span>
+              </button>
+            {% endif %}
+          </div>
+
+          {# Legacy-CMS clarity (item 3), only under the umbrella nightly sync card. #}
+          {% if row.job.key == 'sync_all_sources' %}
+          <div class="pl-automation-subblock">
+            {% include "components/toggle.html" with field=legacy_cms_sync_field toggle_label="Include legacy CMS offerings (nightly pull)" %}
+            {% if legacy_cms_sync_field.value %}
+              <p class="pl-automation-subnote">The nightly pull from <code>classes.pastlives.space</code> is running.</p>
+            {% else %}
+              <p class="pl-automation-subnote pl-automation-subnote--off">OFF right now — the nightly pull from <code>classes.pastlives.space</code> is NOT running. Turn this on to resume.</p>
+            {% endif %}
+            <p class="pl-automation-subnote">
+              Legacy pull last synced:
+              {% if config.legacy_cms_last_synced_at %}{{ config.legacy_cms_last_synced_at|date:"N j, Y g:i A" }}{% else %}Never synced{% endif %}
+            </p>
+            <button type="submit" name="action" value="sync_now" data-run-now class="hub-btn hub-btn--sm hub-btn--primary">
+              <span class="sync-spinner" aria-hidden="true"></span>
+              <span class="sync-now-label">Sync now</span>
+            </button>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
     </div>
 
     {# -------- Discord tab -------- #}
@@ -544,6 +666,15 @@
       <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
     </div>
   </form>
+
+  {% comment %}
+    Money-job guard for the Automations tab's "Charge member tabs" Run-now. A SIBLING of
+    #site-settings-form (never nested): the confirm modal teleports to <body> and posts its own
+    plain form carrying run_job=bill_tabs as a hidden field, reaching the same run_job handler.
+    The server passes NO --force, so bill_tabs still self-gates to a real billing day.
+  {% endcomment %}
+  {% url 'hub_admin_site_settings' as automations_post_url %}
+  {% include "components/confirm_modal.html" with confirm_id="run-bill_tabs" confirm_title="Run tab billing now?" confirm_message="This attempts real card charges. It still only runs if it's a scheduled billing day." confirm_action_url=automations_post_url confirm_button_text="Run billing" confirm_field_name="run_job" confirm_field_value="bill_tabs" %}
 
   {# -------- Slideshow tab · Block B (Parts 2 & 3: zones + slides editors) -------- #}
   {% comment %}
@@ -845,13 +976,13 @@
 
 {# Sync Now loading state: spinner + estimated progress bar (estimate = last run's duration). #}
 <style>
-  #sync-now-btn .sync-spinner {
+  [data-run-now] .sync-spinner {
     display: none; width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px;
     border: 2px solid rgba(255, 255, 255, 0.45); border-top-color: #fff; border-radius: 50%;
     animation: sync-spin 0.7s linear infinite;
   }
-  #sync-now-btn.is-syncing .sync-spinner { display: inline-block; }
-  #sync-now-btn[disabled] { opacity: 0.85; cursor: progress; }
+  [data-run-now].is-syncing .sync-spinner { display: inline-block; }
+  [data-run-now][disabled] { opacity: 0.85; cursor: progress; }
   @keyframes sync-spin { to { transform: rotate(360deg); } }
   #sync-now-wrap .sync-progress {
     width: 100%; height: 6px; border-radius: 3px; overflow: hidden;
@@ -869,22 +1000,27 @@
 <script>
   (function () {
     var form = document.getElementById('site-settings-form');
-    var wrap = document.getElementById('sync-now-wrap');
-    if (!form || !wrap) return;
+    if (!form) return;
+    // Generalized Run-now spinner: reacts to ANY [data-run-now] submitter — the legacy CMS
+    // "Sync Now" and every Automations "Run now"/"Sync now" button share this handler.
     form.addEventListener('submit', function (event) {
-      // Sync Now and Save settings share this form — only react to the Sync Now submitter.
-      if (!event.submitter || event.submitter.id !== 'sync-now-btn') return;
-      var btn = document.getElementById('sync-now-btn');
-      if (btn.disabled) return;
-      var label = wrap.querySelector('.sync-now-label');
+      var btn = event.submitter;
+      if (!btn || !btn.hasAttribute('data-run-now') || btn.disabled) return;
+
+      btn.classList.add('is-syncing');
+      var label = btn.querySelector('.sync-now-label');
+      if (label) label.textContent = 'Working…';
+      // Defer disabling so the button's name=value is still serialized into this submission.
+      setTimeout(function () { btn.disabled = true; }, 0);
+
+      // The legacy CMS Sync Now keeps its richer progress bar (estimate = last run's duration);
+      // the generic Automations buttons just get the spinner above.
+      if (btn.id !== 'sync-now-btn') return;
+      var wrap = document.getElementById('sync-now-wrap');
+      if (!wrap) return;
       var prog = wrap.querySelector('.sync-progress');
       var fill = wrap.querySelector('.sync-progress__fill');
       var status = wrap.querySelector('.sync-status');
-
-      btn.classList.add('is-syncing');
-      // Defer disabling so the button's name=value is still serialized into this submission.
-      setTimeout(function () { btn.disabled = true; }, 0);
-      if (label) label.textContent = 'Syncing…';
       prog.hidden = false;
       status.hidden = false;
 

@@ -68,7 +68,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: var(--gold);
+    color: var(--gold-text);
     margin-bottom: 8px;
 }
 .cp-page .reg-waiver-text {
@@ -103,7 +103,7 @@
 .cp-page .reg-summary .total {
     font-size: 20px;
     font-weight: 900;
-    color: var(--gold);
+    color: var(--gold-text);
     font-family: var(--heading);
 }
 .cp-page .reg-error-block {

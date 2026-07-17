@@ -1,4 +1,4 @@
-{% load i18n %}<!DOCTYPE html>
+{% load i18n rich_text %}<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -41,7 +41,7 @@
         <!-- A note from the instructor -->
         <div style="margin: 20px 0 0; padding: 16px 20px; background-color: rgba(244, 239, 221, 0.06); border-radius: 8px;">
             <p style="margin: 0 0 8px; font-size: 12px; color: #96ACBB; text-transform: uppercase; letter-spacing: 0.08em;">A note from your instructor</p>
-            <div style="font-size: 14px; color: #F4EFDD; line-height: 1.5;">{{ offering.welcome_email_body|linebreaks }}</div>
+            <div style="font-size: 14px; color: #F4EFDD; line-height: 1.5;">{{ offering.welcome_email_body|rich_email_body }}</div>
         </div>
         {% endif %}
 
@@ -49,7 +49,7 @@
         <div style="text-align: center; margin: 24px 0 0;">
             <a href="{{ self_serve_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Manage Registration</a>
         </div>
-        <p style="margin: 12px 0 0; font-size: 12px; color: #96ACBB; text-align: center;">Manage or cancel from the button above, or <a href="{{ class_url }}" style="color: #EEB44B; text-decoration: none;">see the full class details</a> — what to bring, parking, and more.</p>
+        <p style="margin: 12px 0 0; font-size: 12px; color: #96ACBB; text-align: center;">Manage from the button above, or <a href="{{ class_url }}" style="color: #EEB44B; text-decoration: none;">see the full class details</a> — what to bring, parking, and more.</p>
     </td>
     </tr>
     <!-- Footer -->

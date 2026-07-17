@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
+from datetime import time as time_type
+from datetime import timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -16,6 +19,8 @@ from django.db.models import BooleanField, Case, CharField, DecimalField, Exists
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.functional import cached_property
+from django.utils.html import format_html
+from django.utils.safestring import SafeString
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
@@ -93,6 +98,26 @@ def _compute_next_meeting(
     if candidate < today:
         candidate = _nth_weekday(first + relativedelta(months=interval), wd, week_of_month)
     return candidate
+
+
+def _format_time_range(start: datetime_type, end: datetime_type) -> str:
+    """'6:00–9:00 PM' when both share a meridiem, else '11:00 AM–1:00 PM' (local datetimes)."""
+    if start.strftime("%p") == end.strftime("%p"):
+        return f"{start.strftime('%-I:%M')}–{end.strftime('%-I:%M %p')}"
+    return f"{start.strftime('%-I:%M %p')}–{end.strftime('%-I:%M %p')}"
+
+
+class NextMeeting(NamedTuple):
+    """A guild's soonest upcoming meeting, for the two "Next Meeting" surfaces.
+
+    ``when`` is the start datetime (aware). ``has_time`` is False only for a legacy cadence
+    that has no ``meeting_time`` set, so the card can render the date without a bogus midnight
+    time; an event-derived meeting always carries a real time and its own ``location``.
+    """
+
+    when: datetime_type
+    location: str
+    has_time: bool
 
 
 # ---------------------------------------------------------------------------
@@ -353,9 +378,6 @@ class Member(models.Model):
         blank=True,
         help_text="When the member linked their Discord account for DM notifications (null = not linked).",
     )
-    other_contact_info = models.CharField(
-        max_length=255, blank=True, help_text="Other ways to reach this member (Instagram, Signal, etc.)."
-    )
     pronouns = models.CharField(
         max_length=30,
         choices=Pronouns.choices,
@@ -410,7 +432,7 @@ class Member(models.Model):
         blank=True,
         help_text=(
             "Per-field public/hidden flags for the member directory card. "
-            "Keys: pronouns, phone, email, discord_handle, other_contact_info, about_me, profile_photo, skills. "
+            "Keys: pronouns, phone, email, discord_handle, about_me, profile_photo, skills. "
             "Missing key means public (default-on)."
         ),
     )
@@ -428,9 +450,16 @@ class Member(models.Model):
         blank=True,
         help_text="URL slug for this member's public instructor profile. Non-empty = teaches classes.",
     )
-    instructor_website = models.URLField(blank=True, help_text="Instructor personal site.")
-    instructor_social_handle = models.CharField(
-        max_length=255, blank=True, help_text="e.g. @handle on primary social (instructor profile)."
+    instructor_bio = models.TextField(
+        blank=True,
+        help_text="Teaching bio shown on the public instructor page — separate from the member-directory bio.",
+    )
+    can_self_approve_discounts = models.BooleanField(
+        default=False,
+        help_text=(
+            "When on, this member may approve (activate) their own discount codes without waiting for an "
+            "admin. Granted per-member from the Manage Members page. Admins can approve anyone's codes."
+        ),
     )
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -475,7 +504,6 @@ class Member(models.Model):
         "phone",
         "email",
         "discord_handle",
-        "other_contact_info",
         "about_me",
         "profile_photo",
         "skills",
@@ -681,6 +709,16 @@ class Member(models.Model):
     def approved_skills(self) -> models.QuerySet[MemberSkill]:
         """This member's skills whose vocabulary entry is approved, ready for display."""
         return self.skills.filter(skill__status=Skill.Status.APPROVED).select_related("skill__category")
+
+    @property
+    def directory_contacts(self) -> models.QuerySet[MemberContact]:
+        """Contacts this member has flagged to show on their member-directory card."""
+        return self.contacts.filter(show_in_directory=True)
+
+    @property
+    def instructor_page_contacts(self) -> models.QuerySet[MemberContact]:
+        """Contacts this member has flagged to show on their public instructor page."""
+        return self.contacts.filter(show_on_instructor_page=True)
 
     @property
     def primary_email(self) -> str:
@@ -1002,6 +1040,57 @@ class Member(models.Model):
         super().save(*args, **kwargs)
 
 
+class MemberContact(models.Model):
+    """A labeled contact method on a Member, with per-surface placement.
+
+    One list per member. Absorbs the former fixed ``other_contact_info`` /
+    ``instructor_website`` / ``instructor_social_handle`` fields — a website is just a
+    contact flagged "show on instructor page." ``phone`` and ``discord_handle`` stay
+    first-class on :class:`Member`; they are not contacts.
+    """
+
+    # Naive email detection: exactly one ``@`` between non-space runs, with a dotted domain.
+    _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="contacts",
+        help_text="The member this contact belongs to.",
+    )
+    label = models.CharField(max_length=100, help_text="What to call this contact, e.g. 'Website' or 'Instagram'.")
+    value = models.CharField(max_length=255, help_text="The contact itself — an email, URL, handle, or free text.")
+    show_in_directory = models.BooleanField(default=True, help_text="Show this contact on the member's directory card.")
+    show_on_instructor_page = models.BooleanField(
+        default=False, help_text="Show this contact on the member's public instructor page."
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.label}: {self.value} ({self.member.display_name})"
+
+    @property
+    def as_link(self) -> SafeString:
+        """Render :attr:`value` as a hyperlink when it clearly is one, else escaped text.
+
+        An email address becomes a ``mailto:`` link; an ``http(s)://`` or ``www.`` URL
+        becomes an external link (``www.`` is promoted to ``https://``); anything else
+        — a social handle, a phone number, free text — renders as escaped plain text.
+        """
+        value = self.value.strip()
+        if self._EMAIL_RE.match(value):
+            return format_html('<a href="mailto:{}">{}</a>', value, value)
+        lowered = value.lower()
+        if lowered.startswith(("http://", "https://")):
+            return format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', value, value)
+        if lowered.startswith("www."):
+            return format_html('<a href="https://{}" target="_blank" rel="noopener">{}</a>', value, value)
+        return format_html("{}", value)
+
+
 # ---------------------------------------------------------------------------
 # MemberEmail
 # ---------------------------------------------------------------------------
@@ -1050,6 +1139,20 @@ class MemberEmail(models.Model):
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class VirtualLink:
+    """A computed, non-stored link rendered alongside a guild's real ``GuildLink`` rows.
+
+    Duck-types the ``.label`` / ``.url`` a template reads off a real ``GuildLink``, so the
+    shared guild-detail links loop renders it identically. Used for the always-present
+    "[Guild] Classes" link (see :meth:`Guild.classes_link`) — it lives only in the render
+    context, so it needs no migration, reflects a rename, and can't be edited or deleted.
+    """
+
+    label: str
+    url: str
+
+
 class GuildManager(models.Manager["Guild"]):
     """Default manager that hides soft-deleted guilds from every query."""
 
@@ -1057,12 +1160,36 @@ class GuildManager(models.Manager["Guild"]):
         return super().get_queryset().filter(deleted_at__isnull=True)
 
     def directory(self) -> models.QuerySet[Guild]:
-        """Active, public guilds for the directory: featured first, then alphabetical.
+        """Active guilds for the directory: featured first, then alphabetical.
 
-        Guilds marked private (``is_public=False``) never appear on the public guilds
-        site — they stay visible to members inside the hub only.
+        Every active guild is public and appears everywhere; soft-deleting or
+        deactivating a guild (``is_active=False``) is the only way to hide it.
         """
-        return self.filter(is_active=True, is_public=True).order_by("-is_featured", "name")
+        return self.filter(is_active=True).order_by("-is_featured", "name")
+
+    def for_discord_channel(self, channel_id: str) -> Guild | None:
+        """The active guild whose Discord channel is ``channel_id``, or ``None`` if unmapped.
+
+        Used by the slash-command platform to auto-detect which guild a member means
+        when they run a guild command *in* that guild's channel. ``.first()`` (not
+        ``.get()``) so an accidental duplicate mapping degrades to the disambiguation
+        fallback instead of raising; a blank ``channel_id`` short-circuits to ``None``.
+        """
+        if not channel_id:
+            return None
+        return self.filter(is_active=True, discord_channel_id=channel_id).first()
+
+    def matching(self, query: str) -> models.QuerySet[Guild]:
+        """Active guilds whose name or slug contains ``query`` (case-insensitive).
+
+        Used by the Discord slash commands to resolve a member-typed ``guild`` option
+        leniently to a guild. A blank ``query`` matches nothing (the caller then shows
+        the "which guild?" reply).
+        """
+        query = (query or "").strip()
+        if not query:
+            return self.none()
+        return self.filter(is_active=True).filter(models.Q(name__icontains=query) | models.Q(slug__icontains=query))
 
 
 class Guild(HeroCropMixin, models.Model):
@@ -1190,6 +1317,17 @@ class Guild(HeroCropMixin, models.Model):
             "(in addition to the makerspace-wide channel)."
         ),
     )
+    discord_channel_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "This guild's Discord channel id (right-click the channel → Copy Channel ID with "
+            "Developer Mode on). When a member runs a guild slash command in this channel, we know "
+            "which guild they mean. This is NOT the webhook URL above — leave blank if you don't use "
+            "channel auto-detection."
+        ),
+    )
     website_url = models.URLField(
         blank=True, default="", help_text="Link to the guild's external website, shown as a button on the page."
     )
@@ -1198,13 +1336,6 @@ class Guild(HeroCropMixin, models.Model):
     )
     is_featured = models.BooleanField(
         default=False, help_text="Pin this guild to the top of the public guilds directory."
-    )
-    is_public = models.BooleanField(
-        default=True,
-        help_text=(
-            "When off, this guild's page is hidden from the public guilds site "
-            "(guilds.pastlives.app) — members can still see it in the hub."
-        ),
     )
     featured_class = models.ForeignKey(
         "classes.ClassOffering",
@@ -1248,6 +1379,30 @@ class Guild(HeroCropMixin, models.Model):
         from membership.logos import logo_prefix_for
 
         return logo_prefix_for(self.name)
+
+    def classes_link(self, *, guilds_surface: bool = False) -> VirtualLink:
+        """The always-present "[Guild] Classes" link for this guild's detail page.
+
+        Virtual (never a stored :class:`GuildLink`): computed each render so its label
+        reflects a rename, it needs no migration, and it can't be edited or deleted — it
+        exists only in the detail view's ``links`` context, never in the edit Links formset.
+        The URL points at the public class catalog pre-filtered to this guild via
+        ``?guild=<slug>``.
+
+        Args:
+            guilds_surface: True when rendering on the guilds host, where the classes app
+                lives on the book host. The path is then prefixed with
+                ``settings.BOOK_BASE_URL`` (mirroring the guild page's existing cross-surface
+                class links); on the members surface it stays root-relative.
+
+        Returns:
+            A :class:`VirtualLink` with the recomputed label and surface-correct URL.
+        """
+        from django.urls import reverse
+
+        path = f"{reverse('classes:public_list')}?guild={self.slug}"
+        url = f"{settings.BOOK_BASE_URL}{path}" if guilds_surface else path
+        return VirtualLink(label=f"{self.name} Classes", url=url)
 
     @property
     def vanity_url(self) -> str:
@@ -1333,6 +1488,78 @@ class Guild(HeroCropMixin, models.Model):
             override=self.meeting_next_override,
             is_tba=self.meeting_is_tba,
         )
+
+    def studio_hours(self) -> list[CommunityEvent]:
+        """This guild's standing STUDIO_HOURS rows, ordered by weekday-of-anchor then time.
+
+        Iterates the prefetched ``events`` cache (the guild page prefetches it), so rendering
+        the Studio Hours card and its sibling helpers adds no extra query per guild.
+        """
+        rows = [
+            event
+            for event in self.events.all()
+            if event.event_type == CommunityEvent.EventType.STUDIO_HOURS
+            and event.moderation_state == CommunityEvent.ModerationState.PUBLISHED
+        ]
+        return sorted(
+            rows,
+            key=lambda event: (
+                timezone.localtime(event.starts_at).weekday(),
+                timezone.localtime(event.starts_at).time(),
+            ),
+        )
+
+    def studio_hours_display(self) -> list[dict[str, str]]:
+        """Render dicts (``weekday_label`` / ``time_range`` / ``location`` / ``note``) for the
+        guild-page Studio Hours card, one per standing block. Empty list ⇒ the card shows its
+        "No studio hours set yet." empty state."""
+        blocks: list[dict[str, str]] = []
+        for row in self.studio_hours():
+            local_start = timezone.localtime(row.starts_at)
+            local_end = timezone.localtime(row.ends_at)
+            blocks.append(
+                {
+                    "weekday_label": f"{local_start.strftime('%A')}s",
+                    "time_range": _format_time_range(local_start, local_end),
+                    "location": row.location,
+                    "note": row.description,
+                }
+            )
+        return blocks
+
+    def next_meeting_occurrence(self) -> NextMeeting | None:
+        """The soonest upcoming meeting, across event-based GUILD_MEETING occurrences and the
+        legacy cadence — so a weekly meeting entered as an event surfaces in the "Next Meeting"
+        card without duplicating recurrence logic.
+
+        Returns a :class:`NextMeeting` (``when`` datetime + ``location`` + ``has_time``) so both
+        the aside card and the stat chip render coherently: an event carries its own time and
+        location; the legacy cadence carries ``meeting_time``/``meeting_location`` only when set.
+        ``None`` ⇒ TBA. Reads the prefetched ``events`` cache (no per-guild query).
+        """
+        now = timezone.now()
+        today = timezone.localdate()
+        horizon = today + timedelta(days=370)
+        candidates: list[NextMeeting] = []
+        for event in self.events.all():
+            if (
+                event.event_type != CommunityEvent.EventType.GUILD_MEETING
+                or event.moderation_state != CommunityEvent.ModerationState.PUBLISHED
+            ):
+                continue
+            for occurrence in event.occurrences_in(today, horizon):
+                if occurrence >= now:
+                    candidates.append(NextMeeting(when=occurrence, location=event.location, has_time=True))
+                    break
+        legacy_date = self.next_meeting_at
+        if legacy_date is not None:
+            aware = timezone.make_aware(datetime_type.combine(legacy_date, self.meeting_time or time_type()))
+            candidates.append(
+                NextMeeting(when=aware, location=self.meeting_location, has_time=self.meeting_time is not None)
+            )
+        if not candidates:
+            return None
+        return min(candidates, key=lambda candidate: candidate.when)
 
     @property
     def active_leases(self) -> models.QuerySet[Lease]:
@@ -1429,6 +1656,18 @@ class Guild(HeroCropMixin, models.Model):
                 members.append(staff.member)
                 seen.add(staff.member_id)
         return members
+
+    def announcement_recipients(self) -> list[tuple["User", str]]:
+        """The exact ``(User, reason)`` list a guild announcement email fans out to.
+
+        Delegates to the real send resolver so the lead-facing count/list can never
+        drift from delivery. NOT directory-privacy filtered (guild members hear from
+        their own guild regardless of directory visibility) and NOT last_login-gated.
+        """
+        from core.events import resolvers
+        from core.events.registry import Recipients
+
+        return resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self})
 
 
 class GuildStaffMembership(models.Model):
@@ -2856,6 +3095,14 @@ class CommunityEventQuerySet(models.QuerySet):
             | (~Q(recurrence=CommunityEvent.Recurrence.NONE) & Q(starts_at__date__lte=to))
         )
 
+    def studio_hours(self) -> CommunityEventQuerySet:
+        """Only the standing STUDIO_HOURS rows (drives the editor formset queryset)."""
+        return self.filter(event_type=CommunityEvent.EventType.STUDIO_HOURS)
+
+    def meetings(self) -> CommunityEventQuerySet:
+        """Only the GUILD_MEETING rows (excludes studio hours + site-wide events)."""
+        return self.filter(event_type=CommunityEvent.EventType.GUILD_MEETING)
+
     def for_guild(self, guild: Guild) -> CommunityEventQuerySet:
         return self.filter(guild=guild)
 
@@ -2900,6 +3147,30 @@ class CommunityEventQuerySet(models.QuerySet):
             sync_state__in=[CommunityEvent.SyncState.PENDING, CommunityEvent.SyncState.FAILED]
         )
 
+    def needs_discord_push(self) -> CommunityEventQuerySet:
+        """Published, non-studio-hours rows whose Discord sync is pending or failed (the retry set).
+
+        Excludes STUDIO_HOURS at the query level so the "ambient hours never become Scheduled
+        Events" rule is enforced in one place, not just at the push call site.
+        """
+        return (
+            self.published()
+            .exclude(event_type=CommunityEvent.EventType.STUDIO_HOURS)
+            .filter(discord_sync_state__in=[CommunityEvent.SyncState.PENDING, CommunityEvent.SyncState.FAILED])
+        )
+
+    def needs_discord_rollforward(self, now: datetime_type) -> CommunityEventQuerySet:
+        """SYNCED single-occurrence events (unmappable cadence) whose pushed occurrence has passed.
+
+        A natively-recurring event has a NULL ``discord_pushed_occurrence`` (Discord shows its
+        next instance itself), so it never enters this roll-forward set.
+        """
+        return self.published().filter(
+            discord_sync_state=CommunityEvent.SyncState.SYNCED,
+            discord_pushed_occurrence__isnull=False,
+            discord_pushed_occurrence__lt=now,
+        )
+
 
 class InvalidEventTransition(ValueError):
     """Raised when a :class:`CommunityEvent` lifecycle method is called from a state
@@ -2922,9 +3193,11 @@ class CommunityEvent(models.Model):
         GUILD_MEETING = "guild_meeting", "Guild meeting / event"
         LEAD_MEETING = "lead_meeting", "Guild Lead Meeting"
         COMMUNITY = "community", "Community event"
+        STUDIO_HOURS = "studio_hours", "Studio hours"
 
     class Recurrence(models.TextChoices):
         NONE = "none", "Does not repeat"
+        WEEKLY = "weekly", "Every week"
         SEMI_MONTHLY = "semi_monthly", "Twice a month"
         MONTHLY = "monthly", "Every month"
         EVERY_2_MONTHS = "every_2_months", "Every 2 months"
@@ -3003,9 +3276,9 @@ class CommunityEvent(models.Model):
         choices=Recurrence.choices,
         default=Recurrence.NONE,
         help_text=(
-            "Whether and how often this event repeats. Every repeating option recurs on the "
-            "same weekday-of-month as the start (e.g. the 2nd Saturday); 'Twice a month' adds "
-            "the same weekday two weeks later."
+            "Whether and how often this event repeats. 'Every week' repeats on the same weekday; "
+            "the monthly options recur on the same weekday-of-month as the start (e.g. the 2nd "
+            "Saturday); 'Twice a month' adds the same weekday two weeks later."
         ),
     )
     created_by = models.ForeignKey(
@@ -3094,6 +3367,49 @@ class CommunityEvent(models.Model):
     )
     synced_at = models.DateTimeField(null=True, blank=True, help_text="When this event last synced to Google.")
 
+    # --- Discord Scheduled Events sync ----------------------------------------
+    discord_event_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "The Discord Scheduled Event id returned when FOG pushed this event to the server's Events. "
+            "Blank until pushed."
+        ),
+    )
+    discord_sync_state = models.CharField(
+        max_length=12,
+        choices=SyncState.choices,
+        default=SyncState.IDLE,
+        help_text="Discord Events sync status for this event (independent of the Google sync state).",
+    )
+    discord_sync_error = models.TextField(
+        blank=True,
+        default="",
+        help_text="Why the last Discord push failed (or why it's still pending, e.g. sync off). Blank when synced.",
+    )
+    discord_synced_at = models.DateTimeField(null=True, blank=True, help_text="When this event last synced to Discord.")
+    discord_pushed_occurrence = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "For an unmappable-cadence event pushed to Discord as a single event, the start of the "
+            "occurrence currently live there — so the nightly roll-forward knows when it has passed. "
+            "Blank for one-off and natively-recurring events."
+        ),
+    )
+
+    # --- Seed import bookkeeping ----------------------------------------------
+    import_source_uid = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text=(
+            "The iCal UID of the Public-Calendar VEVENT this row was seeded from. Set only by the "
+            "one-time seed importer; used to re-run it without duplicating. Blank for app-authored rows."
+        ),
+    )
+
     # --- Announcement scheduling + reminders ----------------------------------
     publish_at = models.DateTimeField(
         null=True,
@@ -3117,10 +3433,15 @@ class CommunityEvent(models.Model):
             ),
             models.CheckConstraint(
                 condition=(
-                    (Q(event_type="guild_meeting") & Q(guild__isnull=False))
-                    | (~Q(event_type="guild_meeting") & Q(guild__isnull=True))
+                    (Q(event_type__in=["guild_meeting", "studio_hours"]) & Q(guild__isnull=False))
+                    | (~Q(event_type__in=["guild_meeting", "studio_hours"]) & Q(guild__isnull=True))
                 ),
                 name="ck_communityevent_guild_matches_type",
+            ),
+            models.UniqueConstraint(
+                fields=["import_source_uid"],
+                condition=~Q(import_source_uid=""),
+                name="uq_communityevent_import_source_uid",
             ),
         ]
 
@@ -3146,6 +3467,21 @@ class CommunityEvent(models.Model):
         local_start = timezone.localtime(self.starts_at)
         if self.recurrence == self.Recurrence.NONE:
             return [self.starts_at] if frm <= local_start.date() <= to else []
+
+        if self.recurrence == self.Recurrence.WEEKLY:
+            # Weekly is not month-anchored, so it is expanded before the monthly machinery.
+            # Walk from the first matching weekday on/after ``frm`` (never before the anchor),
+            # advancing 7 days at a time and rebuilding each occurrence in local time so a
+            # DST boundary keeps the wall-clock time (mirrors the monthly ``replace`` below).
+            anchor_date = local_start.date()
+            start_date = max(anchor_date, frm)
+            days_ahead = (local_start.weekday() - start_date.weekday()) % 7
+            cursor = start_date + timedelta(days=days_ahead)
+            weekly_occurrences: list[datetime_type] = []
+            while cursor <= to:
+                weekly_occurrences.append(local_start.replace(year=cursor.year, month=cursor.month, day=cursor.day))
+                cursor = cursor + timedelta(days=7)
+            return weekly_occurrences
 
         from dateutil.relativedelta import FR, MO, SA, SU, TH, TU, WE, relativedelta
 
@@ -3185,6 +3521,10 @@ class CommunityEvent(models.Model):
             return ""
         local_start = timezone.localtime(self.starts_at)
         weekday = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")[local_start.weekday()]
+        if self.recurrence == self.Recurrence.WEEKLY:
+            # Weekly is not month-anchored — a plain BYDAY off the local start weekday.
+            # This is what the Google push-out (Part C) emits for studio hours + weekly meetings.
+            return f"FREQ=WEEKLY;BYDAY={weekday}"
         ordinal = self._occurrence_ordinal()
         if self.recurrence == self.Recurrence.YEARLY:
             return f"FREQ=YEARLY;BYMONTH={local_start.month};BYDAY={ordinal}{weekday}"
@@ -3248,8 +3588,8 @@ class CommunityEvent(models.Model):
     def when_display(self) -> str:
         """'Sat, Jul 12 · 6:00 PM – 8:00 PM' style, for notification copy and tooltips.
 
-        Appends ' · Repeats monthly' for a monthly series so the single launch
-        announcement makes the cadence clear.
+        Appends the recurrence label (e.g. ' · Every week') for a repeating series so the
+        single launch announcement makes the cadence clear.
         """
         local_start = timezone.localtime(self.starts_at)
         local_end = timezone.localtime(self.ends_at)
@@ -3324,7 +3664,13 @@ class CommunityEvent(models.Model):
         Called only on create. The ``guild`` rides in context for the guild-members
         resolver and the per-guild Discord fan-out (sibling routing spec); site-wide
         events carry ``guild=None`` and route centrally only.
+
+        STUDIO_HOURS rows are ambient standing hours, not an event to ping members about,
+        so they never announce (they are also absent from ``_ANNOUNCE_EVENT``) — this guard
+        makes ``publish()`` a safe no-op for the announce step on a studio-hours row.
         """
+        if self.event_type == self.EventType.STUDIO_HOURS:
+            return
         from core.events.emit import emit
 
         emit(
@@ -3350,14 +3696,20 @@ class CommunityEvent(models.Model):
 
         Fires the one-shot announcement (idempotent via its ``period``), marks the event as
         needing a Google push (``IDLE`` → ``PENDING``), then pushes it to the linked Google
-        Calendar (best-effort — a Google outage records ``FAILED`` and never blocks this
-        call). Called by :meth:`approve` and by the direct-create views.
+        Calendar, and likewise marks + pushes it to the Discord server's Scheduled Events
+        (both best-effort — an outage records ``FAILED`` and never blocks this call; the
+        Discord push self-gates to a no-op for studio hours and when Discord Events sync is
+        off). Called by :meth:`approve` and by the direct-create views.
         """
         self.announce(actor=actor)
         if self.sync_state == self.SyncState.IDLE:
             self.sync_state = self.SyncState.PENDING
             self.save(update_fields=["sync_state", "updated_at"])
         self.push_to_google(actor=actor)
+        if self.discord_sync_state == self.SyncState.IDLE:
+            self.discord_sync_state = self.SyncState.PENDING
+            self.save(update_fields=["discord_sync_state", "updated_at"])
+        self.push_to_discord(actor=actor)
 
     def schedule_or_go_live(self, *, actor: User | None = None) -> None:
         """Publish now, or park until ``publish_at``. The single create/approve entry point.
@@ -3417,6 +3769,37 @@ class CommunityEvent(models.Model):
         """Delete this event from Google (best-effort). Call BEFORE deleting the FOG row —
         it needs the stored ``google_event_id``/``google_calendar_id``. Never raises."""
         from core.integrations.google_calendar import remove_community_event
+
+        remove_community_event(self)
+
+    # --- Discord Scheduled Events sync (delegates to core.integrations) --------
+
+    def push_to_discord(self, *, actor: User | None = None) -> None:
+        """Push this event to the Discord server's Scheduled Events and persist the sync fields.
+
+        Best-effort: the service records ``IDLE``/``PENDING``/``FAILED`` instead of raising, so
+        a Discord outage never rolls back the FOG save. A self-gating no-op for studio hours
+        and when Discord Events sync is off. Lazy-imports the service to keep the
+        ``membership → core`` layering clean (like :meth:`push_to_google`).
+        """
+        from core.integrations.discord_events import push_community_event
+
+        push_community_event(self, actor=actor)
+        self.save(
+            update_fields=[
+                "discord_event_id",
+                "discord_sync_state",
+                "discord_sync_error",
+                "discord_synced_at",
+                "discord_pushed_occurrence",
+                "updated_at",
+            ]
+        )
+
+    def remove_from_discord(self) -> None:
+        """Delete this event from the Discord server's Scheduled Events (best-effort). Call
+        BEFORE deleting the FOG row — it needs the stored ``discord_event_id``. Never raises."""
+        from core.integrations.discord_events import remove_community_event
 
         remove_community_event(self)
 

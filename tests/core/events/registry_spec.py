@@ -34,6 +34,7 @@ _BRAND_NEW_KEYS = {
     "event.reminder",
     "event.happening_now",
     "discord_guilds_imported",
+    "orientation.completed",
 }
 
 

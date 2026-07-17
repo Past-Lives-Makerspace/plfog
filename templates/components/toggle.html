@@ -18,5 +18,7 @@ Parameters (pass via {% include ... with %}):
     <label class="pl-toggle">
         {{ field }}
         <span class="pl-toggle__slider"></span>
+        {# sr-only: the visible caption lives outside this label, so the control needs its own name. #}
+        <span class="sr-only">{{ toggle_label|default:field.label }}</span>
     </label>
 </div>

@@ -26,6 +26,7 @@ from membership.models import (
     GuildStaffMembership,
     Lease,
     Member,
+    MemberContact,
     MemberEmail,
     MembershipPlan,
     MemberSkill,
@@ -75,6 +76,15 @@ class MemberEmailFactory(factory.django.DjangoModelFactory):
 
     member = factory.SubFactory(MemberFactory)
     email = factory.Sequence(lambda n: f"alias{n}@example.com")
+
+
+class MemberContactFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = MemberContact
+
+    member = factory.SubFactory(MemberFactory)
+    label = factory.Sequence(lambda n: f"Contact {n}")
+    value = "https://example.com"
 
 
 class SpaceFactory(factory.django.DjangoModelFactory):
@@ -230,6 +240,10 @@ class CommunityEventFactory(factory.django.DjangoModelFactory):
         guild_meeting = factory.Trait(event_type=CommunityEvent.EventType.GUILD_MEETING)
         community = factory.Trait(event_type=CommunityEvent.EventType.COMMUNITY, guild=None)
         lead_meeting = factory.Trait(event_type=CommunityEvent.EventType.LEAD_MEETING, guild=None)
+        studio_hours = factory.Trait(
+            event_type=CommunityEvent.EventType.STUDIO_HOURS,
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+        )
         pending = factory.Trait(
             moderation_state=CommunityEvent.ModerationState.PENDING,
             submitted_by=factory.SubFactory(UserFactory),

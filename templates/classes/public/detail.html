@@ -94,7 +94,7 @@
       </h1>
       {% if offering.instructor %}
       <div class="cp-detail__byline">
-        with {% if offering.instructor.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}{% if offering.instructor.instructor_social_handle %} · {{ offering.instructor.instructor_social_handle }}{% endif %}
+        with {% if offering.instructor.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}
       </div>
       {% endif %}
     </div>
@@ -102,7 +102,7 @@
 
   {# Back link (left) + edit/adjust controls (right): under the hero image, above the body #}
   <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; margin:0.85rem 0 1.5rem; flex-wrap:wrap;">
-      <a class="pl-btn pl-btn--primary" href="{% url 'classes:public_list' %}">&larr; All classes &amp; workshops</a>
+      <a class="pl-btn pl-btn--primary" href="{% url 'classes:public_list' %}">&larr; All classes</a>
 
       {# --- Visual Placement Tool --- #}
       {% if can_edit_offering or can_edit_category %}
@@ -161,7 +161,7 @@
       {# Description (above-fold story) #}
       {% if offering.description %}
         <section class="cp-detail__section">
-          <h2 class="cp-detail__h2">About this class</h2>
+          <h2 class="cp-detail__h2">About This Class</h2>
           <div class="cp-detail__prose">{{ offering.description|linebreaks }}</div>
         </section>
       {% endif %}
@@ -193,7 +193,7 @@
       {% if schedule_sessions %}
         <section class="cp-detail__section">
           {% with total_min=schedule_sessions|total_session_minutes %}
-            <h2 class="cp-detail__h2">{% if offering.is_series %}Series schedule{% else %}Schedule{% endif %}<span class="cp-detail__h2-sub">{% if offering.is_series %} · {{ schedule_sessions|length }} session{{ schedule_sessions|length|pluralize }}{% endif %}{% if total_min %} · {{ total_min|duration_words }} total{% endif %}</span></h2>
+            <h2 class="cp-detail__h2">{% if offering.is_series %}Series Schedule{% else %}Schedule{% endif %}<span class="cp-detail__h2-sub">{% if offering.is_series %} · {{ schedule_sessions|length }} session{{ schedule_sessions|length|pluralize }}{% endif %}{% if total_min %} · {{ total_min|duration_words }} total{% endif %}</span></h2>
           {% endwith %}
           {% if offering.is_series and schedule_sessions|length > 1 %}
             <p class="cp-detail__prose">This is a multi-session series — <strong>one registration enrolls you in all {{ schedule_sessions|length }} sessions</strong> listed below. You sign up once for the whole series.</p>
@@ -223,7 +223,7 @@
       {# Other dates this same class is offered on — each keeps its own seats. #}
       {% if sibling_offerings %}
         <section class="cp-detail__section">
-          <h2 class="cp-detail__h2">Other dates for this class</h2>
+          <h2 class="cp-detail__h2">Other Dates for This Class</h2>
           <ul class="cp-detail__other-dates">
             {% for sibling in sibling_offerings %}
                 <li class="cp-detail__other-date">
@@ -270,13 +270,13 @@
         <section class="cp-detail__section cp-detail__section--split">
           {% if offering.materials_included %}
             <div class="cp-detail__info-block cp-detail__info-block--accent">
-              <h3 class="cp-detail__h3">What's included</h3>
+              <h3 class="cp-detail__h3">What's Included</h3>
               <div class="cp-detail__prose">{{ offering.materials_included|linebreaks }}</div>
             </div>
           {% endif %}
           {% if offering.materials_to_bring %}
             <div class="cp-detail__info-block">
-              <h3 class="cp-detail__h3">Bring with you</h3>
+              <h3 class="cp-detail__h3">Bring With You</h3>
               <div class="cp-detail__prose">{{ offering.materials_to_bring|linebreaks }}</div>
             </div>
           {% endif %}
@@ -294,7 +294,7 @@
       {# Instructor card #}
       {% if offering.instructor %}
       <section class="cp-detail__section">
-        <h2 class="cp-detail__h2">Your instructor</h2>
+        <h2 class="cp-detail__h2">Your Instructor</h2>
         <div class="cp-detail__instructor">
           {% if offering.instructor.profile_photo %}
             <img class="cp-detail__instructor-photo" src="{{ offering.instructor.profile_photo.url }}" alt="{{ offering.instructor.display_name }}">

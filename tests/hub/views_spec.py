@@ -8,7 +8,11 @@ from django.test import Client, RequestFactory
 
 from hub.views import _get_hub_context, _get_member
 from membership.models import Member
-from tests.membership.factories import GuildFactory, MemberFactory
+from tests.membership.factories import GuildFactory, MemberContactFactory, MemberFactory
+
+# Every real profile POST carries the contacts inline-formset management form; test POSTs
+# must include it too or the formset is invalid and the profile save is skipped.
+_CONTACTS_MGMT = {"contacts-TOTAL_FORMS": "0", "contacts-INITIAL_FORMS": "0"}
 
 
 @pytest.mark.django_db
@@ -275,7 +279,7 @@ def describe_user_settings():
 
         response = client.post(
             "/settings/",
-            {"form_id": "profile", "preferred_name": "Ed", "phone": "555-1234"},
+            {**_CONTACTS_MGMT, "form_id": "profile", "preferred_name": "Ed", "phone": "555-1234"},
             follow=True,
         )
 
@@ -294,7 +298,7 @@ def describe_user_settings():
 
         client.post(
             "/settings/",
-            {"form_id": "profile", "preferred_name": "Ed", "phone": "555-1234"},
+            {**_CONTACTS_MGMT, "form_id": "profile", "preferred_name": "Ed", "phone": "555-1234"},
             follow=True,
         )
 
@@ -311,7 +315,7 @@ def describe_user_settings():
 
         client.post(
             "/settings/",
-            {"form_id": "profile", "preferred_name": "  Trimmed  ", "phone": "  555-0000  "},
+            {**_CONTACTS_MGMT, "form_id": "profile", "preferred_name": "  Trimmed  ", "phone": "  555-0000  "},
         )
 
         member.refresh_from_db()
@@ -342,6 +346,7 @@ def describe_user_settings():
         response = client.post(
             "/settings/",
             {
+                **_CONTACTS_MGMT,
                 "form_id": "profile",
                 "preferred_name": "Ed",
                 "about_me": "my new bio",
@@ -370,12 +375,12 @@ def describe_user_settings():
         client.post(
             "/settings/",
             {
+                **_CONTACTS_MGMT,
                 "form_id": "profile",
                 "preferred_name": "",
                 "pronouns": "she/her",
                 "phone": "",
                 "discord_handle": "",
-                "other_contact_info": "",
                 "about_me": "",
                 "show_in_directory": False,
             },
@@ -449,6 +454,87 @@ def describe_user_settings():
 
         addrs = list(response.context["email_addresses"])
         assert {a.email for a in addrs} == {"primary@example.com", "alias@example.com"}
+
+    def it_saves_a_new_contact_via_the_profile_form(client: Client):
+        user = User.objects.create_user(username="contactsaver", password="pass")
+        member = user.member
+        client.login(username="contactsaver", password="pass")
+
+        client.post(
+            "/settings/",
+            {
+                "form_id": "profile",
+                "contacts-TOTAL_FORMS": "1",
+                "contacts-INITIAL_FORMS": "0",
+                "contacts-0-label": "Website",
+                "contacts-0-value": "https://maker.example",
+                "contacts-0-show_in_directory": "on",
+                "contacts-0-sort_order": "0",
+            },
+        )
+
+        contact = member.contacts.get()
+        assert contact.label == "Website"
+        assert contact.value == "https://maker.example"
+        assert contact.show_in_directory is True
+
+    def it_deletes_a_contact_when_the_profile_form_flags_the_row(client: Client):
+        user = User.objects.create_user(username="contactdeleter", password="pass")
+        member = user.member
+        contact = MemberContactFactory(member=member, label="Old", value="https://old.example")
+        client.login(username="contactdeleter", password="pass")
+
+        client.post(
+            "/settings/",
+            {
+                "form_id": "profile",
+                "contacts-TOTAL_FORMS": "1",
+                "contacts-INITIAL_FORMS": "1",
+                "contacts-0-id": str(contact.pk),
+                "contacts-0-label": "Old",
+                "contacts-0-value": "https://old.example",
+                "contacts-0-show_in_directory": "on",
+                "contacts-0-sort_order": "0",
+                "contacts-0-DELETE": "on",
+            },
+        )
+
+        assert member.contacts.count() == 0
+
+    def it_saves_instructor_bio_for_an_instructor(client: Client):
+        user = User.objects.create_user(username="teacherbio", password="pass")
+        member = user.member
+        member.instructor_slug = "teacher-bio"
+        member.save(update_fields=["instructor_slug"])
+        client.login(username="teacherbio", password="pass")
+
+        client.post(
+            "/settings/",
+            {**_CONTACTS_MGMT, "form_id": "profile", "instructor_bio": "I teach welding."},
+        )
+
+        member.refresh_from_db()
+        assert member.instructor_bio == "I teach welding."
+
+    def it_hides_the_instructor_subtab_for_non_instructors(client: Client):
+        User.objects.create_user(username="plainmember", password="pass")
+        client.login(username="plainmember", password="pass")
+
+        html = client.get("/settings/").content.decode()
+
+        assert "ptab = 'instructor'" not in html
+
+    def it_shows_the_instructor_subtab_for_instructors(client: Client):
+        user = User.objects.create_user(username="subtabteacher", password="pass")
+        member = user.member
+        member.instructor_slug = "subtab-teacher"
+        member.save(update_fields=["instructor_slug"])
+        client.login(username="subtabteacher", password="pass")
+
+        html = client.get("/settings/").content.decode()
+
+        assert "ptab = 'instructor'" in html
+        assert "About me as an instructor" in html
 
 
 @pytest.mark.django_db

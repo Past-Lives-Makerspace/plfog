@@ -1,0 +1,255 @@
+"""The slash-command registry, dispatcher, and the built-in ``/fog-ping`` command.
+
+One declarative source of truth (:data:`_REGISTRY`) is read by *both* the
+:mod:`register_discord_commands` management command (which PUTs the set to Discord) and
+the :func:`dispatch` called by the interactions view — so the two never drift. Each app
+that adds commands ships a top-level ``<app>/discord_commands.py`` module that calls
+:func:`register`; :func:`autodiscover` imports them all at startup (tolerating apps that
+ship none). This module also holds the one reference command, ``/fog-ping``, that makes
+the whole platform verifiable end-to-end.
+
+Mirrors the event :mod:`core.events.registry` autodiscovery pattern; the reply builders
+live next door in :mod:`core.events.discord_interactions`.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from importlib import import_module
+from typing import TYPE_CHECKING, Literal
+
+from core.events.discord_interactions import ack_deferred, error_reply, reply, send_followup, unlinked_reply
+
+if TYPE_CHECKING:
+    from django.http import HttpRequest
+
+    from membership.models import Guild, Member
+
+logger = logging.getLogger(__name__)
+
+# An interaction payload is Discord's JSON dict; a handler returns a reply dict.
+Interaction = dict
+Handler = Callable[[Interaction, "Member | None"], dict]
+
+
+@dataclass(frozen=True)
+class SlashCommand:
+    """One registered slash command — its Discord metadata plus its dispatch policy.
+
+    Args:
+        name: The command name (no leading slash), e.g. ``"fog-ping"``.
+        description: Shown in Discord's command picker.
+        handler: ``(interaction, member) -> reply dict``. Never called for an unlinked
+            member when ``requires_link`` is set (dispatch returns the connect prompt first).
+        options: Discord application-command option objects (default none).
+        defer: Ack deferred first (§5.4) when the handler can't guarantee a <3s reply.
+        ephemeral: Reply visible only to the invoking member (default — personal data).
+        requires_link: Unlinked member → the connect prompt; the handler never runs.
+        scope: ``"guild"`` (registered to the Past Lives server, instant) or ``"global"``.
+    """
+
+    name: str
+    description: str
+    handler: Handler
+    options: list[dict] = field(default_factory=list)
+    defer: bool = False
+    ephemeral: bool = True
+    requires_link: bool = True
+    scope: Literal["guild", "global"] = "guild"
+
+    def to_api_dict(self) -> dict:
+        """Serialize to Discord's application-command JSON (``type: 1`` = CHAT_INPUT)."""
+        return {"name": self.name, "description": self.description, "options": list(self.options), "type": 1}
+
+
+_REGISTRY: dict[str, SlashCommand] = {}
+
+
+def register(cmd: SlashCommand) -> None:
+    """Add ``cmd`` to the registry, failing loudly on a duplicate name."""
+    if cmd.name in _REGISTRY:
+        raise ValueError(f"Duplicate slash command name: {cmd.name!r}")
+    _REGISTRY[cmd.name] = cmd
+
+
+def all_commands() -> list[SlashCommand]:
+    """Every registered command, in registration order."""
+    return list(_REGISTRY.values())
+
+
+def autodiscover() -> None:
+    """Import each installed app's ``discord_commands`` module so it self-registers.
+
+    Tolerates apps that ship no such module (the common case); a real import error inside
+    a module that *does* exist is re-raised, never swallowed.
+    """
+    from django.apps import apps
+
+    for app_config in apps.get_app_configs():
+        module_name = f"{app_config.name}.discord_commands"
+        try:
+            import_module(module_name)
+        except ModuleNotFoundError as exc:
+            # Only the module's own absence is tolerated; a missing import *inside* a
+            # present discord_commands module has a different exc.name and must surface.
+            if exc.name != module_name:
+                raise
+
+
+# --- Resolution helpers -------------------------------------------------------
+
+
+def resolve_member(interaction: Interaction) -> Member | None:
+    """The linked :class:`Member` for the invoking Discord user, or ``None`` if unlinked.
+
+    Handles both payload shapes: ``interaction.member.user.id`` in a guild channel and
+    ``interaction.user.id`` in a DM. Looks up the verified, unique ``discord_user_id``
+    (never the free-text ``discord_handle``). ``None`` is the expected common case (most
+    members haven't linked), not an error.
+    """
+    from membership.models import Member
+
+    user = interaction.get("member", {}).get("user") or interaction.get("user")
+    discord_user_id = (user or {}).get("id", "")
+    if not discord_user_id:
+        return None
+    return Member.objects.filter(discord_user_id=discord_user_id).first()
+
+
+def _option_value(interaction: Interaction, name: str) -> object | None:
+    """The value of the named command option, or ``None`` if it wasn't supplied."""
+    for option in interaction.get("data", {}).get("options", []):
+        if option.get("name") == name:
+            return option.get("value")
+    return None
+
+
+def resolve_guild(interaction: Interaction) -> Guild | None:
+    """The guild a guild-scoped command targets: explicit ``guild`` option beats channel.
+
+    1. An explicit ``guild`` option (its value = the guild's pk) wins outright.
+    2. Else the guild mapped to ``interaction.channel_id`` (channel auto-detect).
+    3. Neither → ``None`` (the caller shows the disambiguation reply, §5.6).
+    """
+    from membership.models import Guild
+
+    explicit = _option_value(interaction, "guild")
+    if explicit:
+        return Guild.objects.filter(pk=str(explicit)).first()
+    return Guild.objects.for_discord_channel(interaction.get("channel_id", ""))
+
+
+def guild_disambiguation_reply(member: Member | None) -> dict:
+    """The ephemeral "I couldn't tell which guild you mean" reply (§6 Reply E).
+
+    Lists the guilds the member belongs to so they can rerun the command in the right
+    channel or pass the ``guild`` option. Never a silent no-op.
+    """
+    guilds = [gm.guild for gm in member.guild_memberships.select_related("guild").all()] if member is not None else []
+    content = (
+        "I couldn't tell which guild you mean. Run this in your guild's Discord channel, or add the `guild` option."
+    )
+    if guilds:
+        content += "\n\nYou're in: " + ", ".join(g.name for g in guilds) + "."
+    return reply(content, ephemeral=True)
+
+
+# --- Dispatch -----------------------------------------------------------------
+
+
+def _link_url(request: HttpRequest) -> str:
+    """The absolute one-click Discord-link URL an unlinked member is sent to."""
+    from django.urls import reverse
+
+    return request.build_absolute_uri(reverse("hub_discord_link_start"))
+
+
+def _dispatch_deferred(cmd: SlashCommand, interaction: Interaction, member: Member | None) -> dict:
+    """Ack deferred, run the handler synchronously, then PATCH the real reply in (§5.4).
+
+    Returns an empty dict — the interaction was already acked via the callback endpoint,
+    so Discord ignores the view's HTTP body.
+    """
+    ack_deferred(interaction["id"], interaction["token"], ephemeral=cmd.ephemeral)
+    try:
+        reply_dict = cmd.handler(interaction, member)
+    except Exception:
+        logger.exception("Discord deferred command %r handler failed", cmd.name)
+        reply_dict = error_reply()
+    data = reply_dict.get("data", {})
+    send_followup(interaction["token"], content=data.get("content", ""), embeds=data.get("embeds"))
+    return {}
+
+
+def dispatch(interaction: Interaction, request: HttpRequest) -> dict:
+    """Route an APPLICATION_COMMAND interaction to its handler and return a reply dict.
+
+    1. Unknown command name → :func:`error_reply` (defensive: the registry and Discord's
+       registered set drifted).
+    2. ``requires_link`` and no linked member → :func:`unlinked_reply` (handler never runs).
+    3. ``defer`` → the deferred path (§5.4).
+    4. Else → the handler, wrapped so any exception becomes :func:`error_reply` (never a
+       500 back to Discord, which would get the endpoint disabled).
+    """
+    # ``.get`` (not ``dict[key]``) is intentional here: an unknown name is an expected,
+    # recoverable drift case, not a bug to fail loudly on — it degrades to error_reply.
+    name = interaction["data"]["name"]
+    cmd = _REGISTRY.get(name)
+    if cmd is None:
+        logger.warning("Discord interaction for unknown command %r", name)
+        return error_reply()
+
+    member = resolve_member(interaction)
+    if cmd.requires_link and member is None:
+        return unlinked_reply(_link_url(request))
+
+    if cmd.defer:
+        return _dispatch_deferred(cmd, interaction, member)
+
+    try:
+        return cmd.handler(interaction, member)
+    except Exception:
+        logger.exception("Discord command %r handler failed", name)
+        return error_reply()
+
+
+# --- The built-in reference command: /fog-ping --------------------------------
+
+
+def _fog_ping(interaction: Interaction, member: Member | None) -> dict:
+    """A linked member's "you're connected" smoke reply, with a link back to the hub.
+
+    ``requires_link=True`` means dispatch has already resolved a linked member before this
+    runs (an unlinked member gets the connect prompt instead), so ``member`` is non-None.
+    """
+    from django.conf import settings
+    from django.urls import reverse
+
+    hub_url = f"{settings.MEMBER_BASE_URL}{reverse('hub_home')}"
+    button_row = {
+        "type": 1,
+        "components": [
+            {"type": 2, "style": 5, "label": "Open the Past Lives hub", "url": hub_url},
+        ],
+    }
+    display_name = member.display_name if member is not None else "there"
+    return reply(
+        f"**Past Lives** — you're connected as {display_name}. Everything's wired up ✅",
+        ephemeral=True,
+        components=[button_row],
+    )
+
+
+FOG_PING = SlashCommand(
+    name="fog-ping",
+    description="Check that your Discord is connected to your Past Lives account.",
+    handler=_fog_ping,
+    requires_link=True,
+    ephemeral=True,
+    defer=False,
+    scope="guild",
+)
+
+register(FOG_PING)

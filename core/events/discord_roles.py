@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_API_BASE = "https://discord.com/api/v10"
+API_BASE = "https://discord.com/api/v10"
 _DEFAULT_TIMEOUT_SECONDS = 5.0
 
 
@@ -44,7 +44,7 @@ def _role_request(method: str, server_id: str, user_id: str, role_id: str) -> bo
     """
     if not bot_token() or not server_id or not user_id or not role_id:
         return False
-    url = f"{_API_BASE}/guilds/{server_id}/members/{user_id}/roles/{role_id}"
+    url = f"{API_BASE}/guilds/{server_id}/members/{user_id}/roles/{role_id}"
     try:
         response = httpx.request(method, url, headers=_auth_headers(), timeout=_DEFAULT_TIMEOUT_SECONDS)
     except httpx.HTTPError as exc:

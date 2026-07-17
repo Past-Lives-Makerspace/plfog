@@ -334,6 +334,7 @@ EVENT_DECLINED = "event.declined"
 EVENT_REMINDER = "event.reminder"
 EVENT_HAPPENING_NOW = "event.happening_now"
 DISCORD_GUILDS_IMPORTED = "discord_guilds_imported"
+ORIENTATION_COMPLETED = "orientation.completed"  # dotted, matches the new-event vocabulary
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -631,6 +632,22 @@ _NEW_EVENTS: list[EventType] = [
         category="Guilds",
         recipient=Recipients.REGISTRANT,
         channels=(_EMAIL_FORCED,),
+        activity_kind=None,
+    ),
+    # 21. orientation.completed — a member finished their orientation; welcome them to the
+    #     guild. Goes to the guild's existing members (GUILD_MEMBERS); in-app on + the guild's
+    #     own Discord channel on (no email — a light social nudge, not an inbox item). Carries
+    #     ``guild`` in context, so the routing sibling posts to the guild's own webhook.
+    #     ``activity_kind`` stays None: ``complete_orientation`` already logs the
+    #     ORIENTATION_COMPLETED SiteActivity, so emit must NOT log a duplicate (mirrors the
+    #     class_published precedent above).
+    EventType(
+        key=ORIENTATION_COMPLETED,
+        label="Orientation completed — welcome",
+        description="A member finished their orientation; welcome them to the guild.",
+        category="Orientations",
+        recipient=Recipients.GUILD_MEMBERS,
+        channels=(_IN_APP_ON, _DISCORD_ON),
         activity_kind=None,
     ),
 ]

@@ -10,7 +10,7 @@
     <div class="pl-edit-split">
         <div class="pl-edit-split__main">
             {% for field in form %}
-                {% if field.name == 'title' or field.name == 'slug' or field.name == 'category' or field.name == 'instructor' %}
+                {% if field.name == 'title' or field.name == 'category' or field.name == 'instructor' %}
                     {% include "components/form_field.html" with field=field %}
                 {% endif %}
             {% endfor %}
@@ -27,7 +27,7 @@
         </aside>
     </div>
     {% for field in form %}
-        {% if field.name == 'title' or field.name == 'slug' or field.name == 'category' or field.name == 'instructor' %}{# rendered in the split above #}
+        {% if field.name == 'title' or field.name == 'category' or field.name == 'instructor' %}{# rendered in the split above #}
         {% elif field.name == 'image' %}
             {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image crop_field=form.hero_crop offering=offering %}
         {% elif field.name == 'hero_crop' %}
@@ -53,7 +53,7 @@
     {% include "classes/_components/session_calendar.html" %}
 
     <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Gallery images</h3>
-    <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Optional. Extra photos shown below the hero on the public class page. Images save instantly — no need to hit Save.</p>
+    <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Extra photos shown below the hero on the public class page. Images save instantly — no need to hit Save.</p>
     {% include "classes/_components/image_formset.html" with offering=offering %}
 
     {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:admin_discount_code_create' edit_url='classes:admin_discount_code_edit' %}
@@ -75,20 +75,4 @@
 {% endif %}
 <link rel="stylesheet" href="{% static 'css/session-calendar.css' %}">
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>
-<script>
-(function() {
-    const source = document.querySelector('[name="title"]');
-    const slug = document.querySelector('[name="slug"]');
-    if (!source || !slug) return;
-    let touched = slug.value.trim() !== '';
-    slug.addEventListener('input', () => { touched = true; });
-    source.addEventListener('input', () => {
-        if (touched) return;
-        slug.value = source.value.toLowerCase().trim()
-            .replace(/[^\w\s-]/g, '')
-            .replace(/[\s_-]+/g, '-')
-            .replace(/^-+|-+$/g, '');
-    });
-})();
-</script>
 {% endblock %}

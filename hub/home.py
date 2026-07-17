@@ -114,7 +114,7 @@ def _upcoming_items(member: Member) -> list[UpcomingItem]:
                 title=event.title,
                 start=occurrence,
                 end=occurrence + duration,
-                kind="Meeting" if event.guild_id else "Event",
+                kind=_event_kind(event),
                 url=calendar_url,
                 location=event.location,
                 guild_name=event.guild.name if event.guild_id else "",
@@ -141,6 +141,14 @@ def _upcoming_items(member: Member) -> list[UpcomingItem]:
 
     items.sort(key=lambda item: item.start)
     return items[:UPCOMING_CAP]
+
+
+def _event_kind(event: CommunityEvent) -> str:
+    """The "Upcoming" widget label for a community event: standing studio hours, a guild
+    meeting, or a site-wide event."""
+    if event.event_type == CommunityEvent.EventType.STUDIO_HOURS:
+        return "Studio hours"
+    return "Meeting" if event.guild_id else "Event"
 
 
 def _next_occurrence(event: CommunityEvent, frm: date_type, to: date_type, now: datetime_type) -> datetime_type | None:

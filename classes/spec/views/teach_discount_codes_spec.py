@@ -17,6 +17,13 @@ def _instructor():
     return user
 
 
+def _self_approver():
+    """An active teaching member who may approve their own discount codes."""
+    user = UserFactory(username="dc-approver@example.com")
+    InstructorFactory(user=user, instructor_slug="dc-approver", can_self_approve_discounts=True)
+    return user
+
+
 def describe_teach_discount_codes():
     def it_shows_a_sitewide_admin_code_read_only(client):
         admin = UserFactory(username="dc-admin@example.com")
@@ -61,3 +68,69 @@ def describe_teach_discount_codes():
         resp = client.post(reverse("classes:teach_discount_code_delete", kwargs={"pk": mine.pk}))
         assert resp.status_code == 302
         assert not DiscountCode.objects.filter(pk=mine.pk).exists()
+
+
+def describe_teach_discount_code_approve():
+    def it_lets_a_self_approver_approve_their_own_pending_code(client):
+        user = _self_approver()
+        mine = DiscountCodeFactory(code="APPROVEME", created_by=user, is_approved=False)
+        client.force_login(user)
+        resp = client.post(reverse("classes:teach_discount_code_approve", kwargs={"pk": mine.pk}))
+        assert resp.status_code == 302
+        assert resp.url == reverse("classes:teach_discount_codes")
+        mine.refresh_from_db()
+        assert mine.is_approved is True
+
+    def it_forbids_a_member_without_the_permission(client):
+        user = _instructor()  # active member, but can_self_approve_discounts defaults False
+        mine = DiscountCodeFactory(code="NOPERM", created_by=user, is_approved=False)
+        client.force_login(user)
+        resp = client.post(reverse("classes:teach_discount_code_approve", kwargs={"pk": mine.pk}))
+        assert resp.status_code == 403
+        mine.refresh_from_db()
+        assert mine.is_approved is False
+
+    def it_forbids_a_self_approver_on_someone_elses_code(client):
+        other = UserFactory(username="dc-owner@example.com")
+        code = DiscountCodeFactory(code="NOTMINE", created_by=other, is_approved=False)
+        client.force_login(_self_approver())
+        resp = client.post(reverse("classes:teach_discount_code_approve", kwargs={"pk": code.pk}))
+        assert resp.status_code == 403
+        code.refresh_from_db()
+        assert code.is_approved is False
+
+    def it_redirects_anonymous_users_to_login(client):
+        code = DiscountCodeFactory(code="ANON", is_approved=False)
+        resp = client.post(reverse("classes:teach_discount_code_approve", kwargs={"pk": code.pk}))
+        assert resp.status_code == 302
+        assert "login" in resp.url.lower()
+        code.refresh_from_db()
+        assert code.is_approved is False
+
+
+def describe_approve_button_visibility():
+    def it_shows_the_approve_button_on_an_approvable_pending_code(client):
+        user = _self_approver()
+        mine = DiscountCodeFactory(code="SHOWBTN", created_by=user, is_approved=False)
+        client.force_login(user)
+        resp = client.get(reverse("classes:teach_discount_codes"))
+        approve_url = reverse("classes:teach_discount_code_approve", kwargs={"pk": mine.pk})
+        assert approve_url.encode() in resp.content
+
+    def it_hides_the_button_but_shows_pending_when_not_approvable(client):
+        user = _instructor()  # owns the code but lacks the self-approve permission
+        mine = DiscountCodeFactory(code="HIDEBTN", created_by=user, is_approved=False)
+        client.force_login(user)
+        resp = client.get(reverse("classes:teach_discount_codes"))
+        approve_url = reverse("classes:teach_discount_code_approve", kwargs={"pk": mine.pk})
+        assert approve_url.encode() not in resp.content
+        assert b"Pending approval" in resp.content
+
+    def it_shows_neither_on_an_approved_code(client):
+        user = _self_approver()
+        mine = DiscountCodeFactory(code="ALLGOOD", created_by=user, is_approved=True)
+        client.force_login(user)
+        resp = client.get(reverse("classes:teach_discount_codes"))
+        approve_url = reverse("classes:teach_discount_code_approve", kwargs={"pk": mine.pk})
+        assert approve_url.encode() not in resp.content
+        assert b"Pending approval" not in resp.content

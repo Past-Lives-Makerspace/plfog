@@ -29,3 +29,9 @@ class CoreConfig(AppConfig):
         register_all_models()
         unregister_hidden_models()
         post_migrate.connect(_update_default_site, sender=self)
+
+        # Import every app's discord_commands module so slash commands self-register
+        # (loads core.events.discord_commands → registers the built-in /fog-ping).
+        from core.events import discord_commands
+
+        discord_commands.autodiscover()

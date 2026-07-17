@@ -30,7 +30,14 @@ def describe_toast_pipeline():
         _login(client, django_user_model, "saver@example.com")
         resp = client.post(
             "/settings/",
-            {"form_id": "profile", "pronouns": "", "about_me": "hi", "discord_handle": ""},
+            {
+                "contacts-TOTAL_FORMS": "0",
+                "contacts-INITIAL_FORMS": "0",
+                "form_id": "profile",
+                "pronouns": "",
+                "about_me": "hi",
+                "discord_handle": "",
+            },
             HTTP_HX_REQUEST="true",  # boosted request: the path where the swap can drop the message
         )
         assert resp.status_code == 302
@@ -43,7 +50,14 @@ def describe_toast_pipeline():
         _login(client, django_user_model, "once@example.com")
         html = client.post(
             "/settings/",
-            {"form_id": "profile", "pronouns": "", "about_me": "hi", "discord_handle": ""},
+            {
+                "contacts-TOTAL_FORMS": "0",
+                "contacts-INITIAL_FORMS": "0",
+                "form_id": "profile",
+                "pronouns": "",
+                "about_me": "hi",
+                "discord_handle": "",
+            },
             follow=True,
             HTTP_HX_REQUEST="true",
         ).content.decode()
@@ -55,7 +69,14 @@ def describe_toast_pipeline():
         _login(client, django_user_model, "plain@example.com")
         resp = client.post(
             "/settings/",
-            {"form_id": "profile", "pronouns": "", "about_me": "hi", "discord_handle": ""},
+            {
+                "contacts-TOTAL_FORMS": "0",
+                "contacts-INITIAL_FORMS": "0",
+                "form_id": "profile",
+                "pronouns": "",
+                "about_me": "hi",
+                "discord_handle": "",
+            },
             follow=True,
         )
         assert resp.cookies.get("pl_toast") is None

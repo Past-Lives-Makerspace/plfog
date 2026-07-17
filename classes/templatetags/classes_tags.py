@@ -10,7 +10,7 @@ from django import template
 from django.http import QueryDict
 
 if TYPE_CHECKING:
-    from classes.models import ClassApproval
+    from classes.models import ClassApproval, DiscountApprover, DiscountCode
 
 register = template.Library()
 
@@ -36,6 +36,18 @@ def first_with_role(approvals: Iterable[ClassApproval], role: str) -> ClassAppro
         if row.role == role:
             return row
     return None
+
+
+@register.filter
+def approvable_by(code: DiscountCode, approver: DiscountApprover) -> bool:
+    """Whether ``code`` may be approved — the template guard for the Approve button.
+
+    Takes a :class:`DiscountApprover` resolved once in the view (``DiscountCode.approver_for``)
+    and reused for every row, so rendering a list of codes costs a single Member query
+    instead of one per row. The model owns the rule (admins approve any code, a
+    self-approver only their own).
+    """
+    return approver.can_approve(code)
 
 
 @register.filter

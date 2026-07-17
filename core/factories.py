@@ -5,7 +5,8 @@ from __future__ import annotations
 import factory
 from django.contrib.auth import get_user_model
 
-from core.models import UserProfile
+from core.models import ScheduledJobState, ScheduledTaskRun, UserProfile
+from core.scheduled_jobs import Trigger
 
 User = get_user_model()
 
@@ -27,3 +28,21 @@ class UserProfileFactory(factory.django.DjangoModelFactory):
     preferred_name = ""
     pronouns = ""
     phone = ""
+
+
+class ScheduledTaskRunFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = ScheduledTaskRun
+
+    task_key = factory.Sequence(lambda n: f"job_{n}")
+    status = ScheduledTaskRun.Status.OK
+    trigger = Trigger.SCHEDULED
+
+
+class ScheduledJobStateFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = ScheduledJobState
+        django_get_or_create = ("task_key",)
+
+    task_key = factory.Sequence(lambda n: f"job_{n}")
+    enabled = True

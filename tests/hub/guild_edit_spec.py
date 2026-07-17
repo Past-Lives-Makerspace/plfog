@@ -6,10 +6,11 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db.models.signals import post_save
 from django.test import Client
 from django.urls import reverse
-
-from django.core.files.uploadedfile import SimpleUploadedFile
+from factory.django import mute_signals
 
 from billing.models import Product, ProductRevenueSplit
 from hub.forms import GuildEditForm
@@ -19,6 +20,8 @@ from tests.membership.factories import (
     GuildFactory,
     GuildFAQItemFactory,
     GuildLinkFactory,
+    GuildMembershipFactory,
+    MemberFactory,
     MembershipPlanFactory,
 )
 
@@ -38,6 +41,21 @@ def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> 
     member.save(update_fields=["fog_role"])
     member.sync_user_permissions()
     return user
+
+
+def _active_guild_member(guild: Guild, *, email: str) -> Member:
+    """An ACTIVE member joined to ``guild`` with a linked, email-bearing User (a real recipient).
+
+    Signals are muted while creating the User so ``ensure_user_has_member`` doesn't spawn a second
+    Member; we attach the User to our own factory Member instead.
+    """
+    member = MemberFactory()
+    with mute_signals(post_save):
+        user = User.objects.create_user(username=f"gm_{member.pk}", email=email)
+    member.user = user
+    member.save(update_fields=["user"])
+    GuildMembershipFactory(guild=guild, member=member)
+    return member
 
 
 def _product_post_payload(guild) -> dict:
@@ -576,30 +594,6 @@ def describe_GuildEditForm():
         assert form.is_valid(), form.errors
         assert form.save().faq_label == "FAQ"
 
-    def it_makes_a_guild_private_when_make_private_is_checked():
-        guild = GuildFactory(name="Secret Guild", is_public=True)
-        form = GuildEditForm(
-            data={"name": "Secret Guild", "calendar_color": "#4B9FEE", "make_private": "on"},
-            instance=guild,
-        )
-        assert form.is_valid(), form.errors
-        assert form.save().is_public is False
-
-    def it_makes_a_guild_public_when_make_private_is_unchecked():
-        guild = GuildFactory(name="Reopened Guild", is_public=False)
-        form = GuildEditForm(
-            data={"name": "Reopened Guild", "calendar_color": "#4B9FEE"},  # make_private omitted = unchecked
-            instance=guild,
-        )
-        assert form.is_valid(), form.errors
-        assert form.save().is_public is True
-
-    def it_initializes_make_private_from_the_stored_is_public_value():
-        public = GuildFactory(name="Open Guild", is_public=True)
-        private = GuildFactory(name="Closed Guild", is_public=False)
-        assert GuildEditForm(instance=public).fields["make_private"].initial is False
-        assert GuildEditForm(instance=private).fields["make_private"].initial is True
-
 
 @pytest.mark.django_db
 def describe_guild_edit_page():
@@ -689,6 +683,7 @@ def describe_guild_edit_tabs():
         for tab in (
             b"basic",
             b"meetings",
+            b"studio_hours",
             b"meeting_notes",
             b"events",
             b"orientations",
@@ -1078,37 +1073,17 @@ def describe_guild_content_tab_template():
 
 
 @pytest.mark.django_db
-def describe_guild_visibility_controls():
-    """The 'make this page private' toggle + its effect on the Share & Print card."""
+def describe_guild_share_and_print():
+    """The Share & Print card — every guild is public, so it always renders."""
 
-    def it_renders_the_make_private_toggle_on_the_basic_tab(client: Client):
-        _user_with_role("vis_toggle", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory()
-        client.login(username="vis_toggle", password="pass")
-        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
-        assert response.status_code == 200
-        assert b"Make this guild page private?" in response.content
-
-    def it_shows_the_share_and_print_actions_for_a_public_guild(client: Client):
+    def it_shows_the_share_and_print_actions(client: Client):
         _user_with_role("vis_pub", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory(is_public=True)
+        guild = GuildFactory()
         client.login(username="vis_pub", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert response.status_code == 200
         assert b"Download QR (SVG)" in response.content
         assert b"Open printable flyer" in response.content
-
-    def it_hides_the_share_and_print_actions_for_a_private_guild(client: Client):
-        _user_with_role("vis_priv", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory(is_public=False)
-        client.login(username="vis_priv", password="pass")
-        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
-        assert response.status_code == 200
-        # The share/QR/flyer actions are gone ...
-        assert b"Download QR (SVG)" not in response.content
-        assert b"Open printable flyer" not in response.content
-        # ... replaced with an explanatory note.
-        assert b"to share a link, QR code, and printable flyer" in response.content
 
 
 @pytest.mark.django_db
@@ -1181,3 +1156,34 @@ def describe_guild_delete():
         assert response.status_code == 200
         assert b"Danger Zone" not in response.content
         assert reverse("hub_guild_delete", args=[guild.pk]).encode() not in response.content
+
+
+@pytest.mark.django_db
+def describe_guild_announcement_reach():
+    """The pre-compose reach line + collapsible recipient list on the Announcements tab."""
+
+    def it_shows_the_reach_count_on_the_announcements_tab(client: Client):
+        user = _user_with_role("reach_lead", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        _active_guild_member(guild, email="a@example.com")
+        _active_guild_member(guild, email="b@example.com")
+        client.login(username="reach_lead", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]) + "?tab=announcements")
+        assert response.status_code == 200
+        assert response.context["announcement_recipient_count"] == 2
+        # Assert on the specific reach-line markup, not a bare number that the "what's new"
+        # changelog widget (echoed on every hub page) could also contain.
+        assert b"<strong>2 members</strong> will receive an emailed announcement." in response.content
+        # The collapsible recipient list is rendered when there are recipients.
+        assert b'class="pl-recipient-list"' in response.content
+
+    def it_shows_the_empty_state_when_the_guild_has_no_members(client: Client):
+        user = _user_with_role("empty_lead", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="empty_lead", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]) + "?tab=announcements")
+        assert response.status_code == 200
+        assert response.context["announcement_recipient_count"] == 0
+        assert b"No members in this guild yet" in response.content
+        # No recipient list is rendered when there is nobody to list.
+        assert b"pl-recipient-list" not in response.content

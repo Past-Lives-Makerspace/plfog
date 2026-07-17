@@ -79,6 +79,11 @@ _ViewFunc = Callable[..., HttpResponse]
 # don't scatter across the view and templates.
 WITHIN_DAYS = {"30": 30, "90": 90, "180": 180}
 
+# Soft, non-blocking suggestion shown after a class submits with fewer than three
+# gallery photos. The hard requirement (at least one photo) lives on the model as
+# ``ClassOffering.has_submittable_image``; this is only encouragement to add more.
+_PHOTO_NUDGE_MESSAGE = "Classes with 3 or more photos get more sign-ups — consider adding a few more."
+
 
 def _browsable_classes() -> Any:
     """Published, non-private classes still open for booking, soonest first.
@@ -162,6 +167,10 @@ def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
     if slug:
         qs = qs.filter(category__slug=slug)
 
+    guild_slug = request.GET.get("guild", "").strip()
+    if guild_slug:
+        qs = qs.filter(category__guild__slug=guild_slug)
+
     instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
     if instructor_slugs:
         qs = qs.filter(instructor__instructor_slug__in=instructor_slugs)
@@ -203,7 +212,14 @@ def public_list(request: HttpRequest) -> HttpResponse:
     """
     settings_obj = ClassSettings.load()
 
+    from membership.models import Guild
+
     selected_category_slug = request.GET.get("category", "").strip()
+    # Resolve the guild behind ?guild=<slug> for the active-filter heading and empty state.
+    # Fail-soft, mirroring the raw ?category= filter: an unknown slug leaves selected_guild
+    # None (the filter still yields zero rows → generic empty copy) rather than 404-ing.
+    selected_guild_slug = request.GET.get("guild", "").strip()
+    selected_guild = Guild.objects.filter(slug=selected_guild_slug).first() if selected_guild_slug else None
     selected_instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
     members_only = request.GET.get("members_only") == "1"
     free_only = request.GET.get("free") == "1"
@@ -282,6 +298,8 @@ def public_list(request: HttpRequest) -> HttpResponse:
         "site_config": SiteConfiguration.load(),
         "categories": categories,
         "selected_category_slug": selected_category_slug,
+        "selected_guild_slug": selected_guild_slug,
+        "selected_guild": selected_guild,
         "selected_instructor_slugs": selected_instructor_slugs,
         "instructors_for_filter": instructors_for_filter,
         "min_price": request.GET.get("min_price", ""),
@@ -1068,6 +1086,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         offering = form.save()
         formset.instance = offering
         formset.save()
+        offering.finalize_recurring_slug()
         try:
             offering.add_gallery_images(request.FILES.getlist("gallery_images"))
         except ValidationError as exc:
@@ -1076,8 +1095,14 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         else:
             submit_now = request.POST.get("action") == "submit"
             if submit_now:
-                offering.submit_for_review()
-                messages.success(request, f"Submitted “{offering.title}” for admin review.")
+                try:
+                    offering.submit_for_review()
+                except ValidationError as exc:
+                    messages.error(request, exc.messages[0])
+                else:
+                    messages.success(request, f"Submitted “{offering.title}” for admin review.")
+                    if offering.needs_photo_nudge:
+                        messages.info(request, _PHOTO_NUDGE_MESSAGE)
             else:
                 messages.success(request, f"Saved draft ‘{offering.title}’.")
             return redirect("classes:teach_class_edit", pk=offering.pk)
@@ -1109,8 +1134,14 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         formset.save()
         submit_now = request.POST.get("action") == "submit"
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
-            offering.submit_for_review()
-            messages.success(request, f"Submitted “{offering.title}” for admin review.")
+            try:
+                offering.submit_for_review()
+            except ValidationError as exc:
+                messages.error(request, exc.messages[0])
+            else:
+                messages.success(request, f"Submitted “{offering.title}” for admin review.")
+                if offering.needs_photo_nudge:
+                    messages.info(request, _PHOTO_NUDGE_MESSAGE)
         else:
             messages.success(request, "Class updated.")
         return redirect("classes:teach_class_edit", pk=offering.pk)
@@ -1142,11 +1173,17 @@ def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
     if request.method == "POST" and offering.status == ClassOffering.Status.DRAFT:
-        (first_gate,) = offering.submit_for_review()
+        try:
+            (first_gate,) = offering.submit_for_review()
+        except ValidationError as exc:
+            messages.error(request, exc.messages[0])
+            return redirect("classes:teach_class_edit", pk=offering.pk)
         messages.success(
             request,
             f"Submitted “{offering.title}” for review by {first_gate.get_role_display()}.",
         )
+        if offering.needs_photo_nudge:
+            messages.info(request, _PHOTO_NUDGE_MESSAGE)
     return redirect("classes:teach_dashboard")
 
 
@@ -1224,6 +1261,9 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
             "instructor": teaching_member,
             "own_codes": own_codes,
             "sitewide_codes": sitewide_codes,
+            # Resolve the acting user's approval capability once (one Member query),
+            # reused per row in the template — avoids an N+1 across the code list.
+            "approver": DiscountCode.approver_for(request.user),
         },
     )
 
@@ -1241,21 +1281,16 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
             scoped_to = None
     form = DiscountCodeForm(request.POST or None, scoped_to=scoped_to, created_by=request.user)
     if request.method == "POST" and form.is_valid():
+        # Every new code starts unapproved (the model default) — a teaching
+        # member with the self-approve permission can approve their own; otherwise
+        # an admin reviews it.
         code = form.save(commit=False)
-        # Class-scoped codes created by the offering's own teaching member are
-        # auto-approved by DiscountCodeForm.save. Other teaching member codes
-        # (global, or scoped to another instructor's class) need admin review.
-        if scoped_to is None:
-            code.is_approved = False
         if scoped_to is not None and not code.class_offering_id:
             code.class_offering = scoped_to
         if not code.created_by_id:
             code.created_by = request.user
         code.save()
-        if code.is_approved:
-            messages.success(request, "Discount code created and active for this class.")
-        else:
-            messages.success(request, "Discount code created — an admin will review and approve it.")
+        messages.success(request, "Discount code created — it needs approval before it's active.")
         if scoped_to is not None:
             return redirect("classes:teach_class_edit", pk=scoped_to.pk)
         return redirect("classes:teach_discount_codes")
@@ -1297,6 +1332,24 @@ def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST":
         code.delete()
         messages.success(request, "Discount code deleted.")
+    return redirect("classes:teach_discount_codes")
+
+
+@teaching_member_required
+@require_POST
+def teach_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    """Approve one of the teaching member's own pending codes from the Teaching portal.
+
+    Reachable only by a member who holds ``can_self_approve_discounts`` (or an
+    admin) for a code they created — authorization is enforced by
+    ``DiscountCode.can_be_approved_by``, so a member without the permission, or
+    one acting on someone else's code, gets a 403.
+    """
+    code = get_object_or_404(DiscountCode, pk=pk)
+    if not code.can_be_approved_by(request.user):
+        return HttpResponseForbidden("You don't have permission to approve this discount code.")
+    code.approve(request.user)
+    messages.success(request, f"Discount code {code.code} approved.")
     return redirect("classes:teach_discount_codes")
 
 
@@ -1417,6 +1470,9 @@ def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
             "instructor": request.teaching_member,  # type: ignore[attr-defined]
             "offering": offering,
             "codes": codes,
+            # Resolve the acting user's approval capability once (one Member query),
+            # reused per row in the template — avoids an N+1 across the code list.
+            "approver": DiscountCode.approver_for(request.user),
             **_class_workspace_counts(offering),
         },
     )
@@ -1757,6 +1813,7 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
         offering.save()
         session_formset.instance = offering
         session_formset.save()
+        offering.finalize_recurring_slug()
         try:
             offering.add_gallery_images(request.FILES.getlist("gallery_images"))
         except ValidationError as exc:
@@ -1819,6 +1876,20 @@ def class_qr_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
         raise Http404
     resp["Content-Disposition"] = f'attachment; filename="{offering.slug}-qr.{fmt}"'
     return resp
+
+
+def class_flyer(request: HttpRequest, pk: int) -> HttpResponse:
+    """Print-optimized one-page flyer for a class (instructor/admin → Print → Save as PDF).
+
+    Editor-gated via the shared ``can_edit_class`` check, so it works from either
+    portal — an admin, the category guild's lead/staff, or the class's own instructor.
+    """
+    from membership.permissions import can_edit_class
+
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    if not can_edit_class(request, offering):
+        return HttpResponseForbidden("You don't have access to this class.")
+    return render(request, "classes/class_flyer.html", {"offering": offering, "qr_svg": offering.qr_svg()})
 
 
 @classes_admin_access_required
@@ -2075,12 +2146,13 @@ def admin_activity(request: HttpRequest) -> HttpResponse:
     email. Pagination is 50 rows; older rows fall off the bottom.
     """
     from django.core.paginator import Paginator
+    from django.http import QueryDict
 
     qs = CmsActivity.objects.select_related(
         "class_offering",
         "registration",
         "actor",
-    ).order_by("-created_at")
+    )
 
     selected_group = request.GET.get("group", "all").strip() or "all"
     if selected_group in _ACTIVITY_GROUPS:
@@ -2098,6 +2170,17 @@ def admin_activity(request: HttpRequest) -> HttpResponse:
             | Q(registration__last_name__icontains=search)
         )
 
+    # "When" is the only sortable column; default to Most Recent (newest-first).
+    sort_dir = "asc" if request.GET.get("dir") == "asc" else "desc"
+    order_prefix = "" if sort_dir == "asc" else "-"
+    qs = qs.order_by(f"{order_prefix}created_at")
+
+    base_params = QueryDict(mutable=True)
+    if selected_group != "all":
+        base_params["group"] = selected_group
+    if search:
+        base_params["q"] = search
+
     paginator = Paginator(qs, 50)
     page = paginator.get_page(request.GET.get("page") or 1)
 
@@ -2111,6 +2194,9 @@ def admin_activity(request: HttpRequest) -> HttpResponse:
             "paginator": paginator,
             "selected_group": selected_group,
             "search": search,
+            "current_sort": "created_at",
+            "current_dir": sort_dir,
+            "base_params": base_params.urlencode(),
             "groups": [
                 ("all", "All"),
                 ("classes", "Classes"),
@@ -2535,14 +2621,21 @@ def admin_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:admin_discount_codes")
 
 
-@classes_admin_access_required
+@login_required
 @require_POST
 def admin_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    """Toggle a code's approval. Admins may approve/un-approve any code; a member
+    with the self-approve permission may approve only their own — enforced by
+    ``DiscountCode.can_be_approved_by``."""
     code = get_object_or_404(DiscountCode, pk=pk)
-    code.is_approved = not code.is_approved
-    code.save(update_fields=["is_approved"])
-    label = "approved" if code.is_approved else "unapproved"
-    messages.success(request, f"Discount code {code.code} {label}.")
+    if not code.can_be_approved_by(request.user):
+        return HttpResponseForbidden("You don't have permission to approve this discount code.")
+    if code.is_approved:
+        code.unapprove()
+        messages.success(request, f"Discount code {code.code} unapproved.")
+    else:
+        code.approve(request.user)
+        messages.success(request, f"Discount code {code.code} approved.")
     return redirect("classes:admin_discount_codes")
 
 

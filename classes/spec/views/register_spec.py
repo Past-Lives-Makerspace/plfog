@@ -84,7 +84,7 @@ def describe_register_view():
         response = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug}))
         assert response.status_code == 200
         assert b"Liability Waiver" in response.content
-        assert b"Continue to Payment" in response.content
+        assert b"Next" in response.content
 
     def it_prefills_form_for_a_logged_in_member(paid_offering, client, member_user):
         member = member_user.member
@@ -270,7 +270,7 @@ def describe_register_success_view():
     def it_renders_a_thanks_page(paid_offering, client):
         response = client.get(reverse("classes:register_success", kwargs={"slug": paid_offering.slug}))
         assert response.status_code == 200
-        assert b"You're in!" in response.content
+        assert b"You're registered" in response.content
 
 
 def describe_register_cancelled_view():

@@ -30,7 +30,7 @@ def describe_guest_lookup():
     def it_renders_empty_form_for_anonymous_user(book_client, db):
         resp = book_client.get("/account/lookup/")
         assert resp.status_code == 200
-        assert b"Find your booking" in resp.content
+        assert b"Find your class" in resp.content
         assert b"Last name" in resp.content
         assert b"Order number" in resp.content
 

@@ -325,16 +325,9 @@ def describe_guild_page_entry_points():
         resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert f"/announcements/propose/?guild={guild.pk}".encode() not in resp.content
 
-    def it_shows_the_view_public_button_to_an_editor_on_a_public_guild(client: Client):
+    def it_shows_the_view_public_button_to_an_editor_on_a_guild(client: Client):
         _member("ed1", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory(name="Public View Guild", is_public=True)
+        guild = GuildFactory(name="Public View Guild")
         client.login(username="ed1", password="pass")
         resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"public page as a guest" in resp.content  # the button's title attribute
-
-    def it_hides_the_view_public_button_on_a_private_guild(client: Client):
-        _member("ed2", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory(name="Private View Guild", is_public=False)
-        client.login(username="ed2", password="pass")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert b"public page as a guest" not in resp.content

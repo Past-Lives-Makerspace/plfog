@@ -1,6 +1,6 @@
 {% comment %}
-Visual calendar for scheduling class sessions.
-Replaces the old formset row interface with a month-view grid.
+Inline scheduler for class sessions: pick a date + start time + duration, then
+"Add" appends it to the visible list below. Editing = Remove and Add again.
 Generates hidden inputs matching Django's inline formset naming convention.
 {% endcomment %}
 <div x-data="sessionCalendar({{ sessions_json }}, {{ initial_forms }})"
@@ -21,88 +21,46 @@ Generates hidden inputs matching Django's inline formset naming convention.
         </div>
     </template>
 
-    <p class="session-cal__hint">Click a day to add a session. Click a gold dot to edit or remove it.</p>
-
-    <!-- Calendar header -->
-    <div class="session-cal__header">
-        <button type="button" @click="prevMonth()" class="session-cal__nav-btn">&lsaquo;</button>
-        <span class="session-cal__month-label" x-text="monthLabel"></span>
-        <button type="button" @click="nextMonth()" class="session-cal__nav-btn">&rsaquo;</button>
-        <button type="button" @click="goToday()" class="session-cal__today-btn">Today</button>
-    </div>
-
-    <!-- Day-of-week headers + day grid -->
-    <div class="session-cal__grid">
-        <template x-for="d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']">
-            <div class="session-cal__dow" x-text="d"></div>
-        </template>
-
-        <template x-for="day in calendarDays" :key="day.dateStr">
-            <div class="session-cal__day"
-                 :class="{
-                     'session-cal__day--faded': !day.inMonth,
-                     'session-cal__day--today': day.isToday,
-                     'session-cal__day--selected': popoverOpen && popoverDate === day.dateStr,
-                 }"
-                 @click="openAddPopover(day.dateStr)">
-                <span class="session-cal__day-num" x-text="day.date.getDate()"></span>
-                <div class="session-cal__dots">
-                    <template x-for="s in sessionsOnDate(day.dateStr)" :key="s._key">
-                        <button type="button" class="session-cal__dot"
-                                @click.stop="openEditPopover(s._key)"
-                                :title="s.starts_at.slice(11) + ' – ' + s.ends_at.slice(11)"></button>
-                    </template>
-                </div>
-            </div>
-        </template>
-    </div>
-
-    <!-- Session list -->
-    <div class="session-cal__list" x-show="activeSessions.length > 0" x-transition>
-        <template x-for="s in activeSessions" :key="s._key">
-            <div class="session-cal__list-item" @click="openEditPopover(s._key)">
-                <span class="session-cal__list-date"
-                      x-text="new Date(s.starts_at).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'})"></span>
-                <span class="session-cal__list-time"
-                      x-text="new Date(s.starts_at).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'}) + ' – ' + new Date(s.ends_at).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})"></span>
-                <button type="button" @click.stop="deleteSession(s._key)"
-                        class="session-cal__list-remove" title="Remove">&times;</button>
-            </div>
-        </template>
-    </div>
-
-    <!-- Add/Edit popover -->
-    <div class="session-cal__popover" x-show="popoverOpen" x-transition @click.outside="closePopover()">
-        <div class="session-cal__popover-header">
-            <span x-text="popoverMode === 'add' ? 'Add Session' : 'Edit Session'"></span>
-            <button type="button" @click="closePopover()" class="session-cal__popover-close">&times;</button>
+    <!-- Add a session -->
+    <div class="session-cal__add">
+        <div class="session-cal__add-field">
+            <label class="session-cal__add-label" for="session-add-date">Date</label>
+            <input id="session-add-date" type="date" x-model="newDate" class="session-cal__input"
+                   @click="try { $event.currentTarget.showPicker() } catch (e) {}">
         </div>
-        <div>
-            <label class="session-cal__popover-label">Date</label>
-            <input type="date" x-model="popoverDate" class="session-cal__popover-input"
-                   @click="try { $event.currentTarget.showPicker() } catch (e) {}">
-
-            <label class="session-cal__popover-label">Start time</label>
-            <input type="time" x-model="popoverTime" class="session-cal__popover-input"
-                   @click="try { $event.currentTarget.showPicker() } catch (e) {}">
-
-            <label class="session-cal__popover-label">Duration</label>
-            <select x-model.number="popoverDuration" class="session-cal__popover-input">
+        <div class="session-cal__add-field">
+            <label class="session-cal__add-label" for="session-add-time">Start time</label>
+            <select id="session-add-time" x-model="newTime" class="session-cal__input">
+                <template x-for="opt in timeOptions" :key="opt.value">
+                    <option :value="opt.value" x-text="opt.label"></option>
+                </template>
+            </select>
+        </div>
+        <div class="session-cal__add-field">
+            <label class="session-cal__add-label" for="session-add-duration">Duration</label>
+            <select id="session-add-duration" x-model.number="newDuration" class="session-cal__input">
                 <template x-for="opt in durationOptions" :key="opt.value">
                     <option :value="opt.value" x-text="opt.label"></option>
                 </template>
             </select>
         </div>
-        <div class="session-cal__popover-actions">
-            <button type="button" @click="savePopover()"
-                    class="hub-btn hub-btn--sm hub-btn--primary"
-                    x-text="popoverMode === 'add' ? 'Add' : 'Update'"></button>
-            <template x-if="popoverMode === 'edit'">
-                <button type="button" @click="deleteSession(editingKey); closePopover()"
-                        class="hub-btn hub-btn--sm hub-btn--danger">Delete</button>
-            </template>
-            <button type="button" @click="closePopover()"
-                    class="hub-btn hub-btn--sm hub-btn--ghost">Cancel</button>
-        </div>
+        <button type="button" @click="addSession()"
+                class="hub-btn hub-btn--sm hub-btn--primary session-cal__add-btn"
+                :disabled="!newDate || !newTime">Add</button>
     </div>
+
+    <!-- Session list -->
+    <div class="session-cal__list" x-show="activeSessions.length > 0" x-transition>
+        <template x-for="s in activeSessions" :key="s._key">
+            <div class="session-cal__list-item">
+                <span class="session-cal__list-date"
+                      x-text="new Date(s.starts_at).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'})"></span>
+                <span class="session-cal__list-time"
+                      x-text="new Date(s.starts_at).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'}) + ' – ' + new Date(s.ends_at).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})"></span>
+                <button type="button" @click="deleteSession(s._key)"
+                        class="session-cal__list-remove" title="Remove">&times;</button>
+            </div>
+        </template>
+    </div>
+    <p class="session-cal__empty" x-show="activeSessions.length === 0">No dates added yet — add one above.</p>
 </div>

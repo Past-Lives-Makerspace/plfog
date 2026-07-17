@@ -999,6 +999,34 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # orientation.completed — a warm welcome to the guild's members when a newcomer finishes
+    # their orientation. In-app + Discord only (no email). The Discord body carries the guild
+    # URL as a plain link (an embed has no separate click target); the in-app row uses its
+    # ``url`` field instead, so its body stays clean.
+    "orientation.completed": EventCopy(
+        placeholders=("member_name", "guild_name", "guild_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "guild_name": "Metal Guild",
+            "guild_url": "https://pastlives.example/guilds/metal-guild/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Welcome {{ member_name }} to {{ guild_name }}!",
+                body_text=(
+                    "{{ member_name }} just completed their orientation. "
+                    "Say hello and give them a warm welcome to {{ guild_name }}."
+                ),
+            ),
+            Channel.DISCORD: ChannelCopy(
+                subject="Welcome {{ member_name }}!",
+                body_text=(
+                    "{{ member_name }} just completed their {{ guild_name }} orientation — "
+                    "please give them a warm welcome! {{ guild_url }}"
+                ),
+            ),
+        },
+    ),
 }
 
 

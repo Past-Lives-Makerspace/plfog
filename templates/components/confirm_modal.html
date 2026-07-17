@@ -8,6 +8,9 @@ Parameters (pass via {% include ... with %}):
   confirm_action_url   — required (plain-POST mode), form POST target
   confirm_button_text  — optional, button label (default: "Confirm")
   confirm_button_style — optional, "danger" (default) or "primary"
+  confirm_field_name   — optional (plain-POST mode), name of one hidden field to carry with
+  confirm_field_value    the POST (e.g. run_job=bill_tabs), so the teleported form — which posts
+                         OUTSIDE its trigger's form — can still reach a named handler.
 
   HTMX mode (optional — when confirm_hx_post is set, the confirm submits via HTMX
   instead of a full-page POST, so the view can return a toast + swap):
@@ -48,6 +51,7 @@ Parameters (pass via {% include ... with %}):
                 {% else %}
                 <form method="post" action="{{ confirm_action_url }}" style="flex:1;">
                     {% csrf_token %}
+                    {% if confirm_field_name %}<input type="hidden" name="{{ confirm_field_name }}" value="{{ confirm_field_value }}">{% endif %}
                     <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;">
                         {{ confirm_button_text|default:"Confirm" }}
                     </button>

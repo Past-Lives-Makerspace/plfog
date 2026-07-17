@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
+from django.core.management import call_command
 
 from airtable_sync.management.commands.airtable_pull import Command
+from core.factories import ScheduledJobStateFactory
+from core.models import ScheduledTaskRun
 from membership.models import Member
 from tests.membership.factories import MemberFactory, MembershipPlanFactory
 
@@ -64,3 +69,20 @@ def describe_upsert_member():
         assert results["updated"] == 1
         existing.refresh_from_db()
         assert existing.airtable_record_id == "recMATCH"
+
+
+@pytest.mark.django_db
+def describe_handle():
+    def it_records_a_run_and_pulls_when_enabled():
+        with patch.object(Command, "_pull") as mock_pull:
+            call_command("airtable_pull")
+        mock_pull.assert_called_once()
+        run = ScheduledTaskRun.objects.get(task_key="airtable_pull")
+        assert run.succeeded
+
+    def it_skips_and_does_not_record_when_paused():
+        ScheduledJobStateFactory(task_key="airtable_pull", enabled=False)
+        with patch.object(Command, "_pull") as mock_pull:
+            call_command("airtable_pull")
+        mock_pull.assert_not_called()
+        assert not ScheduledTaskRun.objects.filter(task_key="airtable_pull").exists()

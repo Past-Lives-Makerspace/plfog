@@ -17,6 +17,7 @@ from classes.factories import (
 )
 from classes.models import ClassOffering
 from membership.models import Member
+from tests.membership.factories import MemberContactFactory
 
 
 @pytest.fixture
@@ -96,11 +97,11 @@ def describe_public_list():
         assert '<div class="hs-n">1</div><div class="hs-l">Class</div>' in body
 
     def it_labels_the_grouping_as_guilds_not_categories(published_class, client):
-        # The "Categories → Guilds" relabel: hero stat label and filter copy read "Guild(s)".
+        # The "Categories → Guild Types" relabel: hero stat label and filter copy read "Guild Type(s)".
         response = client.get(reverse("classes:public_list"))
         body = response.content.decode()
-        assert '<div class="hs-l">Guilds</div>' in body
-        assert "All guilds" in body
+        assert '<div class="hs-l">Guild Types</div>' in body
+        assert "All Guild Types" in body
         assert '<div class="hs-l">Categories</div>' not in body
         assert "All categories" not in body
 
@@ -684,13 +685,13 @@ def describe_catalog_grouping():
 
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": first.slug}))
 
-        assert b"Other dates for this class" in response.content
+        assert b"Other Dates for This Class" in response.content
         assert b"forge-b" in response.content
 
     def it_omits_other_dates_when_a_class_stands_alone(published_class, client):
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
 
-        assert b"Other dates for this class" not in response.content
+        assert b"Other Dates for This Class" not in response.content
 
     def it_skips_sibling_lookup_when_the_grouping_key_is_blank(db, client):
         # A title-less offering yields an empty grouping key and must stand alone
@@ -714,7 +715,7 @@ def describe_catalog_grouping():
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
 
         assert response.status_code == 200
-        assert b"Other dates for this class" not in response.content
+        assert b"Other Dates for This Class" not in response.content
 
 
 def describe_public_instructor():
@@ -730,6 +731,39 @@ def describe_public_instructor():
         assert response.status_code == 200
         assert b"Deenie" in response.content
         assert b"Intro to Wheel Throwing" in response.content
+
+    def it_renders_the_instructor_bio_not_the_directory_bio(db, client):
+        instructor = InstructorFactory(
+            full_legal_name="Sadie",
+            instructor_slug="sadie",
+            about_me="Member directory blurb",
+            instructor_bio="I teach glass blowing.",
+        )
+        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.instructor_slug}))
+        assert b"I teach glass blowing." in response.content
+        assert b"Member directory blurb" not in response.content
+
+    def it_renders_only_contacts_flagged_for_the_instructor_page(db, client):
+        instructor = InstructorFactory(full_legal_name="Wes", instructor_slug="wes")
+        MemberContactFactory(
+            member=instructor,
+            label="Portfolio",
+            value="https://wes.example",
+            show_on_instructor_page=True,
+            show_in_directory=False,
+        )
+        MemberContactFactory(
+            member=instructor,
+            label="PrivateNote",
+            value="secret@example.com",
+            show_on_instructor_page=False,
+            show_in_directory=True,
+        )
+        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.instructor_slug}))
+        content = response.content.decode()
+        assert "Portfolio" in content
+        assert 'href="https://wes.example"' in content
+        assert "PrivateNote" not in content
 
 
 def describe_google_analytics_gate():

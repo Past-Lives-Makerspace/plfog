@@ -503,6 +503,118 @@ a:hover { color: var(--hub-link-hover); }
    the shared amber/red pills need a darker text on the light theme to stay readable. */
 [data-theme="light"] .pl-proposals .hub-pill--warn { color: #9a6a00; }
 [data-theme="light"] .pl-proposals .hub-pill--danger { color: #b03030; }
+
+/* ========================================
+   Automations dashboard (Site Settings → Automations)
+   A card list of scheduled jobs: grid on desktop, stacked with per-region labels on mobile.
+   Status is shown with the shared .hub-pill--* family (no new colored pill classes); only
+   layout is new here. Colors come from theme tokens — verified in Obsidian + Slate.
+   ======================================== */
+.pl-automation-callout {
+    margin: 0;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--hub-card-border);
+    border-left: 3px solid var(--color-tuscan-yellow);
+    border-radius: 6px;
+    background: var(--hub-card-bg);
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+.pl-automation-callout a { color: var(--color-tuscan-yellow); font-weight: 600; }
+
+.pl-automation-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-automation-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 8px;
+    background: var(--hub-card-bg);
+}
+.pl-automation-card--paused { opacity: 0.62; }
+
+.pl-automation-main { min-width: 0; }
+.pl-automation-name {
+    font-weight: 700;
+    color: var(--hub-text);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.pl-automation-desc { color: var(--hub-text-muted); font-size: 0.85rem; margin-top: 0.15rem; }
+.pl-automation-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    background: rgba(224, 85, 85, 0.16);
+    color: #f0a0a0;
+}
+.pl-automation-paused { color: var(--hub-text-muted); font-size: 0.8rem; font-style: italic; margin-top: 0.35rem; }
+
+.pl-automation-cell { display: flex; flex-direction: column; gap: 0.3rem; align-items: flex-start; }
+.pl-automation-cell-label {
+    display: none; /* revealed only in the stacked mobile layout */
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--hub-text-muted);
+}
+.pl-automation-schedule { color: var(--hub-text); font-size: 0.85rem; white-space: nowrap; }
+.pl-automation-lastrun { display: flex; flex-direction: column; gap: 0.2rem; }
+.pl-automation-time { color: var(--hub-text-muted); font-size: 0.78rem; }
+.pl-automation-error {
+    color: #f0a0a0;
+    font-size: 0.75rem;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pl-automation-run { align-items: flex-end; }
+
+/* Legacy-CMS clarity sub-block spans the full card width below the five regions. */
+.pl-automation-subblock {
+    grid-column: 1 / -1;
+    margin-top: 0.5rem;
+    padding-top: 0.85rem;
+    border-top: 1px dashed var(--hub-card-border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-start;
+}
+.pl-automation-subnote { margin: 0; color: var(--hub-text-muted); font-size: 0.82rem; }
+.pl-automation-subnote--off { color: #f0a0a0; font-weight: 600; }
+.pl-automation-subblock code { font-size: 0.8rem; }
+
+/* Light-mode (Slate) legibility for the shared pills used inside the cards — mirrors the
+   scoped overrides added for the invite list / members table above. */
+[data-theme="light"] .pl-automation-card .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-automation-card .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-automation-card .hub-pill--danger { color: #b03030; }
+[data-theme="light"] .pl-automation-card .hub-pill--warn { color: #9a6a00; }
+[data-theme="light"] .pl-automation-card .pl-automation-error,
+[data-theme="light"] .pl-automation-subnote--off { color: #b03030; }
+[data-theme="light"] .pl-automation-badge { background: rgba(224, 85, 85, 0.12); color: #b03030; }
+
+@media (max-width: 640px) {
+    .pl-automation-card {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+        gap: 0.75rem;
+    }
+    .pl-automation-cell-label { display: block; }
+    .pl-automation-run { align-items: stretch; margin-top: 0.75rem; }
+    .pl-automation-run .hub-btn { width: 100%; text-align: center; }
+    .pl-automation-error { max-width: 100%; white-space: normal; }
+}
 @media (max-width: 640px) {
     .pl-invite-row__actions {
         width: 100%;
@@ -3046,6 +3158,10 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-profile-section__title { font-size: 1rem; font-weight: 700; margin: 0 0 0.5rem; }
 .pl-commission-note { display: block; margin-top: 0.5rem; }
 
+/* Profile settings — "Edit your profile" heading + Member/Instructor sub-tabs */
+.pl-profile-heading { font-size: 1.25rem; font-weight: 700; margin: 0 0 1rem; color: var(--hub-text); }
+.pl-subtabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+
 /* ========================================
    Member Home / Dashboard
    ======================================== */
@@ -3400,6 +3516,11 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     display: flex;
     gap: 0.75rem;
     flex-wrap: wrap;
+}
+
+/* Printable-flyer button sits just below the Share & Print card in the edit-page aside. */
+.pl-qr-share__flyer {
+    margin-top: 0.75rem;
 }
 
 /* Class-edit 6/6 split: identity fields (title, slug, category, instructor) on the left,
@@ -4253,3 +4374,18 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 @media (max-width: 640px) {
     .pl-slideshow-daterow { flex-direction: column; }
 }
+
+/* Guild announcement reach — collapsible recipient list (guild edit → Announcements tab) */
+.pl-recipient-list {
+  margin-top: 0.75rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--hub-input-border);
+  border-radius: 6px;
+  background: var(--hub-surface);
+  color: var(--hub-text);
+}
+.pl-recipient-list ul { margin: 0; padding-left: 1.1rem; }
+.pl-recipient-list li { overflow-wrap: anywhere; word-break: break-all; line-height: 1.5; }

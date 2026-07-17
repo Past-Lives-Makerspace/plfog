@@ -25,6 +25,11 @@ urlpatterns = [
         views.guild_orientation_hours_save,
         name="hub_guild_orientation_hours_save",
     ),
+    path(
+        "guilds/<int:pk>/studio-hours/save/",
+        views.guild_studio_hours_save,
+        name="hub_guild_studio_hours_save",
+    ),
     path("guilds/<int:pk>/staff/add/", views.guild_staff_add, name="hub_guild_staff_add"),
     path(
         "guilds/<int:pk>/staff/<int:staff_pk>/remove/",

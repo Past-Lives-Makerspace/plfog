@@ -29,7 +29,7 @@
       {% include "components/form_field.html" with field=form.ends_at %}
       {% include "components/form_field.html" with field=form.location field_hint="A room, address, or video link. Optional." %}
       {% include "components/form_field.html" with field=form.description field_hint="Optional details for members." %}
-      {% include "components/form_field.html" with field=form.recurrence field_hint="A monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
+      {% include "components/form_field.html" with field=form.recurrence field_hint="A weekly event repeats on the same weekday; a monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
     </div>
 
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">

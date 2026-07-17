@@ -16,6 +16,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, QuerySet
+from django.forms import BaseInlineFormSet
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -34,10 +35,12 @@ from hub.forms import (
     GuildEditForm,
     GuildRoleFormSet,
     MemberAdminEditForm,
+    MemberContactFormSet,
     MemberSkillForm,
     OrgInfoPageForm,
     ProfileSettingsForm,
     ReleaseAnnouncementForm,
+    ScheduledJobStateFormSet,
     SiteSettingsForm,
     SkillSuggestionForm,
     SlideshowSlideFormSet,
@@ -46,7 +49,16 @@ from hub.forms import (
 )
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
-from membership.models import FundingSnapshot, Guild, Member, OrgInfoPage, Skill, SkillCategory, VotePreference
+from membership.models import (
+    FundingSnapshot,
+    Guild,
+    Member,
+    MemberContact,
+    OrgInfoPage,
+    Skill,
+    SkillCategory,
+    VotePreference,
+)
 from membership.ical import ical_escape
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
@@ -330,6 +342,11 @@ def member_directory(request: HttpRequest) -> HttpResponse:
             ),
             "guild_memberships__guild",
             "skills__skill__category",
+            Prefetch(
+                "contacts",
+                queryset=MemberContact.objects.filter(show_in_directory=True),
+                to_attr="visible_contacts",
+            ),
         )
         .order_by("full_legal_name")
     )
@@ -475,19 +492,16 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     from billing.models import Product
 
     guild = get_object_or_404(
-        Guild.objects.select_related("featured_class__instructor").prefetch_related("products__splits__guild"),
+        Guild.objects.select_related("featured_class__instructor").prefetch_related(
+            "products__splits__guild",
+            # Feeds Guild.studio_hours_display() + next_meeting_occurrence() from one cache (no N+1).
+            "events",
+        ),
         slug=slug,
     )
     ctx = _get_hub_context(request)
     products = guild.products.order_by("name").prefetch_related("splits__guild")
     member = _get_member(request)
-
-    # A private guild is hidden from the public guest surface entirely: it 404s for
-    # anyone who isn't a logged-in member viewing it inside the FOG hub. Members on the
-    # members host always see the page — visibility is never gated on is_public there.
-    on_guest_surface = getattr(request, "surface", "members") != "members"
-    if not guild.is_public and (on_guest_surface or member is None):
-        raise Http404("This guild's page is private.")
 
     tab: Tab | None = None
     if member is not None:
@@ -511,7 +525,11 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
 
     gallery_images = guild.gallery_images.all()
     faq_items = guild.faq_items.all()
-    links = guild.links.all()
+    # Prepend the always-present, virtual "[Guild] Classes" link so it leads the Links card.
+    # Only here in the detail view — never in the edit Links formset (which iterates
+    # guild.links directly), so it's structurally non-editable and non-deletable.
+    guilds_surface = getattr(request, "surface", "members") == "guilds"
+    links = [guild.classes_link(guilds_surface=guilds_surface), *guild.links.all()]
     announcements = guild.announcements.published().active()[:5]
     meeting_notes = guild.meeting_notes.prefetch_related("attachments")
     # Gate the roster on the viewer, not just the guild opt-in: an anonymous guest
@@ -651,6 +669,7 @@ def _guild_edit_context(
     orientation_form: Any = None,
     emails_form: Any = None,
     rule_formset: Any = None,
+    studio_hours_formset: Any = None,
 ) -> dict[str, Any]:
     """Build the full render context for the guild edit page (all nine in-page tabs).
 
@@ -667,14 +686,18 @@ def _guild_edit_context(
         GuildOrientationSettingsForm,
         GuildStaffAddForm,
         OrientationAvailabilityFormSet,
+        StudioHoursFormSet,
     )
     from membership.models import GuildOrientationSettings
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     ctx = _get_hub_context(request)
+    recipients = guild.announcement_recipients()
     return {
         **ctx,
         "guild": guild,
+        "announcement_recipient_count": len(recipients),
+        "announcement_recipient_emails": sorted(user.email for user, _reason in recipients),
         "form": form if form is not None else GuildEditForm(instance=guild),
         "faq_formset": GuildFAQItemFormSet(instance=guild, prefix="faq"),
         "link_formset": GuildLinkFormSet(instance=guild, prefix="links"),
@@ -683,7 +706,15 @@ def _guild_edit_context(
         "is_admin": _viewing_as_admin(request),
         "google_sync_enabled": _google_sync_enabled(),
         "notes": guild.meeting_notes.prefetch_related("attachments"),
-        "events": guild.events.upcoming().select_related("guild"),
+        # Studio hours have their own Meetings-tab editor, so the Events tab lists only meetings.
+        "events": guild.events.meetings().upcoming().select_related("guild"),
+        "studio_hours_formset": (
+            studio_hours_formset
+            if studio_hours_formset is not None
+            else StudioHoursFormSet(
+                queryset=guild.events.studio_hours(), prefix="studio_hours", form_kwargs={"guild": guild}
+            )
+        ),
         "orientation_form": (
             orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
         ),
@@ -827,6 +858,45 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
 
     ctx = _guild_edit_context(request, guild, rule_formset=formset)
+    return render(request, "hub/guild_edit.html", ctx)
+
+
+@login_required
+@require_POST
+def guild_studio_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the weekly Studio Hours from their own form on the Studio Hours tab.
+
+    The studio-hours list editor is its own ``<form>`` (outside the main guild form, like the
+    FAQ/Links/recurring-hours editors), so it saves independently. Each row is a WEEKLY,
+    PUBLIC-targeted ``STUDIO_HOURS`` :class:`CommunityEvent`; the form does the translation.
+    Deleted rows are removed from Google *before* the FOG row is gone; saved rows are mirrored to
+    the Public calendar best-effort (a Google outage never blocks the save). Editor-gated.
+    """
+    from hub.forms import StudioHoursFormSet
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    formset = StudioHoursFormSet(
+        request.POST,
+        queryset=guild.events.studio_hours(),
+        prefix="studio_hours",
+        form_kwargs={"guild": guild},
+    )
+    if formset.is_valid():
+        for form in formset.deleted_forms:
+            if form.instance.pk:
+                form.instance.remove_from_google()  # best-effort; must run before the row is deleted
+                form.instance.remove_from_discord()  # no-op for studio hours; keeps the delete paths parallel
+        saved = formset.save()  # creates/updates the kept rows, deletes the flagged ones
+        for event in saved:
+            event.push_to_google()  # best-effort, gated — mirrors the row to the Public calendar
+            event.push_to_discord()  # no-op for studio hours (never a Scheduled Event)
+        messages.success(request, "Studio hours saved.")
+        return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=studio_hours")
+
+    ctx = _guild_edit_context(request, guild, studio_hours_formset=formset)
     return render(request, "hub/guild_edit.html", ctx)
 
 
@@ -1453,27 +1523,34 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     member = _get_member(request)
 
     profile_form: ProfileSettingsForm | None
+    contact_formset: BaseInlineFormSet | None
     if request.method == "POST" and request.POST.get("form_id") == "profile":
         if member is None:
             messages.error(request, "Your account is not linked to a membership.")
             return redirect("hub_user_settings")
         profile_form = ProfileSettingsForm(request.POST, request.FILES, instance=member)
-        if profile_form.is_valid():
+        contact_formset = MemberContactFormSet(request.POST, instance=member, prefix="contacts")
+        contacts_ok = contact_formset.is_valid()
+        if profile_form.is_valid() and contacts_ok:
             profile_form.save()
+            contact_formset.save()
             _log_profile_updated(cast(User, request.user), member)
             messages.success(request, "Profile updated.")
             return redirect(f"{request.path}?tab=profile")
-        if profile_form.has_only_photo_errors:
+        if profile_form.has_only_photo_errors and contacts_ok:
             # A rejected photo (too large / not an image) must never discard the member's
             # other edits — save everything except the photo and flag just the photo.
             profile_form.save_keeping_existing_photo()
+            contact_formset.save()
             _log_profile_updated(cast(User, request.user), member)
             messages.warning(request, f"Your profile was saved, but the new photo wasn't: {profile_form.photo_error}")
             return redirect(f"{request.path}?tab=profile")
     elif member is not None:
         profile_form = ProfileSettingsForm(instance=member)
+        contact_formset = MemberContactFormSet(instance=member, prefix="contacts")
     else:
         profile_form = None
+        contact_formset = None
 
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
     if request.method == "POST" and request.POST.get("form_id") == "notifications":
@@ -1514,6 +1591,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             **ctx,
             "member": member,
             "profile_form": profile_form,
+            "contact_formset": contact_formset,
             "skill_categories": _skill_categories_with_approved(),
             "add_email_form": add_email_form,
             "email_addresses": email_addresses,
@@ -2693,6 +2771,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
                 event.schedule_or_go_live(actor=request.user)
             elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
                 event.push_to_google(actor=request.user)
+                event.push_to_discord(actor=request.user)
             if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
                 messages.success(request, f"Event scheduled for {event.publish_at_display}.")
             else:
@@ -2728,6 +2807,7 @@ def guild_event_delete(request: HttpRequest, pk: int, event_pk: int) -> HttpResp
         return forbidden
     event = get_object_or_404(CommunityEvent, pk=event_pk, guild=guild)
     event.remove_from_google()  # best-effort; must run before the FOG row is gone
+    event.remove_from_discord()  # best-effort; must run before the FOG row is gone
     event.delete()
     messages.success(request, "Event deleted.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
@@ -2759,6 +2839,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
                 event.schedule_or_go_live(actor=request.user)
             elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
                 event.push_to_google(actor=request.user)
+                event.push_to_discord(actor=request.user)
             if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
                 messages.success(request, f"Event scheduled for {event.publish_at_display}.")
             else:
@@ -2786,6 +2867,7 @@ def event_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
         return forbidden
     event = get_object_or_404(CommunityEvent, pk=event_pk)
     event.remove_from_google()  # best-effort; must run before the FOG row is gone
+    event.remove_from_discord()  # best-effort; must run before the FOG row is gone
     event.delete()
     messages.success(request, "Event deleted.")
     return redirect(reverse("hub_community_calendar") + "?tab=events")
@@ -3014,6 +3096,7 @@ def event_retry_sync(request: HttpRequest, pk: int) -> HttpResponse:
         return forbidden
     event = get_object_or_404(CommunityEvent, pk=pk)
     event.push_to_google()
+    event.push_to_discord()  # self-gates off / no-op for studio hours
     if event.sync_state == CommunityEvent.SyncState.SYNCED:
         messages.success(request, "Event synced to Google Calendar.")
     elif event.sync_state == CommunityEvent.SyncState.FAILED:
@@ -4439,9 +4522,102 @@ def _discord_editor_querysets() -> tuple[Any, Any]:
     return DiscordGuildEmoji.objects.all(), Guild.objects.filter(is_active=True).order_by("name")
 
 
+def _automation_jobstate_queryset() -> Any:
+    """State rows for the toggleable jobs — non-toggleable ``bill_tabs`` is Run-now only, so it
+    has no editable toggle (Decision 2). Seeds any missing rows first so the formset always has
+    one to bind (feeds pattern; the panel is always in the DOM)."""
+    from core.models import ScheduledJobState
+    from core.scheduled_jobs import SCHEDULED_JOBS
+
+    ScheduledJobState.objects.sync_registry()
+    toggleable_keys = [job.key for job in SCHEDULED_JOBS if job.toggleable]
+    return ScheduledJobState.objects.filter(task_key__in=toggleable_keys)
+
+
+def _build_automation_rows(formset: Any) -> list[dict[str, Any]]:
+    """Pair every registry job with its bound toggle form (matched by ``task_key``, never by
+    position — §11 #4) and its latest run, so the Automations panel loops once."""
+    from core.models import ScheduledTaskRun
+    from core.scheduled_jobs import SCHEDULED_JOBS
+
+    forms_by_key = {form.instance.task_key: form for form in formset.forms}
+    latest = ScheduledTaskRun.objects.latest_per_task()
+    return [{"job": job, "form": forms_by_key.get(job.key), "last_run": latest.get(job.key)} for job in SCHEDULED_JOBS]
+
+
+def _bind_jobstate_formset(request: HttpRequest) -> tuple[Any, bool]:
+    """Bind the Automations toggle formset when its management form is posted, else build an
+    unbound one over the synced rows. Returns ``(formset, was_posted)``."""
+    queryset = _automation_jobstate_queryset()
+    if "jobstates-TOTAL_FORMS" in request.POST:
+        return ScheduledJobStateFormSet(request.POST, queryset=queryset, prefix="jobstates"), True
+    return ScheduledJobStateFormSet(queryset=queryset, prefix="jobstates"), False
+
+
+def _save_jobstate_formset(formset: Any, was_posted: bool) -> None:
+    """Save the Automations toggles independently of the main settings save, so a jobstate issue
+    can never block another tab from saving (§11 #11)."""
+    if was_posted and formset.is_valid():
+        formset.save()
+
+
+def _resolve_automation_context(bound_formset: Any) -> tuple[list[dict[str, Any]], Any]:
+    """The Automations tab context: reuse a bound formset from a failed save (preserving typed
+    toggle state), else a fresh one over the synced rows. Returns ``(rows, formset)``."""
+    formset = bound_formset or ScheduledJobStateFormSet(queryset=_automation_jobstate_queryset(), prefix="jobstates")
+    return _build_automation_rows(formset), formset
+
+
+def _persist_automation_toggles(request: HttpRequest, config: Any) -> None:
+    """Persist the Automations-tab toggle edits that ride along a Run-now POST (Decision 7):
+    clicking Run now must not silently discard an unsaved toggle flip.
+
+    Explicitly saves ONLY the Automations toggles — the per-job jobstate formset and the
+    legacy-CMS-sync checkbox — never the full ``SiteSettingsForm``. The run_job path must not
+    write the settings singleton: the bill_tabs confirm modal posts only ``run_job`` + csrf (no
+    management form), so the ``jobstates-TOTAL_FORMS`` marker is absent and this is a no-op; an
+    Automations run-now posts the shared form but we persist just its toggles and ignore every
+    other field. Never blocks or messages."""
+    if "jobstates-TOTAL_FORMS" not in request.POST:
+        return
+    formset = ScheduledJobStateFormSet(request.POST, queryset=_automation_jobstate_queryset(), prefix="jobstates")
+    if formset.is_valid():
+        formset.save()
+    # The legacy CMS sync toggle sits on the same Automations form — persist just that one
+    # checkbox field (present = on) without binding or writing the rest of the singleton.
+    config.legacy_cms_sync_enabled = "legacy_cms_sync_enabled" in request.POST
+    config.save(update_fields=["legacy_cms_sync_enabled"])
+
+
+def _handle_run_job(request: HttpRequest, config: Any) -> HttpResponse:
+    """Run one scheduled job now (Decision 1/4/7). Resolves the job from the registry — an unknown
+    key errors with no dispatch — persists any unsaved toggle edits first, then runs the command
+    with NO ``--force`` inside ``record_run``. A raising command becomes a FAILED run + an error
+    message, never a 500 (mirrors the legacy ``sync_now`` handler)."""
+    from django.core.management import call_command
+
+    from core.scheduled_jobs import JOBS_BY_KEY, Trigger, record_run
+
+    key = request.POST.get("run_job", "")
+    redirect_url = f"{reverse('hub_admin_site_settings')}?tab=automations"
+    job = JOBS_BY_KEY.get(key)
+    if job is None:
+        messages.error(request, f"Unknown automation '{key}'.")
+        return redirect(redirect_url)
+
+    _persist_automation_toggles(request, config)
+    try:
+        with record_run(job.key, trigger=Trigger.MANUAL, actor=request.user if request.user.is_authenticated else None):
+            call_command(job.command)
+        messages.success(request, f"Ran {job.name}.")
+    except Exception as exc:  # noqa: BLE001 — surface any command failure as a message, never a 500
+        messages.error(request, f"Ran {job.name} — failed: {exc}")
+    return redirect(redirect_url)
+
+
 def _save_site_settings(
     request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
-) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any]:
+) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any, Any]:
     """Bind + save the settings form, calendar formset, and (Discord tab only) the emoji
     map + per-guild role formsets. Returns ``(redirect_or_none, form, feed_formset,
     emoji_formset, role_formset)``.
@@ -4455,6 +4631,10 @@ def _save_site_settings(
     is_discord = request.POST.get("submitted_tab") == "discord"
     form = SiteSettingsForm(request.POST, instance=config)
     feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
+    # The Automations toggle formset rides the shared form (its panel is always in the DOM). Bind
+    # it when posted; it's saved independently below so a jobstate hiccup can never block another
+    # tab's save (§11 #11).
+    jobstate_formset, jobstate_posted = _bind_jobstate_formset(request)
     if is_discord:
         emoji_formset = DiscordGuildEmojiFormSet(request.POST, queryset=emoji_queryset, prefix="emoji")
         role_formset = GuildRoleFormSet(request.POST, queryset=role_queryset, prefix="guildroles")
@@ -4483,6 +4663,7 @@ def _save_site_settings(
                     continue
                 emoji_inst.save()
             role_formset.save()
+        _save_jobstate_formset(jobstate_formset, jobstate_posted)
         messages.success(request, "Site settings saved.")
         target_tab = request.POST.get("submitted_tab", active_tab)
         return (
@@ -4491,8 +4672,9 @@ def _save_site_settings(
             feed_formset,
             emoji_formset,
             role_formset,
+            jobstate_formset,
         )
-    return None, form, feed_formset, emoji_formset, role_formset
+    return None, form, feed_formset, emoji_formset, role_formset, jobstate_formset
 
 
 @fog_admin_required
@@ -4500,21 +4682,33 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     """Admin site settings — edit the SiteConfiguration singleton and its calendar feeds.
 
     Tabs: ``general``, ``calendar``, ``legacy-cms``, ``features`` (the My Tab/Payments
-    and class-registration kill switches), and ``announcements`` (a sitewide announcement
-    composer with a preview-then-send step). The Calendar tab owns a ``CalendarFeedFormSet``
-    so admins can add/remove iCal feeds inline.
+    and class-registration kill switches), ``automations`` (the scheduled-job dashboard —
+    ON/OFF toggles + Run now, from the shared job registry), and ``announcements`` (a
+    sitewide announcement composer with a preview-then-send step). The Calendar tab owns a
+    ``CalendarFeedFormSet`` so admins can add/remove iCal feeds inline.
     """
     from core.models import CalendarFeed, SiteConfiguration
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
-    if active_tab not in {"general", "calendar", "legacy-cms", "announcements", "features", "discord", "slideshow"}:
+    allowed_tabs = {
+        "general",
+        "calendar",
+        "legacy-cms",
+        "automations",
+        "announcements",
+        "features",
+        "discord",
+        "slideshow",
+    }
+    if active_tab not in allowed_tabs:
         active_tab = "general"
 
     feed_queryset = CalendarFeed.objects.all()
     release_mode = False
     release_form: ReleaseAnnouncementForm | None = None
     release_preview: dict[str, object] | None = None
+    jobstate_formset: Any = None
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -4529,6 +4723,12 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"Sync failed: {exc}")
             url = reverse("hub_admin_site_settings")
             return redirect(f"{url}?tab=legacy-cms")
+
+        # Automations "Run now" — a named submitter on the shared form (generic buttons) or the
+        # teleported bill_tabs confirm modal (carries run_job as a hidden field). Handled before
+        # the settings-form save, like sync_now; it persists toggle edits then runs (Decision 1/7).
+        if "run_job" in request.POST:
+            return _handle_run_job(request, config)
 
         # Announcements tab — the Release composer (preview-then-send), separate from the
         # settings form. The plain sitewide composer moved to the /announcements/compose/
@@ -4546,7 +4746,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
                 return response
             # else fall through to render (preview, or send with validation errors)
         else:
-            response, form, feed_formset, emoji_formset, role_formset = _save_site_settings(
+            response, form, feed_formset, emoji_formset, role_formset, jobstate_formset = _save_site_settings(
                 request, config, feed_queryset, active_tab
             )
             if response is not None:
@@ -4568,6 +4768,11 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
 
     zone_formset = SlideshowZoneFormSet(queryset=SlideshowZone.objects.all(), prefix="zones")
     slide_formset = SlideshowSlideFormSet(queryset=SlideshowSlide.objects.all(), prefix="slides")
+
+    # Automations tab: reuse the bound formset from a failed save (preserves typed toggle state),
+    # else build a fresh one over the synced rows. Rows pair each registry job with its form + last run.
+    automation_rows, jobstate_formset = _resolve_automation_context(jobstate_formset)
+
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -4590,6 +4795,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "release_mode": release_mode,
             "release_form": release_form,
             "release_preview": release_preview,
+            "automation_rows": automation_rows,
+            "jobstate_formset": jobstate_formset,
         },
     )
 

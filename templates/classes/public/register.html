@@ -168,7 +168,7 @@
 
           {% if offering.requires_model_release %}
           <div class="reg-waiver">
-            <h3>Model Release</h3>
+            <h3>Photo Release</h3>
             <div class="reg-waiver-text">{{ settings_obj.model_release_waiver_text }}</div>
             <div class="reg-field">
               <label for="{{ form.model_release_signature.id_for_label }}">Type your full name to sign</label>
@@ -177,14 +177,14 @@
             </div>
             <label class="reg-check" style="margin-top:8px">
               {{ form.accepts_model_release }}
-              <span>I have read and agree to the model release above.</span>
+              <span>I have read and agree to the photo release above.</span>
             </label>
             {% if form.accepts_model_release.errors %}<ul class="reg-errors">{% for e in form.accepts_model_release.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
           </div>
           {% endif %}
 
           <button type="submit" class="btn-reg" style="margin-top:8px">
-            {% if offering.price_cents == 0 %}Confirm Registration{% else %}Continue to Payment — {{ offering.price_cents|cents_as_price }}{% endif %}
+            {% if offering.price_cents == 0 %}Confirm Registration{% else %}Next — {{ offering.price_cents|cents_as_price }}{% endif %}
           </button>
           <div class="reg-help" style="text-align:center">Payment is processed securely by Stripe. We never see your card details.</div>
         </form>

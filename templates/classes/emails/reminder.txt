@@ -1,16 +1,16 @@
-Hi {{ registration.first_name }},
+{% load rich_text %}Hi {{ registration.first_name }},
 
 This is a reminder that your class "{{ offering.title }}" starts on {{ session.starts_at|date:"l, F j" }} at {{ session.starts_at|time:"g:i A" }}.
 
 Location: Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202
 {% if offering.welcome_email_ready %}
 A note from your instructor:
-{{ offering.welcome_email_body }}
+{{ offering.welcome_email_body|rich_email_text }}
 {% endif %}
 Full class details (what to bring, parking, and more):
 {{ class_url }}
 
-Manage your registration (or cancel):
+Manage your registration:
 {{ self_serve_url }}
 
 See you soon!

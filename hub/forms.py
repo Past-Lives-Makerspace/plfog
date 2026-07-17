@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import time
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
 from core.html_sanitize import sanitize_rich_html
-from core.models import CalendarFeed, SiteConfiguration
+from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
 from core.widgets import RichTextEditorWidget
 from membership.models import (
     CommunityEvent,
@@ -28,6 +28,7 @@ from membership.models import (
     GuildMeetingNoteAttachment,
     GuildOrientationSettings,
     Member,
+    MemberContact,
     MemberSkill,
     OrgFAQItem,
     OrgInfoPage,
@@ -49,10 +50,44 @@ def _meeting_time_label(hour24: int, minute: int) -> str:
     return f"{hour12}:{minute:02d} {suffix}"
 
 
+def half_hour_time_choices(required: bool) -> list[tuple[str, str]]:
+    """Half-hour time-of-day slots, 6:00 AM–9:30 PM, as ("HH:MM", "6:00 AM") pairs.
+
+    The one blessed source for every time-of-day picker (Rule 19: plain half-hour
+    ``<select>``, never a per-minute ``type="time"`` input). A leading blank option is
+    included only for optional fields.
+    """
+    slots = [
+        (f"{hour:02d}:{minute:02d}", _meeting_time_label(hour, minute)) for hour in range(6, 22) for minute in (0, 30)
+    ]
+    return slots if required else [("", "—"), *slots]
+
+
+def _parse_time_choice(value: str) -> time:
+    """Parse an "HH:MM" half-hour choice into a ``datetime.time``."""
+    hour_str, minute_str = value.split(":")
+    return time(int(hour_str), int(minute_str))
+
+
+def _seed_time_choice(form: forms.BaseForm, name: str, value: time) -> None:
+    """Select ``value`` in a half-hour ``<select>``, preserving an off-grid legacy time.
+
+    Real data may hold a :15 time from before the half-hour dropdowns; append it as its
+    own option and seed it as the field/form initial so it round-trips untouched until the
+    user picks a new time. Writing the form-level initial too makes it win over a
+    ModelForm's instance-derived value.
+    """
+    field = cast(forms.ChoiceField, form.fields[name])
+    key = value.strftime("%H:%M")
+    choices = cast("list[tuple[str, str]]", field.choices)
+    if key not in {choice_value for choice_value, _ in choices}:
+        field.choices = [*choices, (key, _meeting_time_label(value.hour, value.minute))]
+    field.initial = key
+    form.initial[name] = key
+
+
 # Preset meeting times on the half hour, 6:00 AM through 9:30 PM — one easy dropdown.
-_MEETING_TIME_CHOICES: list[tuple[str, str]] = [("", "—")] + [
-    (f"{hour:02d}:{minute:02d}", _meeting_time_label(hour, minute)) for hour in range(6, 22) for minute in (0, 30)
-]
+_MEETING_TIME_CHOICES: list[tuple[str, str]] = half_hour_time_choices(required=False)
 
 
 class GuildEditForm(forms.ModelForm):
@@ -71,15 +106,6 @@ class GuildEditForm(forms.ModelForm):
         choices=_WEEK_CHOICES, coerce=int, required=False, empty_value=None, label="Week of month"
     )
     meeting_time_choice = forms.ChoiceField(choices=_MEETING_TIME_CHOICES, required=False, label="Meeting time")
-    # Stored in the positive ``is_public`` sense on the model; presented to leads as the
-    # inverse ("make private") so the checked = hidden mental model matches the label.
-    make_private = forms.BooleanField(
-        required=False,
-        label="Make this guild page private?",
-        help_text=(
-            "When on, this guild's page is hidden from the public guilds site — members can still see it in the hub."
-        ),
-    )
 
     class Meta:
         model = Guild
@@ -209,10 +235,6 @@ class GuildEditForm(forms.ModelForm):
         # empty never blocks a save of the rest of the form.
         self.fields["faq_label"].required = False
 
-        # Seed the "make private" checkbox from the stored (positive) is_public value.
-        if self.instance and self.instance.pk:
-            self.fields["make_private"].initial = not self.instance.is_public
-
         featured = cast(forms.ModelChoiceField, self.fields["featured_class"])
         if self.instance and self.instance.pk:
             featured.queryset = ClassOffering.objects.filter(
@@ -241,8 +263,6 @@ class GuildEditForm(forms.ModelForm):
             guild.meeting_time = time(int(hour_str), int(minute_str))
         else:
             guild.meeting_time = None
-        # "Make private" is the inverse of the stored positive is_public flag.
-        guild.is_public = not self.cleaned_data.get("make_private", False)
         if commit:
             guild.save()
         return guild
@@ -325,20 +345,17 @@ class ProfileSettingsForm(forms.ModelForm):
             "pronouns",
             "phone",
             "discord_handle",
-            "other_contact_info",
             "about_me",
             "profile_photo",
             "show_in_directory",
             "open_for_commissions",
             "commission_note",
-            "instructor_website",
-            "instructor_social_handle",
+            "instructor_bio",
         ]
         widgets = {
-            "preferred_name": forms.TextInput(attrs={"placeholder": "How should we call you?"}),
+            "preferred_name": forms.TextInput(attrs={"placeholder": "What should we call you?"}),
             "phone": forms.TextInput(attrs={"placeholder": "(optional)"}),
             "discord_handle": forms.TextInput(attrs={"placeholder": "@username"}),
-            "other_contact_info": forms.TextInput(attrs={"placeholder": "Instagram, Signal, etc."}),
             "about_me": forms.Textarea(attrs={"rows": 3, "placeholder": "Tell other members a bit about yourself..."}),
             "commission_note": forms.Textarea(
                 attrs={
@@ -346,24 +363,45 @@ class ProfileSettingsForm(forms.ModelForm):
                     "placeholder": "e.g. Small custom woodworking, websites, AI consulting — happy to chat!",
                 }
             ),
-            "instructor_social_handle": forms.TextInput(attrs={"placeholder": "@handle"}),
+            "instructor_bio": forms.Textarea(
+                attrs={"rows": 4, "placeholder": "What you teach, your background, how you like to run a class..."}
+            ),
         }
         labels = {
             "show_in_directory": "Show me in the member directory",
             "discord_handle": "Discord",
-            "other_contact_info": "Other contact info",
             "about_me": "About me",
             "profile_photo": "Profile photo",
             "open_for_commissions": "Open for commissions",
             "commission_note": "What kind of work do you welcome?",
-            "instructor_website": "Website",
-            "instructor_social_handle": "Social handle",
+            "instructor_bio": "About me as an instructor",
         }
         help_texts = {
             "profile_photo": "Optional. Shown next to your name in the member directory. Max 5 MB.",
-            "instructor_website": "Shown on your public instructor profile.",
-            "instructor_social_handle": "Shown on your public instructor profile.",
+            "instructor_bio": "Shown on your public instructor page.",
         }
+
+
+class MemberContactForm(forms.ModelForm):
+    """A single labeled contact row on the profile settings page (mirrors ``GuildLinkForm``)."""
+
+    class Meta:
+        model = MemberContact
+        fields = ["label", "value", "show_in_directory", "show_on_instructor_page", "sort_order"]
+        widgets = {
+            "label": forms.TextInput(attrs={"placeholder": "e.g. Website, Instagram, Booking email"}),
+            "value": forms.TextInput(attrs={"placeholder": "https://…, @handle, or you@example.com"}),
+            "sort_order": forms.HiddenInput(),
+        }
+        labels = {
+            "show_in_directory": "Show in member directory",
+            "show_on_instructor_page": "Show on instructor page",
+        }
+
+
+MemberContactFormSet = forms.inlineformset_factory(
+    Member, MemberContact, form=MemberContactForm, extra=0, can_delete=True
+)
 
 
 class MemberSkillForm(forms.Form):
@@ -502,7 +540,11 @@ class MemberAdminEditForm(forms.ModelForm):
             "status",
             "member_type",
             "show_in_directory",
+            "can_self_approve_discounts",
         ]
+        labels = {
+            "can_self_approve_discounts": "Can approve their own discount codes",
+        }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -549,6 +591,7 @@ class SiteSettingsForm(forms.ModelForm):
             "member_google_calendar_id",
             "public_google_calendar_id",
             "google_calendar_sync_enabled",
+            "discord_events_sync_enabled",
             "signage_default_slide_seconds",
             "signage_show_events",
             "signage_event_days_ahead",
@@ -579,6 +622,16 @@ CalendarFeedFormSet = forms.modelformset_factory(
     form=CalendarFeedForm,
     extra=0,
     can_delete=True,
+)
+
+
+# Site Settings → Automations tab. One ``enabled`` toggle per scheduled job, saved by the
+# page's Save. The row set is fixed by the code registry (not user-managed), so ``extra=0``
+# and no add/delete — admins pause or run jobs, they don't add or remove them.
+ScheduledJobStateFormSet: type[forms.BaseModelFormSet] = forms.modelformset_factory(
+    ScheduledJobState,
+    fields=["enabled"],
+    extra=0,
 )
 
 
@@ -1133,15 +1186,31 @@ class GuildEmailsForm(forms.ModelForm):
 
 
 class OrientationAvailabilityForm(forms.ModelForm):
-    """A single recurring orientation-availability row."""
+    """A single recurring orientation-availability row.
+
+    Times are half-hour ``<select>`` dropdowns (Rule 19), not per-minute pickers; the
+    "HH:MM" choice is parsed back to a ``datetime.time`` on clean, and an existing off-grid
+    value is preserved via :func:`_seed_time_choice`.
+    """
+
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
+    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="End time")
 
     class Meta:
         model = OrientationAvailability
         fields = ["weekday", "start_time", "end_time", "seats", "is_active"]
-        widgets = {
-            "start_time": forms.TimeInput(attrs={"type": "time", "onclick": "this.showPicker?.()"}),
-            "end_time": forms.TimeInput(attrs={"type": "time", "onclick": "this.showPicker?.()"}),
-        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            _seed_time_choice(self, "start_time", self.instance.start_time)
+            _seed_time_choice(self, "end_time", self.instance.end_time)
+
+    def clean_start_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["start_time"])
+
+    def clean_end_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["end_time"])
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
@@ -1258,6 +1327,11 @@ class CommunityEventForm(forms.ModelForm):
         else:
             del self.fields["event_type"]
             del self.fields["guild"]
+            # A lead authoring a NEW guild meeting defaults to the Public calendar — Google is now
+            # a public mirror. The lead can still switch to the members-only calendar per event, and
+            # editing an existing event keeps its saved target (only the create default changes).
+            if not self.instance.pk:
+                self.fields["google_calendar_target"].initial = CommunityEvent.GoogleCalendarTarget.PUBLIC
 
     def clean_google_calendar_target(self) -> str:
         """Coerce a blank/omitted picker value to the default MEMBER calendar."""
@@ -1291,6 +1365,99 @@ class CommunityEventForm(forms.ModelForm):
             if etype in site_wide and guild is not None:
                 self.add_error("guild", "Leave the guild blank for a site-wide event.")
         return cleaned
+
+
+_STUDIO_HOURS_WEEKDAYS: list[tuple[str, str]] = [
+    ("0", "Monday"),
+    ("1", "Tuesday"),
+    ("2", "Wednesday"),
+    ("3", "Thursday"),
+    ("4", "Friday"),
+    ("5", "Saturday"),
+    ("6", "Sunday"),
+]
+
+
+def _next_weekday_anchor(weekday: int, start: time) -> datetime:
+    """The next occurrence of ``weekday`` at ``start`` (aware, Portland local); rolls to the
+    following week if this week's slot has already passed. The WEEKLY series then repeats off it."""
+    now = timezone.localtime()
+    days_ahead = (weekday - now.weekday()) % 7
+    anchor = timezone.make_aware(datetime.combine(now.date() + timedelta(days=days_ahead), start))
+    if anchor <= now:
+        anchor = timezone.make_aware(datetime.combine(now.date() + timedelta(days=days_ahead + 7), start))
+    return anchor
+
+
+class StudioHoursForm(forms.ModelForm):
+    """One weekly studio-hours block, edited as weekday + start/end time (+ optional location/note).
+
+    A light *translating* ModelForm over :class:`CommunityEvent`: the friendly declared fields map
+    to a WEEKLY, PUBLIC-targeted ``STUDIO_HOURS`` row on :meth:`save`, and on edit are derived back
+    from the row's anchor. The guild FK is pinned via ``form_kwargs`` (this is a modelformset, not an
+    inline formset). The times are half-hour ``<select>`` dropdowns (Rule 19) — the "HH:MM" choice
+    is parsed back to a ``datetime.time`` on clean, and an existing off-grid value is preserved.
+    """
+
+    weekday = forms.ChoiceField(choices=_STUDIO_HOURS_WEEKDAYS, label="Day")
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="From")
+    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="To")
+    location = forms.CharField(label="Location", required=False, max_length=200)
+    note = forms.CharField(label="Note", required=False, max_length=500)
+
+    class Meta:
+        model = CommunityEvent
+        fields: list[str] = []
+
+    def __init__(self, *args: Any, guild: Guild, **kwargs: Any) -> None:
+        self._guild = guild
+        super().__init__(*args, **kwargs)
+        instance = self.instance
+        if instance is not None and instance.pk:
+            local_start = timezone.localtime(instance.starts_at)
+            local_end = timezone.localtime(instance.ends_at)
+            self.fields["weekday"].initial = str(local_start.weekday())
+            _seed_time_choice(self, "start_time", local_start.time())
+            _seed_time_choice(self, "end_time", local_end.time())
+            self.fields["location"].initial = instance.location
+            self.fields["note"].initial = instance.description
+
+    def clean_start_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["start_time"])
+
+    def clean_end_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["end_time"])
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        start = cleaned.get("start_time")
+        end = cleaned.get("end_time")
+        if start and end and end <= start:
+            self.add_error("end_time", "End time must be after start time.")
+        return cleaned
+
+    def save(self, commit: bool = True) -> CommunityEvent:
+        event = self.instance
+        event.guild = self._guild
+        event.event_type = CommunityEvent.EventType.STUDIO_HOURS
+        event.recurrence = CommunityEvent.Recurrence.WEEKLY
+        event.google_calendar_target = CommunityEvent.GoogleCalendarTarget.PUBLIC
+        event.moderation_state = CommunityEvent.ModerationState.PUBLISHED
+        event.title = f"{self._guild.name} Studio Hours"
+        weekday = int(self.cleaned_data["weekday"])
+        event.starts_at = _next_weekday_anchor(weekday, self.cleaned_data["start_time"])
+        anchor_date = timezone.localtime(event.starts_at).date()
+        event.ends_at = timezone.make_aware(datetime.combine(anchor_date, self.cleaned_data["end_time"]))
+        event.location = self.cleaned_data.get("location") or ""
+        event.description = self.cleaned_data.get("note") or ""
+        if commit:
+            event.save()
+        return event
+
+
+StudioHoursFormSet = forms.modelformset_factory(
+    CommunityEvent, form=StudioHoursForm, fields=[], extra=0, can_delete=True
+)
 
 
 class EventDecisionForm(forms.Form):

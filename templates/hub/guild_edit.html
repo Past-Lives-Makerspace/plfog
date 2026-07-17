@@ -3,11 +3,15 @@
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
 <div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'basic' }">
-<h1 class="hub-page-title">Edit {{ guild.name }}</h1>
+<div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:0.5rem;">
+  <h1 class="hub-page-title" style="margin:0;">Edit {{ guild.name }}</h1>
+  <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Guild Page</a>
+</div>
 
 <div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;">
   <button type="button" class="vote-tab" :class="section === 'basic' ? 'vote-tab--active' : ''" @click="section = 'basic'">Basic Information</button>
   <button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>
+  <button type="button" class="vote-tab" :class="section === 'studio_hours' ? 'vote-tab--active' : ''" @click="section = 'studio_hours'">Studio Hours</button>
   <button type="button" class="vote-tab" :class="section === 'meeting_notes' ? 'vote-tab--active' : ''" @click="section = 'meeting_notes'">Meeting Notes</button>
   <button type="button" class="vote-tab" :class="section === 'events' ? 'vote-tab--active' : ''" @click="section = 'events'">Events</button>
   <button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>
@@ -38,7 +42,6 @@
         {% include "components/form_field.html" with field=form.featured_class field_label="Featured class" %}
       </div>
       {% include "components/form_field.html" with field=form.show_members %}
-      {% include "components/toggle.html" with field=form.make_private toggle_label="Make this guild page private?" toggle_description="When on, this guild's page is hidden from the public guilds site — members can still see it in the hub." %}
     </div>
   </div>
 
@@ -102,10 +105,89 @@
   </div>
 </form>
 
+{% comment %}
+  ── Studio Hours (its own tab) — its OWN form/endpoint, OUTSIDE the main form (you can't
+  nest forms; nesting silently breaks Save). Weekly windows shown on the guild page's
+  "Studio Hours" card and mirrored to the Public Google Calendar. ────
+{% endcomment %}
+<div x-show="section === 'studio_hours'" x-cloak>
+  <form method="post" action="{% url 'hub_guild_studio_hours_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Studio Hours</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows when you're around for members to drop by — shown on your guild page. Add one row per window (e.g. Tuesdays and Saturdays are two rows).</p>
+      {{ studio_hours_formset.management_form }}
+      <div id="studio-hours-rows" style="display:flex; flex-direction:column; gap:0.75rem;">
+        {% for sh in studio_hours_formset %}
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {{ sh.id }}
+          {% for error in sh.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+          <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+            <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=sh.weekday %}</div>
+            <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=sh.start_time %}</div>
+            <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=sh.end_time %}</div>
+            <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=sh.location %}</div>
+          </div>
+          {% include "components/form_field.html" with field=sh.note %}
+          {% if google_sync_enabled and sh.instance.pk %}
+          <div style="margin-top:0.35rem;">
+            {% include "hub/partials/_sync_badge.html" with event=sh.instance can_retry=is_admin %}
+          </div>
+          {% endif %}
+          {% if sh.instance.pk %}
+            {# Real delete button: flips the hidden DELETE field and saves the form so no work is lost. #}
+            <div style="display:none;">{{ sh.DELETE }}</div>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                    onclick="document.getElementById('{{ sh.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+              Delete
+            </button>
+          {% endif %}
+        </div>
+        {% empty %}
+        <p class="hub-text-muted">No studio hours yet — add your first window.</p>
+        {% endfor %}
+      </div>
+
+      {# Hidden empty-form template, cloned by the +Add button below. #}
+      <template id="studio-hours-empty-template">
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {% with studio_hours_formset.empty_form as esh %}
+            {{ esh.id }}
+            <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+              <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=esh.weekday %}</div>
+              <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=esh.start_time %}</div>
+              <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=esh.end_time %}</div>
+              <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=esh.location %}</div>
+            </div>
+            {% include "components/form_field.html" with field=esh.note %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+          {% endwith %}
+        </div>
+      </template>
+
+      {# Add then Save sit together (FAQ/hours footer rhythm). #}
+      <div style="margin-top:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+        <button type="button" class="hub-btn hub-btn--sm"
+                onclick="
+                  const tpl = document.getElementById('studio-hours-empty-template');
+                  const total = document.getElementById('id_studio_hours-TOTAL_FORMS');
+                  const idx = parseInt(total.value, 10);
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  document.getElementById('studio-hours-rows').appendChild(wrap.firstElementChild);
+                  total.value = idx + 1;
+                ">
+          + Add studio hours
+        </button>
+        <button type="submit" class="pl-btn pl-btn--primary">Save Studio Hours</button>
+      </div>
+    </div>
+  </form>
+</div>
+
 {# ── Share & Print (Basic tab) — vanity URL, printable flyer, QR downloads ──── #}
 <div x-show="section === 'basic'" x-cloak class="hub-card" style="padding:1.5rem; margin-top:2.5rem; margin-bottom:1.5rem;">
   <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Share &amp; Print</h2>
-  {% if guild.is_public %}
   <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem; max-width:46rem;">
     Every guild has a short public web page. Print the flyer for the shop wall, hand out the QR code, or read the link aloud.
   </p>
@@ -126,11 +208,6 @@
     </div>
     <div class="pl-qr-preview" aria-hidden="true">{{ guild.qr_svg|safe }}</div>
   </div>
-  {% else %}
-  <p class="hub-text-muted" style="font-size:0.8125rem; margin:0; max-width:46rem;">
-    This guild's page is private — turn off <strong>“Make this guild page private?”</strong> above to share a link, QR code, and printable flyer.
-  </p>
-  {% endif %}
 </div>
 
 {% if is_admin %}
@@ -210,7 +287,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
         <div style="flex:1; min-width:220px;">
           <div style="font-weight:600;">{{ event.title }}</div>
           <div class="hub-text-muted" style="font-size:0.8125rem;">
-            {{ event.starts_at|date:"D, M j · g:i A" }}–{{ event.ends_at|date:"g:i A" }}{% if event.location %} · {{ event.location }}{% endif %}{% if event.recurrence != "none" %} · Repeats monthly{% endif %}
+            {{ event.starts_at|date:"D, M j · g:i A" }}–{{ event.ends_at|date:"g:i A" }}{% if event.location %} · {{ event.location }}{% endif %}{% if event.recurrence != "none" %} · {{ event.get_recurrence_display }}{% endif %}
           </div>
           {% if event.moderation_state == 'scheduled' %}
           <div style="margin-top:0.35rem;">
@@ -274,7 +351,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
       <a href="{% url 'hub_guild_edit' guild.pk %}?tab=staff" class="hub-btn hub-btn--sm">Manage staff →</a>
     </div>
 
-    <button type="submit" class="hub-btn hub-btn--primary">Save orientation settings</button>
+    <button type="submit" class="hub-btn hub-btn--primary" style="margin-bottom:2rem;">Save orientation settings</button>
   </form>
 
   {# Recurring hours — its own form/endpoint, like the FAQ & Links editors. #}
@@ -491,6 +568,28 @@ confirm modal carries its own POST form, and template content can't nest a form.
   <div class="hub-card" style="padding:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem;">Post an Announcement</h2>
     <p class="hub-text-muted" style="font-size:0.875rem; margin:0 0 1rem;">Compose in the step-through wizard — write the message, design the email with a live preview, choose the Discord channel, and save a draft to finish later.</p>
+    {% if announcement_recipient_count %}
+    <div style="margin-bottom:1.5rem;">
+      <p style="margin:0 0 0.75rem;"><strong>{{ announcement_recipient_count }} member{{ announcement_recipient_count|pluralize }}</strong> will receive an emailed announcement.</p>
+      <div x-data="{ showRecipients: false }">
+        <button type="button" class="hub-btn hub-btn--sm" @click="showRecipients = !showRecipients">
+          <span x-show="!showRecipients">Show recipients</span>
+          <span x-show="showRecipients" x-cloak>Hide recipients</span>
+        </button>
+        <div x-show="showRecipients" x-cloak class="pl-recipient-list">
+          <ul>
+            {% for email in announcement_recipient_emails %}
+            <li>{{ email }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.75rem 0 0;">You can already email your guild's members, so their addresses are shown here.</p>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.25rem 0 0;">Members without an email on file aren't counted — they won't receive the announcement.</p>
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0 0 1.5rem;">No members in this guild yet — nobody will receive announcements.</p>
+    {% endif %}
     <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}" class="hub-btn hub-btn--primary">Compose announcement &rarr;</a>
   </div>
 
@@ -541,7 +640,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Staff</h2>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
-      Co-leads, secretaries, treasurers, and orientators. Every staff member gets the same access as the
+      Guild Leads, secretaries, treasurers, and orientators. Every staff member gets the same access as the
       guild lead — they can edit this page, manage and approve classes, run orientations, and receive
       the same emails (class approvals and orientation requests). The guild lead itself is set by an admin.
     </p>
