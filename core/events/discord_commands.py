@@ -265,3 +265,33 @@ FOG_PING = SlashCommand(
 )
 
 register(FOG_PING)
+
+
+# --- The built-in guide command: /guide ---------------------------------------
+
+
+def _guide(interaction: Interaction, member: Member | None) -> dict:
+    """List every registered slash command and what it does, as an ephemeral embed.
+
+    Built straight from :func:`all_commands` (never a hand-kept list), so it always mirrors
+    the live registry — a command added anywhere shows up here automatically, and it lists
+    itself. ``requires_link=False``: anyone can read the guide. A pure function of the
+    registry — no DB, no side effects — so ``interaction`` and ``member`` go unread.
+    """
+    lines = [f"**/{cmd.name}** — {cmd.description}" for cmd in all_commands()]
+    description = "\n".join(lines) + "\n\nSome commands need your account connected — run `/link` first."
+    embed = {"title": "Past Lives commands", "description": description}
+    return reply("", ephemeral=True, embeds=[embed])
+
+
+GUIDE = SlashCommand(
+    name="guide",
+    description="List the Past Lives Discord commands and what they do.",
+    handler=_guide,
+    requires_link=False,
+    ephemeral=True,
+    defer=False,
+    scope="guild",
+)
+
+register(GUIDE)
