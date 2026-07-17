@@ -193,6 +193,7 @@ def _seed_member_hub(member: Member) -> None:
         GuildFactory,
         GuildFAQItemFactory,
         GuildMembershipFactory,
+        MemberContactFactory,
         MemberFactory,
         OrgInfoPageFactory,
     )
@@ -249,6 +250,51 @@ def _seed_member_hub(member: Member) -> None:
         title="Open Studio Night",
         starts_at=timezone.now() + timedelta(days=5),
     )
+    # Studio Hours card + weekly meeting on the guild page (0.22): two standing weekly
+    # blocks and a repeating meeting, so the "guild pages" shot shows the new cards.
+    local_now = timezone.localtime()
+    tue = (local_now + timedelta(days=(1 - local_now.weekday()) % 7 or 7)).replace(
+        hour=18, minute=0, second=0, microsecond=0
+    )
+    sat = (local_now + timedelta(days=(5 - local_now.weekday()) % 7 or 7)).replace(
+        hour=10, minute=0, second=0, microsecond=0
+    )
+    CommunityEventFactory(
+        guild=guilds[0],
+        studio_hours=True,
+        title="Ceramics studio hours",
+        starts_at=tue,
+        ends_at=tue + timedelta(hours=3),
+        location="Ceramics studio",
+        description="Drop in — a lead is around to chat.",
+    )
+    CommunityEventFactory(
+        guild=guilds[0],
+        studio_hours=True,
+        title="Ceramics studio hours",
+        starts_at=sat,
+        ends_at=sat + timedelta(hours=2),
+        location="Ceramics studio",
+    )
+    CommunityEventFactory(
+        guild=guilds[0],
+        title="Ceramics Guild meeting",
+        recurrence="weekly",
+        starts_at=tue + timedelta(days=1),
+        ends_at=tue + timedelta(days=1, hours=1),
+        location="Community room",
+    )
+    # Profile settings (0.22): instructor bio + labeled contact links for the split
+    # Member/Instructor profile tabs.
+    member.instructor_bio = (
+        "I've cast bronze and silver for fifteen years and taught studio classes for eight. "
+        "My classes are hands-on from the first hour — expect to leave with something you made."
+    )
+    member.save(update_fields=["instructor_bio"])
+    MemberContactFactory(
+        member=member, label="Website", value="https://robinmaker.example.com", show_on_instructor_page=True
+    )
+    MemberContactFactory(member=member, label="Instagram", value="@robin.makes", show_on_instructor_page=True)
     MemberFactory.create_batch(4)
 
 
@@ -451,6 +497,12 @@ def describe_feature_screenshots():
         targets: list[tuple[str, str, str, bool]] = [(s, lbl, p, False) for s, lbl, p in _feature_pages()]
         targets.append(("guild-pages", "Guild page", reverse("hub_guild_detail", kwargs={"slug": guild.slug}), False))
         targets.append(("qr-codes", "Guild QR flyer", reverse("hub_guild_flyer", kwargs={"pk": guild.pk}), True))
+
+        # Optional narrowing: CAPTURE_SLUGS=guild-pages,profile-settings re-shoots only
+        # those pages, leaving every other slug's R2 asset untouched.
+        only = {s.strip() for s in os.environ.get("CAPTURE_SLUGS", "").split(",") if s.strip()}
+        if only:
+            targets = [t for t in targets if t[0] in only]
 
         results: list[dict[str, object]] = []
         for slug, label, path, full_page in targets:

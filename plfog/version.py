@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.22.9"
+VERSION = "0.22.10"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.22.9",
+        "version": "0.22.10",
         "date": "2026-07-16",
         "title": "Events in Discord",
         "changes": [
@@ -18,9 +18,10 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.9",
+        "version": "0.22.10",
         "date": "2026-07-16",
         "title": "Studio Hours on guild pages",
+        "screenshot": "guild-pages",
         "changes": [
             (
                 "Guild leads can now set their weekly studio hours and meetings right in the app, and "
@@ -31,7 +32,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.9",
+        "version": "0.22.10",
         "date": "2026-07-16",
         "title": "Slash commands in Discord",
         "changes": [
@@ -48,7 +49,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.9",
+        "version": "0.22.10",
         "date": "2026-07-16",
         "title": "A warm welcome when you finish orientation",
         "changes": [
@@ -60,7 +61,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.9",
+        "version": "0.22.10",
         "date": "2026-07-16",
         "title": "Know your reach before you post",
         "changes": [
@@ -72,7 +73,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.9",
+        "version": "0.22.10",
         "date": "2026-07-16",
         "title": "Jump straight to a guild's classes",
         "changes": [
@@ -84,7 +85,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.9",
+        "version": "0.22.10",
         "date": "2026-07-16",
         "title": "Class reminder emails read cleanly again",
         "changes": [
@@ -95,9 +96,10 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.9",
+        "version": "0.22.10",
         "date": "2026-07-16",
         "title": "A cleaner profile, with your own contact links",
+        "screenshot": "profile-settings",
         "changes": [
             (
                 "Your profile settings now split into a Member tab and an Instructor tab, so your teaching "
@@ -114,7 +116,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.22.9",
+        "version": "0.22.10",
         "date": "2026-07-16",
         "title": "Easier-to-read class confirmation screens",
         "changes": [
