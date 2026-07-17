@@ -1328,6 +1328,15 @@ class Guild(HeroCropMixin, models.Model):
             "channel auto-detection."
         ),
     )
+    discord_welcome_message = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Shown to the member in Discord (their private confirmation) and posted in your guild's "
+            "Discord channel when someone joins via /join-guild. This is separate from your guild "
+            "Welcome email. Write it in your voice (a lead's welcome). Blank uses a generic welcome."
+        ),
+    )
     website_url = models.URLField(
         blank=True, default="", help_text="Link to the guild's external website, shown as a button on the page."
     )

@@ -128,6 +128,7 @@ class GuildEditForm(forms.ModelForm):
             "discord_url",
             "discord_webhook_url",
             "discord_post_enabled",
+            "discord_welcome_message",
             "website_url",
             "show_members",
             "featured_class",
@@ -156,6 +157,9 @@ class GuildEditForm(forms.ModelForm):
                 attrs={"rows": 2, "placeholder": "Extra notes, e.g. 'bring your current project'"}
             ),
             "contact_email": forms.EmailInput(attrs={"placeholder": "guild@example.com"}),
+            "discord_welcome_message": forms.Textarea(
+                attrs={"rows": 3, "placeholder": "Welcome to the guild! Here's how to get started..."},
+            ),
         }
         labels = {
             "about": "About",
@@ -173,6 +177,7 @@ class GuildEditForm(forms.ModelForm):
             "discord_url": "Discord channel link (shown to members)",
             "discord_webhook_url": "Announcement webhook (auto-posts here — keep private)",
             "discord_post_enabled": "Also post to our Discord",
+            "discord_welcome_message": "Discord welcome message",
             "website_url": "Website URL",
             "show_members": "Show members roster",
             "featured_class": "Featured class",
@@ -191,6 +196,10 @@ class GuildEditForm(forms.ModelForm):
             "discord_webhook_url": (
                 "A private Discord webhook for your channel. Don't paste your public invite link here. "
                 "Blank = nothing posts to your channel."
+            ),
+            "discord_welcome_message": (
+                "Posted to your guild's Discord channel and sent to the member when someone joins "
+                "via /join-guild. Blank = a generic welcome."
             ),
         }
 

@@ -594,6 +594,24 @@ def describe_GuildEditForm():
         assert form.is_valid(), form.errors
         assert form.save().faq_label == "FAQ"
 
+    def it_saves_a_discord_welcome_message():
+        guild = GuildFactory(name="Forge")
+        form = GuildEditForm(
+            data={"name": "Forge", "calendar_color": "#4B9FEE", "discord_welcome_message": "Welcome, maker!"},
+            instance=guild,
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().discord_welcome_message == "Welcome, maker!"
+
+    def it_allows_a_blank_discord_welcome_message():
+        guild = GuildFactory(name="Kiln")
+        form = GuildEditForm(
+            data={"name": "Kiln", "calendar_color": "#4B9FEE", "discord_welcome_message": ""},
+            instance=guild,
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().discord_welcome_message == ""
+
 
 @pytest.mark.django_db
 def describe_guild_edit_page():
@@ -1070,6 +1088,23 @@ def describe_guild_content_tab_template():
         client.login(username="ct_annmodal", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert f'hx-target="#edit-ann-{announcement.pk}-body"'.encode() in response.content
+
+
+@pytest.mark.django_db
+def describe_guild_discord_welcome_field():
+    """The Discord welcome message textarea on the Meetings tab's Discord card."""
+
+    def it_renders_the_field_in_the_discord_card(client: Client):
+        _user_with_role("dwm_admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="dwm_admin", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        # Assert on the field markup (theme-safe, inside form_field.html's .pl-form-group),
+        # not on changelog-echoed copy that the "what's new" widget could also emit.
+        assert b'name="discord_welcome_message"' in response.content
+        assert b"Discord welcome message" in response.content
+        assert b"via /join-guild" in response.content
 
 
 @pytest.mark.django_db

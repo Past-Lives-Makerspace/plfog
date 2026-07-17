@@ -71,6 +71,17 @@ def describe_to_api_dict():
             "type": 1,
         }
 
+    def it_uses_the_options_builder_when_present():
+        built = [{"name": "guild", "type": 3, "choices": [{"name": "A", "value": "a"}]}]
+        # A builder wins even when a static ``options`` list is also set.
+        cmd = _cmd("built", options=[{"name": "ignored", "type": 3}], options_builder=lambda: built)
+        assert cmd.to_api_dict()["options"] == built
+
+    def it_falls_back_to_static_options_without_a_builder():
+        cmd = _cmd("no-builder", options=[{"name": "guild", "type": 3}])
+        assert cmd.options_builder is None
+        assert cmd.to_api_dict()["options"] == [{"name": "guild", "type": 3}]
+
 
 def describe_autodiscover():
     def it_tolerates_apps_without_a_discord_commands_module():

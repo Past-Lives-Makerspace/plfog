@@ -44,6 +44,10 @@ class SlashCommand:
         handler: ``(interaction, member) -> reply dict``. Never called for an unlinked
             member when ``requires_link`` is set (dispatch returns the connect prompt first).
         options: Discord application-command option objects (default none).
+        options_builder: Optional callable producing the options at *serialization* time
+            (inside :meth:`to_api_dict`, i.e. ``register_discord_commands``). Lets a command
+            derive its options from the DB (e.g. a per-guild choice list) without any
+            import-time query; when set it wins over the static ``options``.
         defer: Ack deferred first (§5.4) when the handler can't guarantee a <3s reply.
         ephemeral: Reply visible only to the invoking member (default — personal data).
         requires_link: Unlinked member → the connect prompt; the handler never runs.
@@ -54,14 +58,22 @@ class SlashCommand:
     description: str
     handler: Handler
     options: list[dict] = field(default_factory=list)
+    options_builder: Callable[[], list[dict]] | None = None
     defer: bool = False
     ephemeral: bool = True
     requires_link: bool = True
     scope: Literal["guild", "global"] = "guild"
 
     def to_api_dict(self) -> dict:
-        """Serialize to Discord's application-command JSON (``type: 1`` = CHAT_INPUT)."""
-        return {"name": self.name, "description": self.description, "options": list(self.options), "type": 1}
+        """Serialize to Discord's application-command JSON (``type: 1`` = CHAT_INPUT).
+
+        ``options_builder`` (when set) is called here to produce the options — the only
+        place it runs, so a DB-derived choice list is queried at registration time, never
+        at import time. Otherwise the static ``options`` list is used, so every command
+        without a builder serializes exactly as before.
+        """
+        options = self.options_builder() if self.options_builder is not None else self.options
+        return {"name": self.name, "description": self.description, "options": list(options), "type": 1}
 
 
 _REGISTRY: dict[str, SlashCommand] = {}
