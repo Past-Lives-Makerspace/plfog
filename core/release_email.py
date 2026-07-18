@@ -133,18 +133,49 @@ def feature_page_url(slug: str) -> str:
     return f"{settings.MEMBER_BASE_URL}{page.path}" if page is not None else ""
 
 
-def feature_shot_choices() -> list[tuple[str, str]]:
-    """``(value, label)`` choices for the composer's per-card screenshot ``<select>``.
+def _humanize_slug(slug: str) -> str:
+    """A readable label for a captured slug with no registry entry ('guild-pages' -> 'Guild pages')."""
+    return slug.replace("-", " ").replace("_", " ").strip().capitalize()
 
-    Offers only slugs whose R2 asset actually exists (the primary broken-image guard),
-    plus a leading "No screenshot" option. A changelog default slug that hasn't been
-    captured yet is simply absent, so the composer can't pick an image that renders as
-    text-only.
+
+def captured_feature_slugs() -> list[str]:
+    """Every screenshot slug present in storage under ``email/features/`` (one LIST call).
+
+    Returns the ``<slug>`` of each ``<slug>.png``. Empty when nothing has been captured yet —
+    :class:`~django.core.files.storage.FileSystemStorage` raises :class:`FileNotFoundError` on a
+    missing dir (S3/R2 does not), so we guard it.
+
+    Returns:
+        Sorted, de-duplicated slugs, one per captured ``*.png`` object.
     """
+    try:
+        _dirs, files = default_storage.listdir(_FEATURE_SHOT_PREFIX)
+    except FileNotFoundError:
+        return []
+    # Take the basename before stripping .png — FileSystemStorage returns basenames, and this
+    # stays correct even if a backend ever hands back full keys ("email/features/home.png").
+    names = (name.rsplit("/", 1)[-1] for name in files)
+    return sorted(name[:-4] for name in names if name.endswith(".png"))
+
+
+def feature_shot_choices() -> list[tuple[str, str]]:
+    """``(value, label)`` options for the composer's per-card screenshot ``<select>``.
+
+    Offers EVERY screenshot actually captured to storage (listing R2 is the broken-image
+    guard), plus a leading "No screenshot". Curated :data:`FEATURE_PAGES` come first in
+    registry order with their friendly labels; any other captured slug follows,
+    alphabetically, labelled from its slug. A brand-new screenshot needs no code change to
+    appear here.
+    """
+    captured = set(captured_feature_slugs())
     choices: list[tuple[str, str]] = [("", "No screenshot")]
-    for page in FEATURE_PAGES:
-        if resolve_feature_shot_url(page.slug):
+    seen: set[str] = set()
+    for page in FEATURE_PAGES:  # curated first, registry order + labels
+        if page.slug in captured:
             choices.append((page.slug, page.label))
+            seen.add(page.slug)
+    for slug in sorted(captured - seen):  # bespoke/new shots, alphabetical
+        choices.append((slug, _humanize_slug(slug)))
     return choices
 
 

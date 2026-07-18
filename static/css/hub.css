@@ -964,6 +964,7 @@ a:hover { color: var(--hub-link-hover); }
 .hub-form-group input[type="email"],
 .hub-form-group input[type="tel"],
 .hub-form-group input[type="number"],
+.hub-form-group input[type="file"],
 .hub-form-group select,
 .hub-form-group textarea {
     width: 100%;
@@ -4389,3 +4390,76 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 }
 .pl-recipient-list ul { margin: 0; padding-left: 1.1rem; }
 .pl-recipient-list li { overflow-wrap: anywhere; word-break: break-all; line-height: 1.5; }
+
+/* Per-announcement email recipient checklist (compose wizard → Step 2). Collapsible card with a
+   real, styled checkbox per member + custom address. Themed via tokens (both light + dark). */
+.pl-recipient-card {
+  margin: 0.85rem 0 0.25rem;
+  padding: 0.9rem 1rem;
+  background: var(--hub-surface);
+  border: 1px solid var(--hub-border);
+  border-radius: 10px;
+}
+.pl-recipient-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.pl-recipient-card__title { margin: 0; }
+.pl-recipient-card__summary {
+  margin: 0.35rem 0 0.6rem;
+  font-size: 0.9375rem;
+  color: var(--hub-text-muted);
+}
+.pl-recipient-card__toggle { margin: 0; }
+.pl-recipient-card__body { margin-top: 0.75rem; }
+
+.pl-recipient-checklist__tools {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+.pl-recipient-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0.15rem;
+}
+.pl-recipient-checklist__row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--hub-card-bg);
+  border: 1px solid var(--hub-border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9375rem;
+  color: var(--hub-text);
+}
+/* Reset the global full-width input rule + colour the tick with the tuscan accent (light + dark). */
+.pl-recipient-checklist__row input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--color-tuscan-yellow);
+  cursor: pointer;
+}
+.pl-recipient-checklist__label {
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+/* :checked lives on the input; light up the enclosing row via :has (like .pl-channel-option). */
+.pl-recipient-checklist__row:has(input:checked) {
+  border-color: var(--color-tuscan-yellow);
+  background: var(--hub-elevated);
+}
+.pl-recipient-checklist__empty {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--hub-text-muted);
+}

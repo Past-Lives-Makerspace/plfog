@@ -1,0 +1,34 @@
+{% comment %}
+Email recipient checklist for a guild announcement (compose wizard → Step 2), wrapped in the
+OOB target (#compose-recipients) so an audience change re-scopes it to the new guild's roster
+(all checked). Rendered inline on the wizard page and returned as an hx-swap-oob partial by
+hub_compose_count. One row per emailable member (name + email) plus one per custom mailing-list
+address, all checked by default. The checkboxes live inside the single compose <form> — no nested
+form; Send stays the Step-3 submit.
+
+x-init reseeds the live "Emailing X of Y" count from the freshly-rendered checkboxes on first
+render AND after each OOB re-scope; @change keeps it live as boxes toggle.
+
+Params:
+  form — the AnnouncementComposeForm (its bound email_recipients field)
+  oob  — when truthy, marks this as an out-of-band swap
+{% endcomment %}
+<div id="compose-recipients"{% if oob %} hx-swap-oob="true"{% endif %}
+     x-init="refreshEmailCount()" @change="refreshEmailCount()">
+  {% if form.email_recipients.field.choices %}
+  <div class="pl-recipient-checklist__tools">
+    <button type="button" class="hub-btn hub-btn--sm" @click="selectAllRecipients(true)">Select all</button>
+    <button type="button" class="hub-btn hub-btn--sm" @click="selectAllRecipients(false)">Select none</button>
+  </div>
+  <div class="pl-recipient-checklist" role="group" aria-label="Email recipients">
+    {% for checkbox in form.email_recipients %}
+    <label class="pl-recipient-checklist__row">
+      {{ checkbox.tag }}
+      <span class="pl-recipient-checklist__label">{{ checkbox.choice_label }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="pl-recipient-checklist__empty">No email recipients yet — add members or addresses on your Guild Settings mailing list.</p>
+  {% endif %}
+</div>

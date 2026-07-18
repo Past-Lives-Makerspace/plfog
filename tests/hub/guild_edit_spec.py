@@ -594,6 +594,24 @@ def describe_GuildEditForm():
         assert form.is_valid(), form.errors
         assert form.save().faq_label == "FAQ"
 
+    def it_saves_a_discord_welcome_message():
+        guild = GuildFactory(name="Forge")
+        form = GuildEditForm(
+            data={"name": "Forge", "calendar_color": "#4B9FEE", "discord_welcome_message": "Welcome, maker!"},
+            instance=guild,
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().discord_welcome_message == "Welcome, maker!"
+
+    def it_allows_a_blank_discord_welcome_message():
+        guild = GuildFactory(name="Kiln")
+        form = GuildEditForm(
+            data={"name": "Kiln", "calendar_color": "#4B9FEE", "discord_welcome_message": ""},
+            instance=guild,
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().discord_welcome_message == ""
+
 
 @pytest.mark.django_db
 def describe_guild_edit_page():
@@ -1073,6 +1091,23 @@ def describe_guild_content_tab_template():
 
 
 @pytest.mark.django_db
+def describe_guild_discord_welcome_field():
+    """The Discord welcome message textarea on the Meetings tab's Discord card."""
+
+    def it_renders_the_field_in_the_discord_card(client: Client):
+        _user_with_role("dwm_admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="dwm_admin", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert response.status_code == 200
+        # Assert on the field markup (theme-safe, inside form_field.html's .pl-form-group),
+        # not on changelog-echoed copy that the "what's new" widget could also emit.
+        assert b'name="discord_welcome_message"' in response.content
+        assert b"Discord welcome message" in response.content
+        assert b"via /join-guild" in response.content
+
+
+@pytest.mark.django_db
 def describe_guild_share_and_print():
     """The Share & Print card — every guild is public, so it always renders."""
 
@@ -1172,8 +1207,9 @@ def describe_guild_announcement_reach():
         assert response.status_code == 200
         assert response.context["announcement_recipient_count"] == 2
         # Assert on the specific reach-line markup, not a bare number that the "what's new"
-        # changelog widget (echoed on every hub page) could also contain.
-        assert b"<strong>2 members</strong> will receive an emailed announcement." in response.content
+        # changelog widget (echoed on every hub page) could also contain. The roster now lives
+        # in the "Your Mailing List" section at the top of the tab.
+        assert b"<strong>2 members</strong> are on your list automatically." in response.content
         # The collapsible recipient list is rendered when there are recipients.
         assert b'class="pl-recipient-list"' in response.content
 

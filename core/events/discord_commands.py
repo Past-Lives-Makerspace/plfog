@@ -44,6 +44,10 @@ class SlashCommand:
         handler: ``(interaction, member) -> reply dict``. Never called for an unlinked
             member when ``requires_link`` is set (dispatch returns the connect prompt first).
         options: Discord application-command option objects (default none).
+        options_builder: Optional callable producing the options at *serialization* time
+            (inside :meth:`to_api_dict`, i.e. ``register_discord_commands``). Lets a command
+            derive its options from the DB (e.g. a per-guild choice list) without any
+            import-time query; when set it wins over the static ``options``.
         defer: Ack deferred first (§5.4) when the handler can't guarantee a <3s reply.
         ephemeral: Reply visible only to the invoking member (default — personal data).
         requires_link: Unlinked member → the connect prompt; the handler never runs.
@@ -54,14 +58,22 @@ class SlashCommand:
     description: str
     handler: Handler
     options: list[dict] = field(default_factory=list)
+    options_builder: Callable[[], list[dict]] | None = None
     defer: bool = False
     ephemeral: bool = True
     requires_link: bool = True
     scope: Literal["guild", "global"] = "guild"
 
     def to_api_dict(self) -> dict:
-        """Serialize to Discord's application-command JSON (``type: 1`` = CHAT_INPUT)."""
-        return {"name": self.name, "description": self.description, "options": list(self.options), "type": 1}
+        """Serialize to Discord's application-command JSON (``type: 1`` = CHAT_INPUT).
+
+        ``options_builder`` (when set) is called here to produce the options — the only
+        place it runs, so a DB-derived choice list is queried at registration time, never
+        at import time. Otherwise the static ``options`` list is used, so every command
+        without a builder serializes exactly as before.
+        """
+        options = self.options_builder() if self.options_builder is not None else self.options
+        return {"name": self.name, "description": self.description, "options": list(options), "type": 1}
 
 
 _REGISTRY: dict[str, SlashCommand] = {}
@@ -253,3 +265,33 @@ FOG_PING = SlashCommand(
 )
 
 register(FOG_PING)
+
+
+# --- The built-in guide command: /guide ---------------------------------------
+
+
+def _guide(interaction: Interaction, member: Member | None) -> dict:
+    """List every registered slash command and what it does, as an ephemeral embed.
+
+    Built straight from :func:`all_commands` (never a hand-kept list), so it always mirrors
+    the live registry — a command added anywhere shows up here automatically, and it lists
+    itself. ``requires_link=False``: anyone can read the guide. A pure function of the
+    registry — no DB, no side effects — so ``interaction`` and ``member`` go unread.
+    """
+    lines = [f"**/{cmd.name}** — {cmd.description}" for cmd in all_commands()]
+    description = "\n".join(lines) + "\n\nSome commands need your account connected — run `/link` first."
+    embed = {"title": "Past Lives commands", "description": description}
+    return reply("", ephemeral=True, embeds=[embed])
+
+
+GUIDE = SlashCommand(
+    name="guide",
+    description="List the Past Lives Discord commands and what they do.",
+    handler=_guide,
+    requires_link=False,
+    ephemeral=True,
+    defer=False,
+    scope="guild",
+)
+
+register(GUIDE)

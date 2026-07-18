@@ -46,6 +46,12 @@ class _Storage:
     def url(self, key: str) -> str:
         return f"https://cdn/{key}"
 
+    def listdir(self, prefix: str) -> tuple[list[str], list[str]]:
+        """Mirror the storage backends: `(dirs, files)` where `files` are basenames."""
+        marker = prefix.rstrip("/") + "/"
+        files = sorted(key.rsplit("/", 1)[-1] for key in self.existing if key.startswith(marker))
+        return [], files
+
 
 @pytest.fixture
 def release_env(monkeypatch):

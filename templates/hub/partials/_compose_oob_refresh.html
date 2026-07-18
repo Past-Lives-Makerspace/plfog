@@ -1,0 +1,7 @@
+{% comment %}
+Combined OOB refresh returned by hub_compose_count on an audience change: re-scopes BOTH the
+Discord channel picker and the email recipient checklist for the newly-chosen audience/guild.
+Each nested partial marks itself hx-swap-oob so HTMX swaps them into the live wizard in place.
+{% endcomment %}
+{% include "hub/partials/_compose_channel_picker.html" with form=form oob=True %}
+{% include "hub/partials/_compose_recipient_picker.html" with form=form oob=True %}

@@ -19,6 +19,7 @@ from membership.models import (
     GuildAnnouncement,
     GuildFAQItem,
     GuildLink,
+    GuildMailingListEmail,
     GuildMeetingNote,
     GuildMeetingNoteAttachment,
     GuildMembership,
@@ -122,6 +123,14 @@ class GuildLinkFactory(factory.django.DjangoModelFactory):
     guild = factory.SubFactory(GuildFactory)
     label = factory.Sequence(lambda n: f"Link {n}")
     url = "https://example.com"
+
+
+class GuildMailingListEmailFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GuildMailingListEmail
+
+    guild = factory.SubFactory(GuildFactory)
+    email = factory.Sequence(lambda n: f"custom{n}@example.com")
 
 
 class OrgInfoPageFactory(factory.django.DjangoModelFactory):

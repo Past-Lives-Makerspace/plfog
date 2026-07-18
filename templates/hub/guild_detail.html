@@ -61,9 +61,9 @@
         {% if guild.guild_lead %}<div class="pl-guild-hero__lead" style="margin-top:0;">Led by {{ guild.guild_lead.display_name }}</div>{% endif %}
         <div style="display:flex; gap:0.5rem; margin-top:0.75rem; flex-wrap:wrap; align-items:center;">
             {% if can_edit_this_guild %}
-            <a href="{% url 'hub_guild_edit' guild.pk %}" class="pl-btn pl-btn--secondary" title="Edit Guild Page" x-show="!isAdjusting">
+            <a href="{% url 'hub_guild_edit' guild.pk %}" class="pl-btn pl-btn--secondary" title="Guild Settings" x-show="!isAdjusting">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
-                Edit
+                Guild Settings
             </a>
             <a href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}" target="_blank" rel="noopener"
                class="pl-btn pl-btn--secondary" title="Open this guild's public page as a guest" x-show="!isAdjusting">

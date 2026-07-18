@@ -1,10 +1,10 @@
 {% extends "hub/base.html" %}
-{% block title %}Edit {{ guild.name }}{% endblock %}
+{% block title %}{{ guild.name }} Settings{% endblock %}
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
-<div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'basic' }">
+<div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || '{{ active_tab|default:'basic' }}' }">
 <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:0.5rem;">
-  <h1 class="hub-page-title" style="margin:0;">Edit {{ guild.name }}</h1>
+  <h1 class="hub-page-title" style="margin:0;">{{ guild.name }} Settings</h1>
   <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Guild Page</a>
 </div>
 
@@ -74,6 +74,7 @@
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Discord</h2>
       {% include "components/form_field.html" with field=form.discord_webhook_url %}
       {% include "components/form_field.html" with field=form.discord_post_enabled %}
+      {% include "components/form_field.html" with field=form.discord_welcome_message %}
     </div>
   </div>
 
@@ -557,6 +558,116 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 {# ── Announcements/Emails (separate forms, live outside the main form) ── #}
 <div x-show="section === 'announcements'" x-cloak>
+
+  {# ── Your Mailing List (own forms/endpoints — not nested in another form) ── #}
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <div style="display:flex; align-items:center; gap:0.4rem; margin-bottom:0.5rem;">
+      <h2 class="hub-detail-label" style="margin:0;">Your Mailing List</h2>
+      <span class="pl-help" tabindex="0" aria-label="Who receives your guild's announcements">
+        <span class="pl-help__icon" aria-hidden="true">?</span>
+        <span class="pl-help__bubble" role="tooltip">Everyone here gets your guild's announcement emails: members are added automatically, plus any custom addresses below. By default an announcement goes out to email <strong>and</strong> your guild's Discord channel — you can turn either off when you compose.</span>
+      </span>
+    </div>
+    {% if announcement_recipient_count %}
+    <p style="margin:0 0 0.75rem;"><strong>{{ announcement_recipient_count }} member{{ announcement_recipient_count|pluralize }}</strong> {{ announcement_recipient_count|pluralize:"is,are" }} on your list automatically.</p>
+    <div x-data="{ showRecipients: false }">
+      <button type="button" class="hub-btn hub-btn--sm" @click="showRecipients = !showRecipients">
+        <span x-show="!showRecipients">Show members</span>
+        <span x-show="showRecipients" x-cloak>Hide members</span>
+      </button>
+      <div x-show="showRecipients" x-cloak class="pl-recipient-list">
+        <ul>
+          {% for email in announcement_recipient_emails %}
+          <li>{{ email }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.75rem 0 0;">Members without an email on file aren't counted — they won't receive the announcement.</p>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0;">No members in this guild yet — only the custom addresses below will receive announcements.</p>
+    {% endif %}
+  </div>
+
+  {# Custom (non-member) addresses — its own form/endpoint. #}
+  <form method="post" action="{% url 'hub_guild_mailing_list_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Custom addresses</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Add non-member addresses — a booster, a partner org, your own inbox — that should also receive this guild's announcement emails.</p>
+      {{ mailing_list_formset.management_form }}
+      {% for error in mailing_list_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+      <div id="mailing-list-rows" style="display:flex; flex-direction:column; gap:1rem;">
+        {% for f in mailing_list_formset %}
+          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+            {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+            <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+              <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=f.email %}</div>
+              <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=f.label %}</div>
+            </div>
+            {% if f.instance.pk %}
+              <div style="display:none;">{{ f.DELETE }}</div>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                Delete this address
+              </button>
+            {% endif %}
+            {{ f.id }}
+            {{ f.sort_order }}
+          </div>
+        {% empty %}
+          <p class="hub-text-muted">No custom addresses yet. Add one below or import a list.</p>
+        {% endfor %}
+      </div>
+
+      {# Hidden empty-form template, cloned by the +Add button below. #}
+      <template id="mailing-list-empty-template">
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {% with mailing_list_formset.empty_form as ef %}
+            <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+              <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=ef.email %}</div>
+              <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=ef.label %}</div>
+            </div>
+            {{ ef.id }}
+            {{ ef.sort_order }}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+          {% endwith %}
+        </div>
+      </template>
+
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+              onclick="
+                const tpl = document.getElementById('mailing-list-empty-template');
+                const total = document.getElementById('id_mailing_list-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                document.getElementById('mailing-list-rows').appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add address
+      </button>
+
+      <div style="margin-top:1.5rem;">
+        <button type="submit" class="pl-btn pl-btn--primary">Save mailing list</button>
+      </div>
+    </div>
+  </form>
+
+  {# Import a list — its own multipart form/endpoint. #}
+  <form method="post" action="{% url 'hub_guild_mailing_list_import' guild.pk %}" class="hub-form" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Import addresses</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Upload a CSV or text file — one email per line, with an optional second column for a label.</p>
+      <div class="hub-form-group">
+        <label for="mailing-list-import-file">Import file</label>
+        <input type="file" id="mailing-list-import-file" name="import_file" accept=".csv,.txt">
+      </div>
+      <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Import</button>
+    </div>
+  </form>
+
   {% with pending_ann_count=guild.announcements.awaiting_review.count %}
   {% if pending_ann_count %}
   <div class="hub-card" style="padding:1rem 1.25rem; margin-bottom:1.25rem; border-left:3px solid var(--color-tuscan-yellow,#EEB44B); display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
@@ -567,29 +678,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
   {% endwith %}
   <div class="hub-card" style="padding:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem;">Post an Announcement</h2>
-    <p class="hub-text-muted" style="font-size:0.875rem; margin:0 0 1rem;">Compose in the step-through wizard — write the message, design the email with a live preview, choose the Discord channel, and save a draft to finish later.</p>
-    {% if announcement_recipient_count %}
-    <div style="margin-bottom:1.5rem;">
-      <p style="margin:0 0 0.75rem;"><strong>{{ announcement_recipient_count }} member{{ announcement_recipient_count|pluralize }}</strong> will receive an emailed announcement.</p>
-      <div x-data="{ showRecipients: false }">
-        <button type="button" class="hub-btn hub-btn--sm" @click="showRecipients = !showRecipients">
-          <span x-show="!showRecipients">Show recipients</span>
-          <span x-show="showRecipients" x-cloak>Hide recipients</span>
-        </button>
-        <div x-show="showRecipients" x-cloak class="pl-recipient-list">
-          <ul>
-            {% for email in announcement_recipient_emails %}
-            <li>{{ email }}</li>
-            {% endfor %}
-          </ul>
-        </div>
-      </div>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.75rem 0 0;">You can already email your guild's members, so their addresses are shown here.</p>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.25rem 0 0;">Members without an email on file aren't counted — they won't receive the announcement.</p>
-    </div>
-    {% else %}
-    <p class="hub-text-muted" style="margin:0 0 1.5rem;">No members in this guild yet — nobody will receive announcements.</p>
-    {% endif %}
+    <p class="hub-text-muted" style="font-size:0.875rem; margin:0 0 1rem;">Compose in the step-through wizard — write the message, design the email with a live preview, choose the Discord channel, and save a draft to finish later. It reaches your mailing list above.</p>
     <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}" class="hub-btn hub-btn--primary">Compose announcement &rarr;</a>
   </div>
 

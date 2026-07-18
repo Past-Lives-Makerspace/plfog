@@ -1328,6 +1328,15 @@ class Guild(HeroCropMixin, models.Model):
             "channel auto-detection."
         ),
     )
+    discord_welcome_message = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Shown to the member in Discord (their private confirmation) and posted in your guild's "
+            "Discord channel when someone joins via /join-guild. This is separate from your guild "
+            "Welcome email. Write it in your voice (a lead's welcome). Blank uses a generic welcome."
+        ),
+    )
     website_url = models.URLField(
         blank=True, default="", help_text="Link to the guild's external website, shown as a button on the page."
     )
@@ -1669,6 +1678,26 @@ class Guild(HeroCropMixin, models.Model):
 
         return resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self})
 
+    def mailing_list_emails_deduped(self, member_emails: set[str]) -> list[str]:
+        """The guild's custom mailing-list addresses, normalized and de-duped against members.
+
+        Returns each :class:`GuildMailingListEmail`'s address ``.strip().lower()``-normalized
+        and sorted, with any address that already belongs to a member removed. Used by BOTH
+        the lead-facing display and the delivery fan-out, so the "Your Mailing List" section
+        and the actual send can never drift.
+
+        Args:
+            member_emails: The already lower-cased member ``user.email`` addresses to exclude —
+                the same collision key the send fan-out uses (see
+                :meth:`GuildAnnouncement.notify_members`).
+
+        Returns:
+            The sorted, de-duplicated custom addresses that are not also members.
+        """
+        custom = {(row.email or "").strip().lower() for row in self.mailing_list_emails.all()}
+        custom.discard("")
+        return sorted(custom - member_emails)
+
 
 class GuildStaffMembership(models.Model):
     """A member's leadership role on a guild, beyond the single ``Guild.guild_lead`` FK.
@@ -1845,6 +1874,152 @@ class GuildLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.label} ({self.guild.name})"
+
+
+@dataclass(frozen=True)
+class MailingListImportResult:
+    """The outcome of a :meth:`GuildMailingListEmail.import_from_text` run.
+
+    Carries the per-outcome counts so the view can flash a friendly summary without
+    re-reading the database.
+    """
+
+    imported: int
+    skipped_existing: int
+    skipped_members: int
+    skipped_invalid: int
+
+    @property
+    def created_any(self) -> bool:
+        """Whether the import created at least one row (drives success vs error feedback)."""
+        return self.imported > 0
+
+    @property
+    def summary(self) -> str:
+        """A member-friendly one-line summary of the import outcome."""
+        skips: list[str] = []
+        if self.skipped_existing:
+            skips.append(f"{self.skipped_existing} already on your list")
+        if self.skipped_members == 1:
+            skips.append("1 that is a member")
+        elif self.skipped_members:
+            skips.append(f"{self.skipped_members} that are members")
+        if self.skipped_invalid:
+            skips.append(f"{self.skipped_invalid} invalid")
+        skip_clause = ""
+        if skips:
+            if len(skips) == 1:
+                skip_clause = f" Skipped {skips[0]}."
+            else:
+                skip_clause = f" Skipped {', '.join(skips[:-1])}, and {skips[-1]}."
+        if not self.created_any:
+            if skips:
+                return f"No new addresses imported.{skip_clause}"
+            return "No email addresses found in that file."
+        plural = "address" if self.imported == 1 else "addresses"
+        return f"Imported {self.imported} {plural}.{skip_clause}"
+
+
+class GuildMailingListEmail(models.Model):
+    """A non-member email address that also receives a guild's announcement emails.
+
+    Guild leads add booster / partner / personal addresses here so people who aren't
+    members of the guild still get its announcement emails. Delivery is additive — the
+    guild's members are still emailed and these addresses ride alongside, deduped against
+    the member roster (see :meth:`GuildAnnouncement.notify_members`).
+    """
+
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="mailing_list_emails",
+        help_text="The guild whose announcements this address receives.",
+    )
+    email = models.EmailField(
+        max_length=254,
+        help_text="A non-member email address that also receives this guild's announcement emails.",
+    )
+    label = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Optional — who this is (e.g. 'Front desk', 'Partner org').",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["guild", "email"], name="uq_guildmailinglistemail_guild_email"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.email} ({self.guild.name})"
+
+    @classmethod
+    def import_from_text(cls, guild: Guild, raw_text: str) -> MailingListImportResult:
+        """Bulk-add custom addresses from an uploaded / pasted list, leniently.
+
+        Splits ``raw_text`` into lines; within a line a single comma separating an email
+        from a non-email second field is read as ``email, label``, otherwise every
+        comma-separated token is treated as its own address. Each candidate email is
+        validated and lower-cased, and a row is created — skipping tokens that fail
+        validation, addresses already on the guild's custom list, and any that match a
+        member's email (case-insensitive, the same collision key delivery uses).
+
+        Args:
+            guild: The guild to import the addresses onto.
+            raw_text: The decoded file / paste contents.
+
+        Returns:
+            A :class:`MailingListImportResult` with the per-outcome counts.
+        """
+        from django.core.exceptions import ValidationError
+        from django.core.validators import validate_email
+
+        def _is_email(token: str) -> bool:
+            try:
+                validate_email(token)
+            except ValidationError:
+                return False
+            return True
+
+        member_emails = {(user.email or "").strip().lower() for user, _reason in guild.announcement_recipients()}
+        existing = {
+            (email or "").strip().lower() for email in guild.mailing_list_emails.values_list("email", flat=True)
+        }
+        next_order = (guild.mailing_list_emails.aggregate(top=models.Max("sort_order"))["top"] or 0) + 1
+
+        imported = skipped_existing = skipped_members = skipped_invalid = 0
+        for raw_line in raw_text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            fields = [field.strip() for field in raw_line.split(",") if field.strip()]
+            if not fields:
+                continue
+            if len(fields) == 2 and not _is_email(fields[1]):
+                candidates = [(fields[0], fields[1])]
+            else:
+                candidates = [(field, "") for field in fields]
+            for token, label in candidates:
+                if not _is_email(token):
+                    skipped_invalid += 1
+                    continue
+                address = token.lower()
+                if address in member_emails:
+                    skipped_members += 1
+                    continue
+                if address in existing:
+                    skipped_existing += 1
+                    continue
+                cls.objects.create(guild=guild, email=address, label=label, sort_order=next_order)
+                existing.add(address)
+                next_order += 1
+                imported += 1
+        return MailingListImportResult(
+            imported=imported,
+            skipped_existing=skipped_existing,
+            skipped_members=skipped_members,
+            skipped_invalid=skipped_invalid,
+        )
 
 
 class OrgInfoPage(HeroCropMixin, models.Model):
@@ -2160,7 +2335,14 @@ class GuildAnnouncement(models.Model):
         except ValueError as exc:
             raise ValueError(f"Unknown Discord channel '{self.discord_channel}' on announcement {self.pk}.") from exc
 
-    def notify_members(self, *, discord_mention: str = "", email_message: "Message | None" = None) -> None:
+    def notify_members(
+        self,
+        *,
+        discord_mention: str = "",
+        email_message: "Message | None" = None,
+        selected_user_ids: "set[int] | None" = None,
+        selected_custom_emails: "list[str] | None" = None,
+    ) -> None:
         """Emit ``guild.announcement`` to the guild's members (Decision 4).
 
         Recipients resolve to every active member of this guild (scoped — not
@@ -2187,6 +2369,15 @@ class GuildAnnouncement(models.Model):
                 (the compose wizard passes the same shell its Step-2 preview renders), it
                 replaces the default copy-mode guild email so the sent email matches the
                 preview; when ``None`` (every existing caller) the copy-mode email stands.
+            selected_user_ids: A per-announcement EMAIL **subset** of member ``pk`` values (the
+                compose wizard's recipient checklist). ``None`` (every existing caller — the
+                guild-edit create view, :meth:`approve`) emails every member as before; a set
+                narrows the member email to those ``pk`` values while the in-app bell + Discord
+                post still reach the whole guild (see ``emit(email_only_user_ids=…)``).
+            selected_custom_emails: A per-announcement subset of the guild's custom mailing-list
+                addresses (lower-cased). ``None`` (every existing caller) sends the FULL custom
+                list — the mailing-list feature is never regressed; a list narrows the additive
+                ``extra_emails`` to those addresses only. A selection only ever *narrows*.
         """
         from django.urls import reverse
 
@@ -2196,6 +2387,22 @@ class GuildAnnouncement(models.Model):
 
         guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
         webhook = self.resolve_discord_webhook()
+        # Custom (non-member) mailing-list addresses ride along ADDITIVELY, deduped against the
+        # member roster on the lower-cased ``user.email`` key. The FULL deduped list is always
+        # computed (the mailing-list choke point stays exactly as shipped) and only NARROWED when
+        # a ``selected_custom_emails`` subset is passed — so ``None`` still sends everyone. Only
+        # when email is on: turning "Also send email" off suppresses the custom addresses too.
+        extra_emails: list[str] | None = None
+        if self.send_email:
+            member_emails = {
+                (user.email or "").strip().lower() for user, _reason in self.guild.announcement_recipients()
+            }
+            all_custom = self.guild.mailing_list_emails_deduped(member_emails)
+            extra_emails = (
+                all_custom
+                if selected_custom_emails is None
+                else [addr for addr in all_custom if addr in set(selected_custom_emails)]
+            )
         emit(
             "guild_announcement",
             actor=self.author,
@@ -2215,6 +2422,8 @@ class GuildAnnouncement(models.Model):
             suppress_email=not self.send_email,
             suppress_guild_broadcast=(webhook == ""),
             discord_mention=discord_mention,
+            extra_emails=extra_emails,
+            email_only_user_ids=selected_user_ids,
         )
 
     # --- Review lifecycle (member proposals) ----------------------------------
@@ -2567,6 +2776,14 @@ class AnnouncementDraft(models.Model):
         default=True,
         help_text="Also send this announcement as a branded email (in-app bell fires regardless).",
     )
+    email_recipient_selection = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Which recipients get this announcement's email. Empty/absent = everyone (default). "
+            'Shape: {"users": [pk, …], "custom": ["addr", …]}.'
+        ),
+    )
     discord_channel = models.CharField(
         max_length=20,
         choices=GuildAnnouncement.DiscordChannel.choices,
@@ -2671,6 +2888,8 @@ class AnnouncementDraft(models.Model):
         draft.title = cd["title"]
         draft.body = cd["body"]  # already sanitized by the form's clean_body
         draft.send_email = cd["send_email"]
+        # Empty dict = "everyone" (the default); a present selection = exactly these recipients.
+        draft.email_recipient_selection = cd.get("email_recipient_selection") or {}
         draft.discord_channel = cd["discord_channel"]
         draft.mention = cd["mention"]
         draft.expires_at = cd.get("expires_at")
@@ -2679,13 +2898,23 @@ class AnnouncementDraft(models.Model):
         draft.save()
         return draft
 
-    def send(self) -> int:
+    def send(self) -> tuple[int, int]:
         """Send the announcement and mark it sent — the wizard's one "fat" transition.
 
         Guards, then branches on audience. A **site** send is emit-only (ephemeral). A
         **guild** send first materializes a published :class:`GuildAnnouncement` (so the
         post lands on the guild page, the edit list, and the slideshow), then reuses the
-        tested :meth:`GuildAnnouncement.notify_members` fan-out. Returns the recipient count.
+        tested :meth:`GuildAnnouncement.notify_members` fan-out, mapping the saved
+        ``email_recipient_selection`` (intersected with the *current* roster so stale ids
+        can't resurrect) into the per-recipient subset + the narrowed custom addresses.
+
+        Returns:
+            An ``(emailed, total)`` pair for the post-send summary. ``total`` is the full
+            addressable set (a site send: all active members; a guild send: the guild's
+            members plus its custom mailing-list addresses — the checklist). ``emailed`` is
+            how many of them this send actually emails: ``total`` when no selection was made,
+            the chosen subset when one was, and ``0`` when "Also send email" is off. Everyone
+            in ``total`` still gets the in-app bell regardless.
 
         Raises:
             AlreadySentError: If this draft was already sent.
@@ -2729,10 +2958,12 @@ class AnnouncementDraft(models.Model):
                 suppress_email=not self.send_email,
                 discord_mention=mention_str,
             )
-            count = result.recipient_count
+            total = result.recipient_count
+            counts = (total if self.send_email else 0, total)
         else:
             guild = cast(Guild, self.guild)  # the guard above guarantees a guild for a GUILD audience
             guild_url = _absolute_url(reverse("hub_guild_detail", args=[guild.slug]))
+            selected_user_ids, selected_custom_emails, counts = self._guild_email_selection(guild)
             announcement = GuildAnnouncement.objects.create(
                 guild=guild,
                 author=self.author,
@@ -2748,12 +2979,48 @@ class AnnouncementDraft(models.Model):
             announcement.notify_members(
                 discord_mention=mention_str,
                 email_message=self.build_email_message(guild_url),
+                selected_user_ids=selected_user_ids,
+                selected_custom_emails=selected_custom_emails,
             )
-            count = self.recipient_count()
 
         self.sent_at = timezone.now()
         self.save(update_fields=["sent_at", "updated_at"])
-        return count
+        return counts
+
+    def _guild_email_selection(self, guild: "Guild") -> "tuple[set[int] | None, list[str] | None, tuple[int, int]]":
+        """Resolve the saved selection against the guild's *current* roster (guild-send helper).
+
+        Returns ``(selected_user_ids, selected_custom_emails, (emailed, total))``:
+
+        * An **absent/empty** ``email_recipient_selection`` means "everyone" → ``(None, None, …)``
+          so :meth:`GuildAnnouncement.notify_members` emails the full roster (byte-identical to
+          the pre-feature send). A **present** selection is intersected with the live roster so a
+          member who left or a deleted custom row can't resurrect.
+        * ``total`` counts the guild's members + its deduped custom addresses (the checklist);
+          ``emailed`` is that total when no selection was made, the chosen subset when one was,
+          and ``0`` when email is off (the selection is moot then).
+        """
+        member_recipients = guild.announcement_recipients()
+        member_ids = {user.pk for user, _reason in member_recipients}
+        member_emails = {(user.email or "").strip().lower() for user, _reason in member_recipients}
+        all_custom = guild.mailing_list_emails_deduped(member_emails)
+        total = len(member_recipients) + len(all_custom)
+
+        selection = self.email_recipient_selection or {}
+        if not selection:
+            selected_user_ids: set[int] | None = None
+            selected_custom_emails: list[str] | None = None
+            chosen = total
+        else:
+            selected_user_ids = {int(pk) for pk in selection.get("users", [])} & member_ids
+            custom_set = set(all_custom)
+            selected_custom_emails = [
+                addr.lower() for addr in selection.get("custom", []) if addr.lower() in custom_set
+            ]
+            chosen = len(selected_user_ids) + len(selected_custom_emails)
+
+        emailed = chosen if self.send_email else 0
+        return selected_user_ids, selected_custom_emails, (emailed, total)
 
 
 class GuildMeetingNote(models.Model):

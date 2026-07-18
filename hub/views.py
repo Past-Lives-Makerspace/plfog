@@ -670,6 +670,7 @@ def _guild_edit_context(
     emails_form: Any = None,
     rule_formset: Any = None,
     studio_hours_formset: Any = None,
+    mailing_list_formset: Any = None,
 ) -> dict[str, Any]:
     """Build the full render context for the guild edit page (all nine in-page tabs).
 
@@ -683,6 +684,7 @@ def _guild_edit_context(
         GuildEmailsForm,
         GuildFAQItemFormSet,
         GuildLinkFormSet,
+        GuildMailingListFormSet,
         GuildOrientationSettingsForm,
         GuildStaffAddForm,
         OrientationAvailabilityFormSet,
@@ -701,6 +703,11 @@ def _guild_edit_context(
         "form": form if form is not None else GuildEditForm(instance=guild),
         "faq_formset": GuildFAQItemFormSet(instance=guild, prefix="faq"),
         "link_formset": GuildLinkFormSet(instance=guild, prefix="links"),
+        "mailing_list_formset": (
+            mailing_list_formset
+            if mailing_list_formset is not None
+            else GuildMailingListFormSet(instance=guild, prefix="mailing_list")
+        ),
         "staff_by_member": guild.staff_by_member(),
         "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
         "is_admin": _viewing_as_admin(request),
@@ -1948,7 +1955,7 @@ def _draft_initial(draft: Any) -> dict[str, Any]:
         if draft.audience == AnnouncementDraft.Audience.SITE.value
         else f"guild:{draft.guild_id}"
     )
-    return {
+    initial = {
         "audience": audience_value,
         "title": draft.title,
         "body": draft.body,
@@ -1957,6 +1964,15 @@ def _draft_initial(draft: Any) -> dict[str, Any]:
         "mention": draft.mention,
         "expires_at": draft.expires_at,
     }
+    # A present selection resumes exactly those recipients; an empty one (the default) is left
+    # unset so the form falls back to all-selected. (The drafts UI is dormant — this keeps the
+    # resume path faithful for when it returns.)
+    selection = draft.email_recipient_selection or {}
+    if selection:
+        initial["email_recipients"] = [f"user:{pk}" for pk in selection.get("users", [])] + [
+            f"custom:{addr}" for addr in selection.get("custom", [])
+        ]
+    return initial
 
 
 def _render_compose(request: HttpRequest, *, form: Any, draft: Any, start_step: int = 1) -> HttpResponse:
@@ -2048,7 +2064,12 @@ def hub_compose_preview(request: HttpRequest) -> HttpResponse:
 
 @login_required
 def hub_compose_count(request: HttpRequest) -> HttpResponse:
-    """HTMX: push the live recipient count (HX-Trigger) + OOB-swap the re-scoped channel picker."""
+    """HTMX: push the live recipient count (HX-Trigger) + OOB-swap the re-scoped channel picker.
+
+    The re-scope also OOB-swaps the email recipient checklist so a multi-guild lead who switches
+    guilds gets the new guild's roster (all checked) instead of the previous guild's — otherwise
+    the checklist would send the wrong subset.
+    """
     from hub.forms import AnnouncementComposeForm, split_audience
 
     raw = request.GET.get("audience") or request.POST.get("audience") or ""
@@ -2058,7 +2079,7 @@ def hub_compose_count(request: HttpRequest) -> HttpResponse:
     audience, guild = split_audience(raw)
     count = _compose_count_for(audience, guild)
     form = AnnouncementComposeForm(initial={"audience": raw}, **_compose_form_kwargs(request))
-    response = render(request, "hub/partials/_compose_channel_picker.html", {"form": form, "oob": True})
+    response = render(request, "hub/partials/_compose_oob_refresh.html", {"form": form})
     response["HX-Trigger"] = json.dumps({"compose-count": {"count": count}})
     return response
 
@@ -2142,8 +2163,8 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     if not form.is_valid():
         return _render_compose(request, form=form, draft=instance, start_step=1)
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
-    count = draft.send()
-    messages.success(request, f"Announcement sent to {count} member(s).")
+    emailed, total = draft.send()
+    messages.success(request, f"Emailed {emailed} of {total} · everyone sees it in the app.")
     return redirect("hub_compose")
 
 
@@ -2256,6 +2277,67 @@ def guild_links_save(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         messages.error(request, "Couldn't save the links — check the highlighted fields.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=content")
+
+
+@login_required
+def guild_mailing_list_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the guild's custom mailing-list addresses from the Announcements/Emails tab. Editor only.
+
+    A GET just sends the viewer to the tab. A POST validates the inline formset and saves,
+    then redirects back to the tab; an invalid POST re-renders the full guild edit page with
+    the bound formset so the row errors show inline (mirrors ``guild_emails_save``, not
+    ``guild_links_save``, so the typed input is preserved), re-opening the Announcements tab.
+    """
+    from hub.forms import GuildMailingListFormSet
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    announcements_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements"
+    if request.method != "POST":
+        return redirect(announcements_tab)
+
+    formset = GuildMailingListFormSet(request.POST, instance=guild, prefix="mailing_list")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Mailing list saved.")
+        return redirect(announcements_tab)
+
+    ctx = _guild_edit_context(request, guild, mailing_list_formset=formset)
+    ctx["active_tab"] = "announcements"
+    return render(request, "hub/guild_edit.html", ctx)
+
+
+@login_required
+@require_POST
+def guild_mailing_list_import(request: HttpRequest, pk: int) -> HttpResponse:
+    """Import custom mailing-list addresses from an uploaded CSV / text file. Editor only.
+
+    Decodes the upload and hands it to :meth:`GuildMailingListEmail.import_from_text`, which
+    parses it leniently (newlines/commas, optional 2nd column = label), skipping invalid
+    tokens, addresses already on the list, and member-collisions. Flashes the outcome summary
+    and returns to the Announcements tab.
+    """
+    from membership.models import GuildMailingListEmail
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    announcements_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements"
+    upload = request.FILES.get("import_file")
+    if upload is None:
+        messages.error(request, "Choose a CSV or text file to import.")
+        return redirect(announcements_tab)
+
+    raw_text = upload.read().decode("utf-8", errors="ignore")
+    result = GuildMailingListEmail.import_from_text(guild, raw_text)
+    if result.created_any:
+        messages.success(request, result.summary)
+    else:
+        messages.error(request, result.summary)
+    return redirect(announcements_tab)
 
 
 # ── Space & Org Info page ────────────────────────────────────────────────────

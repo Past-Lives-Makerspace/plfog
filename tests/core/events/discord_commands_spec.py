@@ -12,8 +12,10 @@ import respx
 
 from core.events import discord_commands
 from core.events.discord_commands import (
+    GUIDE,
     SlashCommand,
     _fog_ping,
+    _guide,
     all_commands,
     autodiscover,
     dispatch,
@@ -70,6 +72,17 @@ def describe_to_api_dict():
             "options": [{"name": "guild", "type": 3}],
             "type": 1,
         }
+
+    def it_uses_the_options_builder_when_present():
+        built = [{"name": "guild", "type": 3, "choices": [{"name": "A", "value": "a"}]}]
+        # A builder wins even when a static ``options`` list is also set.
+        cmd = _cmd("built", options=[{"name": "ignored", "type": 3}], options_builder=lambda: built)
+        assert cmd.to_api_dict()["options"] == built
+
+    def it_falls_back_to_static_options_without_a_builder():
+        cmd = _cmd("no-builder", options=[{"name": "guild", "type": 3}])
+        assert cmd.options_builder is None
+        assert cmd.to_api_dict()["options"] == [{"name": "guild", "type": 3}]
 
 
 def describe_autodiscover():
@@ -174,6 +187,39 @@ def describe_fog_ping():
         assert member.display_name in result["data"]["content"]
         button = result["data"]["components"][0]["components"][0]
         assert button["url"].startswith("https://members.example")
+
+
+def describe_guide():
+    def _description() -> str:
+        result = _guide({}, None)
+        assert result["type"] == 4
+        assert result["data"]["flags"] == 64  # ephemeral
+        embed = result["data"]["embeds"][0]
+        assert embed["title"] == "Past Lives commands"
+        return embed["description"]
+
+    def it_lists_every_registered_command_with_its_name_and_description():
+        description = _description()
+        for cmd in all_commands():
+            assert f"**/{cmd.name}** — {cmd.description}" in description
+
+    def it_includes_join_guild_and_itself():
+        description = _description()
+        assert "**/join-guild**" in description
+        assert "**/guide**" in description
+
+    def it_points_unlinked_members_at_the_link_command():
+        assert "Some commands need your account connected — run `/link` first." in _description()
+
+    def it_derives_the_list_from_the_registry():
+        # A freshly registered command appears without touching the guide — the list is the
+        # registry, not a hand-kept copy. ``_restore_registry`` de-registers it afterwards.
+        register(_cmd("brand-new-cmd", description="A shiny new thing.", requires_link=False))
+        assert "**/brand-new-cmd** — A shiny new thing." in _description()
+
+    def it_is_readable_without_a_link_and_ephemeral():
+        assert GUIDE.requires_link is False
+        assert GUIDE.ephemeral is True
 
 
 _CALLBACK_URL = "https://discord.com/api/v10/interactions/intA/tokB/callback"
