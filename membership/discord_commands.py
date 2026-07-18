@@ -30,13 +30,6 @@ Interaction = dict
 
 _SECTION_CAP = 8
 
-_GUILD_OPTION = {
-    "name": "guild",
-    "description": "Which guild (name). Omit to use this channel's guild.",
-    "type": 3,
-    "required": False,
-}
-
 
 # --- /whats-on ----------------------------------------------------------------
 
@@ -210,16 +203,16 @@ def _info(interaction: Interaction, member: Member | None) -> dict:
     return reply(f"Here's **{guild.name}** on Past Lives:", ephemeral=False, embeds=[embed])
 
 
-def _info_guild_choices() -> list[dict]:
-    """The ``guild`` option for ``/info`` — a dropdown of active guilds, like ``/join-guild``.
+def _guild_dropdown_option() -> dict:
+    """A ``guild`` slash-command option rendered as a dropdown of active guilds (optional).
 
-    Mirrors that command's picker (each choice's value is the guild ``slug``, resolved by
-    :func:`resolve_command_guild`), but stays ``required=False`` so a member can still omit it
-    to use the current channel's guild. Built at *serialization* time (inside
-    ``register_discord_commands`` → :meth:`SlashCommand.to_api_dict`), so the DB query is safe;
-    capped at Discord's 25-choice limit; ships without a ``choices`` key when there are no active
-    guilds (an empty-choices option would 400 Discord's bulk command PUT, leaving the free-text
-    field the lenient resolver still accepts).
+    Shared by ``/info`` and ``/schedule-orientation`` (and mirrors ``/join-guild``'s picker):
+    each choice's value is the guild ``slug`` (resolved by :func:`resolve_command_guild`), and it
+    stays ``required=False`` so a member can omit it to use the current channel's guild. Built at
+    *serialization* time (inside ``register_discord_commands`` → :meth:`SlashCommand.to_api_dict`),
+    so the DB query is safe; capped at Discord's 25-choice limit; ships WITHOUT a ``choices`` key
+    when there are no active guilds (an empty-choices option would 400 Discord's bulk command PUT,
+    leaving the free-text field the lenient resolver still accepts).
     """
     from membership.models import Guild
 
@@ -232,7 +225,12 @@ def _info_guild_choices() -> list[dict]:
     }
     if guilds:
         option["choices"] = [{"name": g.name, "value": g.slug} for g in guilds]
-    return [option]
+    return option
+
+
+def _info_guild_choices() -> list[dict]:
+    """The ``/info`` options — just the guild dropdown."""
+    return [_guild_dropdown_option()]
 
 
 INFO = SlashCommand(
@@ -383,37 +381,46 @@ def _schedule_orientation(interaction: Interaction, member: Member | None) -> di
     return _book_custom(guild, member, date_opt, time_opt, note, settings_obj, guild_url)
 
 
+# The non-guild options for /schedule-orientation (static); the guild dropdown is prepended
+# at registration time by _schedule_options() so its choices reflect the live guild list.
+_SCHEDULE_EXTRA_OPTIONS: list[dict] = [
+    {
+        "name": "slot",
+        "description": "A posted time's number (run with no options to see the list).",
+        "type": 3,
+        "required": False,
+    },
+    {
+        "name": "date",
+        "description": "Propose your own date, YYYY-MM-DD (needs a time too).",
+        "type": 3,
+        "required": False,
+    },
+    {
+        "name": "time",
+        "description": "Propose your own time, e.g. 17:30 or 5:30pm (needs a date too).",
+        "type": 3,
+        "required": False,
+    },
+    {
+        "name": "note",
+        "description": "Anything the orienter should know (optional).",
+        "type": 3,
+        "required": False,
+    },
+]
+
+
+def _schedule_options() -> list[dict]:
+    """The ``/schedule-orientation`` options — the guild dropdown, then slot/date/time/note."""
+    return [_guild_dropdown_option(), *_SCHEDULE_EXTRA_OPTIONS]
+
+
 SCHEDULE_ORIENTATION = SlashCommand(
     name="schedule-orientation",
     description="Request an orientation for a guild.",
     handler=_schedule_orientation,
-    options=[
-        _GUILD_OPTION,
-        {
-            "name": "slot",
-            "description": "A posted time's number (run with no options to see the list).",
-            "type": 3,
-            "required": False,
-        },
-        {
-            "name": "date",
-            "description": "Propose your own date, YYYY-MM-DD (needs a time too).",
-            "type": 3,
-            "required": False,
-        },
-        {
-            "name": "time",
-            "description": "Propose your own time, e.g. 17:30 or 5:30pm (needs a date too).",
-            "type": 3,
-            "required": False,
-        },
-        {
-            "name": "note",
-            "description": "Anything the orienter should know (optional).",
-            "type": 3,
-            "required": False,
-        },
-    ],
+    options_builder=_schedule_options,
     requires_link=True,
     ephemeral=True,
     defer=True,

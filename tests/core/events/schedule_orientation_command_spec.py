@@ -51,7 +51,17 @@ def describe_schedule_orientation_command_definition():
             True,
             True,
         )
-        assert {o["name"] for o in SCHEDULE_ORIENTATION.options} == {"guild", "slot", "date", "time", "note"}
+        opts = SCHEDULE_ORIENTATION.to_api_dict()["options"]
+        assert {o["name"] for o in opts} == {"guild", "slot", "date", "time", "note"}
+
+    def it_offers_a_guild_dropdown_like_join_guild():
+        GuildFactory(name="Ceramics Guild")
+        GuildFactory(name="Textiles Guild")
+        # The guild option is a dropdown built at registration time, value = slug, still optional.
+        opts = SCHEDULE_ORIENTATION.to_api_dict()["options"]
+        guild_opt = next(o for o in opts if o["name"] == "guild")
+        assert guild_opt["required"] is False
+        assert {"ceramics-guild", "textiles-guild"} <= {c["value"] for c in guild_opt["choices"]}
 
 
 def describe_guild_resolution():
