@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.0"
+VERSION = "0.23.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.1",
+        "date": "2026-07-18",
+        "title": "Pick a guild from a dropdown for /info",
+        "changes": [
+            (
+                "The /info command in Discord now gives you a dropdown of guilds to choose from — the same as "
+                "/join-guild — instead of typing the name. Leave it blank to use the current channel's guild."
+            ),
+        ],
+    },
     {
         "version": "0.23.0",
         "date": "2026-07-17",

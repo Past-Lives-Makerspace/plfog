@@ -33,10 +33,23 @@ def _field(result: dict, name: str) -> str:
 
 
 def describe_info_command_definition():
-    def it_is_public_ungated_immediate_with_a_guild_option():
+    def it_is_public_ungated_immediate_with_a_guild_dropdown():
+        GuildFactory(name="Ceramics Guild")
+        GuildFactory(name="Textiles Guild")
         assert INFO.name == "info"
         assert (INFO.requires_link, INFO.ephemeral, INFO.defer) == (False, False, False)
-        assert [o["name"] for o in INFO.options] == ["guild"]
+        # The guild option is a dropdown built at registration time (like /join-guild),
+        # each choice's value the guild slug, and still optional (omit → channel's guild).
+        opts = INFO.to_api_dict()["options"]
+        assert [o["name"] for o in opts] == ["guild"]
+        assert opts[0]["required"] is False
+        values = {c["value"] for c in opts[0]["choices"]}
+        assert {"ceramics-guild", "textiles-guild"} <= values
+
+    def it_resolves_a_guild_picked_from_the_dropdown_by_slug():
+        GuildFactory(name="Fibers Guild", slug="fibers-guild", about="Weaving and dyeing.")
+        result = _info({"data": {"options": [{"name": "guild", "value": "fibers-guild"}]}}, None)
+        assert "Fibers Guild" in result["data"]["embeds"][0]["title"]
 
 
 def describe_info():
