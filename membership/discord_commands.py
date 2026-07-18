@@ -210,11 +210,36 @@ def _info(interaction: Interaction, member: Member | None) -> dict:
     return reply(f"Here's **{guild.name}** on Past Lives:", ephemeral=False, embeds=[embed])
 
 
+def _info_guild_choices() -> list[dict]:
+    """The ``guild`` option for ``/info`` — a dropdown of active guilds, like ``/join-guild``.
+
+    Mirrors that command's picker (each choice's value is the guild ``slug``, resolved by
+    :func:`resolve_command_guild`), but stays ``required=False`` so a member can still omit it
+    to use the current channel's guild. Built at *serialization* time (inside
+    ``register_discord_commands`` → :meth:`SlashCommand.to_api_dict`), so the DB query is safe;
+    capped at Discord's 25-choice limit; ships without a ``choices`` key when there are no active
+    guilds (an empty-choices option would 400 Discord's bulk command PUT, leaving the free-text
+    field the lenient resolver still accepts).
+    """
+    from membership.models import Guild
+
+    guilds = list(Guild.objects.filter(is_active=True).order_by("name"))[:25]
+    option: dict = {
+        "name": "guild",
+        "description": "Which guild — pick one, or omit to use this channel's guild.",
+        "type": 3,
+        "required": False,
+    }
+    if guilds:
+        option["choices"] = [{"name": g.name, "value": g.slug} for g in guilds]
+    return [option]
+
+
 INFO = SlashCommand(
     name="info",
     description="Show a guild's rules, next meeting, FAQ, links, and staff.",
     handler=_info,
-    options=[_GUILD_OPTION],
+    options_builder=_info_guild_choices,
     requires_link=False,
     ephemeral=False,
     defer=False,
