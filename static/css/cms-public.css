@@ -929,12 +929,17 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   padding: 22px;
   box-shadow: 0 8px 32px rgba(9,46,76,0.10);
 }
+/* Sticky lives on the wrapper (card + gallery stick together — a sticky card
+   alone would slide over the gallery below it). */
 @media (min-width: 1024px) {
-  .cp-detail__rail-card {
+  .cp-detail__rail-inner {
     position: sticky;
     top: 88px;
   }
 }
+.cp-detail__rail-gallery { margin-top: 20px; }
+.cp-detail__rail-gallery .cp-detail__h3 { margin-bottom: 10px; }
+.cp-detail__rail-gallery .cls-gallery__main { border-radius: var(--r2); }
 .cp-detail__price-row {
   display: flex;
   align-items: baseline;

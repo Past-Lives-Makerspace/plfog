@@ -56,6 +56,7 @@ from classes.forms import (
     TeachWelcomeEmailForm,
     RegistrationForm,
     RegistrationQuestionForm,
+    build_class_faq_formset,
 )
 from classes.models import (
     MAX_GALLERY_IMAGES,
@@ -1041,6 +1042,7 @@ def _render_teach_class_form(
     teaching_member: Member,
     mode: str,
     offering: ClassOffering | None = None,
+    faq_formset: Any = None,
 ) -> HttpResponse:
     sessions_data: list[dict] = []
     if formset.is_bound:
@@ -1073,6 +1075,7 @@ def _render_teach_class_form(
             "initial_forms": formset.initial_form_count() if hasattr(formset, "initial_form_count") else 0,
             "mode": mode,
             "offering": offering,
+            "faq_formset": faq_formset,
         },
     )
 
@@ -1129,9 +1132,11 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         request.POST or None, request.FILES or None, instance=offering, teaching_member=teaching_member
     )
     formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
-    if request.method == "POST" and form.is_valid() and formset.is_valid():
+    faq_formset = build_class_faq_formset(request.POST or None, offering)
+    if request.method == "POST" and form.is_valid() and formset.is_valid() and faq_formset.is_valid():
         offering = form.save()  # type: ignore[assignment]  # django-stubs infers an annotated row type for offering
         formset.save()
+        faq_formset.save()
         submit_now = request.POST.get("action") == "submit"
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
             try:
@@ -1152,6 +1157,7 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         teaching_member=teaching_member,
         mode="edit",
         offering=offering,
+        faq_formset=faq_formset,
     )
 
 
@@ -1897,9 +1903,11 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering.objects.prefetch_related("gallery_images", "sessions"), pk=pk)
     form = ClassOfferingForm(request.POST or None, request.FILES or None, instance=offering)
     session_formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
-    if request.method == "POST" and form.is_valid() and session_formset.is_valid():
+    faq_formset = build_class_faq_formset(request.POST or None, offering)
+    if request.method == "POST" and form.is_valid() and session_formset.is_valid() and faq_formset.is_valid():
         form.save()
         session_formset.save()
+        faq_formset.save()
         messages.success(request, "Class updated.")
         return redirect("classes:admin_class_detail", pk=offering.pk)
 
@@ -1932,6 +1940,7 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "sessions_json": json.dumps(sessions_data),
             "initial_forms": session_formset.initial_form_count(),
             "mode": "edit",
+            "faq_formset": faq_formset,
         },
     )
 

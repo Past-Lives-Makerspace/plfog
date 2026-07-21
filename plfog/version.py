@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.4"
+VERSION = "0.23.5"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.5",
+        "date": "2026-07-21",
+        "title": "Class pages: your own Q&A and a photo gallery by the signup button",
+        "changes": [
+            (
+                'Teachers can now edit the "Questions" section on their class page — reword the standard '
+                "questions, add your own, or remove ones that don't fit. Classes that haven't customized "
+                "anything keep the familiar defaults."
+            ),
+            (
+                "A class's extra photos now show up in a gallery right under the registration card, so they're "
+                "easy to browse while you're deciding to sign up."
+            ),
+        ],
+    },
     {
         "version": "0.23.4",
         "date": "2026-07-21",

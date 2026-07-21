@@ -56,6 +56,8 @@
     <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Extra photos shown below the hero on the public class page. Images save instantly — no need to hit Save.</p>
     {% include "classes/_components/image_formset.html" with offering=offering %}
 
+    {% include "classes/_components/faq_formset.html" %}
+
     {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:admin_discount_code_create' edit_url='classes:admin_discount_code_edit' %}
 
     <div style="display:flex; gap:0.75rem; margin-top:1.5rem; flex-wrap:wrap;">

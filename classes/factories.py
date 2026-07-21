@@ -132,6 +132,16 @@ class ClassImageFactory(DjangoModelFactory):
     sort_order = 0
 
 
+class ClassFaqFactory(DjangoModelFactory):
+    class Meta:
+        model = models.ClassFaq
+
+    class_offering = factory.SubFactory(ClassOfferingFactory)
+    question = factory.Sequence(lambda n: f"Question {n}?")
+    answer = "An answer."
+    sort_order = 0
+
+
 class ClassSessionFactory(DjangoModelFactory):
     class Meta:
         model = models.ClassSession

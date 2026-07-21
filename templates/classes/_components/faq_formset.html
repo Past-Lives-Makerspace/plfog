@@ -1,0 +1,65 @@
+{% comment %}
+FAQ editor for the class edit form (edit mode only — rendered when the view passes
+``faq_formset``). Rides the page's main <form>, like the sessions formset.
+
+Follows FRONTEND.md "Editable Lists & Destructive Actions": extra rows only via the
+"+ Add" button cloning the hidden empty-form template; saved rows get a real Delete
+button that submits the whole form; un-saved rows get a plain Remove.
+
+When the class has no ClassFaq rows yet, the view seeds the formset with the site
+default questions as prefilled editable rows — saving the form materializes them.
+{% endcomment %}
+{% if faq_formset %}
+<h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Questions &amp; answers</h3>
+<p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">
+  The "Questions" section on the public class page. Reword the starting questions, add your own,
+  or delete ones that don't fit — deleting all of them brings back the site defaults.
+</p>
+{{ faq_formset.management_form }}
+<div id="faq-rows" style="display:flex; flex-direction:column; gap:1rem;">
+  {% for f in faq_formset %}
+    <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+      {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+      {% include "components/form_field.html" with field=f.question %}
+      {% include "components/form_field.html" with field=f.answer %}
+      {% if f.instance.pk %}
+        <div style="display:none;">{{ f.DELETE }}</div>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+          Delete this question
+        </button>
+      {% else %}
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                onclick="this.closest('.hub-card').remove();">Remove</button>
+      {% endif %}
+      {{ f.id }}
+    </div>
+  {% endfor %}
+</div>
+
+{% comment %}Hidden empty-form template, cloned by the +Add button below.{% endcomment %}
+<template id="faq-empty-template">
+  <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+    {% with faq_formset.empty_form as ef %}
+      {% include "components/form_field.html" with field=ef.question %}
+      {% include "components/form_field.html" with field=ef.answer %}
+      {{ ef.id }}
+      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              onclick="this.closest('.hub-card').remove();">Remove</button>
+    {% endwith %}
+  </div>
+</template>
+
+<button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+        onclick="
+          const tpl = document.getElementById('faq-empty-template');
+          const total = document.getElementById('id_faq-TOTAL_FORMS');
+          const idx = parseInt(total.value, 10);
+          const wrap = document.createElement('div');
+          wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+          document.getElementById('faq-rows').appendChild(wrap.firstElementChild);
+          total.value = idx + 1;
+        ">
+  + Add a question
+</button>
+{% endif %}

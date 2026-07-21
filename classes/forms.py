@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django import forms
 from django.core.exceptions import ValidationError
@@ -16,7 +16,9 @@ from core.html_sanitize import sanitize_rich_html
 from core.widgets import RichTextEditorWidget
 
 from classes.models import (
+    DEFAULT_CLASS_FAQS,
     Category,
+    ClassFaq,
     ClassImage,
     ClassOffering,
     ClassSession,
@@ -380,6 +382,42 @@ ClassImageFormSet = inlineformset_factory(
     extra=3,
     can_delete=True,
 )
+
+
+class ClassFaqForm(forms.ModelForm):
+    """A single FAQ question/answer row on the class edit form."""
+
+    class Meta:
+        model = ClassFaq
+        fields = ["question", "answer"]
+        widgets = {
+            "answer": forms.Textarea(attrs={"rows": 3}),
+        }
+
+
+def build_class_faq_formset(data: Any, offering: ClassOffering) -> Any:
+    """FAQ formset for the class edit form.
+
+    When the class has no ``ClassFaq`` rows yet, the unbound (GET) formset renders the
+    site-wide ``DEFAULT_CLASS_FAQS`` as prefilled extra rows — the instructor's editable
+    starting point. Saving materializes whatever rows come back as the class's own list
+    (bound extra forms carry data against empty initial, so untouched defaults still
+    save — editing one default can never silently drop the other two from the page).
+    """
+    seed = data is None and not offering.faqs.exists()
+    formset_cls = inlineformset_factory(
+        ClassOffering,
+        ClassFaq,
+        form=ClassFaqForm,
+        extra=len(DEFAULT_CLASS_FAQS) if seed else 0,
+        can_delete=True,
+    )
+    return formset_cls(
+        data,
+        instance=offering,
+        prefix="faq",
+        initial=[dict(faq) for faq in DEFAULT_CLASS_FAQS] if seed else None,
+    )
 
 
 class CategoryForm(forms.ModelForm):
