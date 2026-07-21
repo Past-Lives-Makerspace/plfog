@@ -291,6 +291,22 @@ def describe_calendar_service():
             count = sync_general_calendar()
             assert count == 0
 
+        def it_skips_echoes_of_our_own_google_pushed_community_events():
+            from core.models import CalendarFeed
+            from hub.calendar_service import sync_general_calendar
+            from tests.membership.factories import CommunityEventFactory
+
+            CommunityEventFactory(google_ical_uid="event-001@test.com")
+            CalendarFeed.objects.create(
+                name="General", ical_url="https://calendar.google.com/calendar/ical/general.ics", color="#EEB44B"
+            )
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
+                count = sync_general_calendar()
+
+            assert count == 1
+            assert not CalendarEvent.objects.filter(uid="event-001@test.com").exists()
+            assert CalendarEvent.objects.filter(uid="event-002@test.com").exists()
+
         def it_iterates_over_multiple_feeds():
             from core.models import CalendarFeed
             from hub.calendar_service import sync_general_calendar
@@ -615,18 +631,20 @@ def describe_calendar_export_ics_view():
 
 
 def describe_community_calendar_default_filters():
-    def it_includes_each_calendar_feed_in_default_filters(client: Client):
+    # Filters persist as a *disabled* list client-side, so a legend key is visible by
+    # default simply by being rendered — these specs pin each key's toggle to the page.
+    def it_renders_a_toggle_for_each_calendar_feed(client: Client):
         from core.models import CalendarFeed
 
         _logged_in_user(client, username="caluser_gen")
         feed = CalendarFeed.objects.create(name="General", ical_url="https://example.com/general.ics", color="#EEB44B")
         response = client.get("/calendar/")
         assert response.status_code == 200
-        assert f"feed-{feed.pk}" in response.context["default_filters_json"]
+        assert f"toggleFilter('feed-{feed.pk}')" in response.content.decode()
 
-    def it_seeds_a_class_only_guilds_key_into_default_filters(client: Client):
-        # A guild whose only calendar content is a class (no iCal URL) still seeds its
-        # key into the defaults, or its newly-colored class chips render hidden on load.
+    def it_renders_a_toggle_for_a_class_only_guild(client: Client):
+        # A guild whose only calendar content is a class (no iCal URL) still gets a
+        # legend toggle, or its newly-colored class chips would have no filter chip.
         _logged_in_user(client, username="caluser_guildkey")
         guild = GuildFactory(name="Metalworking", calendar_url="")
         now = timezone.now()
@@ -641,7 +659,13 @@ def describe_community_calendar_default_filters():
             fetched_at=now,
         )
         response = client.get("/calendar/")
-        assert str(guild.pk) in response.context["default_filters_json"]
+        assert f"toggleFilter('{guild.pk}')" in response.content.decode()
+
+    def it_does_not_seed_a_legacy_enabled_list(client: Client):
+        _logged_in_user(client, username="caluser_nolegacy")
+        response = client.get("/calendar/")
+        assert "default_filters_json" not in response.context
+        assert "calFiltersOff" in response.content.decode()
 
 
 def describe_calendar_events_partial_invalid_params():
@@ -784,10 +808,12 @@ def describe_guild_page_class_colors():
         assert calendar["source_colors"][str(guild.pk)] == "#118844"
         # Legend set: the guild earns a toggle even with no iCal calendar_url.
         assert guild in calendar["legend_guilds"]
-        # Visible by default: the guild key seeds the guild-tab default filters.
-        assert str(guild.pk) in calendar["default_filters_json"]
+        # Visible by default: the guild tab persists a *disabled* list (no seeded
+        # enabled-list), so a rendered legend key is on unless explicitly hidden.
+        assert "default_filters_json" not in calendar
 
         html = response.content.decode()
+        assert f"guildCalFiltersOff-{guild.pk}" in html
         # Toggleable: the legend renders a real toggle for the guild's key (un-gated from
         # calendar_url — this is the fix that would otherwise leave no toggle at all)...
         assert f"toggleFilter('{guild.pk}')" in html

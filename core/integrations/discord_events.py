@@ -31,6 +31,7 @@ clean — exactly as ``push_to_google`` does.
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -51,6 +52,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_LOCATION = "Past Lives Makerspace"
 
 _TIMEOUT_SECONDS = 5.0
+_RATE_LIMIT_MAX_WAIT_SECONDS = 15.0
 _SYNC_ERROR_MAX = 500
 _NAME_MAX = 100
 _LOCATION_MAX = 100
@@ -106,28 +108,62 @@ class DiscordScheduledEventsClient:
     def server_id(self) -> str:
         return self._server_id
 
-    def insert_event(self, server_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    def insert_event(
+        self, server_id: str, body: dict[str, Any], *, retry_on_rate_limit: bool = False
+    ) -> dict[str, Any]:
         """Create a Scheduled Event; return the event resource (with ``id``)."""
-        return self._execute("POST", f"/guilds/{server_id}/scheduled-events", json=body)
+        return self._execute(
+            "POST", f"/guilds/{server_id}/scheduled-events", json=body, retry_on_rate_limit=retry_on_rate_limit
+        )
 
-    def update_event(self, server_id: str, event_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    def update_event(
+        self, server_id: str, event_id: str, body: dict[str, Any], *, retry_on_rate_limit: bool = False
+    ) -> dict[str, Any]:
         """Patch an existing Scheduled Event; return the updated event resource."""
-        return self._execute("PATCH", f"/guilds/{server_id}/scheduled-events/{event_id}", json=body)
+        return self._execute(
+            "PATCH",
+            f"/guilds/{server_id}/scheduled-events/{event_id}",
+            json=body,
+            retry_on_rate_limit=retry_on_rate_limit,
+        )
 
-    def delete_event(self, server_id: str, event_id: str) -> None:
+    def delete_event(self, server_id: str, event_id: str, *, retry_on_rate_limit: bool = False) -> None:
         """Delete a Scheduled Event. Wraps API errors (caller catches one type)."""
-        self._execute("DELETE", f"/guilds/{server_id}/scheduled-events/{event_id}")
+        self._execute(
+            "DELETE", f"/guilds/{server_id}/scheduled-events/{event_id}", retry_on_rate_limit=retry_on_rate_limit
+        )
 
     @staticmethod
-    def _execute(method: str, path: str, *, json: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _execute(
+        method: str, path: str, *, json: dict[str, Any] | None = None, retry_on_rate_limit: bool = False
+    ) -> dict[str, Any]:
         """Run a bot-authed REST call, translating any failure into :class:`DiscordEventsError`
         so callers catch one exception type (mirrors ``GoogleCalendarClient._execute``).
 
         Both a transport failure (``httpx.HTTPError``) and a non-2xx status become a
         ``DiscordEventsError``; a 2xx with an empty body (a ``DELETE`` 204) returns ``{}``.
+        With ``retry_on_rate_limit`` a 429 is retried once after Discord's ``Retry-After``
+        — the scheduled-events bucket is tiny, so the daily mirror's burst of ~a-dozen
+        calls reliably trips it mid-run; waiting the advertised second or two clears it.
+        Only batch paths opt in: an interactive FOG save should fail fast into the retry
+        cron, not hang the request sleeping. A 429 without the flag, or with no usable or
+        too-long ``Retry-After``, raises immediately.
         """
+        response = DiscordScheduledEventsClient._send(method, path, json=json)
+        if response.status_code == 429 and retry_on_rate_limit:
+            retry_after = _retry_after_seconds(response)
+            if retry_after is not None and retry_after <= _RATE_LIMIT_MAX_WAIT_SECONDS:
+                time.sleep(retry_after)
+                response = DiscordScheduledEventsClient._send(method, path, json=json)
+        if not response.is_success:
+            raise DiscordEventsError(f"Discord API {response.status_code}: {response.text[:300]}")
+        return response.json() if response.content else {}
+
+    @staticmethod
+    def _send(method: str, path: str, *, json: dict[str, Any] | None = None) -> httpx.Response:
+        """One raw REST call; only transport failures raise (as :class:`DiscordEventsError`)."""
         try:
-            response = httpx.request(
+            return httpx.request(
                 method,
                 f"{API_BASE}{path}",
                 json=json,
@@ -136,9 +172,17 @@ class DiscordScheduledEventsClient:
             )
         except httpx.HTTPError as exc:
             raise DiscordEventsError(str(exc)) from exc
-        if not response.is_success:
-            raise DiscordEventsError(f"Discord API {response.status_code}: {response.text[:300]}")
-        return response.json() if response.content else {}
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """Seconds Discord asks us to wait on a 429, or ``None`` when absent/unparseable."""
+    header = response.headers.get("Retry-After")
+    if not header:
+        return None
+    try:
+        return float(header)
+    except ValueError:
+        return None
 
 
 def _build_description(event: CommunityEvent) -> str:

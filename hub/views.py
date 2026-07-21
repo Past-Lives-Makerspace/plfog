@@ -545,15 +545,9 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     upcoming_classes = guild_classes.bookable().select_related("instructor")[:4]
     calendar = _get_calendar_context(request, guild=guild)
     calendar["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
-    # Seed the guild-tab defaults with each legend guild's key (this guild always
-    # earns one — its classes key by str(pk)) plus the "Other classes" fallback only
-    # when a no-guild class shows here, so the guild's own classes are visible + on.
-    guild_cal_filters = ["orientation", "community"]
-    if calendar["has_ungrouped_classes"]:
-        guild_cal_filters.append("classes")
-    for g in calendar["legend_guilds"]:
-        guild_cal_filters.append(str(g.pk))
-    calendar["default_filters_json"] = json.dumps(guild_cal_filters).replace('"', '\\"')
+    # No default_filters_json: the guild calendar persists *disabled* filters
+    # client-side (like the Community Calendar), so every legend key — including
+    # this guild's own classes key — defaults to visible without a seeded list.
     pulse = _guild_pulse(guild)
 
     from membership.models import GuildOrientationSettings
@@ -3505,15 +3499,9 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     ctx = _get_hub_context(request)
     cal_ctx = _get_calendar_context(request)
 
-    default_filters = ["community"]
-    for feed in cal_ctx["calendar_feeds"]:
-        default_filters.append(f"feed-{feed.pk}")
-    if cal_ctx["has_ungrouped_classes"]:
-        default_filters.append("classes")
-    for g in cal_ctx["legend_guilds"]:
-        default_filters.append(str(g.pk))
-
-    cal_ctx["default_filters_json"] = json.dumps(default_filters).replace('"', '\\"')
+    # No default_filters_json here: the Community Calendar persists *disabled*
+    # filters client-side, so every legend key — including ones added later —
+    # defaults to visible without a seeded enabled-list.
     cal_ctx["events_url"] = reverse("hub_community_calendar_events")
 
     view_as = getattr(request, "view_as", None)

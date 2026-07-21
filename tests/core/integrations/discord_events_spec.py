@@ -408,3 +408,89 @@ def describe_DiscordScheduledEventsClient():
             client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
             with pytest.raises(de.DiscordEventsError):
                 client.insert_event(SERVER_ID, {})
+
+        @respx.mock
+        def it_retries_once_after_a_rate_limits_advertised_wait(settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            route = respx.post(_EVENTS_URL).mock(
+                side_effect=[
+                    httpx.Response(429, json={"retry_after": 1.5}, headers={"Retry-After": "1.5"}),
+                    httpx.Response(200, json={"id": "e1"}),
+                ]
+            )
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            with patch("core.integrations.discord_events.time.sleep") as fake_sleep:
+                assert client.insert_event(SERVER_ID, {"name": "x"}, retry_on_rate_limit=True) == {"id": "e1"}
+            fake_sleep.assert_called_once_with(1.5)
+            assert route.call_count == 2
+
+        @respx.mock
+        def it_fails_fast_on_a_429_without_the_retry_flag(settings):
+            # Interactive FOG saves must not hang the request sleeping — only the
+            # batch mirror opts into the wait-and-retry.
+            settings.DISCORD_BOT_TOKEN = "tok"
+            route = respx.post(_EVENTS_URL).mock(
+                return_value=httpx.Response(429, json={"retry_after": 1.5}, headers={"Retry-After": "1.5"})
+            )
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            with (
+                patch("core.integrations.discord_events.time.sleep") as fake_sleep,
+                pytest.raises(de.DiscordEventsError, match="429"),
+            ):
+                client.insert_event(SERVER_ID, {})
+            fake_sleep.assert_not_called()
+            assert route.call_count == 1
+
+        @respx.mock
+        def it_raises_when_the_retry_is_also_rate_limited(settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            rate_limited = httpx.Response(429, json={"retry_after": 1.0}, headers={"Retry-After": "1.0"})
+            route = respx.post(_EVENTS_URL).mock(side_effect=[rate_limited, rate_limited])
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            with (
+                patch("core.integrations.discord_events.time.sleep"),
+                pytest.raises(de.DiscordEventsError, match="429"),
+            ):
+                client.insert_event(SERVER_ID, {}, retry_on_rate_limit=True)
+            assert route.call_count == 2
+
+        @respx.mock
+        def it_raises_without_retrying_when_a_429_has_no_usable_retry_after(settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            route = respx.post(_EVENTS_URL).mock(return_value=httpx.Response(429, json={"global": True}))
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            with (
+                patch("core.integrations.discord_events.time.sleep") as fake_sleep,
+                pytest.raises(de.DiscordEventsError, match="429"),
+            ):
+                client.insert_event(SERVER_ID, {}, retry_on_rate_limit=True)
+            fake_sleep.assert_not_called()
+            assert route.call_count == 1
+
+        @respx.mock
+        def it_raises_without_retrying_when_the_retry_after_is_malformed(settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            route = respx.post(_EVENTS_URL).mock(return_value=httpx.Response(429, headers={"Retry-After": "soon"}))
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            with (
+                patch("core.integrations.discord_events.time.sleep") as fake_sleep,
+                pytest.raises(de.DiscordEventsError, match="429"),
+            ):
+                client.insert_event(SERVER_ID, {}, retry_on_rate_limit=True)
+            fake_sleep.assert_not_called()
+            assert route.call_count == 1
+
+        @respx.mock
+        def it_raises_without_retrying_when_the_wait_is_excessive(settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            route = respx.post(_EVENTS_URL).mock(
+                return_value=httpx.Response(429, json={"retry_after": 60.0}, headers={"Retry-After": "60"})
+            )
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            with (
+                patch("core.integrations.discord_events.time.sleep") as fake_sleep,
+                pytest.raises(de.DiscordEventsError, match="429"),
+            ):
+                client.insert_event(SERVER_ID, {}, retry_on_rate_limit=True)
+            fake_sleep.assert_not_called()
+            assert route.call_count == 1

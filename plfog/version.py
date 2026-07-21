@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.3"
+VERSION = "0.23.4"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.23.3",
-        "date": "2026-07-20",
+        "version": "0.23.4",
+        "date": "2026-07-21",
         "title": "Community Calendar events are back — and coming to Discord",
         "changes": [
             (
@@ -21,8 +21,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.23.3",
-        "date": "2026-07-20",
+        "version": "0.23.4",
+        "date": "2026-07-21",
         "title": "Classes stay filed under their guilds",
         "changes": [
             (
