@@ -116,6 +116,43 @@ def describe_build_weekly_digest_embeds():
         assert embeds[0]["title"].startswith("This week at Past Lives")
         assert "(continued)" in embeds[1]["title"]
 
+    def it_leaves_standing_studio_hours_out_of_the_digest():
+        now = timezone.now()
+        _feed_event("Forge Night", days=2)
+        # A weekly studio-hours block with an occurrence inside the digest window.
+        CommunityEventFactory(
+            studio_hours=True,
+            title="Wood Guild Studio Hours",
+            starts_at=now - timedelta(days=30),
+            ends_at=now - timedelta(days=30) + timedelta(hours=3),
+        )
+        description = dcp.build_weekly_digest_embeds(now)[0]["description"]
+        assert "Forge Night" in description
+        assert "Wood Guild Studio Hours" not in description
+
+
+def describe_batch_embeds():
+    def it_splits_batches_under_the_combined_six_thousand_char_message_cap():
+        # A busy week: ~9,900 chars of digest → 3 embeds each under 4,096, but any two
+        # together blow Discord's 6,000-per-MESSAGE combined cap. Assert on the built
+        # payload batches — an HTTP mock can't catch a limit Discord enforces server-side.
+        for i in range(30):
+            _feed_event(f"Marathon session {i:02d} " + "x" * 300, days=2 + (i % 2) * 0.01)
+        embeds = dcp.build_weekly_digest_embeds(timezone.now())
+        assert sum(dcp._embed_chars(e) for e in embeds) > dcp.MESSAGE_EMBED_TOTAL_MAX  # the scenario is real
+
+        batches = dcp._batch_embeds(embeds)
+        assert len(batches) > 1
+        for batch in batches:
+            assert sum(dcp._embed_chars(e) for e in batch) <= dcp.MESSAGE_EMBED_TOTAL_MAX
+            assert len(batch) <= 10
+        # Nothing dropped or reordered — the batches re-concatenate to the original list.
+        assert [e for batch in batches for e in batch] == embeds
+
+    def it_keeps_a_small_digest_in_a_single_message():
+        embeds = [{"title": "t", "description": "d" * 100}]
+        assert dcp._batch_embeds(embeds) == [embeds]
+
 
 def describe_post_weekly_digest():
     @respx.mock
@@ -241,6 +278,43 @@ def describe_announce_new_events():
         assert dcp.announce_new_events() == 0
 
     @respx.mock
+    def it_collapses_a_recurring_feed_series_to_one_announcement_and_stamps_every_row(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        # A weekly feed series materializes one CalendarEvent row per occurrence, all
+        # sharing a uid — the announcer must post its earliest occurrence once, not 5x.
+        for week in range(5):
+            _feed_event(
+                "Weekly Repair Cafe",
+                days=2 + week * 7,
+                uid="uid-series",
+                recurrence_id=f"occ-{week}",
+            )
+
+        assert dcp.announce_new_events() == 1
+        assert route.call_count == 1
+        embed = _sent_embeds(route)[0]
+        assert embed["title"] == "Weekly Repair Cafe"
+        earliest = CalendarEvent.objects.filter(uid="uid-series").order_by("start_dt").first()
+        assert timezone.localtime(earliest.start_dt).strftime("%A, %B %-d") in embed["description"]
+        # Every sibling occurrence row is stamped in the same pass — no drip-feed later.
+        assert CalendarEvent.objects.filter(uid="uid-series", channel_announced_at__isnull=True).count() == 0
+        assert dcp.announce_new_events() == 0
+
+    @respx.mock
+    def it_still_announces_two_distinct_events_separately(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        _feed_event("Forge Night", days=2)
+        _feed_event("Print Party", days=3)
+
+        assert dcp.announce_new_events() == 2
+        assert route.call_count == 2
+        assert [e["title"] for e in _sent_embeds(route)] == ["Forge Night", "Print Party"]
+
+    @respx.mock
     def it_announces_a_recurring_event_at_its_next_occurrence(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
         route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
@@ -279,6 +353,8 @@ def describe_when_formatting():
         text = dcp._when(start, end, False)
         assert timezone.localtime(end).strftime("%A, %B %-d") in text
 
+
+def describe_next_community_start():
     def it_falls_back_to_the_anchor_when_no_occurrence_is_in_horizon():
         now = timezone.now()
         far_future = CommunityEventFactory(

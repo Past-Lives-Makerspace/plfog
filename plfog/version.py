@@ -38,7 +38,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.23.8",
+        "version": "0.23.9",
         "date": "2026-07-21",
         "title": "The #public-calendar channel is back in business",
         "changes": [
@@ -52,6 +52,17 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "it in the channel right away, so you never miss something new."
             ),
             ("Want the whole picture? The full calendar is always at https://members.pastlives.space/calendar/."),
+        ],
+    },
+    {
+        "version": "0.23.8",
+        "date": "2026-07-21",
+        "title": "calendar.pastlives.space — an easy address for the Community Calendar",
+        "changes": [
+            (
+                "There's now a short, shareable address for the Community Calendar: calendar.pastlives.space "
+                "takes you straight there. Handy for flyers, Discord, and telling a friend."
+            ),
         ],
     },
     {
