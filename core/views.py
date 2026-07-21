@@ -128,12 +128,13 @@ def discord_interactions(request: HttpRequest) -> HttpResponse:
     Discord POSTs here for every interaction. Signature verification runs FIRST (before
     JSON parse, member lookup, or any handler); a bad or missing signature is the only
     non-2xx we ever return (``401`` — Discord requires it and probes for it). A PING is
-    answered with a PONG; an APPLICATION_COMMAND is dispatched to its handler. Every other
-    interaction type is acked with an empty ``200``. ``dispatch()`` converts any handler
-    exception into an ephemeral error reply, so Discord never sees a 5xx (which would get
-    the endpoint auto-disabled).
+    answered with a PONG; an APPLICATION_COMMAND is dispatched to its handler; a
+    MESSAGE_COMPONENT (button/select click) is dispatched by its ``custom_id`` prefix.
+    Every other interaction type is acked with an empty ``200``. Both dispatchers convert
+    any handler exception into an ephemeral error reply, so Discord never sees a 5xx
+    (which would get the endpoint auto-disabled).
     """
-    from core.events.discord_commands import dispatch
+    from core.events.discord_commands import dispatch, dispatch_component
     from core.events.discord_interactions import pong, verify_signature
 
     if not verify_signature(
@@ -148,6 +149,8 @@ def discord_interactions(request: HttpRequest) -> HttpResponse:
         return JsonResponse(pong())
     if interaction["type"] == 2:  # APPLICATION_COMMAND
         return JsonResponse(dispatch(interaction, request))
+    if interaction["type"] == 3:  # MESSAGE_COMPONENT (button/select click)
+        return JsonResponse(dispatch_component(interaction, request))
     return HttpResponse(status=200)  # future interaction types: ack, do nothing
 
 

@@ -229,6 +229,23 @@ class MemberQuerySet(models.QuerySet):
             | (approved & models.Q(skills__skill__name__icontains=text))
         ).distinct()
 
+    def directory_visible(self) -> MemberQuerySet:
+        """Active members listed in the directory: opted in, or holding a must-show role.
+
+        The single source of truth for "who appears in the member directory" — the hub
+        directory page, :meth:`Guild.roster_members`, and the Discord ``/members`` command
+        all build on this filter so they can never drift. A member appears when they are
+        ACTIVE and either opted in (``show_in_directory``) or hold a role the community
+        needs to reach: admin, guild officer, guild lead, or instructor.
+        """
+        must_show = (
+            models.Q(fog_role=Member.FogRole.ADMIN)
+            | models.Q(fog_role=Member.FogRole.GUILD_OFFICER)
+            | models.Q(led_guilds__isnull=False)
+            | models.Q(instructor_slug__gt="")
+        )
+        return self.filter(status=Member.Status.ACTIVE).filter(models.Q(show_in_directory=True) | must_show).distinct()
+
 
 @dataclass(frozen=True)
 class ProfileCompleteness:
@@ -1473,18 +1490,8 @@ class Guild(HeroCropMixin, models.Model):
             GuildImage.objects.create(guild=self, image=img_file, sort_order=start + i)
 
     def roster_members(self) -> models.QuerySet[Member]:
-        """Active joined members, filtered by directory privacy (mirrors member_directory)."""
-        must_show = (
-            models.Q(fog_role=Member.FogRole.ADMIN)
-            | models.Q(fog_role=Member.FogRole.GUILD_OFFICER)
-            | models.Q(led_guilds__isnull=False)
-            | models.Q(instructor_slug__gt="")
-        )
-        return (
-            Member.objects.filter(guild_memberships__guild=self, status=Member.Status.ACTIVE)
-            .filter(models.Q(show_in_directory=True) | must_show)
-            .distinct()
-        )
+        """Active joined members, filtered by directory privacy (same rule as member_directory)."""
+        return Member.objects.directory_visible().filter(guild_memberships__guild=self)
 
     @property
     def next_meeting_at(self) -> date_type | None:

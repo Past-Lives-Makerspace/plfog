@@ -105,6 +105,28 @@ def reply(
     return {"type": 4, "data": data}
 
 
+def update_message(
+    content: str,
+    *,
+    embeds: list[dict] | None = None,
+    components: list[dict] | None = None,
+) -> dict:
+    """A type-7 (UPDATE_MESSAGE) response — edits the message the clicked component sits on.
+
+    The component-click counterpart of :func:`reply`: instead of posting a fresh message it
+    replaces the content/embeds/components of the message the button lives on, in place.
+    Deliberately carries no ``flags`` — a message's ephemeral state is immutable, so an
+    ephemeral browse stays ephemeral across updates. ``embeds`` / ``components`` are included
+    only when provided (an omitted key leaves Discord's existing value untouched).
+    """
+    data: dict = {"content": content}
+    if embeds is not None:
+        data["embeds"] = embeds
+    if components is not None:
+        data["components"] = components
+    return {"type": 7, "data": data}
+
+
 def deferred_ack(*, ephemeral: bool = True) -> dict:
     """A type-5 (DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE) ack — Discord's "thinking…" state.
 
@@ -206,5 +228,6 @@ __all__ = [
     "reply",
     "send_followup",
     "unlinked_reply",
+    "update_message",
     "verify_signature",
 ]

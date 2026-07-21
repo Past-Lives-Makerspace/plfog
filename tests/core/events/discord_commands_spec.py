@@ -13,14 +13,17 @@ import respx
 from core.events import discord_commands
 from core.events.discord_commands import (
     GUIDE,
+    ComponentHandler,
     SlashCommand,
     _fog_ping,
     _guide,
     all_commands,
     autodiscover,
     dispatch,
+    dispatch_component,
     guild_disambiguation_reply,
     register,
+    register_component,
     resolve_guild,
     resolve_member,
 )
@@ -33,11 +36,14 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture(autouse=True)
 def _restore_registry():
-    """Snapshot and restore the global registry so per-test commands don't leak."""
+    """Snapshot and restore both global registries so per-test commands don't leak."""
     snapshot = dict(discord_commands._REGISTRY)
+    component_snapshot = dict(discord_commands._COMPONENT_REGISTRY)
     yield
     discord_commands._REGISTRY.clear()
     discord_commands._REGISTRY.update(snapshot)
+    discord_commands._COMPONENT_REGISTRY.clear()
+    discord_commands._COMPONENT_REGISTRY.update(component_snapshot)
 
 
 def _cmd(name: str, **kw) -> SlashCommand:
@@ -220,6 +226,68 @@ def describe_guide():
     def it_is_readable_without_a_link_and_ephemeral():
         assert GUIDE.requires_link is False
         assert GUIDE.ephemeral is True
+
+
+def _component(prefix: str, **kw) -> ComponentHandler:
+    kw.setdefault("handler", lambda interaction, member: {"type": 7, "data": {"content": "updated"}})
+    return ComponentHandler(prefix=prefix, **kw)
+
+
+def describe_register_component():
+    def it_adds_a_handler_to_the_component_registry(rf, linked_member):
+        linked_member(discord_user_id="555")
+        register_component(_component("temp-prefix"))
+        interaction = {"type": 3, "data": {"custom_id": "temp-prefix:1"}, "member": {"user": {"id": "555"}}}
+        assert dispatch_component(interaction, rf.post("/"))["type"] == 7
+
+    def it_raises_on_a_duplicate_prefix():
+        register_component(_component("dup-prefix"))
+        with pytest.raises(ValueError, match="Duplicate component prefix"):
+            register_component(_component("dup-prefix"))
+
+
+def describe_dispatch_component():
+    def it_returns_error_reply_for_an_unknown_prefix(rf):
+        interaction = {"type": 3, "data": {"custom_id": "ghost:1:-:"}, "user": {"id": "1"}}
+        assert dispatch_component(interaction, rf.post("/")) == error_reply()
+
+    def it_returns_unlinked_reply_when_a_link_is_required_and_no_member(rf):
+        register_component(_component("linked-only"))
+        interaction = {"type": 3, "data": {"custom_id": "linked-only:2"}, "member": {"user": {"id": "000"}}}
+        result = dispatch_component(interaction, rf.post("/"))
+        assert result["type"] == 4  # a fresh ephemeral prompt, not an in-place update
+        assert result["data"]["flags"] == 64
+        button = result["data"]["components"][0]["components"][0]
+        assert button["url"].startswith("http")
+        assert button["url"].endswith("/discord/link/")
+
+    def it_calls_the_handler_for_a_linked_member(rf, linked_member):
+        member = linked_member(discord_user_id="555")
+        seen = {}
+
+        def _handler(interaction, handler_member):
+            seen["member"] = handler_member
+            return {"type": 7, "data": {"content": "page 2"}}
+
+        register_component(_component("seen", handler=_handler))
+        interaction = {"type": 3, "data": {"custom_id": "seen:2:-:"}, "member": {"user": {"id": "555"}}}
+        assert dispatch_component(interaction, rf.post("/")) == {"type": 7, "data": {"content": "page 2"}}
+        assert seen["member"] == member
+
+    def it_runs_a_link_free_handler_with_member_none(rf):
+        register_component(_component("open", requires_link=False))
+        interaction = {"type": 3, "data": {"custom_id": "open:1"}, "user": {"id": "000"}}
+        assert dispatch_component(interaction, rf.post("/"))["type"] == 7
+
+    def it_converts_a_handler_exception_into_error_reply(rf, linked_member):
+        linked_member(discord_user_id="555")
+
+        def _boom(interaction, member):
+            raise RuntimeError("kaboom")
+
+        register_component(_component("boom-prefix", handler=_boom))
+        interaction = {"type": 3, "data": {"custom_id": "boom-prefix:1"}, "member": {"user": {"id": "555"}}}
+        assert dispatch_component(interaction, rf.post("/")) == error_reply()
 
 
 _CALLBACK_URL = "https://discord.com/api/v10/interactions/intA/tokB/callback"

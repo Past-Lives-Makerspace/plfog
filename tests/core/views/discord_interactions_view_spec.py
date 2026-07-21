@@ -126,7 +126,8 @@ def describe_discord_interactions_view():
         assert "went wrong" in response.json()["data"]["content"]
 
     def it_acks_an_unsupported_interaction_type_with_an_empty_200(client, signer):
-        response = _post(client, signer, {"type": 3, "data": {"name": "x"}})
+        # Type 5 (MODAL_SUBMIT) is unrouted; type 3 now dispatches to the component registry.
+        response = _post(client, signer, {"type": 5, "data": {"name": "x"}})
         assert response.status_code == 200
         assert response.content == b""
 

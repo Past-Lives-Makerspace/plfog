@@ -1,4 +1,5 @@
-"""Membership's Discord slash commands: ``/whats-on``, ``/info``, ``/schedule-orientation``, and ``/voting``.
+"""Membership's Discord slash commands: ``/whats-on``, ``/info``, ``/schedule-orientation``,
+``/voting``, and ``/members``.
 
 Autodiscovered by :func:`core.events.discord_commands.autodiscover`. Each handler stays thin
 — it resolves a guild/window, calls an existing manager/service method, and hands the result
@@ -8,11 +9,13 @@ models/managers and :mod:`membership.orientations`; nothing new lands in the han
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
+from math import ceil
 from typing import TYPE_CHECKING, cast
 
-from core.events.discord_commands import SlashCommand, register
-from core.events.discord_interactions import reply
+from core.events.discord_commands import ComponentHandler, SlashCommand, register, register_component
+from core.events.discord_interactions import error_reply, reply, update_message
 from core.events.discord_replies import (
     format_local,
     guild_not_specified_reply,
@@ -23,8 +26,10 @@ from core.events.discord_replies import (
 )
 
 if TYPE_CHECKING:
-    from membership.models import Guild, GuildOrientationSettings, Member, VotePreference
+    from membership.models import Guild, GuildOrientationSettings, Member, MemberQuerySet, VotePreference
     from membership.vote_calculator import VoteStanding
+
+logger = logging.getLogger(__name__)
 
 # An interaction payload is Discord's JSON dict; the second arg is the resolved Member | None.
 Interaction = dict
@@ -537,3 +542,286 @@ VOTING = SlashCommand(
 )
 
 register(VOTING)
+
+
+# --- /members -----------------------------------------------------------------
+
+_CARDS_PER_PAGE = 5
+_CARD_TITLE_LIMIT = 80
+_CARD_DESCRIPTION_LIMIT = 950
+_SKILLS_SHOWN = 6
+_CUSTOM_ID_LIMIT = 100
+_SEARCH_LIMIT = 40
+# The fixed characters of a members custom_id at a 4-digit page: "members:9999::".
+_CUSTOM_ID_OVERHEAD = len("members:9999::")
+
+
+def _search_budget(slug_token: str) -> int:
+    """How many search characters fit a ``members:`` custom_id alongside ``slug_token``.
+
+    Computed once per slash invocation (§5.3): the search is truncated to this budget
+    *before* querying or encoding, so page 1 and every subsequent page run the same query
+    and every generated id fits Discord's 100-char cap by construction (4-digit page
+    headroom included).
+    """
+    return min(_SEARCH_LIMIT, _CUSTOM_ID_LIMIT - _CUSTOM_ID_OVERHEAD - len(slug_token))
+
+
+def _members_queryset(guild: Guild | None, search: str) -> MemberQuerySet:
+    """The directory queryset for one ``/members`` page — filter, prefetches, ordering.
+
+    Built on :meth:`MemberQuerySet.directory_visible` unconditionally (privacy parity with
+    the app directory by construction — no admin bypass), narrowed by the optional guild
+    and search, with the hub view's exact efficiency block so a page build costs zero
+    queries per card beyond the page fetch.
+    """
+    from allauth.account.models import EmailAddress
+    from django.db.models import Prefetch
+
+    from membership.models import Member, MemberContact
+
+    qs = Member.objects.directory_visible()
+    if guild is not None:
+        qs = qs.filter(guild_memberships__guild=guild)
+    if search:
+        qs = qs.search_skills(search)
+    return (
+        qs.select_related("membership_plan", "user")
+        .prefetch_related(
+            Prefetch(
+                "user__emailaddress_set",
+                queryset=EmailAddress.objects.filter(primary=True),
+                to_attr="_primary_emailaddresses",
+            ),
+            "guild_memberships__guild",
+            "skills__skill__category",
+            Prefetch(
+                "contacts",
+                queryset=MemberContact.objects.filter(show_in_directory=True),
+                to_attr="visible_contacts",
+            ),
+        )
+        .order_by("full_legal_name")
+    )
+
+
+def _skills_lines(member: Member) -> list[str]:
+    """The 🎨 skills + 💼 commissions lines, both inside the ``is_public("skills")`` gate.
+
+    Mirrors the directory card template exactly: the commissions block nests *inside* the
+    skills visibility gate (there is no independent commissions key), so skills-hidden hides
+    the commissions line too. Approved skills are filtered in Python from the prefetched
+    rows (``skills__skill__category``) — the ``approved_skills`` property would re-query
+    per card.
+    """
+    from membership.models import Skill
+
+    if not member.is_public("skills"):
+        return []
+    lines: list[str] = []
+    approved = [ms.skill.name for ms in member.skills.all() if ms.skill.status == Skill.Status.APPROVED]
+    if approved:
+        shown = ", ".join(approved[:_SKILLS_SHOWN])
+        more = f", +{len(approved) - _SKILLS_SHOWN} more" if len(approved) > _SKILLS_SHOWN else ""
+        lines.append(f"🎨 Skills: {shown}{more}")
+    if member.open_for_commissions:
+        note = f" — {member.commission_note}" if member.commission_note else ""
+        lines.append(f"💼 Open for commissions!{note}")
+    return lines
+
+
+def _member_card(member: Member) -> dict:
+    """One directory-card embed for ``member`` — every line honors the app's privacy gates.
+
+    Line-for-line mirror of ``templates/hub/member_directory.html``: a line is omitted
+    entirely when its data is empty or the member's ``is_public()`` toggle hides it — a
+    card never shows an empty labeled row. ``about_me`` is deliberately omitted for the
+    6000-char message budget; the footer's link button opens the full card in the app.
+    """
+    from membership.models import Member
+
+    meta = [member.get_member_type_display()]
+    if member.pronouns and member.pronouns != Member.Pronouns.PREFER_NOT and member.is_public("pronouns"):
+        meta.append(member.pronouns)
+    if member.join_date:
+        meta.append(member.join_date.strftime("Joined %b %Y"))
+    lines = [" · ".join(meta)]
+
+    guild_names = [gm.guild.name for gm in member.guild_memberships.all()]
+    if guild_names:
+        lines.append("🛠️ Guilds: " + ", ".join(guild_names))
+    lines.extend(_skills_lines(member))
+    email = member.primary_email
+    if email and member.is_public("email"):
+        lines.append(f"✉️ {email}")
+    if member.phone and member.is_public("phone"):
+        lines.append(f"📞 {member.phone}")
+    if member.discord_handle and member.is_public("discord_handle"):
+        lines.append(f"💬 {member.discord_handle}")
+    # Set by _members_queryset's Prefetch(to_attr=…) — rows already show_in_directory-filtered.
+    for contact in member.visible_contacts:  # type: ignore[attr-defined]
+        lines.append(f"🔗 {contact.label} — {contact.value}")
+
+    card: dict = {
+        "title": truncate(member.display_name, _CARD_TITLE_LIMIT),
+        "description": truncate("\n".join(lines), _CARD_DESCRIPTION_LIMIT),
+    }
+    if member.profile_photo and member.is_public("profile_photo"):
+        photo_url = member.profile_photo.url
+        # Local FileSystemStorage yields relative /media/… URLs Discord can't fetch — skip
+        # the thumbnail (text-only card) rather than ship a broken embed. Prod R2 URLs are
+        # absolute, public, and unsigned.
+        if photo_url.startswith("http"):
+            card["thumbnail"] = {"url": photo_url}
+    return card
+
+
+def _members_footer(page: int, page_count: int, total: int, guild: Guild | None, search: str) -> dict:
+    """The always-last footer embed — page position, filtered total, active filters, edit note."""
+    parts = [f"Page {page} of {page_count} · {total} member{'' if total == 1 else 's'}"]
+    if guild is not None:
+        parts.append(guild.name)
+    if search:
+        parts.append(f"“{search}”")
+    return {"description": " · ".join(parts) + "\nEdit what you share from the app — Settings → Directory."}
+
+
+def _directory_link_button() -> dict:
+    """The link button to the hub member directory — present in every state, including empty."""
+    return {"type": 2, "style": 5, "label": "Open the full directory", "url": hub_url("hub_member_directory")}
+
+
+def _members_components(page: int, page_count: int, slug_token: str, search: str) -> list[dict]:
+    """The one action row: Prev/Next pagers (omitted on a single page) + the directory link.
+
+    Prev/Next are secondary-style buttons disabled at the bounds (never a misfire), each
+    carrying the stateless ``members:<page>:<slug|->:<search>`` custom_id of its target page.
+    """
+    buttons: list[dict] = []
+    if page_count > 1:
+        buttons.append(
+            {
+                "type": 2,
+                "style": 2,
+                "label": "◀ Prev",
+                "custom_id": f"members:{page - 1}:{slug_token}:{search}",
+                "disabled": page <= 1,
+            }
+        )
+        buttons.append(
+            {
+                "type": 2,
+                "style": 2,
+                "label": "Next ▶",
+                "custom_id": f"members:{page + 1}:{slug_token}:{search}",
+                "disabled": page >= page_count,
+            }
+        )
+    buttons.append(_directory_link_button())
+    return [{"type": 1, "components": buttons}]
+
+
+def _members_page(guild: Guild | None, search: str, page: int) -> dict:
+    """Build one directory page: ``{"embeds": …, "components": …, "total": N}``.
+
+    The single builder both entry points (slash + component click) call. Stateless: it
+    re-counts and re-queries fresh every time, clamping the requested page to
+    ``[1, page_count]`` so a click after the roster shifted lands on a real page.
+    """
+    qs = _members_queryset(guild, search)
+    total = qs.count()
+    page_count = max(1, ceil(total / _CARDS_PER_PAGE))
+    page = min(max(1, page), page_count)
+    embeds = [_member_card(m) for m in qs[(page - 1) * _CARDS_PER_PAGE : page * _CARDS_PER_PAGE]]
+    embeds.append(_members_footer(page, page_count, total, guild, search))
+    slug_token = guild.slug if guild is not None else "-"
+    return {
+        "embeds": embeds,
+        "components": _members_components(page, page_count, slug_token, search),
+        "total": total,
+    }
+
+
+def _members_empty_text(guild: Guild | None, search: str) -> str:
+    """The no-matches copy — names the active filters and the fix, never a dead end."""
+    scope = ""
+    if guild is not None:
+        scope += f" in **{guild.name}**"
+    if search:
+        scope += f" for **“{search}”**"
+    return f"No members match{scope}. Try a broader search, or run `/members` without the filters to browse everyone."
+
+
+def _members(interaction: Interaction, member: Member | None) -> dict:
+    """Browse the member directory as ephemeral profile-card embeds with Prev/Next paging."""
+    from membership.models import Guild
+
+    member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
+    guild: Guild | None = None
+    slug = option_value(interaction, "guild")
+    if slug:
+        guild = Guild.objects.filter(is_active=True, slug=slug).first()
+        if guild is None:  # only reachable via the zero-guild free-text edge
+            return guild_not_specified_reply()
+    slug_token = guild.slug if guild is not None else "-"
+    search = (option_value(interaction, "search") or "").strip()[: _search_budget(slug_token)]
+
+    page_data = _members_page(guild, search, 1)
+    if page_data["total"] == 0:
+        return reply(
+            _members_empty_text(guild, search),
+            ephemeral=True,
+            components=[{"type": 1, "components": [_directory_link_button()]}],
+        )
+    return reply("", ephemeral=True, embeds=page_data["embeds"], components=page_data["components"])
+
+
+def _members_component(interaction: Interaction, member: Member | None) -> dict:
+    """A Prev/Next click: re-parse the stateless custom_id, rebuild the page, update in place."""
+    from membership.models import Guild
+
+    custom_id = interaction["data"]["custom_id"]
+    parts = custom_id.split(":", 3)
+    if len(parts) != 4 or not parts[1].isdigit() or int(parts[1]) < 1:
+        logger.warning("Malformed members custom_id %r", custom_id)
+        return error_reply()
+    _prefix, page_str, slug_token, search = parts
+
+    guild: Guild | None = None
+    if slug_token != "-":
+        guild = Guild.objects.filter(is_active=True, slug=slug_token).first()
+        if guild is None:  # the guild vanished (or deactivated) mid-browse — a genuine edge
+            logger.warning("members component: guild slug %r no longer resolves", slug_token)
+            return error_reply()
+
+    page_data = _members_page(guild, search, int(page_str))
+    if page_data["total"] == 0:  # the roster emptied between clicks — replace the stale cards
+        return update_message(
+            "",
+            embeds=[{"description": _members_empty_text(guild, search)}],
+            components=[{"type": 1, "components": [_directory_link_button()]}],
+        )
+    return update_message("", embeds=page_data["embeds"], components=page_data["components"])
+
+
+def _members_options() -> list[dict]:
+    """The ``/members`` options — the guild filter dropdown + a free-text search."""
+    return [
+        {**_guild_dropdown_option(), "description": "Filter to one guild — omit to browse everyone."},
+        {"name": "search", "description": "Match a name or skill.", "type": 3, "required": False},
+    ]
+
+
+MEMBERS = SlashCommand(
+    name="members",
+    description="Browse the member directory — profiles, skills, and contact info.",
+    handler=_members,
+    options_builder=_members_options,
+    requires_link=True,
+    ephemeral=True,
+    defer=False,
+    scope="guild",
+)
+
+register(MEMBERS)
+register_component(ComponentHandler(prefix="members", handler=_members_component, requires_link=True))
