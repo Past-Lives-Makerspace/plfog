@@ -390,12 +390,11 @@ def sync_local_class_events() -> int:
         starts_at__lte=horizon,
     ).select_related("class_offering", "class_offering__category")
 
-    kept_uids: list[str] = []
+    kept_pks: list[int] = []
     for session in qs:
         offering = session.class_offering
         uid = f"local-class-{session.pk}"
-        kept_uids.append(uid)
-        CalendarEvent.objects.update_or_create(
+        event, _created = CalendarEvent.objects.update_or_create(
             guild=offering.category.guild,
             uid=uid,
             defaults={
@@ -410,16 +409,19 @@ def sync_local_class_events() -> int:
                 "fetched_at": now,
             },
         )
+        kept_pks.append(event.pk)
 
-    # Purge every "classes" event not backed by a live local session — stale
-    # local-class rows and any leftover legacy classes-* rows from the retired
-    # Drupal calendar feed.
-    CalendarEvent.objects.filter(source="classes").exclude(uid__in=kept_uids).delete()
+    # Purge every "classes" event row we didn't just touch — stale local-class rows,
+    # leftover legacy classes-* rows from the retired Drupal calendar feed, AND the
+    # old-guild copy of a class whose category moved guilds (guild is part of the
+    # upsert key above, so a re-guilded class lands in a NEW row; matching on uid
+    # alone would keep the old copy and double-list the class).
+    CalendarEvent.objects.filter(source="classes").exclude(pk__in=kept_pks).delete()
 
     config = SiteConfiguration.load()
     config.classes_last_synced_at = now
     config.save(update_fields=["classes_last_synced_at"])
-    return len(kept_uids)
+    return len(kept_pks)
 
 
 def _run_source(label: str, sync: Callable[[], object], errors: list[str]) -> None:

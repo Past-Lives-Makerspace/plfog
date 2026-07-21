@@ -56,6 +56,23 @@ def describe_sync_local_class_events():
         assert event.title == "Welding 101"
         assert event.start_dt == session.starts_at
 
+    def it_purges_the_old_guild_copy_when_a_class_moves_guilds():
+        from hub.calendar_service import sync_local_class_events
+        from tests.membership.factories import GuildFactory
+
+        offering = _published_offering()
+        _future_session(offering)
+        sync_local_class_events()
+        assert CalendarEvent.objects.filter(source="classes", guild__isnull=True).count() == 1
+
+        offering.category.guild = GuildFactory()
+        offering.category.save()
+        sync_local_class_events()
+
+        events = CalendarEvent.objects.filter(source="classes")
+        assert events.count() == 1
+        assert events.get().guild == offering.category.guild
+
     def it_strips_cms_date_suffix_from_the_title():
         from hub.calendar_service import sync_local_class_events
 
