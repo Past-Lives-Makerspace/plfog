@@ -53,6 +53,12 @@ class SurfaceMiddleware:
             qs = f"?{request.META['QUERY_STRING']}" if request.META.get("QUERY_STRING") else ""
             return HttpResponsePermanentRedirect(f"https://{settings.MEMBER_HOST}{request.path}{qs}")
 
+        # calendar.pastlives.space is a pure vanity alias: every path 302s to the
+        # community calendar (temporary, not 301, so the target can evolve without
+        # fighting browser caches).
+        if host in set(getattr(settings, "CALENDAR_REDIRECT_HOSTS", [])):
+            return HttpResponseRedirect(f"https://{settings.MEMBER_HOST}/calendar/?public=1")
+
         public_hosts: set[str] = set(getattr(settings, "PUBLIC_HOSTS", []))
         guilds_hosts: set[str] = set(getattr(settings, "GUILDS_HOSTS", []))
         signage_hosts: set[str] = set(getattr(settings, "SIGNAGE_HOSTS", []))

@@ -104,6 +104,15 @@ PUBLIC_ONLY_PATH_PREFIXES: tuple[str, ...] = ("/account/",)
 GUILDS_HOSTS = [
     h.strip().lower() for h in os.environ.get("GUILDS_HOSTS", "guilds.pastlives.app").split(",") if h.strip()
 ]
+# Vanity calendar alias. Every request to a host listed here 302s to the community
+# calendar on the members domain (calendar.pastlives.space — printed on flyers etc.).
+# Hosts are auto-added to ALLOWED_HOSTS so go-live needs only DNS + the Render domain.
+CALENDAR_REDIRECT_HOSTS = [
+    h.strip().lower()
+    for h in os.environ.get("CALENDAR_REDIRECT_HOSTS", "calendar.pastlives.space").split(",")
+    if h.strip()
+]
+ALLOWED_HOSTS += [h for h in CALENDAR_REDIRECT_HOSTS if h not in ALLOWED_HOSTS]
 # Absolute base URL of the guilds surface, used to canonicalize OG/SEO tags on
 # shared guild links regardless of which host rendered them.
 GUILDS_BASE_URL = os.environ.get("GUILDS_BASE_URL", "https://guilds.pastlives.app").rstrip("/")
