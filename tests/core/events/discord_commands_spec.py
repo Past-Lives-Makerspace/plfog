@@ -315,6 +315,33 @@ def describe_deferred_dispatch():
         assert json.loads(followup.calls.last.request.content)["content"] == "slow done"
 
     @respx.mock
+    def it_carries_embeds_and_components_through_the_followup(rf, settings):
+        # A deferred command's link buttons must survive the PATCH path — /vote relies on this.
+        settings.DISCORD_BOT_TOKEN = "bot"
+        settings.DISCORD_CLIENT_ID = "appX"
+        respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(204))
+        followup = respx.patch(_FOLLOWUP_URL).mock(return_value=httpx.Response(200, json={"id": "m"}))
+        embed = {"title": "T", "description": "D"}
+        button_row = {"type": 1, "components": [{"type": 2, "style": 5, "label": "Go", "url": "https://x.example/"}]}
+        register(
+            _cmd(
+                "slow-rich",
+                handler=lambda i, m: reply("", ephemeral=True, embeds=[embed], components=[button_row]),
+                requires_link=False,
+                defer=True,
+            )
+        )
+
+        interaction = {"type": 2, "id": "intA", "token": "tokB", "data": {"name": "slow-rich"}, "user": {"id": "1"}}
+        assert dispatch(interaction, rf.post("/")) == {}
+
+        import json
+
+        payload = json.loads(followup.calls.last.request.content)
+        assert payload["embeds"] == [embed]
+        assert payload["components"] == [button_row]
+
+    @respx.mock
     def it_logs_but_does_not_raise_when_the_followup_network_call_fails(rf, settings):
         settings.DISCORD_BOT_TOKEN = "bot"
         settings.DISCORD_CLIENT_ID = "appX"

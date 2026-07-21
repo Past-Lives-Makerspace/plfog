@@ -597,6 +597,7 @@ class SiteSettingsForm(forms.ModelForm):
             "tab_payments_enabled",
             "class_registration_enabled",
             "class_registration_disabled_note",
+            "member_directory_public",
             "member_event_policy",
             "member_google_calendar_id",
             "public_google_calendar_id",

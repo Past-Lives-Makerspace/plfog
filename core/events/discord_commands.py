@@ -226,7 +226,12 @@ def _dispatch_deferred(cmd: SlashCommand, interaction: Interaction, member: Memb
         logger.exception("Discord deferred command %r handler failed", cmd.name)
         reply_dict = error_reply()
     data = reply_dict.get("data", {})
-    send_followup(interaction["token"], content=data.get("content", ""), embeds=data.get("embeds"))
+    send_followup(
+        interaction["token"],
+        content=data.get("content", ""),
+        embeds=data.get("embeds"),
+        components=data.get("components"),
+    )
     return {}
 
 
