@@ -602,6 +602,8 @@ class SiteSettingsForm(forms.ModelForm):
             "public_google_calendar_id",
             "google_calendar_sync_enabled",
             "discord_events_sync_enabled",
+            "discord_calendar_channel_id",
+            "discord_calendar_posts_enabled",
             "signage_default_slide_seconds",
             "signage_show_events",
             "signage_event_days_ahead",

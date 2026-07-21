@@ -31,8 +31,10 @@ _DISPATCHER_ALWAYS = {
     "retry_calendar_pushes",
     "retry_discord_event_pushes",
     "sync_discord_guild_roles",
+    "announce_calendar_events",
 }
 _DISPATCHER_DAILY = {"sync_all_sources", "generate_orientation_slots"}
+_DISPATCHER_WEEKLY = {"post_weekly_calendar_digest"}
 
 
 def describe_registry():
@@ -52,9 +54,11 @@ def describe_registry():
         for job in SCHEDULED_JOBS:
             assert job.command in registered, f"{job.command} is not a registered management command"
 
-    def it_matches_the_dispatcher_always_and_daily_tuples():
-        dispatched = {job.key for job in SCHEDULED_JOBS if job.cadence in (Cadence.ALWAYS, Cadence.DAILY)}
-        assert dispatched == _DISPATCHER_ALWAYS | _DISPATCHER_DAILY
+    def it_matches_the_dispatcher_always_daily_and_weekly_tuples():
+        dispatched = {
+            job.key for job in SCHEDULED_JOBS if job.cadence in (Cadence.ALWAYS, Cadence.DAILY, Cadence.WEEKLY)
+        }
+        assert dispatched == _DISPATCHER_ALWAYS | _DISPATCHER_DAILY | _DISPATCHER_WEEKLY
 
     def it_keeps_the_airtable_pull_external():
         assert JOBS_BY_KEY["airtable_pull"].cadence == Cadence.EXTERNAL

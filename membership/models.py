@@ -3665,6 +3665,14 @@ class CommunityEvent(models.Model):
             "Blank for one-off and natively-recurring events."
         ),
     )
+    channel_announced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When this event was announced (or silently marked announced) in the Discord calendar "
+            "channel. NULL = not yet announced; the 15-minute announcer picks it up once published."
+        ),
+    )
 
     # --- Seed import bookkeeping ----------------------------------------------
     import_source_uid = models.CharField(
@@ -5050,6 +5058,14 @@ class CalendarEvent(models.Model):
         blank=True,
         default="",
         help_text="Discord Scheduled Event id mirroring this feed event; blank when not pushed.",
+    )
+    channel_announced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When this event was announced (or silently marked announced) in the Discord calendar "
+            "channel. NULL = not yet announced; the 15-minute announcer picks it up."
+        ),
     )
 
     objects = CalendarEventQuerySet.as_manager()

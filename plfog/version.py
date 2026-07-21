@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.8"
+VERSION = "0.23.9"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.9",
+        "date": "2026-07-21",
+        "title": "The #public-calendar channel is back in business",
+        "changes": [
+            (
+                "Every Monday morning, the #public-calendar channel on Discord now gets a digest of "
+                "everything happening at the makerspace in the week ahead — events, guild meetings, and "
+                "classes — grouped by day, with links to each one."
+            ),
+            (
+                "And whenever a new event or class lands on the Community Calendar, a short post announces "
+                "it in the channel right away, so you never miss something new."
+            ),
+            ("Want the whole picture? The full calendar is always at https://members.pastlives.space/calendar/."),
+        ],
+    },
     {
         "version": "0.23.8",
         "date": "2026-07-21",
