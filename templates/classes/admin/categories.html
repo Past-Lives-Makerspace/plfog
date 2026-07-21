@@ -3,7 +3,10 @@
 {% block tab_content %}
 <div class="admin-toolbar">
     {% include "components/table_search.html" with q=q placeholder="Search Guild Types…" %}
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_category_create' %}">+ New Guild Type</a>
+    <div style="display:flex; gap:0.5rem; align-items:center;">
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_guild_tagging' %}">Guild tagging</a>
+        <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_category_create' %}">+ New Guild Type</a>
+    </div>
 </div>
 <div class="admin-table-wrap">
 <table>

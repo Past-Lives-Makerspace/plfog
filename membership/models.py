@@ -5045,6 +5045,12 @@ class CalendarEvent(models.Model):
     end_dt = models.DateTimeField(help_text="Event end time, UTC-normalized.")
     all_day = models.BooleanField(default=False, help_text="True for all-day events (DATE not DATETIME in iCal).")
     fetched_at = models.DateTimeField(help_text="When this record was last synced from the iCal source.")
+    discord_event_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="Discord Scheduled Event id mirroring this feed event; blank when not pushed.",
+    )
 
     objects = CalendarEventQuerySet.as_manager()
 

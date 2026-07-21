@@ -137,17 +137,22 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
         else ClassOffering.SchedulingType.SINGLE_SESSION
     )
 
+    # Category is create-only: the legacy field_class_type only knows the generic
+    # Workshop/Class/Open Studio buckets, while staff re-file offerings into
+    # guild-owned categories after import. Updating it here would wipe that
+    # curation on every nightly sync.
+    shared_defaults = {
+        "title": title,
+        "description": description,
+        "price_cents": price_cents,
+        "capacity": capacity,
+        "status": status,
+        "scheduling_type": scheduling_type,
+    }
     offering, created = ClassOffering.objects.update_or_create(
         legacy_cms_id=node_id,
-        defaults={
-            "title": title,
-            "description": description,
-            "price_cents": price_cents,
-            "capacity": capacity,
-            "status": status,
-            "category": category,
-            "scheduling_type": scheduling_type,
-        },
+        defaults=shared_defaults,
+        create_defaults={**shared_defaults, "category": category},
     )
 
     if created:

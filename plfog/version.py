@@ -2,9 +2,37 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.2"
+VERSION = "0.23.3"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.3",
+        "date": "2026-07-20",
+        "title": "Community Calendar events are back — and coming to Discord",
+        "changes": [
+            (
+                "The Member and Public calendars on the Community Calendar stopped updating for a while and "
+                "quietly ran dry — they're syncing again every morning, each in its own color."
+            ),
+            (
+                "Events from those calendars now also show up as Discord scheduled events, so you can RSVP "
+                "and get reminders right in the server."
+            ),
+        ],
+    },
+    {
+        "version": "0.23.3",
+        "date": "2026-07-20",
+        "title": "Classes stay filed under their guilds",
+        "changes": [
+            (
+                "Classes in the catalog are being organized under the guild that runs them — Metalworking, "
+                "Ceramics, Glass, and the rest — so browsing by guild actually works. Until now the nightly "
+                "sync from the old class site quietly reset every class back to a generic bucket; that's fixed, "
+                "so the groupings stick."
+            ),
+        ],
+    },
     {
         "version": "0.23.2",
         "date": "2026-07-18",

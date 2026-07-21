@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import itertools
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering
+from core.integrations.discord_events import DiscordScheduledEventsClient
 from core.models import SiteConfiguration
 from membership.models import CalendarEvent
 
@@ -273,3 +275,157 @@ def describe_sync_all_sources_legacy_cms():
             errors = sync_all_sources()
 
         assert any("legacy CMS" in e and "drupal down" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# sync_discord_feed_events — Discord Scheduled Events mirror of the general feeds
+# ---------------------------------------------------------------------------
+
+_uid_counter = itertools.count()
+
+
+def _feed_event(days: float = 5, **kwargs: object) -> CalendarEvent:
+    start = timezone.now() + timedelta(days=days)
+    defaults: dict[str, object] = {
+        "source": CalendarEvent.Source.GENERAL,
+        "uid": f"feed-uid-{next(_uid_counter)}",
+        "title": "Guild Meetup",
+        "start_dt": start,
+        "end_dt": start + timedelta(hours=1),
+        "fetched_at": timezone.now(),
+    }
+    defaults.update(kwargs)
+    return CalendarEvent.objects.create(**defaults)
+
+
+def _events_client(enabled: bool = True) -> MagicMock:
+    client = MagicMock(spec=DiscordScheduledEventsClient)
+    client.enabled = enabled
+    client.server_id = "srv1"
+    client.insert_event.return_value = {"id": "disc-new"}
+    return client
+
+
+def _with_client(client: MagicMock):
+    return patch.object(DiscordScheduledEventsClient, "from_settings", return_value=client)
+
+
+def describe_sync_discord_feed_events():
+    def it_is_a_noop_when_sync_is_disabled():
+        from hub.calendar_service import sync_discord_feed_events
+
+        _feed_event()
+        client = _events_client(enabled=False)
+        with _with_client(client):
+            assert sync_discord_feed_events() == 0
+        client.insert_event.assert_not_called()
+
+    def it_creates_discord_events_and_stores_their_ids():
+        from hub.calendar_service import sync_discord_feed_events
+
+        event = _feed_event(location="", description="Bring gloves", url="https://example.com/e")
+        client = _events_client()
+        with _with_client(client):
+            assert sync_discord_feed_events() == 1
+
+        event.refresh_from_db()
+        assert event.discord_event_id == "disc-new"
+        body = client.insert_event.call_args.args[1]
+        assert body["name"] == "Guild Meetup"
+        assert body["entity_type"] == 3
+        assert body["entity_metadata"] == {"location": "Past Lives Makerspace"}
+        assert body["description"] == "Bring gloves\n\nhttps://example.com/e"
+        assert body["scheduled_end_time"] == event.end_dt.isoformat()
+
+    def it_updates_an_already_pushed_event():
+        from hub.calendar_service import sync_discord_feed_events
+
+        event = _feed_event(discord_event_id="disc-77")
+        client = _events_client()
+        with _with_client(client):
+            sync_discord_feed_events()
+
+        client.update_event.assert_called_once()
+        assert client.update_event.call_args.args[1] == "disc-77"
+        client.insert_event.assert_not_called()
+        event.refresh_from_db()
+        assert event.discord_event_id == "disc-77"
+
+    def it_recreates_when_the_discord_copy_was_deleted_by_hand():
+        from core.integrations.discord_events import DiscordEventsError
+        from hub.calendar_service import sync_discord_feed_events
+
+        event = _feed_event(discord_event_id="disc-gone")
+        client = _events_client()
+        client.update_event.side_effect = DiscordEventsError("Discord API 404: Unknown Guild Scheduled Event")
+        with _with_client(client):
+            sync_discord_feed_events()
+
+        event.refresh_from_db()
+        assert event.discord_event_id == "disc-new"
+
+    def it_only_pushes_the_near_window():
+        from hub.calendar_service import sync_discord_feed_events
+
+        _feed_event(days=-1)
+        _feed_event(days=40)
+        client = _events_client()
+        with _with_client(client):
+            assert sync_discord_feed_events() == 0
+        client.insert_event.assert_not_called()
+
+    def it_caps_the_push_set():
+        from hub.calendar_service import sync_discord_feed_events
+
+        for _ in range(3):
+            _feed_event()
+        client = _events_client()
+        with _with_client(client), patch("hub.calendar_service._DISCORD_PUSH_CAP", 2):
+            assert sync_discord_feed_events() == 2
+        assert client.insert_event.call_count == 2
+
+    def it_deletes_the_copy_of_a_future_event_that_left_the_push_set():
+        from hub.calendar_service import sync_discord_feed_events
+
+        moved = _feed_event(days=40, discord_event_id="disc-moved")
+        client = _events_client()
+        with _with_client(client):
+            sync_discord_feed_events()
+
+        client.delete_event.assert_called_once_with("srv1", "disc-moved")
+        moved.refresh_from_db()
+        assert moved.discord_event_id == ""
+
+    def it_leaves_past_pushed_events_to_discords_own_lifecycle():
+        from hub.calendar_service import sync_discord_feed_events
+
+        past = _feed_event(days=-2, discord_event_id="disc-past")
+        client = _events_client()
+        with _with_client(client):
+            sync_discord_feed_events()
+
+        client.delete_event.assert_not_called()
+        past.refresh_from_db()
+        assert past.discord_event_id == "disc-past"
+
+    def it_attempts_every_event_then_raises_on_failures():
+        from core.integrations.discord_events import DiscordEventsError
+        from hub.calendar_service import sync_discord_feed_events
+
+        _feed_event(days=1)
+        second = _feed_event(days=2)
+        client = _events_client()
+        client.insert_event.side_effect = [DiscordEventsError("boom"), {"id": "disc-2"}]
+        with _with_client(client), pytest.raises(DiscordEventsError, match="1 Discord event push"):
+            sync_discord_feed_events()
+
+        second.refresh_from_db()
+        assert second.discord_event_id == "disc-2"
+
+    def it_runs_inside_sync_all_sources_and_captures_failures():
+        from hub.calendar_service import sync_all_sources
+
+        with patch("hub.calendar_service.sync_discord_feed_events", side_effect=RuntimeError("discord down")):
+            errors = sync_all_sources()
+
+        assert any("discord events" in e and "discord down" in e for e in errors)

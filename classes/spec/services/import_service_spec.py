@@ -73,6 +73,24 @@ def describe_sync_legacy_cms():
 
         assert Category.objects.filter(name="Workshop").exists()
 
+    def it_does_not_overwrite_category_on_re_sync(db):
+        from classes.import_service import sync_legacy_cms
+
+        resp = _make_mock_resp(_page([_class_item(class_type="workshop")]))
+        with patch("urllib.request.urlopen", return_value=resp):
+            sync_legacy_cms()
+
+        offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
+        guild_category = Category.objects.create(name="Woodworking", slug="woodworking")
+        offering.category = guild_category
+        offering.save(update_fields=["category"])
+
+        with patch("urllib.request.urlopen", return_value=_make_mock_resp(_page([_class_item(class_type="workshop")]))):
+            sync_legacy_cms()
+
+        offering.refresh_from_db()
+        assert offering.category == guild_category
+
     def it_maps_open_studio_to_a_readable_name(db):
         from classes.import_service import sync_legacy_cms
 
