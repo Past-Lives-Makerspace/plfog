@@ -38,6 +38,7 @@ def _edit_payload(offering: ClassOffering, **faq_fields: str) -> dict:
         "member_discount_pct": offering.member_discount_pct,
         "capacity": offering.capacity,
         "scheduling_model": offering.scheduling_model,
+        "sale_kind": "percent",
         "scheduling_type": offering.scheduling_type,
         "description": offering.description,
         "prerequisites": "",

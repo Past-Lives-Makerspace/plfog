@@ -61,6 +61,74 @@ def describe_ClassOffering():
             c = ClassOfferingFactory(price_cents=10_000, member_discount_pct=0)
             assert c.member_price_cents is None
 
+    def describe_sale_is_active():
+        def it_is_true_when_enabled_paid_and_percent_set(db):
+            c = ClassOfferingFactory(sale_enabled=True, sale_kind=ClassOffering.SaleKind.PERCENT, sale_percent=20)
+            assert c.sale_is_active is True
+
+        def it_is_true_when_enabled_paid_and_fixed_amount_set(db):
+            c = ClassOfferingFactory(sale_enabled=True, sale_kind=ClassOffering.SaleKind.FIXED, sale_amount_cents=1500)
+            assert c.sale_is_active is True
+
+        def it_is_false_when_disabled(db):
+            c = ClassOfferingFactory(sale_enabled=False, sale_percent=20)
+            assert c.sale_is_active is False
+
+        def it_is_false_for_a_free_class(db):
+            c = ClassOfferingFactory(price_cents=0, sale_enabled=True, sale_percent=20)
+            assert c.sale_is_active is False
+
+        def it_is_false_when_the_matching_percent_is_missing(db):
+            c = ClassOfferingFactory(sale_enabled=True, sale_kind=ClassOffering.SaleKind.PERCENT, sale_percent=None)
+            assert c.sale_is_active is False
+
+        def it_is_false_when_the_matching_fixed_amount_is_missing(db):
+            c = ClassOfferingFactory(sale_enabled=True, sale_kind=ClassOffering.SaleKind.FIXED, sale_amount_cents=None)
+            assert c.sale_is_active is False
+
+    def describe_sale_price_cents():
+        def it_applies_a_percent_sale(db):
+            c = ClassOfferingFactory(price_cents=5000, sale_enabled=True, sale_percent=20)
+            assert c.sale_price_cents == 4000
+
+        def it_applies_a_fixed_sale(db):
+            c = ClassOfferingFactory(
+                price_cents=5000, sale_enabled=True, sale_kind=ClassOffering.SaleKind.FIXED, sale_amount_cents=1500
+            )
+            assert c.sale_price_cents == 3500
+
+        def it_equals_price_cents_when_no_sale_is_active(db):
+            c = ClassOfferingFactory(price_cents=5000, sale_enabled=False)
+            assert c.sale_price_cents == 5000
+
+    def describe_sale_savings_display():
+        def it_formats_a_percent_sale(db):
+            c = ClassOfferingFactory(sale_enabled=True, sale_percent=20)
+            assert c.sale_savings_display == "20% off"
+
+        def it_formats_a_whole_dollar_fixed_sale(db):
+            c = ClassOfferingFactory(sale_enabled=True, sale_kind=ClassOffering.SaleKind.FIXED, sale_amount_cents=1500)
+            assert c.sale_savings_display == "$15 off"
+
+        def it_keeps_cents_on_a_non_whole_fixed_sale(db):
+            c = ClassOfferingFactory(sale_enabled=True, sale_kind=ClassOffering.SaleKind.FIXED, sale_amount_cents=1550)
+            assert c.sale_savings_display == "$15.50 off"
+
+        def it_is_empty_off_sale(db):
+            c = ClassOfferingFactory(sale_enabled=False)
+            assert c.sale_savings_display == ""
+
+    def describe_sale_banner_display():
+        def it_returns_the_custom_text(db):
+            c = ClassOfferingFactory(sale_banner_text="Summer blowout!")
+            assert c.sale_banner_display == "Summer blowout!"
+
+        def it_falls_back_to_the_default_when_blank(db):
+            from classes.models import DEFAULT_SALE_BANNER_TEXT
+
+            c = ClassOfferingFactory(sale_banner_text="   ")
+            assert c.sale_banner_display == DEFAULT_SALE_BANNER_TEXT
+
     def describe_manager():
         def it_public_filters_to_published(db):
             ClassOfferingFactory(status=ClassOffering.Status.DRAFT)

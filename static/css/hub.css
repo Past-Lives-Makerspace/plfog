@@ -3560,6 +3560,26 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     margin-top: 0.75rem;
 }
 
+/* "Sale" fieldset on the class edit forms (teach + admin twins). Layout only —
+   the .hub-card base and .pl-form-group controls supply every theme color, so
+   the section reads correctly on both Obsidian (dark) and Slate (light). The
+   1.75rem top margin matches the "Dates & sessions" / "Gallery images" headings
+   so the card clears the Member-discount field above it. */
+.pl-sale-fields {
+    margin-top: 1.75rem;
+    margin-bottom: 1rem;
+    padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.pl-sale-fields__title {
+    margin: 0 0 0.25rem;
+}
+
+.pl-sale-fields__hint {
+    font-size: 0.85rem;
+    margin: 0 0 1rem;
+}
+
 /* Class-edit 6/6 split: identity fields (title, slug, category, instructor) on the left,
    the Share & Print card on the right. Stacks on narrow screens with the QR card on top. */
 .pl-edit-split {

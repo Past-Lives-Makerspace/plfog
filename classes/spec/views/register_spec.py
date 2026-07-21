@@ -390,6 +390,66 @@ def describe_register_with_discount_code():
         assert code.use_count == 1
 
 
+def describe_register_with_a_sale():
+    @pytest.fixture
+    def sale_offering(paid_offering):
+        paid_offering.sale_enabled = True
+        paid_offering.sale_kind = ClassOffering.SaleKind.PERCENT
+        paid_offering.sale_percent = 20  # $100 -> $80
+        paid_offering.save()
+        return paid_offering
+
+    def it_shows_the_struck_original_and_sale_price_in_the_summary(sale_offering, client):
+        body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
+        assert '<span class="reg-was">$100</span> $80' in body
+        assert 'class="reg-sale-badge"' in body
+
+    def it_shows_the_sale_price_on_the_submit_button(sale_offering, client):
+        body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
+        assert "Next — $80" in body
+
+    def it_hides_the_code_box_and_explains_when_codes_are_blocked(sale_offering, client):
+        body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
+        assert "Discount code (optional)" not in body
+        assert 'class="reg-sale-note"' in body
+        assert "can't be combined with this offer" in body
+
+    def it_keeps_the_code_box_when_the_sale_allows_stacking(sale_offering, client):
+        sale_offering.sale_allow_discount_codes = True
+        sale_offering.save()
+        body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
+        assert "Discount code (optional)" in body
+        assert 'class="reg-sale-note"' not in body
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_charges_the_sale_price_and_marks_the_stripe_product_name(mock_checkout, sale_offering, client):
+        mock_checkout.return_value = {"id": "cs_test_sale", "url": "https://checkout.stripe.com/c/pay/cs_test_sale"}
+        response = client.post(reverse("classes:register", kwargs={"slug": sale_offering.slug}), data=_post_data())
+        assert response.status_code == 302
+        kwargs = mock_checkout.call_args.kwargs
+        assert kwargs["amount_cents"] == 8000
+        assert kwargs["product_name"].endswith(" (Sale)")
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_takes_the_free_confirm_path_when_the_sale_total_reaches_zero(mock_checkout, sale_offering, client):
+        from classes.factories import DiscountCodeFactory
+
+        sale_offering.sale_allow_discount_codes = True
+        sale_offering.member_discount_pct = 0
+        sale_offering.save()
+        DiscountCodeFactory(code="ZERO", discount_pct=None, discount_fixed_cents=8000)
+        response = client.post(
+            reverse("classes:register", kwargs={"slug": sale_offering.slug}),
+            data=_post_data(discount_code="ZERO"),
+        )
+        assert response.status_code == 302
+        assert response.url == reverse("classes:register_success", kwargs={"slug": sale_offering.slug})
+        registration = Registration.objects.get(class_offering=sale_offering)
+        assert registration.status == Registration.Status.CONFIRMED
+        assert registration.amount_paid_cents == 0
+        mock_checkout.assert_not_called()
+
+
 def describe_client_ip():
     def it_extracts_ip_from_x_forwarded_for_header(db, client):
         """When X-Forwarded-For is present, the first IP is used — verified via registration."""

@@ -64,6 +64,7 @@ list.html for the initial full-page response.{% endcomment %}
           {{ offering.title|strip_date_suffix }}
           {% if offering.scheduling_model == 'flexible' %}<span class="badge fx">Flex</span>{% endif %}
           {% if offering.scheduling_type == 'series_package' %}<span class="badge series">Multi-session series</span>{% endif %}
+          {% if offering.sale_is_active %}<span class="badge sale">Sale</span>{% endif %}
         </a>
         {% if offering.instructor %}
         <div class="cls-inst">
@@ -118,8 +119,13 @@ list.html for the initial full-page response.{% endcomment %}
         </div>
         <div class="cls-footer">
           <div>
-            <span class="cls-price">{{ offering.price_cents|cents_as_price }}</span>
-            {% member_price_cents offering.price_cents offering.member_discount_pct as mp %}
+            {% if offering.sale_is_active %}
+              <span class="cls-price--was">{{ offering.price_cents|cents_as_price }}</span>
+              <span class="cls-price">{{ offering.sale_price_cents|cents_as_price }}</span>
+            {% else %}
+              <span class="cls-price">{{ offering.price_cents|cents_as_price }}</span>
+            {% endif %}
+            {% member_price_cents offering.sale_price_cents offering.member_discount_pct as mp %}
             {% if mp %}<span class="cls-price-member">({{ mp|cents_as_price }} for Past Lives Members)</span>{% endif %}
           </div>
           {% if group.is_multi %}

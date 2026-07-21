@@ -45,6 +45,7 @@ from classes.emails import (
 )
 from classes.questions import prefill_answers
 from classes.table import prepare_table
+from classes.templatetags.classes_tags import member_price_cents as compute_member_price_cents
 from classes.forms import (
     CategoryForm,
     ClassOfferingForm,
@@ -344,7 +345,9 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         slug=slug,
     )
     settings_obj = ClassSettings.load()
-    member_price_cents = offering.member_price_cents
+    # Member price reads off the SALE base so every quoted member number
+    # matches what compute_final_price_cents will actually charge.
+    member_price_cents = compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct)
     now = timezone.now()
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
     # A series is its full set of dates; a single class is its one date. Show every
@@ -655,6 +658,10 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         product_name = offering.title
         if offering.is_series and offering.series_session_count > 1:
             product_name = f"{offering.title} ({offering.series_session_count}-session series)"
+        # Label-only marker so the Stripe receipt reflects the sale (precedent:
+        # the series suffix above). The amount already carries the sale price.
+        if offering.sale_is_active:
+            product_name = f"{product_name} (Sale)"
 
         try:
             checkout = stripe_utils.create_class_checkout_session(
@@ -679,7 +686,9 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         registration.save(update_fields=["stripe_session_id", "amount_paid_cents"])
         return redirect(checkout["url"])
 
-    member_price_cents = offering.member_price_cents
+    # Member price reads off the SALE base so every quoted member number
+    # matches what compute_final_price_cents will actually charge.
+    member_price_cents = compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct)
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
 
     run_options = _bookable_run_options(offering)
@@ -1545,7 +1554,7 @@ def _render_class_preview(
             "settings_obj": ClassSettings.load(),
             "site_config": SiteConfiguration.load(),
             "upcoming_sessions": upcoming_sessions,
-            "member_price_cents": offering.member_price_cents,
+            "member_price_cents": compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct),
             "spots_remaining": offering.spots_remaining,
             "is_preview": True,
         },

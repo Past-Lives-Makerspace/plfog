@@ -308,12 +308,19 @@ _COMPILED_GUILD_CATEGORY_KEYWORDS: tuple[tuple[str, re.Pattern[str]], ...] = tup
 )
 
 
+DEFAULT_SALE_BANNER_TEXT = "🔥 Limited-time sale — save on this class while it lasts!"
+
+
 class ClassOffering(HeroCropMixin, models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         PENDING = "pending", "Pending Review"
         PUBLISHED = "published", "Published"
         ARCHIVED = "archived", "Archived"
+
+    class SaleKind(models.TextChoices):
+        PERCENT = "percent", "Percent off"
+        FIXED = "fixed", "Dollar amount off"
 
     class SchedulingModel(models.TextChoices):
         FIXED = "fixed", "Fixed sessions"
@@ -345,6 +352,35 @@ class ClassOffering(HeroCropMixin, models.Model):
     age_guardian_note = models.TextField(blank=True, help_text="Notes about minors / guardians.")
     price_cents = models.PositiveIntegerField(help_text="Full price in cents.")
     member_discount_pct = models.PositiveIntegerField(default=10, help_text="Auto-applied for verified members.")
+    sale_enabled = models.BooleanField(
+        default=False, help_text="When on, this class shows a sale banner and charges the sale price."
+    )
+    sale_kind = models.CharField(
+        max_length=10,
+        choices=SaleKind.choices,
+        default=SaleKind.PERCENT,
+        help_text="Percent off the full price, or a flat dollar amount off.",
+    )
+    sale_percent = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Percent off (1–99). Used for a percent-off sale."
+    )
+    sale_amount_cents = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Flat amount off, in cents (edited in dollars). Must be less than the price. "
+        "Used for a dollar-amount sale.",
+    )
+    sale_banner_text = models.CharField(
+        max_length=200,
+        blank=True,
+        default=DEFAULT_SALE_BANNER_TEXT,
+        help_text="The headline shown on the sale banner. Leave blank to use the default.",
+    )
+    sale_allow_discount_codes = models.BooleanField(
+        default=False,
+        help_text="Off by default — the sale price can't be combined with other offers. "
+        "Turn on to let registrants add a discount code on top of the sale.",
+    )
     capacity = models.PositiveIntegerField(default=6, help_text="Maximum confirmed registrants.")
     scheduling_model = models.CharField(
         max_length=10,
@@ -909,6 +945,51 @@ class ClassOffering(HeroCropMixin, models.Model):
         if not self.member_discount_pct:
             return None
         return int(self.price_cents * (100 - self.member_discount_pct) / 100)
+
+    @property
+    def sale_is_active(self) -> bool:
+        """A sale counts only when switched on, the class is paid, and the matching
+        amount is set. The form guarantees consistency, but a stray admin/import edit
+        must not crash the catalog — so we re-check the amount defensively."""
+        if not self.sale_enabled or self.price_cents <= 0:
+            return False
+        if self.sale_kind == self.SaleKind.PERCENT:
+            return bool(self.sale_percent)
+        return bool(self.sale_amount_cents)
+
+    @property
+    def sale_price_cents(self) -> int:
+        """Public (non-member) price after the sale. Equals price_cents when no sale is
+        active, so callers can use it unconditionally in place of price_cents."""
+        if not self.sale_is_active:
+            return self.price_cents
+        if self.sale_kind == self.SaleKind.PERCENT:
+            return int(self.price_cents * (100 - self.sale_percent) / 100)  # type: ignore[operator]
+        return max(0, self.price_cents - self.sale_amount_cents)  # type: ignore[operator]
+
+    @property
+    def sale_savings_display(self) -> str:
+        """Short 'what you save' string for the badge/banner pill — '20% off' or '$15 off'.
+
+        Empty string when no sale is active.
+        """
+        if not self.sale_is_active:
+            return ""
+        if self.sale_kind == self.SaleKind.PERCENT:
+            return f"{self.sale_percent}% off"
+        # Whole dollars drop decimals, matching cents_as_price. sale_amount_cents is
+        # always > 0 and < price here (guaranteed active + validated).
+        dollars, rem = divmod(self.sale_amount_cents, 100)  # type: ignore[operator]
+        money = f"${dollars}" if rem == 0 else f"${dollars}.{rem:02d}"
+        return f"{money} off"
+
+    @property
+    def sale_banner_display(self) -> str:
+        """The banner headline to render, always non-empty. The form fills the default
+        on blank, but a non-form edit (admin bulk action, shell, CMS import) can leave
+        the text empty — so the render path falls back to the default too, and a
+        blank-text sale row never shows a headless banner."""
+        return self.sale_banner_text.strip() or DEFAULT_SALE_BANNER_TEXT
 
     @property
     def display_images(self) -> list[dict]:
