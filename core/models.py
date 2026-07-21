@@ -345,6 +345,24 @@ class SiteConfiguration(models.Model):
             "lands on the Community Calendar."
         ),
     )
+    discord_classes_channel_id = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        verbose_name="Discord classes channel id",
+        help_text=(
+            "The channel id of #classes — where the weekly classes digest and new-class posts go. "
+            "Blank disables both posts."
+        ),
+    )
+    discord_classes_posts_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Post class updates to Discord",
+        help_text=(
+            "When on (and the classes channel id is set), FOG posts a weekly what's-teaching digest "
+            "to #classes every Monday morning, plus a short post whenever a new class is published."
+        ),
+    )
     discord_info_channel_id = models.CharField(
         max_length=30,
         blank=True,

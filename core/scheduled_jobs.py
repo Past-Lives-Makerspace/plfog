@@ -164,6 +164,22 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.WEEKLY,
     ),
     ScheduledJob(
+        key="announce_new_classes",
+        name="New-class Discord posts",
+        description="Posts newly published classes to the Discord #classes channel.",
+        command="announce_new_classes",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
+        key="post_weekly_classes_digest",
+        name="Weekly classes digest",
+        description="Posts the coming week's class lineup to the Discord #classes channel.",
+        command="post_weekly_classes_digest",
+        schedule_label="Mon ~6 AM",
+        cadence=Cadence.WEEKLY,
+    ),
+    ScheduledJob(
         key="sync_all_sources",
         name="Nightly calendar & class sync",
         description="Refreshes every calendar feed and imports classes overnight.",

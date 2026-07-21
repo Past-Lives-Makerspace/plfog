@@ -87,6 +87,35 @@ def describe_discord_calendar_posts_fields():
         assert SiteConfiguration.load().discord_calendar_posts_enabled is False
 
 
+def describe_discord_classes_posts_fields():
+    def it_renders_the_channel_id_and_toggle_exactly_once(client: Client):
+        _superuser(client)
+        content = client.get(reverse("hub_admin_site_settings")).content.decode()
+        assert content.count('name="discord_classes_channel_id"') == 1  # not doubled onto the General loop
+        assert content.count('name="discord_classes_posts_enabled"') == 1
+        assert "The channel id of #classes" in content  # the hint copy
+
+    def it_saves_the_channel_id_and_turns_the_toggle_on(client: Client):
+        _superuser(client)
+        resp = client.post(
+            reverse("hub_admin_site_settings"),
+            _settings_post(discord_classes_channel_id="946149249178021949", discord_classes_posts_enabled="on"),
+        )
+        assert resp.status_code == 302
+        config = SiteConfiguration.load()
+        assert config.discord_classes_channel_id == "946149249178021949"
+        assert config.discord_classes_posts_enabled is True
+
+    def it_turns_the_toggle_off_when_unchecked(client: Client):
+        _superuser(client)
+        config = SiteConfiguration.load()
+        config.discord_classes_posts_enabled = True
+        config.save(update_fields=["discord_classes_posts_enabled"])
+        resp = client.post(reverse("hub_admin_site_settings"), _settings_post())  # checkbox absent → off
+        assert resp.status_code == 302
+        assert SiteConfiguration.load().discord_classes_posts_enabled is False
+
+
 def describe_discord_events_toggle_save():
     def it_turns_the_toggle_on(client: Client):
         _superuser(client)

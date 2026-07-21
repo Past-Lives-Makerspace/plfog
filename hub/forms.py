@@ -604,6 +604,8 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_events_sync_enabled",
             "discord_calendar_channel_id",
             "discord_calendar_posts_enabled",
+            "discord_classes_channel_id",
+            "discord_classes_posts_enabled",
             "discord_info_channel_id",
             "discord_info_message_id",
             "discord_info_links_content",
