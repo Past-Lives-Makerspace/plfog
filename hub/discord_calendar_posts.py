@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 
 # Discord's hard cap on one embed's description.
 EMBED_DESCRIPTION_MAX = 4096
+# Discord's hard cap on one MESSAGE's combined embed text (titles + descriptions + …
+# across every embed in the message) — separate from the per-description cap above.
+MESSAGE_EMBED_TOTAL_MAX = 6000
 # Max new-event announcements posted per run; the rest are stamped silently.
 ANNOUNCE_CAP = 10
 DIGEST_WINDOW_DAYS = 7
@@ -71,12 +74,24 @@ def _when(start: datetime, end: datetime, all_day: bool) -> str:
     return f"{day} {_time_of(start)} – {local_end.strftime('%A, %B %-d')} {_time_of(end)}"
 
 
+def _is_studio_hours(item: Any) -> bool:
+    """Whether a calendar entry is a standing studio-hours block — ambient noise the
+    digest skips, exactly as the announcer (and the Discord Events sync) skip them."""
+    from membership.models import CommunityEvent
+
+    backing = getattr(item, "community_event", None)  # CalendarEvent rows have no such attr
+    return backing is not None and backing.event_type == CommunityEvent.EventType.STUDIO_HOURS
+
+
 def _digest_items(now: datetime) -> list[Any]:
-    """The next-7-days slice of the calendar union (feed + class + community events)."""
+    """The next-7-days slice of the calendar union (feed + class + community events),
+    minus standing studio-hours blocks."""
     from hub.calendar_entries import upcoming_calendar_events
 
     horizon = now + timedelta(days=DIGEST_WINDOW_DAYS)
-    return [e for e in upcoming_calendar_events() if e.start_dt < horizon and e.end_dt >= now]
+    return [
+        e for e in upcoming_calendar_events() if e.start_dt < horizon and e.end_dt >= now and not _is_studio_hours(e)
+    ]
 
 
 def _digest_line(item: Any) -> str:
@@ -176,6 +191,34 @@ def _embeds_for_items(items: list[Any], now: datetime) -> list[dict[str, Any]]:
     return embeds
 
 
+def _embed_chars(embed: dict[str, Any]) -> int:
+    """The characters this embed counts toward Discord's per-message 6,000 total
+    (title + description; our digest embeds carry no footer/author/field text)."""
+    return len(embed.get("title", "")) + len(embed.get("description", ""))
+
+
+def _batch_embeds(embeds: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Split embeds into per-message batches that respect BOTH message caps: at most
+    :data:`MAX_EMBEDS_PER_MESSAGE` embeds AND :data:`MESSAGE_EMBED_TOTAL_MAX` combined
+    characters. Two near-full 4,096-char embeds in one message would 400 on the 6,000
+    combined cap even though each description is individually legal.
+    """
+    batches: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_chars = 0
+    for embed in embeds:
+        chars = _embed_chars(embed)
+        if current and (len(current) >= MAX_EMBEDS_PER_MESSAGE or current_chars + chars > MESSAGE_EMBED_TOTAL_MAX):
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(embed)
+        current_chars += chars
+    if current:
+        batches.append(current)
+    return batches
+
+
 def _posting_channel_id() -> str:
     """The configured channel id, or ``""`` when posting is disabled/unconfigured."""
     from core.models import SiteConfiguration
@@ -199,9 +242,8 @@ def post_weekly_digest() -> int:
     items = _digest_items(now)
     if not items:
         return 0
-    embeds = _embeds_for_items(items, now)
-    for i in range(0, len(embeds), MAX_EMBEDS_PER_MESSAGE):
-        post_channel_message(channel_id, embeds[i : i + MAX_EMBEDS_PER_MESSAGE])
+    for batch in _batch_embeds(_embeds_for_items(items, now)):
+        post_channel_message(channel_id, batch)
     return len(items)
 
 
@@ -228,14 +270,24 @@ def _next_community_start(event: Any, now: datetime) -> datetime:
     return event.starts_at
 
 
+def _stamp(objs: list[Any], now: datetime) -> None:
+    """Mark every row of one announced (or capped) item as handled."""
+    for obj in objs:
+        obj.channel_announced_at = now
+        obj.save(update_fields=["channel_announced_at"])
+
+
 def announce_new_events() -> int:
     """Announce unannounced upcoming items in #public-calendar; return how many posted.
 
     Pulls new feed/class ``CalendarEvent`` rows (future start, echoes of our own
     Google-pushed events excluded) and newly published non-studio-hours ``CommunityEvent``
-    rows, oldest-starting first. Posts up to :data:`ANNOUNCE_CAP`, stamping
-    ``channel_announced_at`` on each right after its post; anything past the cap is
-    stamped silently (and logged) so a backlog can never flood the channel later.
+    rows, oldest-starting first. A recurring feed series (and a multi-session class)
+    materializes one row *per occurrence* sharing a uid — those collapse to a single
+    announcement at the earliest upcoming occurrence, with every sibling row stamped in
+    the same pass. Posts up to :data:`ANNOUNCE_CAP`, stamping ``channel_announced_at``
+    right after each post; anything past the cap is stamped silently (and logged) so a
+    backlog can never flood the channel later.
     """
     from membership.models import CalendarEvent, CommunityEvent
 
@@ -246,17 +298,24 @@ def announce_new_events() -> int:
         return 0
     now = timezone.now()
 
-    pending: list[tuple[datetime, dict[str, Any], Any]] = []
+    # (start of the announced occurrence, the embed to post, every row to stamp)
+    pending: list[tuple[datetime, dict[str, Any], list[Any]]] = []
     feed_rows = (
         CalendarEvent.objects.filter(channel_announced_at__isnull=True, start_dt__gt=now)
         .exclude(uid__in=_pushed_event_uids())
         .order_by("start_dt")
     )
+    # Collapse per-occurrence rows of one series/class into a single announcement:
+    # the query is start-ordered, so each group's first row is its earliest occurrence.
+    series: dict[tuple[str, int | None, str], list[CalendarEvent]] = {}
     for row in feed_rows:
-        url = _absolute(row.url) if row.url else ""
-        kind = "New class on the calendar" if row.source == CalendarEvent.Source.CLASSES else "New on the calendar"
-        embed = _announcement_embed(row.title, kind, _when(row.start_dt, row.end_dt, row.all_day), url)
-        pending.append((row.start_dt, embed, row))
+        series.setdefault((row.source, row.guild_id, row.uid), []).append(row)
+    for rows in series.values():
+        first = rows[0]
+        url = _absolute(first.url) if first.url else ""
+        kind = "New class on the calendar" if first.source == CalendarEvent.Source.CLASSES else "New on the calendar"
+        embed = _announcement_embed(first.title, kind, _when(first.start_dt, first.end_dt, first.all_day), url)
+        pending.append((first.start_dt, embed, list(rows)))
 
     community_rows = (
         CommunityEvent.objects.published()
@@ -268,20 +327,18 @@ def announce_new_events() -> int:
         start = _next_community_start(event, now)
         end = start + (event.ends_at - event.starts_at)
         embed = _announcement_embed(event.title, "New on the calendar", _when(start, end, False), event.absolute_url)
-        pending.append((start, embed, event))
+        pending.append((start, embed, [event]))
 
     pending.sort(key=lambda item: item[0])
     posted = 0
-    for _start, embed, obj in pending[:ANNOUNCE_CAP]:
+    for _start, embed, objs in pending[:ANNOUNCE_CAP]:
         post_channel_message(channel_id, [embed])
-        obj.channel_announced_at = now
-        obj.save(update_fields=["channel_announced_at"])
+        _stamp(objs, now)
         posted += 1
 
     overflow = pending[ANNOUNCE_CAP:]
-    for _start, _embed, obj in overflow:
-        obj.channel_announced_at = now
-        obj.save(update_fields=["channel_announced_at"])
+    for _start, _embed, objs in overflow:
+        _stamp(objs, now)
     if overflow:
         logger.info(
             "announce_new_events: capped at %s posts; silently marked %s more event(s) announced.",
