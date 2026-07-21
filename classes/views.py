@@ -2463,6 +2463,63 @@ def admin_category_delete(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:admin_categories")
 
 
+@classes_admin_access_required
+def admin_guild_tagging(request: HttpRequest) -> HttpResponse:
+    """Bulk re-file legacy offerings from guildless categories into guild-linked ones.
+
+    Every offering imported from the old CMS sits in a generic category
+    (``category.guild`` is NULL). This one-time cleanup surface suggests a
+    guild-linked category from keywords in each offering's title + description
+    and lets staff review and apply them in one pass. POST re-files the chosen
+    offerings; anything already moved by someone else is skipped silently.
+    """
+    guild_categories = list(Category.objects.filter(guild__isnull=False).order_by("name"))
+
+    if request.method == "POST":
+        valid_targets = {c.pk: c for c in guild_categories}
+        guildless_pks = set(ClassOffering.objects.filter(category__guild__isnull=True).values_list("pk", flat=True))
+        applied = 0
+        for key in request.POST:
+            if not key.startswith("category_"):
+                continue
+            value = request.POST.get(key, "")
+            if not value:
+                continue
+            try:
+                offering_pk = int(key.removeprefix("category_"))
+                target_pk = int(value)
+            except ValueError:
+                continue
+            if offering_pk not in guildless_pks or target_pk not in valid_targets:
+                continue
+            offering = ClassOffering.objects.get(pk=offering_pk)
+            offering.category = valid_targets[target_pk]
+            offering.save(update_fields=["category"])
+            applied += 1
+        messages.success(request, f"Re-filed {applied} classes into guild categories.")
+        return redirect("classes:admin_guild_tagging")
+
+    categories_by_name = {c.name: c for c in guild_categories}
+    offerings = (
+        ClassOffering.objects.filter(category__guild__isnull=True)
+        .select_related("category")
+        .order_by("-status", "title")
+    )
+    rows = [(offering, offering.suggest_guild_category(categories_by_name)) for offering in offerings]
+    suggestion_count = sum(1 for _, suggestion in rows if suggestion is not None)
+    return render(
+        request,
+        "classes/admin/guild_tagging.html",
+        {
+            "active_tab": "categories",
+            "rows": rows,
+            "guild_categories": guild_categories,
+            "total_count": len(rows),
+            "suggestion_count": suggestion_count,
+        },
+    )
+
+
 @classes_registrations_access_required
 def admin_registrations(request: HttpRequest) -> HttpResponse:
     scoped = _scoped_registrations(request)

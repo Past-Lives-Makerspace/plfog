@@ -2953,6 +2953,32 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     white-space: nowrap;
 }
 
+/* Guild-tagging per-row category picker — theme-aware input tokens so the
+   select and its native option popup stay legible on both themes (FRONTEND
+   Rule 13). */
+.pl-guild-tag-select {
+    width: 100%;
+    max-width: 22rem;
+    padding: 0.4rem 0.6rem;
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    color: var(--hub-text);
+    background-color: var(--hub-input-bg);
+    border: 1px solid var(--hub-input-border);
+    border-radius: 6px;
+}
+
+.pl-guild-tag-select:focus {
+    outline: none;
+    border-color: var(--color-tuscan-yellow);
+    box-shadow: 0 0 0 3px rgba(238, 180, 75, 0.15);
+}
+
+.pl-guild-tag-select option {
+    background: var(--hub-input-bg);
+    color: var(--hub-text);
+}
+
 .admin-table-footer {
     display: flex;
     justify-content: space-between;

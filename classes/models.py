@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 from collections.abc import Callable
 from datetime import date as date_type, datetime
@@ -253,6 +254,36 @@ def _save_with_unique_slug(
                 raise
 
 
+# Keyword → guild-category-name rules for the bulk guild-tagging suggester. Ordered
+# most→least specific so a compound term wins for the guild that actually owns it
+# (e.g. "Stained Glass" hits Glass before Woodworking's "\bstained" would ever apply).
+# The first entry whose pattern matches the title+description AND whose named category
+# exists wins; see ``ClassOffering.suggest_guild_category``.
+GUILD_CATEGORY_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("Art Framing", r"\bfram(?:e|ing)\b|\bshadowbox\b|\bmat\s*cut"),
+    ("Glass", r"\bglass|lampwork|borosilicate|\bboro\b|\bfrit\b|\bfus(?:ed|ing)\b|\bstained\b"),
+    (
+        "Ceramics",
+        r"ceramic|\bclay\b|potter|wheel[- ]throw|\bglaz(?:e|ing)|\bteapot\b|hand[- ]?build|\bkiln\b|porcelain",
+    ),
+    ("Metalworking", r"blacksmith|\bforg(?:e|ing|ed)\b|\bweld|\bknife|\bmetal\b|\banvil\b|\bplasma\b|\bsteel\b"),
+    ("Leatherworking", r"leather"),
+    ("Textiles", r"\bsew|\bknit|crochet|\bquilt|\bweav|\bdye|\bfiber\b|embroider|\bfelt\b|macram|textile|\byarn\b"),
+    ("Jewelry", r"jewel|lapidary|silversmith|\bearring|\bring[- ]making"),
+    ("Technology", r"\blaser\b|3[dD][- ]print|\bcnc\b|arduino|electronic|microcontroller|\brobot"),
+    ("Woodworking", r"\bwood|\blathe\b|\bcarv|joinery|\bspoon\b|sawstop"),
+    ("Gardeners", r"\bgarden|\bcompost|\bseed[- ]start|\bplant\b"),
+    ("Food Independence", r"\bferment|\bcanning\b|sourdough|\bcheese|\bpickl|\bpreserv(?:e|ing)\b|\bcook"),
+    ("Visual Arts", r"\bpaint|\bdraw|printmak|screen[- ]?print|collage|\bsketch|\bacrylic|watercolor"),
+    ("Writers", r"\bwrit(?:e|ing|er)|poetry|\bzine\b"),
+)
+
+# Patterns compiled once at import; paired 1:1 with GUILD_CATEGORY_KEYWORDS by order.
+_COMPILED_GUILD_CATEGORY_KEYWORDS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (name, re.compile(pattern, re.IGNORECASE)) for name, pattern in GUILD_CATEGORY_KEYWORDS
+)
+
+
 class ClassOffering(HeroCropMixin, models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
@@ -492,6 +523,25 @@ class ClassOffering(HeroCropMixin, models.Model):
             from classes import activity
 
             activity.log(CmsActivity.Kind.CLASS_CREATED, class_offering=self)
+
+    def suggest_guild_category(self, categories_by_name: dict[str, "Category"] | None = None) -> "Category | None":
+        """Suggest a guild-linked category from keywords in the title + description.
+
+        First matching entry in GUILD_CATEGORY_KEYWORDS wins (ordered most→least
+        specific so e.g. "Stained Glass" hits Glass before anything else). Returns
+        None when nothing matches or the named category doesn't exist. Pass
+        categories_by_name (name → guild-linked Category) to avoid a query per call
+        when scanning many offerings.
+        """
+        if categories_by_name is None:
+            categories_by_name = {c.name: c for c in Category.objects.filter(guild__isnull=False)}
+        haystack = f"{self.title} {self.description}"
+        for name, pattern in _COMPILED_GUILD_CATEGORY_KEYWORDS:
+            if pattern.search(haystack):
+                category = categories_by_name.get(name)
+                if category is not None:
+                    return category
+        return None
 
     @property
     def required_review_roles(self) -> list[str]:

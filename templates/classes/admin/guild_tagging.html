@@ -1,0 +1,57 @@
+{% extends "classes/admin/base.html" %}
+{% block tab_content %}
+<div class="admin-toolbar">
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_categories' %}">← Back to Guild Types</a>
+</div>
+<p style="color:var(--hub-text-muted); margin:0 0 1rem;">
+    {{ total_count }} class{{ total_count|pluralize:",es" }} without a guild category
+    · {{ suggestion_count }} {% if suggestion_count == 1 %}has{% else %}have{% endif %} suggestions.
+    Pick a guild for each, then apply. Anything left as “— leave as is —” stays put.
+</p>
+{% if rows %}
+<form method="post">
+    {% csrf_token %}
+    <div class="admin-table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Class</th>
+                <th>Status</th>
+                <th>Current category</th>
+                <th>Move to guild</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for offering, suggestion in rows %}
+            <tr>
+                <td>
+                    <a href="{% url 'classes:admin_class_detail' pk=offering.pk %}" title="{{ offering.title }}"
+                       style="display:inline-block;max-width:28ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;">{{ offering.title }}</a>
+                </td>
+                <td>{{ offering.get_status_display }}</td>
+                <td style="color:var(--hub-text-muted);">{{ offering.category.name }}</td>
+                <td>
+                    <select name="category_{{ offering.pk }}" class="pl-guild-tag-select">
+                        <option value="">— leave as is —</option>
+                        {% for cat in guild_categories %}
+                            <option value="{{ cat.pk }}"{% if suggestion and suggestion.pk == cat.pk %} selected{% endif %}>{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <div style="display:flex; justify-content:flex-end; margin-top:1rem;">
+        <button type="submit" class="hub-btn hub-btn--primary">Apply selected</button>
+    </div>
+</form>
+{% else %}
+<div class="admin-table-wrap">
+    <p style="padding:1.5rem 0.75rem; margin:0; color:var(--hub-text-muted);">
+        All classes are filed under guild categories.
+    </p>
+</div>
+{% endif %}
+{% endblock %}

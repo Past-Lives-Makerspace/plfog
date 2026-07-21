@@ -102,6 +102,7 @@ urlpatterns = [
     path("admin/images/<int:pk>/delete/", views.admin_class_image_delete, name="admin_class_image_delete"),
     path("admin/images/<int:pk>/alt/", views.admin_class_image_alt, name="admin_class_image_alt"),
     path("admin/categories/", views.admin_categories, name="admin_categories"),
+    path("admin/categories/guild-tagging/", views.admin_guild_tagging, name="admin_guild_tagging"),
     path("admin/categories/new/", views.admin_category_create, name="admin_category_create"),
     path("admin/categories/<int:pk>/edit/", views.admin_category_edit, name="admin_category_edit"),
     path("admin/categories/<int:pk>/delete/", views.admin_category_delete, name="admin_category_delete"),
