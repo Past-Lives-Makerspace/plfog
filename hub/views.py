@@ -3445,11 +3445,17 @@ def _get_calendar_context(
         d = window_start + timedelta(days=i)
         month_days.append({"date": d, "is_today": d == today, "in_month": True, "events": events_by_date.get(d, [])})
 
+    # The Google-sync flag stays admin-only and gated by both sync switches (the same
+    # contract as the wordy badge), so it renders on the calendar list only for a
+    # manager when sync is on — never for a plain member.
+    sync_flag_visible = _google_sync_enabled() and _viewing_as_admin(request)
+
     return {
         "week_events": week_events,
         "month_events": month_events,
         "event_page": event_page,
         "event_total_pages": total_pages,
+        "sync_flag_visible": sync_flag_visible,
         "guilds_with_calendars": guilds_with_calendars,
         "legend_guilds": legend_guilds,
         "has_ungrouped_classes": has_ungrouped_classes,
@@ -3494,6 +3500,9 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     The Events tab is a member-readable upcoming-events list; admins additionally get
     ``+ Add`` / Edit / Delete controls (gated by ``events_can_manage``).
     """
+    from django.core.paginator import Paginator
+
+    from hub.calendar_entries import upcoming_calendar_events
     from membership.models import CommunityEvent
 
     ctx = _get_hub_context(request)
@@ -3506,8 +3515,11 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
 
     view_as = getattr(request, "view_as", None)
     is_admin = bool(view_as is not None and view_as.is_admin)
-    # Only PUBLISHED events reach the public list (pending/declined proposals never leak).
-    cal_ctx["upcoming_events"] = CommunityEvent.objects.published().upcoming().select_related("guild")
+    # The Events tab lists exactly what the grid shows — every feed / general / class
+    # event plus every published community event — not just the FOG-native ones (that
+    # was the "missing events" bug). Paginated with the hub's standard Paginator.
+    events_paginator = Paginator(upcoming_calendar_events(), _CALENDAR_PAGE_SIZE)
+    cal_ctx["events_page_obj"] = events_paginator.get_page(request.GET.get("events_page", 1))
     cal_ctx["events_can_manage"] = is_admin
     # Admin-only: site-wide events parked in SCHEDULED are invisible on the public list and
     # aren't in my_proposals (admin direct-creates set created_by, not submitted_by), so an

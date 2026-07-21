@@ -1,8 +1,23 @@
 {% load hub_tags static classes_tags %}
+{% comment %}
+One event card, shared by the calendar list-below-the-grid and the Events tab.
+
+Params:
+  event        — a CalendarEvent row or a duck-typed CalendarEntry
+  source_colors — {source_key: color} map
+  show_filter  — truthy only on the calendar grid, where the surrounding Alpine scope
+                 defines isActive(); the Events tab has no filter legend, so it omits
+                 the x-show to avoid an undefined-isActive error.
+  show_manage  — truthy on the Events tab for a manager: draw Edit/Delete for a
+                 community event (event.community_event).
+  sync_visible — truthy only for a manager while Google sync is on: draw the compact
+                 sync flag / diagnostics. Kept off for plain members (sync internals
+                 are staff-only) and when either sync switch is off.
+{% endcomment %}
 {% with src=event.source_key %}
 <div class="pl-calendar-list__item{% if event.is_in_progress %} pl-calendar-list__item--live{% endif %}"
      data-event-pk="{{ event.pk }}"
-     x-show="isActive('{{ src }}')"
+     {% if show_filter %}x-show="isActive('{{ src }}')"{% endif %}
      style="--event-color: {{ source_colors|get_item:src|default:'#888888' }};">
     {% if event.is_in_progress %}<span class="pl-calendar-list__live-pill"><span class="pl-calendar-list__live-dot"></span>Live now</span>{% endif %}
     <div class="pl-calendar-list__time">
@@ -15,10 +30,12 @@
         {% endif %}
     </div>
     <div class="pl-calendar-list__body">
-        {% if event.source == "classes" %}
-        <div class="pl-calendar-list__title">{{ event.title|strip_date_suffix }}</div>
-        {% elif event.url %}
-        <a href="{{ event.url }}" class="pl-calendar-list__title pl-calendar-list__title--link" target="_blank" rel="noopener noreferrer">{{ event.title|strip_date_suffix }}</a>
+        {% if event.url %}
+            {% if event.source == "community" %}
+            <a href="{{ event.url }}" class="pl-calendar-list__title pl-calendar-list__title--link">{{ event.title|strip_date_suffix }}</a>
+            {% else %}
+            <a href="{{ event.url }}" class="pl-calendar-list__title pl-calendar-list__title--link" target="_blank" rel="noopener noreferrer">{{ event.title|strip_date_suffix }}</a>
+            {% endif %}
         {% else %}
         <div class="pl-calendar-list__title">{{ event.title|strip_date_suffix }}</div>
         {% endif %}
@@ -37,7 +54,7 @@
             <img src="{% static 'img/guild_logos/'|add:event.guild.logo_prefix|add:'_color.svg' %}" width="14" height="14" alt="">
             {% endif %}
             <span>{% if event.guild %}{{ event.guild.name }}{% else %}Classes{% endif %}</span>
-            {% if event.url %}<a href="{{ event.url }}" class="pl-calendar-list__register" target="_blank" rel="noopener noreferrer" style="margin-left:auto;">Register →</a>{% endif %}
+            {% if event.url %}<a href="{{ event.url }}" class="pl-calendar-list__register" target="_blank" rel="noopener noreferrer" style="margin-left:auto;">More Info →</a>{% endif %}
         </div>
         {% elif event.guild %}
         <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }}; display:flex; align-items:center; gap:0.35rem;">
@@ -50,6 +67,23 @@
         <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }};">{{ event.feed.name }}</div>
         {% else %}
         <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }};">General</div>
+        {% endif %}
+
+        {% if show_manage and event.community_event %}
+        {% with cev=event.community_event confirm_id=event.pk|stringformat:"s"|add:"-event-delete" %}
+        <div class="pl-calendar-list__manage">
+            {% if sync_visible %}{% include "hub/partials/_sync_badge.html" with event=cev can_retry=show_manage %}{% endif %}
+            <div class="pl-calendar-list__manage-actions">
+                <a href="{% url 'hub_event_edit' cev.pk %}" class="hub-btn hub-btn--sm">Edit</a>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                        @click="$dispatch('open-confirm', '{{ confirm_id }}')">Delete</button>
+                {% url 'hub_event_delete' cev.pk as delete_url %}
+                {% include "components/confirm_modal.html" with confirm_id=confirm_id confirm_title="Delete this event?" confirm_message="This removes it from the calendar. This can't be undone." confirm_action_url=delete_url confirm_button_text="Delete event" %}
+            </div>
+        </div>
+        {% endwith %}
+        {% elif sync_visible and event.community_event and event.community_event.sync_state == "synced" %}
+        <div class="pl-calendar-list__flag">{% include "hub/partials/_sync_flag.html" %}</div>
         {% endif %}
     </div>
 </div>

@@ -129,7 +129,7 @@
     <div class="pl-calendar-list">
         {% if week_events %}
         {% for event in week_events %}
-        {% include "hub/partials/calendar_event_item.html" %}
+        {% include "hub/partials/calendar_event_item.html" with show_filter=True sync_visible=sync_flag_visible %}
         {% endfor %}
         {% else %}
         <div class="pl-calendar-empty">
@@ -145,7 +145,7 @@
     <div class="pl-calendar-list">
         {% if month_events %}
         {% for event in month_events %}
-        {% include "hub/partials/calendar_event_item.html" %}
+        {% include "hub/partials/calendar_event_item.html" with show_filter=True sync_visible=sync_flag_visible %}
         {% endfor %}
         {% else %}
         <div class="pl-calendar-empty">

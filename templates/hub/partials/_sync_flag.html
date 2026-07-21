@@ -1,0 +1,11 @@
+{% comment %}
+Compact "on the shared Google Calendar" flag — a small green calendar-check glyph.
+Replaces the wordy "Synced to Google ✓" pill wherever a synced event is listed
+(the calendar list below the grid + the Events tab). The words live in the title /
+aria-label so it stays legible to screen readers and hover.
+{% endcomment %}
+<span class="pl-sync-flag" title="Synced to Google Calendar" aria-label="Synced to Google Calendar">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8.5 15 10.5 17 15 12.5"/>
+    </svg>
+</span>
