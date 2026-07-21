@@ -196,6 +196,127 @@ def sync_general_calendar() -> int:
     return total
 
 
+# Discord Scheduled Events mirror of the general feeds. Each recurring occurrence is its
+# own CalendarEvent row, so the full 180-day sync horizon would flood Discord's events
+# list — only this near window is pushed, capped well under Discord's 100-per-guild limit.
+_DISCORD_PUSH_HORIZON = timedelta(days=30)
+_DISCORD_PUSH_CAP = 50
+
+
+def _discord_event_body(event: CalendarEvent) -> dict[str, Any]:
+    """The Discord Scheduled Event payload for a feed CalendarEvent.
+
+    Feed events are physical happenings, so EXTERNAL entity type — which *requires* an
+    end time and a non-blank location (a blank location 400s, hence the fallback).
+    """
+    from core.integrations.discord_events import (
+        DEFAULT_LOCATION,
+        _DESCRIPTION_MAX,
+        _ENTITY_TYPE_EXTERNAL,
+        _LOCATION_MAX,
+        _NAME_MAX,
+        _PRIVACY_GUILD_ONLY,
+    )
+
+    description = "\n\n".join(part for part in (event.description, event.url) if part)
+    return {
+        "name": event.title[:_NAME_MAX],
+        "privacy_level": _PRIVACY_GUILD_ONLY,
+        "entity_type": _ENTITY_TYPE_EXTERNAL,
+        "scheduled_start_time": event.start_dt.isoformat(),
+        "scheduled_end_time": event.end_dt.isoformat(),
+        "entity_metadata": {"location": (event.location or DEFAULT_LOCATION)[:_LOCATION_MAX]},
+        "description": description[:_DESCRIPTION_MAX],
+    }
+
+
+def sync_discord_feed_events() -> int:
+    """Mirror upcoming general-feed events into Discord Scheduled Events.
+
+    Pushes every ``source="general"`` event starting within ``_DISCORD_PUSH_HORIZON``
+    (capped at ``_DISCORD_PUSH_CAP``, soonest first): creates the Discord event for a row
+    without one, updates rows already pushed, and recreates a row whose Discord copy was
+    deleted by hand (an update 404). A still-future row that dropped out of the push set
+    (date moved, or pushed under an older horizon) has its Discord copy deleted; past
+    events are left to Discord's own lifecycle. Returns the number of events in the push
+    set, or 0 when Discord Events sync is disabled.
+
+    Every event is attempted even when one fails; failures are then raised as one
+    :class:`DiscordEventsError` so ``sync_all_sources`` records the source as failed.
+    """
+    from core.integrations.discord_events import DiscordEventsError, DiscordScheduledEventsClient
+
+    client = DiscordScheduledEventsClient.from_settings()
+    if not client.enabled:
+        return 0
+
+    now = timezone.now()
+    push_set = list(
+        CalendarEvent.objects.filter(
+            source=CalendarEvent.Source.GENERAL,
+            start_dt__gte=now,
+            start_dt__lte=now + _DISCORD_PUSH_HORIZON,
+        ).order_by("start_dt")[:_DISCORD_PUSH_CAP]
+    )
+    failures: list[str] = []
+
+    for event in push_set:
+        try:
+            _push_feed_event(client, event)
+        except DiscordEventsError as exc:
+            failures.append(f"'{event.title}': {exc}")
+
+    dropped = (
+        CalendarEvent.objects.filter(source=CalendarEvent.Source.GENERAL, start_dt__gte=now)
+        .exclude(discord_event_id="")
+        .exclude(pk__in=[event.pk for event in push_set])
+    )
+    for event in dropped:
+        try:
+            _delete_feed_event_copy(client, event)
+        except DiscordEventsError as exc:
+            failures.append(f"'{event.title}': {exc}")
+
+    if failures:
+        raise DiscordEventsError(f"{len(failures)} Discord event push(es) failed; first: {failures[0]}")
+    return len(push_set)
+
+
+def _push_feed_event(client: Any, event: CalendarEvent) -> None:
+    """Create or update the Discord copy of one feed event.
+
+    An update that 404s means the Discord copy was deleted by hand — recreate it
+    rather than erroring every morning forever.
+    """
+    from core.integrations.discord_events import DiscordEventsError
+
+    body = _discord_event_body(event)
+    if event.discord_event_id:
+        try:
+            client.update_event(client.server_id, event.discord_event_id, body)
+        except DiscordEventsError as exc:
+            if "404" not in str(exc):
+                raise
+            event.discord_event_id = ""  # deleted on Discord's side — recreate below
+    if not event.discord_event_id:
+        created = client.insert_event(client.server_id, body)
+        event.discord_event_id = created["id"]
+        event.save(update_fields=["discord_event_id"])
+
+
+def _delete_feed_event_copy(client: Any, event: CalendarEvent) -> None:
+    """Delete the Discord copy of a feed event and clear the link (a 404 is already-gone)."""
+    from core.integrations.discord_events import DiscordEventsError
+
+    try:
+        client.delete_event(client.server_id, event.discord_event_id)
+    except DiscordEventsError as exc:
+        if "404" not in str(exc):
+            raise
+    event.discord_event_id = ""
+    event.save(update_fields=["discord_event_id"])
+
+
 def sync_local_class_events() -> int:
     """Materialize upcoming local plfog class sessions into CalendarEvent rows.
 
@@ -292,6 +413,10 @@ def sync_all_sources() -> list[str]:
 
     for feed in CalendarFeed.objects.filter(ical_url__gt=""):
         _run_source(f"feed '{feed}'", partial(sync_calendar_feed, feed), errors)
+
+    # Mirror the freshly-synced general feeds into Discord Scheduled Events (no-op when
+    # Discord Events sync is off).
+    _run_source("discord events", sync_discord_feed_events, errors)
 
     config = SiteConfiguration.load()
     if config.legacy_cms_sync_enabled:

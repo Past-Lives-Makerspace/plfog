@@ -8,6 +8,21 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "0.23.3",
         "date": "2026-07-20",
+        "title": "Community Calendar events are back — and coming to Discord",
+        "changes": [
+            (
+                "The Member and Public calendars on the Community Calendar stopped updating for a while and "
+                "quietly ran dry — they're syncing again every morning, each in its own color."
+            ),
+            (
+                "Events from those calendars now also show up as Discord scheduled events, so you can RSVP "
+                "and get reminders right in the server."
+            ),
+        ],
+    },
+    {
+        "version": "0.23.3",
+        "date": "2026-07-20",
         "title": "Classes stay filed under their guilds",
         "changes": [
             (
