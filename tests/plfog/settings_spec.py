@@ -316,7 +316,7 @@ def describe_allowed_hosts():
                     "SENTRY_DSN": None,
                 },
             )
-            assert settings_module.ALLOWED_HOSTS == ["example.com", "api.example.com"]
+            assert settings_module.ALLOWED_HOSTS == ["example.com", "api.example.com", "calendar.pastlives.space"]
 
     def it_defaults_to_localhost(monkeypatch):
         with patch("sentry_sdk.init"):
@@ -329,7 +329,7 @@ def describe_allowed_hosts():
                     "SENTRY_DSN": None,
                 },
             )
-            assert settings_module.ALLOWED_HOSTS == ["localhost", "127.0.0.1"]
+            assert settings_module.ALLOWED_HOSTS == ["localhost", "127.0.0.1", "calendar.pastlives.space"]
 
     def describe_render_external_hostname():
         def it_appends_render_hostname_when_set(monkeypatch):
@@ -357,7 +357,7 @@ def describe_allowed_hosts():
                         "SENTRY_DSN": None,
                     },
                 )
-                assert settings_module.ALLOWED_HOSTS == ["example.com"]
+                assert settings_module.ALLOWED_HOSTS == ["example.com", "calendar.pastlives.space"]
 
         def it_appends_to_default_hosts_when_only_render_hostname_is_set(monkeypatch):
             with patch("sentry_sdk.init"):
@@ -370,7 +370,12 @@ def describe_allowed_hosts():
                         "SENTRY_DSN": None,
                     },
                 )
-                assert settings_module.ALLOWED_HOSTS == ["localhost", "127.0.0.1", "plfog.onrender.com"]
+                assert settings_module.ALLOWED_HOSTS == [
+                    "localhost",
+                    "127.0.0.1",
+                    "plfog.onrender.com",
+                    "calendar.pastlives.space",
+                ]
 
 
 def describe_secure_proxy_ssl_header():

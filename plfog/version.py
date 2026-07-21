@@ -23,6 +23,17 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
+        "version": "0.23.8",
+        "date": "2026-07-21",
+        "title": "calendar.pastlives.space — an easy address for the Community Calendar",
+        "changes": [
+            (
+                "There's now a short, shareable address for the Community Calendar: calendar.pastlives.space "
+                "takes you straight there. Handy for flyers, Discord, and telling a friend."
+            ),
+        ],
+    },
+    {
         "version": "0.23.7",
         "date": "2026-07-21",
         "title": "The Events tab now lists everything on the calendar",
