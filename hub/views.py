@@ -14,6 +14,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.contrib.auth.views import redirect_to_login
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, QuerySet
 from django.forms import BaseInlineFormSet
@@ -214,15 +215,20 @@ def guild_voting(request: HttpRequest) -> HttpResponse:
     )
 
 
-@login_required
 def member_directory(request: HttpRequest) -> HttpResponse:
     """Member directory page — lists all active members.
+
+    Sign-in is required unless the "Public member directory" site setting is on
+    (the original open-directory behavior); anonymous visitors are otherwise sent
+    through the same login redirect ``@login_required`` would issue.
 
     Prefetches each member's primary allauth ``EmailAddress`` so
     ``Member.primary_email`` stays O(1) per member instead of firing a query
     on every template access. See the three-email-store note on
     ``Member.primary_email`` and docs/superpowers/specs/2026-04-07-user-email-aliases-design.md.
     """
+    if not request.user.is_authenticated and not SiteConfiguration.load().member_directory_public:
+        return redirect_to_login(request.get_full_path())
     ctx = _get_hub_context(request)
     current_member = _get_member(request)
     view_as = getattr(request, "view_as", None)
