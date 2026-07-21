@@ -1,9 +1,10 @@
 {% comment %}
 Class image gallery for the public detail page.
 
-Uses ``offering.display_images`` (see ClassOffering.display_images) which
-returns an ordered list of {url, alt} dicts — hero first, then gallery rows,
-with a category-hero fallback when the class has no images of its own.
+Renders the ``images`` list passed by the include (ordered {url, alt} dicts —
+the detail page passes ``offering.gallery_display_images``, the class's gallery
+shots only). Falls back to ``offering.display_images`` (hero first, then gallery
+rows, category-hero fallback) when no list is passed.
 
 Features:
   - Main image with inner-zoom on hover (Amazon-style — cursor reveals a
@@ -13,7 +14,7 @@ Features:
     arrows step through, Esc closes.
   - Touch devices fall back to tap-to-lightbox (no hover zoom).
 {% endcomment %}
-{% with images=offering.display_images %}
+{% with images=images|default:offering.display_images %}
 {% if images %}
 <div class="cls-gallery"
      x-data="clsGallery({{ images|length }})">
@@ -29,8 +30,7 @@ Features:
                  data-slide-index="{{ forloop.counter0 }}"
                  data-slide-src="{{ img.url }}"
                  data-slide-alt="{{ img.alt }}">
-                <img class="cls-gallery__img" src="{{ img.url }}" alt="{{ img.alt }}"
-                     {% if forloop.first and offering.hero_crop_w %}style="object-position: {{ offering.hero_object_position }};"{% endif %}>
+                <img class="cls-gallery__img" src="{{ img.url }}" alt="{{ img.alt }}">
                 <div class="cls-gallery__zoom-lens"
                      :style="activeIndex === {{ forloop.counter0 }} ? zoomLensStyle({{ forloop.counter0 }}) : {}"></div>
             </div>

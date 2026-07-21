@@ -914,11 +914,31 @@ class ClassOffering(HeroCropMixin, models.Model):
         items: list[dict] = []
         if self.image:
             items.append({"url": self.image.url, "alt": self.title})
-        for gi in self.gallery_images.all():
-            items.append({"url": gi.image.url, "alt": gi.alt_text or self.title})
+        items.extend(self.gallery_display_images)
         if not items and self.category and self.category.hero_image:
             items.append({"url": self.category.hero_image.url, "alt": self.category.name})
         return items
+
+    @property
+    def gallery_display_images(self) -> list[dict]:
+        """Gallery rows only — no hero and no category fallback.
+
+        Feeds the gallery block under the public detail page's booking rail, which
+        should render nothing at all when the class has no gallery shots of its own
+        (the hero already leads the page).
+        """
+        return [{"url": gi.image.url, "alt": gi.alt_text or self.title} for gi in self.gallery_images.all()]
+
+    @property
+    def display_faqs(self) -> list[dict]:
+        """Question/answer pairs for the public detail page's Questions section.
+
+        A class's own ``ClassFaq`` rows when it has any; otherwise the site-wide
+        ``DEFAULT_CLASS_FAQS``. Each entry is ``{"question": str, "answer": str}``
+        with plain-text answers (the template runs them through urlize/linebreaks).
+        """
+        custom = [{"question": faq.question, "answer": faq.answer} for faq in self.faqs.all()]
+        return custom or [dict(faq) for faq in DEFAULT_CLASS_FAQS]
 
     @property
     def has_submittable_image(self) -> bool:
@@ -1257,6 +1277,60 @@ class ClassImage(models.Model):
         delete_orphan_on_replace(self, "image")
         normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
         super().save(*args, **kwargs)
+
+
+# Site-wide starting-point FAQs shown on every class page until the class saves its own
+# ClassFaq rows. The class edit form seeds these as editable rows, so instructors can
+# reword them or add more; answers are plain text (urlize turns the email into a link).
+DEFAULT_CLASS_FAQS: list[dict] = [
+    {
+        "question": "What's your cancellation policy?",
+        "answer": (
+            "Cancel up to 7 days before the first session for a full refund. Within 7 days, "
+            "we can usually transfer your spot to a future class or to someone on the waitlist."
+        ),
+    },
+    {
+        "question": "Is the space accessible?",
+        "answer": (
+            "Yes — our studio has step-free entry, accessible restrooms, and adjustable-height "
+            "workstations available on request. Email info@pastlives.space with any specific "
+            "needs and we'll make it work."
+        ),
+    },
+    {
+        "question": "What if I've never done this before?",
+        "answer": (
+            "Most of our classes are designed for beginners and welcome curious newcomers. "
+            "Check the Prerequisites section above for any required experience."
+        ),
+    },
+]
+
+
+class ClassFaq(models.Model):
+    """A question/answer pair shown in the public class page's Questions section.
+
+    While a class has no rows, the page falls back to ``DEFAULT_CLASS_FAQS``; the first
+    save from the class edit form materializes those defaults as rows, so from then on
+    the class fully owns its own list. Deleting every row returns it to the defaults.
+    """
+
+    class_offering = models.ForeignKey(
+        ClassOffering,
+        on_delete=models.CASCADE,
+        related_name="faqs",
+        help_text="Parent class offering.",
+    )
+    question = models.CharField(max_length=500, help_text="The question.")
+    answer = models.TextField(help_text="The answer (plain text; URLs and emails become links).")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        return self.question
 
 
 class ClassSessionQuerySet(models.QuerySet["ClassSession"]):

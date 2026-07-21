@@ -78,11 +78,13 @@ def describe_gallery_rendering():
             image=img("hero.png"),
         )
         ClassImageFactory(class_offering=offering, image=img("g1.png"), sort_order=1)
+        ClassImageFactory(class_offering=offering, image=img("g2.png"), sort_order=2)
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk}))
         body = response.content.decode()
+        assert "cp-detail__rail-gallery" in body  # gallery sits under the booking rail
         assert 'class="cls-gallery"' in body
-        assert "clsGallery(2)" in body  # hero + 1 gallery image
+        assert "clsGallery(2)" in body  # the 2 gallery shots — the hero stays out of the rail gallery
         assert "cls-gallery__thumbs" in body
         # ensure BytesIO import is referenced so ruff doesn't complain
         assert BytesIO is not None

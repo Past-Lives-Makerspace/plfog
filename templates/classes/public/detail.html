@@ -186,9 +186,6 @@
         {% endwith %}
       {% endif %}
 
-      {# Gallery (hover-zoom + lightbox come from the component) #}
-      {% include "classes/_components/gallery.html" with offering=offering %}
-
       {# Schedule — every date for a series (past ones marked), the single date for a one-off. #}
       {% if schedule_sessions %}
         <section class="cp-detail__section">
@@ -343,27 +340,22 @@
         </div>
       </section>
 
-      {# FAQ #}
+      {# FAQ — the class's own questions when customized, site defaults otherwise #}
       <section class="cp-detail__section cp-detail__faq" x-data>
         <h2 class="cp-detail__h2">Questions</h2>
+        {% for faq in offering.display_faqs %}
         <details class="cp-detail__faq-item">
-          <summary>What's your cancellation policy?</summary>
-          <div class="cp-detail__prose">Cancel up to 7 days before the first session for a full refund. Within 7 days, we can usually transfer your spot to a future class or to someone on the waitlist.</div>
+          <summary>{{ faq.question }}</summary>
+          <div class="cp-detail__prose">{{ faq.answer|urlize|linebreaks }}</div>
         </details>
-        <details class="cp-detail__faq-item">
-          <summary>Is the space accessible?</summary>
-          <div class="cp-detail__prose">Yes — our studio has step-free entry, accessible restrooms, and adjustable-height workstations available on request. Email <a href="mailto:info@pastlives.space">info@pastlives.space</a> with any specific needs and we'll make it work.</div>
-        </details>
-        <details class="cp-detail__faq-item">
-          <summary>What if I've never done this before?</summary>
-          <div class="cp-detail__prose">Most of our classes are designed for beginners and welcome curious newcomers. Check the Prerequisites section above for any required experience.</div>
-        </details>
+        {% endfor %}
       </section>
 
     </div>
 
     {# ── Sticky booking rail ─────────────────────────────── #}
     <div class="cp-detail__rail">
+      <div class="cp-detail__rail-inner">
       <div class="cp-detail__rail-card">
         <div class="cp-detail__price-row">
           <div class="cp-detail__price">{{ offering.price_cents|cents_as_price }}</div>
@@ -409,6 +401,15 @@
           {% endif %}
         </ul>
       </div>
+
+      {# Gallery — the class's extra shots, right under the booking card (hover-zoom + lightbox from the component) #}
+      {% if offering.gallery_display_images %}
+        <div class="cp-detail__rail-gallery">
+          <h3 class="cp-detail__h3">Gallery</h3>
+          {% include "classes/_components/gallery.html" with offering=offering images=offering.gallery_display_images %}
+        </div>
+      {% endif %}
+      </div>{# /rail-inner #}
     </div>
   </div>
 
