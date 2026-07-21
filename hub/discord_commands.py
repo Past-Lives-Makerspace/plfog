@@ -243,6 +243,10 @@ def _vote(interaction: Interaction, member: Member | None) -> dict:
     ``VotePreference.save()``, and the vote-activity post-save signal fire exactly as a page
     submission would — no invented sync behavior. Validation failures name the problem in a
     friendly ephemeral reply, never the generic error reply.
+
+    ``defer=True`` because ``cast_ballot`` → ``VotePreference.save()`` makes a synchronous
+    Airtable HTTP call when sync is enabled — the same reason ``/join-guild`` defers for its
+    fan-out; Discord's 3-second deadline is not a bet worth making against an external API.
     """
     from hub.forms import VotePreferenceForm
     from membership.cycle import get_cycle_context
@@ -311,7 +315,7 @@ VOTE = SlashCommand(
     options_builder=_ballot_options,
     requires_link=True,
     ephemeral=True,
-    defer=False,
+    defer=True,
     scope="guild",
 )
 

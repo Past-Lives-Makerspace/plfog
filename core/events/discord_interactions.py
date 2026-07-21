@@ -166,20 +166,26 @@ def ack_deferred(interaction_id: str, token: str, *, ephemeral: bool = True) -> 
     return False
 
 
-def send_followup(token: str, *, content: str, embeds: list[dict] | None = None) -> bool:
+def send_followup(
+    token: str, *, content: str, embeds: list[dict] | None = None, components: list[dict] | None = None
+) -> bool:
     """PATCH the deferred interaction's ``@original`` message with the real reply (§5.4).
 
     Hits ``PATCH /webhooks/{DISCORD_CLIENT_ID}/{token}/messages/@original``, well inside
     Discord's 15-minute followup window. The message inherits the ephemeral state of the
-    :func:`ack_deferred` that preceded it. Best-effort: returns ``True`` on a 2xx, ``False``
-    on a network error or any non-2xx (logged, never raised) — a failed followup leaves
-    Discord's own "interaction failed" rather than a misleading success.
+    :func:`ack_deferred` that preceded it. ``embeds`` / ``components`` are included only when
+    provided (mirroring :func:`reply`), so a deferred command's link buttons survive the
+    followup path. Best-effort: returns ``True`` on a 2xx, ``False`` on a network error or
+    any non-2xx (logged, never raised) — a failed followup leaves Discord's own
+    "interaction failed" rather than a misleading success.
     """
     from core.events.discord_oauth import client_id
 
     payload: dict = {"content": content}
     if embeds is not None:
         payload["embeds"] = embeds
+    if components is not None:
+        payload["components"] = components
     try:
         response = httpx.patch(
             f"{API_BASE}/webhooks/{client_id()}/{token}/messages/@original",

@@ -38,9 +38,10 @@ def _interaction(first: str, second: str, third: str) -> dict:
 
 
 def describe_vote_command_definition():
-    def it_is_linked_only_ephemeral_and_immediate():
+    def it_is_linked_only_ephemeral_and_deferred():
+        # defer=True: the save's synchronous Airtable push must not race Discord's 3s deadline.
         assert VOTE.name == "vote"
-        assert (VOTE.requires_link, VOTE.ephemeral, VOTE.defer, VOTE.scope) == (True, True, False, "guild")
+        assert (VOTE.requires_link, VOTE.ephemeral, VOTE.defer, VOTE.scope) == (True, True, True, "guild")
 
     def it_builds_three_required_guild_pickers_with_slug_values():
         guild = GuildFactory(name="Alpha Fiber")
