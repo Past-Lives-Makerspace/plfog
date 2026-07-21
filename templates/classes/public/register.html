@@ -32,7 +32,12 @@
         {% endif %}
         <div class="reg-summary">
           <div>{{ offering.title|strip_date_suffix }}</div>
-          <div class="total">{{ offering.price_cents|cents_as_price }}</div>
+          {% if offering.sale_is_active %}
+            <div class="total"><span class="reg-was">{{ offering.price_cents|cents_as_price }}</span> {{ offering.sale_price_cents|cents_as_price }}</div>
+            <div class="reg-sale-badge">{{ offering.sale_savings_display }}</div>
+          {% else %}
+            <div class="total">{{ offering.price_cents|cents_as_price }}</div>
+          {% endif %}
           {% if member_price_cents %}<div style="font-size:11px;color:var(--steel-dim);margin-top:2px">Past Lives Members: {{ member_price_cents|cents_as_price }} (auto-applied if your email matches a verified member)</div>{% endif %}
           {% if spots_remaining <= 3 %}<div style="font-size:11px;color:var(--red);margin-top:6px">Only {{ spots_remaining }} spot{{ spots_remaining|pluralize }} left</div>{% endif %}
         </div>
@@ -111,11 +116,15 @@
             <label for="{{ form.looking_for.id_for_label }}">What are you hoping to get out of this class? (optional)</label>
             {{ form.looking_for }}
           </div>
+          {% if form.discount_code %}
           <div class="reg-field">
             <label for="{{ form.discount_code.id_for_label }}">Discount code (optional)</label>
             {{ form.discount_code }}
             {% if form.discount_code.errors %}<ul class="reg-errors">{% for e in form.discount_code.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
           </div>
+          {% elif offering.sale_is_active %}
+          <div class="reg-sale-note">Sale price applied — discount codes can't be combined with this offer.</div>
+          {% endif %}
 
           <div id="custom-questions-block">
             {% if answers_prefilled %}
@@ -184,7 +193,9 @@
           {% endif %}
 
           <button type="submit" class="btn-reg" style="margin-top:8px">
-            {% if offering.price_cents == 0 %}Confirm Registration{% else %}Next — {{ offering.price_cents|cents_as_price }}{% endif %}
+            {% comment %}Free-vs-paid stays keyed on price_cents — a paid class on sale is
+            still a paid class (validation guarantees sale_price_cents > 0 here).{% endcomment %}
+            {% if offering.price_cents == 0 %}Confirm Registration{% else %}Next — {{ offering.sale_price_cents|cents_as_price }}{% endif %}
           </button>
           <div class="reg-help" style="text-align:center">Payment is processed securely by Stripe. We never see your card details.</div>
         </form>

@@ -1,0 +1,16 @@
+{% comment %}
+Grouped "Sale" fieldset for the class edit forms (teach + admin twins). The
+including template's field loop SKIPS the six sale_* fields — this partial owns
+them. Both amount inputs always render (no JS dependency); the form validates
+that the one matching the chosen kind is filled and ignores the other.
+{% endcomment %}
+<fieldset class="hub-card pl-sale-fields">
+  <h3 class="pl-sale-fields__title">Sale</h3>
+  <p class="hub-text-muted pl-sale-fields__hint">Put this class on sale &mdash; a banner and the sale price show automatically.</p>
+  {% include "components/form_field.html" with field=form.sale_enabled %}
+  {% include "components/form_field.html" with field=form.sale_kind %}
+  {% include "components/form_field.html" with field=form.sale_percent %}
+  {% include "components/form_field.html" with field=form.sale_amount_cents %}
+  {% include "components/form_field.html" with field=form.sale_banner_text %}
+  {% include "components/form_field.html" with field=form.sale_allow_discount_codes %}
+</fieldset>

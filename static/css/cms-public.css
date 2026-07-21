@@ -473,6 +473,10 @@ body.classes-portal {
 .cp-page .badge.pv{background:rgba(248,113,113,.10);color:var(--red);border:1px solid rgba(248,113,113,.25)}
 .cp-page .badge.series{background:var(--gold);color:var(--navy-dark);border:1px solid var(--gold);box-shadow:0 0 12px var(--gold-glow)}
 .cp-page .badge.single{background:transparent;color:var(--text2);border:1px solid var(--border)}
+/* Sale badge is RED-accented (like .badge.pv), NOT gold — a gold badge would be
+   indistinguishable from the gold-filled series badge when both render together. */
+.cp-page .badge.sale{background:rgba(248,113,113,.14);color:var(--red);border:1px solid rgba(248,113,113,.30)}
+.cp-page .cls-price--was{text-decoration:line-through;color:var(--text3);font-weight:400;font-size:12px;margin-right:4px}
 
 .cp-page .detail-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);max-width:720px;margin:24px auto;overflow:hidden;box-shadow:0 1px 3px rgba(9,46,76,.06),0 16px 40px rgba(9,46,76,.10);position:relative}
 .cp-page .detail-card::before{content:'';position:absolute;top:-1px;left:20%;right:20%;height:1px;background:linear-gradient(90deg,transparent,rgba(238,180,75,.4),transparent);pointer-events:none}
@@ -566,6 +570,56 @@ body.classes-portal {
   border-radius: var(--r);
   font-size: 14px;
   color: var(--text);
+}
+
+/* ── Sale announcement banner ──────────────────────────── */
+/* Full-width navy strip with a gold sheen sweeping across it. The navy base is
+   deliberately theme-constant (brand structural blue), so the cream text and
+   gold shimmer read identically on Obsidian and Slate. */
+.cp-detail__sale-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 12px var(--cp-detail-pad);
+  padding: 14px 18px;
+  border: 1px solid var(--gold);
+  border-radius: var(--r);
+  background:
+    linear-gradient(115deg, transparent 30%, var(--gold-glow) 45%, rgba(238,180,75,.45) 50%, var(--gold-glow) 55%, transparent 70%),
+    linear-gradient(120deg, var(--navy-dark), var(--navy) 55%, var(--navy-dark));
+  background-size: 250% 100%, 100% 100%;
+  background-position: 125% 0, 0 0;
+  animation: cp-sale-shimmer 3.5s ease-in-out infinite;
+  box-shadow: 0 4px 20px var(--gold-glow);
+}
+.cp-detail__sale-banner-text {
+  font-family: var(--heading);
+  font-weight: 800;
+  font-size: clamp(15px, 1rem + 0.3vw, 19px);
+  color: #f4efdd; /* cream on the always-navy strip — same in both themes */
+  text-align: center;
+}
+.cp-detail__sale-banner-pill {
+  background: var(--gold);
+  color: var(--navy-dark);
+  font-weight: 800;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 4px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 0 12px var(--gold-glow);
+}
+@keyframes cp-sale-shimmer {
+  0%   { background-position: 125% 0, 0 0; }
+  60%  { background-position: -60% 0, 0 0; }
+  100% { background-position: -60% 0, 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cp-detail__sale-banner { animation: none; }
 }
 
 /* ── Hero ──────────────────────────────────────── */
@@ -954,6 +1008,19 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   font-weight: 900;
   color: var(--gold-text);
   line-height: 1;
+}
+.cp-detail__price--was {
+  font-family: var(--heading);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text3);
+  text-decoration: line-through;
+  line-height: 1;
+}
+.cp-detail__sale-note {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold-text);
 }
 .cp-detail__price-member {
   font-size: 14px;

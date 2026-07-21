@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.13"
+VERSION = "0.23.14"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.14",
+        "date": "2026-07-21",
+        "title": "Classes can now go on sale",
+        "changes": [
+            (
+                "Instructors can put a class on sale with a percent or dollar discount — look for "
+                "the bright sale banner on the class page and the original price crossed out next "
+                "to the new one. You'll always see the sale price before you pay."
+            ),
+            (
+                "Instructors: there's a new Sale section on your class edit page — flip the toggle, "
+                "pick the discount, and optionally write your own banner headline."
+            ),
+        ],
+    },
     {
         "version": "0.23.13",
         "date": "2026-07-21",

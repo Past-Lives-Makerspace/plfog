@@ -32,6 +32,10 @@
             {% include "classes/_components/hero_image_field.html" with field=field current_image=offering.image crop_field=form.hero_crop offering=offering %}
         {% elif field.name == 'hero_crop' %}
         {% elif field.name == 'scheduling_type' %}{# rendered as a guided chooser just above the dates #}
+        {% elif field.name == 'member_discount_pct' %}
+            {% include "components/form_field.html" with field=field %}
+            {% include "classes/_components/class_sale_section.html" %}
+        {% elif field.name == 'sale_enabled' or field.name == 'sale_kind' or field.name == 'sale_percent' or field.name == 'sale_amount_cents' or field.name == 'sale_banner_text' or field.name == 'sale_allow_discount_codes' %}{# rendered inside the Sale section above #}
         {% elif field.name == 'description' or field.name == 'prerequisites' or field.name == 'materials_included' or field.name == 'materials_to_bring' or field.name == 'safety_requirements' or field.name == 'age_guardian_note' or field.name == 'flexible_note' %}
             {% include "classes/_components/collapsible_field.html" with field=field %}
         {% else %}

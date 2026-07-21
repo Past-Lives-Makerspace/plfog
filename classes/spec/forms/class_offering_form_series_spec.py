@@ -28,6 +28,7 @@ def _admin_post_data(**overrides) -> dict:
         "member_discount_pct": "10",
         "capacity": "6",
         "scheduling_model": ClassOffering.SchedulingModel.FIXED,
+        "sale_kind": "percent",
         "scheduling_type": ClassOffering.SchedulingType.SINGLE_SESSION,
         "flexible_note": "",
         "is_private": "",

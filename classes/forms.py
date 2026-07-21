@@ -17,6 +17,7 @@ from core.widgets import RichTextEditorWidget
 
 from classes.models import (
     DEFAULT_CLASS_FAQS,
+    DEFAULT_SALE_BANNER_TEXT,
     Category,
     ClassFaq,
     ClassImage,
@@ -206,6 +207,83 @@ class _FreeClassMixin:
             offering.member_discount_pct = 0
 
 
+class _SaleMixin:
+    """Declares sale_amount_cents as dollars and validates the Sale section.
+
+    Enabling a sale needs a kind + the matching amount; percent must be 1–99; a
+    fixed amount must be less than the price; a free class can't be put on sale;
+    and a blank banner falls back to the catchy default (never blocks save).
+    Mirrors _FreeClassMixin: the declared CentsAsDollarsField shadows the model's
+    integer-cents column, and clean_sale_fields() is invoked from clean().
+    """
+
+    def clean_sale_fields(self) -> None:
+        cleaned = self.cleaned_data  # type: ignore[attr-defined]
+        if not cleaned.get("sale_enabled"):
+            return
+        # ERROR VISIBILITY: sale_enabled renders through toggle.html, which shows
+        # NO field.errors — so an error attached to sale_enabled is silently
+        # swallowed. Every error here targets a VISIBLE non-toggle field
+        # (price_cents, sale_percent, sale_amount_cents); the edit templates also
+        # render a non_field_errors block for any future cross-field case.
+        if cleaned.get("is_free"):
+            self.add_error(  # type: ignore[attr-defined]
+                "price_cents", "A free class can't be on sale. Uncheck the free option or turn the sale off."
+            )
+            return
+        price = cleaned.get("price_cents")
+        if not price:  # None / "" / 0
+            self.add_error("price_cents", "Set a price before putting this class on sale.")  # type: ignore[attr-defined]
+            return
+        self._validate_sale_amount(cleaned, price)
+        self._validate_sale_stripe_floor(cleaned, price)
+        if not (cleaned.get("sale_banner_text") or "").strip():
+            cleaned["sale_banner_text"] = DEFAULT_SALE_BANNER_TEXT  # required-with-default
+
+    def _validate_sale_amount(self, cleaned: dict, price: int) -> None:
+        """Require the amount matching the chosen kind; percent 1–99, fixed < price."""
+        if cleaned.get("sale_kind") == ClassOffering.SaleKind.PERCENT:
+            pct = cleaned.get("sale_percent")
+            if not pct:
+                self.add_error("sale_percent", "Enter the percent off (1–99).")  # type: ignore[attr-defined]
+            elif not (1 <= pct <= 99):
+                self.add_error("sale_percent", "Percent off must be between 1 and 99.")  # type: ignore[attr-defined]
+        else:  # FIXED
+            amt = cleaned.get("sale_amount_cents")
+            if not amt:
+                self.add_error("sale_amount_cents", "Enter the dollar amount off.")  # type: ignore[attr-defined]
+            elif amt >= price:
+                self.add_error(  # type: ignore[attr-defined]
+                    "sale_amount_cents", "The amount off must be less than the price."
+                )
+
+    def _validate_sale_stripe_floor(self, cleaned: dict, price: int) -> None:
+        """Reject a sale landing in the 1–49¢ dead-zone — it can't be charged online
+        and the buyer has no code to remove. Only meaningful once the amount fields
+        are valid (guarded on no prior errors for those fields)."""
+        if self.errors.get("sale_percent") or self.errors.get("sale_amount_cents"):  # type: ignore[attr-defined]
+            return
+        resulting = self._resulting_sale_price_cents(cleaned, price)
+        if resulting is not None and 0 < resulting < STRIPE_MIN_CHARGE_CENTS:
+            target = (
+                "sale_percent" if cleaned.get("sale_kind") == ClassOffering.SaleKind.PERCENT else "sale_amount_cents"
+            )
+            self.add_error(  # type: ignore[attr-defined]
+                target,
+                "This sale would drop the price below the $0.50 minimum we can charge online.",
+            )
+
+    @staticmethod
+    def _resulting_sale_price_cents(cleaned: dict, price: int) -> int | None:
+        """The public (non-member) sale price these cleaned values would produce,
+        or None when the matching amount is absent. Mirrors ClassOffering.sale_price_cents."""
+        if cleaned.get("sale_kind") == ClassOffering.SaleKind.PERCENT:
+            pct = cleaned.get("sale_percent")
+            return int(price * (100 - pct) / 100) if pct else None
+        amt = cleaned.get("sale_amount_cents")
+        return max(0, price - amt) if amt else None
+
+
 class _SchedulingTypeMixin:
     """Renders ``scheduling_type`` as a guided two-option radio choice.
 
@@ -225,8 +303,11 @@ class _SchedulingTypeMixin:
         field.label = "How does this class run?"
 
 
-class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, forms.ModelForm):
+class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _SchedulingTypeMixin, forms.ModelForm):
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
+    sale_amount_cents = CentsAsDollarsField(
+        required=False, label="Amount off ($)", help_text="Flat dollars off, e.g. 15.00 for $15 off."
+    )
 
     class Meta:
         model = ClassOffering
@@ -243,6 +324,12 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, f
             "age_guardian_note",
             "price_cents",
             "member_discount_pct",
+            "sale_enabled",
+            "sale_kind",
+            "sale_percent",
+            "sale_amount_cents",
+            "sale_banner_text",
+            "sale_allow_discount_codes",
             "capacity",
             "scheduling_model",
             "scheduling_type",
@@ -267,6 +354,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, f
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_is_free_pricing()
+        self.clean_sale_fields()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -280,10 +368,13 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, f
         return offering
 
 
-class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMixin, forms.ModelForm):
+class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _SchedulingTypeMixin, forms.ModelForm):
     """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated."""
 
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
+    sale_amount_cents = CentsAsDollarsField(
+        required=False, label="Amount off ($)", help_text="Flat dollars off, e.g. 15.00 for $15 off."
+    )
 
     class Meta:
         model = ClassOffering
@@ -299,6 +390,12 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMix
             "age_guardian_note",
             "price_cents",
             "member_discount_pct",
+            "sale_enabled",
+            "sale_kind",
+            "sale_percent",
+            "sale_amount_cents",
+            "sale_banner_text",
+            "sale_allow_discount_codes",
             "capacity",
             "scheduling_model",
             "scheduling_type",
@@ -322,6 +419,7 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SchedulingTypeMix
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_is_free_pricing()
+        self.clean_sale_fields()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -681,6 +779,12 @@ class RegistrationForm(forms.ModelForm):
             # Waitlist signups don't transact money so the discount field is
             # noise on the form. Drop it so the registrant isn't confused.
             self.fields.pop("discount_code", None)
+        # A non-stacking sale can't be combined with discount codes — drop the
+        # code box entirely so the buyer is told up-front on the page, never
+        # rejected after submit.
+        self.sale_blocks_codes = offering.sale_is_active and not offering.sale_allow_discount_codes
+        if self.sale_blocks_codes:
+            self.fields.pop("discount_code", None)
         self._custom_questions = list(active_questions())
         inject_fields(self, self._custom_questions, custom_answers_initial)
         if self._custom_questions:
@@ -702,8 +806,9 @@ class RegistrationForm(forms.ModelForm):
             )
         # On the first GET render, pre-fill the discount field with the best
         # class-scoped auto-apply code (if one exists). The registrant can
-        # still clear it before submitting.
-        if not self.is_bound:
+        # still clear it before submitting. Skipped when a non-stacking sale
+        # blocks codes — there is no field to prefill.
+        if not self.is_bound and not self.sale_blocks_codes:
             applied = self._find_auto_apply_discount()
             if applied is not None:
                 self.fields["discount_code"].initial = applied.code
@@ -724,9 +829,9 @@ class RegistrationForm(forms.ModelForm):
         defers the cheapest-code selection to the DiscountCode manager. Returns
         ``None`` when no qualifying auto-apply code exists.
         """
-        base = self.offering.price_cents
-        if self.member is not None and self.offering.member_price_cents is not None:
-            base = self.offering.member_price_cents
+        base = self.offering.sale_price_cents
+        if self.member is not None and self.offering.member_discount_pct:
+            base = int(base * (100 - self.offering.member_discount_pct) / 100)
         return DiscountCode.objects.best_auto_apply_for(self.offering, base)
 
     def clean_discount_code(self) -> DiscountCode | None:
@@ -772,11 +877,11 @@ class RegistrationForm(forms.ModelForm):
         return self.offering.member_discount_pct or 0
 
     def compute_final_price_cents(self) -> int:
-        price = self.offering.price_cents
-        if self.member_discount_pct:
+        price = self.offering.sale_price_cents  # sale first (== price_cents when no sale)
+        if self.member_discount_pct:  # member discount off the (sale) price
             price = int(price * (100 - self.member_discount_pct) / 100)
         code = self._validated_discount
-        if code is not None:
+        if code is not None and not self.sale_blocks_codes:  # coupon last, unless the sale blocks it
             price = code.apply_to(price)
         return max(0, price)
 

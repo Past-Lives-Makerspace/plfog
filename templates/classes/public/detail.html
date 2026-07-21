@@ -12,6 +12,13 @@
   </div>
   {% endif %}
 
+  {% if offering.sale_is_active %}
+  <div class="cp-detail__sale-banner" role="status">
+    <span class="cp-detail__sale-banner-text">{{ offering.sale_banner_display }}</span>
+    <span class="cp-detail__sale-banner-pill">{{ offering.sale_savings_display }}</span>
+  </div>
+  {% endif %}
+
   {# ── HERO ─────────────────────────────────────────────── #}
   {% with class_img_url=offering.image|default:offering.legacy_image_url %}
   <div class="cp-detail__herobox"
@@ -358,7 +365,13 @@
       <div class="cp-detail__rail-inner">
       <div class="cp-detail__rail-card">
         <div class="cp-detail__price-row">
-          <div class="cp-detail__price">{{ offering.price_cents|cents_as_price }}</div>
+          {% if offering.sale_is_active %}
+            <div class="cp-detail__price--was">{{ offering.price_cents|cents_as_price }}</div>
+            <div class="cp-detail__price">{{ offering.sale_price_cents|cents_as_price }}</div>
+            <div class="cp-detail__sale-note">{{ offering.sale_savings_display }}</div>
+          {% else %}
+            <div class="cp-detail__price">{{ offering.price_cents|cents_as_price }}</div>
+          {% endif %}
           {% if member_price_cents %}
             <div class="cp-detail__price-member">{{ member_price_cents|cents_as_price }} <span>for Past Lives Members</span></div>
           {% endif %}

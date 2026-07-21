@@ -106,6 +106,26 @@
     color: var(--gold-text);
     font-family: var(--heading);
 }
+.cp-page .reg-was {
+    text-decoration: line-through;
+    color: var(--text3);
+    font-weight: 400;
+    font-size: 14px;
+    margin-right: 2px;
+}
+.cp-page .reg-sale-badge {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--gold-text);
+    margin-top: 2px;
+}
+.cp-page .reg-sale-note {
+    font-size: 12px;
+    color: var(--text3);
+    padding: 8px 12px;
+    border: 1px solid var(--steel-dim, #1a4568);
+    border-radius: 8px;
+}
 .cp-page .reg-error-block {
     padding: 10px 12px;
     background: rgba(248, 113, 113, 0.08);
