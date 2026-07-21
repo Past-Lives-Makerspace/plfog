@@ -224,6 +224,10 @@ def _build_scheduled_event_body(event: CommunityEvent, *, occurrence: datetime |
     if occurrence is None:
         rule = _recurrence_rule_for(event)
         if rule is not None:
+            # Discord requires the rule to carry its own start matching scheduled_start_time
+            # (omitting it is a hard 400: recurrence_rule.start BASE_TYPE_REQUIRED —
+            # confirmed against the live API 2026-07-21).
+            rule["start"] = start.isoformat()
             body["recurrence_rule"] = rule
     return body
 

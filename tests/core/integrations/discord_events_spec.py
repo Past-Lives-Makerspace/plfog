@@ -110,6 +110,8 @@ def describe_push_community_event():
                 de.push_community_event(event)
             body = insert.call_args.args[1]
             assert body["recurrence_rule"]["frequency"] == 2
+            # Discord hard-requires the rule's own start matching scheduled_start_time
+            assert body["recurrence_rule"]["start"] == body["scheduled_start_time"]
             assert event.discord_pushed_occurrence is None
 
         def it_pushes_the_next_occurrence_for_an_unmappable_cadence():
