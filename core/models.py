@@ -278,6 +278,14 @@ class SiteConfiguration(models.Model):
         verbose_name="Registration-off message",
         help_text="Shown under the disabled Register button when class registration is off.",
     )
+    member_directory_public = models.BooleanField(
+        default=False,
+        verbose_name="Public member directory",
+        help_text=(
+            "When on, the member directory at /members/ is viewable without signing in (the original "
+            "public-directory behavior). When off, visitors must sign in before the directory shows anything."
+        ),
+    )
     member_event_policy = models.CharField(
         max_length=20,
         choices=MemberEventPolicy.choices,

@@ -8,12 +8,13 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "0.23.12",
         "date": "2026-07-21",
-        "title": "The member directory is now members-only",
+        "title": "The member directory is now members-only by default",
         "changes": [
             (
-                "The member directory now asks you to sign in before it shows anything — so your "
-                "card, contact info, and photo are visible only to fellow members, exactly as the "
-                "profile settings page promises."
+                "The member directory now asks visitors to sign in before it shows anything — so your "
+                "card, contact info, and photo are visible only to fellow members unless the makerspace "
+                "deliberately opens it up. A new site setting lets admins make the directory fully "
+                "public again if that's ever wanted."
             ),
             (
                 "The directory listing toggle in your profile settings now reads Hidden / Public, "
