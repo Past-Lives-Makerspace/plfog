@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Any, TypedDict, cast
+from datetime import timedelta
+from typing import Any, cast
 
 from django.utils import timezone as dj_timezone
 
@@ -49,6 +49,7 @@ from hub.forms import (
 )
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
+from membership.vote_calculator import compute_live_standings, compute_new_votes_since
 from membership.models import (
     FundingSnapshot,
     Guild,
@@ -64,12 +65,6 @@ from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
 from membership.permissions import can_manage_orientations as _can_manage_orientations
-
-
-class VoteStanding(TypedDict, total=False):
-    guild_name: str
-    total_points: int
-    bar_pct: float
 
 
 def _get_hub_context(request: HttpRequest) -> dict[str, Any]:
@@ -161,8 +156,8 @@ def guild_voting(request: HttpRequest) -> HttpResponse:
     since = latest_snapshot.snapshot_at if latest_snapshot else None
 
     # Live vote standings: tally points from all current VotePreference records
-    vote_standings = _compute_live_standings()
-    new_vote_standings = _compute_new_votes_since(since)
+    vote_standings = compute_live_standings()
+    new_vote_standings = compute_new_votes_since(since)
 
     if member is None:
         messages.info(request, "Your account is not linked to a membership.")
@@ -219,84 +214,6 @@ def guild_voting(request: HttpRequest) -> HttpResponse:
             "new_vote_standings": new_vote_standings,
         },
     )
-
-
-def _compute_live_standings() -> list[VoteStanding]:
-    """Tally live vote points from current VotePreference records.
-
-    Only counts votes from members with a linked User — members imported from
-    Airtable who never signed up to the app are excluded. See
-    ``VotePreferenceQuerySet.from_signed_up_members``.
-
-    Returns a list of dicts sorted by total points descending:
-        [{"guild_name": str, "total_points": int, "bar_pct": float}, ...]
-    """
-    signed_up_1st = Q(first_choice_votes__member__user__isnull=False)
-    signed_up_2nd = Q(second_choice_votes__member__user__isnull=False)
-    signed_up_3rd = Q(third_choice_votes__member__user__isnull=False)
-    # distinct=True is essential: annotating three reverse-FK Counts on the same
-    # queryset cross-joins first/second/third_choice_votes, so without distinct
-    # each Count is multiplied by the other two. A guild with 1/2/3 first/second/
-    # third-place votes would show 6/6/6 and score 60 points instead of 17.
-    guilds = Guild.objects.filter(is_active=True).annotate(
-        first=Count("first_choice_votes", filter=signed_up_1st, distinct=True),
-        second=Count("second_choice_votes", filter=signed_up_2nd, distinct=True),
-        third=Count("third_choice_votes", filter=signed_up_3rd, distinct=True),
-    )
-
-    results: list[VoteStanding] = []
-    for g in guilds:
-        points = g.first * 5 + g.second * 3 + g.third * 2
-        if points > 0:
-            results.append(VoteStanding(guild_name=g.name, total_points=points))
-
-    if not results:
-        return []
-
-    results.sort(key=lambda x: x["total_points"], reverse=True)
-    max_points = results[0]["total_points"]
-    for r in results:
-        r["bar_pct"] = round(r["total_points"] / max_points * 100, 1)
-    return results
-
-
-def _compute_new_votes_since(since: datetime | None) -> list[VoteStanding]:
-    """Tally points from VotePreferences updated after ``since``.
-
-    Represents the "new votes this month" view — votes cast or changed since
-    the last snapshot was taken. If ``since`` is None (no prior snapshot),
-    every signed-up vote is considered new.
-    """
-    first_q = Q(first_choice_votes__member__user__isnull=False)
-    second_q = Q(second_choice_votes__member__user__isnull=False)
-    third_q = Q(third_choice_votes__member__user__isnull=False)
-    if since is not None:
-        first_q &= Q(first_choice_votes__updated_at__gt=since)
-        second_q &= Q(second_choice_votes__updated_at__gt=since)
-        third_q &= Q(third_choice_votes__updated_at__gt=since)
-
-    # See note on distinct=True in _compute_live_standings — same cross-join
-    # multiplication applies here.
-    guilds = Guild.objects.filter(is_active=True).annotate(
-        first=Count("first_choice_votes", filter=first_q, distinct=True),
-        second=Count("second_choice_votes", filter=second_q, distinct=True),
-        third=Count("third_choice_votes", filter=third_q, distinct=True),
-    )
-
-    results: list[VoteStanding] = []
-    for g in guilds:
-        points = g.first * 5 + g.second * 3 + g.third * 2
-        if points > 0:
-            results.append(VoteStanding(guild_name=g.name, total_points=points))
-
-    if not results:
-        return []
-
-    results.sort(key=lambda x: x["total_points"], reverse=True)
-    max_points = results[0]["total_points"]
-    for r in results:
-        r["bar_pct"] = round(r["total_points"] / max_points * 100, 1)
-    return results
 
 
 @login_required
