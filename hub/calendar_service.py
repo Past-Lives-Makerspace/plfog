@@ -140,7 +140,7 @@ def _pushed_event_uids() -> set[str]:
     UID. Importing those copies would double-list every pushed event (and the Discord
     mirror would then duplicate its Scheduled Event too) — they must be skipped.
     """
-    return set(CommunityEvent.objects.exclude(google_ical_uid="").values_list("google_ical_uid", flat=True))
+    return set(CommunityEvent.objects.pushed().values_list("google_ical_uid", flat=True))
 
 
 def _upsert_events(
@@ -268,11 +268,15 @@ def sync_discord_feed_events() -> int:
     from core.integrations.discord_events import DiscordEventsError, DiscordScheduledEventsClient
 
     client = DiscordScheduledEventsClient.from_settings()
-    if not client.enabled:
-        return 0
-
     now = timezone.now()
     echo_uids = _pushed_event_uids()
+    if not client.enabled:
+        # Echo rows with no live future Discord copy need no API call to clean up —
+        # purge them even while Discord sync is off, so they don't linger on the
+        # calendar waiting for the toggle.
+        _purge_echoed_feed_events(echo_uids, now)
+        return 0
+
     push_set = list(
         CalendarEvent.objects.filter(
             source=CalendarEvent.Source.GENERAL,
@@ -319,13 +323,13 @@ def _push_feed_event(client: DiscordScheduledEventsClient, event: CalendarEvent)
     body = _discord_event_body(event)
     if event.discord_event_id:
         try:
-            client.update_event(client.server_id, event.discord_event_id, body)
+            client.update_event(client.server_id, event.discord_event_id, body, retry_on_rate_limit=True)
         except DiscordEventsError as exc:
             if "404" not in str(exc):
                 raise
             event.discord_event_id = ""  # deleted on Discord's side — recreate below
     if not event.discord_event_id:
-        created = client.insert_event(client.server_id, body)
+        created = client.insert_event(client.server_id, body, retry_on_rate_limit=True)
         event.discord_event_id = created["id"]
         event.save(update_fields=["discord_event_id"])
 
@@ -335,7 +339,7 @@ def _delete_feed_event_copy(client: DiscordScheduledEventsClient, event: Calenda
     from core.integrations.discord_events import DiscordEventsError
 
     try:
-        client.delete_event(client.server_id, event.discord_event_id)
+        client.delete_event(client.server_id, event.discord_event_id, retry_on_rate_limit=True)
     except DiscordEventsError as exc:
         if "404" not in str(exc):
             raise

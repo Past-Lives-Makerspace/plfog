@@ -420,9 +420,26 @@ def describe_DiscordScheduledEventsClient():
             )
             client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
             with patch("core.integrations.discord_events.time.sleep") as fake_sleep:
-                assert client.insert_event(SERVER_ID, {"name": "x"}) == {"id": "e1"}
+                assert client.insert_event(SERVER_ID, {"name": "x"}, retry_on_rate_limit=True) == {"id": "e1"}
             fake_sleep.assert_called_once_with(1.5)
             assert route.call_count == 2
+
+        @respx.mock
+        def it_fails_fast_on_a_429_without_the_retry_flag(settings):
+            # Interactive FOG saves must not hang the request sleeping — only the
+            # batch mirror opts into the wait-and-retry.
+            settings.DISCORD_BOT_TOKEN = "tok"
+            route = respx.post(_EVENTS_URL).mock(
+                return_value=httpx.Response(429, json={"retry_after": 1.5}, headers={"Retry-After": "1.5"})
+            )
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            with (
+                patch("core.integrations.discord_events.time.sleep") as fake_sleep,
+                pytest.raises(de.DiscordEventsError, match="429"),
+            ):
+                client.insert_event(SERVER_ID, {})
+            fake_sleep.assert_not_called()
+            assert route.call_count == 1
 
         @respx.mock
         def it_raises_when_the_retry_is_also_rate_limited(settings):
@@ -434,7 +451,7 @@ def describe_DiscordScheduledEventsClient():
                 patch("core.integrations.discord_events.time.sleep"),
                 pytest.raises(de.DiscordEventsError, match="429"),
             ):
-                client.insert_event(SERVER_ID, {})
+                client.insert_event(SERVER_ID, {}, retry_on_rate_limit=True)
             assert route.call_count == 2
 
         @respx.mock
@@ -446,7 +463,7 @@ def describe_DiscordScheduledEventsClient():
                 patch("core.integrations.discord_events.time.sleep") as fake_sleep,
                 pytest.raises(de.DiscordEventsError, match="429"),
             ):
-                client.insert_event(SERVER_ID, {})
+                client.insert_event(SERVER_ID, {}, retry_on_rate_limit=True)
             fake_sleep.assert_not_called()
             assert route.call_count == 1
 
@@ -459,7 +476,7 @@ def describe_DiscordScheduledEventsClient():
                 patch("core.integrations.discord_events.time.sleep") as fake_sleep,
                 pytest.raises(de.DiscordEventsError, match="429"),
             ):
-                client.insert_event(SERVER_ID, {})
+                client.insert_event(SERVER_ID, {}, retry_on_rate_limit=True)
             fake_sleep.assert_not_called()
             assert route.call_count == 1
 
@@ -474,6 +491,6 @@ def describe_DiscordScheduledEventsClient():
                 patch("core.integrations.discord_events.time.sleep") as fake_sleep,
                 pytest.raises(de.DiscordEventsError, match="429"),
             ):
-                client.insert_event(SERVER_ID, {})
+                client.insert_event(SERVER_ID, {}, retry_on_rate_limit=True)
             fake_sleep.assert_not_called()
             assert route.call_count == 1

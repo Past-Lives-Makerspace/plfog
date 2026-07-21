@@ -409,7 +409,7 @@ def describe_sync_discord_feed_events():
         with _with_client(client):
             sync_discord_feed_events()
 
-        client.delete_event.assert_called_once_with("srv1", "disc-moved")
+        client.delete_event.assert_called_once_with("srv1", "disc-moved", retry_on_rate_limit=True)
         moved.refresh_from_db()
         assert moved.discord_event_id == ""
 
@@ -471,7 +471,19 @@ def describe_sync_discord_feed_events():
             with _with_client(client):
                 sync_discord_feed_events()
 
-            client.delete_event.assert_called_once_with("srv1", "disc-echo")
+            client.delete_event.assert_called_once_with("srv1", "disc-echo", retry_on_rate_limit=True)
+            assert not CalendarEvent.objects.filter(uid="echo-uid@google.com").exists()
+
+        def it_purges_safe_echo_rows_even_while_discord_sync_is_off():
+            from hub.calendar_service import sync_discord_feed_events
+            from tests.membership.factories import CommunityEventFactory
+
+            CommunityEventFactory(google_ical_uid="echo-uid@google.com")
+            _feed_event(uid="echo-uid@google.com")
+            client = _events_client(enabled=False)
+            with _with_client(client):
+                assert sync_discord_feed_events() == 0
+
             assert not CalendarEvent.objects.filter(uid="echo-uid@google.com").exists()
 
         def it_keeps_an_echo_row_whose_discord_delete_failed_for_a_retry_next_sweep():

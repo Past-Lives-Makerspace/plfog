@@ -98,7 +98,7 @@ def describe_visibility_wiring():
         )
         resp = client.get(reverse("hub_community_calendar"))
         assert b"Community events" in resp.content  # the filter button (proves color wiring)
-        assert b"community" in resp.content  # present in default_filters_json
+        assert b"community" in resp.content  # the legend renders the community toggle
 
     def it_wires_the_community_source_on_a_guild_calendar(client: Client):
         _login(client, "vis2")

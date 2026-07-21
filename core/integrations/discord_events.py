@@ -108,32 +108,49 @@ class DiscordScheduledEventsClient:
     def server_id(self) -> str:
         return self._server_id
 
-    def insert_event(self, server_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    def insert_event(
+        self, server_id: str, body: dict[str, Any], *, retry_on_rate_limit: bool = False
+    ) -> dict[str, Any]:
         """Create a Scheduled Event; return the event resource (with ``id``)."""
-        return self._execute("POST", f"/guilds/{server_id}/scheduled-events", json=body)
+        return self._execute(
+            "POST", f"/guilds/{server_id}/scheduled-events", json=body, retry_on_rate_limit=retry_on_rate_limit
+        )
 
-    def update_event(self, server_id: str, event_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    def update_event(
+        self, server_id: str, event_id: str, body: dict[str, Any], *, retry_on_rate_limit: bool = False
+    ) -> dict[str, Any]:
         """Patch an existing Scheduled Event; return the updated event resource."""
-        return self._execute("PATCH", f"/guilds/{server_id}/scheduled-events/{event_id}", json=body)
+        return self._execute(
+            "PATCH",
+            f"/guilds/{server_id}/scheduled-events/{event_id}",
+            json=body,
+            retry_on_rate_limit=retry_on_rate_limit,
+        )
 
-    def delete_event(self, server_id: str, event_id: str) -> None:
+    def delete_event(self, server_id: str, event_id: str, *, retry_on_rate_limit: bool = False) -> None:
         """Delete a Scheduled Event. Wraps API errors (caller catches one type)."""
-        self._execute("DELETE", f"/guilds/{server_id}/scheduled-events/{event_id}")
+        self._execute(
+            "DELETE", f"/guilds/{server_id}/scheduled-events/{event_id}", retry_on_rate_limit=retry_on_rate_limit
+        )
 
     @staticmethod
-    def _execute(method: str, path: str, *, json: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _execute(
+        method: str, path: str, *, json: dict[str, Any] | None = None, retry_on_rate_limit: bool = False
+    ) -> dict[str, Any]:
         """Run a bot-authed REST call, translating any failure into :class:`DiscordEventsError`
         so callers catch one exception type (mirrors ``GoogleCalendarClient._execute``).
 
         Both a transport failure (``httpx.HTTPError``) and a non-2xx status become a
         ``DiscordEventsError``; a 2xx with an empty body (a ``DELETE`` 204) returns ``{}``.
-        A 429 is retried once after Discord's ``Retry-After`` — the scheduled-events
-        bucket is tiny, so the daily mirror's burst of ~a-dozen calls reliably trips it
-        mid-run; waiting the advertised second or two clears it. A 429 with no usable or
-        too-long ``Retry-After`` still raises.
+        With ``retry_on_rate_limit`` a 429 is retried once after Discord's ``Retry-After``
+        — the scheduled-events bucket is tiny, so the daily mirror's burst of ~a-dozen
+        calls reliably trips it mid-run; waiting the advertised second or two clears it.
+        Only batch paths opt in: an interactive FOG save should fail fast into the retry
+        cron, not hang the request sleeping. A 429 without the flag, or with no usable or
+        too-long ``Retry-After``, raises immediately.
         """
         response = DiscordScheduledEventsClient._send(method, path, json=json)
-        if response.status_code == 429:
+        if response.status_code == 429 and retry_on_rate_limit:
             retry_after = _retry_after_seconds(response)
             if retry_after is not None and retry_after <= _RATE_LIMIT_MAX_WAIT_SECONDS:
                 time.sleep(retry_after)

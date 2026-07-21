@@ -545,15 +545,9 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     upcoming_classes = guild_classes.bookable().select_related("instructor")[:4]
     calendar = _get_calendar_context(request, guild=guild)
     calendar["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
-    # Seed the guild-tab defaults with each legend guild's key (this guild always
-    # earns one — its classes key by str(pk)) plus the "Other classes" fallback only
-    # when a no-guild class shows here, so the guild's own classes are visible + on.
-    guild_cal_filters = ["orientation", "community"]
-    if calendar["has_ungrouped_classes"]:
-        guild_cal_filters.append("classes")
-    for g in calendar["legend_guilds"]:
-        guild_cal_filters.append(str(g.pk))
-    calendar["default_filters_json"] = json.dumps(guild_cal_filters).replace('"', '\\"')
+    # No default_filters_json: the guild calendar persists *disabled* filters
+    # client-side (like the Community Calendar), so every legend key — including
+    # this guild's own classes key — defaults to visible without a seeded list.
     pulse = _guild_pulse(guild)
 
     from membership.models import GuildOrientationSettings

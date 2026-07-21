@@ -808,10 +808,12 @@ def describe_guild_page_class_colors():
         assert calendar["source_colors"][str(guild.pk)] == "#118844"
         # Legend set: the guild earns a toggle even with no iCal calendar_url.
         assert guild in calendar["legend_guilds"]
-        # Visible by default: the guild key seeds the guild-tab default filters.
-        assert str(guild.pk) in calendar["default_filters_json"]
+        # Visible by default: the guild tab persists a *disabled* list (no seeded
+        # enabled-list), so a rendered legend key is on unless explicitly hidden.
+        assert "default_filters_json" not in calendar
 
         html = response.content.decode()
+        assert f"guildCalFiltersOff-{guild.pk}" in html
         # Toggleable: the legend renders a real toggle for the guild's key (un-gated from
         # calendar_url — this is the fix that would otherwise leave no toggle at all)...
         assert f"toggleFilter('{guild.pk}')" in html
