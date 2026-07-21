@@ -102,9 +102,21 @@ def describe_guild_voting():
 
 @pytest.mark.django_db
 def describe_member_directory():
-    def it_is_accessible_to_anonymous_guests(client: Client):
+    def describe_when_anonymous():
+        def it_redirects_to_login(client: Client):
+            response = client.get("/members/")
+            assert response.status_code == 302
+            assert response["Location"] == "/accounts/login/?next=/members/"
+
+    def it_renders_for_a_signed_in_member(client: Client):
+        User.objects.create_user(username="signed_in_viewer", password="pass")
+        MemberFactory(full_legal_name="Dora Directory", status="active", show_in_directory=True)
+        client.login(username="signed_in_viewer", password="pass")
+
         response = client.get("/members/")
+
         assert response.status_code == 200
+        assert b"Dora Directory" in response.content
 
     def it_lists_active_opted_in_members(client: Client):
         viewer = User.objects.create_user(username="viewer", password="pass")

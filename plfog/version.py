@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.11"
+VERSION = "0.23.12"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.12",
+        "date": "2026-07-21",
+        "title": "The member directory is now members-only",
+        "changes": [
+            (
+                "The member directory now asks you to sign in before it shows anything — so your "
+                "card, contact info, and photo are visible only to fellow members, exactly as the "
+                "profile settings page promises."
+            ),
+            (
+                "The directory listing toggle in your profile settings now reads Hidden / Public, "
+                "to make clearer what switching it on means."
+            ),
+        ],
+    },
     {
         "version": "0.23.11",
         "date": "2026-07-21",

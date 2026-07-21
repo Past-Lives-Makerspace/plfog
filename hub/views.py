@@ -299,6 +299,7 @@ def _compute_new_votes_since(since: datetime | None) -> list[VoteStanding]:
     return results
 
 
+@login_required
 def member_directory(request: HttpRequest) -> HttpResponse:
     """Member directory page — lists all active members.
 
