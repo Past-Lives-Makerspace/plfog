@@ -11,8 +11,8 @@ from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering
-from core.models import SiteConfiguration
 from core.integrations.discord_events import DiscordScheduledEventsClient
+from core.models import SiteConfiguration
 from membership.models import CalendarEvent
 
 pytestmark = pytest.mark.django_db

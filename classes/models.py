@@ -120,6 +120,30 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         """Published classes visible in the public portal (excludes private)."""
         return self.filter(status="published", is_private=False)
 
+    def refile_into_guild_categories(self, assignments: dict[int, int]) -> int:
+        """Re-file offerings into guild-linked categories; returns how many changed.
+
+        ``assignments`` maps offering pk → target Category pk. Only offerings
+        currently in a guild-less category and only guild-linked targets apply;
+        a stale or invalid pair is skipped silently (another admin may have
+        re-filed that row mid-edit). Both sides load in one query each, but rows
+        save one-by-one on purpose: ``ClassOffering.save`` recomputes
+        ``grouping_key`` when the category changes, which ``bulk_update`` would
+        skip and quietly break catalog card grouping.
+        """
+        targets = Category.objects.filter(guild__isnull=False).in_bulk(assignments.values())
+        offerings = self.filter(category__guild__isnull=True).in_bulk(assignments.keys())
+        applied = 0
+        for offering_pk, target_pk in assignments.items():
+            offering = offerings.get(offering_pk)
+            target = targets.get(target_pk)
+            if offering is None or target is None:
+                continue
+            offering.category = target
+            offering.save(update_fields=["category"])
+            applied += 1
+        return applied
+
     def bookable(self) -> "ClassOfferingQuerySet":
         """Public classes still open for sign-up, soonest first.
 

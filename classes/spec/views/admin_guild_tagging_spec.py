@@ -77,7 +77,7 @@ def describe_admin_guild_tagging():
                 {f"category_{offering.pk}": str(metal.pk)},
                 follow=True,
             )
-            assert b"Re-filed 1 classes into guild categories." in response.content
+            assert b"Re-filed 1 class into guild categories." in response.content
 
         def it_ignores_empty_values(admin_user, client, db):
             client.force_login(admin_user)

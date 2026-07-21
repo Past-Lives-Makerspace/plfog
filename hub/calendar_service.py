@@ -8,12 +8,15 @@ from datetime import date as date_type
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
 from core.models import CalendarFeed, SiteConfiguration
 from membership.models import CalendarEvent, Guild
+
+if TYPE_CHECKING:
+    from core.integrations.discord_events import DiscordScheduledEventsClient
 
 
 def _to_datetime(val: Any) -> datetime:
@@ -282,7 +285,7 @@ def sync_discord_feed_events() -> int:
     return len(push_set)
 
 
-def _push_feed_event(client: Any, event: CalendarEvent) -> None:
+def _push_feed_event(client: DiscordScheduledEventsClient, event: CalendarEvent) -> None:
     """Create or update the Discord copy of one feed event.
 
     An update that 404s means the Discord copy was deleted by hand — recreate it
@@ -304,7 +307,7 @@ def _push_feed_event(client: Any, event: CalendarEvent) -> None:
         event.save(update_fields=["discord_event_id"])
 
 
-def _delete_feed_event_copy(client: Any, event: CalendarEvent) -> None:
+def _delete_feed_event_copy(client: DiscordScheduledEventsClient, event: CalendarEvent) -> None:
     """Delete the Discord copy of a feed event and clear the link (a 404 is already-gone)."""
     from core.integrations.discord_events import DiscordEventsError
 

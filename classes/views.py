@@ -2476,27 +2476,20 @@ def admin_guild_tagging(request: HttpRequest) -> HttpResponse:
     guild_categories = list(Category.objects.filter(guild__isnull=False).order_by("name"))
 
     if request.method == "POST":
-        valid_targets = {c.pk: c for c in guild_categories}
-        guildless_pks = set(ClassOffering.objects.filter(category__guild__isnull=True).values_list("pk", flat=True))
-        applied = 0
+        assignments: dict[int, int] = {}
         for key in request.POST:
             if not key.startswith("category_"):
                 continue
-            value = request.POST.get(key, "")
+            value = request.POST[key]
             if not value:
                 continue
             try:
-                offering_pk = int(key.removeprefix("category_"))
-                target_pk = int(value)
+                assignments[int(key.removeprefix("category_"))] = int(value)
             except ValueError:
                 continue
-            if offering_pk not in guildless_pks or target_pk not in valid_targets:
-                continue
-            offering = ClassOffering.objects.get(pk=offering_pk)
-            offering.category = valid_targets[target_pk]
-            offering.save(update_fields=["category"])
-            applied += 1
-        messages.success(request, f"Re-filed {applied} classes into guild categories.")
+        applied = ClassOffering.objects.refile_into_guild_categories(assignments)
+        noun = "class" if applied == 1 else "classes"
+        messages.success(request, f"Re-filed {applied} {noun} into guild categories.")
         return redirect("classes:admin_guild_tagging")
 
     categories_by_name = {c.name: c for c in guild_categories}
