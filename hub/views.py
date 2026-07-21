@@ -3448,8 +3448,7 @@ def _get_calendar_context(
     # The Google-sync flag stays admin-only and gated by both sync switches (the same
     # contract as the wordy badge), so it renders on the calendar list only for a
     # manager when sync is on — never for a plain member.
-    is_admin = bool(getattr(request, "view_as", None) and request.view_as.is_admin)
-    sync_flag_visible = _google_sync_enabled() and is_admin
+    sync_flag_visible = _google_sync_enabled() and _viewing_as_admin(request)
 
     return {
         "week_events": week_events,
