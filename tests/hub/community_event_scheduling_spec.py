@@ -169,7 +169,10 @@ def describe_scheduled_findability():
         resp = client.get(reverse("hub_community_calendar"))
         assert scheduled in list(resp.context["scheduled_events"])
         # A parked event never leaks into the public upcoming list.
-        assert scheduled not in list(resp.context["upcoming_events"])
+        listed_event_pks = {
+            e.community_event.pk for e in resp.context["events_page_obj"] if getattr(e, "community_event", None)
+        }
+        assert scheduled.pk not in listed_event_pks
 
     def it_hides_the_scheduled_section_from_a_non_admin(client: Client):
         _user_with_role("cal_member")

@@ -419,6 +419,16 @@ a:hover { color: var(--hub-link-hover); }
 .pl-sync-badge--synced { color: var(--pl-sync-synced); }
 .pl-sync-badge--pending { color: var(--pl-sync-pending); }
 .pl-sync-badge--failed { color: var(--pl-sync-failed); }
+
+/* Compact "synced to the shared Google Calendar" flag — a small green calendar-check
+   glyph that replaces the wordy pill wherever a synced event is listed. */
+.pl-sync-flag {
+    display: inline-flex;
+    align-items: center;
+    color: var(--pl-sync-synced);
+    line-height: 1;
+}
+.pl-sync-flag svg { display: block; }
 /* The failure/config-gap reason, on its own line beneath the badge — visible
    inline text, never a title-tooltip (dead on touch, FRONTEND Screen C). */
 .pl-sync-badge__reason {

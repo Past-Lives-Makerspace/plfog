@@ -584,6 +584,39 @@ a.pl-calendar-list__title--link:hover {
     background: color-mix(in srgb, var(--color-tuscan-yellow) 28%, transparent);
 }
 
+/* Events-tab management row: sync flag/diagnostics on the left, Edit/Delete on the right. */
+.pl-calendar-list__manage {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    margin-top: 0.6rem;
+}
+
+.pl-calendar-list__manage-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+
+/* The compact "on Google" flag when there are no management controls (grid list +
+   non-admin Events tab). */
+.pl-calendar-list__flag {
+    margin-top: 0.4rem;
+}
+
+/* Events-tab pagination — mirrors the hub's standard Prev/Next control. */
+.pl-events-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+}
+
 .pl-calendar-list-note {
     margin: 0 0 0.75rem;
     font-size: 0.75rem;

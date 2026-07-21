@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.6"
+VERSION = "0.23.7"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.7",
+        "date": "2026-07-21",
+        "title": "The Events tab now lists everything on the calendar",
+        "changes": [
+            (
+                "The Community Calendar's Events tab used to show only community events, so guild meetings, "
+                "classes, and subscribed-calendar events were missing. It now lists every event on the calendar, "
+                "in order, with easy paging through the full list."
+            ),
+            (
+                'Each event\'s title is now a link straight to its page — tap it (or the new "More Info" link) '
+                "to see the details and register."
+            ),
+        ],
+    },
     {
         "version": "0.23.6",
         "date": "2026-07-21",

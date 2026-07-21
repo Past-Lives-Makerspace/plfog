@@ -12,13 +12,13 @@ location, description, guild, feed``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
-from typing import TYPE_CHECKING
+from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
 if TYPE_CHECKING:
-    from membership.models import Guild
+    from membership.models import CommunityEvent, Guild
 
 # Offsets keep synthetic pks clear of real CalendarEvent pks so the shared
 # focusEvent() JS and the month_event_pages map keep working untouched.
@@ -26,6 +26,11 @@ CLASS_PK_OFFSET = 1_000_000_000
 ORIENTATION_PK_OFFSET = 2_000_000_000
 EVENT_PK_OFFSET = 3_000_000_000
 _OCC_STRIDE = 100  # max occurrences per event per window (a few months of monthly « 100)
+
+# How far ahead the Events tab looks for a recurring series' next occurrence. A
+# year comfortably contains the next hit for any monthly/weekly cadence, so each
+# recurring event resolves to one upcoming row instead of its stale anchor date.
+_EVENTS_TAB_HORIZON_DAYS = 365
 
 
 @dataclass
@@ -43,6 +48,10 @@ class CalendarEntry:
     all_day: bool = False
     guild: Guild | None = None
     feed: None = None
+    # The backing FOG-native event for a "community" entry, so the templates can draw
+    # its Google-sync flag and (on the Events tab) its admin Edit/Delete controls.
+    # Always None for feed / class / orientation entries.
+    community_event: CommunityEvent | None = None
 
     @property
     def source_key(self) -> str:
@@ -143,6 +152,55 @@ def community_event_entries(fetch_from: date, fetch_to: date, guild: Guild | Non
                     description=ev.description,
                     all_day=False,
                     guild=ev.guild,
+                    community_event=ev,
                 )
             )
     return entries
+
+
+def upcoming_calendar_events() -> list[Any]:
+    """Every upcoming event on the shared Community Calendar as one sorted list.
+
+    This is the source for the Community Calendar's **Events tab**, built so the tab
+    lists nothing narrower than the grid: the read-through feed / general / class
+    ``CalendarEvent`` rows (echo-deduped exactly like the grid) *plus* one entry per
+    published ``CommunityEvent`` at its next occurrence. A recurring series collapses
+    to a single upcoming row (its next hit), so admins get one Edit/Delete affordance
+    per event rather than one per occurrence.
+    """
+    from membership.models import CalendarEvent, CommunityEvent
+
+    now = timezone.now()
+    today = now.date()
+    horizon = today + timedelta(days=_EVENTS_TAB_HORIZON_DAYS)
+
+    # Feed / general / class iCal rows still upcoming, minus the iCal echo of any event
+    # FOG itself pushed to Google (matched by the stored google_ical_uid) — the same
+    # de-dup the grid applies, so a FOG event is never listed twice.
+    pushed_uids = CommunityEvent.objects.pushed().values_list("google_ical_uid", flat=True)
+    entries: list[Any] = list(
+        CalendarEvent.objects.upcoming().exclude(uid__in=pushed_uids).select_related("guild", "feed")
+    )
+
+    # One entry per published CommunityEvent, anchored on its next (or in-progress) occurrence.
+    for ev in CommunityEvent.objects.published().upcoming().select_related("guild"):
+        duration = ev.ends_at - ev.starts_at
+        upcoming_occ = [occ for occ in ev.occurrences_in(today, horizon) if occ + duration >= now]
+        # No in-window occurrence → a still-running non-recurring event (started before
+        # today) or one starting past the horizon: fall back to its own start.
+        start = upcoming_occ[0] if upcoming_occ else ev.starts_at
+        entries.append(
+            CalendarEntry(
+                pk=EVENT_PK_OFFSET + ev.pk * _OCC_STRIDE,
+                title=ev.title,
+                start_dt=start,
+                end_dt=start + duration,
+                source="community",
+                url=ev.absolute_url,
+                location=ev.location,
+                description=ev.description,
+                guild=ev.guild,
+                community_event=ev,
+            )
+        )
+    return sorted(entries, key=lambda e: e.start_dt)

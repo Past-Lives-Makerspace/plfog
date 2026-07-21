@@ -172,7 +172,7 @@
                         Subscribe via webcal
                     </a>
                     <p class="pl-calendar-export__note">
-                        Exports the full community calendar — all guild, general, and class events. To register for a specific class, use the Register button on that event instead.
+                        Exports the full community calendar — all guild, general, and class events. To register for a specific class, use the More Info link on that event instead.
                     </p>
                 </div>
             </div>
@@ -286,35 +286,20 @@
     {% endif %}
 
     <div class="hub-card" style="padding:1.5rem;">
-        {% if upcoming_events %}
-        <div style="display:flex; flex-direction:column; gap:1rem;">
-            {% for event in upcoming_events %}
-            {% with confirm_id=event.pk|stringformat:"s"|add:"-event-delete" %}
-            <div class="hub-card" style="padding:1rem; background:var(--hub-surface); display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
-                <div style="flex:1; min-width:220px;">
-                    <div style="font-weight:600;">{{ event.title }}</div>
-                    <div class="hub-text-muted" style="font-size:0.8125rem;">
-                        {{ event.get_event_type_display }} · {{ event.guild.name|default:"Site-wide" }} · {{ event.starts_at|date:"D, M j · g:i A" }}{% if event.recurrence != "none" %} · {{ event.get_recurrence_display }}{% endif %}
-                    </div>
-                    {% if google_sync_enabled and events_can_manage %}
-                    <div style="margin-top:0.35rem;">
-                        {% include "hub/partials/_sync_badge.html" with event=event can_retry=events_can_manage %}
-                    </div>
-                    {% endif %}
-                </div>
-                {% if events_can_manage %}
-                <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-                    <a href="{% url 'hub_event_edit' event.pk %}" class="hub-btn hub-btn--sm">Edit</a>
-                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
-                            @click="$dispatch('open-confirm', '{{ confirm_id }}')">Delete</button>
-                    {% url 'hub_event_delete' event.pk as delete_url %}
-                    {% include "components/confirm_modal.html" with confirm_id=confirm_id confirm_title="Delete this event?" confirm_message="This removes it from the calendar. This can't be undone." confirm_action_url=delete_url confirm_button_text="Delete event" %}
-                </div>
-                {% endif %}
-            </div>
-            {% endwith %}
+        {% if events_page_obj %}
+        <div class="pl-calendar-list">
+            {% for event in events_page_obj %}
+            {% include "hub/partials/calendar_event_item.html" with show_manage=events_can_manage sync_visible=sync_flag_visible %}
             {% endfor %}
         </div>
+
+        {% if events_page_obj.paginator.num_pages > 1 %}
+        <div class="pl-events-pagination">
+            {% if events_page_obj.has_previous %}<a href="?tab=events&events_page={{ events_page_obj.previous_page_number }}" class="hub-btn hub-btn--sm" hx-boost="false">Previous</a>{% endif %}
+            <span class="hub-text-muted" style="font-size:0.875rem;">Page {{ events_page_obj.number }} of {{ events_page_obj.paginator.num_pages }}</span>
+            {% if events_page_obj.has_next %}<a href="?tab=events&events_page={{ events_page_obj.next_page_number }}" class="hub-btn hub-btn--sm" hx-boost="false">Next</a>{% endif %}
+        </div>
+        {% endif %}
         {% elif events_can_manage %}
         <p class="hub-text-muted" style="margin:0;">No upcoming events yet — add a community event or a Guild Lead Meeting.</p>
         {% else %}
