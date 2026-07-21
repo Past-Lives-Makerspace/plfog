@@ -179,13 +179,11 @@ def guild_voting(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         form = VotePreferenceForm(request.POST)
         if form.is_valid():
-            VotePreference.objects.update_or_create(
-                member=member,
-                defaults={
-                    "guild_1st": form.cleaned_data["guild_1st"],
-                    "guild_2nd": form.cleaned_data["guild_2nd"],
-                    "guild_3rd": form.cleaned_data["guild_3rd"],
-                },
+            VotePreference.objects.cast_ballot(
+                member,
+                guild_1st=form.cleaned_data["guild_1st"],
+                guild_2nd=form.cleaned_data["guild_2nd"],
+                guild_3rd=form.cleaned_data["guild_3rd"],
             )
             action = "updated" if preference else "submitted"
             messages.success(request, f"Your vote has been {action}.")

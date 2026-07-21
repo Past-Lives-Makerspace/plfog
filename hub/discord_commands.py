@@ -1,4 +1,4 @@
-"""The hub app's member slash commands — ``/link`` (connect) and ``/join-guild`` (join).
+"""The hub app's member slash commands — ``/link`` (connect), ``/join-guild`` (join), and ``/vote`` (ballot).
 
 ``/link`` is the highest-leverage command: it's how a member in Discord connects their
 account to Past Lives, which gates *every* other part of the integration (guild sync, DMs,
@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, cast
 
 from core.events.discord_commands import SlashCommand, register
 from core.events.discord_interactions import reply
-from core.events.discord_replies import option_value
+from core.events.discord_replies import hub_url, option_value
 
 if TYPE_CHECKING:
     from core.events.discord_commands import Interaction
@@ -211,3 +211,108 @@ JOIN_GUILD = SlashCommand(
 )
 
 register(JOIN_GUILD)
+
+
+# --- /vote --------------------------------------------------------------------
+
+_RANKED_OPTIONS = (
+    ("first", "Your 1st choice (5 pts)."),
+    ("second", "Your 2nd choice (3 pts)."),
+    ("third", "Your 3rd choice (2 pts)."),
+)
+
+
+def _ballot_options() -> list[dict]:
+    """The three required ranked options for ``/vote`` — each one the ``/join-guild`` guild picker.
+
+    Built from :func:`_guild_choices` so the slug values, the 25-choice Discord cap (beyond 25
+    active guilds the overflow is logged and dropped from the picker — the same constraint
+    ``/join-guild`` already lives with; those guilds stay votable on the hub page), and the
+    empty-choices guard are shared rather than re-implemented. One DB query serves all three.
+    """
+    base = _guild_choices()[0]
+    return [{**base, "name": name, "description": description} for name, description in _RANKED_OPTIONS]
+
+
+def _vote(interaction: Interaction, member: Member | None) -> dict:
+    """Cast or change the member's ranked ballot — the hub page's exact validate + save path.
+
+    Validation is the very same ``VotePreferenceForm`` the voting page POSTs through
+    (active-guild querysets + the three-distinct rule) and the save is the same
+    ``VotePreference.objects.cast_ballot`` call, so ``updated_at``, the Airtable push in
+    ``VotePreference.save()``, and the vote-activity post-save signal fire exactly as a page
+    submission would — no invented sync behavior. Validation failures name the problem in a
+    friendly ephemeral reply, never the generic error reply.
+    """
+    from hub.forms import VotePreferenceForm
+    from membership.cycle import get_cycle_context
+    from membership.models import Guild, VotePreference
+    from membership.vote_calculator import WEIGHTS
+
+    member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
+    voting_url = hub_url("hub_guild_voting")
+
+    slugs = [option_value(interaction, name) or "" for name, _ in _RANKED_OPTIONS]
+    guilds_by_slug = {g.slug: g for g in Guild.objects.filter(is_active=True, slug__in=slugs)}
+    unknown = sorted({slug for slug in slugs if slug not in guilds_by_slug})
+    if unknown:
+        named = ", ".join(f"`{slug}`" for slug in unknown)
+        return reply(
+            f"I couldn't find an active guild for {named} — pick from the dropdowns and try again, "
+            f"or vote on the page: {voting_url}",
+            ephemeral=True,
+        )
+
+    form = VotePreferenceForm(
+        data={
+            "guild_1st": guilds_by_slug[slugs[0]].pk,
+            "guild_2nd": guilds_by_slug[slugs[1]].pk,
+            "guild_3rd": guilds_by_slug[slugs[2]].pk,
+        }
+    )
+    if not form.is_valid():
+        # With three resolved active guilds the only reachable failure is the distinct-three
+        # rule — surface the form's own message so Discord and the page speak identically.
+        message = " ".join(str(error) for errors in form.errors.values() for error in errors)
+        return reply(f"{message} Nothing was changed — adjust your picks and try again.", ephemeral=True)
+
+    preference, created = VotePreference.objects.cast_ballot(
+        member,
+        guild_1st=form.cleaned_data["guild_1st"],
+        guild_2nd=form.cleaned_data["guild_2nd"],
+        guild_3rd=form.cleaned_data["guild_3rd"],
+    )
+
+    cycle = get_cycle_context()
+    verb = "in" if created else "updated"
+    embed = {
+        "title": f"Your ballot is {verb} — {cycle['current_cycle_label']} ✅",
+        "description": (
+            f"This cycle closes **{cycle['cycle_closes_on']}**.\n\n"
+            f"1st — {preference.guild_1st.name} · {WEIGHTS['1st']} pts\n"
+            f"2nd — {preference.guild_2nd.name} · {WEIGHTS['2nd']} pts\n"
+            f"3rd — {preference.guild_3rd.name} · {WEIGHTS['3rd']} pts\n\n"
+            "See the live standings anytime with `/voting`."
+        ),
+    }
+    button_row = {
+        "type": 1,
+        "components": [
+            {"type": 2, "style": 5, "label": "Open the voting page", "url": voting_url},
+        ],
+    }
+    return reply("", ephemeral=True, embeds=[embed], components=[button_row])
+
+
+VOTE = SlashCommand(
+    name="vote",
+    description="Cast or change your three ranked guild-funding choices.",
+    handler=_vote,
+    options_builder=_ballot_options,
+    requires_link=True,
+    ephemeral=True,
+    defer=False,
+    scope="guild",
+)
+
+register(VOTE)
