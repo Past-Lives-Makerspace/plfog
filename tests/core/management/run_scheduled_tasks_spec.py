@@ -22,12 +22,15 @@ def _boom_on_voting(cmd, *args, **kwargs):
         raise RuntimeError("kaboom")
 
 
-def _tasks_called(hour: int, side_effect=None) -> list[str]:
+def _tasks_called(hour: int, side_effect=None, day: int = 1) -> list[str]:
     """Run the dispatcher at a fixed UTC hour with ``call_command`` mocked; return the dispatched
-    command names. Pass ``side_effect`` to make a wrapped command raise (failure-path tests)."""
+    command names. Pass ``side_effect`` to make a wrapped command raise (failure-path tests).
+    ``day`` picks the January 2026 date — 1 is a Thursday, 5 is a Monday (WEEKLY-gate tests)."""
     with (
         patch("core.management.commands.run_scheduled_tasks.call_command", side_effect=side_effect) as cc,
-        patch("core.management.commands.run_scheduled_tasks.timezone.now", return_value=datetime(2026, 1, 1, hour, 0)),
+        patch(
+            "core.management.commands.run_scheduled_tasks.timezone.now", return_value=datetime(2026, 1, day, hour, 0)
+        ),
     ):
         call_command("run_scheduled_tasks")
     return [c.args[0] for c in cc.call_args_list]
@@ -90,6 +93,26 @@ def describe_run_scheduled_tasks():
         called = _tasks_called(hour=9)
         assert "sync_all_sources" not in called
         assert "generate_orientation_slots" not in called
+
+    def it_announces_calendar_events_every_tick():
+        # Self-gating (no-op when calendar posts are off) + idempotent (stamps each
+        # announced row), so the announcer slots into the always-run set.
+        called = _tasks_called(hour=9)
+        assert "announce_calendar_events" in called
+
+    def describe_weekly_cadence():
+        def it_posts_the_weekly_digest_on_monday_at_1300_utc():
+            called = _tasks_called(hour=13, day=5)  # Monday, Jan 5 2026
+            assert "post_weekly_calendar_digest" in called
+
+        def it_skips_the_digest_on_monday_outside_hour_13():
+            called = _tasks_called(hour=9, day=5)
+            assert "post_weekly_calendar_digest" not in called
+
+        def it_skips_the_digest_at_1300_on_a_non_monday():
+            called = _tasks_called(hour=13, day=1)  # Thursday, Jan 1 2026
+            assert "post_weekly_calendar_digest" not in called
+            assert "sync_all_sources" in called  # the DAILY jobs still run at 13:xx
 
     def it_never_dispatches_the_external_airtable_pull():
         assert "airtable_pull" not in _tasks_called(hour=13)

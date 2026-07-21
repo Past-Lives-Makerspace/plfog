@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 class Cadence(models.TextChoices):
     ALWAYS = "always", "Every 15 minutes"  # dispatcher, every tick
     DAILY = "daily", "Once daily (~6 AM PT)"  # dispatcher, only when UTC hour == 13
+    WEEKLY = "weekly", "Weekly (Mon ~6 AM PT)"  # dispatcher, only Mondays when UTC hour == 13
     EXTERNAL = "external", "Own schedule"  # separate Render cron (airtable_pull)
 
 
@@ -145,6 +146,22 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         command="sync_discord_guild_roles",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
+        key="announce_calendar_events",
+        name="New-event Discord posts",
+        description="Posts newly added calendar events and classes to the #public-calendar Discord channel.",
+        command="announce_calendar_events",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
+        key="post_weekly_calendar_digest",
+        name="Weekly calendar digest",
+        description="Posts the coming week's calendar lineup to the #public-calendar Discord channel.",
+        command="post_weekly_calendar_digest",
+        schedule_label="Mon ~6 AM",
+        cadence=Cadence.WEEKLY,
     ),
     ScheduledJob(
         key="sync_all_sources",

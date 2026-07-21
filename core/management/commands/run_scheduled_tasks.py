@@ -7,6 +7,7 @@ in Site Settings and this dispatcher can never disagree about what runs.
 Each due job is:
 - skipped if it's ``EXTERNAL`` (it has its own Render cron — e.g. ``airtable_pull``),
 - skipped if it's ``DAILY`` and it isn't ~6 AM Portland (UTC hour 13),
+- skipped if it's ``WEEKLY`` and it isn't Monday ~6 AM Portland (UTC weekday 0, hour 13),
 - skipped if an admin has paused it (``is_enabled`` is false),
 - otherwise run inside ``record_run`` (which writes a ScheduledTaskRun row) and its own
   try/except, so one failure cannot block the rest. Each task owns its idempotency.
@@ -23,6 +24,7 @@ from django.utils import timezone
 from core.scheduled_jobs import SCHEDULED_JOBS, Cadence, Trigger, is_enabled, record_run
 
 DAILY_UTC_HOUR = 13  # ~6 AM Portland
+WEEKLY_UTC_WEEKDAY = 0  # Monday (WEEKLY jobs run Mondays at DAILY_UTC_HOUR)
 
 
 class Command(BaseCommand):
@@ -41,6 +43,9 @@ class Command(BaseCommand):
                 continue
             if job.cadence == Cadence.DAILY and now.hour != DAILY_UTC_HOUR:
                 self.stdout.write(f"  – {job.key} skipped (daily, not {DAILY_UTC_HOUR}:xx UTC)")
+                continue
+            if job.cadence == Cadence.WEEKLY and (now.weekday() != WEEKLY_UTC_WEEKDAY or now.hour != DAILY_UTC_HOUR):
+                self.stdout.write(f"  – {job.key} skipped (weekly, not Monday {DAILY_UTC_HOUR}:xx UTC)")
                 continue
             if not is_enabled(job.key):
                 self.stdout.write(f"  – {job.key} disabled")
