@@ -677,10 +677,10 @@ def registered_template_pairs() -> set[str]:
     """The template-pair keys the registry covers (specials have no discoverable pair)."""
     keys: set[str] = set()
     for entry in STRUCTURAL_EMAILS:
-        if entry.renderer in (Renderer.SHELL_TEMPLATE, Renderer.WELCOME) and entry.html_template:
+        if entry.renderer is Renderer.SHELL_TEMPLATE and entry.html_template:
             keys.add(Path(entry.html_template).stem)
         elif entry.renderer is Renderer.WELCOME:
-            keys.add(entry.key)
+            keys.add(entry.key)  # renders its pair via _welcome_email_bodies, no template fields
         elif entry.renderer is Renderer.ALLAUTH and entry.template_prefix:
             keys.add(entry.template_prefix)
     return keys

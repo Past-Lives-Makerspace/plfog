@@ -116,7 +116,7 @@ def describe_email_gallery():
             assert rendered.html == ""  # plain-text only — the card shows the text directly
             assert "robin.vale@example.com" in rendered.text
 
-    def it_dedups_shell_backed_events(db):
+    def it_dedups_shell_backed_events():
         """An event whose email ships via a structural template appears once — as that card."""
         from tests.e2e.email_gallery.registry import Renderer, gallery_emails
 
