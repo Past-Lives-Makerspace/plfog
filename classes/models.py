@@ -404,6 +404,15 @@ class ClassOffering(HeroCropMixin, models.Model):
         help_text="Admin user who approved publication.",
     )
     published_at = models.DateTimeField(null=True, blank=True, help_text="Stamp on first publish.")
+    channel_announced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When this class was announced (or silently marked announced) in the Discord #classes "
+            "channel. NULL = not yet announced; the 15-minute announcer picks it up once it is "
+            "publicly bookable. The stamp survives unpublish/republish so a class never re-announces."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     legacy_cms_id = models.CharField(

@@ -100,18 +100,26 @@ def describe_run_scheduled_tasks():
         called = _tasks_called(hour=9)
         assert "announce_calendar_events" in called
 
+    def it_announces_new_classes_every_tick():
+        # Same shape as the calendar announcer: self-gating + stamp-idempotent.
+        called = _tasks_called(hour=9)
+        assert "announce_new_classes" in called
+
     def describe_weekly_cadence():
-        def it_posts_the_weekly_digest_on_monday_at_1300_utc():
+        def it_posts_the_weekly_digests_on_monday_at_1300_utc():
             called = _tasks_called(hour=13, day=5)  # Monday, Jan 5 2026
             assert "post_weekly_calendar_digest" in called
+            assert "post_weekly_classes_digest" in called
 
-        def it_skips_the_digest_on_monday_outside_hour_13():
+        def it_skips_the_digests_on_monday_outside_hour_13():
             called = _tasks_called(hour=9, day=5)
             assert "post_weekly_calendar_digest" not in called
+            assert "post_weekly_classes_digest" not in called
 
-        def it_skips_the_digest_at_1300_on_a_non_monday():
+        def it_skips_the_digests_at_1300_on_a_non_monday():
             called = _tasks_called(hour=13, day=1)  # Thursday, Jan 1 2026
             assert "post_weekly_calendar_digest" not in called
+            assert "post_weekly_classes_digest" not in called
             assert "sync_all_sources" in called  # the DAILY jobs still run at 13:xx
 
     def it_never_dispatches_the_external_airtable_pull():

@@ -32,9 +32,10 @@ _DISPATCHER_ALWAYS = {
     "retry_discord_event_pushes",
     "sync_discord_guild_roles",
     "announce_calendar_events",
+    "announce_new_classes",
 }
 _DISPATCHER_DAILY = {"sync_all_sources", "generate_orientation_slots"}
-_DISPATCHER_WEEKLY = {"post_weekly_calendar_digest"}
+_DISPATCHER_WEEKLY = {"post_weekly_calendar_digest", "post_weekly_classes_digest"}
 
 
 def describe_registry():
