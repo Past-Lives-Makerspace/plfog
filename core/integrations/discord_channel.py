@@ -1,4 +1,4 @@
-"""Post messages (embeds) to a Discord channel as the FOG bot.
+"""Post (and edit) channel messages (embeds) as the FOG bot.
 
 The thin sibling of :mod:`core.integrations.discord_events`: the same bot REST auth
 (``bot_token`` / ``_auth_headers`` / ``API_BASE`` from :mod:`core.events.discord_dm`), the
@@ -38,23 +38,39 @@ def post_channel_message(channel_id: str, embeds: list[dict[str, Any]]) -> None:
     A 429 is retried once after Discord's advertised ``Retry-After`` (bounded); a second
     429, or an unusable/too-long ``Retry-After``, raises.
     """
+    _send_embeds("POST", f"{API_BASE}/channels/{channel_id}/messages", embeds)
+
+
+def edit_channel_message(channel_id: str, message_id: str, embeds: list[dict[str, Any]]) -> None:
+    """PATCH an existing bot message's embeds in place — the message id (and its pin) survive.
+
+    Used for the FOG-managed #important-info pinned post. Same fail-loudly contract and
+    bounded single 429 retry as :func:`post_channel_message`; raises
+    :class:`DiscordChannelError` on any failure so the caller can surface it to the admin.
+    """
+    _send_embeds("PATCH", f"{API_BASE}/channels/{channel_id}/messages/{message_id}", embeds)
+
+
+def _send_embeds(method: str, url: str, embeds: list[dict[str, Any]]) -> None:
+    """Deliver ``embeds`` via one bot REST call, with the shared cap check + single 429 retry."""
     if len(embeds) > MAX_EMBEDS_PER_MESSAGE:
         raise DiscordChannelError(f"Discord allows {MAX_EMBEDS_PER_MESSAGE} embeds per message, got {len(embeds)}.")
-    response = _send(channel_id, embeds)
+    response = _send(method, url, embeds)
     if response.status_code == 429:
         retry_after = _retry_after_seconds(response)
         if retry_after is not None and retry_after <= _RATE_LIMIT_MAX_WAIT_SECONDS:
             time.sleep(retry_after)
-            response = _send(channel_id, embeds)
+            response = _send(method, url, embeds)
     if not response.is_success:
         raise DiscordChannelError(f"Discord API {response.status_code}: {response.text[:300]}")
 
 
-def _send(channel_id: str, embeds: list[dict[str, Any]]) -> httpx.Response:
+def _send(method: str, url: str, embeds: list[dict[str, Any]]) -> httpx.Response:
     """One raw REST call; only transport failures raise (as :class:`DiscordChannelError`)."""
     try:
-        return httpx.post(
-            f"{API_BASE}/channels/{channel_id}/messages",
+        return httpx.request(
+            method,
+            url,
             json={"embeds": embeds},
             headers=_auth_headers(),
             timeout=_TIMEOUT_SECONDS,

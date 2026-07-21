@@ -150,7 +150,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -552,6 +552,21 @@
         {% include "components/form_field.html" with field=form.discord_server_id field_hint="The Discord server (guild) id. Blank disables the whole two-way guild sync." %}
         {% include "components/form_field.html" with field=form.discord_role_message_channel_id field_hint="The channel id of the reaction-role message." %}
         {% include "components/form_field.html" with field=form.discord_role_message_id field_hint="The reaction-role message id — update if it's reposted." %}
+      </div>
+
+      {# ---- #important-info pinned post ---- #}
+      <div class="hub-card" style="padding:1.5rem;">
+        <div style="margin-bottom:1.25rem;">
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">#important-info pinned post</h2>
+          <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+            The bot's pinned message in #important-info — the important-links embed plus an auto-generated
+            guide to the bot's slash commands. Saving updates the pinned Discord post immediately (the
+            message is edited in place, so it keeps its pin).
+          </p>
+        </div>
+        {% include "components/form_field.html" with field=form.discord_info_channel_id field_hint="The channel id of #important-info (Discord → right-click the channel → Copy Channel ID). Blank disables syncing." %}
+        {% include "components/form_field.html" with field=form.discord_info_message_id field_hint="The id of the bot's pinned message in that channel (right-click the message → Copy Message ID). FOG edits it in place." %}
+        {% include "components/form_field.html" with field=form.discord_info_links_content field_hint="Discord-flavored markdown (**bold**, bare URLs auto-link). The bot-commands embed below it is generated automatically from the registered slash commands — nothing to edit here." %}
       </div>
 
       {# ---- D2: Emoji → guild map (list editor) ---- #}

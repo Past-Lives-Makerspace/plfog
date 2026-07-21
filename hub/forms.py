@@ -604,6 +604,9 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_events_sync_enabled",
             "discord_calendar_channel_id",
             "discord_calendar_posts_enabled",
+            "discord_info_channel_id",
+            "discord_info_message_id",
+            "discord_info_links_content",
             "signage_default_slide_seconds",
             "signage_show_events",
             "signage_event_days_ahead",
@@ -613,7 +616,19 @@ class SiteSettingsForm(forms.ModelForm):
             "class_registration_disabled_note": forms.Textarea(attrs={"rows": 3}),
             "member_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "public_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
+            "discord_info_links_content": forms.Textarea(attrs={"rows": 14}),
         }
+
+    def clean_discord_info_links_content(self) -> str:
+        """Cap the links copy at Discord's embed-description limit before it can 400 a sync."""
+        from hub.discord_info_post import EMBED_DESCRIPTION_MAX
+
+        content: str = self.cleaned_data["discord_info_links_content"]
+        if len(content) > EMBED_DESCRIPTION_MAX:
+            raise forms.ValidationError(
+                f"Keep the links content under {EMBED_DESCRIPTION_MAX:,} characters (Discord's embed limit)."
+            )
+        return content
 
 
 class CalendarFeedForm(forms.ModelForm):

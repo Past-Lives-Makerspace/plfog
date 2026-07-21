@@ -4697,6 +4697,33 @@ def _handle_run_job(request: HttpRequest, config: Any) -> HttpResponse:
     return redirect(redirect_url)
 
 
+# The Site Settings fields that drive the pinned #important-info Discord post; changing any
+# of them on save re-syncs the post in place.
+_INFO_POST_FIELDS = frozenset({"discord_info_channel_id", "discord_info_message_id", "discord_info_links_content"})
+
+
+def _sync_info_post_if_changed(request: HttpRequest, form: SiteSettingsForm) -> None:
+    """Push the #important-info pinned post after a save that touched its fields.
+
+    Runs only when one of :data:`_INFO_POST_FIELDS` actually changed (an unrelated tab's
+    save never calls Discord). A Discord failure surfaces loudly as an admin-facing error
+    message — the local content is already saved, so the admin can just hit Save again.
+    """
+    from core.integrations.discord_channel import DiscordChannelError
+
+    from hub.discord_info_post import sync_info_post
+
+    if not _INFO_POST_FIELDS & set(form.changed_data):
+        return
+    try:
+        sync_info_post()
+    except DiscordChannelError as exc:
+        messages.error(
+            request,
+            f"Settings saved, but updating the pinned #important-info Discord post failed: {exc}",
+        )
+
+
 def _save_site_settings(
     request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
 ) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any, Any]:
@@ -4727,6 +4754,7 @@ def _save_site_settings(
     discord_ok = (emoji_formset.is_valid() and role_formset.is_valid()) if is_discord else True
     if form.is_valid() and feed_formset.is_valid() and discord_ok:
         form.save()
+        _sync_info_post_if_changed(request, form)
         instances = feed_formset.save(commit=False)
         for obj in feed_formset.deleted_objects:
             obj.delete()
