@@ -101,6 +101,28 @@ class PushSubscription(models.Model):
         return f"{self.user.email} - {self.endpoint[:50]}..."
 
 
+# The starting content of the #important-info "Important Links" embed — the pinned post's
+# current live sections. Admins edit the copy on Site Settings → Discord; this constant only
+# seeds the field (and backstops a blanked one) so the embed is never empty.
+DISCORD_INFO_LINKS_DEFAULT = (
+    "**🎨 Classes**\n"
+    "Browse and sign up for upcoming classes and workshops:\n"
+    "https://classes.pastlives.space/\n"
+    "\n"
+    "**🗓️ Community Calendar**\n"
+    "Everything happening at the makerspace — events, guild meetings, studio hours:\n"
+    "https://calendar.pastlives.space\n"
+    "\n"
+    "**🤝 Code of Conduct**\n"
+    "The community agreements every member signs on to:\n"
+    "https://docs.google.com/document/d/1avWCAnbwDbO79k-n-_QpUc0P2Dz-s6f4/edit\n"
+    "\n"
+    "**📱 Past Lives App (FOG)**\n"
+    "Your member hub — profile, guilds, calendar, and more:\n"
+    "https://pastlives.app"
+)
+
+
 class SiteConfiguration(models.Model):
     """Singleton model for site-wide settings like registration mode."""
 
@@ -321,6 +343,35 @@ class SiteConfiguration(models.Model):
             "When on (and the calendar channel id is set), FOG posts a weekly what's-coming-up digest "
             "to #public-calendar every Monday morning, plus a short post whenever a new event or class "
             "lands on the Community Calendar."
+        ),
+    )
+    discord_info_channel_id = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        verbose_name="Discord info channel id",
+        help_text=(
+            "The channel id of #important-info — where the bot's pinned links post lives. "
+            "Blank disables syncing the post."
+        ),
+    )
+    discord_info_message_id = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        verbose_name="Discord info message id",
+        help_text=(
+            "The id of the bot's pinned message in #important-info. FOG edits this message in place "
+            "(it keeps its pin) — update only if the post is ever reposted. Blank disables syncing."
+        ),
+    )
+    discord_info_links_content = models.TextField(
+        blank=True,
+        default=DISCORD_INFO_LINKS_DEFAULT,
+        verbose_name="Important links content",
+        help_text=(
+            "Discord-flavored markdown for the '📌 Past Lives — Important Links' embed in #important-info. "
+            "Saving updates the pinned Discord post immediately."
         ),
     )
     signage_default_slide_seconds = models.PositiveIntegerField(

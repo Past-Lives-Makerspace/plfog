@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.9"
+VERSION = "0.23.10"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.10",
+        "date": "2026-07-21",
+        "title": "The #important-info channel now stays current automatically",
+        "changes": [
+            (
+                "The pinned links post in Discord's #important-info channel — classes, the Community "
+                "Calendar, the Code of Conduct, and the Past Lives app — is now managed from the app, "
+                "so when a link changes the post updates right away instead of going stale."
+            ),
+            (
+                "The bot-commands guide in that same post now builds itself from the bot's actual "
+                "slash commands, so any new command shows up there automatically."
+            ),
+        ],
+    },
     {
         "version": "0.23.9",
         "date": "2026-07-21",
