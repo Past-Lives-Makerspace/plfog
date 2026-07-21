@@ -212,7 +212,7 @@
         {% with staff_members=guild.staff_by_member %}
         {% if guild.guild_lead or staff_members %}
         <div class="hub-card">
-            <h3 class="hub-detail-label">Guild Lead</h3>
+            <h3 class="hub-detail-label">Guild Staff</h3>
             {% if guild.guild_lead %}
             {# Anon guests see the lead's name only — the clickable contact modal (email/phone/Discord/bio) is gated behind auth. #}
             <div class="hub-member-row"{% if user.is_authenticated %} style="cursor:pointer;" @click="$dispatch('open-modal', 'guild-lead-profile')"{% endif %}>

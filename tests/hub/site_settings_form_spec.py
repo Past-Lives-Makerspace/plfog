@@ -16,6 +16,11 @@ _SIGNAGE_FIELDS = [
 ]
 
 
+def describe_SiteSettingsForm_features():
+    def it_declares_the_public_member_directory_toggle():
+        assert "member_directory_public" in SiteSettingsForm.Meta.fields
+
+
 def describe_SiteSettingsForm_signage():
     def it_declares_all_signage_fields():
         for name in _SIGNAGE_FIELDS:
