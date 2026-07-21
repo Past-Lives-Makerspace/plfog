@@ -75,42 +75,26 @@
     x-show="tab === 'calendar'"
     x-data="{
         calView: localStorage.getItem('calView') || 'week',
-        activeFilters: JSON.parse(localStorage.getItem('calFilters') || '{{ default_filters_json }}'),
+        disabledFilters: JSON.parse(localStorage.getItem('calFiltersOff') || '[]'),
         init() {
-            // One-time rollout: turn the new 'community' source ON for members who saved
-            // filters before it existed, so guild/community events aren't hidden. The
-            // marker makes it happen once, so a later manual removal of it sticks.
-            if (!localStorage.getItem('calCommunityRollout')) {
-                if (localStorage.getItem('calFilters') && !this.activeFilters.includes('community')) {
-                    this.activeFilters.push('community');
-                    localStorage.setItem('calFilters', JSON.stringify(this.activeFilters));
-                }
-                localStorage.setItem('calCommunityRollout', '1');
-            }
-            // One-time rollout: classes used to share a single 'classes' toggle; they
-            // now group under each guild's key. Migrate a returning member who had
-            // classes visible so their guild-grouped classes stay visible instead of
-            // vanishing under a key that no longer controls them.
-            if (!localStorage.getItem('calGuildClassesRollout')) {
-                if (localStorage.getItem('calFilters') && this.activeFilters.includes('classes')) {
-                    {% for g in legend_guilds %}
-                    if (!this.activeFilters.includes('{{ g.pk }}')) { this.activeFilters.push('{{ g.pk }}'); }
-                    {% endfor %}
-                    localStorage.setItem('calFilters', JSON.stringify(this.activeFilters));
-                }
-                localStorage.setItem('calGuildClassesRollout', '1');
-            }
+            // Filters used to persist as an enabled-list, which silently hid any
+            // guild or feed added to the legend after a member's first visit (each
+            // addition needed its own one-time rollout hack). Storage is now the
+            // disabled-list — every key defaults ON, forever, including future ones.
+            // Drop the legacy keys once; a member who had hidden a source re-hides
+            // it with one click.
+            ['calFilters', 'calCommunityRollout', 'calGuildClassesRollout'].forEach(k => localStorage.removeItem(k));
         },
         setView(v) { this.calView = v; localStorage.setItem('calView', v); },
         toggleFilter(key) {
-            if (this.activeFilters.includes(key)) {
-                this.activeFilters = this.activeFilters.filter(k => k !== key);
+            if (this.disabledFilters.includes(key)) {
+                this.disabledFilters = this.disabledFilters.filter(k => k !== key);
             } else {
-                this.activeFilters.push(key);
+                this.disabledFilters.push(key);
             }
-            localStorage.setItem('calFilters', JSON.stringify(this.activeFilters));
+            localStorage.setItem('calFiltersOff', JSON.stringify(this.disabledFilters));
         },
-        isActive(key) { return this.activeFilters.includes(key); },
+        isActive(key) { return !this.disabledFilters.includes(key); },
         flashTarget(pk) {
             const matches = document.querySelectorAll('.pl-calendar-list__item[data-event-pk=\'' + pk + '\']');
             const target = Array.from(matches).find(el => el.offsetParent !== null) || matches[0];

@@ -631,18 +631,20 @@ def describe_calendar_export_ics_view():
 
 
 def describe_community_calendar_default_filters():
-    def it_includes_each_calendar_feed_in_default_filters(client: Client):
+    # Filters persist as a *disabled* list client-side, so a legend key is visible by
+    # default simply by being rendered — these specs pin each key's toggle to the page.
+    def it_renders_a_toggle_for_each_calendar_feed(client: Client):
         from core.models import CalendarFeed
 
         _logged_in_user(client, username="caluser_gen")
         feed = CalendarFeed.objects.create(name="General", ical_url="https://example.com/general.ics", color="#EEB44B")
         response = client.get("/calendar/")
         assert response.status_code == 200
-        assert f"feed-{feed.pk}" in response.context["default_filters_json"]
+        assert f"toggleFilter('feed-{feed.pk}')" in response.content.decode()
 
-    def it_seeds_a_class_only_guilds_key_into_default_filters(client: Client):
-        # A guild whose only calendar content is a class (no iCal URL) still seeds its
-        # key into the defaults, or its newly-colored class chips render hidden on load.
+    def it_renders_a_toggle_for_a_class_only_guild(client: Client):
+        # A guild whose only calendar content is a class (no iCal URL) still gets a
+        # legend toggle, or its newly-colored class chips would have no filter chip.
         _logged_in_user(client, username="caluser_guildkey")
         guild = GuildFactory(name="Metalworking", calendar_url="")
         now = timezone.now()
@@ -657,7 +659,13 @@ def describe_community_calendar_default_filters():
             fetched_at=now,
         )
         response = client.get("/calendar/")
-        assert str(guild.pk) in response.context["default_filters_json"]
+        assert f"toggleFilter('{guild.pk}')" in response.content.decode()
+
+    def it_does_not_seed_a_legacy_enabled_list(client: Client):
+        _logged_in_user(client, username="caluser_nolegacy")
+        response = client.get("/calendar/")
+        assert "default_filters_json" not in response.context
+        assert "calFiltersOff" in response.content.decode()
 
 
 def describe_calendar_events_partial_invalid_params():

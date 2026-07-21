@@ -3505,15 +3505,9 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     ctx = _get_hub_context(request)
     cal_ctx = _get_calendar_context(request)
 
-    default_filters = ["community"]
-    for feed in cal_ctx["calendar_feeds"]:
-        default_filters.append(f"feed-{feed.pk}")
-    if cal_ctx["has_ungrouped_classes"]:
-        default_filters.append("classes")
-    for g in cal_ctx["legend_guilds"]:
-        default_filters.append(str(g.pk))
-
-    cal_ctx["default_filters_json"] = json.dumps(default_filters).replace('"', '\\"')
+    # No default_filters_json here: the Community Calendar persists *disabled*
+    # filters client-side, so every legend key — including ones added later —
+    # defaults to visible without a seeded enabled-list.
     cal_ctx["events_url"] = reverse("hub_community_calendar_events")
 
     view_as = getattr(request, "view_as", None)
