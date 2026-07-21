@@ -11,7 +11,7 @@ from django.contrib.auth.models import User
 from django.test import Client
 
 from hub.forms import VotePreferenceForm
-from hub.views import _compute_live_standings, _compute_new_votes_since
+from membership.vote_calculator import compute_live_standings, compute_new_votes_since
 from membership.cycle import get_cycle_context
 from membership.models import Member, VotePreference
 from tests.membership.factories import (
@@ -426,7 +426,7 @@ def describe_compute_live_standings():
     def it_returns_empty_list_when_no_votes_exist():
         GuildFactory(name="Empty Guild")
 
-        result = _compute_live_standings()
+        result = compute_live_standings()
 
         assert result == []
 
@@ -436,7 +436,7 @@ def describe_compute_live_standings():
         g3 = GuildFactory(name="Third Pick")
         VotePreferenceFactory(guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
 
-        result = _compute_live_standings()
+        result = compute_live_standings()
 
         by_name = {r["guild_name"]: r for r in result}
         assert by_name["First Pick"]["total_points"] == 5
@@ -449,7 +449,7 @@ def describe_compute_live_standings():
         g3 = GuildFactory(name="Low")
         VotePreferenceFactory(guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
 
-        result = _compute_live_standings()
+        result = compute_live_standings()
 
         names = [r["guild_name"] for r in result]
         assert names == ["Top", "Mid", "Low"]
@@ -460,7 +460,7 @@ def describe_compute_live_standings():
         g3 = GuildFactory(name="Trailing")
         VotePreferenceFactory(guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
 
-        result = _compute_live_standings()
+        result = compute_live_standings()
 
         by_name = {r["guild_name"]: r for r in result}
         # Leader (5 pts) gets 100%, others scale proportionally
@@ -475,7 +475,7 @@ def describe_compute_live_standings():
         GuildFactory(name="No Votes")
         VotePreferenceFactory(guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
 
-        result = _compute_live_standings()
+        result = compute_live_standings()
 
         names = [r["guild_name"] for r in result]
         assert "No Votes" not in names
@@ -488,7 +488,7 @@ def describe_compute_live_standings():
         VotePreferenceFactory(guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
         VotePreferenceFactory(guild_1st=g1, guild_2nd=g3, guild_3rd=g2)
 
-        result = _compute_live_standings()
+        result = compute_live_standings()
 
         by_name = {r["guild_name"]: r for r in result}
         # g1: 5+5=10, g2: 3+2=5, g3: 2+3=5
@@ -528,7 +528,7 @@ def describe_compute_live_standings():
             signed_up=False,
         )
 
-        result = _compute_live_standings()
+        result = compute_live_standings()
 
         names = {r["guild_name"] for r in result}
         assert "Backfill Only" not in names
@@ -555,7 +555,7 @@ def describe_compute_live_standings():
         VotePreferenceFactory(guild_1st=fillers[3], guild_2nd=fillers[4], guild_3rd=target)
         VotePreferenceFactory(guild_1st=fillers[4], guild_2nd=fillers[5], guild_3rd=target)
 
-        result = _compute_live_standings()
+        result = compute_live_standings()
 
         by_name = {r["guild_name"]: r for r in result}
         assert by_name["Popular Across Ranks"]["total_points"] == 1 * 5 + 2 * 3 + 3 * 2
@@ -574,7 +574,7 @@ def describe_compute_new_votes_since():
         g3 = GuildFactory(name="Fresh 3rd")
         VotePreferenceFactory(guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
 
-        result = _compute_new_votes_since(None)
+        result = compute_new_votes_since(None)
 
         names = {r["guild_name"] for r in result}
         assert names == {"Fresh 1st", "Fresh 2nd", "Fresh 3rd"}
@@ -589,7 +589,7 @@ def describe_compute_new_votes_since():
         VotePreference.objects.filter(pk=old_vote.pk).update(updated_at=old_ts)
 
         cutoff = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
-        result = _compute_new_votes_since(cutoff)
+        result = compute_new_votes_since(cutoff)
 
         assert result == []
 
@@ -601,7 +601,7 @@ def describe_compute_new_votes_since():
         VotePreferenceFactory(guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
 
         cutoff = dt.datetime(2025, 1, 1, tzinfo=dt.timezone.utc)
-        result = _compute_new_votes_since(cutoff)
+        result = compute_new_votes_since(cutoff)
 
         by_name = {r["guild_name"]: r for r in result}
         assert by_name["New Top"]["total_points"] == 5
@@ -611,6 +611,6 @@ def describe_compute_new_votes_since():
         g1 = GuildFactory(name="Unlinked Pick")
         VotePreferenceFactory(member=unlinked, guild_1st=g1, guild_2nd=g1, guild_3rd=g1, signed_up=False)
 
-        result = _compute_new_votes_since(None)
+        result = compute_new_votes_since(None)
 
         assert result == []

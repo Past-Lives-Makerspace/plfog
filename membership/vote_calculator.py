@@ -12,7 +12,10 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypedDict
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 WEIGHTS = {
     "1st": 5,
@@ -20,6 +23,98 @@ WEIGHTS = {
     "3rd": 2,
 }
 DOLLARS_PER_MEMBER = sum(WEIGHTS.values())  # $10
+
+
+class VoteStanding(TypedDict, total=False):
+    guild_name: str
+    total_points: int
+    bar_pct: float
+
+
+def compute_live_standings() -> list[VoteStanding]:
+    """Tally live vote points from current VotePreference records.
+
+    Only counts votes from members with a linked User — members imported from
+    Airtable who never signed up to the app are excluded. See
+    ``VotePreferenceQuerySet.from_signed_up_members``.
+
+    Returns a list of dicts sorted by total points descending:
+        [{"guild_name": str, "total_points": int, "bar_pct": float}, ...]
+    """
+    from django.db.models import Count, Q
+
+    from membership.models import Guild
+
+    signed_up_1st = Q(first_choice_votes__member__user__isnull=False)
+    signed_up_2nd = Q(second_choice_votes__member__user__isnull=False)
+    signed_up_3rd = Q(third_choice_votes__member__user__isnull=False)
+    # distinct=True is essential: annotating three reverse-FK Counts on the same
+    # queryset cross-joins first/second/third_choice_votes, so without distinct
+    # each Count is multiplied by the other two. A guild with 1/2/3 first/second/
+    # third-place votes would show 6/6/6 and score 60 points instead of 17.
+    guilds = Guild.objects.filter(is_active=True).annotate(
+        first=Count("first_choice_votes", filter=signed_up_1st, distinct=True),
+        second=Count("second_choice_votes", filter=signed_up_2nd, distinct=True),
+        third=Count("third_choice_votes", filter=signed_up_3rd, distinct=True),
+    )
+
+    results: list[VoteStanding] = []
+    for g in guilds:
+        points = g.first * WEIGHTS["1st"] + g.second * WEIGHTS["2nd"] + g.third * WEIGHTS["3rd"]
+        if points > 0:
+            results.append(VoteStanding(guild_name=g.name, total_points=points))
+
+    if not results:
+        return []
+
+    results.sort(key=lambda x: x["total_points"], reverse=True)
+    max_points = results[0]["total_points"]
+    for r in results:
+        r["bar_pct"] = round(r["total_points"] / max_points * 100, 1)
+    return results
+
+
+def compute_new_votes_since(since: datetime | None) -> list[VoteStanding]:
+    """Tally points from VotePreferences updated after ``since``.
+
+    Represents the "new votes this month" view — votes cast or changed since
+    the last snapshot was taken. If ``since`` is None (no prior snapshot),
+    every signed-up vote is considered new.
+    """
+    from django.db.models import Count, Q
+
+    from membership.models import Guild
+
+    first_q = Q(first_choice_votes__member__user__isnull=False)
+    second_q = Q(second_choice_votes__member__user__isnull=False)
+    third_q = Q(third_choice_votes__member__user__isnull=False)
+    if since is not None:
+        first_q &= Q(first_choice_votes__updated_at__gt=since)
+        second_q &= Q(second_choice_votes__updated_at__gt=since)
+        third_q &= Q(third_choice_votes__updated_at__gt=since)
+
+    # See note on distinct=True in compute_live_standings — same cross-join
+    # multiplication applies here.
+    guilds = Guild.objects.filter(is_active=True).annotate(
+        first=Count("first_choice_votes", filter=first_q, distinct=True),
+        second=Count("second_choice_votes", filter=second_q, distinct=True),
+        third=Count("third_choice_votes", filter=third_q, distinct=True),
+    )
+
+    results: list[VoteStanding] = []
+    for g in guilds:
+        points = g.first * WEIGHTS["1st"] + g.second * WEIGHTS["2nd"] + g.third * WEIGHTS["3rd"]
+        if points > 0:
+            results.append(VoteStanding(guild_name=g.name, total_points=points))
+
+    if not results:
+        return []
+
+    results.sort(key=lambda x: x["total_points"], reverse=True)
+    max_points = results[0]["total_points"]
+    for r in results:
+        r["bar_pct"] = round(r["total_points"] / max_points * 100, 1)
+    return results
 
 
 def calculate_results(

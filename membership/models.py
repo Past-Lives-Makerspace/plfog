@@ -4334,6 +4334,30 @@ class VotePreferenceQuerySet(models.QuerySet):
             member_is_guild_staff=Exists(GuildStaffMembership.objects.filter(member_id=OuterRef("member_id"))),
         )
 
+    def cast_ballot(
+        self, member: Member, *, guild_1st: Guild, guild_2nd: Guild, guild_3rd: Guild
+    ) -> tuple[VotePreference, bool]:
+        """Create or update ``member``'s persistent ballot — the one shared save path.
+
+        Both the hub voting page and the Discord ``/vote`` command land here, so every side
+        effect of a ballot save fires identically for both: ``updated_at`` (auto_now), the
+        Airtable push in :meth:`VotePreference.save`, and the vote-activity post-save signal.
+        Callers validate first (``hub.forms.VotePreferenceForm``); this method only persists.
+
+        Returns:
+            ``(preference, created)`` — ``created`` is True for a first-ever ballot.
+        """
+        # cast: this queryset class is unparametrized (parametrizing it breaks the
+        # ``with_role_flags`` annotation attributes under django-stubs), so
+        # ``update_or_create`` types its row as the generic model.
+        return cast(
+            "tuple[VotePreference, bool]",
+            self.update_or_create(
+                member=member,
+                defaults={"guild_1st": guild_1st, "guild_2nd": guild_2nd, "guild_3rd": guild_3rd},
+            ),
+        )
+
 
 class VotePreference(models.Model):
     """Persistent guild funding vote per member — updated anytime, one row per member."""

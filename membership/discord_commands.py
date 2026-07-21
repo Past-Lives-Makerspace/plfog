@@ -1,4 +1,4 @@
-"""Membership's Discord slash commands: ``/whats-on``, ``/info``, and ``/schedule-orientation``.
+"""Membership's Discord slash commands: ``/whats-on``, ``/info``, ``/schedule-orientation``, and ``/voting``.
 
 Autodiscovered by :func:`core.events.discord_commands.autodiscover`. Each handler stays thin
 — it resolves a guild/window, calls an existing manager/service method, and hands the result
@@ -23,7 +23,8 @@ from core.events.discord_replies import (
 )
 
 if TYPE_CHECKING:
-    from membership.models import Guild, GuildOrientationSettings, Member
+    from membership.models import Guild, GuildOrientationSettings, Member, VotePreference
+    from membership.vote_calculator import VoteStanding
 
 # An interaction payload is Discord's JSON dict; the second arg is the resolved Member | None.
 Interaction = dict
@@ -428,3 +429,118 @@ SCHEDULE_ORIENTATION = SlashCommand(
 )
 
 register(SCHEDULE_ORIENTATION)
+
+
+# --- /voting ------------------------------------------------------------------
+
+_BAR_WIDTH = 12
+_EMBED_DESCRIPTION_LIMIT = 4096
+_MEDALS = ("🥇", "🥈", "🥉")
+
+
+def _bar(bar_pct: float) -> str:
+    """A fixed-width block bar for ``bar_pct`` — relative to the leader, exactly like the hub page.
+
+    ``max(1, …)`` because standings only contain guilds with points > 0, so a tiny-but-nonzero
+    guild always renders a sliver — mirroring the ``min-width: 2px`` bar in ``hub/_vote_bar.html``.
+    """
+    filled = max(1, round(bar_pct / 100 * _BAR_WIDTH))
+    return "█" * filled + "░" * (_BAR_WIDTH - filled)
+
+
+def _standings_block(standings: list[VoteStanding], zero_point_names: list[str]) -> str:
+    """Every guild's line — ranked bars first, then the zero-point guilds with empty bars.
+
+    Bars sit in inline code so the fixed width holds in Discord's proportional font. Ranked rows
+    get medals + bold names for the top three, then plain ``4.`` numbering; the zero-point guilds
+    (active, alphabetical, no votes yet) follow unranked — just an all-empty bar and ``— 0 pts`` —
+    so the standings always show the whole field, exactly like the voting page's mission. An empty
+    tally leads with the wide-open nudge instead of a bare stub.
+    """
+    lines: list[str] = []
+    if not standings:
+        lines.append("No votes yet this cycle — the standings are wide open. Be the first!")
+    for rank, row in enumerate(standings, start=1):
+        bar = f"`{_bar(row['bar_pct'])}`"
+        if rank <= len(_MEDALS):
+            lines.append(f"{_MEDALS[rank - 1]} {bar} **{row['guild_name']}** — {row['total_points']} pts")
+        else:
+            lines.append(f"`{rank}.` {bar} {row['guild_name']} — {row['total_points']} pts")
+    empty_bar = "░" * _BAR_WIDTH
+    lines.extend(f"`{empty_bar}` {name} — 0 pts" for name in zero_point_names)
+    return "\n".join(lines)
+
+
+def _ballot_block(preference: VotePreference | None) -> str:
+    """The member's own three ranked choices — or the "you haven't voted yet" nudge."""
+    from membership.vote_calculator import WEIGHTS
+
+    if preference is None:
+        return (
+            "**Your ballot**\n"
+            "You haven't voted yet — your three ranked choices help decide where this month's "
+            "funding pool goes. It takes 30 seconds on the voting page below."
+        )
+    return (
+        "**Your ballot**\n"
+        f"1st — {preference.guild_1st.name} · {WEIGHTS['1st']} pts\n"
+        f"2nd — {preference.guild_2nd.name} · {WEIGHTS['2nd']} pts\n"
+        f"3rd — {preference.guild_3rd.name} · {WEIGHTS['3rd']} pts\n"
+        f"_Last updated {format_local(preference.updated_at)}_"
+    )
+
+
+def _voting(interaction: Interaction, member: Member | None) -> dict:
+    """This month's live guild-funding standings + the member's own ballot, as one ephemeral embed.
+
+    Read-only: check the race and confirm your ballot without leaving Discord; the link button
+    is the change-your-vote path (the page owns the form). No writes, no notifications.
+    """
+    from membership.cycle import get_cycle_context
+    from membership.models import Guild
+    from membership.vote_calculator import WEIGHTS, compute_live_standings
+
+    member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
+    standings = compute_live_standings()
+    cycle = get_cycle_context()
+    preference: VotePreference | None = getattr(member, "vote_preference", None)
+
+    # The shared tally (hub page included) drops zero-point guilds; here every active guild
+    # renders so the whole field is visible — the voteless ones follow the ranked rows.
+    ranked_names = {row["guild_name"] for row in standings}
+    active_names = Guild.objects.filter(is_active=True).order_by("name").values_list("name", flat=True)
+    zero_point_names = [name for name in active_names if name not in ranked_names]
+
+    description = truncate(
+        "Your votes decide how the monthly funding pool is split. "
+        f"This cycle closes **{cycle['cycle_closes_on']}**."
+        f"\n\n{_standings_block(standings, zero_point_names)}"
+        f"\n\n{_ballot_block(preference)}",
+        _EMBED_DESCRIPTION_LIMIT,
+    )
+    footer = f"Weighting: 1st = {WEIGHTS['1st']} pts · 2nd = {WEIGHTS['2nd']} pts · 3rd = {WEIGHTS['3rd']} pts"
+    embed = {
+        "title": f"Guild funding — {cycle['current_cycle_label']}",
+        "description": description,
+        "footer": {"text": footer},
+    }
+    button_row = {
+        "type": 1,
+        "components": [
+            {"type": 2, "style": 5, "label": "Open the voting page", "url": hub_url("hub_guild_voting")},
+        ],
+    }
+    return reply("", ephemeral=True, embeds=[embed], components=[button_row])
+
+
+VOTING = SlashCommand(
+    name="voting",
+    description="See this month's live guild-funding standings and your ballot.",
+    handler=_voting,
+    requires_link=True,
+    ephemeral=True,
+    defer=False,
+    scope="guild",
+)
+
+register(VOTING)

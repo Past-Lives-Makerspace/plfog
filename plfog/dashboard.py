@@ -39,8 +39,8 @@ def dashboard_callback(request: HttpRequest, context: dict) -> dict:
     signed_up_2nd = Q(second_choice_votes__member__user__isnull=False)
     signed_up_3rd = Q(third_choice_votes__member__user__isnull=False)
     # distinct=True: without it, the three reverse-FK Counts cross-join and
-    # each count is multiplied by the other two (see hub/views.py
-    # _compute_live_standings for the detailed explanation).
+    # each count is multiplied by the other two (see membership/vote_calculator.py
+    # compute_live_standings for the detailed explanation).
     guilds = (
         Guild.objects.filter(is_active=True)
         .annotate(
