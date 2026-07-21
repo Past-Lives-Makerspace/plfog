@@ -434,7 +434,6 @@ register(SCHEDULE_ORIENTATION)
 # --- /voting ------------------------------------------------------------------
 
 _BAR_WIDTH = 12
-_STANDINGS_CAP = 15
 _EMBED_DESCRIPTION_LIMIT = 4096
 _MEDALS = ("🥇", "🥈", "🥉")
 
@@ -449,25 +448,26 @@ def _bar(bar_pct: float) -> str:
     return "█" * filled + "░" * (_BAR_WIDTH - filled)
 
 
-def _standings_block(standings: list[VoteStanding]) -> str:
-    """The ranked bar-graph lines — medals + bold names for the top three, plain numbers after.
+def _standings_block(standings: list[VoteStanding], zero_point_names: list[str]) -> str:
+    """Every guild's line — ranked bars first, then the zero-point guilds with empty bars.
 
-    Bars sit in inline code so the fixed width holds in Discord's proportional font. Capped at
-    :data:`_STANDINGS_CAP` rows; overflow collapses to an "…and N more" line so nothing is
-    silently dropped (the button below opens the full page). An empty tally gets the wide-open
-    nudge instead of a bare stub.
+    Bars sit in inline code so the fixed width holds in Discord's proportional font. Ranked rows
+    get medals + bold names for the top three, then plain ``4.`` numbering; the zero-point guilds
+    (active, alphabetical, no votes yet) follow unranked — just an all-empty bar and ``— 0 pts`` —
+    so the standings always show the whole field, exactly like the voting page's mission. An empty
+    tally leads with the wide-open nudge instead of a bare stub.
     """
-    if not standings:
-        return "No votes yet this cycle — the standings are wide open. Be the first!"
     lines: list[str] = []
-    for rank, row in enumerate(standings[:_STANDINGS_CAP], start=1):
+    if not standings:
+        lines.append("No votes yet this cycle — the standings are wide open. Be the first!")
+    for rank, row in enumerate(standings, start=1):
         bar = f"`{_bar(row['bar_pct'])}`"
         if rank <= len(_MEDALS):
             lines.append(f"{_MEDALS[rank - 1]} {bar} **{row['guild_name']}** — {row['total_points']} pts")
         else:
             lines.append(f"`{rank}.` {bar} {row['guild_name']} — {row['total_points']} pts")
-    if len(standings) > _STANDINGS_CAP:
-        lines.append(f"…and {len(standings) - _STANDINGS_CAP} more on the voting page")
+    empty_bar = "░" * _BAR_WIDTH
+    lines.extend(f"`{empty_bar}` {name} — 0 pts" for name in zero_point_names)
     return "\n".join(lines)
 
 
@@ -497,6 +497,7 @@ def _voting(interaction: Interaction, member: Member | None) -> dict:
     is the change-your-vote path (the page owns the form). No writes, no notifications.
     """
     from membership.cycle import get_cycle_context
+    from membership.models import Guild
     from membership.vote_calculator import WEIGHTS, compute_live_standings
 
     member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
@@ -504,10 +505,16 @@ def _voting(interaction: Interaction, member: Member | None) -> dict:
     cycle = get_cycle_context()
     preference: VotePreference | None = getattr(member, "vote_preference", None)
 
+    # The shared tally (hub page included) drops zero-point guilds; here every active guild
+    # renders so the whole field is visible — the voteless ones follow the ranked rows.
+    ranked_names = {row["guild_name"] for row in standings}
+    active_names = Guild.objects.filter(is_active=True).order_by("name").values_list("name", flat=True)
+    zero_point_names = [name for name in active_names if name not in ranked_names]
+
     description = truncate(
         "Your votes decide how the monthly funding pool is split. "
         f"This cycle closes **{cycle['cycle_closes_on']}**."
-        f"\n\n{_standings_block(standings)}"
+        f"\n\n{_standings_block(standings, zero_point_names)}"
         f"\n\n{_ballot_block(preference)}",
         _EMBED_DESCRIPTION_LIMIT,
     )

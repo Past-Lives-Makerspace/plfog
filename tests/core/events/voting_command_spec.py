@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from core.events.discord_replies import hub_url
-from membership.discord_commands import _BAR_WIDTH, _STANDINGS_CAP, VOTING, _bar, _voting
+from membership.discord_commands import _BAR_WIDTH, VOTING, _bar, _voting
 from membership.models import VotePreference
 from tests.membership.factories import GuildFactory, VotePreferenceFactory
 
@@ -148,20 +148,21 @@ def describe_voting():
 
             embed = result["data"]["embeds"][0]
             assert "No votes yet this cycle — the standings are wide open. Be the first!" in embed["description"]
+            assert f"`{'░' * _BAR_WIDTH}` Quiet Guild — 0 pts" in embed["description"]
             assert embed["title"] == "Guild funding — July 2026"
             assert "This cycle closes **July 31, 2026**." in embed["description"]
             assert "Weighting:" in embed["footer"]["text"]
             assert result["data"]["components"][0]["components"][0]["style"] == 5
 
-    def describe_with_more_guilds_than_the_cap():
-        def it_collapses_the_overflow_and_stays_under_the_embed_limit(linked_member):
+    def describe_with_many_guilds():
+        def it_renders_every_guild_with_no_collapse(linked_member):
             member = linked_member()
             shared_2nd = GuildFactory(name="Shared Second")
             shared_3rd = GuildFactory(name="Shared Third")
-            # 16 distinct first-choice guilds + the two shared ones = 18 guilds with points.
-            for i in range(16):
+            # 19 distinct first-choice guilds + the two shared ones = 21 guilds with points.
+            for i in range(19):
                 VotePreferenceFactory(
-                    guild_1st=GuildFactory(name=f"Overflow Guild {i}"),
+                    guild_1st=GuildFactory(name=f"Rank Guild {i:02d}"),
                     guild_2nd=shared_2nd,
                     guild_3rd=shared_3rd,
                 )
@@ -169,6 +170,28 @@ def describe_voting():
             description = _description(member)
 
             bar_rows = [line for line in description.splitlines() if "█" in line or "░" in line]
-            assert len(bar_rows) == _STANDINGS_CAP
-            assert f"…and {18 - _STANDINGS_CAP} more on the voting page" in description
-            assert len(description) <= 4096
+            assert len(bar_rows) == 21
+            assert "more on the voting page" not in description
+            assert len(description) <= 4096  # the truncate() backstop's ceiling
+
+    def describe_with_zero_point_guilds():
+        def it_lists_them_after_the_ranked_rows_with_empty_bars(linked_member):
+            member = linked_member()
+            g1 = GuildFactory(name="Ranked One")
+            g2 = GuildFactory(name="Ranked Two")
+            g3 = GuildFactory(name="Ranked Three")
+            GuildFactory(name="Zeta Quiet")
+            GuildFactory(name="Alpha Quiet")
+            GuildFactory(name="Inactive Quiet", is_active=False)
+            VotePreferenceFactory(guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
+
+            description = _description(member)
+
+            empty_bar = "░" * _BAR_WIDTH
+            assert f"`{empty_bar}` Alpha Quiet — 0 pts" in description
+            assert f"`{empty_bar}` Zeta Quiet — 0 pts" in description
+            assert "Inactive Quiet" not in description
+            # Alphabetical, and strictly below every ranked row.
+            assert (
+                description.index("Ranked Three") < description.index("Alpha Quiet") < description.index("Zeta Quiet")
+            )

@@ -24,29 +24,31 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "0.23.13",
         "date": "2026-07-21",
-        "title": "Check the guild-funding race with /voting on Discord",
+        "title": "Guild-funding voting comes to Discord: /voting and /vote",
         "changes": [
             (
                 "Type /voting in the Past Lives Discord to see this month's live guild-funding "
-                "standings as a bar graph — medals for the top three, points for every guild, and "
-                "when the cycle closes."
+                "standings as a bar graph — every guild (even the ones still at zero), medals for "
+                "the top three, and when the cycle closes — plus your own three ranked picks, or a "
+                "nudge if you haven't voted yet. Only you can see the reply."
             ),
             (
-                "It also shows your own three ranked picks (or a nudge if you haven't voted yet), "
-                "with a button that jumps straight to the voting page to cast or change them. "
-                "Only you can see the reply."
+                "And with /vote you can cast or change your ballot without leaving Discord — pick "
+                "your 1st, 2nd, and 3rd choice guilds from the dropdowns and it saves instantly, "
+                "exactly like voting on the page."
             ),
         ],
     },
     {
         "version": "0.23.12",
         "date": "2026-07-21",
-        "title": "The member directory is now members-only",
+        "title": "The member directory is now members-only by default",
         "changes": [
             (
-                "The member directory now asks you to sign in before it shows anything — so your "
-                "card, contact info, and photo are visible only to fellow members, exactly as the "
-                "profile settings page promises."
+                "The member directory now asks visitors to sign in before it shows anything — so your "
+                "card, contact info, and photo are visible only to fellow members unless the makerspace "
+                "deliberately opens it up. A new site setting lets admins make the directory fully "
+                "public again if that's ever wanted."
             ),
             (
                 "The directory listing toggle in your profile settings now reads Hidden / Public, "

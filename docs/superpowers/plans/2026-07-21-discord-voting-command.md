@@ -19,11 +19,11 @@ The one piece of plumbing work: the live tally currently lives as a private help
 |---|---|
 | Dispatch policy | `requires_link=True`, `ephemeral=True`, `defer=False`, `scope="guild"` — mirrors `/fog-ping` and `/whats-on`. Two cheap aggregate queries; no defer needed. |
 | Graph rendering | **Unicode block bars** (`█`/`░`, fixed width 12 chars scaled from `bar_pct`) inside a single embed description. **No image attachment, no new plumbing.** |
-| Standings content | Top guilds by points, 🥇🥈🥉 for ranks 1–3 (mirrors `templates/hub/_vote_bar.html`), points per guild, cycle label + closes-on date (`get_cycle_context()`), weighting note (1st=5, 2nd=3, 3rd=2 pts). |
+| Standings content | **Every active guild** — ranked guilds by points with 🥇🥈🥉 for ranks 1–3 (mirrors `templates/hub/_vote_bar.html`), then the zero-point guilds (alphabetical, all-empty bar, no rank number, `— 0 pts`); cycle label + closes-on date (`get_cycle_context()`), weighting note (1st=5, 2nd=3, 3rd=2 pts). *(Revised 2026-07-21: originally top-15-with-collapse; Josh wants the whole field visible.)* |
 | Member's ballot | From `member.vote_preference` (OneToOne). `None` → "you haven't voted yet" nudge. Either way, a link-style button to `hub_url("hub_guild_voting")`. |
 | Tally source | **Reuse `_compute_live_standings()`** (`hub/views.py:224`) — lifted into `membership/vote_calculator.py` with its `VoteStanding` TypedDict and the `distinct=True` Count gotcha (`hub/views.py:237-240`) preserved verbatim. Behavior identical; hub page keeps working. |
 | Handler home | `membership/discord_commands.py` (voting models live in `membership`); registered via the `SlashCommand` dataclass + `register()` pattern. |
-| Length safety | Standings are small (~a dozen guilds; ~40 chars/row ≈ 500 chars), well under the 4096 embed-description cap — but cap rows defensively and `truncate()` the final description. |
+| Length safety | Standings are small (~21 active guilds; ~45 chars/row ≈ 1300 chars), well under the 4096 embed-description cap — every row renders (no cap/collapse); `truncate(…, 4096)` stays as a pure backstop. |
 | Go-live | Re-run `register_discord_commands` after deploy (guild-scoped commands register instantly). |
 
 ## 2. What already exists (reuse, don't reinvent)
@@ -93,7 +93,7 @@ Thin, per the house pattern (resolve → call domain code → format):
 Helpers (module-level in `membership/discord_commands.py`, ~5 lines total):
 
 - `_BAR_WIDTH = 12`; `_bar(bar_pct: float) -> str` — `filled = max(1, round(bar_pct / 100 * _BAR_WIDTH))`, return `"█" * filled + "░" * (_BAR_WIDTH - filled)`. `max(1, …)` because standings only contain guilds with points > 0, mirroring the `min-width: 2px` sliver in `_vote_bar.html:22`. The leader (`bar_pct == 100.0`) renders 12 full blocks. Bars are **relative to the leader** (that's what `bar_pct` means), exactly like the hub page.
-- `_STANDINGS_CAP = 15` — rows beyond it collapse to `…and N more on the voting page` (mirrors `_SECTION_CAP` overflow at `:73-75`). Final belt-and-braces: `truncate(description, 4096)` before building the embed.
+- Zero-point rows: after `compute_live_standings()` (the shared function is untouched — the hub page keeps dropping zero-point guilds), the handler appends the active guilds absent from the standings, alphabetical, each as `` `░×12` Name — 0 pts `` — no medal, no rank number — below the ranked rows, so every active guild is always visible. Final belt-and-braces: `truncate(description, 4096)` before building the embed (~21 guilds ≈ 1300 chars, nowhere near the cap).
 - Rank prefix: `🥇 🥈 🥉` for rows 1–3 (same medals as `_vote_bar.html:5`), then `` `4.` `` `` `5.` `` … plain numbers. Guild name is **bold** for ranks 1–3, plain for 4+ (exactly as the §6.1 mock shows). Note: width-12 quantization can render a ~95% guild with the same 12 full blocks as the leader — the `— N pts` suffix disambiguates; accepted.
 
 No side effects: no writes, no notifications, no activity log. Pure read.
@@ -131,6 +131,8 @@ Your votes decide how the monthly funding pool is split. This cycle closes **Jul
 🥉 `█████░░░░░░░` **Ceramics** — 18 pts
 `4.` `███░░░░░░░░░` Metals — 11 pts
 `5.` `█░░░░░░░░░░░` Print — 4 pts
+`░░░░░░░░░░░░` Jewelry — 0 pts
+`░░░░░░░░░░░░` Textiles — 0 pts
 
 **Your ballot**
 1st — Fiber Arts · 5 pts
@@ -173,9 +175,9 @@ Handled **before the handler runs**: `requires_link=True` means `dispatch()` (`c
 
 Any handler exception is caught by `dispatch()` and becomes the standard friendly `error_reply()` — never a 500 back to Discord. Nothing to build.
 
-### 6.6 Overflow / truncation
+### 6.6 Length backstop
 
-More than `_STANDINGS_CAP` (15) guilds with points → rows 16+ collapse into `…and N more on the voting page`. The assembled description additionally passes through `truncate(…, 4096)` so a pathological guild name can never breach Discord's embed cap. Nothing is ever silently dropped — the overflow line and the button both point at the full page.
+Every guild renders — there is no row cap or collapse. The assembled description passes through `truncate(…, 4096)` purely as a safety net so a pathological guild name can never breach Discord's embed cap (~21 guilds ≈ 1300 chars in practice). Zero-point active guilds render below the ranked rows with all-empty bars, so nothing is ever missing from the field.
 
 ### UX-completeness check (Discord surface)
 
@@ -209,15 +211,38 @@ BDD `*_spec.py`, **`describe_*` / `it_*` only** (`context_*` is silently uncolle
 - Ballot block: renders the member's three guilds with 5/3/2 pts and the `updated_at` line; another member's ballot never leaks in.
 - No ballot: nudge copy shown, no "1st —" rows, button still present.
 - Empty standings: "No votes yet this cycle" copy; title/closes-on/footer/button still present.
-- Overflow: 16+ guilds with points → 15 rows + "…and more" line; description length ≤ 4096.
+- All guilds render: 21 guilds with points → 21 bar rows, no collapse line; description length ≤ 4096. Zero-point active guilds appear after the ranked rows, alphabetical, with all-empty bars; inactive guilds never appear.
 - Tz/date note: cycle label/closes-on come from `get_cycle_context()` (site tz via `timezone.now()`); freeze time in cases that assert the label so month boundaries can't flake.
 
 Unlinked dispatch is already covered by `tests/core/events/discord_commands_spec.py`; the definition-flags case above is the contract.
 
 ## 10. Open / deferred (out of scope)
 
-- **Voting from Discord** (casting/updating the ballot via command options or buttons) — deferred; the page owns the form and its validation. This command is read-only by design.
+- ~~**Voting from Discord** (casting/updating the ballot via command options or buttons) — deferred; the page owns the form and its validation. This command is read-only by design.~~ **Un-deferred 2026-07-21 — see the `/vote` addendum below.** `/voting` itself stays read-only.
 - **"New votes since last snapshot" section** (`compute_new_votes_since`) — moved in the refactor but not surfaced in the embed; one graph keeps the reply scannable.
 - **Funding-dollar projections** (`calculate_results` pools) — the hub admin tabs own money views; the member dashboard shows points only, matching the member-facing page.
 - **Guild logo emojis / custom Discord emojis** per guild — no plumbing exists; medals + names are enough.
 - **Refactoring `plfog/dashboard.py`'s own annotate to reuse the lifted function** — only its comment is touched; consolidating it is a separate cleanup.
+
+---
+
+## Addendum (2026-07-21): the `/vote` command — cast or change your ballot from Discord
+
+Requested by Josh after review of the read-only build; ships in the same release (0.23.13).
+
+### Design
+
+- **`/vote first:<guild> second:<guild> third:<guild>`** — three **required** STRING options, each carrying the active-guild choice list (value = slug) via an `options_builder`. The builder derives all three options from `/join-guild`'s `_guild_choices()` (`hub/discord_commands.py`), inheriting its 25-choice Discord cap (beyond 25 active guilds the overflow is logged and dropped — the same constraint `/join-guild` already lives with; those guilds stay votable on the hub page) and its empty-choices guard. `requires_link=True`, `ephemeral=True`, **`defer=True`** (the save makes a synchronous Airtable HTTP call when sync is enabled — same reasoning as `/join-guild`'s defer; Discord's 3s deadline vs an external API), `scope="guild"`. To keep the confirmation's link button on the deferred path, `send_followup` now accepts and passes `components` (mirroring `reply()`), and `_dispatch_deferred` forwards them.
+- **Handler home: `hub/discord_commands.py`** (not `membership`) — deliberately, because parity with the page demands `hub.forms.VotePreferenceForm`, and `membership` must not import `hub`.
+
+### The hub path, reused exactly
+
+- **Validation** = the literal `VotePreferenceForm` the voting page POSTs through: active-guild `ModelChoiceField` querysets + the three-distinct `clean()` rule. The handler resolves slugs → active `Guild` rows first (unknown/inactive slug → a friendly ephemeral reply naming the bad pick); a duplicate-guild ballot surfaces the form's own message ("Please select three different guilds.").
+- **Save** = a new `VotePreference.objects.cast_ballot(member, guild_1st=…, guild_2nd=…, guild_3rd=…)` manager method — the view's former inline `update_or_create` lifted into `membership/models.py` (the same pattern as the standings lift). `hub/views.py:guild_voting` now calls it too, so both surfaces share one save path and every side effect fires identically: `updated_at` (auto_now), the Airtable push in `VotePreference.save()` (`sync_vote_to_airtable`, gated by `_sync_enabled()`), and the `_log_vote_activity` post-save signal (`VOTE_SUBMITTED` / `VOTE_CHANGED`). No new sync behavior invented.
+- **Success reply**: one ephemeral embed — title `Your ballot is in — July 2026 ✅` (or "updated" on a change), the closes-on date, the three picks with 5/3/2 pts, a "see the live standings anytime with `/voting`" nudge, and the style-5 link button to the voting page.
+
+### Testing
+
+`tests/hub/vote_command_spec.py` (sibling of the `/join-guild` specs): definition flags + option builder (three required slug pickers), happy first ballot, in-place overwrite of an existing ballot, duplicate-guild rejection (form's message, nothing saved), unknown-slug and inactive-guild rejection (named, nothing saved), and a side-effect parity case asserting the shared path ran (Airtable sync spy called with the saved preference; `VOTE_SUBMITTED`/`VOTE_CHANGED` activity rows). BDD `describe_*`/`it_*` only.
+
+> Go-live unchanged: one `register_discord_commands` re-run registers both `/voting` and `/vote`.
