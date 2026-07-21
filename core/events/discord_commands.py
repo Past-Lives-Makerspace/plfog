@@ -86,6 +86,41 @@ def register(cmd: SlashCommand) -> None:
     _REGISTRY[cmd.name] = cmd
 
 
+@dataclass(frozen=True)
+class ComponentHandler:
+    """One ``custom_id`` namespace — everything before the first ``:`` routes to ``handler``.
+
+    The message-component (button / select-menu click) counterpart of :class:`SlashCommand`.
+    A command that ships components encodes its state into each ``custom_id`` as
+    ``"<prefix>:<state…>"``; :func:`dispatch_component` routes the click back to the owning
+    handler by that prefix. Registered from the same autodiscovered
+    ``<app>/discord_commands.py`` modules as the slash commands.
+
+    Args:
+        prefix: The ``custom_id`` namespace (no colon), e.g. ``"members"``.
+        handler: ``(interaction, member) -> reply dict`` — usually a type-7 UPDATE_MESSAGE
+            (:func:`core.events.discord_interactions.update_message`).
+        requires_link: Unlinked clicker → the connect prompt; the handler never runs. The
+            clicker of an ephemeral message is always the original invoker, who was linked
+            at invoke time — but they may have unlinked between clicks, so the re-check is
+            real, not ceremony.
+    """
+
+    prefix: str
+    handler: Handler
+    requires_link: bool = True
+
+
+_COMPONENT_REGISTRY: dict[str, ComponentHandler] = {}
+
+
+def register_component(handler: ComponentHandler) -> None:
+    """Add ``handler`` to the component registry, failing loudly on a duplicate prefix."""
+    if handler.prefix in _COMPONENT_REGISTRY:
+        raise ValueError(f"Duplicate component prefix: {handler.prefix!r}")
+    _COMPONENT_REGISTRY[handler.prefix] = handler
+
+
 def all_commands() -> list[SlashCommand]:
     """Every registered command, in registration order."""
     return list(_REGISTRY.values())
@@ -229,6 +264,39 @@ def dispatch(interaction: Interaction, request: HttpRequest) -> dict:
         return cmd.handler(interaction, member)
     except Exception:
         logger.exception("Discord command %r handler failed", name)
+        return error_reply()
+
+
+def dispatch_component(interaction: Interaction, request: HttpRequest) -> dict:
+    """Route a MESSAGE_COMPONENT interaction (button / select click) to its handler.
+
+    Mirrors :func:`dispatch` step for step:
+
+    1. Unknown ``custom_id`` prefix → :func:`error_reply` (registered-message drift, e.g. a
+       stale message clicked after a prefix rename).
+    2. ``requires_link`` and no linked member → :func:`unlinked_reply` (the clicker unlinked
+       since invoking; the handler never runs).
+    3. Else → the handler, wrapped so any exception becomes :func:`error_reply` (never a
+       5xx back to Discord).
+
+    ``error_reply()`` / ``unlinked_reply()`` are type 4 — a fresh ephemeral message, valid
+    as a component response — so an error never clobbers the browsable message in place.
+    """
+    custom_id = interaction["data"]["custom_id"]
+    prefix = custom_id.split(":", 1)[0]
+    handler = _COMPONENT_REGISTRY.get(prefix)
+    if handler is None:
+        logger.warning("Discord component interaction for unknown prefix %r", prefix)
+        return error_reply()
+
+    member = resolve_member(interaction)
+    if handler.requires_link and member is None:
+        return unlinked_reply(_link_url(request))
+
+    try:
+        return handler.handler(interaction, member)
+    except Exception:
+        logger.exception("Discord component %r handler failed", prefix)
         return error_reply()
 
 

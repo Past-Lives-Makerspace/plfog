@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.15"
+VERSION = "0.23.16"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.16",
+        "date": "2026-07-21",
+        "title": "Browse the member directory right in Discord with /members",
+        "changes": [
+            (
+                "Type /members in the Past Lives Discord to flip through member profile cards — "
+                "photos, skills, guilds, and the contact info each member has chosen to share — "
+                "with Prev/Next buttons to page through and optional guild and search filters."
+            ),
+            (
+                "It follows the exact same privacy rules as the app's directory: only listed "
+                "members appear, hidden fields stay hidden, and the reply is visible only to you. "
+                "Editing your card still happens in the app, under Settings → Directory."
+            ),
+        ],
+    },
     {
         "version": "0.23.15",
         "date": "2026-07-21",

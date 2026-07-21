@@ -233,15 +233,12 @@ def member_directory(request: HttpRequest) -> HttpResponse:
     current_member = _get_member(request)
     view_as = getattr(request, "view_as", None)
     is_admin = view_as is not None and view_as.is_admin
-    must_show = (
-        Q(fog_role=Member.FogRole.ADMIN)
-        | Q(fog_role=Member.FogRole.GUILD_OFFICER)
-        | Q(led_guilds__isnull=False)
-        | Q(instructor_slug__gt="")
-    )
-    member_qs = Member.objects.filter(status=Member.Status.ACTIVE).distinct()
-    if not is_admin:
-        member_qs = member_qs.filter(Q(show_in_directory=True) | must_show)
+    # Admins see every active member (a web-only affordance); everyone else gets the
+    # shared directory-privacy filter (MemberQuerySet.directory_visible).
+    if is_admin:
+        member_qs = Member.objects.filter(status=Member.Status.ACTIVE).distinct()
+    else:
+        member_qs = Member.objects.directory_visible()
     guild_filter = request.GET.get("guild", "")
     if guild_filter.isdigit():
         member_qs = member_qs.filter(guild_memberships__guild_id=int(guild_filter))
