@@ -1,12 +1,15 @@
 name: Copy-review gallery
 
-# Rebuilds the seeded CMS screenshot gallery on every merge to main (i.e. every
-# production deploy) and publishes it to GitHub Pages at
-# https://copy-review.pastlives.space/ for the copy team to review.
+# Rebuilds the Email Copy Gallery on every merge to main (i.e. every production
+# deploy) and publishes it to GitHub Pages at
+# https://copy-review.pastlives.space/ — every email the app can send, rendered
+# with seeded fake data, for the copy team to sign off in one place.
 #
-# The screenshots use SEEDED, fake data (no member info, no secrets) — that's
-# what makes hosting them at an unlisted public URL safe. The capture runs here
-# in CI, never on the Render prod instance.
+# The same job also re-captures the release-email feature screenshots (the R2
+# pipeline the email composer's screenshot picker reads). Everything renders
+# from SEEDED, fake data (no member info, no secrets) — that's what makes
+# hosting the gallery at an unlisted public URL safe. The capture runs here in
+# CI, never on the Render prod instance.
 
 on:
   push:
@@ -29,8 +32,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DJANGO_SECRET_KEY: ci-copy-review-secret
-      CAPTURE_SCREENSHOTS: "1"
-      SHOT_DIR: site
     steps:
       - uses: actions/checkout@v4
 
@@ -52,11 +53,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      # Needed by the feature-shot capture below (the gallery build is browserless).
       - name: Install Playwright browser
         run: python -m playwright install --with-deps chromium
 
-      - name: Capture seeded CMS screenshots
-        run: pytest -m e2e --no-cov -q tests/e2e/screenshots_spec.py
+      # What actually publishes: render every email into site/ (browserless).
+      - name: Build email copy gallery
+        env:
+          BUILD_EMAIL_GALLERY: "1"
+          SHOT_DIR: site
+        run: pytest -m e2e --no-cov -q tests/e2e/email_gallery_spec.py
+
+      # Retained R2 pipeline: the release-email feature shots. The node-id scopes
+      # the run to describe_feature_screenshots only, so the old CMS page gallery
+      # (describe_cms_screenshots, same CAPTURE_SCREENSHOTS gate) no longer runs
+      # or publishes. Shots go to object storage, not the Pages artifact — a
+      # feature-shot hiccup must never block the copy-review publish.
+      - name: Capture release-email feature shots (R2)
+        continue-on-error: true
+        env:
+          CAPTURE_SCREENSHOTS: "1"
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+        run: pytest -m e2e --no-cov -q "tests/e2e/screenshots_spec.py::describe_feature_screenshots"
 
       - name: Attach custom domain
         run: echo 'copy-review.pastlives.space' > site/CNAME
