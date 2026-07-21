@@ -10,10 +10,11 @@ from datetime import timezone as dt_timezone
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from django.db.models import Q
 from django.utils import timezone
 
 from core.models import CalendarFeed, SiteConfiguration
-from membership.models import CalendarEvent, Guild
+from membership.models import CalendarEvent, CommunityEvent, Guild
 
 if TYPE_CHECKING:
     from core.integrations.discord_events import DiscordScheduledEventsClient
@@ -131,6 +132,17 @@ def _fetch_and_parse(url: str, window_start: datetime, window_end: datetime) -> 
     return _parse_ical_events(raw, window_start, window_end)
 
 
+def _pushed_event_uids() -> set[str]:
+    """iCal UIDs of CommunityEvents we ourselves pushed to Google Calendar.
+
+    The Member/Public calendars we push to are the same calendars the general feeds
+    re-import, so our own events come back in the feed under their Google-assigned
+    UID. Importing those copies would double-list every pushed event (and the Discord
+    mirror would then duplicate its Scheduled Event too) — they must be skipped.
+    """
+    return set(CommunityEvent.objects.exclude(google_ical_uid="").values_list("google_ical_uid", flat=True))
+
+
 def _upsert_events(
     events: list[dict[str, Any]],
     guild: Guild | None,
@@ -141,9 +153,12 @@ def _upsert_events(
 
     Uniqueness is per-``(guild, feed, uid, recurrence_id)`` so each occurrence of a recurring
     series gets its own row, and two ``CalendarFeed`` rows whose upstream calendars happen to
-    share a UID don't clobber each other.
+    share a UID don't clobber each other. Echoes of our own Google-pushed CommunityEvents
+    (see :func:`_pushed_event_uids`) are skipped, not imported.
     """
     now = timezone.now()
+    echo_uids = _pushed_event_uids()
+    events = [evt for evt in events if evt["uid"] not in echo_uids]
     for evt in events:
         CalendarEvent.objects.update_or_create(
             guild=guild,
@@ -241,8 +256,11 @@ def sync_discord_feed_events() -> int:
     without one, updates rows already pushed, and recreates a row whose Discord copy was
     deleted by hand (an update 404). A still-future row that dropped out of the push set
     (date moved, or pushed under an older horizon) has its Discord copy deleted; past
-    events are left to Discord's own lifecycle. Returns the number of events in the push
-    set, or 0 when Discord Events sync is disabled.
+    events are left to Discord's own lifecycle. Echoes of our own Google-pushed
+    CommunityEvents are excluded from the push set — the dropped pass deletes any Discord
+    copies they gained before echo suppression existed, then the rows themselves are
+    purged. Returns the number of events in the push set, or 0 when Discord Events sync
+    is disabled.
 
     Every event is attempted even when one fails; failures are then raised as one
     :class:`DiscordEventsError` so ``sync_all_sources`` records the source as failed.
@@ -254,12 +272,15 @@ def sync_discord_feed_events() -> int:
         return 0
 
     now = timezone.now()
+    echo_uids = _pushed_event_uids()
     push_set = list(
         CalendarEvent.objects.filter(
             source=CalendarEvent.Source.GENERAL,
             start_dt__gte=now,
             start_dt__lte=now + _DISCORD_PUSH_HORIZON,
-        ).order_by("start_dt")[:_DISCORD_PUSH_CAP]
+        )
+        .exclude(uid__in=echo_uids)
+        .order_by("start_dt")[:_DISCORD_PUSH_CAP]
     )
     failures: list[str] = []
 
@@ -279,6 +300,8 @@ def sync_discord_feed_events() -> int:
             _delete_feed_event_copy(client, event)
         except DiscordEventsError as exc:
             failures.append(f"'{event.title}': {exc}")
+
+    _purge_echoed_feed_events(echo_uids, now)
 
     if failures:
         raise DiscordEventsError(f"{len(failures)} Discord event push(es) failed; first: {failures[0]}")
@@ -318,6 +341,18 @@ def _delete_feed_event_copy(client: DiscordScheduledEventsClient, event: Calenda
             raise
     event.discord_event_id = ""
     event.save(update_fields=["discord_event_id"])
+
+
+def _purge_echoed_feed_events(echo_uids: set[str], now: datetime) -> None:
+    """Delete feed rows that are echoes of our own Google-pushed CommunityEvents.
+
+    Only rows with no live future Discord copy are removed: a future row still holding a
+    ``discord_event_id`` means its Discord delete failed this run, so it survives to
+    retry next sweep; a past row's Discord copy is already finished and needs no delete.
+    """
+    CalendarEvent.objects.filter(source=CalendarEvent.Source.GENERAL, uid__in=echo_uids).filter(
+        Q(discord_event_id="") | Q(start_dt__lt=now)
+    ).delete()
 
 
 def sync_local_class_events() -> int:

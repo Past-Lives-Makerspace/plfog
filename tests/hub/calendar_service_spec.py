@@ -429,3 +429,45 @@ def describe_sync_discord_feed_events():
             errors = sync_all_sources()
 
         assert any("discord events" in e and "discord down" in e for e in errors)
+
+    def describe_echoes_of_our_own_google_pushed_events():
+        def it_never_pushes_an_echo_and_purges_its_row():
+            from hub.calendar_service import sync_discord_feed_events
+            from tests.membership.factories import CommunityEventFactory
+
+            CommunityEventFactory(google_ical_uid="echo-uid@google.com")
+            _feed_event(uid="echo-uid@google.com")
+            client = _events_client()
+            with _with_client(client):
+                assert sync_discord_feed_events() == 0
+
+            client.insert_event.assert_not_called()
+            assert not CalendarEvent.objects.filter(uid="echo-uid@google.com").exists()
+
+        def it_deletes_the_discord_copy_an_echo_gained_before_suppression_existed():
+            from hub.calendar_service import sync_discord_feed_events
+            from tests.membership.factories import CommunityEventFactory
+
+            CommunityEventFactory(google_ical_uid="echo-uid@google.com")
+            _feed_event(uid="echo-uid@google.com", discord_event_id="disc-echo")
+            client = _events_client()
+            with _with_client(client):
+                sync_discord_feed_events()
+
+            client.delete_event.assert_called_once_with("srv1", "disc-echo")
+            assert not CalendarEvent.objects.filter(uid="echo-uid@google.com").exists()
+
+        def it_keeps_an_echo_row_whose_discord_delete_failed_for_a_retry_next_sweep():
+            from core.integrations.discord_events import DiscordEventsError
+            from hub.calendar_service import sync_discord_feed_events
+            from tests.membership.factories import CommunityEventFactory
+
+            CommunityEventFactory(google_ical_uid="echo-uid@google.com")
+            echo = _feed_event(uid="echo-uid@google.com", discord_event_id="disc-echo")
+            client = _events_client()
+            client.delete_event.side_effect = DiscordEventsError("Discord API 500: oops")
+            with _with_client(client), pytest.raises(DiscordEventsError):
+                sync_discord_feed_events()
+
+            echo.refresh_from_db()
+            assert echo.discord_event_id == "disc-echo"

@@ -291,6 +291,22 @@ def describe_calendar_service():
             count = sync_general_calendar()
             assert count == 0
 
+        def it_skips_echoes_of_our_own_google_pushed_community_events():
+            from core.models import CalendarFeed
+            from hub.calendar_service import sync_general_calendar
+            from tests.membership.factories import CommunityEventFactory
+
+            CommunityEventFactory(google_ical_uid="event-001@test.com")
+            CalendarFeed.objects.create(
+                name="General", ical_url="https://calendar.google.com/calendar/ical/general.ics", color="#EEB44B"
+            )
+            with patch("hub.calendar_service.urllib.request.urlopen", side_effect=_fake_urlopen):
+                count = sync_general_calendar()
+
+            assert count == 1
+            assert not CalendarEvent.objects.filter(uid="event-001@test.com").exists()
+            assert CalendarEvent.objects.filter(uid="event-002@test.com").exists()
+
         def it_iterates_over_multiple_feeds():
             from core.models import CalendarFeed
             from hub.calendar_service import sync_general_calendar

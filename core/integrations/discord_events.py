@@ -31,6 +31,7 @@ clean — exactly as ``push_to_google`` does.
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -51,6 +52,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_LOCATION = "Past Lives Makerspace"
 
 _TIMEOUT_SECONDS = 5.0
+_RATE_LIMIT_MAX_WAIT_SECONDS = 15.0
 _SYNC_ERROR_MAX = 500
 _NAME_MAX = 100
 _LOCATION_MAX = 100
@@ -125,9 +127,26 @@ class DiscordScheduledEventsClient:
 
         Both a transport failure (``httpx.HTTPError``) and a non-2xx status become a
         ``DiscordEventsError``; a 2xx with an empty body (a ``DELETE`` 204) returns ``{}``.
+        A 429 is retried once after Discord's ``Retry-After`` — the scheduled-events
+        bucket is tiny, so the daily mirror's burst of ~a-dozen calls reliably trips it
+        mid-run; waiting the advertised second or two clears it. A 429 with no usable or
+        too-long ``Retry-After`` still raises.
         """
+        response = DiscordScheduledEventsClient._send(method, path, json=json)
+        if response.status_code == 429:
+            retry_after = _retry_after_seconds(response)
+            if retry_after is not None and retry_after <= _RATE_LIMIT_MAX_WAIT_SECONDS:
+                time.sleep(retry_after)
+                response = DiscordScheduledEventsClient._send(method, path, json=json)
+        if not response.is_success:
+            raise DiscordEventsError(f"Discord API {response.status_code}: {response.text[:300]}")
+        return response.json() if response.content else {}
+
+    @staticmethod
+    def _send(method: str, path: str, *, json: dict[str, Any] | None = None) -> httpx.Response:
+        """One raw REST call; only transport failures raise (as :class:`DiscordEventsError`)."""
         try:
-            response = httpx.request(
+            return httpx.request(
                 method,
                 f"{API_BASE}{path}",
                 json=json,
@@ -136,9 +155,17 @@ class DiscordScheduledEventsClient:
             )
         except httpx.HTTPError as exc:
             raise DiscordEventsError(str(exc)) from exc
-        if not response.is_success:
-            raise DiscordEventsError(f"Discord API {response.status_code}: {response.text[:300]}")
-        return response.json() if response.content else {}
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """Seconds Discord asks us to wait on a 429, or ``None`` when absent/unparseable."""
+    header = response.headers.get("Retry-After")
+    if not header:
+        return None
+    try:
+        return float(header)
+    except ValueError:
+        return None
 
 
 def _build_description(event: CommunityEvent) -> str:
