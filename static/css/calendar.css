@@ -373,6 +373,35 @@
     flex-shrink: 0;
 }
 
+/* "+N" overflow indicator as a clickable toggle — expands the day cell in place
+   to reveal every event, then flips to "Show less". */
+.pl-calendar-grid__more--toggle {
+    border: 0;
+    background: none;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: color 0.15s;
+}
+
+.pl-calendar-grid__more--toggle:hover {
+    color: var(--hub-text);
+}
+
+/* Expanded day: let the cell grow past its fixed height so the revealed chips
+   aren't clipped. The grid row grows with it. Beats the week/month height rules
+   via the doubled class selector. */
+.pl-calendar-grid__day.pl-calendar-grid__day--expanded {
+    height: auto;
+    overflow: visible;
+}
+
+.pl-calendar-grid__day--expanded .pl-calendar-grid__day-chips {
+    overflow: visible;
+}
+
 .pl-calendar-divider {
     height: 1px;
     margin: 1.5rem 0;

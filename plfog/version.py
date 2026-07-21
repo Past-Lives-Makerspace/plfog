@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.5"
+VERSION = "0.23.6"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.6",
+        "date": "2026-07-21",
+        "title": "See every event on a busy calendar day",
+        "changes": [
+            (
+                "On the Community Calendar, a packed day used to hide extra events behind a small "
+                '"+3" tag. Now you can click that tag to expand the day and see everything on it — '
+                'then click "Show less" to tuck it back. Works in both the week and month views.'
+            ),
+        ],
+    },
     {
         "version": "0.23.5",
         "date": "2026-07-21",

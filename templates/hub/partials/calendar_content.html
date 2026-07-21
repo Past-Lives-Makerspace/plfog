@@ -27,17 +27,19 @@
 {# Week grid #}
 <div class="pl-calendar-grid pl-calendar-grid--week" x-show="calView === 'week'">
     {% for day in week_days %}
-    <div class="pl-calendar-grid__day{% if day.is_today %} pl-calendar-grid__day--today{% endif %}">
+    <div class="pl-calendar-grid__day{% if day.is_today %} pl-calendar-grid__day--today{% endif %}"
+         x-data="{ expanded: false }"
+         :class="{ 'pl-calendar-grid__day--expanded': expanded }">
         <div class="pl-calendar-grid__day-header">
             <span class="pl-calendar-grid__day-name">{{ day.date|date:"D" }}</span>
             <span class="pl-calendar-grid__day-num{% if day.is_today %} pl-calendar-grid__day-num--today{% endif %}">{{ day.date|date:"j" }}</span>
         </div>
         <div class="pl-calendar-grid__day-chips">
-            {% for event in day.events|slice:":3" %}
+            {% for event in day.events %}
             {% with src=event.source_key %}
             <button type="button"
                     class="pl-calendar-grid__chip{% if event.is_in_progress %} pl-calendar-grid__chip--live{% endif %}"
-                    x-show="isActive('{{ src }}')"
+                    x-show="isActive('{{ src }}'){% if forloop.counter > 3 %} && expanded{% endif %}"
                     @click="focusEvent({{ event.pk }})"
                     @mouseenter="hoverEvent({{ event.pk }})" @mouseleave="unhoverEvent({{ event.pk }})"
                     style="--chip-color: {{ source_colors|get_item:src|default:'#888888' }};"
@@ -48,7 +50,11 @@
             {% endwith %}
             {% endfor %}
             {% if day.events|length > 3 %}
-            <span class="pl-calendar-grid__more">+{{ day.events|length|add:"-3" }}</span>
+            <button type="button"
+                    class="pl-calendar-grid__more pl-calendar-grid__more--toggle"
+                    @click="expanded = !expanded"
+                    :aria-expanded="expanded"
+                    x-text="expanded ? 'Show less' : '+{{ day.events|length|add:'-3' }}'">+{{ day.events|length|add:"-3" }}</button>
             {% endif %}
         </div>
     </div>
@@ -80,16 +86,18 @@
     <div class="pl-calendar-grid__week-header">{{ header }}</div>
     {% endfor %}
     {% for day in month_days %}
-    <div class="pl-calendar-grid__day{% if day.is_today %} pl-calendar-grid__day--today{% endif %}{% if not day.in_month %} pl-calendar-grid__day--faded{% endif %}">
+    <div class="pl-calendar-grid__day{% if day.is_today %} pl-calendar-grid__day--today{% endif %}{% if not day.in_month %} pl-calendar-grid__day--faded{% endif %}"
+         x-data="{ expanded: false }"
+         :class="{ 'pl-calendar-grid__day--expanded': expanded }">
         <div class="pl-calendar-grid__day-header">
             <span class="pl-calendar-grid__day-num{% if day.is_today %} pl-calendar-grid__day-num--today{% endif %}">{{ day.date|date:"j" }}</span>
         </div>
         <div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
-            {% for event in day.events|slice:":2" %}
+            {% for event in day.events %}
             {% with src=event.source_key %}
             <button type="button"
                     class="pl-calendar-grid__chip{% if event.is_in_progress %} pl-calendar-grid__chip--live{% endif %}"
-                    x-show="isActive('{{ src }}')"
+                    x-show="isActive('{{ src }}'){% if forloop.counter > 2 %} && expanded{% endif %}"
                     @click="focusEvent({{ event.pk }})"
                     @mouseenter="hoverEvent({{ event.pk }})" @mouseleave="unhoverEvent({{ event.pk }})"
                     style="--chip-color: {{ source_colors|get_item:src|default:'#888888' }};"
@@ -99,7 +107,11 @@
             {% endwith %}
             {% endfor %}
             {% if day.events|length > 2 %}
-            <span class="pl-calendar-grid__more">+{{ day.events|length|add:"-2" }}</span>
+            <button type="button"
+                    class="pl-calendar-grid__more pl-calendar-grid__more--toggle"
+                    @click="expanded = !expanded"
+                    :aria-expanded="expanded"
+                    x-text="expanded ? 'Show less' : '+{{ day.events|length|add:'-2' }}'">+{{ day.events|length|add:"-2" }}</button>
             {% endif %}
         </div>
     </div>
