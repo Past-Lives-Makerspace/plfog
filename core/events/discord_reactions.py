@@ -75,7 +75,9 @@ def fetch_reactors(channel_id: str, message_id: str, emoji: str) -> ReactorPage:
             return ReactorPage(user_ids=user_ids, complete=False)
         for user in page:
             user_id = str(user.get("id", "")).strip()
-            if user_id:
+            # Bot accounts (e.g. a bot seeding the reaction emojis) can never be
+            # members — skip them so downstream consumers only ever see humans.
+            if user_id and not user.get("bot", False):
                 user_ids.add(user_id)
         if len(page) < _PAGE_LIMIT:
             return ReactorPage(user_ids=user_ids, complete=True)

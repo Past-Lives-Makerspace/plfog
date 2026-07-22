@@ -51,6 +51,15 @@ def describe_fetch_reactors():
         assert page.complete is False
 
     @respx.mock
+    def it_skips_bot_reactors():
+        respx.get(url__regex=_REACTIONS_RE).mock(
+            return_value=httpx.Response(200, json=[{"id": "111", "bot": True}, {"id": "222"}])
+        )
+        page = discord_reactions.fetch_reactors("chan", "msg", "🔥")
+        assert page.user_ids == {"222"}
+        assert page.complete is True
+
+    @respx.mock
     def it_marks_incomplete_on_a_non_2xx():
         respx.get(url__regex=_REACTIONS_RE).mock(return_value=httpx.Response(500, text="boom"))
         page = discord_reactions.fetch_reactors("chan", "msg", "🔥")

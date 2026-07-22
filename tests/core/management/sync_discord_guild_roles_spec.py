@@ -18,11 +18,12 @@ def describe_sync_discord_guild_roles():
         out = StringIO()
         with patch(
             "membership.discord_sync.reconcile_reactions",
-            return_value=ReconcileStats(added=2, removed=1, skipped_guilds=0, ran=True),
+            return_value=ReconcileStats(added=2, removed=1, skipped_guilds=0, nudged=3, ran=True),
         ):
             call_command("sync_discord_guild_roles", stdout=out)
         assert "+2 added" in out.getvalue()
         assert "-1 removed" in out.getvalue()
+        assert "3 unlinked reactor(s) nudged" in out.getvalue()
 
     def it_reports_a_skip_when_unconfigured():
         out = StringIO()

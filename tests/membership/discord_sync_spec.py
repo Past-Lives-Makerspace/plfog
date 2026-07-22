@@ -19,7 +19,7 @@ from factory.django import mute_signals
 
 from membership import discord_sync
 from membership.discord_sync import LinkOutcome
-from membership.models import GuildMembership
+from membership.models import DiscordLinkNudge, GuildMembership
 from tests.membership.factories import DiscordGuildEmojiFactory, GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
@@ -29,6 +29,8 @@ _ROLE_RE = r"https://discord\.com/api/v10/guilds/.+/members/.+/roles/.+"
 _TOKEN_URL = "https://discord.com/api/v10/oauth2/token"
 _IDENTITY_URL = "https://discord.com/api/v10/users/@me"
 _REDIRECT = "http://pastlives.test:8000/discord/link/callback/"
+_DM_CHANNELS_URL = "https://discord.com/api/v10/users/@me/channels"
+_DM_MESSAGES_URL = "https://discord.com/api/v10/channels/dm99/messages"
 
 
 @pytest.fixture
@@ -60,6 +62,14 @@ def _mock_reactions(reactors_by_emoji, *, flaky=()):
 def _mock_roles():
     respx.put(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
     respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+
+
+def _mock_dm(message_response: httpx.Response | None = None):
+    """Mock the two DM calls (open channel → post message); returns the message route."""
+    respx.post(_DM_CHANNELS_URL).mock(return_value=httpx.Response(200, json={"id": "dm99"}))
+    return respx.post(_DM_MESSAGES_URL).mock(
+        return_value=message_response if message_response is not None else httpx.Response(200, json={"id": "m1"})
+    )
 
 
 def _verified_member(email: str, *, discord_user_id: str = ""):
@@ -156,6 +166,7 @@ def describe_reconcile_reactions():
     def it_ignores_a_reactor_with_no_linked_member(sync_config):
         DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
         _mock_reactions({"🔥": ["unknown-id"]})
+        _mock_dm()  # the unlinked reactor gets the one-time nudge, never a membership
         stats = discord_sync.reconcile_reactions()
         assert stats.added == 0
 
@@ -204,6 +215,79 @@ def describe_reconcile_reactions():
         assert stats.added == 2  # both members joined the one Glass guild
         assert GuildMembership.objects.filter(guild=glass, member=m1).exists()
         assert GuildMembership.objects.filter(guild=glass, member=m2).exists()
+
+
+def describe_reconcile_nudges_unlinked_reactors():
+    @respx.mock
+    def it_dms_a_one_time_nudge_with_the_absolute_link_url(sync_config, settings):
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        _mock_reactions({"🔥": ["stranger"]})
+        msg = _mock_dm()
+        stats = discord_sync.reconcile_reactions()
+        assert stats.nudged == 1
+        assert msg.called
+        body = msg.calls.last.request.read().decode()
+        assert "halfway there" in body
+        assert f"{settings.MEMBER_BASE_URL}/discord/link/" in body  # absolute, not a bare path
+        assert DiscordLinkNudge.objects.filter(discord_user_id="stranger").exists()
+
+    @respx.mock
+    def it_does_not_dm_the_same_reactor_twice(sync_config):
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        _mock_reactions({"🔥": ["stranger"]})
+        msg = _mock_dm()
+        discord_sync.reconcile_reactions()
+        stats = discord_sync.reconcile_reactions()  # the next 15-minute tick
+        assert stats.nudged == 0
+        assert msg.call_count == 1
+        assert DiscordLinkNudge.objects.count() == 1
+
+    @respx.mock
+    def it_never_nudges_a_linked_reactor(sync_config):
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        MemberFactory(discord_user_id="u1")
+        _mock_reactions({"🔥": ["u1"]})
+        msg = _mock_dm()
+        stats = discord_sync.reconcile_reactions()
+        assert stats.nudged == 0
+        assert not msg.called
+        assert not DiscordLinkNudge.objects.exists()
+
+    @respx.mock
+    def it_marks_the_reactor_nudged_when_their_dms_are_closed(sync_config):
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        _mock_reactions({"🔥": ["stranger"]})
+        _mock_dm(message_response=httpx.Response(403, json={"code": 50007, "message": "Cannot send messages"}))
+        stats = discord_sync.reconcile_reactions()  # swallowed — never raises
+        assert stats.nudged == 1
+        assert DiscordLinkNudge.objects.filter(discord_user_id="stranger").exists()  # never retried
+
+    @respx.mock
+    def it_raises_and_leaves_the_reactor_unmarked_on_any_other_dm_error(sync_config):
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        _mock_reactions({"🔥": ["stranger"]})
+        _mock_dm(message_response=httpx.Response(500, text="boom"))
+        with pytest.raises(httpx.HTTPStatusError):
+            discord_sync.reconcile_reactions()
+        assert not DiscordLinkNudge.objects.exists()  # unmarked → retried next tick
+
+    @respx.mock
+    def it_does_not_nudge_during_a_members_own_import(sync_config):
+        # import_member_guilds only ever looks at the linking member's reactions —
+        # other unlinked reactors on the message are the reconcile cron's business.
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        member = MemberFactory(discord_user_id="u1")
+        _mock_reactions({"🔥": ["u1", "stranger"]})
+        _mock_roles()
+        msg = _mock_dm()
+        discord_sync.import_member_guilds(member)
+        assert not msg.called
+        assert not DiscordLinkNudge.objects.exists()
+
+
+def describe_DiscordLinkNudge():
+    def it_renders_the_nudged_discord_user_id():
+        assert str(DiscordLinkNudge(discord_user_id="42")) == "Link nudge → 42"
 
 
 def describe_link_and_import():

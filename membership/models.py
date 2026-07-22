@@ -3262,6 +3262,36 @@ class DiscordGuildEmoji(models.Model):
         return f"{self.emoji} → {self.guild.name}"
 
 
+class DiscordLinkNudge(models.Model):
+    """The one-time "you're halfway there" DM guard for the reaction sync.
+
+    A Discord user who reacts on the role message but has no linked member gets ONE DM
+    telling them their guild pick won't count until they link their Past Lives account.
+    A row here means that nudge was handled for that Discord user — sent, or skipped
+    because their DMs are closed — and must never be sent again, even if they later
+    link and unlink. Rows are written only by :func:`membership.discord_sync.reconcile_reactions`.
+    """
+
+    discord_user_id = models.CharField(
+        max_length=32,
+        help_text=(
+            "The Discord account id (snowflake) of the reactor who was nudged to link their Past Lives "
+            "account. One nudge ever per Discord user."
+        ),
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="When the nudge DM was sent (or skipped because the user's DMs are closed)."
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["discord_user_id"], name="uq_discordlinknudge_discord_user_id"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Link nudge → {self.discord_user_id}"
+
+
 class SkillCategory(models.Model):
     """A grouping of related skills shown in the skills picker and directory filter."""
 
