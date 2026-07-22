@@ -8,6 +8,7 @@ exercised through ``respx``.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -262,31 +263,68 @@ def describe__build_scheduled_event_body():
 
 @pytest.mark.django_db
 def describe__recurrence_rule_for():
-    def _event(recurrence, **kwargs) -> CommunityEvent:
+    def _event(recurrence: str, **kwargs: Any) -> CommunityEvent:
         return CommunityEventFactory(recurrence=recurrence, **kwargs)
 
-    def it_returns_none_for_a_one_off():
+    def _anchored(recurrence: str, year: int, month: int, day: int) -> CommunityEvent:
+        """An event anchored to an explicit LOCAL calendar date.
+
+        The rule a monthly event produces depends entirely on where its anchor sits in its
+        own month, so the anchor must never be derived from ``timezone.now()`` — the factory
+        default (``now + 7 days``) silently drifts across weekday ordinals and made these
+        specs pass or fail depending on the day they were run.
+        """
+        start = timezone.make_aware(datetime(year, month, day, 12, 0))
+        return _event(recurrence, starts_at=start, ends_at=start + timedelta(hours=1))
+
+    def it_returns_none_for_a_one_off() -> None:
         assert de._recurrence_rule_for(_event(CommunityEvent.Recurrence.NONE)) is None
 
-    def it_maps_weekly_to_a_single_weekday_rule():
-        event = _event(CommunityEvent.Recurrence.WEEKLY)
-        weekday = timezone.localtime(event.starts_at).weekday()
-        assert de._recurrence_rule_for(event) == {"frequency": 2, "interval": 1, "by_weekday": [weekday]}
+    def it_maps_weekly_to_a_single_weekday_rule() -> None:
+        # Wed 2026-07-08; Discord's by_weekday uses Python's 0=Monday … 6=Sunday encoding.
+        event = _anchored(CommunityEvent.Recurrence.WEEKLY, 2026, 7, 8)
+        assert de._recurrence_rule_for(event) == {"frequency": 2, "interval": 1, "by_weekday": [2]}
 
-    def it_maps_monthly_to_an_nth_weekday_rule():
-        event = _event(CommunityEvent.Recurrence.MONTHLY)
-        weekday = timezone.localtime(event.starts_at).weekday()
-        rule = de._recurrence_rule_for(event)
-        assert rule["frequency"] == 1
-        assert rule["interval"] == 1
-        assert rule["by_n_weekday"] == [{"n": event._occurrence_ordinal(), "day": weekday}]
+    @pytest.mark.parametrize(
+        ("day", "expected_n", "expected_weekday"),
+        [
+            (1, 1, 2),  # Wed 2026-07-01 — the 1st Wednesday
+            (6, 1, 0),  # Mon 2026-07-06 — the 1st Monday (weekday 0)
+            (8, 2, 2),  # Wed 2026-07-08 — the 2nd Wednesday
+            (15, 3, 2),  # Wed 2026-07-15 — the 3rd Wednesday
+            (22, 4, 2),  # Wed 2026-07-22 — the 4th Wednesday
+            (29, 5, 2),  # Wed 2026-07-29 — the 5th Wednesday: model ordinal -1 → Discord n=5
+        ],
+    )
+    def it_maps_monthly_to_an_nth_weekday_rule(day: int, expected_n: int, expected_weekday: int) -> None:
+        event = _anchored(CommunityEvent.Recurrence.MONTHLY, 2026, 7, day)
+        assert de._recurrence_rule_for(event) == {
+            "frequency": 1,
+            "interval": 1,
+            "by_n_weekday": [{"n": expected_n, "day": expected_weekday}],
+        }
 
-    def it_maps_a_last_weekday_ordinal_to_discord_5():
-        # A start on the 5th occurrence of its weekday → model ordinal -1 → Discord n=5.
-        start = timezone.make_aware(datetime(2026, 7, 29, 12, 0))
-        event = _event(CommunityEvent.Recurrence.MONTHLY, starts_at=start, ends_at=start + timedelta(hours=1))
+    def it_maps_a_last_weekday_ordinal_to_discord_5() -> None:
+        # Wed 2026-07-29 is the 5th (and last) Wednesday → model ordinal -1 → Discord n=5.
+        # Discord documents by_n_weekday.n as an int in 1–5 with no negative "last" form, so
+        # the model's -1 MUST be re-encoded; passing -1 straight through would be a hard 400.
+        event = _anchored(CommunityEvent.Recurrence.MONTHLY, 2026, 7, 29)
         assert event._occurrence_ordinal() == -1
         assert de._recurrence_rule_for(event)["by_n_weekday"][0]["n"] == 5
+
+    def it_maps_a_4th_weekday_that_is_also_the_months_last_to_discord_4() -> None:
+        # The other side of "last": Sat 2026-02-28 is both the 4th AND the final Saturday of
+        # February. Discord is told where the anchor sits (n=4), not "last" — so the series
+        # keeps landing on the 4th Saturday in months that happen to have five.
+        event = _anchored(CommunityEvent.Recurrence.MONTHLY, 2026, 2, 28)
+        assert event._occurrence_ordinal() == 4
+        assert de._recurrence_rule_for(event)["by_n_weekday"][0]["n"] == 4
+
+    def it_keeps_every_calendar_anchor_inside_discords_1_to_5_range() -> None:
+        # Every day of a 31-day month — no calendar position may produce an n Discord rejects.
+        for day in range(1, 32):
+            rule = de._recurrence_rule_for(_anchored(CommunityEvent.Recurrence.MONTHLY, 2026, 7, day))
+            assert 1 <= rule["by_n_weekday"][0]["n"] <= 5
 
     @pytest.mark.parametrize(
         "recurrence",
@@ -298,8 +336,8 @@ def describe__recurrence_rule_for():
             CommunityEvent.Recurrence.YEARLY,
         ],
     )
-    def it_returns_none_for_the_unmappable_cadences(recurrence):
-        assert de._recurrence_rule_for(_event(recurrence)) is None
+    def it_returns_none_for_the_unmappable_cadences(recurrence: str) -> None:
+        assert de._recurrence_rule_for(_anchored(recurrence, 2026, 7, 29)) is None
 
 
 @pytest.mark.django_db
