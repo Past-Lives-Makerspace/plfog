@@ -2,9 +2,34 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.20"
+VERSION = "0.23.21"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.21",
+        "date": "2026-07-22",
+        "title": "Important notices now reach you by email, not just the bell",
+        "changes": [
+            (
+                "A handful of things that really matter were only ever showing up as a "
+                "notification in the app, so they were easy to miss. From now on they email you "
+                "too: a class you booked being cancelled, a refund going out, a charge an admin "
+                "adds to your tab, your tab getting close to its limit, and your studio lease "
+                "coming up for renewal. Each one now spells out the details — which class, how "
+                "much, which space, what date — instead of a one-line nudge."
+            ),
+            (
+                "Booked a class as a guest, without a Past Lives account? Cancellation and refund "
+                "emails now reach you too. Before, they only went to people with accounts, so "
+                "guests heard nothing at all."
+            ),
+            (
+                "Fixed: if you'd invited more than one person to Past Lives, only the very first "
+                "acceptance ever notified you. Every invite you send now tells you when it's "
+                "accepted."
+            ),
+        ],
+    },
     {
         "version": "0.23.20",
         "date": "2026-07-22",
