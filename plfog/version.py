@@ -2,9 +2,28 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.16"
+VERSION = "0.23.17"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.17",
+        "date": "2026-07-21",
+        "title": "Guild-funding voting comes to Discord: /voting and /vote",
+        "changes": [
+            (
+                "Type /voting in the Past Lives Discord to see this month's live guild-funding "
+                "standings as a bar graph — every guild (even the ones still at zero), medals for "
+                "the top three, and when the cycle closes. The standings reply is visible to "
+                "everyone in the channel, so anyone can check the race at a glance."
+            ),
+            (
+                "With /vote you can cast or change your ballot without leaving Discord — pick "
+                "your 1st, 2nd, and 3rd choice guilds from the dropdowns and it saves instantly, "
+                "exactly like voting on the page. Your own picks stay private: only you see the "
+                "/vote reply."
+            ),
+        ],
+    },
     {
         "version": "0.23.16",
         "date": "2026-07-21",
@@ -35,24 +54,6 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             (
                 "Instructors: there's a new Sale section on your class edit page — flip the toggle, "
                 "pick the discount, and optionally write your own banner headline."
-            ),
-        ],
-    },
-    {
-        "version": "0.23.13",
-        "date": "2026-07-21",
-        "title": "Guild-funding voting comes to Discord: /voting and /vote",
-        "changes": [
-            (
-                "Type /voting in the Past Lives Discord to see this month's live guild-funding "
-                "standings as a bar graph — every guild (even the ones still at zero), medals for "
-                "the top three, and when the cycle closes — plus your own three ranked picks, or a "
-                "nudge if you haven't voted yet. Only you can see the reply."
-            ),
-            (
-                "And with /vote you can cast or change your ballot without leaving Discord — pick "
-                "your 1st, 2nd, and 3rd choice guilds from the dropdowns and it saves instantly, "
-                "exactly like voting on the page."
             ),
         ],
     },

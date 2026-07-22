@@ -26,7 +26,7 @@ from core.events.discord_replies import (
 )
 
 if TYPE_CHECKING:
-    from membership.models import Guild, GuildOrientationSettings, Member, MemberQuerySet, VotePreference
+    from membership.models import Guild, GuildOrientationSettings, Member, MemberQuerySet
     from membership.vote_calculator import VoteStanding
 
 logger = logging.getLogger(__name__)
@@ -476,39 +476,20 @@ def _standings_block(standings: list[VoteStanding], zero_point_names: list[str])
     return "\n".join(lines)
 
 
-def _ballot_block(preference: VotePreference | None) -> str:
-    """The member's own three ranked choices — or the "you haven't voted yet" nudge."""
-    from membership.vote_calculator import WEIGHTS
-
-    if preference is None:
-        return (
-            "**Your ballot**\n"
-            "You haven't voted yet — your three ranked choices help decide where this month's "
-            "funding pool goes. It takes 30 seconds on the voting page below."
-        )
-    return (
-        "**Your ballot**\n"
-        f"1st — {preference.guild_1st.name} · {WEIGHTS['1st']} pts\n"
-        f"2nd — {preference.guild_2nd.name} · {WEIGHTS['2nd']} pts\n"
-        f"3rd — {preference.guild_3rd.name} · {WEIGHTS['3rd']} pts\n"
-        f"_Last updated {format_local(preference.updated_at)}_"
-    )
-
-
 def _voting(interaction: Interaction, member: Member | None) -> dict:
-    """This month's live guild-funding standings + the member's own ballot, as one ephemeral embed.
+    """This month's live guild-funding standings as one **public** embed.
 
-    Read-only: check the race and confirm your ballot without leaving Discord; the link button
-    is the change-your-vote path (the page owns the form). No writes, no notifications.
+    Visible to everyone in the channel, so it carries no personal data: the member's own
+    ballot is deliberately absent (a `/vote` nudge points at the private path instead —
+    that reply is ephemeral). Read-only: the link button is the change-your-vote path
+    (the page owns the form). No writes, no notifications.
     """
     from membership.cycle import get_cycle_context
     from membership.models import Guild
     from membership.vote_calculator import WEIGHTS, compute_live_standings
 
-    member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
     standings = compute_live_standings()
     cycle = get_cycle_context()
-    preference: VotePreference | None = getattr(member, "vote_preference", None)
 
     # The shared tally (hub page included) drops zero-point guilds; here every active guild
     # renders so the whole field is visible — the voteless ones follow the ranked rows.
@@ -520,7 +501,7 @@ def _voting(interaction: Interaction, member: Member | None) -> dict:
         "Your votes decide how the monthly funding pool is split. "
         f"This cycle closes **{cycle['cycle_closes_on']}**."
         f"\n\n{_standings_block(standings, zero_point_names)}"
-        f"\n\n{_ballot_block(preference)}",
+        "\n\nSet or change your own picks with `/vote` — only you see that reply.",
         _EMBED_DESCRIPTION_LIMIT,
     )
     footer = f"Weighting: 1st = {WEIGHTS['1st']} pts · 2nd = {WEIGHTS['2nd']} pts · 3rd = {WEIGHTS['3rd']} pts"
@@ -535,15 +516,15 @@ def _voting(interaction: Interaction, member: Member | None) -> dict:
             {"type": 2, "style": 5, "label": "Open the voting page", "url": hub_url("hub_guild_voting")},
         ],
     }
-    return reply("", ephemeral=True, embeds=[embed], components=[button_row])
+    return reply("", ephemeral=False, embeds=[embed], components=[button_row])
 
 
 VOTING = SlashCommand(
     name="voting",
-    description="See this month's live guild-funding standings and your ballot.",
+    description="See this month's live guild-funding standings.",
     handler=_voting,
     requires_link=True,
-    ephemeral=True,
+    ephemeral=False,
     defer=False,
     scope="guild",
 )
