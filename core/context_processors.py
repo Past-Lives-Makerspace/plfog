@@ -97,9 +97,15 @@ def google_analytics(request: HttpRequest) -> dict[str, str]:
 
 
 def notification_badge(request: HttpRequest) -> dict[str, int]:
-    """Unread notification count for the topbar bell. 0 for anonymous users."""
-    user = request.user
-    if not user.is_authenticated:
+    """Unread notification count for the topbar bell. 0 for anonymous users.
+
+    ``request.user`` is read defensively. ``SurfaceMiddleware`` short-circuits member-only
+    paths on the guest surfaces with an ``Http404`` *before* ``AuthenticationMiddleware``
+    has run, and the themed ``templates/404.html`` renders every context processor — so on
+    those responses the attribute does not exist yet. Same guard as ``persona`` below.
+    """
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
         return {"unread_notification_count": 0}
     from core.models import Notification
 
