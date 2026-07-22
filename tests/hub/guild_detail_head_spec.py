@@ -26,7 +26,7 @@ GUILDS_SETTINGS = dict(
 
 
 def _guest_head(client: Client, guild):
-    return client.get(f"/guilds/{guild.slug}/", HTTP_HOST=GUILDS_HOST).content.decode()
+    return client.get(guild.public_path, HTTP_HOST=GUILDS_HOST).content.decode()
 
 
 def describe_guild_page_head():
@@ -46,7 +46,7 @@ def describe_guild_page_head():
     def it_emits_absolute_open_graph_and_canonical_tags(client: Client):
         guild = GuildFactory(name="Head Guild", about="We turn bowls and spoons.")
         head = _guest_head(client, guild)
-        url = f"{GUILDS_BASE_URL}/guilds/{guild.slug}/"
+        url = guild.public_url  # the canonical short public URL, e.g. .../head/
         assert f'<link rel="canonical" href="{url}">' in head
         assert 'property="og:title" content="Head Guild — Past Lives Guilds"' in head
         assert "We turn bowls and spoons." in head  # og:description from about
@@ -64,4 +64,7 @@ def describe_guild_page_head():
         guild = GuildFactory(name="Head Guild")
         head = client.get(f"/guilds/{guild.slug}/").content.decode()  # default host -> members
         assert 'property="og:title"' not in head
+        # The canonical tag DOES stay: the member-hub copy must not compete in search
+        # with the public page it duplicates.
+        assert f'<link rel="canonical" href="{guild.public_url}">' in head
         assert "calendar.css" in head  # still present via the empty block.super on hub/base.html

@@ -27,11 +27,15 @@
     </div>
   </section>
 
+  {% comment %}
+  card_path is set by the view: the short root-level slug (/woodworking/) on the guilds
+  host, the member-hub path (/guilds/woodworking-guild/) on FOG. Never hand-build it.
+  {% endcomment %}
   {% if guilds %}
   <div class="cls-grid pl-guild-dir__grid">
     {% for guild in guilds %}
     <div class="cls-card">
-      <a href="{% url 'hub_guild_detail' guild.slug %}" class="cls-media" aria-label="{{ guild.name }}">
+      <a href="{{ guild.card_path }}" class="cls-media" aria-label="{{ guild.name }}">
         {% if guild.banner_image %}
         <img class="cls-img" src="{{ guild.banner_image.url }}" alt="{{ guild.name }}">
         {% else %}
@@ -44,7 +48,7 @@
         {% if guild.is_featured %}<span class="pl-guild-dir__star">★ Featured</span>{% endif %}
       </a>
       <div class="cls-body">
-        <a href="{% url 'hub_guild_detail' guild.slug %}" class="cls-title">{{ guild.name }}</a>
+        <a href="{{ guild.card_path }}" class="cls-title">{{ guild.name }}</a>
         {% if guild.guild_lead %}<div class="cls-inst">Led by {{ guild.guild_lead.display_name }}</div>{% endif %}
         {% if guild.about %}<p class="pl-guild-dir__blurb">{{ guild.about|striptags|truncatewords:18 }}</p>{% endif %}
         <div class="pl-guild-dir__meta">

@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, cast
+from urllib.parse import quote
 
 from django.utils import timezone as dj_timezone
 
@@ -18,7 +19,14 @@ from django.contrib.auth.views import redirect_to_login
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, QuerySet
 from django.forms import BaseInlineFormSet
-from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import (
+    Http404,
+    HttpRequest,
+    HttpResponse,
+    HttpResponsePermanentRedirect,
+    JsonResponse,
+    StreamingHttpResponse,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -384,16 +392,53 @@ def _guild_pulse(guild: "Guild", limit: int = 6) -> list[dict[str, Any]]:
 def guild_detail_redirect(request: HttpRequest, pk: int) -> HttpResponse:
     """301 an old numeric guild URL (/guilds/<id>/) to its slug URL — keeps shared links alive."""
     guild = get_object_or_404(Guild, pk=pk)
+    if _is_guilds_surface(request):
+        # One hop straight to the guilds-host canonical (/woodworking/), not via the
+        # members-host shape, so shared numeric links don't chain two redirects.
+        return HttpResponsePermanentRedirect(guild.public_path)
     return redirect("hub_guild_detail", slug=guild.slug, permanent=True)
+
+
+def _is_guilds_surface(request: HttpRequest) -> bool:
+    """True when this request arrived on the public guilds host."""
+    return getattr(request, "surface", "members") == "guilds"
+
+
+def _guild_login_url(request: HttpRequest, guild: Guild) -> str:
+    """Where a logged-out visitor goes to act on this guild, with a ``next`` back to it.
+
+    Production leaves ``COOKIE_DOMAIN`` unset, so session cookies are host-only: a login
+    completed on the guilds host would NOT be shared with the member hub, and every gated
+    action (join, leave, buy, orientation, contacting the lead) ultimately lives on the
+    hub anyway. Guests on the guilds surface are therefore sent to the hub's login with
+    ``next`` pointing at the identical guild page over there — same view, same template,
+    so they land exactly where they were. On the hub itself the ordinary relative login
+    URL with the current path is used.
+    """
+    hub_path = reverse("hub_guild_detail", args=[guild.slug])
+    login_path = reverse("account_login")
+    if _is_guilds_surface(request):
+        return f"{settings.MEMBER_BASE_URL}{login_path}?next={quote(hub_path)}"
+    return f"{login_path}?next={quote(request.get_full_path())}"
 
 
 def guild_directory(request: HttpRequest) -> HttpResponse:
     """Public guild directory — featured guilds first, then alphabetical.
 
-    Renders in guest chrome on the guilds surface (guilds.pastlives.app); the
-    sidebar context is ignored there but keeps parity on the members host.
+    Renders in guest chrome on the guilds surface (guilds.pastlives.space); the
+    sidebar context is ignored there but keeps parity on the members host. Guilds
+    that opted out of a public page are listed on the hub but not on the public site.
     """
-    guilds = Guild.objects.directory().select_related("guild_lead").annotate(member_total=Count("memberships"))
+    on_guilds_surface = _is_guilds_surface(request)
+    guilds = list(
+        Guild.objects.directory(public_only=on_guilds_surface)
+        .select_related("guild_lead")
+        .annotate(member_total=Count("memberships"))
+    )
+    # Each card links to the guild page on the surface it is being rendered on: the short
+    # root-level slug publicly, the member-hub path on FOG.
+    for guild in guilds:
+        guild.card_path = guild.public_path if on_guilds_surface else reverse("hub_guild_detail", args=[guild.slug])
     ctx = _get_hub_context(request)
     hero_stats = {
         "guilds": len(guilds),
@@ -406,7 +451,13 @@ def guild_directory(request: HttpRequest) -> HttpResponse:
 
 
 def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
-    """Guild detail page — shows about text, active products, and cart interface."""
+    """Guild detail page — shows about text, active products, and cart interface.
+
+    Serves both hosts from one view and one template: on the member hub at
+    ``/guilds/<slug>/``, and on the public guilds host at the short root-level
+    ``/<public-slug>/`` (the middleware rewrites that onto this route). What differs
+    between them is auth state, not content.
+    """
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm, build_product_split_formset
     from billing.models import Product
 
@@ -418,6 +469,16 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         ),
         slug=slug,
     )
+    on_guilds_surface = _is_guilds_surface(request)
+    if on_guilds_surface:
+        if not guild.is_public:
+            # A deliberately withheld page, not a missing one: 403 keeps it out of search
+            # indexes and off aggregators while still telling a human what happened.
+            return render(request, "hub/guild_private.html", {"guild": guild}, status=403)
+        if request.path != guild.public_path:
+            # One canonical public URL per guild. The long /guilds/<slug>/ shape and the
+            # un-stripped /<slug>-guild/ shape both 301 to it rather than duplicating it.
+            return HttpResponsePermanentRedirect(guild.public_path)
     ctx = _get_hub_context(request)
     products = guild.products.order_by("name").prefetch_related("splits__guild")
     member = _get_member(request)
@@ -431,7 +492,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # Editor affordances never render on the guest guilds surface: a logged-in
     # lead there would otherwise see Edit / Adjust / product-admin buttons that
     # 404 (the editor endpoints aren't in the guilds allowlist). Leads edit on FOG.
-    can_edit_this_guild = _can_edit_guild(request, guild) and getattr(request, "surface", "members") != "guilds"
+    can_edit_this_guild = _can_edit_guild(request, guild) and not on_guilds_surface
     product_form = None
     product_splits_formset = None
     all_guilds = None
@@ -524,6 +585,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "show_orientation": show_orientation,
             "orientation_slots": orientation_slots,
             "custom_request_form": custom_request_form,
+            "guild_login_url": _guild_login_url(request, guild),
         },
     )
 

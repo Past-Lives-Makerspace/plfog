@@ -1,4 +1,4 @@
-"""BDD specs for the guest guild page rendered on the guilds surface (guilds.pastlives.app).
+"""BDD specs for the guest guild page rendered on the guilds surface (guilds.pastlives.space).
 
 Covers the reviewer MUST/SHOULD-FIXes: roster privacy (#1), absolute class links + no
 Teach button (#3), no editor affordances for a lead (#4), lead-contact privacy (#7),
@@ -16,7 +16,9 @@ from classes.factories import ClassOfferingFactory
 from membership.models import GuildMembership
 from tests.billing.factories import ProductFactory
 from tests.membership.factories import (
+    GuildAnnouncementFactory,
     GuildFactory,
+    GuildMeetingNoteFactory,
     GuildOrientationSettingsFactory,
     MemberFactory,
     MembershipPlanFactory,
@@ -25,11 +27,15 @@ from tests.membership.factories import (
 
 pytestmark = pytest.mark.django_db
 
-GUILDS_HOST = "guilds.pastlives.app"
+GUILDS_HOST = "guilds.pastlives.space"
+# Host-only session cookies mean a guest cannot act on the guilds host: every
+# logged-out call to action points at the member hub's login, returning them to the
+# identical guild page there.
+LOGIN = "https://members.pastlives.app/accounts/login/?next=/guilds/"
 GUILDS_SETTINGS = dict(
-    ALLOWED_HOSTS=["guilds.pastlives.app", "members.pastlives.space", "book.pastlives.space", "testserver"],
-    GUILDS_HOSTS=["guilds.pastlives.app"],
-    GUILDS_BASE_URL="https://guilds.pastlives.app",
+    ALLOWED_HOSTS=["guilds.pastlives.space", "members.pastlives.space", "book.pastlives.space", "testserver"],
+    GUILDS_HOSTS=["guilds.pastlives.space"],
+    GUILDS_BASE_URL="https://guilds.pastlives.space",
     MEMBER_BASE_URL="https://members.pastlives.app",
     BOOK_BASE_URL="https://book.pastlives.space",
 )
@@ -46,7 +52,8 @@ def _login_member(client: Client, *, username: str = "gm", name: str = "Viewer M
 
 
 def _guest_get(client: Client, guild):
-    return client.get(f"/guilds/{guild.slug}/", HTTP_HOST=GUILDS_HOST)
+    """GET the guild's canonical public URL — the short root-level slug on the guilds host."""
+    return client.get(guild.public_path, HTTP_HOST=GUILDS_HOST)
 
 
 def describe_guest_guild_page():
@@ -134,7 +141,7 @@ def describe_guest_guild_page():
             assert b"guildCart(" not in body
             assert b"cart/confirm" not in body
             assert b"Add to Cart" not in body
-            assert f"https://members.pastlives.app/guilds/{guild.slug}/".encode() in body
+            assert f"{LOGIN}{guild.slug}/".encode() in body  # anon: log in on the hub to shop
 
         def it_suppresses_cart_for_a_logged_in_member_too(client: Client):
             guild = GuildFactory(name="Shop Guild")
@@ -196,7 +203,9 @@ def describe_guest_guild_page():
             OrientationSlotFactory(guild=guild)
             body = _guest_get(client, guild).content.decode()
             assert "Log in to book" in body
-            assert f"?next=/guilds/{guild.slug}/" in body
+            # Host-only cookies: the login lives on the member hub and returns the
+            # visitor to the identical guild page there.
+            assert f"{LOGIN}{guild.slug}/" in body
 
         def it_wraps_the_member_custom_time_field_in_a_themed_form_group(client: Client):
             # MUST-FIX #5: the datetime field renders inside .pl-form-group, which
@@ -233,19 +242,124 @@ def describe_guest_guild_page():
             assert "://" not in resp["Location"]
             assert GuildMembership.objects.filter(guild=guild, member=member).exists()
 
+    def describe_meeting_notes_are_never_public():
+        """The blocker: meeting notes are internal, and the guest surface must not leak them."""
+
+        def it_omits_meeting_note_content_from_an_anonymous_guest(client: Client):
+            guild = GuildFactory(name="Notes Guild")
+            GuildMeetingNoteFactory(
+                guild=guild,
+                title="Budget argument, June",
+                body="We agreed to raise the kiln levy.",
+            )
+            body = _guest_get(client, guild).content
+            assert b"Budget argument, June" not in body
+            assert b"raise the kiln levy" not in body
+            assert b"section = 'notes'" not in body  # not even the tab button
+
+        def it_shows_meeting_notes_to_a_logged_in_member(client: Client):
+            guild = GuildFactory(name="Notes Guild")
+            GuildMeetingNoteFactory(guild=guild, title="Budget argument, June", body="Levy raised.")
+            _login_member(client)
+            body = _guest_get(client, guild).content
+            assert b"Budget argument, June" in body
+
+        def it_omits_meeting_notes_from_an_anonymous_visitor_on_the_members_host(client: Client):
+            # The guild page is reachable without a login on the member host too, so the
+            # gate is on authentication, not on the surface.
+            guild = GuildFactory(name="Notes Guild")
+            GuildMeetingNoteFactory(guild=guild, title="Budget argument, June", body="Levy raised.")
+            assert b"Budget argument, June" not in client.get(f"/guilds/{guild.slug}/").content
+
+    def describe_announcements_are_member_facing():
+        def it_hides_guild_announcements_from_anonymous_guests(client: Client):
+            guild = GuildFactory(name="News Guild")
+            GuildAnnouncementFactory(guild=guild, title="Door code changed", body="It is now 4321.")
+            body = _guest_get(client, guild).content
+            assert b"Door code changed" not in body
+            assert b"It is now 4321." not in body
+
+        def it_shows_guild_announcements_to_a_logged_in_member(client: Client):
+            guild = GuildFactory(name="News Guild")
+            GuildAnnouncementFactory(guild=guild, title="Door code changed", body="It is now 4321.")
+            _login_member(client)
+            assert b"Door code changed" in _guest_get(client, guild).content
+
+    def describe_activity_pulse():
+        def it_is_hidden_from_anonymous_visitors_on_the_members_host(client: Client):
+            # (Assert on the feed's own text, not the heading: the "what's new" widget
+            # echoes the changelog, which mentions the Recent Activity feature by name.)
+            guild = GuildFactory(name="Pulse Guild")
+            GuildMembership.objects.create(guild=guild, member=MemberFactory(full_legal_name="Pia Pulse"))
+            assert b"Pia Pulse joined" not in client.get(f"/guilds/{guild.slug}/").content
+
+        def it_is_shown_to_a_logged_in_member_on_the_members_host(client: Client):
+            guild = GuildFactory(name="Pulse Guild")
+            GuildMembership.objects.create(guild=guild, member=MemberFactory(full_legal_name="Pia Pulse"))
+            _login_member(client)
+            assert b"Pia Pulse joined" in client.get(f"/guilds/{guild.slug}/").content
+
+    def describe_logged_out_interactions():
+        def it_sends_join_to_the_member_hub_login_with_a_next_back_to_this_guild(client: Client):
+            guild = GuildFactory(name="Join Guild")
+            body = _guest_get(client, guild).content.decode()
+            assert f"{LOGIN}{guild.slug}/" in body
+
+        def it_sends_a_would_be_shopper_to_the_member_hub_login(client: Client):
+            guild = GuildFactory(name="Shop Guild")
+            ProductFactory(guild=guild, name="Kiln Time")
+            body = _guest_get(client, guild).content.decode()
+            assert "Log in on the members hub to shop" in body
+            assert f"{LOGIN}{guild.slug}/" in body
+
+        def it_offers_a_login_route_to_contact_a_lead_with_no_public_address(client: Client):
+            guild, _lead = _guild_with_contactable_lead(name="Quiet Guild")
+            body = _guest_get(client, guild).content.decode()
+            assert "Log in to contact the guild lead" in body
+
     def describe_guild_visibility():
-        # Every active guild is public and visible on every surface — the old
-        # is_public gate is gone, so the only way to hide a guild is is_active off.
-        def it_shows_an_active_guild_to_anonymous_guests(client: Client):
+        def it_shows_a_public_guild_to_anonymous_guests(client: Client):
             guild = GuildFactory(name="Open Guild")
             assert _guest_get(client, guild).status_code == 200
 
-        def it_shows_an_active_guild_to_a_logged_in_member_on_the_hub(client: Client):
+        def it_shows_a_public_guild_to_a_logged_in_member_on_the_hub(client: Client):
             guild = GuildFactory(name="Open Guild")
             _login_member(client)
             resp = client.get(f"/guilds/{guild.slug}/")  # default host -> members surface
             assert resp.status_code == 200
             assert b"Open Guild" in resp.content
+
+        def describe_when_the_lead_has_made_the_page_private():
+            def it_serves_a_friendly_403_notice_instead_of_the_page(client: Client):
+                guild = GuildFactory(name="Quiet Guild", is_public=False, about="Secret handshakes.")
+                resp = _guest_get(client, guild)
+                assert resp.status_code == 403
+                body = resp.content.decode()
+                assert "private for now" in body
+                assert "Secret handshakes." not in body
+                assert "Quiet Guild" not in body  # the name is not confirmed by URL guessing
+
+            def it_is_not_indexable(client: Client):
+                guild = GuildFactory(name="Quiet Guild", is_public=False)
+                assert 'content="noindex, nofollow"' in _guest_get(client, guild).content.decode()
+
+            def it_still_offers_a_way_onward(client: Client):
+                guild = GuildFactory(name="Quiet Guild", is_public=False)
+                body = _guest_get(client, guild).content.decode()
+                assert "Browse the other guilds" in body
+                assert "Become a member" in body
+
+            def it_leaves_the_members_host_page_untouched(client: Client):
+                guild = GuildFactory(name="Quiet Guild", is_public=False, about="Secret handshakes.")
+                _login_member(client)
+                resp = client.get(f"/guilds/{guild.slug}/")  # members surface
+                assert resp.status_code == 200
+                assert b"Secret handshakes." in resp.content
+
+            def it_advertises_no_canonical_public_url(client: Client):
+                guild = GuildFactory(name="Quiet Guild", is_public=False)
+                _login_member(client)
+                assert b'rel="canonical"' not in client.get(f"/guilds/{guild.slug}/").content
 
 
 def _guild_with_contactable_lead(name="Contact Guild"):

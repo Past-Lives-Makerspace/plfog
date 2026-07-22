@@ -42,6 +42,8 @@
         {% include "components/form_field.html" with field=form.featured_class field_label="Featured class" %}
       </div>
       {% include "components/form_field.html" with field=form.show_members %}
+      {% include "components/form_field.html" with field=form.is_public %}
+      {% if not guild.is_public %}<p class="hub-text-muted" style="font-size:0.8125rem; margin:0.25rem 0 0;">While this is off, your short link, QR code, and printable flyer all land on a short "this page is private" note instead of the guild page.</p>{% endif %}
     </div>
   </div>
 

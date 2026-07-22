@@ -51,12 +51,14 @@ if _cookie_domain:
 
 # Theme-persistence cookie. Written client-side by the theme toggle (see
 # templates/hub/base.html) so an explicit light/dark choice follows the member
-# across subdomains of the same registrable domain — the member hub,
-# guilds.pastlives.app, and the Discord OAuth callback all live on .pastlives.app.
-# It is deliberately separate from COOKIE_DOMAIN (which scopes the session/CSRF
-# cookies to .pastlives.space) because a single cookie cannot span two different
-# registrable domains. Empty (the default) → host-only cookie, correct for local
-# dev (pastlives.test); production sets THEME_COOKIE_DOMAIN=.pastlives.app.
+# across subdomains of the same registrable domain — the member hub and the Discord
+# OAuth callback live on .pastlives.app. NOTE: the public guilds surface lives on
+# guilds.pastlives.space, so a .pastlives.app theme cookie does not reach it; guests
+# there simply start on this surface's light default. It is deliberately separate
+# from COOKIE_DOMAIN (which scopes the session/CSRF cookies to .pastlives.space)
+# because a single cookie cannot span two different registrable domains. Empty (the
+# default) → host-only cookie, correct for local dev (pastlives.test); production
+# sets THEME_COOKIE_DOMAIN=.pastlives.app.
 THEME_COOKIE_DOMAIN = os.environ.get("THEME_COOKIE_DOMAIN", "").strip()
 
 # Surface routing. PUBLIC_HOSTS is the set of hostnames that serve the public
@@ -94,15 +96,17 @@ MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
 PUBLIC_ONLY_PATH_PREFIXES: tuple[str, ...] = ("/account/",)
 
 # Guilds surface. GUILDS_HOSTS is the set of hostnames that serve the public
-# guild directory + guest guild pages (guilds.pastlives.app). Root redirects to
-# /guilds/ and only the guest-appropriate views below resolve there; everything
-# else 404s. Empty defaults are safe hooks — until DNS + DJANGO_ALLOWED_HOSTS
-# include the host, no request ever reaches the guilds branch. Go-live: set
-# GUILDS_HOSTS=guilds.pastlives.app and add the host to ALLOWED_HOSTS +
-# CSRF_TRUSTED_ORIGINS (do NOT add it to PUBLIC_HOSTS — that serves the class
-# catalog and redirects / to /classes/).
+# guild directory + guest guild pages (guilds.pastlives.space). Root redirects to
+# /guilds/, guild pages are served at the SHORT root-level slug (/woodworking/ for
+# the guild slugged "woodworking-guild" — see Guild.public_slug), and only the
+# guest-appropriate views below resolve there; everything else 404s. Until DNS +
+# DJANGO_ALLOWED_HOSTS include the host, no request ever reaches the guilds branch.
+# Go-live: set GUILDS_HOSTS=guilds.pastlives.space and add the host to ALLOWED_HOSTS
+# + CSRF_TRUSTED_ORIGINS (do NOT add it to PUBLIC_HOSTS — that serves the class
+# catalog and redirects / to /classes/). The surface lives on .pastlives.space, not
+# .pastlives.app: pastlives.app is only a redirect to members.pastlives.space.
 GUILDS_HOSTS = [
-    h.strip().lower() for h in os.environ.get("GUILDS_HOSTS", "guilds.pastlives.app").split(",") if h.strip()
+    h.strip().lower() for h in os.environ.get("GUILDS_HOSTS", "guilds.pastlives.space").split(",") if h.strip()
 ]
 # Vanity calendar alias. Every request to a host listed here 302s to the community
 # calendar on the members domain (calendar.pastlives.space — printed on flyers etc.).
@@ -115,7 +119,7 @@ CALENDAR_REDIRECT_HOSTS = [
 ALLOWED_HOSTS += [h for h in CALENDAR_REDIRECT_HOSTS if h not in ALLOWED_HOSTS]
 # Absolute base URL of the guilds surface, used to canonicalize OG/SEO tags on
 # shared guild links regardless of which host rendered them.
-GUILDS_BASE_URL = os.environ.get("GUILDS_BASE_URL", "https://guilds.pastlives.app").rstrip("/")
+GUILDS_BASE_URL = os.environ.get("GUILDS_BASE_URL", "https://guilds.pastlives.space").rstrip("/")
 # Precise allowlist of view names that may resolve on the guilds host. A precise
 # allowlist (not a broad /guilds/ prefix) keeps the guild editor + product/cart
 # endpoints off the guest surface. Allauth's built-in ``account_*`` login/signup/
@@ -127,7 +131,9 @@ GUILDS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
         "hub_guild_directory",
         "hub_guild_detail",
         "hub_guild_detail_by_id",
+        "hub_guild_calendar_events",
         "hub_org_info",
+        "robots_txt",
         "hub_guild_join",
         "hub_guild_leave",
         "hub_orientation_book",

@@ -2,9 +2,37 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.18"
+VERSION = "0.23.24"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.24",
+        "date": "2026-07-22",
+        "title": "Your guild now has a public page you can share with anyone",
+        "changes": [
+            (
+                "Every guild has a public home on the web that works without a login, so you can "
+                "share it with a friend, a class, or anyone curious about what your guild does. "
+                "The link is short and easy to say out loud \u2014 no more \u201cslash guilds slash "
+                "woodworking dash guild\u201d."
+            ),
+            (
+                "Visitors see the welcoming stuff: what your guild is about, who leads it, when it "
+                "meets, your studio hours, classes, photos and FAQ. Anything that belongs to "
+                "members only \u2014 meeting notes, announcements, the member list, and everyone\u2019s "
+                "contact details \u2014 stays behind a login."
+            ),
+            (
+                "Buttons like Join, Buy and Contact take a visitor straight to the sign-in page and "
+                "bring them right back to the same guild page afterwards."
+            ),
+            (
+                "Would you rather keep your page in-house? Guild leads can switch it off in Guild "
+                "Settings \u2192 Basic Information. Visitors then get a short, friendly note instead, "
+                "and members carry on seeing the page as normal."
+            ),
+        ],
+    },
     {
         "version": "0.23.18",
         "date": "2026-07-21",

@@ -244,7 +244,6 @@ def describe_guilds_surface():
         "path",
         [
             "/guilds/",
-            "/guilds/woodworking/",
             "/guilds/1/",
             "/guilds/1/join/",
             "/guilds/1/leave/",
@@ -266,8 +265,6 @@ def describe_guilds_surface():
     @pytest.mark.parametrize(
         "path",
         [
-            "/settings/",  # hub_user_settings
-            "/members/",  # hub_member_directory
             "/guilds/1/edit/",  # guild editor
             "/guilds/1/products/add/",  # product admin
             "/guilds/1/cart/confirm/",  # cart
@@ -279,10 +276,36 @@ def describe_guilds_surface():
         with pytest.raises(Http404):
             middleware(request)
 
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/settings/",  # hub_user_settings
+            "/members/",  # hub_member_directory
+        ],
+    )
+    def it_404s_single_segment_member_views_that_are_not_a_guild(path):
+        # These share the shape of a public guild slug, so the middleware also checks
+        # whether they name a guild before giving up — hence the DB.
+        request, middleware = _build("guilds.pastlives.app", path)
+        with pytest.raises(Http404):
+            middleware(request)
+
     def it_404s_a_path_that_does_not_resolve():
         request, middleware = _build("guilds.pastlives.app", "/totally/unknown/xyz/")
         with pytest.raises(Http404):
             middleware(request)
+
+    @pytest.mark.django_db
+    def it_rewrites_a_bare_guild_slug_onto_the_shared_guild_detail_route():
+        from tests.membership.factories import GuildFactory
+
+        GuildFactory(name="Woodworking Guild")
+        request, middleware = _build("guilds.pastlives.app", "/woodworking/")
+        response = middleware(request)
+        assert response.status_code == 200
+        assert request.path_info == "/guilds/woodworking-guild/"
+        assert request.path == "/woodworking/"  # what the visitor asked for, for canonicalising
 
 
 def describe_signage_surface():

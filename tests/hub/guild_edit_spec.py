@@ -612,9 +612,37 @@ def describe_GuildEditForm():
         assert form.is_valid(), form.errors
         assert form.save().discord_welcome_message == ""
 
+    def describe_page_visibility():
+        def it_defaults_a_new_guild_to_a_public_page():
+            assert GuildFactory(name="Fresh").is_public is True
+
+        def it_turns_the_public_page_off_when_the_lead_unticks_it():
+            guild = GuildFactory(name="Quiet")
+            form = GuildEditForm(data={"name": "Quiet", "calendar_color": "#4B9FEE"}, instance=guild)
+            assert form.is_valid(), form.errors
+            assert form.save().is_public is False
+
+        def it_turns_the_public_page_back_on():
+            guild = GuildFactory(name="Loud", is_public=False)
+            form = GuildEditForm(
+                data={"name": "Loud", "calendar_color": "#4B9FEE", "is_public": "on"},
+                instance=guild,
+            )
+            assert form.is_valid(), form.errors
+            assert form.save().is_public is True
+
 
 @pytest.mark.django_db
 def describe_guild_edit_page():
+    def it_offers_the_page_visibility_toggle_on_the_basic_tab(client: Client):
+        _user_with_role("admin_vis", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="admin_vis", password="pass")
+        body = client.get(reverse("hub_guild_edit", args=[guild.pk])).content.decode()
+        assert 'id="id_is_public"' in body
+        assert "Share this guild&#x27;s page publicly" in body
+        assert "pl-toggle" in body  # rendered by components/toggle.html, not a raw checkbox
+
     def it_renders_the_edit_form_for_an_editor(client: Client):
         _user_with_role("admin_pg", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()

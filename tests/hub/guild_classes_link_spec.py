@@ -58,7 +58,7 @@ def describe_guild_detail_classes_link():
     def it_prefixes_book_base_url_on_the_guilds_surface(client: Client):
         with override_settings(**GUILDS_SETTINGS):
             guild = GuildFactory(name="Metals")
-            body = client.get(f"/guilds/{guild.slug}/", HTTP_HOST=GUILDS_HOST).content.decode()
+            body = client.get(guild.public_path, HTTP_HOST=GUILDS_HOST).content.decode()
 
         href = f"https://book.pastlives.space/classes/?guild={guild.slug}"
         assert f'<a href="{href}" target="_blank" rel="noopener">Metals Classes</a>' in body

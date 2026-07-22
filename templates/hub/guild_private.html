@@ -1,0 +1,34 @@
+{% extends guilds_page_base %}
+{% block title %}This guild's page is private{% endblock %}
+
+{% comment %}
+Shown on the public guilds surface when a guild lead has switched their page off
+(Guild.is_public). Served with HTTP 403 — the page exists, it is simply withheld —
+plus noindex so a private page never lands in a search index. The guild's name is
+deliberately NOT printed: a lead who hid the page should not have it confirmed by
+URL guessing. The member hub is unaffected by this flag.
+{% endcomment %}
+
+{% block extra_head %}{{ block.super }}
+<meta name="robots" content="noindex, nofollow">
+{% endblock %}
+
+{% block content %}
+<div class="pl-guild-private">
+    <div class="hub-card pl-guild-private__card">
+        <h1 class="pl-guild-private__title">This guild's page is private for now</h1>
+        <p class="pl-guild-private__body">
+            One of our guilds lives at this link, but they've chosen to keep their page in-house
+            for the moment. Nothing went wrong on your end.
+        </p>
+        <p class="pl-guild-private__body">
+            Past Lives members can find every guild inside the member hub — and if you're not a
+            member yet, you're very welcome to come see what we're about.
+        </p>
+        <div class="pl-guild-private__actions">
+            <a href="{% url 'hub_guild_directory' %}" class="pl-btn pl-btn--primary">Browse the other guilds</a>
+            <a href="https://pastlives.space/membership" class="pl-btn pl-btn--secondary" hx-boost="false">Become a member</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

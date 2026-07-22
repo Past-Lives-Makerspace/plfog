@@ -11,7 +11,6 @@ from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
@@ -203,8 +202,7 @@ def guild_vanity_redirect(request: HttpRequest, slug: str) -> HttpResponse:
     from membership.models import Guild
 
     guild = get_object_or_404(Guild, slug=slug)
-    target = f"{settings.GUILDS_BASE_URL}{reverse('hub_guild_detail', args=[guild.slug])}"
-    return HttpResponsePermanentRedirect(target)
+    return HttpResponsePermanentRedirect(guild.public_url)
 
 
 def newsletter_signup(request: HttpRequest) -> HttpResponse:

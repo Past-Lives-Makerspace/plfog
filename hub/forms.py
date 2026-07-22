@@ -132,6 +132,7 @@ class GuildEditForm(forms.ModelForm):
             "discord_welcome_message",
             "website_url",
             "show_members",
+            "is_public",
             "featured_class",
             "faq_label",
         ]
@@ -181,6 +182,7 @@ class GuildEditForm(forms.ModelForm):
             "discord_welcome_message": "Discord welcome message",
             "website_url": "Website URL",
             "show_members": "Show members roster",
+            "is_public": "Share this guild's page publicly",
             "featured_class": "Featured class",
             "faq_label": "FAQ / info section heading",
         }

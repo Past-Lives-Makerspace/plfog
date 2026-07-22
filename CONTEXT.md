@@ -48,9 +48,13 @@ _Avoid_: treating the pair as duplicates; "Discord event" unqualified.
 A member-run interest group within the makerspace (woodshop, blacksmithing, etc.), with leads, staff, and a public page. The real `membership.Guild`.
 _Avoid_: using bare "guild" for a class catalog category — that is a **Guild Type** (see below).
 
-**Private guild** (removed concept):
-There is no such thing — every active Guild is visible on every surface (hub, public guilds site, Discord). The `is_public` flag was stripped in v22 as unused (0 of 15 guilds ever set it); "hide a guild" is `is_active` off, which removes it everywhere.
-_Avoid_: private guild, hidden guild, gating anything on guild visibility.
+**Private guild**:
+A Guild whose lead has turned `is_public` off in Guild Settings. It is hidden from the **public guilds site only** — dropped from the public directory, and its public URL answers a friendly "this page is private for now" note (HTTP 403). Inside the member hub nothing changes: members see the page exactly as before. Defaults to public, so no existing guild changed behaviour. (The flag existed in v20, was stripped in v22 as unused, and came back in v23 alongside the public guilds surface at `guilds.pastlives.space`.) To hide a guild *everywhere* — hub, public site, Discord — turn `is_active` off instead.
+_Avoid_: "hidden guild" (it is not hidden from members); using `is_public` to gate anything on the member hub.
+
+**Public guild URL**:
+`guilds.pastlives.space/<public-slug>/` — the canonical, login-free home of a guild page, where `public-slug` is the guild's slug minus a trailing `-guild` (`woodworking-guild` → `/woodworking/`). Built from `Guild.public_slug` / `public_path` / `public_url`; never hand-assembled. Both the un-stripped `/woodworking-guild/` and the member-hub shape `/guilds/woodworking-guild/` 301 to it on that host. On the member hub the URL stays `/guilds/<slug>/`, but its `<link rel="canonical">` points at the public one.
+_Avoid_: calling `/guilds/<slug>/` the public URL; adding a second view or template for the public page (it is the same view and template, differing only by auth state).
 
 **Guild Type**:
 The catalog category a class belongs to (the `classes.Category` model). User-facing copy calls it a "Guild Type" — not "category" or bare "Guild". A Guild Type may link to a hub Guild to route a submitted class's approval to that Guild's Lead, but a Guild Type (catalog category) and a Guild (member group) are distinct.

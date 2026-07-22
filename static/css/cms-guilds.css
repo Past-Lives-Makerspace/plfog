@@ -1,5 +1,5 @@
 /* ====================================================================
-   Guilds Public Surface — guilds.pastlives.app directory + guest guild page
+   Guilds Public Surface — guilds.pastlives.space directory + guest guild page
    Layers on cms-public.css, which owns the .cp-page tokens and the #hero /
    .cls-* card styles the directory reuses. Only the directory extras that
    aren't already in .cls-* live here, plus centering for the reused guild
@@ -97,4 +97,49 @@ body.guilds-portal .hub-content {
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
+}
+
+
+/* ── Private-guild notice (templates/hub/guild_private.html) ─────────
+   Shown with HTTP 403 when a lead has switched their page off. Uses the
+   shared .hub-card / .pl-btn components, so only the layout lives here.
+   Dual-theme by construction — every value is a --hub-* token. */
+.pl-guild-private {
+  display: flex;
+  justify-content: center;
+  padding: 3rem 1rem;
+}
+.pl-guild-private__card {
+  max-width: 34rem;
+  text-align: center;
+  padding: 2rem 1.5rem;
+}
+.pl-guild-private__title {
+  font-family: "Lato", sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--hub-text);
+  margin: 0 0 1rem;
+}
+.pl-guild-private__body {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--hub-text-muted);
+  margin: 0 0 1rem;
+}
+.pl-guild-private__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 480px) {
+  .pl-guild-private {
+    padding: 2rem 0.75rem;
+  }
+  .pl-guild-private__actions .pl-btn {
+    width: 100%;
+  }
 }

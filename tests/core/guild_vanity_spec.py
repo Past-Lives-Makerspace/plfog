@@ -31,7 +31,8 @@ def describe_guild_vanity_redirect():
         guild = GuildFactory(name="Ceramics")
         resp = client.get(f"/g/{guild.slug}/")
         assert resp.status_code == 301
-        assert resp["Location"] == f"https://guilds.pastlives.app/guilds/{guild.slug}/"
+        # Straight to the canonical short public URL — the "-guild" suffix is dropped.
+        assert resp["Location"] == f"https://guilds.pastlives.app/{guild.public_slug}/"
 
     def it_reaches_the_view_without_login_on_the_member_host(client: Client):
         # Proves the view carries no @login_required — an anonymous GET yields the

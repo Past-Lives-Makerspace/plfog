@@ -1170,19 +1170,74 @@ class VirtualLink:
     url: str
 
 
+# Guild slugs are auto-generated from the guild's name, so almost every one of them
+# ends in "-guild". On the public guilds site that suffix is pure noise — the host is
+# already guilds.pastlives.space — so it is stripped from the URL (see
+# ``Guild.public_slug`` and ``GuildManager.get_by_public_slug``).
+PUBLIC_SLUG_SUFFIX = "-guild"
+
+# Root-level paths on the guilds host that are NOT guild pages (the directory, the org
+# info page, allauth, static/media, and the crawler files). A guild whose short slug
+# would collide with one of these keeps the longer /guilds/<slug>/ URL in public, so a
+# collision can never silently serve the wrong page.
+RESERVED_PUBLIC_SLUGS = frozenset(
+    {
+        "account",
+        "accounts",
+        "classes",
+        "g",
+        "guilds",
+        "health",
+        "info",
+        "media",
+        "newsletter",
+        "notifications",
+        "static",
+    }
+)
+
+
 class GuildManager(models.Manager["Guild"]):
     """Default manager that hides soft-deleted guilds from every query."""
 
     def get_queryset(self) -> models.QuerySet[Guild]:
         return super().get_queryset().filter(deleted_at__isnull=True)
 
-    def directory(self) -> models.QuerySet[Guild]:
+    def directory(self, *, public_only: bool = False) -> models.QuerySet[Guild]:
         """Active guilds for the directory: featured first, then alphabetical.
 
-        Every active guild is public and appears everywhere; soft-deleting or
-        deactivating a guild (``is_active=False``) is the only way to hide it.
+        Args:
+            public_only: Drop guilds whose lead has switched their page to private
+                (``is_public=False``). The public guilds site passes ``True``; the
+                member hub leaves it ``False`` so members still see every guild.
         """
-        return self.filter(is_active=True).order_by("-is_featured", "name")
+        guilds = self.filter(is_active=True)
+        if public_only:
+            guilds = guilds.filter(is_public=True)
+        return guilds.order_by("-is_featured", "name")
+
+    def get_by_public_slug(self, public_slug: str) -> Guild:
+        """Resolve a guilds-surface slug, tolerating the stripped ``-guild`` suffix.
+
+        The public surface serves ``guilds.pastlives.space/woodworking/`` for the guild
+        whose stored slug is ``woodworking-guild`` (see :attr:`Guild.public_slug`). An
+        **exact** slug match always wins, so if both ``woodworking`` and
+        ``woodworking-guild`` exist the short URL deterministically belongs to the guild
+        that actually owns that slug; the other keeps its full slug as its public one.
+
+        Args:
+            public_slug: The single URL segment the visitor asked for.
+
+        Returns:
+            The matching guild.
+
+        Raises:
+            Guild.DoesNotExist: If neither the exact slug nor ``<slug>-guild`` exists.
+        """
+        try:
+            return self.get(slug=public_slug)
+        except self.model.DoesNotExist:
+            return self.get(slug=f"{public_slug}{PUBLIC_SLUG_SUFFIX}")
 
     def for_discord_channel(self, channel_id: str) -> Guild | None:
         """The active guild whose Discord channel is ``channel_id``, or ``None`` if unmapped.
@@ -1212,6 +1267,9 @@ class GuildManager(models.Manager["Guild"]):
 class Guild(HeroCropMixin, models.Model):
     # Queryset annotation (set by GuildAdmin.get_queryset)
     sublet_count: int
+    # Per-render link, set by hub.views.guild_directory (surface-dependent, so it can't
+    # live on the model as a property).
+    card_path: str
 
     name = models.CharField(max_length=255, unique=True)
     slug = models.SlugField(
@@ -1363,6 +1421,14 @@ class Guild(HeroCropMixin, models.Model):
     is_featured = models.BooleanField(
         default=False, help_text="Pin this guild to the top of the public guilds directory."
     )
+    is_public = models.BooleanField(
+        default=True,
+        verbose_name="Share this guild's page publicly",
+        help_text=(
+            "On: anyone with the link can read this guild's page on the public guilds site. "
+            "Off: the page stays inside the member hub, and visitors get a short, friendly note instead."
+        ),
+    )
     featured_class = models.ForeignKey(
         "classes.ClassOffering",
         null=True,
@@ -1429,6 +1495,46 @@ class Guild(HeroCropMixin, models.Model):
         path = f"{reverse('classes:public_list')}?guild={self.slug}"
         url = f"{settings.BOOK_BASE_URL}{path}" if guilds_surface else path
         return VirtualLink(label=f"{self.name} Classes", url=url)
+
+    @cached_property
+    def public_slug(self) -> str:
+        """The single URL segment this guild is served under on the public guilds site.
+
+        A trailing ``-guild`` is dropped (``woodworking-guild`` → ``woodworking``) because
+        the host already says "guilds". The suffix is kept in the one case where dropping
+        it would be ambiguous: another guild already owns the shortened slug outright, and
+        exact matches win in :meth:`GuildManager.get_by_public_slug`.
+        """
+        stripped = self.slug.removesuffix(PUBLIC_SLUG_SUFFIX)
+        if not stripped or stripped == self.slug or stripped in RESERVED_PUBLIC_SLUGS:
+            return self.slug
+        if type(self)._default_manager.filter(slug=stripped).exclude(pk=self.pk).exists():
+            return self.slug
+        return stripped
+
+    @property
+    def public_path(self) -> str:
+        """Root-relative canonical path on the guilds host, e.g. ``/woodworking/``.
+
+        Falls back to the longer ``/guilds/<slug>/`` (which also resolves on the guilds
+        host) for the rare guild whose slug is a reserved root path — better a longer
+        public URL than one that would land on the directory or the info page.
+        """
+        from django.urls import reverse
+
+        if self.public_slug in RESERVED_PUBLIC_SLUGS:
+            return reverse("hub_guild_detail", args=[self.slug])
+        return f"/{self.public_slug}/"
+
+    @property
+    def public_url(self) -> str:
+        """Absolute canonical URL of the public guild page, e.g.
+        ``https://guilds.pastlives.space/woodworking/``.
+
+        The one source of truth for canonical/Open-Graph tags, emails, and any link that
+        leaves the app — never hand-build this from the slug.
+        """
+        return f"{settings.GUILDS_BASE_URL}{self.public_path}"
 
     @property
     def vanity_url(self) -> str:

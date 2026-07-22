@@ -6,12 +6,17 @@
 
 {% block extra_head %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
-{% if is_guilds_surface %}{# ── OG / SEO — only where the guild link is shared publicly ── #}
-<link rel="canonical" href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}">
+{% comment %}
+The guilds host is the canonical home of a guild page, so BOTH surfaces point their
+canonical tag there — the member-hub copy at /guilds/<slug>/ is the same content and
+must not compete with it in search. A guild whose page is private advertises nothing.
+{% endcomment %}
+{% if guild.is_public %}<link rel="canonical" href="{{ guild.public_url }}">{% endif %}
+{% if is_guilds_surface %}{# ── Open Graph — only where the link is actually shared ── #}
 <meta property="og:type" content="website">
 <meta property="og:title" content="{{ guild.name }} — Past Lives Guilds">
 <meta property="og:description" content="{{ guild.about|striptags|truncatewords:30|default:'A guild at Past Lives Makerspace in Portland, OR.' }}">
-<meta property="og:url" content="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}">
+<meta property="og:url" content="{{ guild.public_url }}">
 <meta property="og:image" content="{% if guild.banner_image %}{{ guild.banner_image.url }}{% else %}{{ GUILDS_BASE_URL }}{% static 'img/og-guild-default.png' %}{% endif %}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="description" content="{{ guild.about|striptags|truncatewords:30|default:'A guild at Past Lives Makerspace in Portland, OR.' }}">
@@ -65,7 +70,7 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
                 Guild Settings
             </a>
-            <a href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}" target="_blank" rel="noopener"
+            <a href="{{ guild.public_url }}" target="_blank" rel="noopener"
                class="pl-btn pl-btn--secondary" title="Open this guild's public page as a guest" x-show="!isAdjusting">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 View public page
@@ -119,7 +124,12 @@
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
     {% if tab_payments_enabled and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
-    {% if meeting_notes or can_edit_this_guild %}<button type="button" class="vote-tab" :class="section === 'notes' ? 'vote-tab--active' : ''" @click="section = 'notes'">Meeting Notes</button>{% endif %}
+    {% comment %}
+    Meeting notes are internal: "members who can view the guild page can read these".
+    Both the tab button and the panel below are gated on authentication so an anonymous
+    visitor on the public guilds site never sees them.
+    {% endcomment %}
+    {% if user.is_authenticated and meeting_notes or can_edit_this_guild %}<button type="button" class="vote-tab" :class="section === 'notes' ? 'vote-tab--active' : ''" @click="section = 'notes'">Meeting Notes</button>{% endif %}
     {% if gallery_images %}<button type="button" class="vote-tab" :class="section === 'gallery' ? 'vote-tab--active' : ''" @click="section = 'gallery'">Gallery</button>{% endif %}
 </nav>
 
@@ -140,11 +150,15 @@
         </section>
         {% endif %}
 
-        {% if announcements or user.is_authenticated and not can_edit_this_guild %}
+        {% comment %}
+        Guild announcements are written for members (and mirrored to Discord/email), so
+        they are shown to signed-in viewers only — not published to the open internet.
+        {% endcomment %}
+        {% if user.is_authenticated %}{% if announcements or not can_edit_this_guild %}
         <section class="pl-guild-section">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
                 <h2 class="pl-guild-section__h2" style="margin:0;">Announcements</h2>
-                {% if user.is_authenticated and not can_edit_this_guild %}
+                {% if not can_edit_this_guild %}
                 <a href="{% url 'hub_guild_announcement_propose' %}?guild={{ guild.pk }}" class="hub-btn hub-btn--sm">+ Suggest an announcement</a>
                 {% endif %}
             </div>
@@ -162,7 +176,7 @@
             <p class="hub-text-muted" style="margin-top:0.5rem;">No announcements yet — be the first to suggest one.</p>
             {% endif %}
         </section>
-        {% endif %}
+        {% endif %}{% endif %}
 
         {# About — keeps the "Nothing here yet" placeholder the specs assert. #}
         <section class="pl-guild-section">
@@ -281,9 +295,15 @@
         <div class="hub-card">
             <h3 class="hub-detail-label">Get Involved</h3>
             <div style="display:flex; flex-direction:column; gap:0.5rem;">
-                {# Join / Leave — three-way on auth + membership. "Log in to join" carries a GET-path next so the member lands right back here. #}
+                {% comment %}
+                Join / Leave — three-way on auth + membership. guild_login_url is built by
+                the view: on the public guilds site it points at the member hub's login
+                (session cookies are host-only) with a next back to this same guild page
+                there; on the hub it is the plain relative login URL. Always a GET page as
+                the next target, never a POST-only action endpoint.
+                {% endcomment %}
                 {% if not user.is_authenticated %}
-                <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" class="pl-btn pl-btn--primary" style="width:100%;">Log in to join</a>
+                <a href="{{ guild_login_url }}" class="pl-btn pl-btn--primary" style="width:100%;" hx-boost="false">Log in to join</a>
                 {% elif member and not is_member_of_guild %}
                 <form method="post" action="{% url 'hub_guild_join' guild.pk %}">
                     {% csrf_token %}
@@ -316,7 +336,11 @@
                 {% endif %}
                 {% if is_guilds_surface and products %}
                 {# No in-place cart on the guest surface — buyables live on the members hub. #}
-                <a href="{{ MEMBER_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}" class="pl-btn pl-btn--secondary" style="width:100%;" hx-boost="false">{% if user.is_authenticated %}Buy this guild's items on the members hub{% else %}Log in on the members hub to shop{% endif %}</a>
+                {% if user.is_authenticated %}
+                <a href="{{ MEMBER_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}" class="pl-btn pl-btn--secondary" style="width:100%;" hx-boost="false">Buy this guild's items on the members hub</a>
+                {% else %}
+                <a href="{{ guild_login_url }}" class="pl-btn pl-btn--secondary" style="width:100%;" hx-boost="false">Log in on the members hub to shop</a>
+                {% endif %}
                 {% endif %}
                 {% if user.is_authenticated and guild.guild_lead.primary_email %}
                 <a href="mailto:{{ guild.guild_lead.primary_email }}" class="pl-btn pl-btn--secondary" style="width:100%;">
@@ -329,13 +353,16 @@
                     Contact the Guild
                 </a>
                 {% endif %}
+                {% if not user.is_authenticated and not guild.contact_email and guild.guild_lead %}
+                <a href="{{ guild_login_url }}" class="pl-btn pl-btn--secondary" style="width:100%;" hx-boost="false">Log in to contact the guild lead</a>
+                {% endif %}
                 {% if guild.discord_url %}<a href="{{ guild.discord_url }}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary" style="width:100%;">Discord channel</a>{% endif %}
                 {% if guild.website_url %}<a href="{{ guild.website_url }}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary" style="width:100%;">Website</a>{% endif %}
             </div>
         </div>
 
-        {% if pulse and not is_guilds_surface %}
-        {# Suppressed on the guest surface — the activity feed names members who joined. #}
+        {% if pulse and user.is_authenticated and not is_guilds_surface %}
+        {# Suppressed for guests — the activity feed names members who joined. #}
         <div class="hub-card">
             <h3 class="hub-detail-label">Recent Activity</h3>
             <div style="display:flex; flex-direction:column; gap:0.6rem;">
@@ -408,7 +435,7 @@
 </div>
 {% endif %}
 
-{% if meeting_notes or can_edit_this_guild %}
+{% if user.is_authenticated and meeting_notes or can_edit_this_guild %}
 <div x-show="section === 'notes'" x-cloak>
     <section class="pl-guild-section">
         {% if can_edit_this_guild %}

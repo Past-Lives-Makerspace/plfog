@@ -11,6 +11,7 @@ import pytest
 from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
 from django.core import mail
+from django.conf import settings
 from django.test import Client, override_settings
 
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
@@ -33,9 +34,11 @@ def describe_guest_login_flow():
             yield
 
     def it_offers_a_login_link_carrying_the_guild_page_as_next(client: Client):
+        # Session cookies are host-only in production, so the guest is handed to the
+        # member hub's login with a next back to the identical guild page there.
         guild = GuildFactory(name="Join Guild")
-        page = client.get(f"/guilds/{guild.slug}/", HTTP_HOST=GUILDS_HOST).content.decode()
-        assert f"/accounts/login/?next=/guilds/{guild.slug}/" in page
+        page = client.get(guild.public_path, HTTP_HOST=GUILDS_HOST).content.decode()
+        assert f"{settings.MEMBER_BASE_URL}/accounts/login/?next=/guilds/{guild.slug}/" in page
 
     def it_renders_a_hidden_next_on_the_login_form(client: Client):
         guild = GuildFactory(name="Join Guild")
