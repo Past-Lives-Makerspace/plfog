@@ -41,6 +41,9 @@ class BillingSettingsFactory(factory.django.DjangoModelFactory):
 class ProductFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = Product
+        # ``with_default_splits`` only creates related rows; it never mutates the
+        # Product, so factory-boy's extraneous post-hook save is not needed.
+        skip_postgeneration_save = True
 
     name = factory.Sequence(lambda n: f"Product {n}")
     price = Decimal("10.00")
