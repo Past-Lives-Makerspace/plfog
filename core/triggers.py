@@ -36,12 +36,27 @@ TRIGGERS: list[Trigger] = [
     Trigger("class_published", "New class published", "A new class or workshop goes live.", "Classes"),
     Trigger("class_reminder", "Class reminder", "24 hours before a session you're registered for.", "Classes"),
     Trigger("registration_confirmed", "Registration confirmed", "Your registration and payment cleared.", "Classes"),
-    Trigger("class_cancelled", "Class cancelled", "A class you're registered for was cancelled.", "Classes"),
+    # Transactional: a cancelled class always emails the people who booked it (including
+    # guests with no account), so it is forced rather than opt-in.
+    Trigger(
+        "class_cancelled",
+        "Class cancelled",
+        "A class you're registered for was cancelled.",
+        "Classes",
+        force_email=True,
+    ),
     Trigger(
         "waitlist_spot_available", "Waitlist spot available", "A spot opened in a class you waitlisted.", "Classes"
     ),
     Trigger("waitlist_confirmed", "Added to waitlist", "You joined a class waitlist.", "Classes"),
-    Trigger("refund_issued", "Refund issued", "A refund was processed for a registration.", "Classes"),
+    # Transactional: a refund is a money movement — the receipt always goes out.
+    Trigger(
+        "refund_issued",
+        "Refund issued",
+        "A refund was processed for a registration.",
+        "Classes",
+        force_email=True,
+    ),
     # Classes — instructor-side
     Trigger(
         "instructor_class_approved",
@@ -100,13 +115,34 @@ TRIGGERS: list[Trigger] = [
     # Billing / tab
     Trigger("tab_charged", "Tab charged", "Your monthly tab was charged.", "Billing"),
     Trigger("tab_charge_failed", "Tab charge failed", "A charge failed — update your payment method.", "Billing"),
-    Trigger("tab_entry_added", "Tab entry added", "An admin added a line item to your tab.", "Billing"),
-    Trigger("tab_approaching_limit", "Tab approaching limit", "Your balance is near your tab limit.", "Billing"),
+    # Transactional: both concern money owed on the member's tab — a charge they did not
+    # enter themselves, and the warning before the tab locks. Neither is opt-out-able.
+    Trigger(
+        "tab_entry_added",
+        "Tab entry added",
+        "An admin added a line item to your tab.",
+        "Billing",
+        force_email=True,
+    ),
+    Trigger(
+        "tab_approaching_limit",
+        "Tab approaching limit",
+        "Your balance is near your tab limit.",
+        "Billing",
+        force_email=True,
+    ),
     # Membership
     Trigger("invite_accepted", "Invite accepted", "Someone you invited has joined.", "Membership"),
     Trigger("new_member_joined", "New member joined", "A new member signed up.", "Membership", Audience.STAFF_ONLY),
     # Spaces / leases
-    Trigger("lease_expiring", "Lease expiring soon", "Your space lease ends within 30 days.", "Spaces"),
+    # Transactional: a tenant must hear that their lease is about to end.
+    Trigger(
+        "lease_expiring",
+        "Lease expiring soon",
+        "Your space lease ends within 30 days.",
+        "Spaces",
+        force_email=True,
+    ),
     # Admin broadcasts
     Trigger("site_announcement", "Makerspace-wide announcement", "Staff posted a site-wide notice.", "Announcements"),
 ]

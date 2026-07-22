@@ -109,12 +109,15 @@ def describe_emit():
 
     def describe_result():
         def it_reports_recipient_and_delivery_counts(linked_member):
-            # class_cancelled is a non-broadcast site-wide event (in_app only, by default),
-            # so one recipient yields exactly one delivery — no Discord post to inflate it.
+            # class_cancelled is a non-broadcast site-wide event — no Discord post to
+            # inflate the count — so its ONE recipient yields exactly two deliveries: the
+            # in-app bell row plus the FORCED transactional email (a cancelled class always
+            # emails the people it concerns).
             linked_member()
             result = emit("class_cancelled", context={}, title="t", body="b")
             assert result.recipient_count == 1
-            assert result.delivery_count == 1
+            assert result.delivery_count == 2
+            assert {channel for _user, channel in result.delivered} == {Channel.IN_APP, Channel.EMAIL}
             assert "class_cancelled" in repr(result)
 
     def describe_unknown_event():

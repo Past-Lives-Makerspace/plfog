@@ -572,13 +572,31 @@ _TRIGGER_NOTES: dict[str, str] = {
 }
 
 
+# Events whose EMAIL audience is NOT the one their in-app recipient resolver describes,
+# because the send addresses explicit ``email_to`` addresses instead (the guest-safe
+# transactional path). The card must document who gets the *email*, so these win over
+# ``audience_description``.
+_EMAIL_AUDIENCE_OVERRIDES: dict[str, str] = {
+    "class_cancelled": (
+        "Everyone holding a spot on the class — members and guests alike. "
+        "(The in-app bell row still goes to every active member.)"
+    ),
+    "refund_issued": "Whoever booked the registration, member or guest, at the address they booked with.",
+}
+
+
+def _spine_audience(event: EventType) -> str:
+    """Who receives this event's EMAIL — the override when one exists, else the resolver."""
+    return _EMAIL_AUDIENCE_OVERRIDES.get(event.key, audience_description(event))
+
+
 def _spine_trigger_note(event: EventType) -> str:
     """The plain-language trigger note for a derived spine card."""
     if event.key in _TRIGGER_NOTES:
-        return f"{_TRIGGER_NOTES[event.key]} Goes to: {audience_description(event)}"
+        return f"{_TRIGGER_NOTES[event.key]} Goes to: {_spine_audience(event)}"
     desc = event.description.rstrip(".")
     desc = desc[0].lower() + desc[1:] if desc else event.label.lower()
-    return f"Sent when {desc}. Goes to: {audience_description(event)}"
+    return f"Sent when {desc}. Goes to: {_spine_audience(event)}"
 
 
 def _spine_entry(event: EventType) -> GalleryEmail:
@@ -591,7 +609,7 @@ def _spine_entry(event: EventType) -> GalleryEmail:
         renderer=Renderer.SPINE_COPY,
         trigger_note=_spine_trigger_note(event),
         edit_pointer="Edit in Site Settings → Notifications",
-        audience=audience_description(event),
+        audience=_spine_audience(event),
         event_keys=frozenset({event.key}),
     )
 

@@ -6,6 +6,11 @@ lease. Idempotency is the spine's :class:`core.models.EventDelivery` ledger — 
 (replacing the old per-job ``ScheduledNotificationMarker`` dedupe). The
 ``lease_tenant`` resolver finds the member tenant's linked user; a guild-tenant lease
 or a tenant with no usable account resolves to nobody and is skipped automatically.
+
+The message is rendered from the DB-editable copy catalogue (no explicit
+``title``/``body``), so the context carries the documented merge fields
+(``member_name`` / ``space_name`` / ``end_date``). The event's EMAIL channel is FORCED
+— a tenant always hears that their lease is ending.
 """
 
 from __future__ import annotations
@@ -35,9 +40,12 @@ class Command(BaseCommand):
             result = emit(
                 "lease_expiring",
                 target=lease,
-                context={"member": member},
-                title="Your space lease is expiring",
-                body=f"Your lease for {lease.space} ends on {lease.end_date:%b %d, %Y}.",
+                context={
+                    "member": member,
+                    "member_name": member.display_name,
+                    "space_name": str(lease.space),
+                    "end_date": f"{lease.end_date:%B %-d, %Y}",
+                },
                 url="/",
                 period=f"lease:{lease.pk}:expiring",
             )

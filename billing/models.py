@@ -437,7 +437,7 @@ class Tab(models.Model):
         current: Decimal,
         locked_self: Tab,
     ) -> None:
-        """Dispatch in-app notifications for a newly added tab entry.
+        """Dispatch the notifications for a newly added tab entry.
 
         Each event is keyed by the entry's pk in its dedupe ``period`` so every entry
         fires its own notification (the old ``dispatch`` had no dedupe) while a re-run
@@ -445,17 +445,23 @@ class Tab(models.Model):
         """
         from core.events.emit import emit
 
-        # Both events resolve the TAB_MEMBER (the tab's own member); their EMAIL channel
-        # defaults off, so this matches the old in-app-only dispatch. The SiteActivity row
-        # for the entry is logged by ``add_entry`` (the event's registry ``activity_kind``
-        # is None to avoid duplicating it).
+        # Both events resolve the TAB_MEMBER (the tab's own member) and are transactional
+        # (money the member owes), so their EMAIL channel is FORCED — the bell row and the
+        # email both go out, rendered from the DB-editable copy catalogue. The SiteActivity
+        # row for the entry is logged by ``add_entry`` (the event's registry
+        # ``activity_kind`` is None to avoid duplicating it).
+        tab_url = self.absolute_tab_url
         if added_by is not None and not is_self_service and self.member.user is not None:
             emit(
                 "tab_entry_added",
                 actor=added_by,
-                context={"member": self.member},
-                title="Tab entry added",
-                body=f"{description} — ${amount}",
+                context={
+                    "member": self.member,
+                    "member_name": self.member.display_name,
+                    "description": description,
+                    "amount": f"${amount}",
+                    "tab_url": tab_url,
+                },
                 url="/tab/",
                 period=f"entry:{entry.pk}:added",
             )
@@ -463,12 +469,21 @@ class Tab(models.Model):
         if self.member.user is not None and limit and (current + amount) / limit >= Decimal("0.80"):
             emit(
                 "tab_approaching_limit",
-                context={"member": self.member},
-                title="Tab approaching its limit",
-                body=f"Your tab balance is ${current + amount} of ${limit}.",
+                context={
+                    "member": self.member,
+                    "member_name": self.member.display_name,
+                    "balance": f"${current + amount}",
+                    "limit": f"${limit}",
+                    "tab_url": tab_url,
+                },
                 url="/tab/",
                 period=f"entry:{entry.pk}:limit",
             )
+
+    @property
+    def absolute_tab_url(self) -> str:
+        """The member-site URL of the tab page, absolute so it works from an email."""
+        return f"{settings.MEMBER_BASE_URL.rstrip('/')}/tab/"
 
     def lock(self, reason: str) -> None:
         """Lock the tab, preventing new entries."""

@@ -724,15 +724,55 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=self)
         # In-app broadcast to all active members (the ``class_cancelled`` event resolves
-        # ALL_ACTIVE_MEMBERS; its EMAIL channel defaults off, so this matches the old
-        # in-app-only dispatch — email only to a member who has opted in).
+        # ALL_ACTIVE_MEMBERS), but the EMAIL goes ONLY to the people who actually booked
+        # the class — including guests with no account, who are unreachable by the
+        # resolver. ``suppress_email=True`` is unconditional (not merely implied by a
+        # non-empty ``email_to``) so archiving a class nobody booked can never turn into a
+        # site-wide email blast to every active member.
         emit(
             "class_cancelled",
             target=self,
-            title="A class was cancelled",
-            body=self.title,
+            context={
+                "member_name": "there",
+                "class_title": self.title,
+                "class_starts_at": self.cancellation_date_label,
+            },
             url="/classes/",
+            email_to=self.registrant_notice_emails,
+            suppress_email=True,
             period=f"offering:{self.pk}:archived",
+        )
+
+    @property
+    def cancellation_date_label(self) -> str:
+        """A human date for the cancellation copy ("Saturday, July 12").
+
+        Falls back to a neutral phrase for a flexibly-scheduled class with no session
+        rows, so the copy never renders a bare placeholder.
+        """
+        starts_at = self.earliest_session_at
+        if starts_at is None:
+            return "its scheduled date"
+        return date_format(localtime(starts_at), "l, F j")
+
+    @property
+    def registrant_notice_emails(self) -> list[str]:
+        """Every registrant address that should hear about a change to this class.
+
+        Drawn from ``Registration.email`` rather than the linked member, so a **guest**
+        registrant (no account, ``member`` is ``NULL``) is reached too. Rows that have
+        already left the class (cancelled / refunded) are excluded.
+        """
+        return list(
+            self.registrations.filter(
+                status__in=[
+                    Registration.Status.PENDING,
+                    Registration.Status.CONFIRMED,
+                    Registration.Status.WAITLISTED,
+                ]
+            )
+            .exclude(email="")
+            .values_list("email", flat=True)
         )
 
     def promote_next_from_waitlist(self) -> "Registration | None":
@@ -1858,22 +1898,34 @@ class Registration(models.Model):
                     registration=self,
                     actor=acting,
                 )
-                if self.member is not None:
-                    # In-app row (+ email only if the member opted into refund email) to the
-                    # member the refund concerns. The ``refund_issued`` event resolves the
-                    # REGISTRANT; its EMAIL channel defaults off, matching the old dispatch.
-                    from core.events.emit import emit
+                # A refund is transactional: the receipt always emails, and it emails the
+                # address ON THE REGISTRATION so a **guest** registrant (no linked member,
+                # so invisible to the REGISTRANT resolver) is reached too. The resolver
+                # still posts the in-app row to a linked member's user; for a guest it
+                # simply finds nobody and the email is the whole notification.
+                from django.urls import reverse
 
-                    emit(
-                        "refund_issued",
-                        actor=acting,
-                        target=self,
-                        context={"member": self.member},
-                        title="Refund issued",
-                        body=self.class_offering.title,
-                        url="/classes/account/",
-                        period=f"reg:{self.pk}:refund",
-                    )
+                from classes.emails import _absolute_url
+                from core.events.emit import emit
+
+                registration_url = _absolute_url(
+                    reverse("classes:my_registration", kwargs={"token": self.self_serve_token})
+                )
+                emit(
+                    "refund_issued",
+                    actor=acting,
+                    target=self,
+                    context={
+                        "member": self.member,
+                        "member_name": self.first_name or "there",
+                        "class_title": self.class_offering.title,
+                        "amount": f"${self.amount_paid_cents / 100:.2f}",
+                        "registration_url": registration_url,
+                    },
+                    url="/classes/account/",
+                    email_to=self.email,
+                    period=f"reg:{self.pk}:refund",
+                )
 
     @staticmethod
     def _generate_order_number() -> str:
