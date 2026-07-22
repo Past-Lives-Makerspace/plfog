@@ -526,7 +526,11 @@ body.classes-portal {
 .cp-page .ip-cls:hover{border-color:var(--gold-text);background:var(--gold-glow);text-decoration:none;color:inherit}
 .cp-page .ip-cls.past{opacity:.5;cursor:default}
 .cp-page .ip-cls-t{font-size:13px;font-weight:600}
-.cp-page .ip-cls-m{font-size:10px;color:var(--text3);margin-top:1px}
+/* --text2, not --text3: at 10px this line has to clear AA contrast on the dark
+   modal card (axe caught #6589a4 failing there). */
+.cp-page .ip-cls-m{font-size:10px;color:var(--text2);margin-top:1px}
+/* Escape hatch shown only in the bio modal — the profile is still a real page. */
+.cp-page .ip-full-page-link{display:inline-block;margin-top:18px;font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--gold-text)}
 
 .cp-page .empty{padding:24px;text-align:center;color:var(--text3);font-size:11px}
 
@@ -766,6 +770,36 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   color: var(--text);
   margin: 0 0 14px;
   line-height: 1.2;
+}
+/* Section heading with a right-aligned action (e.g. "View Instructor Bio"). */
+.cp-detail__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.cp-detail__section-head .cp-detail__h2 { margin-bottom: 0; }
+.cp-detail__section-action {
+  padding: 7px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color .2s, color .2s, background .2s;
+}
+.cp-detail__section-action:hover {
+  border-color: var(--gold-text);
+  color: var(--gold-text);
+  background: var(--gold-glow);
 }
 .cp-detail__h2-sub {
   font-family: var(--font);

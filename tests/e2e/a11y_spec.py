@@ -26,7 +26,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
 
-from classes.factories import ClassOfferingFactory, ClassSessionFactory
+from classes.factories import ClassOfferingFactory, ClassSessionFactory, InstructorFactory
 from classes.models import ClassOffering
 from tests.membership.factories import (
     GuildFactory,
@@ -58,8 +58,8 @@ SIGNAGE_DEBT: set[str] = {
 }
 
 
-def _violations(page, url):
-    page.goto(url, wait_until="networkidle")
+def _scan(page):
+    """Scan whatever is currently rendered, in both themes."""
     found = []
     for theme in ("light", "dark"):
         page.evaluate("(t) => document.documentElement.setAttribute('data-theme', t)", theme)
@@ -71,6 +71,11 @@ def _violations(page, url):
             detail = f"{target} {fg.group(1) if fg else ''}".strip()
             found.append((theme, v["impact"], v["id"], len(v["nodes"]), detail))
     return found
+
+
+def _violations(page, url):
+    page.goto(url, wait_until="networkidle")
+    return _scan(page)
 
 
 def _offenders_for(page, url, allowed):
@@ -116,6 +121,42 @@ def describe_accessibility():
                 if impact == "critical" or rule not in ACCEPTED_DEBT:
                     offenders.append(f"{name}/{theme}: [{impact}] {rule} ({nodes} node(s)) — {detail}")
 
+        assert not offenders, "Critical or new (unbaselined) a11y violations:\n  " + "\n  ".join(offenders)
+
+    def it_has_no_violations_with_the_instructor_bio_modal_open(live_server, page, settings):
+        # axe only scans what's visible, so the bio modal needs its own scan with the
+        # dialog actually open — closed, it's display:none and invisible to the gate.
+        settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
+
+        instructor = InstructorFactory(
+            full_legal_name="Jules Ashby",
+            instructor_slug="jules-ashby",
+            instructor_bio="Hand-tool joinery, sharp chisels, no power tools.",
+        )
+        offering = ClassOfferingFactory(
+            title="Shaker Side Table",
+            slug="shaker-side-table",
+            instructor=instructor,
+            status=ClassOffering.Status.PUBLISHED,
+            is_private=False,
+            price_cents=0,
+        )
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=7),
+            ends_at=timezone.now() + timedelta(days=7, hours=2),
+        )
+
+        url = f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}"
+        page.goto(url, wait_until="networkidle")
+        page.click("button.cp-detail__section-action")
+        page.wait_for_selector("#instructor-bio-body .ip-name", state="visible")
+
+        offenders = [
+            f"instructor-bio-modal/{theme}: [{impact}] {rule} ({nodes} node(s)) — {detail}"
+            for theme, impact, rule, nodes, detail in _scan(page)
+            if impact == "critical" or rule not in ACCEPTED_DEBT
+        ]
         assert not offenders, "Critical or new (unbaselined) a11y violations:\n  " + "\n  ".join(offenders)
 
     def it_has_no_violations_on_the_members_notifications_page(live_server, page, login_via_code):

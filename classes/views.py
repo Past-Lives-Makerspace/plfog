@@ -436,35 +436,34 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     )
 
 
-def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
-    """Public instructor profile — bio, photo, current + past classes."""
+def _instructor_profile_context(slug: str) -> dict[str, Any]:
+    """Context for an instructor's public profile, shared by the full page and the modal partial.
+
+    Both surfaces render the same body template from this context, so they can never drift.
+    """
     from membership.models import Member as MemberModel
 
     instructor = get_object_or_404(MemberModel, instructor_slug=slug, status=MemberModel.Status.ACTIVE)
-    now = timezone.now()
-    current_classes = (
-        ClassOffering.objects.public()  # type: ignore[misc]  # django-stubs can't see annotate() aliases
-        .filter(instructor=instructor)
-        .prefetch_related("sessions")
-        .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
-        .filter(Q(first_session_at__isnull=False) | Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE))
-        .order_by("first_session_at", "title")
-    )
-    past_classes = (
-        ClassOffering.objects.filter(instructor=instructor, status=ClassOffering.Status.ARCHIVED)
-        .select_related("category")
-        .order_by("-updated_at")
-    )
+    return {
+        "instructor": instructor,
+        "current_classes": ClassOffering.objects.public_upcoming_for_instructor(instructor),
+        "past_classes": ClassOffering.objects.archived_for_instructor(instructor),
+        "settings_obj": ClassSettings.load(),
+        "site_config": SiteConfiguration.load(),
+    }
+
+
+def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
+    """Public instructor profile — bio, photo, current + past classes."""
+    return render(request, "classes/public/instructor.html", _instructor_profile_context(slug))
+
+
+def public_instructor_bio(request: HttpRequest, slug: str) -> HttpResponse:
+    """Instructor profile body only — loaded over HTMX into the class detail page's bio modal."""
     return render(
         request,
-        "classes/public/instructor.html",
-        {
-            "instructor": instructor,
-            "current_classes": current_classes,
-            "past_classes": past_classes,
-            "settings_obj": ClassSettings.load(),
-            "site_config": SiteConfiguration.load(),
-        },
+        "classes/public/_instructor_profile.html",
+        {**_instructor_profile_context(slug), "in_modal": True},
     )
 
 

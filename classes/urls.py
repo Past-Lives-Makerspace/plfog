@@ -10,6 +10,7 @@ urlpatterns = [
     path("", views.public_list, name="public_list"),
     path("category/<slug:slug>/", views.public_category, name="public_category"),
     path("instructors/<slug:slug>/", views.public_instructor, name="public_instructor"),
+    path("instructors/<slug:slug>/bio/", views.public_instructor_bio, name="public_instructor_bio"),
     # Self-serve registration management (token-based, no auth)
     path("my/<str:token>/", views.my_registration, name="my_registration"),
     path("my/<str:token>/cancel/", views.my_registration_cancel, name="my_registration_cancel"),

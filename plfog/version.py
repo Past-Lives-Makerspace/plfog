@@ -2,9 +2,27 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.25"
+VERSION = "0.23.28"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.28",
+        "date": "2026-07-22",
+        "title": "Read an instructor's bio without leaving the class page",
+        "changes": [
+            (
+                "Every class page now has a View Instructor Bio button in the Your Instructor "
+                "section. It opens the instructor's full profile — photo, bio, contact links, and "
+                "everything else they're currently teaching — right on top of the class you're "
+                "looking at, so you can read up and go straight back to signing up."
+            ),
+            (
+                "Clicking the instructor's name or See all classes by… opens the same pop-up "
+                "instead of navigating away. The instructor's own page is still there if you want "
+                "to link to it or share it — there's a link to it at the bottom of the pop-up."
+            ),
+        ],
+    },
     {
         "version": "0.23.25",
         "date": "2026-07-22",

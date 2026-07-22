@@ -297,8 +297,24 @@
 
       {# Instructor card #}
       {% if offering.instructor %}
+      {% comment %}
+      The instructor's profile opens in a modal (loaded over HTMX from
+      classes:public_instructor_bio) so a visitor never has to leave the class
+      page. Every trigger keeps its href to the standalone profile page, which
+      still works on its own — without JS the link simply navigates there.
+      {% endcomment %}
       <section class="cp-detail__section">
-        <h2 class="cp-detail__h2">Your Instructor</h2>
+        <div class="cp-detail__section-head">
+          <h2 class="cp-detail__h2">Your Instructor</h2>
+          {% if offering.instructor.instructor_slug %}
+            <button type="button"
+                    class="cp-detail__section-action"
+                    hx-get="{% url 'classes:public_instructor_bio' slug=offering.instructor.instructor_slug %}"
+                    hx-target="#instructor-bio-body"
+                    hx-swap="innerHTML"
+                    @click="$dispatch('open-modal', 'instructor-bio')">View Instructor Bio</button>
+          {% endif %}
+        </div>
         <div class="cp-detail__instructor">
           {% if offering.instructor.profile_photo %}
             <img class="cp-detail__instructor-photo" src="{{ offering.instructor.profile_photo.url }}" alt="{{ offering.instructor.display_name }}">
@@ -307,7 +323,12 @@
           {% endif %}
           <div class="cp-detail__instructor-body">
             {% if offering.instructor.instructor_slug %}
-              <a class="cp-detail__instructor-name" href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>
+              <a class="cp-detail__instructor-name"
+                 href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}"
+                 hx-get="{% url 'classes:public_instructor_bio' slug=offering.instructor.instructor_slug %}"
+                 hx-target="#instructor-bio-body"
+                 hx-swap="innerHTML"
+                 @click="$dispatch('open-modal', 'instructor-bio')">{{ offering.instructor.display_name }}</a>
             {% else %}
               <span class="cp-detail__instructor-name">{{ offering.instructor.display_name }}</span>
             {% endif %}
@@ -315,11 +336,19 @@
               <div class="cp-detail__prose">{{ offering.instructor.about_me|linebreaks }}</div>
             {% endif %}
             {% if offering.instructor.instructor_slug %}
-              <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">See all classes by {{ offering.instructor.display_name }} &rarr;</a>
+              <a class="cp-detail__instructor-link"
+                 href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}"
+                 hx-get="{% url 'classes:public_instructor_bio' slug=offering.instructor.instructor_slug %}"
+                 hx-target="#instructor-bio-body"
+                 hx-swap="innerHTML"
+                 @click="$dispatch('open-modal', 'instructor-bio')">See all classes by {{ offering.instructor.display_name }} &rarr;</a>
             {% endif %}
           </div>
         </div>
       </section>
+      {% if offering.instructor.instructor_slug %}
+        {% include "components/modal.html" with modal_id="instructor-bio" modal_title=offering.instructor.display_name modal_size="lg" modal_body="Loading instructor…" %}
+      {% endif %}
       {% endif %}
 
       {# Guild card — renders only when the category is linked to a guild #}

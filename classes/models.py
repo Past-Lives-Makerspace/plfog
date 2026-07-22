@@ -203,6 +203,34 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         return self.filter(instructor=instructor)
 
+    def public_upcoming_for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
+        """Public classes by ``instructor`` a visitor can still join, soonest first.
+
+        A class qualifies when it still has a session in the future, or when it is
+        flexibly scheduled (booked ad hoc, so it never "passes"). Annotates
+        ``first_session_at`` — the next upcoming session — for display.
+        """
+        from django.db.models import Min
+
+        now = timezone.now()
+        return (
+            self.public()
+            .for_instructor(instructor)
+            .prefetch_related("sessions")
+            .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
+            .filter(Q(first_session_at__isnull=False) | Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE))
+            .order_by("first_session_at", "title")
+        )
+
+    def archived_for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
+        """Retired classes by ``instructor``, most recently touched first ("Past Classes")."""
+        return (
+            self.for_instructor(instructor)
+            .filter(status=ClassOffering.Status.ARCHIVED)
+            .select_related("category")
+            .order_by("-updated_at")
+        )
+
     def editable_by(self, member: "Member") -> "ClassOfferingQuerySet":
         """Offerings this member may edit.
 

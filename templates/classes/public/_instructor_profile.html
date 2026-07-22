@@ -1,0 +1,72 @@
+{% load classes_tags %}
+{% comment %}
+Instructor profile body — photo, bio, contacts, current + past classes.
+
+Rendered in two places so the two can never drift:
+  * the standalone page, classes/public/instructor.html
+  * the "View Instructor Bio" modal on the class detail page, loaded over HTMX
+    from classes:public_instructor_bio (which sets in_modal=True).
+
+Requires: instructor, current_classes, past_classes. Optional: in_modal.
+Must render inside .cp-page — the .ip-* styles are scoped to it.
+{% endcomment %}
+<div class="ip-hero">
+  {% if instructor.profile_photo %}
+    <img class="ip-photo" src="{{ instructor.profile_photo.url }}" alt="">
+  {% else %}
+    <div class="ip-photo-ph">{{ instructor.display_name|initials }}</div>
+  {% endif %}
+  <div>
+    <div class="ip-name">{{ instructor.display_name }}</div>
+    {% with instructor_contacts=instructor.instructor_page_contacts %}
+    {% if instructor_contacts %}
+    <div class="ip-links">
+      {% for contact in instructor_contacts %}<span>{{ contact.label }}: {{ contact.as_link }}</span>{% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+    {% if instructor.instructor_bio %}<div class="ip-bio">{{ instructor.instructor_bio }}</div>{% endif %}
+  </div>
+</div>
+
+{% if current_classes %}
+  <div class="ip-sec">
+    <h3>Current Classes</h3>
+    {% for offering in current_classes %}
+      <a class="ip-cls" href="{% url 'classes:public_class_detail' slug=offering.slug %}">
+        <div class="ip-cls-t">{{ offering.title }}</div>
+        <div class="ip-cls-m">
+          {{ offering.category.name }} · {{ offering.price_cents|cents_as_price }}
+          {% if offering.scheduling_model == 'flexible' %}
+            · Flexible scheduling
+          {% else %}
+            {% with first=offering.first_upcoming_session_at %}
+              {% if first %} · {{ first|date:"D, M j" }}{% endif %}
+            {% endwith %}
+          {% endif %}
+          · {{ offering.spots_remaining }} spots left
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% if past_classes %}
+  <div class="ip-sec">
+    <h3>Past Classes</h3>
+    {% for offering in past_classes %}
+      <div class="ip-cls past">
+        <div class="ip-cls-t">{{ offering.title }}</div>
+        <div class="ip-cls-m">{{ offering.category.name }}</div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% if not current_classes and not past_classes %}
+  <div class="empty">No classes from this instructor yet.</div>
+{% endif %}
+
+{% if in_modal %}
+  <a class="ip-full-page-link" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}">View full instructor page &rarr;</a>
+{% endif %}

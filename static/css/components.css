@@ -29,6 +29,10 @@
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
 }
 
+/* The panel takes focus when the modal opens (so Escape/Tab start inside it);
+   that programmatic focus shouldn't paint a ring. */
+.pl-modal:focus { outline: none; }
+
 .pl-modal--sm { max-width: 400px; }
 .pl-modal--md { max-width: 560px; }
 .pl-modal--lg { max-width: 720px; }

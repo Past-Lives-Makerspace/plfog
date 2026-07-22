@@ -11,22 +11,35 @@ Open from anywhere:
 
 Modal body is loaded via HTMX into #<modal_id>-body, or set via modal_body variable.
 {% endcomment %}
-<div x-data="{ open: false }"
+<div x-data="{
+        open: false,
+        lastFocused: null,
+        show() {
+            this.lastFocused = document.activeElement;
+            this.open = true;
+            this.$nextTick(() => this.$refs.panel && this.$refs.panel.focus());
+        },
+        close() {
+            if (!this.open) return;
+            this.open = false;
+            if (this.lastFocused && this.lastFocused.focus) this.lastFocused.focus();
+        }
+     }"
      x-show="open"
      x-transition:enter="modal-enter"
      x-transition:leave="modal-leave"
-     @open-modal.window="if ($event.detail === '{{ modal_id }}') open = true"
-     @close-modal.window="if ($event.detail === '{{ modal_id }}') open = false"
-     @keydown.escape.window="open = false"
+     @open-modal.window="if ($event.detail === '{{ modal_id }}') show()"
+     @close-modal.window="if ($event.detail === '{{ modal_id }}') close()"
+     @keydown.escape.window="close()"
      class="pl-modal-backdrop"
      style="display: none;"
      role="dialog"
      aria-modal="true"
      aria-labelledby="{{ modal_id }}-title">
-    <div class="pl-modal pl-modal--{{ modal_size|default:'md' }}" @click.outside="open = false">
+    <div class="pl-modal pl-modal--{{ modal_size|default:'md' }}" x-ref="panel" tabindex="-1" @click.outside="close()">
         <div class="pl-modal__header">
             <h2 class="pl-modal__title" id="{{ modal_id }}-title">{{ modal_title }}</h2>
-            <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+            <button type="button" @click="close()" class="pl-modal__close" aria-label="Close">&times;</button>
         </div>
         <div class="pl-modal__body" id="{{ modal_id }}-body">
             {{ modal_body }}
