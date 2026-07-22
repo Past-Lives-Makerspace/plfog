@@ -34,8 +34,22 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.23.18",
-        "date": "2026-07-21",
+        "version": "0.23.20",
+        "date": "2026-07-22",
+        "title": "Guild and account links from the class site now show a proper 'page not found'",
+        "changes": [
+            (
+                "Opening a guild page, member directory, settings, or billing link while you were "
+                "on the class-booking site showed an error page instead of telling you the page "
+                "isn't available there. Those links now land on a friendly 'we couldn't find that "
+                "page' message with a way back to browsing classes — and they still work as normal "
+                "when you're signed in on the member hub."
+            ),
+        ],
+    },
+    {
+        "version": "0.23.20",
+        "date": "2026-07-22",
         "title": "Picked a guild on Discord but not linked yet? The bot now gives you a heads-up",
         "changes": [
             (
