@@ -9,10 +9,11 @@ import pytest
 
 from core.events.discord_replies import hub_url
 from membership.discord_commands import _BAR_WIDTH, VOTING, _bar, _voting
-from membership.models import VotePreference
 from tests.membership.factories import GuildFactory, VotePreferenceFactory
 
 pytestmark = pytest.mark.django_db
+
+_VOTE_NUDGE = "Set or change your own picks with `/vote` — only you see that reply."
 
 
 def _reply(member) -> dict:
@@ -24,9 +25,11 @@ def _description(member) -> str:
 
 
 def describe_voting_command_definition():
-    def it_is_linked_only_ephemeral_and_immediate():
+    def it_is_linked_only_public_and_immediate():
+        # ephemeral=False: the standings reply is meant for the whole channel — which is
+        # exactly why the embed carries no personal ballot data (see the broadcast specs).
         assert VOTING.name == "voting"
-        assert (VOTING.requires_link, VOTING.ephemeral, VOTING.defer, VOTING.scope) == (True, True, False, "guild")
+        assert (VOTING.requires_link, VOTING.ephemeral, VOTING.defer, VOTING.scope) == (True, False, False, "guild")
 
 
 def describe_bar():
@@ -43,7 +46,7 @@ def describe_bar():
 
 
 def describe_voting():
-    def it_shows_standings_ballot_cycle_and_the_voting_page_button(linked_member, settings):
+    def it_shows_standings_cycle_and_the_voting_page_button_publicly(linked_member, settings):
         settings.MEMBER_BASE_URL = "https://members.example"
         member = linked_member()
         g1 = GuildFactory(name="Fiber Arts")
@@ -66,12 +69,13 @@ def describe_voting():
         assert "**Woodshop** — 9 pts" in embed["description"]
         assert "**Ceramics** — 6 pts" in embed["description"]
         assert embed["footer"]["text"] == "Weighting: 1st = 5 pts · 2nd = 3 pts · 3rd = 2 pts"
+        assert _VOTE_NUDGE in embed["description"]
         button = result["data"]["components"][0]["components"][0]
         assert button["style"] == 5
         assert button["label"] == "Open the voting page"
         assert button["url"] == hub_url("hub_guild_voting")
         assert button["url"] == "https://members.example/guilds/voting/"
-        assert result["data"]["flags"] == 64  # ephemeral
+        assert result["data"]["flags"] == 0  # public — visible to the whole channel
 
     def it_scales_bars_relative_to_the_leader(linked_member):
         member = linked_member()
@@ -87,25 +91,25 @@ def describe_voting():
         assert f"`{'█' * 7 + '░' * 5}` **Runner Up**" in description
         assert f"`{'█' * 5 + '░' * 7}` **Trailing Guild**" in description
 
-    def it_shows_the_members_own_ballot_with_rank_points_and_updated_at(linked_member):
+    def it_never_broadcasts_the_invoking_members_own_picks(linked_member):
+        """Privacy: the reply is public, so a member WITH a ballot must not have their three
+        ranked picks echoed to the channel — only the aggregate standings and the /vote nudge."""
         member = linked_member()
         g1 = GuildFactory(name="My First")
         g2 = GuildFactory(name="My Second")
         g3 = GuildFactory(name="My Third")
         VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
-        fixed = dt.datetime(2026, 7, 14, 21, 0, 0, tzinfo=dt.timezone.utc)  # 2:00 PM in America/Los_Angeles
-        VotePreference.objects.filter(member=member).update(updated_at=fixed)
-        member.refresh_from_db()
 
-        description = _description(member)
+        result = _reply(member)
 
-        assert "**Your ballot**" in description
-        assert "1st — My First · 5 pts" in description
-        assert "2nd — My Second · 3 pts" in description
-        assert "3rd — My Third · 2 pts" in description
-        assert "_Last updated Tue Jul 14, 2:00 PM_" in description
+        description = result["data"]["embeds"][0]["description"]
+        assert "**Your ballot**" not in description
+        assert "1st —" not in description
+        assert "_Last updated" not in description
+        assert _VOTE_NUDGE in description
+        assert result["data"]["flags"] == 0  # public reply — no ephemeral flag
 
-    def it_never_leaks_another_members_ballot(linked_member):
+    def it_never_broadcasts_another_members_ballot(linked_member):
         member = linked_member()
         other = linked_member()
         g1 = GuildFactory(name="Their First")
@@ -115,26 +119,9 @@ def describe_voting():
 
         description = _description(member)
 
-        # The other member's vote shapes the standings but never the ballot block.
+        # The other member's vote shapes the aggregate standings but no ballot block exists.
         assert "1st — Their First" not in description
-        assert "You haven't voted yet" in description
-
-    def describe_when_the_member_has_not_voted():
-        def it_shows_the_nudge_and_still_offers_the_button(linked_member):
-            member = linked_member()
-            g1 = GuildFactory(name="Someone Elses Pick")
-            g2 = GuildFactory(name="Another Pick")
-            g3 = GuildFactory(name="Third Pick")
-            VotePreferenceFactory(guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
-
-            result = _reply(member)
-
-            description = result["data"]["embeds"][0]["description"]
-            assert "You haven't voted yet" in description
-            assert "It takes 30 seconds on the voting page below." in description
-            assert "1st —" not in description
-            button = result["data"]["components"][0]["components"][0]
-            assert button["style"] == 5
+        assert _VOTE_NUDGE in description
 
     def describe_when_no_votes_have_been_cast():
         def it_says_the_standings_are_wide_open_and_keeps_the_frame(linked_member):
