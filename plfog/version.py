@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.20"
+VERSION = "0.23.22"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.23.20",
+        "version": "0.23.22",
         "date": "2026-07-22",
         "title": "Guild and account links from the class site now show a proper 'page not found'",
         "changes": [
@@ -20,7 +20,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.23.20",
+        "version": "0.23.22",
         "date": "2026-07-22",
         "title": "Picked a guild on Discord but not linked yet? The bot now gives you a heads-up",
         "changes": [
