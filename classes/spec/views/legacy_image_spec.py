@@ -80,3 +80,72 @@ def describe_legacy_image():
         handler = _NoRedirect()
         result = handler.redirect_request(None, None, 301, "Moved", {}, "https://evil.example.com/")
         assert result is None
+
+
+def describe_legacy_image_self_host_guard():
+    def it_refuses_to_fetch_a_hostname_this_app_answers_on(db, settings):
+        from classes.views_legacy_image import legacy_image
+
+        # The DNS cutover: classes.pastlives.space now points at this app. Proxying it
+        # would make the app request itself, once per card on the catalog page.
+        settings.ALLOWED_HOSTS = [*settings.ALLOWED_HOSTS, "classes.pastlives.space"]
+        request = RequestFactory().get(
+            "/_legacy-image/",
+            {"url": "https://classes.pastlives.space/sites/default/files/img.jpg"},
+        )
+
+        with patch("classes.views_legacy_image._OPENER.open") as mock_fetch:
+            response = legacy_image(request)
+            mock_fetch.assert_not_called()
+
+        assert response.status_code == 404
+
+    def it_refuses_to_fetch_the_host_serving_the_current_request(db, settings):
+        from classes.views_legacy_image import legacy_image
+
+        # A wildcard ALLOWED_HOSTS names nothing, so the live request's own host is the
+        # only thing left that can tell the view it is about to call itself.
+        settings.ALLOWED_HOSTS = ["*"]
+        request = RequestFactory().get(
+            "/_legacy-image/",
+            {"url": "https://classes.pastlives.space/sites/default/files/img.jpg"},
+            HTTP_HOST="classes.pastlives.space",
+        )
+
+        with patch("classes.views_legacy_image._OPENER.open") as mock_fetch:
+            response = legacy_image(request)
+            mock_fetch.assert_not_called()
+
+        assert response.status_code == 404
+
+    def it_still_fetches_while_the_legacy_host_is_somebody_else(db, settings):
+        from classes.views_legacy_image import legacy_image
+
+        settings.ALLOWED_HOSTS = ["testserver", "book.pastlives.space", "*"]
+        request = RequestFactory().get(
+            "/_legacy-image/",
+            {"url": "https://classes.pastlives.space/sites/default/files/img.jpg"},
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b"still-drupal"
+        mock_resp.headers = {"Content-Type": "image/jpeg"}
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("classes.views_legacy_image._OPENER.open", return_value=mock_resp),
+            patch("django.core.cache.cache.get", return_value=None),
+            patch("django.core.cache.cache.set"),
+        ):
+            response = legacy_image(request)
+
+        assert response.status_code == 200
+        assert response.content == b"still-drupal"
+
+    def it_treats_an_empty_hostname_as_not_ours():
+        from classes.views_legacy_image import _is_own_host
+
+        request = RequestFactory().get("/_legacy-image/")
+
+        assert _is_own_host("", request) is False
