@@ -27,6 +27,7 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Discord guild-role sync: +{stats.added} added, -{stats.removed} removed, "
-                f"{stats.skipped_guilds} guild(s) skipped (incomplete fetch)."
+                f"{stats.skipped_guilds} guild(s) skipped (incomplete fetch), "
+                f"{stats.nudged} unlinked reactor(s) nudged."
             )
         )

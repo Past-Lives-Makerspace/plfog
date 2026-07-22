@@ -9,8 +9,10 @@ user. A webhook cannot DM, so this path uses the bot token against Discord's RES
 
 Per the project's "disabled when blank" idiom (see ``MailchimpClient`` /
 :func:`core.events.discord.global_webhook`), a blank ``DISCORD_BOT_TOKEN`` makes the
-whole DM channel a no-op. Best-effort: every call logs and returns falsy on failure,
-never raising — the emit spine must keep fanning out to other recipients/channels.
+whole DM channel a no-op. Best-effort: every emit-spine call logs and returns falsy on
+failure, never raising — the fan-out must keep going to other recipients/channels.
+(:func:`send_dm_text` is the one deliberate exception: a loud sender for callers that
+persist state based on the outcome.)
 
 HTTP uses ``httpx`` (mocked with ``respx`` in tests), the event spine's outbound HTTP
 layer — the same stack :mod:`core.events.discord` uses.
@@ -125,3 +127,58 @@ def post_dm(discord_user_id: str, message: Message) -> bool:
         return True
     logger.warning("Discord DM post failed: %s %s", response.status_code, response.text[:300])
     return False
+
+
+_CLOSED_DM_ERROR_CODE = 50007  # Discord's "Cannot send messages to this user".
+
+
+def _dms_closed(response: httpx.Response) -> bool:
+    """``True`` when Discord refused with 403 + JSON error code 50007.
+
+    That combination means the recipient's privacy settings block DMs from the bot —
+    permanently undeliverable, never worth a retry. Anything else (other statuses,
+    non-JSON bodies, other error codes) is NOT "closed DMs" and stays loud.
+    """
+    if response.status_code != 403:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    return isinstance(payload, dict) and payload.get("code") == _CLOSED_DM_ERROR_CODE
+
+
+def send_dm_text(discord_user_id: str, content: str) -> bool:
+    """Send a plain-text DM through the bot, failing LOUDLY (unlike :func:`post_dm`).
+
+    For callers that must know whether a send genuinely went out (e.g. the one-time
+    guild-link nudge, which persists "already nudged" state on the result). Returns
+    ``True`` on a 2xx send, and ``False`` ONLY when the recipient's DMs are closed
+    (403 + Discord error code 50007 on either call — logged, permanently
+    undeliverable, never retried). Any other non-2xx raises
+    :class:`httpx.HTTPStatusError`, and network errors propagate as
+    :class:`httpx.HTTPError` — the caller decides what an undelivered send means.
+    The caller ensures the bot is configured (a blank token would just 401 loudly).
+    """
+    response = httpx.post(
+        f"{API_BASE}/users/@me/channels",
+        json={"recipient_id": discord_user_id},
+        headers=_auth_headers(),
+        timeout=_DEFAULT_TIMEOUT_SECONDS,
+    )
+    if _dms_closed(response):
+        logger.info("Discord DM to %s undeliverable (DMs closed).", discord_user_id)
+        return False
+    response.raise_for_status()
+    channel_id = str(response.json()["id"])
+    response = httpx.post(
+        f"{API_BASE}/channels/{channel_id}/messages",
+        json={"content": content},
+        headers=_auth_headers(),
+        timeout=_DEFAULT_TIMEOUT_SECONDS,
+    )
+    if _dms_closed(response):
+        logger.info("Discord DM to %s undeliverable (DMs closed).", discord_user_id)
+        return False
+    response.raise_for_status()
+    return True

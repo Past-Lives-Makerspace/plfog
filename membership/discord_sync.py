@@ -10,7 +10,9 @@ Three entry points:
   member's Discord reactions into ``source="discord"`` guild memberships, and push their
   existing in-app guilds out to Discord as roles.
 * :func:`reconcile_reactions` — the 15-minute cron: keep ``source="discord"`` memberships
-  in step with the reaction-role message, adding and (guardedly) removing.
+  in step with the reaction-role message, adding and (guardedly) removing. Also DMs a
+  one-time "you're halfway there" nudge to reactors with no linked member, so a guild
+  pick from an unlinked Discord account isn't silently ignored.
 
 The whole thing no-ops when Discord is unconfigured (blank bot token / server / message
 ids). Inbound only ever writes ``source="discord"`` rows; outbound only ever writes
@@ -29,7 +31,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 from django.urls import reverse
 
-from core.events import discord_reactions, discord_roles
+from core.events import discord_dm, discord_reactions, discord_roles
 from core.events.discord_dm import bot_token
 from core.events.discord_oauth import DiscordOAuthError, exchange_code, fetch_identity, resolve_member_from_code
 from core.events.senders import emit_with_email_shell
@@ -67,6 +69,7 @@ class ReconcileStats:
     added: int = 0
     removed: int = 0
     skipped_guilds: int = 0
+    nudged: int = 0
     ran: bool = True
 
 
@@ -199,7 +202,55 @@ def reconcile_reactions() -> ReconcileStats:
             skipped_guilds += 1
             logger.warning("Discord reconcile skipped removals for guild %s (incomplete fetch).", guild.name)
 
-    return ReconcileStats(added=added, removed=removed, skipped_guilds=skipped_guilds, ran=True)
+    # The adds above silently ignore a reactor no member has linked — nudge them (once
+    # ever) so their guild pick isn't a black hole. After the membership work so a DM
+    # failure can't block the reconcile itself.
+    nudged = _nudge_unlinked_reactors({user_id for ids in reacted_by_guild.values() for user_id in ids})
+
+    return ReconcileStats(added=added, removed=removed, skipped_guilds=skipped_guilds, nudged=nudged, ran=True)
+
+
+def _link_nudge_content() -> str:
+    """The one-time "you're halfway there" DM body, with the absolute link URL.
+
+    Points at the same one-click link flow the slash commands send unlinked members to
+    (``hub_discord_link_start``). The "your reaction counts automatically" promise is
+    real: finishing the link runs :func:`import_member_guilds`, which mirrors the
+    standing reaction into a guild membership immediately.
+    """
+    link_url = _absolute_url(reverse("hub_discord_link_start"))
+    return (
+        "You're halfway there! 🧩 You picked a guild in #choose-your-guild, but your Discord "
+        "isn't linked to your Past Lives account yet — so your pick doesn't count until you finish."
+        f"\n\nLink up here: {link_url}"
+        "\n\nOnce you're linked, your existing reaction counts automatically — no need to re-react."
+    )
+
+
+def _nudge_unlinked_reactors(reactor_ids: set[str]) -> int:
+    """DM the one-time link nudge to role-message reactors who have no linked member.
+
+    Each Discord user is nudged AT MOST ONCE ever — a :class:`DiscordLinkNudge` row is
+    the guard, and it is written even when the user's DMs are closed (undeliverable
+    forever ≠ retry forever) and kept if they later link and unlink. Any other Discord
+    failure raises: no row is written, the cron surfaces the error loudly, and the
+    remaining un-nudged ids are retried next tick.
+    """
+    from membership.models import DiscordLinkNudge, Member
+
+    if not reactor_ids:
+        return 0
+    linked = set(Member.objects.filter(discord_user_id__in=reactor_ids).values_list("discord_user_id", flat=True))
+    already = set(
+        DiscordLinkNudge.objects.filter(discord_user_id__in=reactor_ids).values_list("discord_user_id", flat=True)
+    )
+    nudged = 0
+    for discord_user_id in sorted(reactor_ids - linked - already):
+        if not discord_dm.send_dm_text(discord_user_id, _link_nudge_content()):
+            logger.info("Discord link nudge to %s skipped (DMs closed); marked nudged anyway.", discord_user_id)
+        DiscordLinkNudge.objects.create(discord_user_id=discord_user_id)
+        nudged += 1
+    return nudged
 
 
 def link_and_import(code: str, redirect_uri: str, *, member: Member | None = None) -> LinkResult:

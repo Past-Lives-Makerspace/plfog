@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.17"
+VERSION = "0.23.18"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.18",
+        "date": "2026-07-21",
+        "title": "Picked a guild on Discord but not linked yet? The bot now gives you a heads-up",
+        "changes": [
+            (
+                "If you react in #choose-your-guild to join a guild but your Discord isn't "
+                "connected to your Past Lives account yet, the bot now sends you a one-time DM "
+                "letting you know you're only halfway done — with the link to finish connecting. "
+                "Once you're linked, your existing reaction counts automatically, no re-reacting "
+                "needed."
+            ),
+        ],
+    },
     {
         "version": "0.23.17",
         "date": "2026-07-21",

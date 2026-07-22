@@ -148,6 +148,66 @@ def describe_post_dm():
         assert discord_dm.post_dm("555", _message()) is False
 
 
+def describe_send_dm_text():
+    @respx.mock
+    def it_sends_the_content_and_returns_true(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        chan, msg = _mock_dm_ok()
+        assert discord_dm.send_dm_text("555", "hello there") is True
+        assert chan.called and msg.called
+        assert "hello there" in msg.calls.last.request.read().decode()
+
+    @respx.mock
+    def it_returns_false_when_dms_are_closed_on_the_message_post(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_CHANNELS_URL).mock(return_value=httpx.Response(200, json={"id": "dm99"}))
+        respx.post(_MESSAGES_URL).mock(
+            return_value=httpx.Response(403, json={"code": 50007, "message": "Cannot send messages to this user"})
+        )
+        assert discord_dm.send_dm_text("555", "hi") is False
+
+    @respx.mock
+    def it_returns_false_when_dms_are_closed_on_the_channel_open(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_CHANNELS_URL).mock(return_value=httpx.Response(403, json={"code": 50007}))
+        assert discord_dm.send_dm_text("555", "hi") is False
+
+    @respx.mock
+    def it_raises_on_any_other_http_error(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_CHANNELS_URL).mock(return_value=httpx.Response(500, text="boom"))
+        with pytest.raises(httpx.HTTPStatusError):
+            discord_dm.send_dm_text("555", "hi")
+
+    @respx.mock
+    def it_raises_on_a_403_with_a_different_error_code(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_CHANNELS_URL).mock(return_value=httpx.Response(403, json={"code": 50001}))
+        with pytest.raises(httpx.HTTPStatusError):
+            discord_dm.send_dm_text("555", "hi")
+
+    @respx.mock
+    def it_raises_on_a_non_json_403(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_CHANNELS_URL).mock(return_value=httpx.Response(403, text="forbidden"))
+        with pytest.raises(httpx.HTTPStatusError):
+            discord_dm.send_dm_text("555", "hi")
+
+    @respx.mock
+    def it_raises_on_a_403_with_a_non_object_json_body(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_CHANNELS_URL).mock(return_value=httpx.Response(403, json=["nope"]))
+        with pytest.raises(httpx.HTTPStatusError):
+            discord_dm.send_dm_text("555", "hi")
+
+    @respx.mock
+    def it_propagates_a_network_error(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_CHANNELS_URL).mock(side_effect=httpx.ConnectError("down"))
+        with pytest.raises(httpx.HTTPError):
+            discord_dm.send_dm_text("555", "hi")
+
+
 def describe_DiscordDMAdapter():
     def it_is_a_per_recipient_channel():
         assert DiscordDMAdapter().is_broadcast is False
