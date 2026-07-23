@@ -147,3 +147,52 @@ def describe_normalize_field_if_uploaded():
         normalize_field_if_uploaded(holder, "field", max_long_edge=100)
 
         assert holder.field is None
+
+
+def describe_content_addressed_storage():
+    def it_maps_identical_bytes_to_the_same_key():
+        from core.images import content_addressed_name
+
+        first = content_addressed_name(b"same bytes", prefix="classes/images/")
+        second = content_addressed_name(b"same bytes", prefix="classes/images/")
+
+        assert first == second
+        assert first.startswith("classes/images/")
+        assert first.endswith(".jpg")
+
+    def it_maps_different_bytes_to_different_keys():
+        from core.images import content_addressed_name
+
+        assert content_addressed_name(b"a", prefix="p/") != content_addressed_name(b"b", prefix="p/")
+
+    def it_recognizes_its_own_keys():
+        from core.images import content_addressed_name, is_content_addressed
+
+        name = content_addressed_name(b"x", prefix="classes/images/")
+
+        assert is_content_addressed(name, prefix="classes/images/") is True
+
+    def it_rejects_a_key_under_a_different_prefix():
+        from core.images import content_addressed_name, is_content_addressed
+
+        name = content_addressed_name(b"x", prefix="classes/images/")
+
+        assert is_content_addressed(name, prefix="other/") is False
+
+    def it_rejects_a_human_named_key():
+        from core.images import is_content_addressed
+
+        assert is_content_addressed("classes/images/pattern.jpeg", prefix="classes/images/") is False
+
+    def it_stores_shared_bytes_exactly_once(db):
+        from django.core.files.storage import default_storage
+
+        from core.images import store_content_addressed
+
+        first = store_content_addressed(b"one picture", prefix="spec/images/")
+        second = store_content_addressed(b"one picture", prefix="spec/images/")
+
+        assert first == second
+        assert default_storage.exists(first)
+
+        default_storage.delete(first)  # cleanup
