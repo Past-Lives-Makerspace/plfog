@@ -618,6 +618,13 @@ class Invite(models.Model):
         # "invite_accepted") with actor=member.user and target=member, and resolves
         # the recipient via INVITER → self.invited_by (yielding no recipient, and so
         # no notification, when invited_by is None).
+        #
+        # The ``period`` MUST be unique per invite: it is the EventDelivery ledger's
+        # idempotency bucket, and a blank one collapses every acceptance in the app onto
+        # a single (event, inviter, channel) slot — so only the FIRST invite an admin
+        # ever sent would notify them and every later acceptance would be silently
+        # swallowed as a duplicate. Keying on the invite pk makes each invite its own
+        # slot while a re-run of the same acceptance stays idempotent.
         emit(
             "invite_accepted",
             actor=member.user if member is not None else None,
@@ -626,6 +633,7 @@ class Invite(models.Model):
             title="Your invite was accepted",
             body="Someone you invited has joined Past Lives.",
             url="/members/",
+            period=f"invite:{self.pk}:accepted",
         )
 
     @classmethod

@@ -292,6 +292,137 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    "tab_entry_added": EventCopy(
+        placeholders=("member_name", "description", "amount", "tab_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "description": "Bandsaw blade",
+            "amount": "$18.00",
+            "tab_url": "https://pastlives.example/tab/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Tab entry added",
+                body_text="{{ description }} — {{ amount }} was added to your tab.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ amount }} added to your tab",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "{{ description }} — {{ amount }} was added to your tab at Past Lives. "
+                    "It will be included in your next monthly charge.\n\n"
+                    "See everything on your tab: {{ tab_url }}\n\n"
+                    "If this doesn't look right, reply to this email and we'll sort it out.\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p><strong>{{ description }} — {{ amount }}</strong> was added to your tab at Past Lives. "
+                    "It will be included in your next monthly charge.</p>"
+                    '<p><a href="{{ tab_url }}">See everything on your tab</a></p>'
+                    "<p>If this doesn't look right, reply to this email and we'll sort it out.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "tab_approaching_limit": EventCopy(
+        placeholders=("member_name", "balance", "limit", "tab_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "balance": "$168.00",
+            "limit": "$200.00",
+            "tab_url": "https://pastlives.example/tab/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Your tab is near its limit",
+                body_text="Your tab balance is {{ balance }} of {{ limit }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your tab is near its limit ({{ balance }} of {{ limit }})",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "Your tab balance is {{ balance }} of your {{ limit }} limit. Once you reach the "
+                    "limit your tab locks until it's paid down, so it's worth settling up before then.\n\n"
+                    "Pay down your tab: {{ tab_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>Your tab balance is <strong>{{ balance }}</strong> of your {{ limit }} limit. "
+                    "Once you reach the limit your tab locks until it's paid down, so it's worth "
+                    "settling up before then.</p>"
+                    '<p><a href="{{ tab_url }}">Pay down your tab</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "refund_issued": EventCopy(
+        placeholders=("member_name", "class_title", "amount", "registration_url"),
+        sample_context={
+            "member_name": "Robin",
+            "class_title": "Intro to Lost-Wax Casting",
+            "amount": "$65.00",
+            "registration_url": "https://pastlives.example/classes/my/abc123/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Refund issued",
+                body_text="Your {{ amount }} for {{ class_title }} has been refunded.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Refund issued for {{ class_title }}",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "We've refunded {{ amount }} for {{ class_title }}. Refunds usually land back on "
+                    "your original payment method within 5–10 business days.\n\n"
+                    "View your booking: {{ registration_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>We've refunded <strong>{{ amount }}</strong> for {{ class_title }}. Refunds usually "
+                    "land back on your original payment method within 5–10 business days.</p>"
+                    '<p><a href="{{ registration_url }}">View your booking</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "lease_expiring": EventCopy(
+        placeholders=("member_name", "space_name", "end_date"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "space_name": "Studio 4",
+            "end_date": "August 21, 2026",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Your lease is expiring",
+                body_text="Your lease for {{ space_name }} ends on {{ end_date }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your {{ space_name }} lease ends {{ end_date }}",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "Your lease for {{ space_name }} ends on {{ end_date }} — about a month from now.\n\n"
+                    "If you'd like to renew, reply to this email or talk to a staff member at the space "
+                    "and we'll get it sorted before the end date.\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>Your lease for <strong>{{ space_name }}</strong> ends on {{ end_date }} — "
+                    "about a month from now.</p>"
+                    "<p>If you'd like to renew, reply to this email or talk to a staff member at the "
+                    "space and we'll get it sorted before the end date.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     "orientation_requested": EventCopy(
         placeholders=("member_name", "guild_name", "slot_starts_at", "orientation_url"),
         sample_context={
