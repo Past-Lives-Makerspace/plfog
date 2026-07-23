@@ -3554,6 +3554,12 @@ def guild_calendar_events_partial(request: HttpRequest, pk: int) -> HttpResponse
     """HTMX partial — calendar grid/list scoped to one guild (its iCal events plus the
     guild's CMS classes and orientation slots). Drives the Guild Calendar tab's nav."""
     guild = get_object_or_404(Guild, pk=pk)
+    if _is_guilds_surface(request) and not guild.is_public:
+        # Same gate as ``guild_detail``: a private guild is withheld from the public
+        # surface. Without this the partial served the guild's iCal events, class
+        # sessions and orientation slots to anonymous callers, since it is reachable
+        # by sequential pk and is listed in GUILDS_ALLOWED_VIEW_NAMES.
+        return render(request, "hub/guild_private.html", {"guild": guild}, status=403)
     try:
         week_offset = max(-52, min(52, int(request.GET.get("week_offset", 0))))
         month_offset = max(-24, min(24, int(request.GET.get("month_offset", 0))))

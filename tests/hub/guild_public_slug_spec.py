@@ -25,6 +25,26 @@ GUILDS_SETTINGS = dict(
 )
 
 
+def _private_event(guild):
+    """An iCal event on ``guild`` whose title/description/location must never leak."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from membership.models import CalendarEvent
+
+    return CalendarEvent.objects.create(
+        guild=guild,
+        title="CONFIDENTIAL Lockpicking Social",
+        description="Members only, back room",
+        location="Back Room",
+        uid=f"probe-{guild.pk}",
+        start_dt=timezone.now() + timedelta(days=3),
+        end_dt=timezone.now() + timedelta(days=3, hours=2),
+        fetched_at=timezone.now(),
+    )
+
+
 def describe_Guild_public_slug():
     def it_drops_a_trailing_guild_suffix(db):
         guild = GuildFactory(name="Woodworking Guild")
@@ -190,3 +210,35 @@ def describe_the_public_directory():
         GuildFactory(name="Quiet Guild", is_public=False)
         body = client.get("/guilds/", HTTP_HOST="members.pastlives.space").content.decode()
         assert "Quiet Guild" in body
+
+
+def describe_the_guild_calendar_partial():
+    @pytest.fixture(autouse=True)
+    def _guilds_settings():
+        with override_settings(**GUILDS_SETTINGS):
+            yield
+
+    def it_withholds_a_private_guilds_events_from_the_public_surface(client: Client):
+        # The partial is reachable by sequential pk and is listed in
+        # GUILDS_ALLOWED_VIEW_NAMES, so without its own gate it served a private
+        # guild's whole calendar to anonymous callers.
+        guild = GuildFactory(name="Quiet Guild", is_public=False)
+        _private_event(guild)
+        resp = client.get(f"/guilds/{guild.pk}/calendar/events/", HTTP_HOST=GUILDS_HOST)
+        assert resp.status_code == 403
+        assert "CONFIDENTIAL Lockpicking Social" not in resp.content.decode()
+
+    def it_still_serves_a_public_guilds_events_on_the_public_surface(client: Client):
+        guild = GuildFactory(name="Loud Guild")
+        _private_event(guild)
+        resp = client.get(f"/guilds/{guild.pk}/calendar/events/", HTTP_HOST=GUILDS_HOST)
+        assert resp.status_code == 200
+        assert "CONFIDENTIAL Lockpicking Social" in resp.content.decode()
+
+    def it_still_serves_a_private_guilds_events_to_the_member_hub(client: Client):
+        # ``is_public`` scopes the public surface, not the hub — matching guild_detail.
+        guild = GuildFactory(name="Quiet Guild", is_public=False)
+        _private_event(guild)
+        resp = client.get(f"/guilds/{guild.pk}/calendar/events/", HTTP_HOST="members.pastlives.space")
+        assert resp.status_code == 200
+        assert "CONFIDENTIAL Lockpicking Social" in resp.content.decode()
