@@ -303,6 +303,10 @@ _FIRST_FLOOR = SeedFloor(
         SeedRoom("Wood Shop", 700, 230, 880, 330, kind="facility"),
         SeedRoom("Metal Shop", 960, 470, 1110, 570, kind="facility"),
         SeedRoom("Gallery", 100, 360, 260, 420, kind="facility"),
+        # Not on the source drawings — added from the floor as it actually stands.
+        SeedRoom("Front Door", 40, 372, 92, 410, kind="facility"),
+        SeedRoom("Stage", 100, 225, 260, 335, kind="facility"),
+        SeedRoom("Stairs", 615, 335, 688, 383, kind="facility"),
         SeedRoom("Ceramics", 456, 478, 612, 603, kind="facility"),
         SeedRoom("Electrical Access", 526, 200, 551, 262, kind="facility"),
         SeedRoom("Leather", 895, 585, 941, 630, kind="facility"),
