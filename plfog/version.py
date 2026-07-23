@@ -2,9 +2,33 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.25"
+VERSION = "0.23.30"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.30",
+        "date": "2026-07-22",
+        "title": "Explore the makerspace on an interactive map",
+        "changes": [
+            (
+                "The Space & Org Info page now has a real map of the building. Pick a floor, "
+                "drag to pan and pinch or scroll to zoom, and tap any studio, cubby, or shop to "
+                "see its size, its monthly price, whether it's open, and who's in it. Prefer not "
+                "to use the map? Every space is also listed underneath in a plain table you can "
+                "read and use with a keyboard."
+            ),
+            (
+                "See a studio or cubby you want? Ask for it right there. Your request goes to the "
+                "right person — the makerspace admins for a studio, the owning guild's lead for a "
+                "guild cubby — and you'll get an email and a notification when they answer. "
+                "Nothing is charged automatically; a human sorts the paperwork out with you."
+            ),
+            (
+                "Changed your mind? Your open requests show on the same page with a Withdraw "
+                "button, and you can ask again later."
+            ),
+        ],
+    },
     {
         "version": "0.23.25",
         "date": "2026-07-22",
