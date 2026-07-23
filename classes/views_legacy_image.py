@@ -54,12 +54,31 @@ def _is_own_host(hostname: str, request: HttpRequest) -> bool:
     fallbacks would fire two dozen HTTP requests from the app back into the app —
     self-inflicted worker starvation on a two-worker gunicorn. So the guard keys
     off exactly the fact that makes the fetch dangerous: the target is us.
+
+    Wildcard ``ALLOWED_HOSTS`` entries are matched as suffixes, following Django's own
+    semantics (``.example.com`` / ``*.example.com`` match ``example.com`` and any
+    subdomain). Collapsing them to a bare domain and comparing for equality — as this
+    did originally — meant a wildcard entry silently failed to arm the guard for the
+    subdomain that actually needed it.
     """
     if not hostname:
         return False
-    own = {request.get_host().split(":")[0].strip().lower()}
-    own |= {h.strip().lstrip("*.").lower() for h in settings.ALLOWED_HOSTS if h.strip() not in ("", "*")}
-    return hostname.strip().lower() in own
+    host = hostname.strip().lower()
+    exact = {request.get_host().split(":")[0].strip().lower()}
+    suffixes: set[str] = set()
+    for raw in settings.ALLOWED_HOSTS:
+        entry = raw.strip().lower()
+        if entry in ("", "*"):
+            continue
+        if entry.startswith("*."):
+            suffixes.add(entry[2:])
+        elif entry.startswith("."):
+            suffixes.add(entry[1:])
+        else:
+            exact.add(entry)
+    if host in exact:
+        return True
+    return any(host == suffix or host.endswith(f".{suffix}") for suffix in suffixes)
 
 
 def legacy_image(request: HttpRequest) -> HttpResponse:

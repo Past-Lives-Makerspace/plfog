@@ -149,3 +149,41 @@ def describe_legacy_image_self_host_guard():
         request = RequestFactory().get("/_legacy-image/")
 
         assert _is_own_host("", request) is False
+
+    def it_arms_the_guard_from_a_wildcard_subdomain_entry(db, settings):
+        from classes.views_legacy_image import legacy_image
+
+        # ``*.pastlives.space`` covers classes.pastlives.space. The original guard
+        # collapsed the entry to the bare domain and compared for equality, so the
+        # subdomain that actually needed protecting never matched.
+        settings.ALLOWED_HOSTS = ["testserver", "*.pastlives.space"]
+        request = RequestFactory().get(
+            "/_legacy-image/",
+            {"url": "https://classes.pastlives.space/sites/default/files/img.jpg"},
+        )
+
+        with patch("classes.views_legacy_image._OPENER.open") as mock_fetch:
+            response = legacy_image(request)
+            mock_fetch.assert_not_called()
+
+        assert response.status_code == 404
+
+    def it_arms_the_guard_from_a_leading_dot_subdomain_entry(db, settings):
+        from classes.views_legacy_image import _is_own_host
+
+        # Django also accepts the ``.example.com`` spelling for the same wildcard.
+        settings.ALLOWED_HOSTS = ["testserver", ".pastlives.space"]
+        request = RequestFactory().get("/_legacy-image/")
+
+        assert _is_own_host("classes.pastlives.space", request) is True
+        assert _is_own_host("pastlives.space", request) is True
+
+    def it_does_not_treat_a_lookalike_domain_as_ours(db, settings):
+        from classes.views_legacy_image import _is_own_host
+
+        # Suffix matching must not be a bare ``endswith``: evilpastlives.space is not
+        # a subdomain of pastlives.space.
+        settings.ALLOWED_HOSTS = ["testserver", "*.pastlives.space"]
+        request = RequestFactory().get("/_legacy-image/")
+
+        assert _is_own_host("evilpastlives.space", request) is False

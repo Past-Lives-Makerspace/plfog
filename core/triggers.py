@@ -3,8 +3,13 @@
 Each Trigger describes one notifiable event: its stable key (stored in
 Notification.trigger / NotificationPreference.trigger), display label and
 description for the settings UI, category grouping, audience (who sees the
-toggle), and defaults. `force_email` triggers always email and never show a
-toggle (e.g. security new-login).
+toggle), and defaults. `force_email` triggers always email (e.g. security
+new-login); the member cannot opt out.
+
+How they surface differs by UI: :func:`for_member` omits them entirely, while
+``core.events.settings_matrix.build_matrix`` lists them with the email cell
+rendered locked-on, so the member can see the event exists without being able
+to disable it.
 """
 
 from __future__ import annotations

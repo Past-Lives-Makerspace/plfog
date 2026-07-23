@@ -33,7 +33,11 @@ def delete_if_unreferenced(
     """
     if not name:
         return False
-    others = model._default_manager.filter(**{field_name: name})
+    # ``_base_manager``, not ``_default_manager``: on a soft-deleting model the default
+    # manager filters out deleted rows, so a soft-deleted sibling still pointing at this
+    # key would not count as a reference and the object would be deleted out from under
+    # it. Undeleting that row would then surface a broken image.
+    others = model._base_manager.filter(**{field_name: name})
     if exclude_pk is not None:
         others = others.exclude(pk=exclude_pk)
     if others.exists():

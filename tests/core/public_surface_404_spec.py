@@ -66,7 +66,11 @@ def describe_member_only_paths_on_the_public_surface():
             assert b"We couldn't find that page." in response.content
 
     def describe_on_the_members_host():
-        def it_does_not_404_member_only_paths(db) -> None:
+        def it_serves_member_only_paths_normally(db) -> None:
+            # Asserts 200, not merely "not 404": this is the control proving the guest-host
+            # 404s above are surface-scoped rather than the path being broken everywhere.
+            # ``!= 404`` also passed on a 500, which is the exact failure this file exists
+            # to catch.
             client = Client(HTTP_HOST="members.pastlives.space", raise_request_exception=False)
             response = client.get("/guilds/")
-            assert response.status_code != 404
+            assert response.status_code == 200, f"members host returned {response.status_code}, expected 200"
