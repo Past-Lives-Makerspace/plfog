@@ -8,6 +8,11 @@ from unittest.mock import ANY, MagicMock, patch
 import pytest
 from django.core.management import CommandError, call_command
 
+# Swapping DATABASES is exactly what these specs assert on — the command must refuse a
+# sqlite local DB and accept a PostgreSQL one — and no connection is ever opened, so
+# Django's generic "this can lead to unexpected behavior" warning is noise here.
+pytestmark = pytest.mark.filterwarnings("ignore:Overriding setting DATABASES:UserWarning")
+
 
 def describe_pull_prod_db():
     def describe_guard_rails():
