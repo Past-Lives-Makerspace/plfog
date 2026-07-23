@@ -1,7 +1,7 @@
 # Interactive Space Map + Space Requests — Spec & Implementation Plan
 
 **Status:** Spec only — not yet approved to build.
-**Date:** 2026-07-04
+**Date:** 2026-07-04 · **Refreshed:** 2026-07-22 against `main` @ `76f3dba` (VERSION 0.23.25)
 **Surface:** FOG hub `pastlives.test` — the Space & Org Info page (`/info/`), a new admin placement editor (`/info/map/edit/`), and a request-review queue (`/info/requests/review/`). Public-read map; member-gated requests.
 **Related:** Spec 2 of 2 — *Time-based Reservations (meeting rooms + event space)* — a separate doc. This spec owns `Floorplan`, `MapHotspot`, `SpaceRequest`, the read map, the placement editor, and the lease/cubby request flow. Spec 2 owns reservable resources, reservations, availability/overlap, and event-space→`CommunityEvent`. The seam is the `MapHotspot.kind` enum (§4) — this spec defines `meeting_room` / `event_space` so spec 2 adds no hotspot schema change.
 
@@ -20,7 +20,7 @@ Today `/info/` shows a single flat floor-plan image you can only click to zoom (
 | Payment | **Display price, arrange offline.** The map shows each space's monthly price from Airtable; a request only **notifies** the approver. No in-app checkout, no Stripe. |
 | Airtable is read-only | `Space` / `Lease` are pulled from Airtable and never written back. Map coordinates and requests are **new Django-owned models** referencing `Space` by FK. On approval a human fulfills the lease in Airtable — approving a request does **not** create a `Lease`. |
 | Floorplan vs the single image | The interactive map is fed by new `Floorplan` records and **supersedes** the single-image lightbox when ≥1 published floor exists; the legacy `OrgInfoPage.floorplan_image` lightbox stays as the graceful fallback when there are no floors yet. |
-| Moderation shape | Mirror the **`CommunityEvent`** proposal→review→decision state machine and its review-queue views (this worktree's canonical approve-with-notes pattern — see §2). `GuildAnnouncement` here is a plain news post with no moderation, so it is *not* the model to copy despite the brief's shorthand. |
+| Moderation shape | Mirror the **`CommunityEvent`** proposal→review→decision state machine and its review-queue views (see §2). ⚠️ **The original reason for this choice has expired.** The spec said `GuildAnnouncement` was "a plain news post with no moderation"; since then it has grown its own `ModerationState` (PUBLISHED/PENDING/CHANGES_REQUESTED/DECLINED) plus `submit_for_review` / `withdraw` / `approve` / `request_changes` / `decline` at `membership/models.py:2272`, `:2438`–`:2566`. So there are now **two** implementations of this pattern. `CommunityEvent` is still the better model here because this spec's flow is member-proposes → reviewer-decides on a *calendar-adjacent* object, but whoever builds this should compare the two first and consider whether the duplication should be factored out rather than tripled. |
 | Request states | **Approve / Decline / Withdraw only — no `changes-requested`.** A space request has no editable body worth a back-and-forth thread; "not this one" is a decline-with-note. Dropping the changes state also keeps idempotency simple: "open" ≡ `PENDING`, so the partial `UniqueConstraint(condition=Q(state="pending"))` is exactly right. |
 | Cubby routing + fallback | Route via the spine's `GUILD_LEADERSHIP_OR_ADMINS` resolver so a guild-owned cubby reaches its lead+staff and an open/unowned shelf falls back to admins — a bound resolver can't fall back on its own, and `GUILD_LEAD` alone silently drops lead-less shelves. See §5 + §10. |
 | Access | Map **view** = public-read (mirrors `org_info`). **Editing** = admin-only (`_require_admin`). **Requesting** = logged-in **active** members (`Member.Status.ACTIVE`); guests are prompted to log in. |
@@ -29,30 +29,30 @@ Today `/info/` shows a single flat floor-plan image you can only click to zoom (
 
 ## 2. What already exists (reuse, don't reinvent)
 
-This build is assembly. Every column below was confirmed in the `plfog-spacemap` worktree (`feat-interactive-space-map`, VERSION 0.21.0).
+This build is assembly. Every column below was originally confirmed against VERSION 0.21.0 and **re-verified against `main` at `76f3dba` (VERSION 0.23.25) on 2026-07-22** — every symbol still exists, but the line numbers moved substantially (`CommunityEvent` alone went 2037 → 3484) and have been updated. Line numbers rot; if one is off, search by the symbol name in the same column.
 
 | Need | Existing thing | Location |
 |---|---|---|
-| The `/info/` page to extend | `OrgInfoPage` singleton (`load()`, `HeroCropMixin`) + `floorplan_image` / `floorplan_caption` | `membership/models.py:1463`, `:1482`, `:1488` |
-| Public-read page view | `org_info` (no `@login_required`; `can_edit=_viewing_as_admin`) | `hub/views.py:1859` |
-| Admin-gated editor + own-endpoint formsets | `org_info_edit` / `org_info_faq_save` / `org_info_links_save` / `org_info_floorplan_delete` (`_require_admin`, `?tab=` Alpine) | `hub/views.py:1909`, `:1930`, `:1949`, `:1968` |
-| Inline-formset editor idiom (`extra=0`, own save endpoint) | `OrgFAQItemFormSet` / `OrgLinkFormSet` | `hub/forms.py:760`, `:772` |
+| The `/info/` page to extend | `OrgInfoPage` singleton (`load()`, `HeroCropMixin`) + `floorplan_image` / `floorplan_caption` | `membership/models.py:2032`, `:2051`, `:2057` |
+| Public-read page view | `org_info` (no `@login_required`; `can_edit=_viewing_as_admin`) | `hub/views.py:2259` |
+| Admin-gated editor + own-endpoint formsets | `org_info_edit` / `org_info_faq_save` / `org_info_links_save` / `org_info_floorplan_delete` (`_require_admin`, `?tab=` Alpine) | `hub/views.py:2309`, `:2330`, `:2349`, `:2368` |
+| Inline-formset editor idiom (`extra=0`, own save endpoint) | `OrgFAQItemFormSet` / `OrgLinkFormSet` | `hub/forms.py:1077`, `:1089` |
 | Current flat map partial (fallback + empty state) | `_org_floorplan.html` (lightbox, `.pl-org-map`, `.pl-org-map--empty`) | `templates/hub/_org_floorplan.html` |
-| The space data (read-only) | `Space` — `space_id`, `space_type`, `status ∈ {available,occupied,maintenance}`, `sublet_guild` FK, `full_price` (may be `None`), `current_occupants`, `SpaceQuerySet.available()` | `membership/models.py:3043`, `:3118` (`full_price`), `:3127` (`current_occupants`), `:3025` (`available`) |
-| Guild lead / leadership | `Guild.guild_lead` FK + `Guild.leadership_members()` (lead + staff, deduped) | `membership/models.py:923`, `:1269` |
-| Edit-permission source of truth | `membership/permissions.py` → `_can_edit_guild`; view helpers `_viewing_as_admin` / `_require_admin` / `_get_member` | `hub/views.py` (imported near `:344`) |
-| **Approve-with-notes state machine to mirror** | `CommunityEvent.ModerationState` (PUBLISHED/PENDING/CHANGES_REQUESTED/DECLINED) + `submit_for_review` / `approve` / `request_changes` / `decline` / `withdraw` + `_emit_submitted` / `_emit_decision`; domain exc. `InvalidEventTransition` | `membership/models.py:2037`, `:2375`, `:2410`, `:2425`, `:2440`, `:2465`, `:2499`, `:2526` |
-| **Review-queue views to mirror** | `_reviewer_guild_scope` / `_pending_for_scope`, `propose_event`, `event_review_queue`, `event_review_decision`, `event_withdraw` | `hub/views.py:2234`, `:2248`, `:2257`, `:2361`, `:2384`, `:2341` |
-| Decision form to mirror | `EventDecisionForm` (`decision ∈ {approve,changes,decline}`, `notes` required for changes/decline) | `hub/forms.py:1037` |
+| The space data (read-only) | `Space` — `space_id`, `space_type`, `status ∈ {available,occupied,maintenance}`, `sublet_guild` FK, `full_price` (may be `None`), `current_occupants`, `SpaceQuerySet.available()` | `membership/models.py:4862`, `:4937` (`full_price`), `:4946` (`current_occupants`), `:4844` (`available`) |
+| Guild lead / leadership | `Guild.guild_lead` FK + `Guild.leadership_members()` (lead + staff, deduped) | `membership/models.py:1224`, `:1660` |
+| Edit-permission source of truth | `membership/permissions.py` → **`can_edit_guild`** (renamed since this spec was written — it was `_can_edit_guild`); view helpers `_viewing_as_admin` / `_require_admin` / `_get_member` | `membership/permissions.py:51`; `hub/views.py:550`, `:556` |
+| **Approve-with-notes state machine to mirror** | `CommunityEvent.ModerationState` (PUBLISHED/PENDING/CHANGES_REQUESTED/DECLINED) + `submit_for_review` / `withdraw` / `approve` / `request_changes` / `decline` + `_emit_submitted` / `_emit_decision`; domain exc. `InvalidEventTransition` | `membership/models.py:3512`, `:4157`, `:4192`, `:4207`, `:4224`, `:4249`, `:4283`, `:4310` (class at `:3484`) |
+| **Review-queue views to mirror** | `_reviewer_guild_scope` → returns a `_ReviewScope` whose **`.pending()`** supplies the queue (the standalone `_pending_for_scope` helper in the original spec no longer exists); `propose_event`, `event_review_queue`, `event_review_decision`, `event_withdraw` | `hub/views.py:2903`, `:2914`, `:3003`, `:3026`, `:2983` |
+| Decision form to mirror | `EventDecisionForm` (`decision ∈ {approve,changes,decline}`, `notes` required for changes/decline) | `hub/forms.py:1507` |
 | Review-queue template + decision modal to mirror | `event_review_queue.html`, `partials/_event_decision_modal.html` (confirm_modal for approve, note-carrying modal for changes/decline) | `templates/hub/event_review_queue.html`, `templates/hub/partials/_event_decision_modal.html` |
-| Notification spine | `emit()` (`period` required in practice) | `core/events/emit.py:43` |
-| Resolvers | `fog_admins` (`FOG_ADMINS`), `guild_leadership_or_admins` (`GUILD_LEADERSHIP_OR_ADMINS`), `single_user` (`SINGLE_USER`) | `core/events/resolvers.py:95`, `:140`, `:434`; registered in `_RESOLVERS` `:447` |
-| Event registry + copy seeding | `_NEW_EVENTS` list + `seed_notification_templates`; **"Spaces" trigger category already exists** | `core/events/registry.py:339`; `core/triggers.py:108` (`lease_expiring`, category `"Spaces"`), `:121` (`CATEGORY_ORDER`) |
+| Notification spine | `emit()` (`period` required in practice) | `core/events/emit.py:44` |
+| Resolvers | `fog_admins` (`FOG_ADMINS`), `guild_leadership_or_admins` (`GUILD_LEADERSHIP_OR_ADMINS`), `single_user` (`SINGLE_USER`) | `core/events/resolvers.py:95`, `:140`, `:457`; registered in `_RESOLVERS` `:470` |
+| Event registry + copy seeding | `_NEW_EVENTS` list + `seed_notification_templates`; **"Spaces" trigger category already exists** | `core/events/registry.py:345`; `core/triggers.py:145` (`lease_expiring`, category `"Spaces"`), `:158` (`CATEGORY_ORDER`) |
 | Absolute URLs for emails/notices | `settings.MEMBER_BASE_URL` + `membership.orientations._absolute_url` | used throughout `CommunityEvent._emit_*` |
-| Lazy-load-a-CDN-lib + JSON-coords-save pattern | `hero_cropper.js` (loads Cropper.js from CDN on first use, writes a `{x,y,w,h}` box to a hidden input) + `hub_hero_adjust` (permission-gated JSON POST, `save(update_fields=…)`) | `static/js/hero_cropper.js`, `hub/views.py:352` |
+| Lazy-load-a-CDN-lib + JSON-coords-save pattern | `hero_cropper.js` (loads Cropper.js from CDN on first use, writes a `{x,y,w,h}` box to a hidden input) + `hub_hero_adjust` (permission-gated JSON POST, `save(update_fields=…)`) | `static/js/hero_cropper.js`, `hub/views.py:314` |
 | Gallery drag-reorder | `components/gallery_manager.html` (native HTML5 DnD, `sort_order`) | `templates/components/gallery_manager.html` |
 | Components | `modal.html` (HTMX body target), `confirm_modal.html`, `form_field.html`, `toggle.html`, `image_field.html`, `page_header.html`, `gallery_manager.html` | `templates/components/` (all confirmed present) |
-| Status colors (reuse — **no new colors**) | `--color-success` `#7bc88f` + `--color-success-bg` (available); the **caution/warn** hue `#fbbf24` via `.hub-pill--warn` (maintenance — **not** `--color-tuscan-yellow`, which is the primary CTA gold); `--hub-text-muted` (occupied); pill classes `.hub-pill--neutral/--warn/--danger`, `.hub-badge` | `static/css/hub.css:80`, `:392` (`.hub-pill--warn`), `:1048`, `:396` |
+| Status colors (reuse — **no new colors**) | `--color-success` `#7bc88f` + `--color-success-bg` (available); the **caution/warn** hue `#fbbf24` via `.hub-pill--warn` (maintenance — **not** `--color-tuscan-yellow`, which is the primary CTA gold); `--hub-text-muted` (occupied); pill classes `.hub-pill--neutral/--warn/--danger`, `.hub-badge` | `static/css/hub.css:80`, `:399` (`.hub-pill--warn`), `:1048`, `:396` |
 | Toasts | server `hub.toast.trigger_toast(resp, msg, type)` / client `$dispatch('show-toast', …)` (in base) | `hub/toast.py` |
 
 **Genuine gaps to close (net-new):**
@@ -72,7 +72,7 @@ membership/
   models.py                          + Floorplan, FloorplanQuerySet
                                      + MapHotspot, MapHotspotQuerySet
                                      + SpaceRequest, SpaceRequestQuerySet, InvalidSpaceRequestTransition
-  migrations/0073_floorplan_maphotspot_spacerequest.py   (CreateModel ×3 + constraints/indexes)
+  migrations/0099_floorplan_maphotspot_spacerequest.py   (CreateModel ×3 + constraints/indexes)
   spec/models/floorplan_spec.py, map_hotspot_spec.py, space_request_spec.py
   factories.py                       + FloorplanFactory, MapHotspotFactory, SpaceRequestFactory
 core/events/
@@ -233,7 +233,7 @@ ordering = ["-created_at"]
 
 ### 4.4 Migration
 
-`membership/migrations/0073_floorplan_maphotspot_spacerequest.py` — three `CreateModel` operations plus the `CheckConstraint` (MapHotspot) and partial `UniqueConstraint` (SpaceRequest). **Fully reversible**: these are net-new tables, so Django's `CreateModel` reverses cleanly (`migrate membership 0072` drops all three), leaving `Space` / `Lease` / `OrgInfoPage` untouched. No data migration, so no custom reverse function is needed. Run `ruff format` + `git add` the migration together (CI's `ruff format --check` covers migrations).
+`membership/migrations/0099_floorplan_maphotspot_spacerequest.py` — three `CreateModel` operations plus the `CheckConstraint` (MapHotspot) and partial `UniqueConstraint` (SpaceRequest). **Fully reversible**: these are net-new tables, so Django's `CreateModel` reverses cleanly (`migrate membership 0072` drops all three), leaving `Space` / `Lease` / `OrgInfoPage` untouched. No data migration, so no custom reverse function is needed. Run `ruff format` + `git add` the migration together (CI's `ruff format --check` covers migrations).
 
 ---
 
@@ -243,7 +243,7 @@ Views stay thin — they parse the request, call a model method, and return a to
 
 **Domain exception:** `class InvalidSpaceRequestTransition(ValueError)` (mirrors `InvalidEventTransition` at `membership/models.py`).
 
-**`SpaceRequest` methods** (mirror `CommunityEvent.submit_for_review`/`approve`/`decline`/`withdraw` at `membership/models.py:2375`–`:2484` — but **no `request_changes`**, per the locked decision):
+**`SpaceRequest` methods** (mirror `CommunityEvent.submit_for_review`/`approve`/`decline`/`withdraw` at `membership/models.py:3512`–`:2484` — but **no `request_changes`**, per the locked decision):
 
 | Method | Guard (raises `InvalidSpaceRequestTransition`) | State → | Side effects |
 |---|---|---|---|
@@ -331,12 +331,12 @@ New admin page at `/info/map/edit/`, gated by `_require_admin` (403 partial othe
 - A floor `<select>` (in `.hub-form-group`; `select option {background;color}` styled) picks which floor to edit; its image renders in the same `.pl-map-stage` wrapper (edit mode).
 - **"Re-check markers" hint (image replaced):** when the selected floor's `image` was just replaced (`Floorplan._image_changed`, §4.1), the Placement tab shows a dismissible caution banner (`.hub-message` warn style) — *"You replaced this floor's image. Coordinates are kept, but a differently-cropped image can misplace markers — please re-check each one."* Percent coords survive a resize/normalize untouched; only a genuinely different crop needs re-verification.
 - **List editor of markers** (`MapHotspotFormSet`, `extra=0`, **fields = `space/kind/shape/label/description/sort_order` only**): **"+ Add marker"** clones `empty_form` and creates a marker with **no coords posted** → it saves fine thanks to the `x/y` model `default=50` (§4.2), landing **dead-center** for the admin to then drag into place. Per-row **Delete** (`pl-btn pl-btn--danger pl-btn--sm`, `margin-top:0.75rem`; saved rows flip `DELETE`, clones drop the node). **Save "Save markers"** → `hub_map_hotspots_save` (own endpoint). `MapHotspotForm.clean()` enforces: a region needs `w`/`h`; a `studio`/`cubby` kind needs a `space`; a facility/info kind needs a `label`.
-- **Visual placement mode** (`space_map_editor.js`, reusing the `hero_cropper.js` lazy-load + JSON-save shape): selecting a saved marker in the sidebar then **click-drag a rectangle** on the image sets its region (or single-click sets a pin center); the tool writes `{hotspot_id, x, y, w, h}` as **percentages of the natural image** and POSTs JSON to `hub_map_hotspot_position` — a permission-gated endpoint (`_require_admin`) that updates **only the coord fields** (`save(update_fields=["x","y","w","h","updated_at"])`), exactly like `hub_hero_adjust` (`hub/views.py:352`). Existing markers are draggable/resizable (same endpoint). The endpoint **re-validates bounds** (`0 ≤ x,y ≤ 100`; region `x+w ≤ 100`, `y+h ≤ 100`, §4.2) and returns a 400 the editor surfaces as an error toast; a valid save confirms with a success toast. Workflow: add a marker in the list (centered) → assign its Space/kind → drag it onto the plan.
+- **Visual placement mode** (`space_map_editor.js`, reusing the `hero_cropper.js` lazy-load + JSON-save shape): selecting a saved marker in the sidebar then **click-drag a rectangle** on the image sets its region (or single-click sets a pin center); the tool writes `{hotspot_id, x, y, w, h}` as **percentages of the natural image** and POSTs JSON to `hub_map_hotspot_position` — a permission-gated endpoint (`_require_admin`) that updates **only the coord fields** (`save(update_fields=["x","y","w","h","updated_at"])`), exactly like `hub_hero_adjust` (`hub/views.py:314`). Existing markers are draggable/resizable (same endpoint). The endpoint **re-validates bounds** (`0 ≤ x,y ≤ 100`; region `x+w ≤ 100`, `y+h ≤ 100`, §4.2) and returns a 400 the editor surfaces as an error toast; a valid save confirms with a success toast. Workflow: add a marker in the list (centered) → assign its Space/kind → drag it onto the plan.
 - **Dark/light:** the stage, sidebar, and drawn boxes use `--hub-*` tokens; drawn regions use a translucent accent fill that reads on both themes. **Mobile:** the editor is desktop-first (placement is a mouse task) but the Floors tab reflows to stacked cards; a note tells admins to place markers on a larger screen.
 
 ### 6.5 Request review queue — `templates/hub/space_request_review_queue.html` (mirror of `event_review_queue.html`)
 
-At `/info/requests/review/`, gated by `_map_reviewer_scope` (admin → all lease+cubby; guild lead/staff → their guilds' cubby requests; else 403) — modeled on `_reviewer_guild_scope` (`hub/views.py:2234`).
+At `/info/requests/review/`, gated by `_map_reviewer_scope` (admin → all lease+cubby; guild lead/staff → their guilds' cubby requests; else 403) — modeled on `_reviewer_guild_scope` (`hub/views.py:2903`).
 
 - **Layout:** a `hub-card` list; each pending request is a row (`display_label` · requester · guild/"Site" · kind · created-at · the member `message`).
 - **Controls per row — two actions only** (spaced so Approve isn't fat-fingered next to Decline, exactly like the events queue):
@@ -354,7 +354,7 @@ Surfaced compactly so a member can see/withdraw their asks without a new page: a
 
 ## 7. Notifications / emails / activity
 
-Register **4 `EventType`s** in `_NEW_EVENTS` (`core/events/registry.py:339`) — each with a seeded copy entry (`seed_notification_templates`) — plus matching `Trigger` rows in the existing **"Spaces"** category (`core/triggers.py:108`). Channels follow the events pattern (in-app + email; these are personal, not broadcasts — no Discord).
+Register **4 `EventType`s** in `_NEW_EVENTS` (`core/events/registry.py:345`) — each with a seeded copy entry (`seed_notification_templates`) — plus matching `Trigger` rows in the existing **"Spaces"** category (`core/triggers.py:145`). Channels follow the events pattern (in-app + email; these are personal, not broadcasts — no Discord).
 
 | Event key | Recipient (resolver) | Audience | Channels | Copy (subject noun links to `space_url` / `review_url`) |
 |---|---|---|---|---|
