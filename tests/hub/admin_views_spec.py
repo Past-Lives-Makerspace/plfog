@@ -787,6 +787,13 @@ def describe_admin_site_settings_features():
         assert b"Enable My Tab &amp; Payments" in response.content
         assert b"Allow class registration" in response.content
 
+    def it_renders_the_help_and_wiki_sidebar_toggles(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
+        assert response.status_code == 200
+        assert b"Show Help in the sidebar" in response.content
+        assert b"Show Wiki link in the sidebar" in response.content
+
     def it_renders_the_feature_fields_only_once(client):
         # Excluded from the General loop — each control renders only in the Features panel.
         _create_superuser(client)
@@ -794,6 +801,8 @@ def describe_admin_site_settings_features():
         assert response.content.count(b'id="id_tab_payments_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
+        assert response.content.count(b'id="id_help_page_enabled"') == 1
+        assert response.content.count(b'id="id_wiki_link_enabled"') == 1
 
     def it_saves_the_feature_switches(client):
         _create_superuser(client)

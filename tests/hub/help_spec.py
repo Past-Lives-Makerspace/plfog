@@ -13,6 +13,7 @@ from django.test import Client
 from django.urls import reverse
 from PIL import Image
 
+from core.models import SiteConfiguration
 from membership.models import Member, OrgFAQItem, OrgInfoPage, OrgLink, WikiArticle
 from tests.membership.factories import (
     MembershipPlanFactory,
@@ -93,6 +94,14 @@ def describe_org_info_read_page():
         _user_with_role("m_read")
         client.login(username="m_read", password="pass")
         assert client.get(reverse("hub_help")).status_code == 200
+
+    def it_redirects_to_home_when_the_help_page_is_disabled(client: Client):
+        config = SiteConfiguration.load()
+        config.help_page_enabled = False
+        config.save()
+        resp = client.get(reverse("hub_help"))
+        assert resp.status_code == 302
+        assert resp.url == reverse("hub_home")
 
     def it_does_not_carry_the_floor_plan_any_more(client: Client):
         """The map moved to Spaces — the Wiki must not quietly keep rendering it."""

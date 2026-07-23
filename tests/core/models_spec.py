@@ -59,6 +59,14 @@ def describe_SiteConfiguration():
                 "Online registration is paused right now. Email info@pastlives.space and we'll help you sign up."
             )
 
+        def it_defaults_help_page_enabled_to_true():
+            config = SiteConfiguration.load()
+            assert config.help_page_enabled is True
+
+        def it_defaults_wiki_link_enabled_to_true():
+            config = SiteConfiguration.load()
+            assert config.wiki_link_enabled is True
+
 
 def describe_Invite():
     @pytest.fixture()

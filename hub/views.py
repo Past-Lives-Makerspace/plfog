@@ -2296,6 +2296,9 @@ def help_page(request: HttpRequest) -> HttpResponse:
     ``help_edit``. Anything about the *building* now lives on ``spaces``; the makerspace's
     full external knowledge base is the separate "Wiki" nav link.
     """
+    if not SiteConfiguration.load().help_page_enabled:
+        return redirect("hub_home")
+
     page = OrgInfoPage.load()
     org_ct = ContentType.objects.get_for_model(OrgInfoPage)
     return render(

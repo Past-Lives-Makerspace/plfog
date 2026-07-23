@@ -278,6 +278,16 @@ class SiteConfiguration(models.Model):
         verbose_name="Registration-off message",
         help_text="Shown under the disabled Register button when class registration is off.",
     )
+    help_page_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Show Help in the sidebar",
+        help_text="When off, the Help link is hidden from the sidebar and the /help/ page redirects to the home page.",
+    )
+    wiki_link_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Show Wiki link in the sidebar",
+        help_text="When off, the Wiki link to the makerspace wiki is hidden from the sidebar.",
+    )
     member_directory_public = models.BooleanField(
         default=False,
         verbose_name="Public member directory",
