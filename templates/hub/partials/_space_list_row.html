@@ -9,9 +9,16 @@ Params (via {% include ... with %}):
 
 Every action routes through the same detail modal the markers open, so a keyboard-only
 member reaches every space and every CTA without touching the map.
+
+The data-* attributes are what the list's floor/status/search filtering reads (see
+plMap.syncList in space_map.js) — they travel with the row so an OOB-swapped row lands
+back in the list already filterable.
 {% endcomment %}
 {% url 'hub_map_hotspot_detail' h.pk as detail_url %}
-<tr id="list-row-hotspot-{{ h.pk }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+<tr id="list-row-hotspot-{{ h.pk }}" class="pl-map-list__row"
+    data-floor="{{ h.floorplan_id }}"
+    data-status="{{ h.availability_class|default:'info' }}"
+    data-search="{{ h.search_text }}"{% if oob %} hx-swap-oob="true"{% endif %}>
     <th scope="row" class="pl-map-list__code">{{ h.display_label }}</th>
     <td>{{ h.size_display|default:"—" }}</td>
     <td>

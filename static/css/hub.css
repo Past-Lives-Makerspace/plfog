@@ -4785,6 +4785,78 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-map-list__code { white-space: nowrap; }
 .pl-map-list__note { font-size: 0.8125rem; }
 .pl-map-list__withdraw { margin-left: 0.5rem; }
+/* Filter bar — search box + status chips, above the table for the selected floor. */
+.pl-map-list__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+  margin: 0 0 0.75rem;
+}
+.pl-map-list__search { display: flex; flex: 1 1 16rem; flex-direction: column; gap: 0.25rem; max-width: 22rem; }
+.pl-map-list__label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--hub-text-muted);
+}
+.pl-map-list__search-input {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--hub-input-border);
+  background: var(--hub-input-bg);
+  color: var(--hub-text);
+  font-size: 0.875rem;
+}
+.pl-map-list__search-input:focus-visible {
+  outline: 2px solid var(--hub-blue);
+  outline-offset: 1px;
+}
+.pl-map-list__chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.pl-map-list__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--hub-border);
+  background: var(--hub-surface);
+  color: var(--hub-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pl-map-list__chip:hover { color: var(--hub-text); border-color: var(--hub-text-muted); }
+.pl-map-list__chip:focus-visible {
+  outline: 2px solid var(--hub-blue);
+  outline-offset: 1px;
+}
+.pl-map-list__chip.is-active {
+  border-color: var(--color-tuscan-yellow);
+  background: var(--hub-elevated);
+  color: var(--hub-text);
+}
+.pl-map-list__chip-count { color: var(--hub-text-muted); font-weight: 400; }
+.pl-map-list__chip.is-active .pl-map-list__chip-count { color: var(--color-tuscan-yellow); }
+/* A filtered-out row leaves the page and the accessibility tree together. */
+.pl-map-list__row[hidden] { display: none; }
+.pl-map-list__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-top: 0.75rem;
+}
+.pl-map-list__count { margin: 0; font-size: 0.8125rem; color: var(--hub-text-muted); }
+/* Show more / Show fewer and Clear filters are answers the browser gives, so they stay
+   hidden until Alpine turns them on — with JavaScript off the whole list is already there
+   and neither control would have anything to do. */
+.pl-map-list .pl-map-list__more,
+.pl-map-list .pl-map-list__clear { display: none; }
+.pl-map-list .pl-map-list__more.is-shown,
+.pl-map-list .pl-map-list__clear.is-shown { display: inline-flex; }
 [data-theme="light"] .pl-map-list .hub-pill--ok { color: #1f7a52; }
 [data-theme="light"] .pl-map-list .hub-pill--warn { color: #9a6a00; }
 [data-theme="light"] .pl-map-list .hub-pill--neutral { color: #5b6675; }

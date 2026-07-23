@@ -17,7 +17,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "monthly price written right in the room. Drag to pan, pinch or scroll to zoom, "
                 "and tap any space for the full details and who's in it. Prefer not to use the "
                 "map? Every space is also listed underneath in a plain table you can read and "
-                "use with a keyboard."
+                "use with a keyboard — it follows the floor you picked, puts the available "
+                "spaces first, and you can search it or filter it down to just what's open."
             ),
             (
                 "See a studio or cubby you want? Ask for it right there. Your request goes to the "

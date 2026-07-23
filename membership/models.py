@@ -5831,6 +5831,32 @@ class Floorplan(models.Model):
             tally[hotspot.availability_class or "info"] = tally.get(hotspot.availability_class or "info", 0) + 1
         return [(slug, label, tally[slug]) for slug, label in self.LEGEND_ROWS if tally.get(slug)]
 
+    @property
+    def list_filters(self) -> list[tuple[str, str, int]]:
+        """The accessible list's status filters — ``All`` first, then this floor's own colours.
+
+        Straight off :attr:`legend` (same prefetched hotspots, no extra query, same live
+        counts), so the chips can never disagree with the map key sitting above them. A
+        floor with nothing on it gets no chips at all — there is nothing to filter.
+        """
+        counts = self.legend
+        if not counts:
+            return []
+        return [("all", "All", sum(count for _slug, _label, count in counts)), *counts]
+
+    @property
+    def list_hotspots(self) -> list[MapHotspot]:
+        """This floor's markers ordered for the accessible list — actionable first.
+
+        Grouped by status in the same order members just read in the legend (available,
+        occupied, maintenance, then shops & facilities), so someone scanning for a space
+        to rent meets the free ones first instead of paging through the leased studios.
+        Within a status the editor's ``sort_order`` survives (the sort is stable), and the
+        already-prefetched hotspots are sorted in Python — no extra query.
+        """
+        rank = {slug: index for index, (slug, _label) in enumerate(self.LEGEND_ROWS)}
+        return sorted(self.hotspots.all(), key=lambda hotspot: rank[hotspot.availability_class or "info"])
+
 
 class MapHotspotQuerySet(models.QuerySet):
     def for_map(self) -> MapHotspotQuerySet:
@@ -6064,6 +6090,17 @@ class MapHotspot(models.Model):
             and self.space is not None
             and self.space.status == Space.Status.AVAILABLE
         )
+
+    @property
+    def search_text(self) -> str:
+        """Lowercased haystack the accessible list's search box matches against.
+
+        Everything a member would plausibly type to find a space: its code or name
+        ("A12"), a facility's own label ("Wood Shop"), and what kind of thing it is
+        ("cubby"). Composed here so the search agrees with what the row actually shows.
+        """
+        parts = [self.display_label, self.label, self.get_kind_display()]
+        return " ".join(part for part in parts if part).lower()
 
     @property
     def aria_label(self) -> str:

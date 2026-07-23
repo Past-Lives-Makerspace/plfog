@@ -94,6 +94,39 @@ def describe_Floorplan():
         def it_is_empty_for_a_floor_with_nothing_on_it():
             assert FloorplanFactory().legend == []
 
+    def describe_list_filters():
+        def it_leads_with_an_all_chip_over_the_floors_own_colours():
+            floor = FloorplanFactory()
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.AVAILABLE))
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.OCCUPIED))
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.OCCUPIED))
+            assert floor.list_filters == [
+                ("all", "All", 3),
+                ("available", "Available", 1),
+                ("occupied", "Occupied", 2),
+            ]
+
+        def it_offers_no_chips_for_a_floor_with_nothing_to_filter():
+            assert FloorplanFactory().list_filters == []
+
+    def describe_list_hotspots():
+        def it_sorts_the_spaces_a_member_can_rent_to_the_top():
+            floor = FloorplanFactory()
+            MapHotspotFactory(floorplan=floor, space=None, kind=MapHotspot.Kind.FACILITY, label="Wood Shop")
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="B2", status=Space.Status.OCCUPIED))
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="B3", status=Space.Status.MAINTENANCE))
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="B1", status=Space.Status.AVAILABLE))
+            assert [h.display_label for h in floor.list_hotspots] == ["B1", "B2", "B3", "Wood Shop"]
+
+        def it_keeps_the_editors_own_order_within_a_status():
+            floor = FloorplanFactory()
+            MapHotspotFactory(floorplan=floor, sort_order=2, space=SpaceFactory(space_id="C2"))
+            MapHotspotFactory(floorplan=floor, sort_order=1, space=SpaceFactory(space_id="C1"))
+            assert [h.display_label for h in floor.list_hotspots] == ["C1", "C2"]
+
+        def it_is_empty_for_a_floor_with_nothing_on_it():
+            assert FloorplanFactory().list_hotspots == []
+
 
 @pytest.mark.django_db
 def describe_MapHotspot():
@@ -201,6 +234,19 @@ def describe_MapHotspot():
         def it_refuses_a_reservable_room():
             hotspot = MapHotspotFactory(kind=MapHotspot.Kind.MEETING_ROOM)
             assert not hotspot.is_requestable
+
+    def describe_search_text():
+        def it_finds_a_space_by_its_code_whatever_the_casing():
+            hotspot = MapHotspotFactory(space=SpaceFactory(space_id="A12"))
+            assert "a12" in hotspot.search_text
+
+        def it_finds_a_facility_by_its_own_name():
+            hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
+            assert "wood shop" in hotspot.search_text
+
+        def it_finds_a_cubby_by_what_kind_of_thing_it_is():
+            hotspot = MapHotspotFactory(kind=MapHotspot.Kind.CUBBY, space=SpaceFactory(space_id="S1-2"))
+            assert "cubby" in hotspot.search_text
 
     def describe_aria_label():
         def it_names_the_space_its_status_and_its_price():

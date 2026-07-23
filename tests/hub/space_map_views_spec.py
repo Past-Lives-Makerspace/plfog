@@ -109,6 +109,42 @@ def describe_org_info_map():
             # The name still reaches every reader, through the accessible name and the list.
             assert "TINY" in response
 
+    def describe_the_accessible_list():
+        def it_gives_every_row_what_the_browser_filter_reads(client: Client):
+            floor = FloorplanFactory(name="List Floor", image="")
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="A12", status=Space.Status.OCCUPIED))
+            response = client.get(reverse("hub_org_info")).content.decode()
+            assert 'class="pl-map-list__row"' in response
+            assert f'data-floor="{floor.pk}"' in response
+            assert 'data-status="occupied"' in response
+            assert "data-search=" in response
+
+        def it_offers_a_search_box_and_status_chips_with_live_counts(client: Client):
+            floor = FloorplanFactory(name="Chip Floor", image="")
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.AVAILABLE))
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.OCCUPIED))
+            response = client.get(reverse("hub_org_info")).content.decode()
+            assert f'id="pl-map-search-{floor.pk}"' in response
+            assert 'aria-label="Filter Chip Floor by status"' in response
+            assert "setListStatus('available')" in response
+            # No maintenance on this floor, so no chip pretending there is.
+            assert "setListStatus('maintenance')" not in response
+
+        def it_leads_with_the_spaces_a_member_could_rent(client: Client):
+            floor = FloorplanFactory(name="Order Floor", image="")
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="TAKEN", status=Space.Status.OCCUPIED))
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="FREE", status=Space.Status.AVAILABLE))
+            body = client.get(reverse("hub_org_info")).content.decode()
+            rows = body.split('class="pl-map-list__row"')
+            assert "FREE" in rows[1] and "TAKEN" in rows[2]
+
+        def it_states_the_whole_list_when_the_browser_cannot_filter_it(client: Client):
+            # The server-rendered count is the no-JavaScript truth: every row is on the page.
+            floor = FloorplanFactory(name="Plain Floor", image="")
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory())
+            response = client.get(reverse("hub_org_info")).content.decode()
+            assert "Showing all 1 space on Plain Floor." in response
+
     def it_shows_a_reviewer_their_pending_count(client: Client):
         _user_with_role("adm-count", fog_role=Member.FogRole.ADMIN)
         SpaceRequestFactory()

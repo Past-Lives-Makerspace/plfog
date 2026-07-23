@@ -76,7 +76,11 @@ def describe_space_request_create():
         client.login(username="asker2", password="pass")
         body = client.post(reverse("hub_space_request_create", args=[hotspot.pk]), {"message": ""}).content.decode()
         assert 'id="hotspot-%d" hx-swap-oob="true"' % hotspot.pk in body
-        assert 'id="list-row-hotspot-%d" hx-swap-oob="true"' % hotspot.pk in body
+        # The list row carries its filter data-attributes between the two, so it lands
+        # back in the list already filterable.
+        assert 'id="list-row-hotspot-%d"' % hotspot.pk in body
+        assert 'data-floor="%d"' % hotspot.floorplan_id in body
+        assert 'hx-swap-oob="true"' in body.split('id="list-row-hotspot-%d"' % hotspot.pk)[1][:400]
         assert body.count("Request pending") >= 2
 
     def it_refuses_a_second_pending_request_with_a_friendly_message(client: Client):

@@ -77,30 +77,73 @@ Context: floorplans, pending_space_ids, my_space_requests, can_edit.
     </div>
     {% endfor %}
 
-    <section class="pl-map-list" aria-label="All spaces by floor">
-        <h3 class="pl-map-list__h3">Every space, floor by floor</h3>
+    {% comment %}
+    The accessible equal of the map. Every space on every floor is rendered here — the
+    filtering only ever hides rows in the browser, so with JavaScript off the whole list
+    is still there, in full, and every CTA is still reachable by keyboard.
+
+    It follows the floor switcher (the list is "the floor you are looking at"), sorts the
+    available spaces to the top, and shows the first pageful with a Show more / Show fewer
+    button, so the default read is short instead of 173 rows deep.
+    {% endcomment %}
+    <section class="pl-map-list" aria-label="All spaces by floor"
+             x-ref="list" x-effect="syncList()" @htmx:after-settle.window="syncList()">
+        <h3 class="pl-map-list__h3">Every space on this floor</h3>
         <p class="hub-text-muted pl-map-list__intro">
             The same spaces as the map above, in a list you can read and act on with a keyboard.
+            It follows the floor you have chosen{% if floorplans|length > 1 %} — switch floors with the buttons at the top{% endif %}.
         </p>
         {% for f in floorplans %}
-        <h4 class="pl-map-list__floor">{{ f.name }}</h4>
-        {% if f.hotspots.all %}
-        <div class="pl-map-list__scroll">
-            <table class="pl-map-list__table">
-                <caption class="sr-only">Spaces on {{ f.name }}</caption>
-                <thead>
-                    <tr><th scope="col">Space</th><th scope="col">Size</th><th scope="col">Status</th><th scope="col">Price</th><th scope="col">Action</th></tr>
-                </thead>
-                <tbody>
-                {% for h in f.hotspots.all %}
-                    {% include "hub/partials/_space_list_row.html" with h=h pending_space_ids=pending_space_ids my_space_requests=my_space_requests %}
-                {% endfor %}
-                </tbody>
-            </table>
+        <div class="pl-map-list__floor-block" x-show="floor === {{ f.pk }}">
+            <h4 class="pl-map-list__floor">{{ f.name }}</h4>
+            {% if f.hotspots.all %}
+            <div class="pl-map-list__controls">
+                <div class="pl-map-list__search">
+                    <label class="pl-map-list__label" for="pl-map-search-{{ f.pk }}">Search {{ f.name }}</label>
+                    <input type="search" id="pl-map-search-{{ f.pk }}" class="pl-map-list__search-input"
+                           placeholder="Space code or name — e.g. A12, wood"
+                           x-model="listQuery" @input="resetList()">
+                </div>
+                <div class="pl-map-list__chips" role="group" aria-label="Filter {{ f.name }} by status">
+                    {% for slug, label, count in f.list_filters %}
+                    <button type="button" class="pl-map-list__chip"
+                            :class="listStatus === '{{ slug }}' ? 'is-active' : ''"
+                            :aria-pressed="listStatus === '{{ slug }}' ? 'true' : 'false'"
+                            @click="setListStatus('{{ slug }}')">{{ label }}
+                        <span class="pl-map-list__chip-count">{{ count }}</span>
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="pl-map-list__scroll">
+                <table class="pl-map-list__table">
+                    <caption class="sr-only">Spaces on {{ f.name }}</caption>
+                    <thead>
+                        <tr><th scope="col">Space</th><th scope="col">Size</th><th scope="col">Status</th><th scope="col">Price</th><th scope="col">Action</th></tr>
+                    </thead>
+                    <tbody>
+                    {% for h in f.list_hotspots %}
+                        {% include "hub/partials/_space_list_row.html" with h=h pending_space_ids=pending_space_ids my_space_requests=my_space_requests %}
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="pl-map-list__foot">
+                {% comment %}Server-rendered text is the no-JavaScript truth (every row is shown);
+                Alpine takes it over the moment it boots.{% endcomment %}
+                <p class="pl-map-list__count" role="status" aria-live="polite"
+                   x-text="listCountLabel('{{ f.name|escapejs }}')">Showing all {{ f.hotspots.all|length }} space{{ f.hotspots.all|length|pluralize }} on {{ f.name }}.</p>
+                <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-map-list__more"
+                        :class="listMatched > listPageSize ? 'is-shown' : ''"
+                        x-text="listMoreLabel()" @click="toggleListMore()">Show more</button>
+                <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-map-list__clear"
+                        :class="listMatched === 0 ? 'is-shown' : ''"
+                        @click="clearListFilters($event)">Clear filters</button>
+            </div>
+            {% else %}
+            <p class="hub-text-muted pl-map-list__empty">Nothing marked on this floor yet.</p>
+            {% endif %}
         </div>
-        {% else %}
-        <p class="hub-text-muted pl-map-list__empty">Nothing marked on this floor yet.</p>
-        {% endif %}
         {% endfor %}
     </section>
 
