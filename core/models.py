@@ -929,6 +929,7 @@ class SiteActivity(models.Model):
         ORIENTATION_COMPLETED = "orientation_completed", "Orientation completed"
         GUILD_JOINED = "guild_joined", "Joined a guild"
         LEASE_ACTIVATED = "lease_activated", "Lease activated"
+        SPACE_REQUEST = "space_request", "Space request"
         SITE_ANNOUNCEMENT = "site_announcement", "Site announcement"
 
     actor = models.ForeignKey(

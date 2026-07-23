@@ -35,6 +35,10 @@ _BRAND_NEW_KEYS = {
     "event.happening_now",
     "discord_guilds_imported",
     "orientation.completed",
+    "space.lease_requested",
+    "space.cubby_requested",
+    "space.request_approved",
+    "space.request_declined",
 }
 
 

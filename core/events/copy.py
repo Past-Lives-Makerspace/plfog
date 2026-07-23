@@ -1158,6 +1158,146 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # space.lease_requested — a studio ask landing with the admins. Staff-facing workflow
+    # mail: the space code links to the map, the one CTA is the review queue, and the
+    # member's own note is surfaced so a reviewer can decide without opening the app.
+    "space.lease_requested": EventCopy(
+        placeholders=("member_name", "space_code", "price_display", "requester_message", "review_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "space_code": "A9",
+            "price_display": "$420.00/mo",
+            "requester_message": "I'd love the corner light for pottery.",
+            "review_url": "https://pastlives.example/info/requests/review/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ member_name }} wants to lease {{ space_code }}",
+                body_text="{{ member_name }} asked to lease {{ space_code }} ({{ price_display }}).",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ member_name }} wants to lease {{ space_code }}",
+                body_text=(
+                    "{{ member_name }} asked to lease a studio from the space map.\n\n"
+                    "{{ space_code }} · {{ price_display }}\n\n"
+                    'They wrote: "{{ requester_message }}"\n\n'
+                    "Review the request: {{ review_url }}\n\n"
+                    "Approving notifies the member — you still finalize the lease in Airtable.\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ member_name }} asked to lease a studio from the space map.</p>"
+                    '<p><strong><a href="{{ review_url }}">{{ space_code }}</a></strong> · {{ price_display }}</p>'
+                    "<p>They wrote: &ldquo;{{ requester_message }}&rdquo;</p>"
+                    '<p><a href="{{ review_url }}">Review the request</a></p>'
+                    "<p>Approving notifies the member — you still finalize the lease in Airtable.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # space.cubby_requested — same shape, routed to the owning guild's leadership (∪ admins);
+    # ``audience_label`` names who is being asked so a lead knows why it reached them.
+    "space.cubby_requested": EventCopy(
+        placeholders=("member_name", "space_code", "price_display", "requester_message", "review_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "space_code": "C12",
+            "price_display": "$25.00/mo",
+            "requester_message": "For glaze storage between firings.",
+            "review_url": "https://pastlives.example/info/requests/review/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ member_name }} wants cubby {{ space_code }}",
+                body_text="{{ member_name }} asked for cubby {{ space_code }} ({{ price_display }}).",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ member_name }} wants cubby {{ space_code }}",
+                body_text=(
+                    "{{ member_name }} asked for a cubby from the space map.\n\n"
+                    "{{ space_code }} · {{ price_display }}\n\n"
+                    'They wrote: "{{ requester_message }}"\n\n'
+                    "Review the request: {{ review_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ member_name }} asked for a cubby from the space map.</p>"
+                    '<p><strong><a href="{{ review_url }}">{{ space_code }}</a></strong> · {{ price_display }}</p>'
+                    "<p>They wrote: &ldquo;{{ requester_message }}&rdquo;</p>"
+                    '<p><a href="{{ review_url }}">Review the request</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # space.request_approved — the member hears yes. Says plainly that a human finalizes the
+    # paperwork, so nobody waits for an automatic lease that never arrives.
+    "space.request_approved": EventCopy(
+        placeholders=("space_code", "price_display", "audience_label", "space_url"),
+        sample_context={
+            "space_code": "A9",
+            "price_display": "$420.00/mo",
+            "audience_label": "the makerspace admins",
+            "space_url": "https://pastlives.example/info/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Your request for {{ space_code }} was approved",
+                body_text="{{ space_code }} ({{ price_display }}) is yours to claim — {{ audience_label }} "
+                "will be in touch to finalize it.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your request for {{ space_code }} was approved",
+                body_text=(
+                    "Good news — your request was approved.\n\n"
+                    "{{ space_code }} · {{ price_display }}\n\n"
+                    "{{ audience_label }} will be in touch to finalize the paperwork; nothing is "
+                    "charged automatically.\n\n"
+                    "See it on the map: {{ space_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Good news — your request was approved.</p>"
+                    '<p><strong><a href="{{ space_url }}">{{ space_code }}</a></strong> · {{ price_display }}</p>'
+                    "<p>{{ audience_label }} will be in touch to finalize the paperwork; nothing is "
+                    "charged automatically.</p>"
+                    '<p><a href="{{ space_url }}">See it on the map</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # space.request_declined — the member hears no, carrying the reviewer's own words and a
+    # way straight back to the map to look at what else is open.
+    "space.request_declined": EventCopy(
+        placeholders=("space_code", "reviewer_notes", "space_url"),
+        sample_context={
+            "space_code": "A9",
+            "reviewer_notes": "That one is spoken for, but B4 opens up next month.",
+            "space_url": "https://pastlives.example/info/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Update on your {{ space_code }} request",
+                body_text="{{ space_code }} isn't available for you right now: {{ reviewer_notes }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Update on your {{ space_code }} request",
+                body_text=(
+                    "Thanks for asking about {{ space_code }}. A reviewer wasn't able to say yes "
+                    "this time:\n\n{{ reviewer_notes }}\n\n"
+                    "You're welcome to ask about another space any time: {{ space_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Thanks for asking about <strong>{{ space_code }}</strong>. A reviewer wasn't able "
+                    "to say yes this time:</p>"
+                    "<p>{{ reviewer_notes }}</p>"
+                    '<p><a href="{{ space_url }}">See what else is open on the map</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
 }
 
 
