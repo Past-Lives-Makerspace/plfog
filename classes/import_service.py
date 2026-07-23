@@ -149,6 +149,8 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
         "status": status,
         "scheduling_type": scheduling_type,
     }
+    # ``image`` appears in neither dict and is never assigned below: once a picture lives
+    # in our own storage the feed must not be able to touch it.
     offering, created = ClassOffering.objects.update_or_create(
         legacy_cms_id=node_id,
         defaults=shared_defaults,
@@ -161,7 +163,16 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
             slug = f"{slug}-legacy"
         offering.slug = slug
 
-    if image_url and not offering.image:
+    # Image ownership. Once an offering has a local image — migrated off the legacy CMS by
+    # ``download_legacy_images`` or uploaded by staff — the Drupal URL is never written
+    # back, and any URL left over from an earlier sync is cleared. Otherwise the next run
+    # would silently re-point the site at the server we are decommissioning for a picture
+    # we already host, and the request-time proxy would start fetching it all over again.
+    # A genuinely new class with no local image still picks up its feed image URL on first
+    # import, ready for the next ``download_legacy_images`` run.
+    if offering.image:
+        offering.legacy_image_url = ""
+    elif image_url:
         offering.legacy_image_url = image_url
 
     if not offering.instructor_id:
@@ -204,10 +215,9 @@ def sync_legacy_cms() -> int:
 
         next_url = ((data.get("links") or {}).get("next") or {}).get("href")
 
-    # Archive offerings no longer present in the API
-    ClassOffering.objects.filter(legacy_cms_id__gt="").exclude(legacy_cms_id__in=seen_ids).update(
-        status=ClassOffering.Status.ARCHIVED
-    )
+    # Archive offerings no longer present in the API — guarded against a feed that
+    # succeeds but returns nothing, which would otherwise archive the whole catalog.
+    ClassOffering.objects.archive_missing_from_legacy_feed(seen_ids)
 
     # Sanitize: collapse the same class posted on many dates into one catalog group.
     from classes.grouping import regroup_offerings

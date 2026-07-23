@@ -120,11 +120,12 @@ def describe_sync_legacy_cms():
         offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
         assert offering.legacy_image_url == "https://classes.pastlives.space/sites/default/files/img.jpg"
 
-    def it_does_not_overwrite_legacy_image_url_when_real_image_exists(db):
+    def it_does_not_write_a_legacy_image_url_when_a_real_image_exists(db):
         from classes.import_service import sync_legacy_cms
 
         category = Category.objects.create(name="Workshop", slug="workshop")
-        # Pre-set legacy_image_url to simulate a previous sync (real image is also present)
+        # A previous sync left a legacy URL behind, and the picture has since been
+        # migrated into our own storage.
         offering = ClassOffering.objects.create(
             legacy_cms_id="uuid-1",
             title="Old",
@@ -136,7 +137,7 @@ def describe_sync_legacy_cms():
             legacy_image_url="https://classes.pastlives.space/sites/default/files/old.jpg",
         )
 
-        # Sync with a NEW image URL from the API — the guard should block the update
+        # Sync offers a NEW image URL — the local image must win outright.
         resp = _make_mock_resp(
             _page([_class_item(image_url="https://classes.pastlives.space/sites/default/files/new.jpg")])
         )
@@ -144,8 +145,10 @@ def describe_sync_legacy_cms():
             sync_legacy_cms()
 
         offering.refresh_from_db()
-        # Real image present — legacy_image_url must not be overwritten with the new API URL
-        assert offering.legacy_image_url == "https://classes.pastlives.space/sites/default/files/old.jpg"
+        # Not the feed's URL, and not the stale one either — a class we own the picture
+        # for keeps no handle on the legacy server at all.
+        assert offering.legacy_image_url == ""
+        assert offering.image.name == "classes/images/existing.jpg"
 
     def it_creates_class_sessions_from_field_dates(db):
         from classes.import_service import sync_legacy_cms
@@ -414,3 +417,91 @@ def describe_sync_legacy_cms():
 
         assert count == 0
         assert ClassOffering.objects.filter(legacy_cms_id__gt="").count() == 0
+
+
+def describe_sync_legacy_cms_image_ownership():
+    """Once a picture is in our own storage, no future sync may take it back."""
+
+    def _migrated_offering(image_name: str = "classes/images/deadbeef.jpg") -> ClassOffering:
+        category = Category.objects.create(name="Workshop", slug="workshop")
+        return ClassOffering.objects.create(
+            legacy_cms_id="uuid-1",
+            title="Old",
+            slug="old",
+            category=category,
+            price_cents=0,
+            status=ClassOffering.Status.PUBLISHED,
+            image=image_name,
+            legacy_image_url="",
+        )
+
+    def it_does_not_re_set_legacy_image_url_on_a_migrated_offering(db):
+        from classes.import_service import sync_legacy_cms
+
+        offering = _migrated_offering()
+
+        resp = _make_mock_resp(
+            _page([_class_item(image_url="https://classes.pastlives.space/sites/default/files/back.jpg")])
+        )
+        with patch("urllib.request.urlopen", return_value=resp):
+            sync_legacy_cms()
+
+        offering.refresh_from_db()
+        assert offering.legacy_image_url == ""
+
+    def it_does_not_overwrite_a_migrated_image(db):
+        from classes.import_service import sync_legacy_cms
+
+        offering = _migrated_offering()
+
+        resp = _make_mock_resp(
+            _page([_class_item(image_url="https://classes.pastlives.space/sites/default/files/back.jpg")])
+        )
+        with patch("urllib.request.urlopen", return_value=resp):
+            sync_legacy_cms()
+
+        offering.refresh_from_db()
+        assert offering.image.name == "classes/images/deadbeef.jpg"
+
+    def it_clears_a_stale_legacy_image_url_when_a_local_image_exists(db):
+        from classes.import_service import sync_legacy_cms
+
+        offering = _migrated_offering()
+        ClassOffering.objects.filter(pk=offering.pk).update(
+            legacy_image_url="https://classes.pastlives.space/sites/default/files/old.jpg"
+        )
+
+        resp = _make_mock_resp(_page([_class_item()]))
+        with patch("urllib.request.urlopen", return_value=resp):
+            sync_legacy_cms()
+
+        offering.refresh_from_db()
+        assert offering.legacy_image_url == ""
+
+    def it_still_picks_up_the_image_url_of_a_brand_new_class(db):
+        from classes.import_service import sync_legacy_cms
+
+        resp = _make_mock_resp(
+            _page([_class_item(image_url="https://classes.pastlives.space/sites/default/files/new.jpg")])
+        )
+        with patch("urllib.request.urlopen", return_value=resp):
+            sync_legacy_cms()
+
+        offering = ClassOffering.objects.get(legacy_cms_id="uuid-1")
+        assert offering.legacy_image_url == "https://classes.pastlives.space/sites/default/files/new.jpg"
+
+
+def describe_sync_legacy_cms_archive_guard():
+    def it_does_not_archive_the_catalog_when_the_feed_returns_no_classes(db):
+        from classes.import_service import sync_legacy_cms
+
+        first = _make_mock_resp(_page([_class_item("uuid-1"), _class_item("uuid-2", path_alias="/class/c2")]))
+        with patch("urllib.request.urlopen", return_value=first):
+            sync_legacy_cms()
+
+        # A live-but-broken Drupal: HTTP 200, valid JSON, zero classes.
+        with patch("urllib.request.urlopen", return_value=_make_mock_resp(_page([]))):
+            sync_legacy_cms()
+
+        statuses = set(ClassOffering.objects.values_list("status", flat=True))
+        assert statuses == {ClassOffering.Status.PUBLISHED}
