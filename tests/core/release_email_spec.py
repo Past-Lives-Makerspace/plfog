@@ -112,12 +112,12 @@ def describe_feature_page():
 
 def describe_index_pages():
     def it_indexes_by_slug():
-        pages = [FeaturePage("a", "A", "hub_home"), FeaturePage("b", "B", "hub_org_info")]
+        pages = [FeaturePage("a", "A", "hub_home"), FeaturePage("b", "B", "hub_wiki")]
         assert set(_index_pages(pages)) == {"a", "b"}
 
     def describe_with_a_duplicate_slug():
         def it_raises_at_build_time():
-            pages = [FeaturePage("dupe", "One", "hub_home"), FeaturePage("dupe", "Two", "hub_org_info")]
+            pages = [FeaturePage("dupe", "One", "hub_home"), FeaturePage("dupe", "Two", "hub_wiki")]
             with pytest.raises(ValueError, match="Duplicate FeaturePage slug"):
                 _index_pages(pages)
 

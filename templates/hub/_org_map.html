@@ -1,158 +1,73 @@
 {% comment %}
-The interactive space map. The app DRAWS the map: each floor is a blank canvas of a fixed
-aspect ratio and every marker is a styled shape positioned from its percentage coordinates,
-so the plan is crisp at any zoom, follows the theme, and takes its colours from live Space
-status. A floor's uploaded image, when it has one, is only a faint tracing underlay.
+The interactive space map — the Map tab of the Spaces page.
 
-Below the stage — always, not as an afterthought — a keyboard-navigable table of the same
-spaces. Rendered by org_info whenever at least one published Floorplan exists; otherwise
-hub/_org_floorplan.html's single-image lightbox is the fallback.
+The app DRAWS the map: each floor is a blank canvas of a fixed aspect ratio and every marker
+is a styled shape positioned from its percentage coordinates, so the plan is crisp at any
+zoom, follows the theme, and takes its colours from live Space status. A floor's uploaded
+image, when it has one, is only a faint tracing underlay.
 
-Context: floorplans, pending_space_ids, my_space_requests, can_edit.
+Included by hub/spaces.html INSIDE its plMap() Alpine scope, so `floor` here is the same
+floor the Listings tab is showing. The accessible equal of this map is that Listings tab
+(hub/_space_listings.html) — one tab press away, never hidden. When no Floorplan is
+published, spaces.html falls back to hub/_org_floorplan.html's single-image lightbox.
+
+Context: floorplans, pending_space_ids, can_edit.
 {% endcomment %}
-{% load static %}
-<div class="pl-map" x-data="plMap({{ floorplans.0.pk }})">
-
-    {% if floorplans|length > 1 %}
-    <div class="pl-map-switch" role="tablist" aria-label="Choose a floor">
-        {% for f in floorplans %}
-        <button type="button" role="tab" class="pl-map-switch__btn"
-                :class="floor === {{ f.pk }} ? 'is-active' : ''"
-                :aria-selected="floor === {{ f.pk }} ? 'true' : 'false'"
-                @click="setFloor({{ f.pk }})">{{ f.name }}</button>
-        {% endfor %}
+{% for f in floorplans %}
+<div class="pl-map-floor" x-show="floor === {{ f.pk }}" x-cloak>
+    <div class="pl-map-toolbar">
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="zoomIn()" aria-label="Zoom in">+</button>
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="zoomOut()" aria-label="Zoom out">&minus;</button>
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="reset()">Reset</button>
+        <span class="pl-map-toolbar__hint hub-text-muted">Drag to pan &middot; scroll or pinch to zoom</span>
     </div>
+
+    {% if f.legend %}
+    <ul class="pl-map-legend" aria-label="What the colours mean on {{ f.name }}">
+        {% for slug, label, count in f.legend %}
+        <li class="pl-map-legend__item">
+            <span class="pl-map-legend__swatch pl-map-legend__swatch--{{ slug }}" aria-hidden="true"></span>
+            <span class="pl-map-legend__label">{{ label }}</span>
+            <span class="pl-map-legend__count">{{ count }}</span>
+        </li>
+        {% endfor %}
+    </ul>
     {% endif %}
 
-    {% for f in floorplans %}
-    <div class="pl-map-floor" x-show="floor === {{ f.pk }}" x-cloak>
-        <div class="pl-map-toolbar">
-            <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="zoomIn()" aria-label="Zoom in">+</button>
-            <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="zoomOut()" aria-label="Zoom out">&minus;</button>
-            <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="reset()">Reset</button>
-            <span class="pl-map-toolbar__hint hub-text-muted">Drag to pan &middot; scroll or pinch to zoom</span>
-        </div>
-
-        {% if f.legend %}
-        <ul class="pl-map-legend" aria-label="What the colours mean on {{ f.name }}">
-            {% for slug, label, count in f.legend %}
-            <li class="pl-map-legend__item">
-                <span class="pl-map-legend__swatch pl-map-legend__swatch--{{ slug }}" aria-hidden="true"></span>
-                <span class="pl-map-legend__label">{{ label }}</span>
-                <span class="pl-map-legend__count">{{ count }}</span>
-            </li>
-            {% endfor %}
-        </ul>
-        {% endif %}
-
-        <div class="pl-map-viewport"
-             x-ref="viewport"
-             @pointerdown="onPointerDown($event)"
-             @pointermove="onPointerMove($event)"
-             @pointerup="onPointerUp($event)"
-             @pointercancel="onPointerUp($event)"
-             @wheel.prevent="onWheel($event)">
-            <div class="pl-map-stage" :style="stageStyle()">
-                {% comment %}The drawn floor slab. aspect-ratio is per-floor data, so it is the
-                one inline style here; every other rule lives in .pl-map-canvas.{% endcomment %}
-                <div class="pl-map-canvas" style="aspect-ratio: {{ f.aspect_ratio|stringformat:'s' }};">
-                    {% if f.image %}
-                    <img class="pl-map-underlay" src="{{ f.image.url }}" alt="" aria-hidden="true"
-                         loading="lazy" draggable="false">
-                    {% endif %}
-                    {% for h in f.hotspots.all %}
-                        {% include "hub/partials/_space_marker.html" with h=h pending_space_ids=pending_space_ids %}
-                    {% endfor %}
-                </div>
+    <div class="pl-map-viewport"
+         x-ref="viewport"
+         @pointerdown="onPointerDown($event)"
+         @pointermove="onPointerMove($event)"
+         @pointerup="onPointerUp($event)"
+         @pointercancel="onPointerUp($event)"
+         @wheel.prevent="onWheel($event)">
+        <div class="pl-map-stage" :style="stageStyle()">
+            {% comment %}The drawn floor slab. aspect-ratio is per-floor data, so it is the
+            one inline style here; every other rule lives in .pl-map-canvas.{% endcomment %}
+            <div class="pl-map-canvas" style="aspect-ratio: {{ f.aspect_ratio|stringformat:'s' }};">
+                {% if f.image %}
+                <img class="pl-map-underlay" src="{{ f.image.url }}" alt="" aria-hidden="true"
+                     loading="lazy" draggable="false">
+                {% endif %}
+                {% for h in f.hotspots.all %}
+                    {% include "hub/partials/_space_marker.html" with h=h pending_space_ids=pending_space_ids %}
+                {% endfor %}
             </div>
         </div>
-
-        {% if f.caption %}<p class="pl-map-caption">{{ f.caption }}</p>{% endif %}
-        {% if not f.hotspots.all %}
-        <p class="pl-map-caption hub-text-muted">
-            No spaces marked on this floor yet.
-            {% if can_edit %}<a href="{% url 'hub_org_map_edit' %}?tab=placement&amp;floor={{ f.pk }}">Add markers &rarr;</a>{% endif %}
-        </p>
-        {% endif %}
     </div>
-    {% endfor %}
 
-    {% comment %}
-    The accessible equal of the map. Every space on every floor is rendered here — the
-    filtering only ever hides rows in the browser, so with JavaScript off the whole list
-    is still there, in full, and every CTA is still reachable by keyboard.
-
-    It follows the floor switcher (the list is "the floor you are looking at"), sorts the
-    available spaces to the top, and shows the first pageful with a Show more / Show fewer
-    button, so the default read is short instead of 173 rows deep.
-    {% endcomment %}
-    <section class="pl-map-list" aria-label="All spaces by floor"
-             x-ref="list" x-effect="syncList()" @htmx:after-settle.window="syncList()">
-        <h3 class="pl-map-list__h3">Every space on this floor</h3>
-        <p class="hub-text-muted pl-map-list__intro">
-            The same spaces as the map above, in a list you can read and act on with a keyboard.
-            It follows the floor you have chosen{% if floorplans|length > 1 %} — switch floors with the buttons at the top{% endif %}.
-        </p>
-        {% for f in floorplans %}
-        <div class="pl-map-list__floor-block" x-show="floor === {{ f.pk }}">
-            <h4 class="pl-map-list__floor">{{ f.name }}</h4>
-            {% if f.hotspots.all %}
-            <div class="pl-map-list__controls">
-                <div class="pl-map-list__search">
-                    <label class="pl-map-list__label" for="pl-map-search-{{ f.pk }}">Search {{ f.name }}</label>
-                    <input type="search" id="pl-map-search-{{ f.pk }}" class="pl-map-list__search-input"
-                           placeholder="Space code or name — e.g. A12, wood"
-                           x-model="listQuery" @input="resetList()">
-                </div>
-                <div class="pl-map-list__chips" role="group" aria-label="Filter {{ f.name }} by status">
-                    {% for slug, label, count in f.list_filters %}
-                    <button type="button" class="pl-map-list__chip"
-                            :class="listStatus === '{{ slug }}' ? 'is-active' : ''"
-                            :aria-pressed="listStatus === '{{ slug }}' ? 'true' : 'false'"
-                            @click="setListStatus('{{ slug }}')">{{ label }}
-                        <span class="pl-map-list__chip-count">{{ count }}</span>
-                    </button>
-                    {% endfor %}
-                </div>
-            </div>
-            <div class="pl-map-list__scroll">
-                <table class="pl-map-list__table">
-                    <caption class="sr-only">Spaces on {{ f.name }}</caption>
-                    <thead>
-                        <tr><th scope="col">Space</th><th scope="col">Size</th><th scope="col">Status</th><th scope="col">Price</th><th scope="col">Action</th></tr>
-                    </thead>
-                    <tbody>
-                    {% for h in f.list_hotspots %}
-                        {% include "hub/partials/_space_list_row.html" with h=h pending_space_ids=pending_space_ids my_space_requests=my_space_requests %}
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <div class="pl-map-list__foot">
-                {% comment %}Server-rendered text is the no-JavaScript truth (every row is shown);
-                Alpine takes it over the moment it boots.{% endcomment %}
-                <p class="pl-map-list__count" role="status" aria-live="polite"
-                   x-text="listCountLabel('{{ f.name|escapejs }}')">Showing all {{ f.hotspots.all|length }} space{{ f.hotspots.all|length|pluralize }} on {{ f.name }}.</p>
-                <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-map-list__more"
-                        :class="listMatched > listPageSize ? 'is-shown' : ''"
-                        x-text="listMoreLabel()" @click="toggleListMore()">Show more</button>
-                <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-map-list__clear"
-                        :class="listMatched === 0 ? 'is-shown' : ''"
-                        @click="clearListFilters($event)">Clear filters</button>
-            </div>
-            {% else %}
-            <p class="hub-text-muted pl-map-list__empty">Nothing marked on this floor yet.</p>
-            {% endif %}
-        </div>
-        {% endfor %}
-    </section>
-
-    {% if can_edit %}
-    <p class="pl-map-admin">
-        <a href="{% url 'hub_org_map_edit' %}" class="hub-btn hub-btn--sm">Edit the map &rarr;</a>
+    {% if f.caption %}<p class="pl-map-caption">{{ f.caption }}</p>{% endif %}
+    {% if not f.hotspots.all %}
+    <p class="pl-map-caption hub-text-muted">
+        No spaces marked on this floor yet.
+        {% if can_edit %}<a href="{% url 'hub_org_map_edit' %}?tab=placement&amp;floor={{ f.pk }}">Add markers &rarr;</a>{% endif %}
     </p>
     {% endif %}
 </div>
+{% endfor %}
 
-{% include "components/modal.html" with modal_id="space-detail" modal_title="Space details" modal_size="md" %}
-<script src="{% static 'js/space_map.js' %}" defer></script>
+{% if can_edit %}
+<p class="pl-map-admin">
+    <a href="{% url 'hub_org_map_edit' %}" class="hub-btn hub-btn--sm">Edit the map &rarr;</a>
+</p>
+{% endif %}

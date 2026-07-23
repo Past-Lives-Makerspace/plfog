@@ -1,4 +1,4 @@
-"""BDD specs for the space map's read surface: the /info/ map-vs-lightbox branch, the
+"""BDD specs for the space map's read surface: the /spaces/ map-vs-lightbox branch, the
 public detail panel and its CTA states, and the admin gate on every editor endpoint
 (including the coordinate JSON endpoint's two-write-path guarantee)."""
 
@@ -37,7 +37,7 @@ def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> 
 @pytest.mark.django_db
 def describe_org_info_map():
     def it_falls_back_to_the_legacy_lightbox_with_no_floors(client: Client):
-        response = client.get(reverse("hub_org_info"))
+        response = client.get(reverse("hub_spaces"))
         assert response.status_code == 200
         assert b"pl-map-viewport" not in response.content
         assert b"The facility map is coming soon" in response.content
@@ -45,7 +45,7 @@ def describe_org_info_map():
     def it_renders_the_interactive_map_once_a_floor_is_published(client: Client):
         floor = FloorplanFactory(name="Ground Floor")
         MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="A9"))
-        response = client.get(reverse("hub_org_info"))
+        response = client.get(reverse("hub_spaces"))
         assert response.status_code == 200
         assert b"pl-map-viewport" in response.content
         assert b"Ground Floor" in response.content
@@ -53,23 +53,23 @@ def describe_org_info_map():
 
     def it_hides_a_draft_floor_from_members(client: Client):
         FloorplanFactory(name="Secret Basement", is_published=False)
-        response = client.get(reverse("hub_org_info"))
+        response = client.get(reverse("hub_spaces"))
         assert b"Secret Basement" not in response.content
 
     def it_notes_a_floor_with_no_markers(client: Client):
         FloorplanFactory(name="Empty Floor")
-        response = client.get(reverse("hub_org_info"))
+        response = client.get(reverse("hub_spaces"))
         assert b"No spaces marked on this floor yet." in response.content
 
     def it_is_public(client: Client):
         FloorplanFactory()
-        assert client.get(reverse("hub_org_info")).status_code == 200
+        assert client.get(reverse("hub_spaces")).status_code == 200
 
     def describe_the_drawn_canvas():
         def it_draws_a_floor_that_has_no_image_at_all(client: Client):
             floor = FloorplanFactory(name="Drawn Floor", image="", aspect_ratio=Decimal("1.80"))
             MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="D1"))
-            response = client.get(reverse("hub_org_info"))
+            response = client.get(reverse("hub_spaces"))
             assert b"pl-map-canvas" in response.content
             assert b"aspect-ratio: 1.80" in response.content
             assert b"pl-map-underlay" not in response.content
@@ -77,7 +77,7 @@ def describe_org_info_map():
 
         def it_keeps_an_uploaded_plan_as_a_faint_tracing_underlay(client: Client):
             FloorplanFactory(name="Traced Floor")
-            response = client.get(reverse("hub_org_info"))
+            response = client.get(reverse("hub_spaces"))
             assert b"pl-map-underlay" in response.content
 
         def it_shows_a_legend_with_live_counts(client: Client):
@@ -85,7 +85,7 @@ def describe_org_info_map():
             MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.AVAILABLE))
             MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.AVAILABLE))
             MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.OCCUPIED))
-            response = client.get(reverse("hub_org_info")).content.decode()
+            response = client.get(reverse("hub_spaces")).content.decode()
             assert "pl-map-legend__swatch--available" in response
             assert "pl-map-legend__swatch--occupied" in response
             assert "pl-map-legend__swatch--maintenance" not in response
@@ -93,7 +93,7 @@ def describe_org_info_map():
         def it_colours_a_room_from_its_live_status(client: Client):
             floor = FloorplanFactory(name="Status Floor", image="")
             MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.MAINTENANCE))
-            response = client.get(reverse("hub_org_info")).content.decode()
+            response = client.get(reverse("hub_spaces")).content.decode()
             assert "pl-map-marker--maintenance" in response
 
         def it_drops_the_text_out_of_a_room_too_small_to_hold_it(client: Client):
@@ -104,7 +104,7 @@ def describe_org_info_map():
                 w=Decimal("0.80"),
                 h=Decimal("0.80"),
             )
-            response = client.get(reverse("hub_org_info")).content.decode()
+            response = client.get(reverse("hub_spaces")).content.decode()
             assert "pl-map-marker--text-minimal" in response
             # The name still reaches every reader, through the accessible name and the list.
             assert "TINY" in response
@@ -113,7 +113,7 @@ def describe_org_info_map():
         def it_gives_every_row_what_the_browser_filter_reads(client: Client):
             floor = FloorplanFactory(name="List Floor", image="")
             MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="A12", status=Space.Status.OCCUPIED))
-            response = client.get(reverse("hub_org_info")).content.decode()
+            response = client.get(reverse("hub_spaces")).content.decode()
             assert 'class="pl-map-list__row"' in response
             assert f'data-floor="{floor.pk}"' in response
             assert 'data-status="occupied"' in response
@@ -123,7 +123,7 @@ def describe_org_info_map():
             floor = FloorplanFactory(name="Chip Floor", image="")
             MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.AVAILABLE))
             MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.OCCUPIED))
-            response = client.get(reverse("hub_org_info")).content.decode()
+            response = client.get(reverse("hub_spaces")).content.decode()
             assert f'id="pl-map-search-{floor.pk}"' in response
             assert 'aria-label="Filter Chip Floor by status"' in response
             assert "setListStatus('available')" in response
@@ -134,7 +134,7 @@ def describe_org_info_map():
             floor = FloorplanFactory(name="Order Floor", image="")
             MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="TAKEN", status=Space.Status.OCCUPIED))
             MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="FREE", status=Space.Status.AVAILABLE))
-            body = client.get(reverse("hub_org_info")).content.decode()
+            body = client.get(reverse("hub_spaces")).content.decode()
             rows = body.split('class="pl-map-list__row"')
             assert "FREE" in rows[1] and "TAKEN" in rows[2]
 
@@ -142,21 +142,21 @@ def describe_org_info_map():
             # The server-rendered count is the no-JavaScript truth: every row is on the page.
             floor = FloorplanFactory(name="Plain Floor", image="")
             MapHotspotFactory(floorplan=floor, space=SpaceFactory())
-            response = client.get(reverse("hub_org_info")).content.decode()
+            response = client.get(reverse("hub_spaces")).content.decode()
             assert "Showing all 1 space on Plain Floor." in response
 
     def it_shows_a_reviewer_their_pending_count(client: Client):
         _user_with_role("adm-count", fog_role=Member.FogRole.ADMIN)
         SpaceRequestFactory()
         client.login(username="adm-count", password="pass")
-        response = client.get(reverse("hub_org_info"))
+        response = client.get(reverse("hub_spaces"))
         assert b"Space requests (1)" in response.content
 
     def it_lists_a_members_own_pending_requests_with_a_withdraw_button(client: Client):
         user = _user_with_role("mine")
         SpaceRequestFactory(requester=user.member, space=SpaceFactory(space_id="B4"))
         client.login(username="mine", password="pass")
-        response = client.get(reverse("hub_org_info"))
+        response = client.get(reverse("hub_spaces"))
         assert b"Your space requests" in response.content
         assert b"B4" in response.content
         assert b"Withdraw" in response.content
@@ -493,3 +493,52 @@ def describe_marker_position_endpoint():
         hotspot.refresh_from_db()
         assert hotspot.label == "Untouched"
         assert hotspot.kind == MapHotspot.Kind.STUDIO
+
+
+@pytest.mark.django_db
+def describe_the_spaces_page_split():
+    """The Spaces/Wiki split: the tab shell, the deep link, and the legacy /info/ redirect."""
+
+    def it_offers_a_map_tab_and_a_listings_tab(client: Client):
+        FloorplanFactory(is_published=True)
+        body = client.get(reverse("hub_spaces")).content.decode()
+        assert 'class="pl-space-tabs"' in body
+        assert ">Map<" in body
+        assert ">Listings<" in body
+
+    def it_starts_on_the_map_tab(client: Client):
+        floor = FloorplanFactory(is_published=True)
+        body = client.get(reverse("hub_spaces")).content.decode()
+        assert f"plMap({floor.pk}, 'map')" in body
+
+    def it_opens_the_listings_tab_from_a_deep_link(client: Client):
+        floor = FloorplanFactory(is_published=True)
+        body = client.get(reverse("hub_spaces") + "?tab=listings").content.decode()
+        assert f"plMap({floor.pk}, 'listings')" in body
+
+    def it_ignores_an_unknown_tab_value(client: Client):
+        floor = FloorplanFactory(is_published=True)
+        body = client.get(reverse("hub_spaces") + "?tab=nonsense").content.decode()
+        assert f"plMap({floor.pk}, 'map')" in body
+
+    def it_keeps_the_wiki_prose_off_the_spaces_page(client: Client):
+        """Parking and the code of conduct moved — Spaces must not render them."""
+        from membership.models import OrgInfoPage
+
+        page = OrgInfoPage.load()
+        page.parking = "Free street parking after 5pm."
+        page.code_of_conduct = "Be excellent to each other."
+        page.save()
+        body = client.get(reverse("hub_spaces")).content.decode()
+        assert "Free street parking after 5pm." not in body
+        assert "Be excellent to each other." not in body
+
+    def describe_the_legacy_info_url():
+        def it_permanently_redirects_to_spaces(client: Client):
+            response = client.get("/info/")
+            assert response.status_code == 301
+            assert response["Location"] == reverse("hub_spaces")
+
+        def it_still_lands_on_a_real_page(client: Client):
+            """Space-request emails already carry /info/#hotspot-N links."""
+            assert client.get("/info/", follow=True).status_code == 200

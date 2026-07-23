@@ -4533,6 +4533,31 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
    would make a maintenance space read like a primary button. The alpha-varied
    rgba() fills below are those same three hues, not new ones. */
 .pl-map { margin: 0; }
+/* The listings table is wider than a phone. .hub-content is a flex item, and a flex item
+   defaults to min-width:auto — it refuses to shrink below its content's min-content width,
+   so the table's width was pushing the whole page sideways instead of scrolling inside
+   .pl-map-list__scroll. min-width:0 lets it shrink and hands the overflow back to the
+   scroll container.
+
+   Scoped with :has() to pages that actually carry the map rather than applied to the shared
+   chrome, so nothing else in the app changes. Browsers without :has() simply keep today's
+   behaviour. */
+.hub-main-wrapper:has(.pl-map),
+.hub-main-wrapper:has(.pl-map) .hub-content {
+  min-width: 0;
+}
+
+/* Map / Listings tabs on the Spaces page. Same .vote-tab buttons the guild pages use;
+   this only supplies the rule they sit on. x-cloak'd in the markup, so a reader with no
+   JavaScript never sees a tab strip that cannot switch. */
+.pl-space-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 1px solid var(--hub-border);
+  margin-bottom: 1rem;
+}
+
 .pl-map-switch {
   display: flex;
   flex-wrap: wrap;

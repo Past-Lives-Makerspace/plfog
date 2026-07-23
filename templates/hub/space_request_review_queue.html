@@ -4,7 +4,7 @@
 <div x-data="{}"
      x-init="$nextTick(() => { {% if open_decision_for %}$dispatch('open-modal', 'decline-modal-{{ open_decision_for }}'){% endif %} })">
     <p class="pl-map-review__back">
-        <a href="{% url 'hub_org_info' %}" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Back to the space map</a>
+        <a href="{% url 'hub_spaces' %}" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Back to the space map</a>
     </p>
     <h1 class="hub-page-title">Space requests awaiting review</h1>
     <p class="hub-text-muted pl-map-review__lede">

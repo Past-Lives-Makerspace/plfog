@@ -1,8 +1,13 @@
 {% extends guilds_page_base|default:"hub/base.html" %}
-{% load static %}
 {% load classes_tags %}
 {% load membership_md %}
-{% block title %}Space & Org Info{% endblock %}
+{% block title %}Wiki{% endblock %}
+
+{% comment %}
+The Wiki: how the organization works — intro, parking & arrival, who to contact, FAQ, the
+code of conduct, and the resource links. Anything about the *building* lives on the Spaces
+page instead; this page is deliberately prose and reference only.
+{% endcomment %}
 
 {% block content %}
 
@@ -66,10 +71,10 @@
 
 {# ── Header + purpose blurb ── #}
 {% if can_edit %}
-    {% url 'hub_org_info_edit' as org_edit_url %}
-    {% include "components/page_header.html" with title="Space & Org Info" description="How our space and organization work — the floor plan, parking, who to contact, and our code of conduct, all in one place." action_url=org_edit_url action_label="Edit this page" action_class="hub-btn hub-btn--sm" %}
+    {% url 'hub_wiki_edit' as org_edit_url %}
+    {% include "components/page_header.html" with title="Wiki" description="How our organization works — parking and arrival, who to contact, the code of conduct, and the answers to the questions we get asked most." action_url=org_edit_url action_label="Edit this page" action_class="hub-btn hub-btn--sm" %}
 {% else %}
-    {% include "components/page_header.html" with title="Space & Org Info" description="How our space and organization work — the floor plan, parking, who to contact, and our code of conduct, all in one place." %}
+    {% include "components/page_header.html" with title="Wiki" description="How our organization works — parking and arrival, who to contact, the code of conduct, and the answers to the questions we get asked most." %}
 {% endif %}
 
 {% if page.intro %}
@@ -80,44 +85,6 @@
 
 <div class="pl-guild-grid">
     <main>
-        {# ── Map & Facilities (prominent, near top) ── #}
-        <section class="pl-guild-section">
-            <h2 class="pl-guild-section__h2">Map &amp; Facilities</h2>
-            {% if map_can_review %}
-            <p class="pl-map-admin">
-                <a href="{% url 'hub_space_request_review_queue' %}" class="hub-btn hub-btn--sm">
-                    Space requests{% if map_review_pending_count %} ({{ map_review_pending_count }}){% endif %} &rarr;
-                </a>
-            </p>
-            {% endif %}
-            {% if floorplans %}
-                {% include "hub/_org_map.html" %}
-            {% else %}
-                {% include "hub/_org_floorplan.html" %}
-            {% endif %}
-        </section>
-
-        {% if my_space_requests %}
-        <section class="pl-guild-section">
-            <h2 class="pl-guild-section__h2">Your space requests</h2>
-            <div class="hub-card pl-map-mine">
-                {% for r in my_space_requests %}
-                {% with pk_str=r.pk|stringformat:"s" %}
-                {% url 'hub_space_request_withdraw' r.pk as withdraw_url %}
-                <div class="pl-map-mine__row">
-                    <span class="pl-map-mine__code">{{ r.space }}</span>
-                    <span class="hub-pill hub-pill--warn">Pending</span>
-                    <span class="hub-text-muted">with {{ r.review_audience_label }}</span>
-                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
-                            @click="$dispatch('open-confirm', 'withdraw-mine-{{ pk_str }}')">Withdraw</button>
-                    {% include "components/confirm_modal.html" with confirm_id="withdraw-mine-"|add:pk_str confirm_title="Withdraw this request?" confirm_message="Your request is cancelled. You can ask for this space again later." confirm_action_url=withdraw_url confirm_button_text="Withdraw request" %}
-                </div>
-                {% endwith %}
-                {% endfor %}
-            </div>
-        </section>
-        {% endif %}
-
         {% if page.parking %}
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">Parking &amp; Arrival</h2>
@@ -178,6 +145,11 @@
             </div>
         </div>
         {% endif %}
+        <div class="hub-card" style="margin-top:1rem;">
+            <h3 class="hub-detail-label">Looking for a space?</h3>
+            <p class="hub-text-muted" style="margin:0 0 0.75rem;">The floor plan and every studio, cubby, and shared area moved to their own page.</p>
+            <a href="{% url 'hub_spaces' %}" class="pl-btn pl-btn--secondary pl-btn--sm">Go to Spaces &rarr;</a>
+        </div>
     </aside>
 </div>
 {% endblock %}

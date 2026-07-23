@@ -2257,26 +2257,48 @@ def guild_mailing_list_import(request: HttpRequest, pk: int) -> HttpResponse:
 # ── Space & Org Info page ────────────────────────────────────────────────────
 
 
-def org_info(request: HttpRequest) -> HttpResponse:
-    """Public, org-wide info page — map, parking, who-to-contact, code of conduct.
+def spaces(request: HttpRequest) -> HttpResponse:
+    """Public Spaces page — the interactive map (tab 1) and the full space listings (tab 2).
 
-    Public-read like ``guild_detail`` (no ``@login_required``): it carries only org-wide
-    reference content, no member PII, so it is safe on the guest surface too. Editing is
-    admin-only via ``org_info_edit``.
+    Public-read like ``guild_detail`` (no ``@login_required``): a floor plan and a list of
+    studios carry no member PII, so they are safe on the guest surface too. Marker placement
+    is admin-only via ``org_map_edit``.
 
-    The Map & Facilities section renders the interactive multi-floor map as soon as one
-    published :class:`~membership.models.Floorplan` exists; until then the legacy
-    single-image lightbox stays as the fallback.
+    Both tabs render the same published :class:`~membership.models.Floorplan` set and share
+    one Alpine component, so the chosen floor follows you between them. Until a floor is
+    published, the legacy single-image lightbox stands in for the map and there is nothing
+    to list — the page then shows only that fallback.
     """
     page = OrgInfoPage.load()
-    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/spaces.html",
+        {
+            **_get_hub_context(request),
+            **_space_map_context(request),
+            # Only the legacy fallback image is still read here; the prose moved to the wiki.
+            "page": page,
+            "can_edit": _viewing_as_admin(request),
+            # ?tab=listings deep-links the second tab; anything else is the map.
+            "active_tab": "listings" if request.GET.get("tab") == "listings" else "map",
+        },
+    )
+
+
+def wiki(request: HttpRequest) -> HttpResponse:
+    """Public Wiki page — how the org works: intro, parking, who to contact, FAQ, conduct.
+
+    The reference half of the old combined ``/info/`` page. Public-read for the same reason
+    it always was: org-wide reference content, no member PII. Editing is admin-only via
+    ``wiki_edit``. Anything about the *building* now lives on ``spaces``.
+    """
+    page = OrgInfoPage.load()
     org_ct = ContentType.objects.get_for_model(OrgInfoPage)
     return render(
         request,
-        "hub/org_info.html",
+        "hub/wiki.html",
         {
-            **ctx,
-            **_space_map_context(request),
+            **_get_hub_context(request),
             "page": page,
             "faq_items": page.faq_items.all(),
             "links": page.links.all(),
@@ -2312,10 +2334,12 @@ def _org_info_edit_context(
 
 
 @login_required
-def org_info_edit(request: HttpRequest) -> HttpResponse:
-    """Edit the Space & Org Info page (GET + main-form POST). Admin only.
+def wiki_edit(request: HttpRequest) -> HttpResponse:
+    """Edit the Wiki page (GET + main-form POST). Admin only.
 
     Content and Map are in the single main form; FAQ and Links save via their own endpoints.
+    One editor still covers both because ``OrgInfoPage`` is one row: the Map tab here is only
+    the *legacy* fallback image, while live marker placement lives in ``org_map_edit``.
     """
     forbidden = _require_admin(request)
     if forbidden is not None:
@@ -2325,8 +2349,8 @@ def org_info_edit(request: HttpRequest) -> HttpResponse:
         form = OrgInfoPageForm(request.POST, request.FILES, instance=page)
         if form.is_valid():
             form.save()
-            messages.success(request, "Space & Org Info page updated.")
-            return redirect("hub_org_info")
+            messages.success(request, "Wiki updated.")
+            return redirect("hub_wiki")
         return render(request, "hub/org_info_edit.html", _org_info_edit_context(request, page, form=form))
     return render(request, "hub/org_info_edit.html", _org_info_edit_context(request, page))
 
@@ -2347,7 +2371,7 @@ def org_info_faq_save(request: HttpRequest) -> HttpResponse:
         messages.success(request, "FAQ saved.")
     else:
         messages.error(request, "Couldn't save the FAQ — check the highlighted fields.")
-    return redirect(f"{reverse('hub_org_info_edit')}?tab=faq")
+    return redirect(f"{reverse('hub_wiki_edit')}?tab=faq")
 
 
 @login_required
@@ -2366,7 +2390,7 @@ def org_info_links_save(request: HttpRequest) -> HttpResponse:
         messages.success(request, "Links saved.")
     else:
         messages.error(request, "Couldn't save the links — check the highlighted fields.")
-    return redirect(f"{reverse('hub_org_info_edit')}?tab=faq")
+    return redirect(f"{reverse('hub_wiki_edit')}?tab=faq")
 
 
 @login_required
@@ -2380,7 +2404,7 @@ def org_info_floorplan_delete(request: HttpRequest) -> HttpResponse:
     if page.floorplan_image:
         page.floorplan_image.delete(save=True)
         messages.success(request, "Floor plan removed.")
-    return redirect(f"{reverse('hub_org_info_edit')}?tab=map")
+    return redirect(f"{reverse('hub_wiki_edit')}?tab=map")
 
 
 @login_required
@@ -5051,7 +5075,7 @@ def space_request_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
         messages.success(request, "Request withdrawn.")
     except InvalidSpaceRequestTransition:
         messages.info(request, "That request was already handled.")
-    return redirect("hub_org_info")
+    return redirect("hub_spaces")
 
 
 @login_required

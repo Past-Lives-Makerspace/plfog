@@ -6341,7 +6341,7 @@ class SpaceRequest(models.Model):
 
         base = settings.MEMBER_BASE_URL.rstrip("/")
         anchor = f"#hotspot-{self.hotspot_id}" if self.hotspot_id else ""
-        return f"{base}{reverse('hub_org_info')}{anchor}"
+        return f"{base}{reverse('hub_spaces')}{anchor}"
 
     def _notify_submitted(self) -> None:
         """Route a fresh request to whoever decides it.

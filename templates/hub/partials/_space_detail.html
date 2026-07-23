@@ -56,7 +56,7 @@ request is pending.
 
         {% elif hotspot.cta_kind %}
             {% if not viewer_is_member %}
-                <a class="pl-btn pl-btn--primary" href="{% url 'account_login' %}?next={% url 'hub_org_info' %}">Log in to request</a>
+                <a class="pl-btn pl-btn--primary" href="{% url 'account_login' %}?next={% url 'hub_spaces' %}">Log in to request</a>
             {% elif not viewer_is_active %}
                 <button type="button" class="pl-btn pl-btn--primary" disabled>{{ hotspot.cta_label }}</button>
                 <p class="hub-text-muted pl-map-detail__note">Requesting a space needs an active membership.</p>

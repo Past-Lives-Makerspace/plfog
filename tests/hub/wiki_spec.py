@@ -66,57 +66,54 @@ def _link_payload(label: str, url: str) -> dict:
 
 def describe_org_info_read_page():
     def it_is_accessible_to_anonymous_guests(client: Client):
-        assert client.get(reverse("hub_org_info")).status_code == 200
+        assert client.get(reverse("hub_wiki")).status_code == 200
 
     def it_is_accessible_to_a_member(client: Client):
         _user_with_role("m_read")
         client.login(username="m_read", password="pass")
-        assert client.get(reverse("hub_org_info")).status_code == 200
+        assert client.get(reverse("hub_wiki")).status_code == 200
 
-    def it_shows_the_map_placeholder_when_no_floorplan(client: Client):
-        resp = client.get(reverse("hub_org_info"))
-        assert b"facility map is coming soon" in resp.content
-
-    def it_shows_the_floorplan_figure_and_lightbox_when_set(client: Client):
+    def it_does_not_carry_the_floor_plan_any_more(client: Client):
+        """The map moved to Spaces — the Wiki must not quietly keep rendering it."""
         page = OrgInfoPage.load()
         page.floorplan_image = SimpleUploadedFile("m.png", _image_bytes(400, 200), content_type="image/png")
         page.save()
-        resp = client.get(reverse("hub_org_info"))
-        assert b"pl-org-map" in resp.content
-        assert b"pl-guild-lightbox" in resp.content
+        resp = client.get(reverse("hub_wiki"))
+        assert b"pl-org-map" not in resp.content
+        assert b"facility map is coming soon" not in resp.content
 
     def it_hides_parking_when_blank(client: Client):
-        assert b"Parking &amp; Arrival" not in client.get(reverse("hub_org_info")).content
+        assert b"Parking &amp; Arrival" not in client.get(reverse("hub_wiki")).content
 
     def it_shows_parking_when_set(client: Client):
         page = OrgInfoPage.load()
         page.parking = "Free street parking after 5pm."
         page.save()
-        resp = client.get(reverse("hub_org_info"))
+        resp = client.get(reverse("hub_wiki"))
         assert b"Parking &amp; Arrival" in resp.content
         assert b"Free street parking after 5pm." in resp.content
 
     def it_hides_who_to_contact_when_blank(client: Client):
-        assert b"Who to Contact" not in client.get(reverse("hub_org_info")).content
+        assert b"Who to Contact" not in client.get(reverse("hub_wiki")).content
 
     def it_shows_who_to_contact_when_set(client: Client):
         page = OrgInfoPage.load()
         page.who_to_contact = "Billing: ask Sam."
         page.save()
-        assert b"Billing: ask Sam." in client.get(reverse("hub_org_info")).content
+        assert b"Billing: ask Sam." in client.get(reverse("hub_wiki")).content
 
     def it_shows_the_intro_when_set(client: Client):
         page = OrgInfoPage.load()
         page.intro = "Here is how our space works."
         page.save()
-        assert b"Here is how our space works." in client.get(reverse("hub_org_info")).content
+        assert b"Here is how our space works." in client.get(reverse("hub_wiki")).content
 
     def describe_code_of_conduct():
         def it_renders_the_body_when_set(client: Client):
             page = OrgInfoPage.load()
             page.code_of_conduct = "Be excellent to each other."
             page.save()
-            resp = client.get(reverse("hub_org_info"))
+            resp = client.get(reverse("hub_wiki"))
             assert b"Be excellent to each other." in resp.content
             assert b"Read the Code of Conduct" not in resp.content
 
@@ -124,7 +121,7 @@ def describe_org_info_read_page():
             page = OrgInfoPage.load()
             page.code_of_conduct_url = "https://example.com/coc"
             page.save()
-            resp = client.get(reverse("hub_org_info"))
+            resp = client.get(reverse("hub_wiki"))
             assert b"Read the Code of Conduct" in resp.content
             assert b"https://example.com/coc" in resp.content
 
@@ -133,39 +130,45 @@ def describe_org_info_read_page():
             page.code_of_conduct = ""
             page.code_of_conduct_url = ""
             page.save()
-            content = client.get(reverse("hub_org_info")).content
+            content = client.get(reverse("hub_wiki")).content
             assert b"Code of Conduct</h2>" not in content
             assert b"Read the Code of Conduct" not in content
 
     def it_shows_faq_items(client: Client):
         OrgFAQItemFactory(question="Who runs billing?")
-        assert b"Who runs billing?" in client.get(reverse("hub_org_info")).content
+        assert b"Who runs billing?" in client.get(reverse("hub_wiki")).content
 
     def it_hides_the_faq_section_when_empty(client: Client):
-        assert b"pl-guild-faq__q" not in client.get(reverse("hub_org_info")).content
+        assert b"pl-guild-faq__q" not in client.get(reverse("hub_wiki")).content
 
     def it_shows_resource_links(client: Client):
         OrgLinkFactory(label="Handbook", url="https://example.com/h")
-        assert b"Handbook" in client.get(reverse("hub_org_info")).content
+        assert b"Handbook" in client.get(reverse("hub_wiki")).content
 
     def it_shows_an_edit_button_for_an_admin(client: Client):
         _user_with_role("adm_edit_btn", fog_role=Member.FogRole.ADMIN)
         client.login(username="adm_edit_btn", password="pass")
-        assert b"Edit this page" in client.get(reverse("hub_org_info")).content
+        assert b"Edit this page" in client.get(reverse("hub_wiki")).content
 
     def it_hides_the_edit_button_from_a_member(client: Client):
         _user_with_role("m_no_edit_btn")
         client.login(username="m_no_edit_btn", password="pass")
-        assert b"Edit this page" not in client.get(reverse("hub_org_info")).content
+        assert b"Edit this page" not in client.get(reverse("hub_wiki")).content
 
 
 def describe_org_info_nav_and_folded_footer_links():
-    def it_links_the_sidebar_to_the_org_info_page(client: Client):
+    def it_links_the_sidebar_to_both_the_spaces_and_wiki_pages(client: Client):
         _user_with_role("m_nav")
         client.login(username="m_nav", password="pass")
         resp = client.get(reverse("hub_home"))
-        assert b"Space &amp; Org Info" in resp.content
-        assert reverse("hub_org_info").encode() in resp.content
+        assert reverse("hub_spaces").encode() in resp.content
+        assert reverse("hub_wiki").encode() in resp.content
+        assert b"Spaces" in resp.content
+        assert b"Wiki" in resp.content
+        # The combined page is gone, so nothing should still navigate to it. (Its old
+        # *label* still appears in the changelog modal, which is release history and
+        # deliberately never rewritten — so assert on the link, not the words.)
+        assert b'href="/info/"' not in resp.content
 
     def it_no_longer_shows_the_two_google_doc_footer_links(client: Client):
         _user_with_role("m_footer")
@@ -183,7 +186,7 @@ def describe_org_info_editor_permissions():
         return client
 
     def it_forbids_a_member_from_the_editor(member_client: Client):
-        assert member_client.get(reverse("hub_org_info_edit")).status_code == 403
+        assert member_client.get(reverse("hub_wiki_edit")).status_code == 403
 
     def it_forbids_a_member_from_saving_faq(member_client: Client):
         assert member_client.post(reverse("hub_org_info_faq_save")).status_code == 403
@@ -203,11 +206,11 @@ def describe_org_info_editor():
         return client
 
     def it_renders_the_editor_for_an_admin(admin_client: Client):
-        assert admin_client.get(reverse("hub_org_info_edit")).status_code == 200
+        assert admin_client.get(reverse("hub_wiki_edit")).status_code == 200
 
     def it_saves_the_main_content_form(admin_client: Client):
         resp = admin_client.post(
-            reverse("hub_org_info_edit"),
+            reverse("hub_wiki_edit"),
             {
                 "intro": "Hi team",
                 "parking": "",
@@ -222,7 +225,7 @@ def describe_org_info_editor():
 
     def it_re_renders_on_an_invalid_main_form(admin_client: Client):
         resp = admin_client.post(
-            reverse("hub_org_info_edit"),
+            reverse("hub_wiki_edit"),
             {
                 "intro": "",
                 "parking": "",

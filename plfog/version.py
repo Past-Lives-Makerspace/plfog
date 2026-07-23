@@ -2,23 +2,31 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.30"
+VERSION = "0.23.31"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.23.30",
-        "date": "2026-07-22",
+        "version": "0.23.31",
+        "date": "2026-07-23",
         "title": "Explore the makerspace on an interactive map",
         "changes": [
             (
-                "The Space & Org Info page now has a real map of the building. Pick a floor and "
-                "every studio, cubby, and shop is drawn to shape and colour-coded at a glance — "
-                "green for open, grey for taken, amber for under maintenance — with its size and "
-                "monthly price written right in the room. Drag to pan, pinch or scroll to zoom, "
-                "and tap any space for the full details and who's in it. Prefer not to use the "
-                "map? Every space is also listed underneath in a plain table you can read and "
-                "use with a keyboard — it follows the floor you picked, puts the available "
-                "spaces first, and you can search it or filter it down to just what's open."
+                "There's a new Spaces page in the sidebar with a real map of the building. Pick a "
+                "floor and every studio, cubby, and shop is drawn to shape and colour-coded at a "
+                "glance — green for open, grey for taken, amber for under maintenance — with its "
+                "size and monthly price written right in the room. Drag to pan, pinch or scroll "
+                "to zoom, and tap any space for the full details and who's in it."
+            ),
+            (
+                "Prefer not to use the map? The Listings tab has every space in a plain table you "
+                "can read and use with a keyboard. It follows the floor you picked, puts the "
+                "available spaces first, and you can search it or filter it down to just what's "
+                "open."
+            ),
+            (
+                "Everything else that used to share that page — parking and arrival, who to "
+                "contact, the FAQ, the code of conduct, and the handbook links — now has its own "
+                "Wiki page, further down the sidebar. Old links to the map still work."
             ),
             (
                 "See a studio or cubby you want? Ask for it right there. Your request goes to the "

@@ -6,9 +6,11 @@
  * them together and percent-positioned markers stay glued to the plan at any
  * zoom or viewport width — no per-marker maths, no pan/zoom dependency.
  *
- * The list shares this component's state so it can follow the selected floor.
- * Every row is server-rendered (see _org_map.html): filtering only hides rows in
- * the browser, so with JavaScript off the whole list survives intact.
+ * The Map and Listings tabs share this one component, so the chosen floor follows
+ * the reader between them. Every list row is server-rendered (see
+ * _space_listings.html): filtering only hides rows in the browser, so with
+ * JavaScript off the whole list survives intact — and the tab nav, which would do
+ * nothing without Alpine, is x-cloak'd away entirely.
  *
  * Honors prefers-reduced-motion by dropping the transition (see hub.css).
  */
@@ -24,9 +26,11 @@
         return Math.min(high, Math.max(low, value));
     }
 
-    function plMap(initialFloor) {
+    function plMap(initialFloor, initialPane) {
         return {
             floor: initialFloor || null,
+            // Which tab is showing: 'map' or 'listings'.
+            pane: initialPane === 'listings' ? 'listings' : 'map',
             scale: 1,
             tx: 0,
             ty: 0,
@@ -45,6 +49,21 @@
             listPageSize: LIST_PAGE,
             listMatched: 0,
             listShown: 0,
+
+            setPane: function (name) {
+                this.pane = name;
+                // Keep the tab in the URL so a Listings link can be shared and a reload,
+                // or the browser Back button, lands on the tab the reader was actually on.
+                if (window.history && window.history.replaceState) {
+                    var url = new URL(window.location.href);
+                    if (name === 'map') {
+                        url.searchParams.delete('tab');
+                    } else {
+                        url.searchParams.set('tab', name);
+                    }
+                    window.history.replaceState({}, '', url);
+                }
+            },
 
             setFloor: function (id) {
                 this.floor = id;

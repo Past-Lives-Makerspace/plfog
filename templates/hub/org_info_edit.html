@@ -3,7 +3,7 @@
 {% block content %}
 <div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'content' }">
 <h1 class="hub-page-title">Edit Space &amp; Org Info</h1>
-<p class="hub-text-muted" style="margin-bottom:1.5rem; max-width:65ch;">The org-wide info page: the floor plan, parking, who to contact, and the code of conduct. Members see it at <a href="{% url 'hub_org_info' %}" style="color:var(--color-tuscan-yellow);">/info/</a>.</p>
+<p class="hub-text-muted" style="margin-bottom:1.5rem; max-width:65ch;">How the organization works: parking, who to contact, the FAQ, and the code of conduct. Members see it at <a href="{% url 'hub_wiki' %}" style="color:var(--color-tuscan-yellow);">/wiki/</a>. The live space map is edited separately, on the Spaces page.</p>
 
 <div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;">
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">Content</button>
@@ -50,7 +50,7 @@
 
   <div x-show="section === 'content' || section === 'map'" style="margin-top:0.5rem; display:flex; gap:1rem;">
     <button type="submit" class="pl-btn pl-btn--primary">Save Changes</button>
-    <a href="{% url 'hub_org_info' %}" class="pl-btn pl-btn--secondary">Cancel</a>
+    <a href="{% url 'hub_wiki' %}" class="pl-btn pl-btn--secondary">Cancel</a>
   </div>
 </form>
 
