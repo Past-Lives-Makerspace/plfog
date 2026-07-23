@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.21"
+VERSION = "0.23.23"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.23",
+        "date": "2026-07-22",
+        "title": "Class photos now load faster",
+        "changes": [
+            (
+                "Class photos are now served from our own storage instead of being fetched "
+                "from the old class website every time a page opened. Browsing the class "
+                "catalog should feel noticeably quicker, and the pictures keep working once "
+                "the old site is switched off."
+            ),
+        ],
+    },
     {
         "version": "0.23.21",
         "date": "2026-07-22",

@@ -74,3 +74,58 @@ def describe_delete_orphan_on_replace():
         ghost = Guild(pk=999_999, name="Ghost")
 
         delete_orphan_on_replace(ghost, "banner_image")  # must not raise
+
+
+@pytest.mark.django_db
+def describe_delete_if_unreferenced():
+    def it_deletes_a_file_no_other_row_points_at():
+        from core.files import delete_if_unreferenced
+        from membership.models import Guild
+
+        guild = GuildFactory(banner_image=SimpleUploadedFile("solo.png", _png_bytes(), content_type="image/png"))
+        name = guild.banner_image.name
+        storage = guild.banner_image.storage
+
+        assert delete_if_unreferenced(Guild, "banner_image", name, exclude_pk=guild.pk) is True
+        assert not storage.exists(name)
+
+    def it_keeps_a_file_a_sibling_row_still_shares():
+        from core.files import delete_if_unreferenced
+        from membership.models import Guild
+
+        first = GuildFactory(banner_image=SimpleUploadedFile("shared.png", _png_bytes(), content_type="image/png"))
+        shared_name = first.banner_image.name
+        storage = first.banner_image.storage
+        # Second guild points at the exact same stored object — what de-duplication produces.
+        second = GuildFactory()
+        Guild.objects.filter(pk=second.pk).update(banner_image=shared_name)
+
+        assert delete_if_unreferenced(Guild, "banner_image", shared_name, exclude_pk=first.pk) is False
+        assert storage.exists(shared_name)
+
+        storage.delete(shared_name)  # cleanup
+
+    def it_ignores_an_empty_name():
+        from core.files import delete_if_unreferenced
+        from membership.models import Guild
+
+        assert delete_if_unreferenced(Guild, "banner_image", "") is False
+
+
+@pytest.mark.django_db
+def describe_delete_orphan_on_replace_with_shared_files():
+    def it_keeps_the_old_file_when_another_row_still_uses_it():
+        from membership.models import Guild
+
+        first = GuildFactory(banner_image=SimpleUploadedFile("dupe.png", _png_bytes(), content_type="image/png"))
+        shared_name = first.banner_image.name
+        storage = first.banner_image.storage
+        second = GuildFactory()
+        Guild.objects.filter(pk=second.pk).update(banner_image=shared_name)
+
+        first.banner_image = SimpleUploadedFile("fresh.png", _png_bytes(), content_type="image/png")
+        delete_orphan_on_replace(first, "banner_image")
+
+        assert storage.exists(shared_name)
+        first.banner_image.close()
+        storage.delete(shared_name)  # cleanup

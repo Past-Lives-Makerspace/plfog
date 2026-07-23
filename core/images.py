@@ -7,12 +7,15 @@ registered at import so ``PIL.Image.open()`` handles ``.heic`` transparently.
 
 from __future__ import annotations
 
+import hashlib
 import io
+import re
 from pathlib import Path
 
 import logging
 
 from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -95,3 +98,54 @@ def normalize_field_if_uploaded(instance, field_name: str, max_long_edge: int) -
         logger.warning("normalize_image skipped for %s.%s: %s", type(instance).__name__, field_name, exc)
         return
     setattr(instance, field_name, new)
+
+
+_CONTENT_ADDRESSED_RE = re.compile(r"^[0-9a-f]{64}\.[A-Za-z0-9]+$")
+
+
+def content_addressed_name(content: bytes, *, prefix: str, ext: str = "jpg") -> str:
+    """Return the deterministic storage key for ``content``.
+
+    Args:
+        content: The exact bytes that will be stored.
+        prefix: Storage folder including its trailing slash (e.g. ``classes/images/``).
+        ext: File extension without the leading dot.
+
+    Returns:
+        ``<prefix><sha256-hex>.<ext>``.
+    """
+    return f"{prefix}{hashlib.sha256(content).hexdigest()}.{ext}"
+
+
+def is_content_addressed(name: str, *, prefix: str) -> bool:
+    """Whether ``name`` is already a key produced by :func:`content_addressed_name`."""
+    if not name.startswith(prefix):
+        return False
+    return bool(_CONTENT_ADDRESSED_RE.match(name[len(prefix) :]))
+
+
+def store_content_addressed(content: bytes, *, prefix: str, ext: str = "jpg") -> str:
+    """Store ``content`` under a key derived from its SHA-256 digest.
+
+    Identical bytes always map to the same key, so rows carrying the same picture
+    share a single stored object. Without this the default storage backend
+    (``file_overwrite=False`` on R2) appends a random suffix on every name
+    collision and each row gets its own copy of the same image.
+
+    Storing bytes that are already present is a no-op, which is what makes the
+    callers idempotent and safe to resume after an interruption.
+
+    Args:
+        content: The bytes to store.
+        prefix: Storage folder including its trailing slash.
+        ext: File extension without the leading dot.
+
+    Returns:
+        The storage key the content is available under.
+    """
+    name = content_addressed_name(content, prefix=prefix, ext=ext)
+    if default_storage.exists(name):
+        return name
+    # A concurrent writer winning the race would make the backend append a
+    # suffix, so trust whatever key storage actually used.
+    return default_storage.save(name, ContentFile(content))
