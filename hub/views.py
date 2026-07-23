@@ -59,6 +59,7 @@ from membership.models import (
     OrgInfoPage,
     Skill,
     SkillCategory,
+    SpaceRequestQuerySet,
     VotePreference,
 )
 from membership.ical import ical_escape
@@ -2262,6 +2263,10 @@ def org_info(request: HttpRequest) -> HttpResponse:
     Public-read like ``guild_detail`` (no ``@login_required``): it carries only org-wide
     reference content, no member PII, so it is safe on the guest surface too. Editing is
     admin-only via ``org_info_edit``.
+
+    The Map & Facilities section renders the interactive multi-floor map as soon as one
+    published :class:`~membership.models.Floorplan` exists; until then the legacy
+    single-image lightbox stays as the fallback.
     """
     page = OrgInfoPage.load()
     ctx = _get_hub_context(request)
@@ -2271,6 +2276,7 @@ def org_info(request: HttpRequest) -> HttpResponse:
         "hub/org_info.html",
         {
             **ctx,
+            **_space_map_context(request),
             "page": page,
             "faq_items": page.faq_items.all(),
             "links": page.links.all(),
@@ -4872,3 +4878,376 @@ def admin_slideshow_slides_save(request: HttpRequest) -> HttpResponse:
     else:
         messages.error(request, "Couldn't save the slides — check the highlighted fields.")
     return redirect(f"{reverse('hub_admin_site_settings')}?tab=slideshow")
+
+
+# ── Interactive space map ────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class _MapReviewScope:
+    """A requester's authority over space requests.
+
+    ``can_review`` gates the queue at all; an ``is_admin`` reviewer sees every lease and
+    cubby ask, while a guild lead/staffer sees only cubby asks for spaces their guilds
+    sublet. Mirrors :class:`_ReviewScope` on the events queue.
+    """
+
+    can_review: bool
+    is_admin: bool = False
+    guilds: Any = None  # a Guild queryset for a lead/staffer; None for an admin or forbidden
+
+    def scoped(self, requests: SpaceRequestQuerySet) -> SpaceRequestQuerySet:
+        """Narrow a ``SpaceRequest`` queryset to what this scope may act on."""
+        from membership.models import SpaceRequest
+
+        if not self.can_review:
+            return cast(SpaceRequestQuerySet, SpaceRequest.objects.none())
+        return requests.for_scope(True if self.is_admin else self.guilds)
+
+    def pending(self) -> SpaceRequestQuerySet:
+        """The pending requests visible to this scope — empty when it can't review."""
+        from membership.models import SpaceRequest
+
+        if not self.can_review:
+            return cast(SpaceRequestQuerySet, SpaceRequest.objects.none())
+        awaiting = (
+            SpaceRequest.objects.pending()
+            .select_related("requester", "space", "space__sublet_guild", "hotspot")
+            .order_by("created_at")
+        )
+        return self.scoped(awaiting)
+
+
+def _map_reviewer_scope(request: HttpRequest) -> _MapReviewScope:
+    """The requester's space-request review authority (admin / lead-scoped / none)."""
+    if _viewing_as_admin(request):
+        return _MapReviewScope(can_review=True, is_admin=True)
+    member = _get_member(request) if request.user.is_authenticated else None
+    if member is not None and member.staffed_guilds.exists():
+        return _MapReviewScope(can_review=True, guilds=member.staffed_guilds)
+    return _MapReviewScope(can_review=False)
+
+
+def _space_map_context(request: HttpRequest) -> dict[str, Any]:
+    """Everything the read map + its accessible list need, in a fixed number of queries.
+
+    Published floors with their markers prefetched (``for_map`` kills the per-marker
+    Space/Guild lookups), plus the viewer's own open requests so a marker, its detail
+    panel, and its list row can all show the same "pending" state.
+    """
+    from membership.models import Floorplan, MapHotspot, SpaceRequest
+
+    floorplans = list(
+        Floorplan.objects.published().prefetch_related(Prefetch("hotspots", queryset=MapHotspot.objects.for_map()))
+    )
+    member = _get_member(request) if request.user.is_authenticated else None
+    my_requests: list[Any] = []
+    if member is not None:
+        my_requests = list(SpaceRequest.objects.pending().filter(requester=member).select_related("space", "hotspot"))
+    scope = _map_reviewer_scope(request)
+    return {
+        "floorplans": floorplans,
+        "pending_space_ids": [r.space_id for r in my_requests],
+        "my_space_requests": my_requests,
+        "map_can_review": scope.can_review,
+        "map_review_pending_count": scope.pending().count(),
+    }
+
+
+def _hotspot_detail_context(request: HttpRequest, hotspot: Any) -> dict[str, Any]:
+    """Viewer-specific state for one marker's detail panel.
+
+    Answers the three questions the CTA branches on: is there already an open request,
+    is the viewer allowed to make one, and (if not) why not — so the panel can offer a
+    log-in link or an explanation instead of a dead disabled button.
+    """
+    from hub.forms import SpaceRequestForm
+    from membership.models import SpaceRequest
+
+    member = _get_member(request) if request.user.is_authenticated else None
+    open_request = None
+    if member is not None and hotspot.space_id:
+        open_request = SpaceRequest.objects.pending().filter(requester=member, space_id=hotspot.space_id).first()
+    is_active_member = member is not None and member.status == Member.Status.ACTIVE
+    can_request = hotspot.is_requestable and is_active_member and open_request is None
+    return {
+        "hotspot": hotspot,
+        "open_request": open_request,
+        "viewer_is_member": member is not None,
+        "viewer_is_active": is_active_member,
+        "can_request": can_request,
+        # Always an unbound form when a request is possible, so the panel renders the
+        # field through components/form_field.html rather than hand-rolled markup.
+        "request_form": (SpaceRequestForm(hotspot=hotspot, member=cast(Member, member)) if can_request else None),
+        "request_form_open": False,
+    }
+
+
+def map_hotspot_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """HTMX GET — one marker's detail panel, rendered into the shared modal body.
+
+    Public-read, exactly like the map it opens from.
+    """
+    from membership.models import MapHotspot
+
+    hotspot = get_object_or_404(MapHotspot.objects.for_map(), pk=pk)
+    return render(request, "hub/partials/_space_detail.html", _hotspot_detail_context(request, hotspot))
+
+
+@login_required
+@require_POST
+def space_request_create(request: HttpRequest, pk: int) -> HttpResponse:
+    """A member asks for the space behind marker ``pk``. HTMX POST from the detail panel.
+
+    On success the response carries three swaps so the marker, the detail panel, and the
+    accessible list row can never disagree about whether a request is pending.
+    """
+    from hub.forms import SpaceRequestForm
+    from membership.models import MapHotspot
+
+    hotspot = get_object_or_404(MapHotspot.objects.for_map(), pk=pk)
+    member = _get_member(request)
+    if member is None:
+        return HttpResponse("Forbidden", status=403)
+
+    form = SpaceRequestForm(request.POST, hotspot=hotspot, member=member)
+    if not form.is_valid():
+        ctx = _hotspot_detail_context(request, hotspot)
+        return render(
+            request,
+            "hub/partials/_space_detail.html",
+            {**ctx, "can_request": True, "request_form": form, "request_form_open": True},
+        )
+    space_request = form.save()
+
+    ctx = _hotspot_detail_context(request, hotspot)
+    response = render(
+        request,
+        "hub/partials/_space_detail.html",
+        {
+            **ctx,
+            "swap_marker": True,
+            "pending_space_ids": [hotspot.space_id],
+            "my_space_requests": [space_request],
+        },
+    )
+    trigger_toast(response, "Request sent — you'll hear back soon.", "success")
+    return response
+
+
+@login_required
+@require_POST
+def space_request_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
+    """The requester pulls back their own pending ask. POST only, full-page redirect."""
+    from membership.models import InvalidSpaceRequestTransition, SpaceRequest
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    member = _get_member(request)
+    if member is None:
+        return HttpResponse("Forbidden", status=403)
+    space_request = get_object_or_404(SpaceRequest, pk=pk, requester=member)
+    try:
+        space_request.withdraw(by=user)
+        messages.success(request, "Request withdrawn.")
+    except InvalidSpaceRequestTransition:
+        messages.info(request, "That request was already handled.")
+    return redirect("hub_org_info")
+
+
+@login_required
+def space_request_review_queue(request: HttpRequest) -> HttpResponse:
+    """The reviewer queue — space requests a lead/admin can approve or decline."""
+    scope = _map_reviewer_scope(request)
+    if not scope.can_review:
+        return HttpResponse("Forbidden", status=403)
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/space_request_review_queue.html",
+        {
+            **ctx,
+            "pending_requests": scope.pending(),
+            "open_decision_for": None,
+            "decision_note_value": "",
+            "decision_note_error": "",
+        },
+    )
+
+
+@login_required
+@require_POST
+def space_request_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
+    """Record a reviewer's decision (approve / decline) on a space request."""
+    from hub.forms import SpaceRequestDecisionForm
+    from membership.models import InvalidSpaceRequestTransition, SpaceRequest
+
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    scope = _map_reviewer_scope(request)
+    if not scope.can_review:
+        return HttpResponse("Forbidden", status=403)
+
+    # Scoped to the reviewer's authority but NOT to a state — a stale decision surfaces
+    # the model guard as a friendly "already handled", never a bare 404.
+    space_request = get_object_or_404(scope.scoped(SpaceRequest.objects.all()), pk=pk)
+
+    # Approve carries its decision in the query string (the confirm modal posts no note);
+    # decline posts the decision plus its required note in the body.
+    data = request.POST.copy()
+    if not data.get("decision"):
+        data["decision"] = request.GET.get("decision", "")
+    form = SpaceRequestDecisionForm(data)
+    if not form.is_valid():
+        return render(
+            request,
+            "hub/space_request_review_queue.html",
+            {
+                **_get_hub_context(request),
+                "pending_requests": scope.pending(),
+                "open_decision_for": space_request.pk,
+                "decision_note_value": data.get("notes", ""),
+                "decision_note_error": " ".join(str(e) for e in form.errors.get("notes", [])),
+            },
+        )
+
+    try:
+        if form.cleaned_data["decision"] == "approve":
+            space_request.approve(reviewer=user)
+            messages.success(request, "Request approved.")
+        else:
+            space_request.decline(reviewer=user, notes=form.cleaned_data["notes"])
+            messages.success(request, "Request declined.")
+    except InvalidSpaceRequestTransition:
+        messages.info(request, "That request was already handled.")
+    return redirect("hub_space_request_review_queue")
+
+
+def _org_map_edit_context(request: HttpRequest, *, selected: Any = None) -> dict[str, Any]:
+    """Render context for the admin placement editor (Floors + Placement tabs).
+
+    Both formsets save through their own endpoint (the FAQ/Links idiom), so both are
+    unbound here. ``selected`` is the floor whose markers the Placement tab is editing —
+    the first floor unless the query string names another.
+    """
+    from hub.forms import FloorplanFormSet, MapHotspotFormSet
+    from membership.models import Floorplan, MapHotspot, Space
+
+    floors = list(Floorplan.objects.all().prefetch_related("hotspots"))
+    if selected is None and floors:
+        requested = request.GET.get("floor", "")
+        selected = next((f for f in floors if str(f.pk) == requested), floors[0])
+    ctx = _get_hub_context(request)
+    return {
+        **ctx,
+        "floors": floors,
+        "selected_floor": selected,
+        "floor_formset": FloorplanFormSet(queryset=Floorplan.objects.all(), prefix="floors"),
+        "hotspot_formset": (MapHotspotFormSet(instance=selected, prefix="markers") if selected is not None else None),
+        "hotspots": (list(MapHotspot.objects.for_map().filter(floorplan=selected)) if selected is not None else []),
+        "space_count": Space.objects.count(),
+        "max_upload_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+    }
+
+
+@login_required
+def org_map_edit(request: HttpRequest) -> HttpResponse:
+    """The admin's map editor — upload floors, then drop each space onto one. Admin only."""
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    return render(request, "hub/org_map_edit.html", _org_map_edit_context(request))
+
+
+@login_required
+@require_POST
+def org_map_floors_save(request: HttpRequest) -> HttpResponse:
+    """Save the Floors tab's rows from their own form. Admin only."""
+    from hub.forms import FloorplanFormSet
+    from membership.models import Floorplan
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    formset = FloorplanFormSet(request.POST, request.FILES, queryset=Floorplan.objects.all(), prefix="floors")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Floors saved.")
+    else:
+        messages.error(request, "Couldn't save the floors — check the highlighted fields.")
+    return redirect(f"{reverse('hub_org_map_edit')}?tab=floors")
+
+
+@login_required
+@require_POST
+def org_map_floor_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Delete one floor and the markers on it. Admin only.
+
+    A floor with markers can't go through the formset's plain DELETE-flip without an
+    admin realising the cascade, so the editor routes it here from a confirm modal.
+    """
+    from membership.models import Floorplan
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    floor = get_object_or_404(Floorplan, pk=pk)
+    floor.delete()
+    messages.success(request, f"{floor.name} deleted.")
+    return redirect(f"{reverse('hub_org_map_edit')}?tab=floors")
+
+
+@login_required
+@require_POST
+def map_hotspots_save(request: HttpRequest) -> HttpResponse:
+    """Save the Placement tab's marker rows. Admin only.
+
+    Structural fields only — the formset never carries ``x/y/w/h``, so saving here can
+    never move a marker an admin just dragged (that is ``map_hotspot_position``'s job).
+    """
+    from hub.forms import MapHotspotFormSet
+    from membership.models import Floorplan
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    floor = get_object_or_404(Floorplan, pk=request.POST.get("floor_id") or 0)
+    formset = MapHotspotFormSet(request.POST, instance=floor, prefix="markers")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Markers saved.")
+    else:
+        messages.error(request, "Couldn't save the markers — check the highlighted fields.")
+    return redirect(f"{reverse('hub_org_map_edit')}?tab=placement&floor={floor.pk}")
+
+
+@login_required
+@require_POST
+def map_hotspot_position(request: HttpRequest, pk: int) -> HttpResponse:
+    """JSON endpoint — store ONE marker's dragged position. Admin only.
+
+    Mirrors ``hub_hero_adjust``: a permission-gated JSON POST that writes only the
+    coordinate columns. Bounds live in :class:`MapHotspotPositionForm`, so an
+    off-the-edge drag comes back as a 400 the editor shows as an error toast.
+    """
+    from hub.forms import MapHotspotPositionForm
+    from membership.models import MapHotspot
+
+    if not _viewing_as_admin(request):
+        return JsonResponse({"error": "Forbidden"}, status=403)
+    hotspot = get_object_or_404(MapHotspot, pk=pk)
+    try:
+        payload = json.loads(request.body or b"{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Send a JSON body."}, status=400)
+    form = MapHotspotPositionForm(payload, hotspot=hotspot)
+    if not form.is_valid():
+        return JsonResponse({"error": form.error_message()}, status=400)
+    form.apply()
+    return JsonResponse(
+        {
+            "status": "ok",
+            "x": float(hotspot.x),
+            "y": float(hotspot.y),
+            "w": float(hotspot.w) if hotspot.w is not None else None,
+            "h": float(hotspot.h) if hotspot.h is not None else None,
+        }
+    )

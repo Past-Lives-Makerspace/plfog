@@ -164,6 +164,21 @@ urlpatterns = [
     path("info/floorplan/delete/", views.org_info_floorplan_delete, name="hub_org_info_floorplan_delete"),
     path("info/faq/save/", views.org_info_faq_save, name="hub_org_info_faq_save"),
     path("info/links/save/", views.org_info_links_save, name="hub_org_info_links_save"),
+    # Interactive space map — public-read map + admin placement editor + request review.
+    path("info/map/edit/", views.org_map_edit, name="hub_org_map_edit"),
+    path("info/map/floors/save/", views.org_map_floors_save, name="hub_org_map_floors_save"),
+    path("info/map/floors/<int:pk>/delete/", views.org_map_floor_delete, name="hub_org_map_floor_delete"),
+    path("info/map/markers/save/", views.map_hotspots_save, name="hub_map_hotspots_save"),
+    path("info/map/markers/<int:pk>/position/", views.map_hotspot_position, name="hub_map_hotspot_position"),
+    path("info/map/markers/<int:pk>/", views.map_hotspot_detail, name="hub_map_hotspot_detail"),
+    path("info/map/markers/<int:pk>/request/", views.space_request_create, name="hub_space_request_create"),
+    path("info/requests/<int:pk>/withdraw/", views.space_request_withdraw, name="hub_space_request_withdraw"),
+    path("info/requests/review/", views.space_request_review_queue, name="hub_space_request_review_queue"),
+    path(
+        "info/requests/review/<int:pk>/decision/",
+        views.space_request_review_decision,
+        name="hub_space_request_review_decision",
+    ),
     path("guilds/<int:pk>/meeting-notes/", views.guild_meeting_notes, name="hub_guild_meeting_notes"),
     path(
         "guilds/<int:pk>/meeting-notes/add/",

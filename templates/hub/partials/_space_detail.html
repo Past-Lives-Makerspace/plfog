@@ -1,0 +1,82 @@
+{% comment %}
+The space-detail panel, loaded by HTMX into #space-detail-body.
+
+Context (from _hotspot_detail_context): hotspot, open_request, viewer_is_member,
+viewer_is_active, can_request, request_form. When ``swap_marker`` is set (the response
+to a successful request) it also carries hx-swap-oob copies of the marker and the list
+row, so the map, this panel, and the accessible list can never disagree about whether a
+request is pending.
+{% endcomment %}
+<div class="pl-map-detail" id="space-detail-panel">
+    <div class="pl-map-detail__head">
+        <h3 class="pl-map-detail__title">{{ hotspot.display_label }}</h3>
+        {% if hotspot.availability_class == 'available' %}
+            <span class="hub-pill hub-pill--ok">Available</span>
+        {% elif hotspot.availability_class == 'maintenance' %}
+            <span class="hub-pill hub-pill--warn">Maintenance</span>
+        {% elif hotspot.availability_class == 'occupied' %}
+            <span class="hub-pill hub-pill--neutral">Occupied</span>
+        {% else %}
+            <span class="hub-pill hub-pill--neutral">Facility</span>
+        {% endif %}
+    </div>
+
+    {% if hotspot.space.photo %}
+    <img class="pl-map-detail__photo" src="{{ hotspot.space.photo.url }}" alt="Photo of {{ hotspot.display_label }}">
+    {% endif %}
+
+    <dl class="pl-map-detail__facts">
+        {% if hotspot.size_display %}<dt>Size</dt><dd>{{ hotspot.size_display }}</dd>{% endif %}
+        {% if hotspot.price_display %}<dt>Price</dt><dd>{{ hotspot.price_display }}</dd>{% endif %}
+        {% if hotspot.occupant_names %}<dt>Currently used by</dt><dd>{{ hotspot.occupant_names|join:", " }}</dd>{% endif %}
+        {% if hotspot.space.sublet_guild %}<dt>Guild</dt><dd>{{ hotspot.space.sublet_guild.name }}</dd>{% endif %}
+    </dl>
+
+    {% if hotspot.description %}<p class="pl-map-detail__blurb">{{ hotspot.description }}</p>{% endif %}
+
+    <div class="pl-map-detail__cta">
+        {% comment %}A bounced request re-renders its own form first, so its error is
+        never hidden behind a state (pending / taken) the failed POST just
+        discovered.{% endcomment %}
+        {% if request_form_open %}
+            {% include "hub/partials/_space_request_form.html" %}
+        {% elif open_request %}
+            <span class="hub-pill hub-pill--warn">Request pending</span>
+            <p class="hub-text-muted pl-map-detail__note">
+                Your request went to {{ open_request.review_audience_label }} — you'll hear back by email and in the bell.
+            </p>
+            {% url 'hub_space_request_withdraw' open_request.pk as withdraw_url %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                    @click="$dispatch('open-confirm', 'withdraw-detail-{{ open_request.pk }}')">Withdraw request</button>
+            {% include "components/confirm_modal.html" with confirm_id="withdraw-detail-"|add:open_request.pk|stringformat:"s" confirm_title="Withdraw this request?" confirm_message="Your request is cancelled. You can ask for this space again later." confirm_action_url=withdraw_url confirm_button_text="Withdraw request" %}
+
+        {% elif hotspot.cta_kind == 'reserve' %}
+            <button type="button" class="pl-btn pl-btn--secondary" disabled>Reserve &middot; coming soon</button>
+            <p class="hub-text-muted pl-map-detail__note">Booking this room by the hour is on the way.</p>
+
+        {% elif hotspot.cta_kind %}
+            {% if not viewer_is_member %}
+                <a class="pl-btn pl-btn--primary" href="{% url 'account_login' %}?next={% url 'hub_org_info' %}">Log in to request</a>
+            {% elif not viewer_is_active %}
+                <button type="button" class="pl-btn pl-btn--primary" disabled>{{ hotspot.cta_label }}</button>
+                <p class="hub-text-muted pl-map-detail__note">Requesting a space needs an active membership.</p>
+            {% elif not hotspot.is_requestable %}
+                <p class="hub-text-muted pl-map-detail__note">
+                    {% if hotspot.availability_class == 'maintenance' %}This space is under maintenance right now.{% else %}This space is currently taken.{% endif %}
+                </p>
+            {% else %}
+                {% include "hub/partials/_space_request_form.html" %}
+            {% endif %}
+
+        {% elif hotspot.occupant_names %}
+            <p class="hub-text-muted pl-map-detail__note">Currently used by {{ hotspot.occupant_names|join:", " }}.</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if swap_marker %}
+    {% include "hub/partials/_space_marker.html" with h=hotspot pending_space_ids=pending_space_ids oob=True %}
+    <table hidden><tbody>
+    {% include "hub/partials/_space_list_row.html" with h=hotspot pending_space_ids=pending_space_ids my_space_requests=my_space_requests oob=True %}
+    </tbody></table>
+{% endif %}

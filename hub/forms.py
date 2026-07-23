@@ -20,6 +20,7 @@ from core.widgets import RichTextEditorWidget
 from membership.models import (
     CommunityEvent,
     DiscordGuildEmoji,
+    Floorplan,
     Guild,
     GuildAnnouncement,
     GuildFAQItem,
@@ -28,6 +29,7 @@ from membership.models import (
     GuildMeetingNote,
     GuildMeetingNoteAttachment,
     GuildOrientationSettings,
+    MapHotspot,
     Member,
     MemberContact,
     MemberSkill,
@@ -38,6 +40,7 @@ from membership.models import (
     OrientationSlot,
     Skill,
     SkillCategory,
+    SpaceRequest,
     SlideshowSlide,
     SlideshowZone,
     VotingSettings,
@@ -2222,3 +2225,187 @@ class VotingSettingsForm(forms.ModelForm):
         if floor < 0:
             raise forms.ValidationError("The pool floor can't be negative.")
         return floor
+
+
+# ── Interactive space map ────────────────────────────────────────────────────
+
+
+class FloorplanForm(forms.ModelForm):
+    """One floor row on the map editor's Floors tab."""
+
+    class Meta:
+        model = Floorplan
+        fields = ["name", "image", "caption", "sort_order", "is_published"]
+        widgets = {"sort_order": forms.HiddenInput()}
+        labels = {
+            "name": "Floor name",
+            "image": "Floor plan image",
+            "caption": "Caption",
+            "is_published": "Show this floor on the map",
+        }
+
+
+FloorplanFormSet = forms.modelformset_factory(Floorplan, form=FloorplanForm, extra=0, can_delete=True)
+
+
+class MapHotspotForm(forms.ModelForm):
+    """One marker row on the map editor's Placement tab — **structural fields only**.
+
+    Coordinates are deliberately absent: the visual editor owns ``x/y/w/h`` through
+    :class:`MapHotspotPositionForm`, so saving this formset can never clobber a marker
+    an admin just dragged. A row switched between region and pin has its dimensions
+    reconciled here (a region with no box gets a centred default the admin can drag; a
+    pin drops its box) because the model's ``ck_maphotspot_region_has_dims`` constraint
+    would otherwise reject the save with a database error rather than a friendly one.
+    """
+
+    #: The centred starter box (percent w/h) a brand-new region gets before it's dragged.
+    DEFAULT_REGION_W = Decimal("20.00")
+    DEFAULT_REGION_H = Decimal("15.00")
+
+    class Meta:
+        model = MapHotspot
+        fields = ["space", "kind", "shape", "label", "description", "sort_order"]
+        widgets = {"sort_order": forms.HiddenInput(), "description": forms.Textarea(attrs={"rows": 2})}
+        labels = {"space": "Linked space", "label": "Marker label"}
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        kind = cleaned.get("kind")
+        shape = cleaned.get("shape")
+        space = cleaned.get("space")
+        label = (cleaned.get("label") or "").strip()
+        if kind in MapHotspot.REQUESTABLE_KINDS and space is None:
+            self.add_error("space", "Pick the space this marker stands for.")
+        if kind not in MapHotspot.REQUESTABLE_KINDS and space is None and not label:
+            self.add_error("label", "Give this marker a label so members know what it is.")
+        if shape == MapHotspot.Shape.REGION:
+            if self.instance.w is None or self.instance.h is None:
+                self.instance.w = self.DEFAULT_REGION_W
+                self.instance.h = self.DEFAULT_REGION_H
+        elif shape == MapHotspot.Shape.PIN:
+            self.instance.w = None
+            self.instance.h = None
+        return cleaned
+
+
+MapHotspotFormSet = forms.inlineformset_factory(Floorplan, MapHotspot, form=MapHotspotForm, extra=0, can_delete=True)
+
+
+class MapHotspotPositionForm(forms.Form):
+    """The visual editor's drag/resize payload for ONE marker, in image percentages.
+
+    The only write path for coordinates. Bounds are enforced here (not in the view) so a
+    dragged marker can never be stored running off the edge of its floor plan, and so the
+    JSON endpoint's 400 carries a real, human message.
+    """
+
+    x = forms.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("100"))
+    y = forms.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("100"))
+    w = forms.DecimalField(
+        max_digits=5, decimal_places=2, required=False, min_value=Decimal("0.01"), max_value=Decimal("100")
+    )
+    h = forms.DecimalField(
+        max_digits=5, decimal_places=2, required=False, min_value=Decimal("0.01"), max_value=Decimal("100")
+    )
+
+    def __init__(self, *args: Any, hotspot: MapHotspot, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.hotspot = hotspot
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        x, y = cleaned.get("x"), cleaned.get("y")
+        w, h = cleaned.get("w"), cleaned.get("h")
+        if self.hotspot.shape == MapHotspot.Shape.REGION:
+            if w is None or h is None:
+                raise forms.ValidationError("A region needs a width and height; a pin doesn't.")
+            if x is not None and y is not None and (x + w > 100 or y + h > 100):
+                raise forms.ValidationError("This marker runs off the edge of the floor plan.")
+        else:
+            cleaned["w"] = None
+            cleaned["h"] = None
+        return cleaned
+
+    def error_message(self) -> str:
+        """One flat sentence for the editor's error toast (the endpoint returns JSON)."""
+        return " ".join(str(e) for errors in self.errors.values() for e in errors)
+
+    def apply(self) -> MapHotspot:
+        """Persist ONLY the coordinate fields — structural data is the formset's job."""
+        self.hotspot.x = self.cleaned_data["x"]
+        self.hotspot.y = self.cleaned_data["y"]
+        self.hotspot.w = self.cleaned_data["w"]
+        self.hotspot.h = self.cleaned_data["h"]
+        self.hotspot.save(update_fields=["x", "y", "w", "h", "updated_at"])
+        return self.hotspot
+
+
+class SpaceRequestForm(forms.Form):
+    """A member's one-field ask for a studio or cubby, raised from the map's detail panel."""
+
+    message = forms.CharField(
+        label="Anything we should know? (optional)",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "e.g. I'd use it for pottery storage."}),
+    )
+
+    def __init__(self, *args: Any, hotspot: MapHotspot, member: Member, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.hotspot = hotspot
+        self.member = member
+        self.fields["message"].help_text = f"This goes to {self._audience_label()}."
+
+    def _audience_label(self) -> str:
+        guild = self.hotspot.space.sublet_guild if self.hotspot.space is not None else None
+        if self.hotspot.cta_kind == "cubby" and guild is not None:
+            return f"the {guild.name} lead"
+        return "the makerspace admins"
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if not self.hotspot.is_requestable:
+            raise forms.ValidationError("That space isn't open for requests right now.")
+        if self.member.status != Member.Status.ACTIVE:
+            raise forms.ValidationError("Requesting a space needs an active membership.")
+        already = SpaceRequest.objects.filter(
+            requester=self.member,
+            space=self.hotspot.space,
+            state=SpaceRequest.ModerationState.PENDING,
+        ).exists()
+        if already:
+            raise forms.ValidationError("You already have a pending request for this space.")
+        return cleaned
+
+    def save(self) -> SpaceRequest:
+        """Create the request and fire its reviewer notification."""
+        kind = SpaceRequest.RequestKind.CUBBY if self.hotspot.cta_kind == "cubby" else SpaceRequest.RequestKind.LEASE
+        request = SpaceRequest(
+            space=self.hotspot.space,
+            hotspot=self.hotspot,
+            kind=kind,
+            message=self.cleaned_data["message"],
+        )
+        request.submit(requester=self.member)
+        return request
+
+
+class SpaceRequestDecisionForm(forms.Form):
+    """A reviewer's verdict on a space request.
+
+    There is no changes-requested outcome — a space request has no editable body, so
+    "not this one" is a decline, and a decline must carry a note the member can read.
+    """
+
+    DECISION_CHOICES = [("approve", "Approve"), ("decline", "Decline")]
+
+    decision = forms.ChoiceField(choices=DECISION_CHOICES)
+    notes = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        decision = cleaned.get("decision")
+        notes = (cleaned.get("notes") or "").strip()
+        if decision == "decline" and not notes:
+            self.add_error("notes", "Add a note so the member knows why.")
+        return cleaned

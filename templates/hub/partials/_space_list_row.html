@@ -1,0 +1,52 @@
+{% comment %}
+One row of the map's accessible list — the keyboard-navigable equal of a marker.
+
+Params (via {% include ... with %}):
+  h                  — the MapHotspot
+  pending_space_ids  — space ids the viewer already has an open request for
+  my_space_requests  — the viewer's open SpaceRequests (to find the one to withdraw)
+  oob                — True to render as an hx-swap-oob replacement (after a request)
+
+Every action routes through the same detail modal the markers open, so a keyboard-only
+member reaches every space and every CTA without touching the map.
+{% endcomment %}
+{% url 'hub_map_hotspot_detail' h.pk as detail_url %}
+<tr id="list-row-hotspot-{{ h.pk }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+    <th scope="row" class="pl-map-list__code">{{ h.display_label }}</th>
+    <td>{{ h.size_display|default:"—" }}</td>
+    <td>
+        {% if h.availability_class == 'available' %}
+            <span class="hub-pill hub-pill--ok">Available</span>
+        {% elif h.availability_class == 'maintenance' %}
+            <span class="hub-pill hub-pill--warn">Maintenance</span>
+        {% elif h.availability_class == 'occupied' %}
+            <span class="hub-pill hub-pill--neutral">Occupied</span>
+        {% else %}
+            <span class="hub-pill hub-pill--neutral">Facility</span>
+        {% endif %}
+    </td>
+    <td>{{ h.price_display|default:"—" }}</td>
+    <td>
+        {% if h.space_id in pending_space_ids %}
+            <span class="hub-pill hub-pill--warn">Request pending</span>
+            {% for r in my_space_requests %}{% if r.space_id == h.space_id %}{% with pk_str=r.pk|stringformat:"s" %}
+            {% url 'hub_space_request_withdraw' r.pk as withdraw_url %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-map-list__withdraw"
+                    @click="$dispatch('open-confirm', 'withdraw-req-{{ pk_str }}')">Withdraw</button>
+            {% include "components/confirm_modal.html" with confirm_id="withdraw-req-"|add:pk_str confirm_title="Withdraw this request?" confirm_message="Your request is cancelled. You can ask for this space again later." confirm_action_url=withdraw_url confirm_button_text="Withdraw request" %}
+            {% endwith %}{% endif %}{% endfor %}
+        {% elif h.cta_kind == 'reserve' %}
+            <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" disabled>Reserve &middot; coming soon</button>
+        {% elif h.is_requestable %}
+            <button type="button" class="pl-btn pl-btn--primary pl-btn--sm"
+                    hx-get="{{ detail_url }}" hx-target="#space-detail-body" hx-swap="innerHTML"
+                    @click="$dispatch('open-modal', 'space-detail')">{{ h.cta_label }}</button>
+        {% elif h.occupant_names %}
+            <span class="hub-text-muted pl-map-list__note">{{ h.occupant_names|join:", " }}</span>
+        {% else %}
+            <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                    hx-get="{{ detail_url }}" hx-target="#space-detail-body" hx-swap="innerHTML"
+                    @click="$dispatch('open-modal', 'space-detail')">Details</button>
+        {% endif %}
+    </td>
+</tr>
