@@ -304,6 +304,9 @@ class GuildStaffMembershipFactory(factory.django.DjangoModelFactory):
 class VotePreferenceFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = VotePreference
+        # ``signed_up`` saves the linked Member itself; the VotePreference is never
+        # mutated, so factory-boy's extraneous post-hook save is not needed.
+        skip_postgeneration_save = True
 
     member = factory.SubFactory(MemberFactory)
     guild_1st = factory.SubFactory(GuildFactory)

@@ -8,12 +8,21 @@ def pytest_configure():
 
 
 def pytest_sessionstart(session):
+    from pathlib import Path
+
     from django.conf import settings as django_settings
 
     django_settings.STORAGES = {
         "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
         "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }
+
+    # STATIC_ROOT is a collectstatic build artifact, absent in a fresh checkout and in
+    # CI. WhiteNoise's middleware warns "No directory at: .../staticfiles/" every time
+    # the handler is built — once per test client — which buried the suite in thousands
+    # of identical UserWarnings. An empty directory silences it; tests serve static
+    # assets through StaticFilesStorage above, not from STATIC_ROOT.
+    Path(django_settings.STATIC_ROOT).mkdir(parents=True, exist_ok=True)
 
 
 @pytest.fixture(autouse=True)

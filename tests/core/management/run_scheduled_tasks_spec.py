@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -29,7 +29,8 @@ def _tasks_called(hour: int, side_effect=None, day: int = 1) -> list[str]:
     with (
         patch("core.management.commands.run_scheduled_tasks.call_command", side_effect=side_effect) as cc,
         patch(
-            "core.management.commands.run_scheduled_tasks.timezone.now", return_value=datetime(2026, 1, day, hour, 0)
+            "core.management.commands.run_scheduled_tasks.timezone.now",
+            return_value=datetime(2026, 1, day, hour, 0, tzinfo=UTC),
         ),
     ):
         call_command("run_scheduled_tasks")
@@ -82,7 +83,10 @@ def describe_run_scheduled_tasks():
         # command's own schedule gate, never a forced run).
         with (
             patch("core.management.commands.run_scheduled_tasks.call_command") as cc,
-            patch("core.management.commands.run_scheduled_tasks.timezone.now", return_value=datetime(2026, 1, 1, 9, 0)),
+            patch(
+                "core.management.commands.run_scheduled_tasks.timezone.now",
+                return_value=datetime(2026, 1, 1, 9, 0, tzinfo=UTC),
+            ),
         ):
             call_command("run_scheduled_tasks")
         bill_calls = [c for c in cc.call_args_list if c.args[0] == "bill_tabs"]
