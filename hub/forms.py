@@ -44,6 +44,7 @@ from membership.models import (
     SlideshowSlide,
     SlideshowZone,
     VotingSettings,
+    WikiArticle,
 )
 
 
@@ -1090,6 +1091,27 @@ class OrgLinkForm(forms.ModelForm):
 
 
 OrgLinkFormSet = forms.inlineformset_factory(OrgInfoPage, OrgLink, form=OrgLinkForm, extra=0, can_delete=True)
+
+
+class WikiArticleForm(forms.ModelForm):
+    """A single Wiki article row in the editor — mirrors ``OrgFAQItemForm``."""
+
+    class Meta:
+        model = WikiArticle
+        fields = ["title", "slug", "body", "sort_order", "is_published"]
+        widgets = {
+            "sort_order": forms.HiddenInput(),
+            "body": forms.Textarea(attrs={"rows": 10}),
+        }
+        help_texts = {
+            "slug": "Optional. The #anchor for deep links (e.g. /wiki/#guild-voting). Leave blank to fill it from the title.",
+            "body": "You can use Markdown — **bold**, numbered lists, and [links](https://example.com) all render on the page.",
+        }
+
+
+WikiArticleFormSet = forms.inlineformset_factory(
+    OrgInfoPage, WikiArticle, form=WikiArticleForm, extra=0, can_delete=True
+)
 
 
 class GuildMeetingNoteForm(forms.ModelForm):

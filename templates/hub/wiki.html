@@ -85,6 +85,21 @@ page instead; this page is deliberately prose and reference only.
 
 <div class="pl-guild-grid">
     <main>
+        {% if articles %}
+        <nav class="pl-wiki-toc" aria-label="On this page">
+            <h2 class="hub-detail-label">On this page</h2>
+            <ul>
+                {% for a in articles %}<li><a href="#{{ a.slug }}">{{ a.title }}</a></li>{% endfor %}
+            </ul>
+        </nav>
+        {% for a in articles %}
+        <section class="pl-guild-section pl-wiki-article" id="{{ a.slug }}">
+            <h2 class="pl-guild-section__h2">{{ a.title }}</h2>
+            <div class="pl-md">{{ a.body|guild_markdown }}</div>
+        </section>
+        {% endfor %}
+        {% endif %}
+
         {% if page.parking %}
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">Parking &amp; Arrival</h2>

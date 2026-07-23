@@ -2197,6 +2197,71 @@ class OrgLink(models.Model):
         return f"{self.label} (Space & Org Info)"
 
 
+class WikiArticleQuerySet(models.QuerySet):
+    def published(self) -> "WikiArticleQuerySet":
+        """Only the guides members should see — drafts stay off the public page."""
+        return self.filter(is_published=True)
+
+
+class WikiArticle(models.Model):
+    """A titled Markdown guide on the Wiki page, deep-linkable by slug anchor.
+
+    Ordered inline children of the :class:`OrgInfoPage` singleton, exactly like
+    :class:`OrgFAQItem` — the editor reuses that formset wiring. Rendered as a
+    table-of-contents entry plus an anchored ``<section id="{slug}">`` so Discord, email,
+    or other pages can link to a guide by name.
+    """
+
+    page = models.ForeignKey(
+        OrgInfoPage,
+        on_delete=models.CASCADE,
+        related_name="articles",
+        help_text="Parent Wiki page (the singleton).",
+    )
+    title = models.CharField(max_length=200, help_text="Guide heading, e.g. 'Guild voting'.")
+    slug = models.SlugField(
+        max_length=220,
+        blank=True,
+        help_text="URL anchor for deep links. Auto-filled from the title when left blank.",
+    )
+    body = models.TextField(help_text="The guide body. Supports Markdown.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Order on the page; lower shows first.")
+    is_published = models.BooleanField(
+        default=True,
+        help_text="Uncheck to keep a draft off the public page while writing.",
+    )
+
+    objects = WikiArticleQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["page", "slug"], name="uq_wikiarticle_page_slug"),
+        ]
+
+    def __str__(self) -> str:
+        return self.title
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Slugify the title into an empty slug, de-duplicating within the page.
+
+        Business logic on the model, per house style. The slug stays stable once set (so an
+        existing deep link never breaks) because we only fill it when blank.
+        """
+        from django.utils.text import slugify
+
+        if not self.slug:
+            base = slugify(self.title) or "article"
+            slug = base
+            n = 2
+            siblings = WikiArticle.objects.filter(page=self.page).exclude(pk=self.pk)
+            while siblings.filter(slug=slug).exists():
+                slug = f"{base}-{n}"
+                n += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+
 class GuildAnnouncementQuerySet(models.QuerySet):
     def active(self) -> "GuildAnnouncementQuerySet":
         """Announcements still showing — no expiry, or expiring today or later."""

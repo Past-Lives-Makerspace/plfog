@@ -181,6 +181,7 @@ urlpatterns = [
     path("wiki/floorplan/delete/", views.org_info_floorplan_delete, name="hub_org_info_floorplan_delete"),
     path("wiki/faq/save/", views.org_info_faq_save, name="hub_org_info_faq_save"),
     path("wiki/links/save/", views.org_info_links_save, name="hub_org_info_links_save"),
+    path("wiki/articles/save/", views.wiki_articles_save, name="hub_wiki_articles_save"),
     # Legacy: /info/ was the combined Space & Org Info page. Space-request emails and Discord
     # posts already carry /info/#hotspot-N links, so this must keep resolving — to the map.
     path(

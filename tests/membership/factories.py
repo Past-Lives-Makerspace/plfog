@@ -46,6 +46,7 @@ from membership.models import (
     Space,
     SpaceRequest,
     VotePreference,
+    WikiArticle,
 )
 
 
@@ -167,6 +168,16 @@ class OrgLinkFactory(factory.django.DjangoModelFactory):
     page = factory.SubFactory(OrgInfoPageFactory)
     label = factory.Sequence(lambda n: f"Org link {n}")
     url = "https://example.com"
+
+
+class WikiArticleFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = WikiArticle
+        skip_postgeneration_save = True
+
+    page = factory.SubFactory(OrgInfoPageFactory)
+    title = factory.Sequence(lambda n: f"Wiki guide {n}")
+    body = "How this part of the space works."
 
 
 class GuildAnnouncementFactory(factory.django.DjangoModelFactory):

@@ -2300,6 +2300,7 @@ def wiki(request: HttpRequest) -> HttpResponse:
         {
             **_get_hub_context(request),
             "page": page,
+            "articles": page.articles.filter(is_published=True).order_by("sort_order", "pk"),
             "faq_items": page.faq_items.all(),
             "links": page.links.all(),
             "can_edit": _viewing_as_admin(request),
@@ -2320,7 +2321,7 @@ def _org_info_edit_context(
     endpoint (they can't nest inside the main form), so they are always unbound here —
     exactly the guild-editor idiom in ``_guild_edit_context``.
     """
-    from hub.forms import OrgFAQItemFormSet, OrgLinkFormSet
+    from hub.forms import OrgFAQItemFormSet, OrgLinkFormSet, WikiArticleFormSet
 
     ctx = _get_hub_context(request)
     return {
@@ -2329,6 +2330,7 @@ def _org_info_edit_context(
         "form": form if form is not None else OrgInfoPageForm(instance=page),
         "faq_formset": OrgFAQItemFormSet(instance=page, prefix="faq"),
         "link_formset": OrgLinkFormSet(instance=page, prefix="links"),
+        "article_formset": WikiArticleFormSet(instance=page, prefix="articles"),
         "is_admin": _viewing_as_admin(request),
     }
 
@@ -2391,6 +2393,25 @@ def org_info_links_save(request: HttpRequest) -> HttpResponse:
     else:
         messages.error(request, "Couldn't save the links — check the highlighted fields.")
     return redirect(f"{reverse('hub_wiki_edit')}?tab=faq")
+
+
+@login_required
+@require_POST
+def wiki_articles_save(request: HttpRequest) -> HttpResponse:
+    """Save the Wiki articles from their own form on the Articles tab. Admin only."""
+    from hub.forms import WikiArticleFormSet
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    page = OrgInfoPage.load()
+    formset = WikiArticleFormSet(request.POST, instance=page, prefix="articles")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Wiki guides saved.")
+    else:
+        messages.error(request, "Couldn't save the guides — check the highlighted fields.")
+    return redirect(f"{reverse('hub_wiki_edit')}?tab=articles")
 
 
 @login_required

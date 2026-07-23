@@ -13,8 +13,13 @@ from django.test import Client
 from django.urls import reverse
 from PIL import Image
 
-from membership.models import Member, OrgFAQItem, OrgInfoPage, OrgLink
-from tests.membership.factories import MembershipPlanFactory, OrgFAQItemFactory, OrgLinkFactory
+from membership.models import Member, OrgFAQItem, OrgInfoPage, OrgLink, WikiArticle
+from tests.membership.factories import (
+    MembershipPlanFactory,
+    OrgFAQItemFactory,
+    OrgLinkFactory,
+    WikiArticleFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -62,6 +67,22 @@ def _link_payload(label: str, url: str) -> dict:
         "links-0-url": url,
         "links-0-sort_order": "0",
     }
+
+
+def _article_payload(title: str, body: str, *, slug: str = "", is_published: str = "on") -> dict:
+    payload = {
+        "articles-TOTAL_FORMS": "1",
+        "articles-INITIAL_FORMS": "0",
+        "articles-MIN_NUM_FORMS": "0",
+        "articles-MAX_NUM_FORMS": "1000",
+        "articles-0-title": title,
+        "articles-0-slug": slug,
+        "articles-0-body": body,
+        "articles-0-sort_order": "0",
+    }
+    if is_published:
+        payload["articles-0-is_published"] = is_published
+    return payload
 
 
 def describe_org_info_read_page():
@@ -145,6 +166,30 @@ def describe_org_info_read_page():
         OrgLinkFactory(label="Handbook", url="https://example.com/h")
         assert b"Handbook" in client.get(reverse("hub_wiki")).content
 
+    def describe_wiki_articles():
+        def it_renders_a_published_article_with_its_anchor_and_toc_link(client: Client):
+            WikiArticleFactory(title="Guild voting", body="Rank three guilds.", is_published=True)
+            resp = client.get(reverse("hub_wiki"))
+            assert b'id="guild-voting"' in resp.content
+            assert b'href="#guild-voting"' in resp.content
+            assert b"Rank three guilds." in resp.content
+
+        def it_hides_a_draft_article_from_a_guest(client: Client):
+            WikiArticleFactory(title="Secret draft", body="Not ready yet.", is_published=False)
+            resp = client.get(reverse("hub_wiki"))
+            assert b"Secret draft" not in resp.content
+            assert b"Not ready yet." not in resp.content
+
+        def it_hides_the_table_of_contents_when_no_articles_are_published(client: Client):
+            WikiArticleFactory(title="Draft only", is_published=False)
+            assert b"pl-wiki-toc" not in client.get(reverse("hub_wiki")).content
+
+        def it_exposes_only_published_articles_in_the_context(client: Client):
+            WikiArticleFactory(title="Live guide", is_published=True)
+            WikiArticleFactory(title="Hidden guide", is_published=False)
+            resp = client.get(reverse("hub_wiki"))
+            assert [a.title for a in resp.context["articles"]] == ["Live guide"]
+
     def it_shows_an_edit_button_for_an_admin(client: Client):
         _user_with_role("adm_edit_btn", fog_role=Member.FogRole.ADMIN)
         client.login(username="adm_edit_btn", password="pass")
@@ -193,6 +238,9 @@ def describe_org_info_editor_permissions():
 
     def it_forbids_a_member_from_saving_links(member_client: Client):
         assert member_client.post(reverse("hub_org_info_links_save")).status_code == 403
+
+    def it_forbids_a_member_from_saving_articles(member_client: Client):
+        assert member_client.post(reverse("hub_wiki_articles_save")).status_code == 403
 
     def it_forbids_a_member_from_deleting_the_floorplan(member_client: Client):
         assert member_client.post(reverse("hub_org_info_floorplan_delete")).status_code == 403
@@ -301,6 +349,43 @@ def describe_org_info_editor():
     def it_is_a_no_op_when_deleting_an_absent_floorplan(admin_client: Client):
         resp = admin_client.post(reverse("hub_org_info_floorplan_delete"))
         assert resp.status_code == 302
+
+    def it_renders_the_articles_tab_for_an_admin(admin_client: Client):
+        resp = admin_client.get(reverse("hub_wiki_edit"))
+        assert resp.status_code == 200
+        assert b"Save Articles" in resp.content
+
+    def it_saves_a_new_article_row(admin_client: Client):
+        resp = admin_client.post(
+            reverse("hub_wiki_articles_save"), _article_payload("Guild voting", "Rank three guilds.")
+        )
+        assert resp.status_code == 302
+        article = WikiArticle.objects.get(title="Guild voting")
+        assert article.slug == "guild-voting"
+
+    def it_reports_an_article_row_missing_its_body(admin_client: Client):
+        resp = admin_client.post(reverse("hub_wiki_articles_save"), _article_payload("No body", ""))
+        assert resp.status_code == 302
+        assert not WikiArticle.objects.filter(title="No body").exists()
+
+    def it_deletes_a_saved_article_row_flagged_for_deletion(admin_client: Client):
+        article = WikiArticleFactory(title="Old guide")
+        payload = {
+            "articles-TOTAL_FORMS": "1",
+            "articles-INITIAL_FORMS": "1",
+            "articles-MIN_NUM_FORMS": "0",
+            "articles-MAX_NUM_FORMS": "1000",
+            "articles-0-id": str(article.pk),
+            "articles-0-title": article.title,
+            "articles-0-slug": article.slug,
+            "articles-0-body": article.body,
+            "articles-0-sort_order": "0",
+            "articles-0-is_published": "on",
+            "articles-0-DELETE": "on",
+        }
+        resp = admin_client.post(reverse("hub_wiki_articles_save"), payload)
+        assert resp.status_code == 302
+        assert not WikiArticle.objects.filter(pk=article.pk).exists()
 
 
 def describe_hero_adjust_for_the_org_banner():

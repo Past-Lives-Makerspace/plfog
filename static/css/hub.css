@@ -3082,6 +3082,16 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-guild-section { padding: 1.25rem 0; border-top: 1px solid var(--hub-border); }
 .pl-guild-section:first-child { border-top: none; padding-top: 0; }
 .pl-guild-section__h2 { font-family: Lato, sans-serif; font-weight: 700; font-size: 1.375rem; margin: 0 0 0.75rem; }
+/* Wiki how-it-works guides — a table of contents plus anchored article sections. */
+.pl-wiki-toc { border: 1px solid var(--hub-border); border-radius: 8px; background: var(--hub-surface); padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+.pl-wiki-toc .hub-detail-label { margin: 0 0 0.5rem; }
+.pl-wiki-toc ul { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 1.5rem; }
+@media (max-width: 640px) { .pl-wiki-toc ul { columns: 1; } }
+.pl-wiki-toc li { margin: 0 0 0.35rem; break-inside: avoid; }
+.pl-wiki-toc a { color: var(--color-tuscan-yellow); text-decoration: none; }
+.pl-wiki-toc a:hover { text-decoration: underline; }
+.pl-wiki-article { scroll-margin-top: 1rem; }
+
 .pl-guild-video { position: relative; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; background: #000; }
 .pl-guild-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .pl-guild-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5rem; }

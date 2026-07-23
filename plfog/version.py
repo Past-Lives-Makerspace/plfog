@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.31"
+VERSION = "0.23.32"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.23.31",
+        "version": "0.23.32",
         "date": "2026-07-23",
         "title": "Explore the makerspace on an interactive map",
         "changes": [
@@ -27,6 +27,12 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "Everything else that used to share that page — parking and arrival, who to "
                 "contact, the FAQ, the code of conduct, and the handbook links — now has its own "
                 "Wiki page, further down the sidebar. Old links to the map still work."
+            ),
+            (
+                "The Wiki now opens with plain-language guides to how the makerspace works: "
+                "guilds, orientations, guild voting, taking and teaching classes, the community "
+                "calendar, connecting Discord, and your notification settings. Each guide has its "
+                "own link so you can jump straight to the one you need."
             ),
             (
                 "See a studio or cubby you want? Ask for it right there. Your request goes to the "
