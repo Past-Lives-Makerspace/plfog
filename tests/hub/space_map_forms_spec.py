@@ -71,6 +71,14 @@ def describe_MapHotspotForm():
         assert form.is_valid()
         assert form.instance.w == Decimal("42.00")
 
+    def it_leaves_dimensions_alone_when_the_shape_itself_is_invalid():
+        # An unrecognised shape already fails the field; don't compound it by silently
+        # rewriting the box on the way out of clean().
+        hotspot = MapHotspotFactory(w=Decimal("42.00"))
+        form = MapHotspotForm(_marker_data(space=str(hotspot.space_id), shape="blob"), instance=hotspot)
+        assert not form.is_valid()
+        assert form.instance.w == Decimal("42.00")
+
     def it_clears_the_box_when_a_region_becomes_a_pin():
         hotspot = MapHotspotFactory()
         form = MapHotspotForm(_marker_data(space=str(hotspot.space_id), shape=MapHotspot.Shape.PIN), instance=hotspot)

@@ -32,6 +32,14 @@ def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> 
     return user
 
 
+def _unlinked_user(username: str) -> User:
+    """An account with no Member row — a bare superuser, say. Auto-provisioning would
+    normally create one, so the row is removed to reach the view's own guard."""
+    user = User.objects.create_user(username=username, email=f"{username}@example.com", password="pass")
+    Member.objects.filter(user=user).delete()
+    return user
+
+
 @pytest.mark.django_db
 def describe_space_request_create():
     def it_redirects_an_anonymous_visitor_to_login(client: Client):
@@ -99,6 +107,15 @@ def describe_space_request_create():
         assert b"isn&#x27;t open for requests" in response.content
         assert SpaceRequest.objects.count() == 0
 
+    def it_403s_a_login_with_no_member_record(client: Client):
+        # An account can exist without a Member row (a bare superuser, say) — that
+        # request has nobody to attribute, so it stops at the view rather than 500ing.
+        hotspot = MapHotspotFactory()
+        _unlinked_user("ghost")
+        client.login(username="ghost", password="pass")
+        response = client.post(reverse("hub_space_request_create", args=[hotspot.pk]), {"message": ""})
+        assert response.status_code == 403
+
     def it_rejects_a_get(client: Client):
         _user_with_role("asker5")
         hotspot = MapHotspotFactory()
@@ -116,6 +133,12 @@ def describe_space_request_withdraw():
         assert response.status_code == 302
         request.refresh_from_db()
         assert request.state == SpaceRequest.ModerationState.WITHDRAWN
+
+    def it_403s_a_login_with_no_member_record(client: Client):
+        request = SpaceRequestFactory()
+        _unlinked_user("ghost2")
+        client.login(username="ghost2", password="pass")
+        assert client.post(reverse("hub_space_request_withdraw", args=[request.pk])).status_code == 403
 
     def it_404s_someone_elses_request(client: Client):
         _user_with_role("wd2")

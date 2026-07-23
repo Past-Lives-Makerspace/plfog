@@ -4897,11 +4897,11 @@ class _MapReviewScope:
     guilds: Any = None  # a Guild queryset for a lead/staffer; None for an admin or forbidden
 
     def scoped(self, requests: SpaceRequestQuerySet) -> SpaceRequestQuerySet:
-        """Narrow a ``SpaceRequest`` queryset to what this scope may act on."""
-        from membership.models import SpaceRequest
+        """Narrow a ``SpaceRequest`` queryset to what this scope may act on.
 
-        if not self.can_review:
-            return cast(SpaceRequestQuerySet, SpaceRequest.objects.none())
+        Callers gate on ``can_review`` before they get here (the queue and the decision
+        endpoint both 403 first), exactly like ``_ReviewScope.scoped``.
+        """
         return requests.for_scope(True if self.is_admin else self.guilds)
 
     def pending(self) -> SpaceRequestQuerySet:
