@@ -1104,7 +1104,7 @@ class WikiArticleForm(forms.ModelForm):
             "body": forms.Textarea(attrs={"rows": 10}),
         }
         help_texts = {
-            "slug": "Optional. The #anchor for deep links (e.g. /wiki/#guild-voting). Leave blank to fill it from the title.",
+            "slug": "Optional. The #anchor for deep links (e.g. /help/#guild-voting). Leave blank to fill it from the title.",
             "body": "You can use Markdown — **bold**, numbered lists, and [links](https://example.com) all render on the page.",
         }
 

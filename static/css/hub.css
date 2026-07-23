@@ -3113,19 +3113,41 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-guild-roster { display: flex; flex-direction: column; gap: 0.5rem; }
 .pl-guild-links a { display: block; padding: 0.5rem 0; color: var(--color-tuscan-yellow); }
 
-/* Rendered-Markdown body (guild meeting notes). Theme-tokened — no --surface (not a token). */
-.pl-md { color: var(--hub-text); line-height: 1.55; }
-.pl-md p { margin: 0 0 0.75rem; }
+/* Rendered-Markdown body (guild meeting notes + Help page guides). Theme-tokened via
+   --hub-* so it reads right in light and dark; scoped to .pl-md so nothing else shifts. */
+.pl-md { color: var(--hub-text); line-height: 1.65; }
+.pl-md p { margin: 0 0 0.85rem; }
 .pl-md p:last-child { margin-bottom: 0; }
-.pl-md h1, .pl-md h2, .pl-md h3, .pl-md h4 { margin: 1rem 0 0.5rem; font-weight: 700; }
-.pl-md ul, .pl-md ol { margin: 0 0 0.75rem; padding-left: 1.5rem; }
-.pl-md li { margin-bottom: 0.25rem; }
+/* Descending heading hierarchy so subheadings inside a guide read as distinct levels. */
+.pl-md h1, .pl-md h2, .pl-md h3, .pl-md h4, .pl-md h5, .pl-md h6 {
+    color: var(--hub-text); font-weight: 700; line-height: 1.25;
+    margin: 1.6rem 0 0.6rem;
+}
+.pl-md > :first-child { margin-top: 0; }
+.pl-md h1 { font-size: 1.6rem; letter-spacing: -0.01em; }
+.pl-md h2 { font-size: 1.35rem; letter-spacing: -0.01em; padding-bottom: 0.25rem; border-bottom: 1px solid var(--hub-border); }
+.pl-md h3 { font-size: 1.15rem; }
+.pl-md h4 { font-size: 1.02rem; }
+.pl-md h5 { font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--hub-text-muted); }
+.pl-md h6 { font-size: 0.85rem; font-weight: 600; color: var(--hub-text-muted); }
+.pl-md ul, .pl-md ol { margin: 0 0 0.85rem; padding-left: 1.5rem; }
+.pl-md li { margin-bottom: 0.3rem; }
+.pl-md li > ul, .pl-md li > ol { margin: 0.3rem 0 0; }
 .pl-md a { color: var(--color-tuscan-yellow); text-decoration: underline; }
-.pl-md hr { border: 0; border-top: 1px solid var(--hub-border); margin: 1rem 0; }
+.pl-md hr { border: 0; border-top: 1px solid var(--hub-border); margin: 1.5rem 0; }
 .pl-md code { background: var(--hub-surface); padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.9em; }
-.pl-md pre { background: var(--hub-surface); padding: 0.75rem; border-radius: 6px; overflow-x: auto; }
+.pl-md pre { background: var(--hub-surface); padding: 0.75rem; border-radius: 6px; overflow-x: auto; margin: 0 0 0.85rem; }
 .pl-md pre code { background: none; padding: 0; }
-.pl-md blockquote { margin: 0 0 0.75rem; padding: 0.25rem 0 0.25rem 1rem; border-left: 3px solid var(--hub-border-strong); background: var(--hub-surface); color: var(--hub-text-muted); }
+.pl-md blockquote { margin: 0 0 0.85rem; padding: 0.4rem 0 0.4rem 1rem; border-left: 3px solid var(--color-tuscan-yellow); background: var(--hub-surface); color: var(--hub-text-muted); border-radius: 0 4px 4px 0; }
+.pl-md blockquote p:last-child { margin-bottom: 0; }
+/* Tables: bordered, striped header, and horizontally scrollable when they outgrow the column. */
+.pl-md table {
+    display: block; width: max-content; max-width: 100%; overflow-x: auto;
+    border-collapse: collapse; margin: 0 0 0.85rem; font-size: 0.95rem;
+}
+.pl-md th, .pl-md td { border: 1px solid var(--hub-border); padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; }
+.pl-md th { background: var(--hub-surface); font-weight: 600; color: var(--hub-text); }
+.pl-md tbody tr:nth-child(even) td { background: var(--hub-surface); }
 
 /* Orientation slot booking table. Layout lives in classes (not inline) so Alpine's
    x-show — which strips inline `display` when it reveals a row — can't break the columns. */

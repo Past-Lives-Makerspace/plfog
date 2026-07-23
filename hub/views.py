@@ -2285,18 +2285,19 @@ def spaces(request: HttpRequest) -> HttpResponse:
     )
 
 
-def wiki(request: HttpRequest) -> HttpResponse:
-    """Public Wiki page — how the org works: intro, parking, who to contact, FAQ, conduct.
+def help_page(request: HttpRequest) -> HttpResponse:
+    """Public Help page — how the app works: intro, how-it-works guides, FAQ, conduct link.
 
     The reference half of the old combined ``/info/`` page. Public-read for the same reason
     it always was: org-wide reference content, no member PII. Editing is admin-only via
-    ``wiki_edit``. Anything about the *building* now lives on ``spaces``.
+    ``help_edit``. Anything about the *building* now lives on ``spaces``; the makerspace's
+    full external knowledge base is the separate "Wiki" nav link.
     """
     page = OrgInfoPage.load()
     org_ct = ContentType.objects.get_for_model(OrgInfoPage)
     return render(
         request,
-        "hub/wiki.html",
+        "hub/help.html",
         {
             **_get_hub_context(request),
             "page": page,
@@ -2336,8 +2337,8 @@ def _org_info_edit_context(
 
 
 @login_required
-def wiki_edit(request: HttpRequest) -> HttpResponse:
-    """Edit the Wiki page (GET + main-form POST). Admin only.
+def help_edit(request: HttpRequest) -> HttpResponse:
+    """Edit the Help page (GET + main-form POST). Admin only.
 
     Content and Map are in the single main form; FAQ and Links save via their own endpoints.
     One editor still covers both because ``OrgInfoPage`` is one row: the Map tab here is only
@@ -2351,8 +2352,8 @@ def wiki_edit(request: HttpRequest) -> HttpResponse:
         form = OrgInfoPageForm(request.POST, request.FILES, instance=page)
         if form.is_valid():
             form.save()
-            messages.success(request, "Wiki updated.")
-            return redirect("hub_wiki")
+            messages.success(request, "Help page updated.")
+            return redirect("hub_help")
         return render(request, "hub/org_info_edit.html", _org_info_edit_context(request, page, form=form))
     return render(request, "hub/org_info_edit.html", _org_info_edit_context(request, page))
 
@@ -2373,7 +2374,7 @@ def org_info_faq_save(request: HttpRequest) -> HttpResponse:
         messages.success(request, "FAQ saved.")
     else:
         messages.error(request, "Couldn't save the FAQ — check the highlighted fields.")
-    return redirect(f"{reverse('hub_wiki_edit')}?tab=faq")
+    return redirect(f"{reverse('hub_help_edit')}?tab=faq")
 
 
 @login_required
@@ -2392,13 +2393,13 @@ def org_info_links_save(request: HttpRequest) -> HttpResponse:
         messages.success(request, "Links saved.")
     else:
         messages.error(request, "Couldn't save the links — check the highlighted fields.")
-    return redirect(f"{reverse('hub_wiki_edit')}?tab=faq")
+    return redirect(f"{reverse('hub_help_edit')}?tab=faq")
 
 
 @login_required
 @require_POST
-def wiki_articles_save(request: HttpRequest) -> HttpResponse:
-    """Save the Wiki articles from their own form on the Articles tab. Admin only."""
+def help_articles_save(request: HttpRequest) -> HttpResponse:
+    """Save the Help guides from their own form on the Articles tab. Admin only."""
     from hub.forms import WikiArticleFormSet
 
     forbidden = _require_admin(request)
@@ -2408,10 +2409,10 @@ def wiki_articles_save(request: HttpRequest) -> HttpResponse:
     formset = WikiArticleFormSet(request.POST, instance=page, prefix="articles")
     if formset.is_valid():
         formset.save()
-        messages.success(request, "Wiki guides saved.")
+        messages.success(request, "Help guides saved.")
     else:
         messages.error(request, "Couldn't save the guides — check the highlighted fields.")
-    return redirect(f"{reverse('hub_wiki_edit')}?tab=articles")
+    return redirect(f"{reverse('hub_help_edit')}?tab=articles")
 
 
 @login_required
@@ -2425,7 +2426,7 @@ def org_info_floorplan_delete(request: HttpRequest) -> HttpResponse:
     if page.floorplan_image:
         page.floorplan_image.delete(save=True)
         messages.success(request, "Floor plan removed.")
-    return redirect(f"{reverse('hub_wiki_edit')}?tab=map")
+    return redirect(f"{reverse('hub_help_edit')}?tab=map")
 
 
 @login_required

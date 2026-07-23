@@ -3,7 +3,7 @@
 {% block content %}
 <div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'content' }">
 <h1 class="hub-page-title">Edit Space &amp; Org Info</h1>
-<p class="hub-text-muted" style="margin-bottom:1.5rem; max-width:65ch;">How the organization works: parking, who to contact, the FAQ, and the code of conduct. Members see it at <a href="{% url 'hub_wiki' %}" style="color:var(--color-tuscan-yellow);">/wiki/</a>. The live space map is edited separately, on the Spaces page.</p>
+<p class="hub-text-muted" style="margin-bottom:1.5rem; max-width:65ch;">How the organization works: parking, who to contact, the FAQ, and the code of conduct. Members see it at <a href="{% url 'hub_help' %}" style="color:var(--color-tuscan-yellow);">/help/</a>. The live space map is edited separately, on the Spaces page.</p>
 
 <div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;">
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">Content</button>
@@ -51,7 +51,7 @@
 
   <div x-show="section === 'content' || section === 'map'" style="margin-top:0.5rem; display:flex; gap:1rem;">
     <button type="submit" class="pl-btn pl-btn--primary">Save Changes</button>
-    <a href="{% url 'hub_wiki' %}" class="pl-btn pl-btn--secondary">Cancel</a>
+    <a href="{% url 'hub_help' %}" class="pl-btn pl-btn--secondary">Cancel</a>
   </div>
 </form>
 
@@ -189,11 +189,11 @@
 
 {# ── Articles (its own form — the anchored how-it-works guides on the Wiki page) ── #}
 <div x-show="section === 'articles'" x-cloak>
-  <form method="post" action="{% url 'hub_wiki_articles_save' %}" class="hub-form">
+  <form method="post" action="{% url 'hub_help_articles_save' %}" class="hub-form">
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Articles</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Plain-language "how it works" guides. Each one gets a table-of-contents link and a #anchor on the page, so you can point members straight at it (e.g. /wiki/#guild-voting). Leave the anchor blank to fill it from the title. Uncheck "Is published" to keep a draft off the public page.</p>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Plain-language "how it works" guides. Each one gets a table-of-contents link and a #anchor on the page, so you can point members straight at it (e.g. /help/#guild-voting). Leave the anchor blank to fill it from the title. Uncheck "Is published" to keep a draft off the public page.</p>
       {{ article_formset.management_form }}
       <div id="article-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in article_formset %}

@@ -1,4 +1,4 @@
-"""BDD specs for the Space & Org Info hub views, nav slot, and folded-in footer links."""
+"""BDD specs for the Help page hub views, nav slots (Help + external Wiki), and footer links."""
 
 from __future__ import annotations
 
@@ -87,133 +87,156 @@ def _article_payload(title: str, body: str, *, slug: str = "", is_published: str
 
 def describe_org_info_read_page():
     def it_is_accessible_to_anonymous_guests(client: Client):
-        assert client.get(reverse("hub_wiki")).status_code == 200
+        assert client.get(reverse("hub_help")).status_code == 200
 
     def it_is_accessible_to_a_member(client: Client):
         _user_with_role("m_read")
         client.login(username="m_read", password="pass")
-        assert client.get(reverse("hub_wiki")).status_code == 200
+        assert client.get(reverse("hub_help")).status_code == 200
 
     def it_does_not_carry_the_floor_plan_any_more(client: Client):
         """The map moved to Spaces — the Wiki must not quietly keep rendering it."""
         page = OrgInfoPage.load()
         page.floorplan_image = SimpleUploadedFile("m.png", _image_bytes(400, 200), content_type="image/png")
         page.save()
-        resp = client.get(reverse("hub_wiki"))
+        resp = client.get(reverse("hub_help"))
         assert b"pl-org-map" not in resp.content
         assert b"facility map is coming soon" not in resp.content
 
     def it_hides_parking_when_blank(client: Client):
-        assert b"Parking &amp; Arrival" not in client.get(reverse("hub_wiki")).content
+        assert b"Parking &amp; Arrival" not in client.get(reverse("hub_help")).content
 
     def it_shows_parking_when_set(client: Client):
         page = OrgInfoPage.load()
         page.parking = "Free street parking after 5pm."
         page.save()
-        resp = client.get(reverse("hub_wiki"))
+        resp = client.get(reverse("hub_help"))
         assert b"Parking &amp; Arrival" in resp.content
         assert b"Free street parking after 5pm." in resp.content
 
     def it_hides_who_to_contact_when_blank(client: Client):
-        assert b"Who to Contact" not in client.get(reverse("hub_wiki")).content
+        assert b"Who to Contact" not in client.get(reverse("hub_help")).content
 
     def it_shows_who_to_contact_when_set(client: Client):
         page = OrgInfoPage.load()
         page.who_to_contact = "Billing: ask Sam."
         page.save()
-        assert b"Billing: ask Sam." in client.get(reverse("hub_wiki")).content
+        assert b"Billing: ask Sam." in client.get(reverse("hub_help")).content
 
     def it_shows_the_intro_when_set(client: Client):
         page = OrgInfoPage.load()
         page.intro = "Here is how our space works."
         page.save()
-        assert b"Here is how our space works." in client.get(reverse("hub_wiki")).content
+        assert b"Here is how our space works." in client.get(reverse("hub_help")).content
 
     def describe_code_of_conduct():
-        def it_renders_the_body_when_set(client: Client):
-            page = OrgInfoPage.load()
-            page.code_of_conduct = "Be excellent to each other."
-            page.save()
-            resp = client.get(reverse("hub_wiki"))
-            assert b"Be excellent to each other." in resp.content
-            assert b"Read the Code of Conduct" not in resp.content
-
-        def it_links_out_when_only_a_url_is_set(client: Client):
+        def it_shows_a_resources_link_when_a_url_is_set(client: Client):
             page = OrgInfoPage.load()
             page.code_of_conduct_url = "https://example.com/coc"
             page.save()
-            resp = client.get(reverse("hub_wiki"))
-            assert b"Read the Code of Conduct" in resp.content
-            assert b"https://example.com/coc" in resp.content
+            resp = client.get(reverse("hub_help"))
+            # It's a resource link in the sidebar now, not its own body section.
+            assert b'href="https://example.com/coc"' in resp.content
+            assert b">Code of Conduct</a>" in resp.content
+            assert b"Code of Conduct</h2>" not in resp.content
 
-        def it_hides_the_section_when_neither_is_set(client: Client):
+        def it_does_not_render_the_body_as_a_section(client: Client):
+            page = OrgInfoPage.load()
+            page.code_of_conduct = "Be excellent to each other."
+            page.code_of_conduct_url = ""
+            page.save()
+            resp = client.get(reverse("hub_help"))
+            assert b"Be excellent to each other." not in resp.content
+            assert b"Code of Conduct</h2>" not in resp.content
+
+        def it_hides_the_link_when_no_url_is_set(client: Client):
             page = OrgInfoPage.load()  # the migration seeds a CoC url — clear it for this case
             page.code_of_conduct = ""
             page.code_of_conduct_url = ""
             page.save()
-            content = client.get(reverse("hub_wiki")).content
+            content = client.get(reverse("hub_help")).content
+            assert b">Code of Conduct</a>" not in content
             assert b"Code of Conduct</h2>" not in content
-            assert b"Read the Code of Conduct" not in content
 
     def it_shows_faq_items(client: Client):
         OrgFAQItemFactory(question="Who runs billing?")
-        assert b"Who runs billing?" in client.get(reverse("hub_wiki")).content
+        assert b"Who runs billing?" in client.get(reverse("hub_help")).content
 
     def it_hides_the_faq_section_when_empty(client: Client):
-        assert b"pl-guild-faq__q" not in client.get(reverse("hub_wiki")).content
+        assert b"pl-guild-faq__q" not in client.get(reverse("hub_help")).content
 
     def it_shows_resource_links(client: Client):
         OrgLinkFactory(label="Handbook", url="https://example.com/h")
-        assert b"Handbook" in client.get(reverse("hub_wiki")).content
+        assert b"Handbook" in client.get(reverse("hub_help")).content
 
     def describe_wiki_articles():
         def it_renders_a_published_article_with_its_anchor_and_toc_link(client: Client):
             WikiArticleFactory(title="Guild voting", body="Rank three guilds.", is_published=True)
-            resp = client.get(reverse("hub_wiki"))
+            resp = client.get(reverse("hub_help"))
             assert b'id="guild-voting"' in resp.content
             assert b'href="#guild-voting"' in resp.content
             assert b"Rank three guilds." in resp.content
 
         def it_hides_a_draft_article_from_a_guest(client: Client):
             WikiArticleFactory(title="Secret draft", body="Not ready yet.", is_published=False)
-            resp = client.get(reverse("hub_wiki"))
+            resp = client.get(reverse("hub_help"))
             assert b"Secret draft" not in resp.content
             assert b"Not ready yet." not in resp.content
 
         def it_hides_the_table_of_contents_when_no_articles_are_published(client: Client):
             WikiArticleFactory(title="Draft only", is_published=False)
-            assert b"pl-wiki-toc" not in client.get(reverse("hub_wiki")).content
+            assert b"pl-wiki-toc" not in client.get(reverse("hub_help")).content
 
         def it_exposes_only_published_articles_in_the_context(client: Client):
             WikiArticleFactory(title="Live guide", is_published=True)
             WikiArticleFactory(title="Hidden guide", is_published=False)
-            resp = client.get(reverse("hub_wiki"))
+            resp = client.get(reverse("hub_help"))
             assert [a.title for a in resp.context["articles"]] == ["Live guide"]
 
     def it_shows_an_edit_button_for_an_admin(client: Client):
         _user_with_role("adm_edit_btn", fog_role=Member.FogRole.ADMIN)
         client.login(username="adm_edit_btn", password="pass")
-        assert b"Edit this page" in client.get(reverse("hub_wiki")).content
+        assert b"Edit this page" in client.get(reverse("hub_help")).content
 
     def it_hides_the_edit_button_from_a_member(client: Client):
         _user_with_role("m_no_edit_btn")
         client.login(username="m_no_edit_btn", password="pass")
-        assert b"Edit this page" not in client.get(reverse("hub_wiki")).content
+        assert b"Edit this page" not in client.get(reverse("hub_help")).content
 
 
 def describe_org_info_nav_and_folded_footer_links():
-    def it_links_the_sidebar_to_both_the_spaces_and_wiki_pages(client: Client):
+    def it_links_the_sidebar_to_both_the_spaces_and_help_pages(client: Client):
         _user_with_role("m_nav")
         client.login(username="m_nav", password="pass")
         resp = client.get(reverse("hub_home"))
         assert reverse("hub_spaces").encode() in resp.content
-        assert reverse("hub_wiki").encode() in resp.content
+        assert reverse("hub_help").encode() in resp.content
         assert b"Spaces" in resp.content
-        assert b"Wiki" in resp.content
+        assert b"Help" in resp.content
         # The combined page is gone, so nothing should still navigate to it. (Its old
         # *label* still appears in the changelog modal, which is release history and
         # deliberately never rewritten — so assert on the link, not the words.)
         assert b'href="/info/"' not in resp.content
+
+    def it_renders_an_external_wiki_link_in_the_member_nav(client: Client, settings):
+        """The Wiki nav link points at the external MediaWiki and opens in a new tab."""
+        settings.MAKERSPACE_WIKI_URL = "https://wiki.example.test"
+        _user_with_role("m_wiki_nav")
+        client.login(username="m_wiki_nav", password="pass")
+        resp = client.get(reverse("hub_home"))
+        assert (
+            b'<a href="https://wiki.example.test" class="hub-sidebar__link" '
+            b'target="_blank" rel="noopener noreferrer">' in resp.content
+        )
+
+    def it_hides_the_wiki_link_when_no_url_is_configured(client: Client, settings):
+        settings.MAKERSPACE_WIKI_URL = ""
+        _user_with_role("m_no_wiki")
+        client.login(username="m_no_wiki", password="pass")
+        resp = client.get(reverse("hub_home"))
+        assert b"hub-sidebar__link" in resp.content  # the rest of the nav still renders
+        # The external Wiki link is the only nav link that opens in a new tab.
+        assert b'class="hub-sidebar__link" target="_blank"' not in resp.content
 
     def it_no_longer_shows_the_two_google_doc_footer_links(client: Client):
         _user_with_role("m_footer")
@@ -231,7 +254,7 @@ def describe_org_info_editor_permissions():
         return client
 
     def it_forbids_a_member_from_the_editor(member_client: Client):
-        assert member_client.get(reverse("hub_wiki_edit")).status_code == 403
+        assert member_client.get(reverse("hub_help_edit")).status_code == 403
 
     def it_forbids_a_member_from_saving_faq(member_client: Client):
         assert member_client.post(reverse("hub_org_info_faq_save")).status_code == 403
@@ -240,7 +263,7 @@ def describe_org_info_editor_permissions():
         assert member_client.post(reverse("hub_org_info_links_save")).status_code == 403
 
     def it_forbids_a_member_from_saving_articles(member_client: Client):
-        assert member_client.post(reverse("hub_wiki_articles_save")).status_code == 403
+        assert member_client.post(reverse("hub_help_articles_save")).status_code == 403
 
     def it_forbids_a_member_from_deleting_the_floorplan(member_client: Client):
         assert member_client.post(reverse("hub_org_info_floorplan_delete")).status_code == 403
@@ -254,11 +277,11 @@ def describe_org_info_editor():
         return client
 
     def it_renders_the_editor_for_an_admin(admin_client: Client):
-        assert admin_client.get(reverse("hub_wiki_edit")).status_code == 200
+        assert admin_client.get(reverse("hub_help_edit")).status_code == 200
 
     def it_saves_the_main_content_form(admin_client: Client):
         resp = admin_client.post(
-            reverse("hub_wiki_edit"),
+            reverse("hub_help_edit"),
             {
                 "intro": "Hi team",
                 "parking": "",
@@ -273,7 +296,7 @@ def describe_org_info_editor():
 
     def it_re_renders_on_an_invalid_main_form(admin_client: Client):
         resp = admin_client.post(
-            reverse("hub_wiki_edit"),
+            reverse("hub_help_edit"),
             {
                 "intro": "",
                 "parking": "",
@@ -351,20 +374,20 @@ def describe_org_info_editor():
         assert resp.status_code == 302
 
     def it_renders_the_articles_tab_for_an_admin(admin_client: Client):
-        resp = admin_client.get(reverse("hub_wiki_edit"))
+        resp = admin_client.get(reverse("hub_help_edit"))
         assert resp.status_code == 200
         assert b"Save Articles" in resp.content
 
     def it_saves_a_new_article_row(admin_client: Client):
         resp = admin_client.post(
-            reverse("hub_wiki_articles_save"), _article_payload("Guild voting", "Rank three guilds.")
+            reverse("hub_help_articles_save"), _article_payload("Guild voting", "Rank three guilds.")
         )
         assert resp.status_code == 302
         article = WikiArticle.objects.get(title="Guild voting")
         assert article.slug == "guild-voting"
 
     def it_reports_an_article_row_missing_its_body(admin_client: Client):
-        resp = admin_client.post(reverse("hub_wiki_articles_save"), _article_payload("No body", ""))
+        resp = admin_client.post(reverse("hub_help_articles_save"), _article_payload("No body", ""))
         assert resp.status_code == 302
         assert not WikiArticle.objects.filter(title="No body").exists()
 
@@ -383,7 +406,7 @@ def describe_org_info_editor():
             "articles-0-is_published": "on",
             "articles-0-DELETE": "on",
         }
-        resp = admin_client.post(reverse("hub_wiki_articles_save"), payload)
+        resp = admin_client.post(reverse("hub_help_articles_save"), payload)
         assert resp.status_code == 302
         assert not WikiArticle.objects.filter(pk=article.pk).exists()
 

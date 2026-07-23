@@ -175,13 +175,13 @@ urlpatterns = [
         views.space_request_review_decision,
         name="hub_space_request_review_decision",
     ),
-    # Wiki — how the org works: intro, parking, who-to-contact, FAQ, code of conduct, resources.
-    path("wiki/", views.wiki, name="hub_wiki"),
-    path("wiki/edit/", views.wiki_edit, name="hub_wiki_edit"),
-    path("wiki/floorplan/delete/", views.org_info_floorplan_delete, name="hub_org_info_floorplan_delete"),
-    path("wiki/faq/save/", views.org_info_faq_save, name="hub_org_info_faq_save"),
-    path("wiki/links/save/", views.org_info_links_save, name="hub_org_info_links_save"),
-    path("wiki/articles/save/", views.wiki_articles_save, name="hub_wiki_articles_save"),
+    # Help — how the app works: intro, guides, parking, who-to-contact, FAQ, code of conduct, resources.
+    path("help/", views.help_page, name="hub_help"),
+    path("help/edit/", views.help_edit, name="hub_help_edit"),
+    path("help/floorplan/delete/", views.org_info_floorplan_delete, name="hub_org_info_floorplan_delete"),
+    path("help/faq/save/", views.org_info_faq_save, name="hub_org_info_faq_save"),
+    path("help/links/save/", views.org_info_links_save, name="hub_org_info_links_save"),
+    path("help/articles/save/", views.help_articles_save, name="hub_help_articles_save"),
     # Legacy: /info/ was the combined Space & Org Info page. Space-request emails and Discord
     # posts already carry /info/#hotspot-N links, so this must keep resolving — to the map.
     path(

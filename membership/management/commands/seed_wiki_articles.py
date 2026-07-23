@@ -1,4 +1,4 @@
-"""Seed the plain-language "how it works" guides onto the Wiki page.
+"""Seed the plain-language "how it works" guides onto the Help page.
 
 Writes one :class:`~membership.models.WikiArticle` per guide (idempotent
 ``update_or_create`` keyed on ``(page, slug)``) and fills the page intro when it is still
@@ -34,7 +34,7 @@ Use the menu on the left to get around:
 - Community Calendar: everything happening at the space, in one place.
 - Spaces: the floor plan and every studio and shared area.
 - Guild Voting: rank the guilds you want the monthly funding pool to support.
-- Wiki: this page, plus answers to common questions.
+- Help: this page, plus answers to common questions.
 - Member Directory: find other members by skill or guild.
 - Guilds: jump straight to any guild's page.
 
@@ -57,7 +57,8 @@ ARTICLES: list[dict[str, str]] = [
         "body": """\
 A guild is a group built around a craft or interest, like a woodshop, a ceramics studio, or a print guild. Guilds run their own classes, hold meetings, and get a share of the monthly funding pool based on how members vote.
 
-Find a guild:
+### Find a guild
+
 1. Open Guilds at the bottom of the left menu and pick one, or
 2. Browse the full guild directory to see them all.
 
@@ -67,7 +68,9 @@ Each guild page has tabs across the top:
 - FAQ: common questions, once the guild adds some.
 - Meeting Notes and Gallery: shown when the guild posts them.
 
-Join a guild: open its page and click "Join This Guild" in the Get Involved panel. It is free, and you can be in as many guilds as you want. To leave one, open User Settings, go to the Guilds tab, and switch that guild off.
+### Join a guild
+
+Open its page and click "Join This Guild" in the Get Involved panel. It is free, and you can be in as many guilds as you want. To leave one, open User Settings, go to the Guilds tab, and switch that guild off.
 
 Anyone can propose an announcement for a guild, but a guild lead or an admin has to approve it first, so yours may not show up right away.
 
@@ -79,7 +82,8 @@ Only guild leads, their staff, and admins can edit a guild page. If you help run
         "body": """\
 Many guilds ask you to finish a short orientation before you use their tools and equipment. It covers safety and how the space works. You only do it once per guild.
 
-Book one:
+### Book one
+
 1. Open the guild's page.
 2. In the orientation panel, click "Join an Orientation."
 3. Pick a posted time, or ask for a different one if the guild allows custom requests.
@@ -111,11 +115,13 @@ If the page says your account is not linked to a membership, ask an admin to con
         "body": """\
 Browse and sign up for classes from the Class Catalog.
 
-Find a class:
+### Find a class
+
 1. Click Class Catalog in the left menu.
 2. Open any class to see its description, dates, price, and open spots.
 
-Sign up:
+### Sign up
+
 1. On the class page, click to register.
 2. Fill in your details and sign any waiver.
 3. Free classes confirm right away. Paid ones send you to a secure checkout, and your spot is locked in once the payment goes through.
@@ -205,7 +211,7 @@ A few important notices always go out and cannot be turned off. Everything else 
 
 class Command(BaseCommand):
     help = (
-        "Seed the plain-language how-it-works guides onto the Wiki page. Idempotent "
+        "Seed the plain-language how-it-works guides onto the Help page. Idempotent "
         "(keyed on slug); use --dry-run to preview without writing."
     )
 

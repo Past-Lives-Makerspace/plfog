@@ -1,12 +1,13 @@
 {% extends guilds_page_base|default:"hub/base.html" %}
 {% load classes_tags %}
 {% load membership_md %}
-{% block title %}Wiki{% endblock %}
+{% block title %}Help{% endblock %}
 
 {% comment %}
-The Wiki: how the organization works — intro, parking & arrival, who to contact, FAQ, the
-code of conduct, and the resource links. Anything about the *building* lives on the Spaces
-page instead; this page is deliberately prose and reference only.
+The Help page: how the makerspace app works — an intro, the plain-language how-it-works
+guides, parking & arrival, who to contact, the FAQ, and resource links (code of conduct
+included). Anything about the *building* lives on the Spaces page; the makerspace's full
+external knowledge base is the separate "Wiki" nav link. This page is prose and reference only.
 {% endcomment %}
 
 {% block content %}
@@ -71,10 +72,10 @@ page instead; this page is deliberately prose and reference only.
 
 {# ── Header + purpose blurb ── #}
 {% if can_edit %}
-    {% url 'hub_wiki_edit' as org_edit_url %}
-    {% include "components/page_header.html" with title="Wiki" description="How our organization works — parking and arrival, who to contact, the code of conduct, and the answers to the questions we get asked most." action_url=org_edit_url action_label="Edit this page" action_class="hub-btn hub-btn--sm" %}
+    {% url 'hub_help_edit' as org_edit_url %}
+    {% include "components/page_header.html" with title="Help" description="Guides to how the makerspace works, plus parking and arrival, who to contact, and the answers to the questions we get asked most." action_url=org_edit_url action_label="Edit this page" action_class="hub-btn hub-btn--sm" %}
 {% else %}
-    {% include "components/page_header.html" with title="Wiki" description="How our organization works — parking and arrival, who to contact, the code of conduct, and the answers to the questions we get asked most." %}
+    {% include "components/page_header.html" with title="Help" description="Guides to how the makerspace works, plus parking and arrival, who to contact, and the answers to the questions we get asked most." %}
 {% endif %}
 
 {% if page.intro %}
@@ -138,24 +139,14 @@ page instead; this page is deliberately prose and reference only.
         </section>
         {% endif %}
 
-        {% if page.code_of_conduct or page.code_of_conduct_url %}
-        <section class="pl-guild-section">
-            <h2 class="pl-guild-section__h2">Code of Conduct</h2>
-            {% if page.code_of_conduct %}
-            <div class="pl-md">{{ page.code_of_conduct|guild_markdown }}</div>
-            {% else %}
-            <p class="hub-text-muted" style="margin-top:0;">Our full code of conduct lives in a shared document.</p>
-            <a href="{{ page.code_of_conduct_url }}" class="pl-btn pl-btn--secondary" target="_blank" rel="noopener noreferrer" hx-boost="false">Read the Code of Conduct →</a>
-            {% endif %}
-        </section>
-        {% endif %}
     </main>
 
     <aside>
-        {% if links %}
+        {% if page.code_of_conduct_url or links %}
         <div class="hub-card">
             <h3 class="hub-detail-label">Resources</h3>
             <div class="pl-guild-links">
+                {% if page.code_of_conduct_url %}<a href="{{ page.code_of_conduct_url }}" target="_blank" rel="noopener noreferrer" hx-boost="false">Code of Conduct</a>{% endif %}
                 {% for link in links %}<a href="{{ link.url }}" target="_blank" rel="noopener" hx-boost="false">{{ link.label }}</a>{% endfor %}
             </div>
         </div>

@@ -23,6 +23,15 @@ def app_version(request: HttpRequest) -> dict[str, Any]:
     return {"app_version": VERSION, "changelog": CHANGELOG}
 
 
+def makerspace_wiki(request: HttpRequest) -> dict[str, str]:
+    """Expose the external MediaWiki knowledge-base URL site-wide.
+
+    The base template's "Wiki" sidebar link opens ``makerspace_wiki_url`` in a new tab.
+    A blank setting hides the link (the template gates it on the truthy value).
+    """
+    return {"makerspace_wiki_url": settings.MAKERSPACE_WIKI_URL}
+
+
 def theme(request: HttpRequest) -> dict[str, str]:
     """Expose the theme cookie's domain scope to base.html's early inline script.
 

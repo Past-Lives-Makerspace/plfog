@@ -71,7 +71,7 @@ FEATURE_PAGES: list[FeaturePage] = [
     FeaturePage(slug="home", label="Member home dashboard", url_name="hub_home"),
     FeaturePage(slug="my-guilds", label="My Guilds settings", url_name="hub_user_settings", query="?tab=guilds"),
     FeaturePage(slug="spaces", label="Spaces page", url_name="hub_spaces"),
-    FeaturePage(slug="wiki", label="Wiki page", url_name="hub_wiki"),
+    FeaturePage(slug="help", label="Help & guides", url_name="hub_help"),
     FeaturePage(slug="member-directory", label="Member directory", url_name="hub_member_directory"),
     FeaturePage(slug="guild-directory", label="Guilds directory", url_name="hub_guild_directory"),
     FeaturePage(slug="notifications", label="Notifications page", url_name="notification_list"),

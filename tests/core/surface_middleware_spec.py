@@ -252,7 +252,7 @@ def describe_guilds_surface():
             "/guilds/1/orientation/request-custom/",
             "/orientation/bookings/1/cancel/",
             "/spaces/",
-            "/wiki/",
+            "/help/",
             "/accounts/login/",
             "/accounts/signup/",
             "/accounts/login/code/",

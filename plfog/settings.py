@@ -72,6 +72,9 @@ MEMBER_HOST = os.environ.get("MEMBER_HOST", "members.pastlives.space").strip().l
 # https://<MEMBER_HOST>; override in local dev (e.g. http://localhost:8000) so
 # the cross-host links are reachable from book.localhost too.
 MEMBER_BASE_URL = os.environ.get("MEMBER_BASE_URL", f"https://{MEMBER_HOST}").rstrip("/")
+# External MediaWiki knowledge base. The "Wiki" sidebar link opens this in a new tab;
+# the native how-it-works guides live on the in-app Help page instead. Blank hides the link.
+MAKERSPACE_WIKI_URL = os.environ.get("MAKERSPACE_WIKI_URL", "https://wiki.pastlives.space").rstrip("/")
 MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/admin/",
     "/billing/",
@@ -128,7 +131,7 @@ GUILDS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
         "hub_guild_detail",
         "hub_guild_detail_by_id",
         "hub_spaces",
-        "hub_wiki",
+        "hub_help",
         "hub_guild_join",
         "hub_guild_leave",
         "hub_orientation_book",
@@ -216,6 +219,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "core.context_processors.registration_mode",
                 "core.context_processors.app_version",
+                "core.context_processors.makerspace_wiki",
                 "core.context_processors.theme",
                 "core.context_processors.feature_flags",
                 "core.context_processors.google_analytics",
