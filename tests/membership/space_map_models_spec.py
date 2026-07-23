@@ -69,6 +69,31 @@ def describe_Floorplan():
     def it_uses_its_name_as_its_label():
         assert str(FloorplanFactory(name="2nd Floor")) == "2nd Floor"
 
+    def it_needs_no_image_now_that_the_app_draws_the_map():
+        floor = Floorplan.objects.create(name="Drawn only")
+        assert not floor.image
+
+    def describe_legend():
+        def it_counts_the_rooms_behind_each_colour():
+            floor = FloorplanFactory()
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.AVAILABLE))
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.AVAILABLE))
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.OCCUPIED))
+            MapHotspotFactory(floorplan=floor, space=None, kind=MapHotspot.Kind.FACILITY, label="Wood Shop")
+            assert floor.legend == [
+                ("available", "Available", 2),
+                ("occupied", "Occupied", 1),
+                ("info", "Shops & facilities", 1),
+            ]
+
+        def it_leaves_out_a_colour_no_room_is_wearing():
+            floor = FloorplanFactory()
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.MAINTENANCE))
+            assert floor.legend == [("maintenance", "Maintenance", 1)]
+
+        def it_is_empty_for_a_floor_with_nothing_on_it():
+            assert FloorplanFactory().legend == []
+
 
 @pytest.mark.django_db
 def describe_MapHotspot():
@@ -209,6 +234,38 @@ def describe_MapHotspot():
             label="Dropped here",
         )
         assert (hotspot.x, hotspot.y) == (Decimal("50.00"), Decimal("50.00"))
+
+    def describe_code_label():
+        def it_writes_only_the_bare_code_inside_a_drawn_room():
+            space = SpaceFactory(space_id="A9", name="A9 Studio — the corner one")
+            hotspot = MapHotspotFactory(space=space)
+            assert hotspot.code_label == "A9"
+            assert hotspot.display_label != "A9"
+
+        def it_falls_back_to_the_markers_own_label_for_a_facility():
+            hotspot = MapHotspotFactory(space=None, kind=MapHotspot.Kind.FACILITY, label="Wood Shop")
+            assert hotspot.code_label == "Wood Shop"
+
+    def describe_detail_level():
+        def it_lets_a_roomy_shape_carry_its_size_and_price():
+            hotspot = MapHotspotFactory(w=Decimal("12.00"), h=Decimal("9.00"))
+            assert hotspot.detail_level == "full"
+
+        def it_drops_to_the_name_alone_when_the_room_is_narrow():
+            assert MapHotspotFactory(w=Decimal("3.00"), h=Decimal("6.00")).detail_level == "label"
+
+        def it_drops_to_the_name_alone_when_the_room_is_shallow():
+            assert MapHotspotFactory(w=Decimal("9.00"), h=Decimal("2.50")).detail_level == "label"
+
+        def it_carries_no_text_at_all_below_a_word_wide():
+            assert MapHotspotFactory(w=Decimal("1.00"), h=Decimal("5.00")).detail_level == "minimal"
+
+        def it_carries_no_text_at_all_below_a_line_tall():
+            assert MapHotspotFactory(w=Decimal("9.00"), h=Decimal("1.00")).detail_level == "minimal"
+
+        def it_always_labels_a_pin_because_a_pin_sizes_itself_to_its_text():
+            pin = MapHotspotFactory(shape=MapHotspot.Shape.PIN, w=None, h=None)
+            assert pin.detail_level == "label"
 
     def it_describes_itself_by_kind_label_and_floor():
         floor = FloorplanFactory(name="Floor 1")

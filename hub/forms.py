@@ -2235,11 +2235,12 @@ class FloorplanForm(forms.ModelForm):
 
     class Meta:
         model = Floorplan
-        fields = ["name", "image", "caption", "sort_order", "is_published"]
+        fields = ["name", "aspect_ratio", "image", "caption", "sort_order", "is_published"]
         widgets = {"sort_order": forms.HiddenInput()}
         labels = {
             "name": "Floor name",
-            "image": "Floor plan image",
+            "aspect_ratio": "Shape (width ÷ height)",
+            "image": "Reference underlay (optional)",
             "caption": "Caption",
             "is_published": "Show this floor on the map",
         }

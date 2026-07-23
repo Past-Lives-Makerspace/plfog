@@ -1,9 +1,44 @@
 # Interactive Space Map + Space Requests — Spec & Implementation Plan
 
-**Status:** Spec only — not yet approved to build.
+**Status:** Built (PR #157). Amended 2026-07-22 — see *Amendment 1* below.
 **Date:** 2026-07-04
 **Surface:** FOG hub `pastlives.test` — the Space & Org Info page (`/info/`), a new admin placement editor (`/info/map/edit/`), and a request-review queue (`/info/requests/review/`). Public-read map; member-gated requests.
 **Related:** Spec 2 of 2 — *Time-based Reservations (meeting rooms + event space)* — a separate doc. This spec owns `Floorplan`, `MapHotspot`, `SpaceRequest`, the read map, the placement editor, and the lease/cubby request flow. Spec 2 owns reservable resources, reservations, availability/overlap, and event-space→`CommunityEvent`. The seam is the `MapHotspot.kind` enum (§4) — this spec defines `meeting_room` / `event_space` so spec 2 adds no hotspot schema change.
+
+---
+
+## Amendment 1 — the map is drawn by the app (2026-07-22)
+
+**What changed, and why.** The original spec (§4.1, §6.1, §6.4 below) modelled a floor as an
+**uploaded image** with invisible hotspots layered over it. Built and looked at, that turned out
+to be the wrong product: the map was only ever as good as the screenshot fed into it — blurry at
+zoom, wrong in light mode, and showing a *drawing's* colours instead of live status.
+
+The map is now **drawn by the app**. Each floor is a blank canvas of a stored aspect ratio, and
+every `MapHotspot` with `shape=region` renders as a real styled room shape: fill and walls from
+live `Space.status`, its code, size and price inside it, hover and keyboard-focus states, and a
+legend with live counts. It is crisp at any zoom, correct in both themes, and never disagrees with
+Airtable.
+
+Everything below still holds except where this amendment overrides it:
+
+| Section | Original | Now |
+|---|---|---|
+| §4.1 `Floorplan.image` | Required. The map. | **Optional** (`blank=True`). A faint *reference underlay* for tracing only — a floor with no image is the normal case. Kept, not dropped: it is genuinely useful, and the field already holds data. |
+| §4.1 `Floorplan` | — | **New field `aspect_ratio`** (decimal, width ÷ height, default 1.50). With no image there is nothing to give the stage a height, so the floor's proportions are data now. |
+| §4.2 `MapHotspot` | — | **New derived property `detail_level`** (`full` / `label` / `minimal`) — how much text a shape can hold without spilling past its walls. Small rooms degrade to their code, then to a colour block; the name always survives in the `aria-label`, the detail panel and the keyboard list. |
+| §4.1 `Floorplan` | — | **New derived property `legend`** — `(status, label, count)` rows for the map key, counted over the already-prefetched hotspots (no extra query). |
+| §6.1 Read map | `<img>` + absolutely-positioned markers in one transformed wrapper. | `.pl-map-canvas` (aspect-ratio slab) + drawn rooms in the **same** transformed wrapper. Pan/zoom/pinch in `space_map.js` is unchanged — shapes and their text scale together, so a room too small to label at 1× becomes readable when zoomed. |
+| §6.1 Colours | Three marker classes over existing tokens. | Same rule, more classes — still **no new colour VALUES**: `--color-success` (available, the strongest fill, so it reads as the call to action), the `.hub-pill--warn` caution hue `#fbbf24` (maintenance), `--hub-text-muted` (occupied), dashed muted for shops/facilities. The extra `rgba()` fills are alpha variants of those same three hues. |
+| §6.4 Placement editor | Drags against the floor image. | Drags against the **drawn canvas** (`data-editor-stage` moved onto it), so it works with no image at all. The two-write-path separation is untouched: the JSON endpoint still owns `x/y/w/h`, the formset still owns structural fields only. The Floors tab gains the `aspect_ratio` field and relabels the image "Reference underlay (optional)". |
+| §6.1 Accessible list | Mandatory keyboard-navigable table. | **Unchanged and still mandatory.** Nothing about drawing the map relaxes it. |
+| §8 Build order | Seven phases. | Phase 8: **`membership/floor_geometry.py` + `manage.py seed_floor_geometry`** — the two real Past Lives floor plans traced into repo-kept data, idempotent, `--dry-run`, spec-covered. With no backdrop, an unplaced room simply does not exist, so the geometry *is* the map and belongs in version control. |
+
+**Deliberately out of the transcription.** The source drawings are working documents. The title
+block, "Frame" outlines, hand-drawn colour keys (the app renders a live one), working annotations
+and dimension scribbles, spreadsheet gridlines, and — above all — occupant names are **not**
+transcribed. Occupancy is read from `Space.current_occupants` at render time and never baked into
+geometry.
 
 ---
 
@@ -377,7 +412,7 @@ Email rules (FRONTEND.md → *Email Templates*, if any `.txt`/`.html` template i
 6. **Review queue.** `_map_reviewer_scope`, `space_request_review_queue.html`, `_space_request_decision_modal.html`, `SpaceRequestDecisionForm`, `hub_space_request_review_queue` / `hub_space_request_review_decision`, nav pending-count. Specs for scope (admin vs lead), decision transitions, blank-note re-open, stale-decision guard.
 7. **Housekeeping (LAST).** Bump `plfog/version.py` `VERSION` (0.21.x patch) + **one** member-friendly `CHANGELOG` entry grouped under this feature (e.g. *"Explore the space on an interactive map — see what's open, and request a studio or cubby right from the floor plan."*). Do not touch `version.py` in phases 1–6.
 
-> Spec only — do not build until approved.
+> Built. See *Amendment 1* at the top for what the drawn-map rework changed.
 
 ## 9. Testing
 

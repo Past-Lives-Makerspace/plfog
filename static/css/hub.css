@@ -4521,11 +4521,17 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 }
 
 /* ── Interactive space map ──────────────────────────────────────────────────
-   Markers reuse existing status colours only: --color-success (available), the
+   The map is DRAWN, not photographed: .pl-map-canvas is a blank slab of the
+   floor's aspect ratio and every room is a .pl-map-marker--region shape on it,
+   so the plan is crisp at any zoom and follows the theme. An uploaded floor
+   image, when there is one, sits behind at low opacity as a tracing guide only.
+
+   Rooms reuse existing status colours only: --color-success (available), the
    caution hue #fbbf24 already used by .hub-pill--warn (maintenance) and
    --hub-text-muted (occupied). No new colour VALUES are introduced here —
    deliberately not --color-tuscan-yellow, which is the primary CTA gold and
-   would make a maintenance space read like a primary button. */
+   would make a maintenance space read like a primary button. The alpha-varied
+   rgba() fills below are those same three hues, not new ones. */
 .pl-map { margin: 0; }
 .pl-map-switch {
   display: flex;
@@ -4573,13 +4579,60 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 @media (prefers-reduced-motion: reduce) {
   .pl-map-stage { transition: none; }
 }
-.pl-map-img {
-  display: block;
+/* The drawn floor slab. Its height comes from the per-floor aspect-ratio inline
+   style, so it needs no image to give it size. */
+.pl-map-canvas {
+  position: relative;
   width: 100%;
-  height: auto;
+  background: var(--hub-surface);
+  background-image:
+    linear-gradient(to right, var(--hub-border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--hub-border) 1px, transparent 1px);
+  background-size: 5% 5%;
+}
+/* An uploaded plan is a tracing guide, never the map itself. */
+.pl-map-underlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  opacity: 0.18;
   user-select: none;
   -webkit-user-drag: none;
 }
+/* Legend — the colour key, with live counts */
+.pl-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--hub-text-muted);
+}
+.pl-map-legend__item { display: flex; align-items: center; gap: 0.35rem; }
+.pl-map-legend__swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 3px;
+  border: 1px solid var(--hub-text-muted);
+  background: rgba(139, 151, 168, 0.2);
+}
+.pl-map-legend__swatch--available {
+  border-color: var(--color-success);
+  background: rgba(123, 200, 143, 0.35);
+}
+.pl-map-legend__swatch--occupied {
+  border-color: var(--hub-text-muted);
+  background: rgba(139, 151, 168, 0.2);
+}
+.pl-map-legend__swatch--maintenance {
+  border-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.3);
+}
+.pl-map-legend__count { font-weight: 700; color: var(--hub-text); }
 .pl-map-caption {
   margin: 0.6rem 0 0;
   color: var(--hub-text-muted);
@@ -4587,7 +4640,7 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 }
 .pl-map-admin { margin: 1rem 0 0; }
 
-/* Markers */
+/* Drawn rooms + pins */
 .pl-map-marker {
   position: absolute;
   display: flex;
@@ -4595,21 +4648,30 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
   justify-content: center;
   gap: 0.2rem;
   padding: 0;
-  border-radius: 4px;
-  border: 2px solid var(--hub-text-muted);
-  background: rgba(139, 151, 168, 0.14);
+  border-radius: 3px;
+  border: 1px solid var(--hub-text-muted);
+  background: rgba(139, 151, 168, 0.22);
   color: var(--hub-text);
   font-size: 0.7rem;
   font-weight: 600;
-  line-height: 1.1;
+  line-height: 1.15;
+  text-align: center;
   cursor: pointer;
   overflow: hidden;
+  transition: background-color 0.12s ease-out, box-shadow 0.12s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pl-map-marker { transition: none; }
 }
 .pl-map-marker:hover,
-.pl-map-marker:focus-visible { background: rgba(139, 151, 168, 0.32); }
+.pl-map-marker:focus-visible {
+  background: rgba(139, 151, 168, 0.4);
+  box-shadow: 0 0 0 1px var(--hub-text-muted);
+  z-index: 3;
+}
 .pl-map-marker:focus-visible {
   outline: 2px solid var(--hub-blue);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 .pl-map-marker--pin {
   width: auto;
@@ -4618,34 +4680,82 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
   padding: 0.15rem 0.4rem;
   border-radius: 999px;
   transform: translate(-50%, -50%);
+  z-index: 2;
 }
+/* Available is the call to action: the strongest fill and the only lit border. */
 .pl-map-marker--available {
   border-color: var(--color-success);
-  background: var(--color-success-bg);
+  background: rgba(123, 200, 143, 0.3);
+  box-shadow: inset 0 0 0 1px var(--color-success);
 }
 .pl-map-marker--available:hover,
-.pl-map-marker--available:focus-visible { background: rgba(123, 200, 143, 0.3); }
+.pl-map-marker--available:focus-visible {
+  background: rgba(123, 200, 143, 0.55);
+  box-shadow: 0 0 0 2px var(--color-success);
+}
 .pl-map-marker--occupied {
   border-color: var(--hub-text-muted);
-  background: rgba(139, 151, 168, 0.14);
+  background: rgba(139, 151, 168, 0.22);
   color: var(--hub-text-muted);
+}
+.pl-map-marker--occupied:hover,
+.pl-map-marker--occupied:focus-visible {
+  background: rgba(139, 151, 168, 0.4);
+  color: var(--hub-text);
 }
 .pl-map-marker--maintenance {
   border-color: #fbbf24;
-  background: rgba(251, 191, 36, 0.15);
+  background: rgba(251, 191, 36, 0.25);
 }
 .pl-map-marker--maintenance:hover,
-.pl-map-marker--maintenance:focus-visible { background: rgba(251, 191, 36, 0.32); }
-.pl-map-marker--pending { border-style: dashed; }
-.pl-map-marker__text {
+.pl-map-marker--maintenance:focus-visible {
+  background: rgba(251, 191, 36, 0.45);
+  box-shadow: 0 0 0 1px #fbbf24;
+}
+/* Shops, restrooms, stairs — present but deliberately quiet. */
+.pl-map-marker--info {
+  border-style: dashed;
+  background: rgba(139, 151, 168, 0.12);
+  color: var(--hub-text-muted);
+  font-weight: 500;
+}
+.pl-map-marker--pending { border-style: dashed; border-width: 2px; }
+.pl-map-marker__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05rem;
+  max-width: 100%;
+  padding: 0 0.15rem;
+  overflow: hidden;
+}
+.pl-map-marker__code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
-  padding: 0 0.15rem;
 }
-.pl-map-marker--region .pl-map-marker__text { font-size: 0.65rem; }
-.pl-map-marker__dot { font-size: 0.9rem; line-height: 1; }
+.pl-map-marker__meta {
+  font-weight: 400;
+  font-size: 0.85em;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+.pl-map-marker--region { font-size: 0.65rem; }
+/* How much text a shape can hold is decided by MapHotspot.detail_level. A code-only room
+   gets the smaller type so a four-character code still fits between its walls. */
+.pl-map-marker--text-label.pl-map-marker--region { font-size: 0.55rem; }
+.pl-map-marker--text-label .pl-map-marker__body { padding: 0 1px; }
+.pl-map-marker--text-label .pl-map-marker__meta,
+.pl-map-marker--text-minimal .pl-map-marker__body { display: none; }
+.pl-map-marker__dot {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-size: 0.9rem;
+  line-height: 1;
+}
 
 /* Accessible list — the keyboard equal of the map */
 .pl-map-list { margin-top: 1.5rem; }

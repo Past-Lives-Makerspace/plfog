@@ -65,6 +65,50 @@ def describe_org_info_map():
         FloorplanFactory()
         assert client.get(reverse("hub_org_info")).status_code == 200
 
+    def describe_the_drawn_canvas():
+        def it_draws_a_floor_that_has_no_image_at_all(client: Client):
+            floor = FloorplanFactory(name="Drawn Floor", image="", aspect_ratio=Decimal("1.80"))
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="D1"))
+            response = client.get(reverse("hub_org_info"))
+            assert b"pl-map-canvas" in response.content
+            assert b"aspect-ratio: 1.80" in response.content
+            assert b"pl-map-underlay" not in response.content
+            assert b"D1" in response.content
+
+        def it_keeps_an_uploaded_plan_as_a_faint_tracing_underlay(client: Client):
+            FloorplanFactory(name="Traced Floor")
+            response = client.get(reverse("hub_org_info"))
+            assert b"pl-map-underlay" in response.content
+
+        def it_shows_a_legend_with_live_counts(client: Client):
+            floor = FloorplanFactory(name="Legend Floor", image="")
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.AVAILABLE))
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.AVAILABLE))
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.OCCUPIED))
+            response = client.get(reverse("hub_org_info")).content.decode()
+            assert "pl-map-legend__swatch--available" in response
+            assert "pl-map-legend__swatch--occupied" in response
+            assert "pl-map-legend__swatch--maintenance" not in response
+
+        def it_colours_a_room_from_its_live_status(client: Client):
+            floor = FloorplanFactory(name="Status Floor", image="")
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.MAINTENANCE))
+            response = client.get(reverse("hub_org_info")).content.decode()
+            assert "pl-map-marker--maintenance" in response
+
+        def it_drops_the_text_out_of_a_room_too_small_to_hold_it(client: Client):
+            floor = FloorplanFactory(name="Tiny Floor", image="")
+            MapHotspotFactory(
+                floorplan=floor,
+                space=SpaceFactory(space_id="TINY"),
+                w=Decimal("0.80"),
+                h=Decimal("0.80"),
+            )
+            response = client.get(reverse("hub_org_info")).content.decode()
+            assert "pl-map-marker--text-minimal" in response
+            # The name still reaches every reader, through the accessible name and the list.
+            assert "TINY" in response
+
     def it_shows_a_reviewer_their_pending_count(client: Client):
         _user_with_role("adm-count", fog_role=Member.FogRole.ADMIN)
         SpaceRequestFactory()
@@ -176,6 +220,17 @@ def describe_editor_gating():
         assert response.status_code == 200
         assert b"Ground Floor" in response.content
 
+    def it_lets_an_admin_place_markers_on_a_floor_with_no_image(client: Client):
+        # Placement drags against the drawn canvas now, so an image-less floor is workable.
+        _user_with_role("adm-drawn", fog_role=Member.FogRole.ADMIN)
+        floor = FloorplanFactory(name="Drawn Floor", image="", aspect_ratio=Decimal("2.40"))
+        MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="E1"))
+        client.login(username="adm-drawn", password="pass")
+        response = client.get(f"{reverse('hub_org_map_edit')}?tab=placement&floor={floor.pk}")
+        assert b'data-editor-stage style="aspect-ratio: 2.40' in response.content
+        assert b"pl-map-underlay" not in response.content
+        assert b"E1" in response.content
+
     def it_prompts_for_a_floor_before_placement(client: Client):
         _user_with_role("adm-map2", fog_role=Member.FogRole.ADMIN)
         client.login(username="adm-map2", password="pass")
@@ -206,6 +261,7 @@ def describe_floor_saving():
                 "floors-MAX_NUM_FORMS": "1000",
                 "floors-0-id": str(floor.pk),
                 "floors-0-name": "New Name",
+                "floors-0-aspect_ratio": "1.50",
                 "floors-0-caption": "",
                 "floors-0-sort_order": "0",
                 "floors-0-is_published": "on",
@@ -228,6 +284,7 @@ def describe_floor_saving():
                 "floors-MAX_NUM_FORMS": "1000",
                 "floors-0-id": str(floor.pk),
                 "floors-0-name": "",
+                "floors-0-aspect_ratio": "1.50",
                 "floors-0-caption": "",
                 "floors-0-sort_order": "0",
             },

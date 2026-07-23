@@ -11,11 +11,13 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "Explore the makerspace on an interactive map",
         "changes": [
             (
-                "The Space & Org Info page now has a real map of the building. Pick a floor, "
-                "drag to pan and pinch or scroll to zoom, and tap any studio, cubby, or shop to "
-                "see its size, its monthly price, whether it's open, and who's in it. Prefer not "
-                "to use the map? Every space is also listed underneath in a plain table you can "
-                "read and use with a keyboard."
+                "The Space & Org Info page now has a real map of the building. Pick a floor and "
+                "every studio, cubby, and shop is drawn to shape and colour-coded at a glance — "
+                "green for open, grey for taken, amber for under maintenance — with its size and "
+                "monthly price written right in the room. Drag to pan, pinch or scroll to zoom, "
+                "and tap any space for the full details and who's in it. Prefer not to use the "
+                "map? Every space is also listed underneath in a plain table you can read and "
+                "use with a keyboard."
             ),
             (
                 "See a studio or cubby you want? Ask for it right there. Your request goes to the "

@@ -1,8 +1,12 @@
 {% comment %}
-The interactive space map: a floor switcher, one pan/zoom stage per published floor,
-and — always, not as an afterthought — a keyboard-navigable table of the same spaces
-below it. Rendered by org_info whenever at least one published Floorplan exists;
-otherwise hub/_org_floorplan.html's single-image lightbox is the fallback.
+The interactive space map. The app DRAWS the map: each floor is a blank canvas of a fixed
+aspect ratio and every marker is a styled shape positioned from its percentage coordinates,
+so the plan is crisp at any zoom, follows the theme, and takes its colours from live Space
+status. A floor's uploaded image, when it has one, is only a faint tracing underlay.
+
+Below the stage — always, not as an afterthought — a keyboard-navigable table of the same
+spaces. Rendered by org_info whenever at least one published Floorplan exists; otherwise
+hub/_org_floorplan.html's single-image lightbox is the fallback.
 
 Context: floorplans, pending_space_ids, my_space_requests, can_edit.
 {% endcomment %}
@@ -29,6 +33,18 @@ Context: floorplans, pending_space_ids, my_space_requests, can_edit.
             <span class="pl-map-toolbar__hint hub-text-muted">Drag to pan &middot; scroll or pinch to zoom</span>
         </div>
 
+        {% if f.legend %}
+        <ul class="pl-map-legend" aria-label="What the colours mean on {{ f.name }}">
+            {% for slug, label, count in f.legend %}
+            <li class="pl-map-legend__item">
+                <span class="pl-map-legend__swatch pl-map-legend__swatch--{{ slug }}" aria-hidden="true"></span>
+                <span class="pl-map-legend__label">{{ label }}</span>
+                <span class="pl-map-legend__count">{{ count }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+
         <div class="pl-map-viewport"
              x-ref="viewport"
              @pointerdown="onPointerDown($event)"
@@ -37,11 +53,17 @@ Context: floorplans, pending_space_ids, my_space_requests, can_edit.
              @pointercancel="onPointerUp($event)"
              @wheel.prevent="onWheel($event)">
             <div class="pl-map-stage" :style="stageStyle()">
-                <img class="pl-map-img" src="{{ f.image.url }}"
-                     alt="Floor plan of {{ f.name }}" loading="lazy" draggable="false">
-                {% for h in f.hotspots.all %}
-                    {% include "hub/partials/_space_marker.html" with h=h pending_space_ids=pending_space_ids %}
-                {% endfor %}
+                {% comment %}The drawn floor slab. aspect-ratio is per-floor data, so it is the
+                one inline style here; every other rule lives in .pl-map-canvas.{% endcomment %}
+                <div class="pl-map-canvas" style="aspect-ratio: {{ f.aspect_ratio|stringformat:'s' }};">
+                    {% if f.image %}
+                    <img class="pl-map-underlay" src="{{ f.image.url }}" alt="" aria-hidden="true"
+                         loading="lazy" draggable="false">
+                    {% endif %}
+                    {% for h in f.hotspots.all %}
+                        {% include "hub/partials/_space_marker.html" with h=h pending_space_ids=pending_space_ids %}
+                    {% endfor %}
+                </div>
             </div>
         </div>
 

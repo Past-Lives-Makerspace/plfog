@@ -13,7 +13,7 @@ from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.core.serializers.json import DjangoJSONEncoder
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import BooleanField, Case, CharField, DecimalField, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
@@ -5726,13 +5726,19 @@ class FloorplanQuerySet(models.QuerySet):
 
 
 class Floorplan(models.Model):
-    """One physical floor's map image, fed to the interactive space map.
+    """One physical floor of the interactive space map.
 
-    Ordered by ``sort_order`` and publish-gated: draft floors are visible only in the
-    admin placement editor. Hotspot coordinates are percentages of the natural image,
-    so re-normalizing or resizing the *same* image never moves a marker — but replacing
-    it with a differently-cropped picture does, which is what :attr:`image_changed` warns
-    the editor about.
+    The map is **drawn by the app**: every room is a styled shape positioned from its
+    hotspot's percentage coordinates, so it stays crisp at any zoom, follows the light/dark
+    theme, and colours itself from live :class:`Space` status. :attr:`image` is an *optional*
+    reference underlay for admins who want to trace against a scan — a floor with no image
+    is the normal case.
+
+    Ordered by ``sort_order`` and publish-gated: draft floors are visible only in the admin
+    placement editor. Because coordinates are percentages of the drawn canvas (not of a
+    picture), resizing or normalizing the underlay never moves a marker — but swapping in a
+    differently-cropped underlay makes the tracing guide disagree with the shapes, which is
+    what :attr:`image_changed` warns the editor about.
     """
 
     name = models.CharField(
@@ -5741,8 +5747,19 @@ class Floorplan(models.Model):
     )
     image = models.ImageField(
         upload_to="org/floorplans/",
+        blank=True,
         validators=[validate_image_size],
-        help_text="This floor's map image. Normalized to the hero long edge so annotations stay legible when zoomed.",
+        help_text=(
+            "Optional reference underlay shown faintly behind the drawn rooms — handy when tracing a "
+            "scanned plan. The map renders perfectly well without one."
+        ),
+    )
+    aspect_ratio = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal("1.50"),
+        validators=[MinValueValidator(Decimal("0.10")), MaxValueValidator(Decimal("10.00"))],
+        help_text="Shape of the drawn floor, width divided by height — 1.50 is half again as wide as it is tall.",
     )
     sort_order = models.PositiveSmallIntegerField(
         default=0,
@@ -5763,9 +5780,9 @@ class Floorplan(models.Model):
 
     objects = FloorplanQuerySet.as_manager()
 
-    #: Transient (never persisted) — True when :meth:`save` wrote a *different* image
-    #: than the one already in the database. The placement editor reads it to prompt an
-    #: admin to re-check marker positions after a re-crop.
+    #: Transient (never persisted) — True when :meth:`save` wrote a *different* underlay
+    #: than the one already in the database. The placement editor reads it to warn that the
+    #: new picture no longer lines up behind rooms traced against the old one.
     image_changed: bool = False
 
     class Meta:
@@ -5793,6 +5810,26 @@ class Floorplan(models.Model):
         if stored is None:
             return False
         return stored != self.image.name
+
+    #: Legend rows, in the order members read them: status slug → human label.
+    LEGEND_ROWS: tuple[tuple[str, str], ...] = (
+        ("available", "Available"),
+        ("occupied", "Occupied"),
+        ("maintenance", "Maintenance"),
+        ("info", "Shops & facilities"),
+    )
+
+    @property
+    def legend(self) -> list[tuple[str, str, int]]:
+        """The map key for this floor — ``(status slug, label, live count)``, zeroes dropped.
+
+        Counted in Python over the already-prefetched hotspots, so rendering the key costs
+        no extra query, and the numbers are always the live :class:`Space` statuses.
+        """
+        tally: dict[str, int] = {}
+        for hotspot in self.hotspots.all():
+            tally[hotspot.availability_class or "info"] = tally.get(hotspot.availability_class or "info", 0) + 1
+        return [(slug, label, tally[slug]) for slug, label in self.LEGEND_ROWS if tally.get(slug)]
 
 
 class MapHotspotQuerySet(models.QuerySet):
@@ -5930,6 +5967,18 @@ class MapHotspot(models.Model):
         return self.label
 
     @property
+    def code_label(self) -> str:
+        """The short name written *inside* the drawn shape — a room is only so wide.
+
+        The space's bare code ("A12"), never its full description; the fuller
+        :attr:`display_label` belongs in the list, the detail panel and the accessible name,
+        where there is room for it.
+        """
+        if self.space is not None:
+            return self.space.space_id
+        return self.label
+
+    @property
     def status(self) -> str | None:
         """The linked space's status, or ``None`` for a facility/info marker."""
         return self.space.status if self.space is not None else None
@@ -6023,6 +6072,31 @@ class MapHotspot(models.Model):
         if self.price_display:
             return f"{base}, {self.price_display}"
         return base
+
+    #: A drawn room needs at least this much of the canvas before its size/price will fit.
+    FULL_TEXT_MIN_W = Decimal("5.0")
+    FULL_TEXT_MIN_H = Decimal("6.0")
+    #: Below this it is a colour block only — text would spill past the walls and read as noise.
+    LABEL_MIN_W = Decimal("1.5")
+    LABEL_MIN_H = Decimal("1.8")
+
+    @property
+    def detail_level(self) -> str:
+        """How much text the drawn shape can carry without overflowing its walls.
+
+        ``"full"`` — the room's name plus its size and price; ``"label"`` — the name alone;
+        ``"minimal"`` — nothing, because the shape is smaller than a word. Nothing is ever
+        lost: the accessible name (:attr:`aria_label`), the detail panel and the keyboard
+        list always carry the whole story, and the shape grows legible as the map is zoomed.
+        Pins are label-sized by definition — they size themselves to their text.
+        """
+        if self.shape == self.Shape.PIN or self.w is None or self.h is None:
+            return "label"
+        if self.w >= self.FULL_TEXT_MIN_W and self.h >= self.FULL_TEXT_MIN_H:
+            return "full"
+        if self.w >= self.LABEL_MIN_W and self.h >= self.LABEL_MIN_H:
+            return "label"
+        return "minimal"
 
 
 class InvalidSpaceRequestTransition(ValueError):
