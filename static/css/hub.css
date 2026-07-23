@@ -5043,3 +5043,28 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 }
 .pl-map-editor__status--error { color: #f0a0a0; }
 [data-theme="light"] .pl-map-editor__status--error { color: #b03030; }
+
+/* Click-to-set-status control on the placement editor. */
+.pl-map-status-control {
+  margin: 0.75rem 0 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--hub-border);
+  border-radius: 8px;
+  background: var(--hub-elevated);
+}
+.pl-map-status-control__label {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: var(--hub-text);
+}
+.pl-map-status-control__btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.pl-map-status-control__btns .pl-btn.is-current {
+  border-color: var(--hub-blue);
+  background: var(--hub-blue-soft);
+  color: var(--hub-text);
+  font-weight: 600;
+}

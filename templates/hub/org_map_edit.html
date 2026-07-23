@@ -5,7 +5,7 @@
 <div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'floors' }">
 <h1 class="hub-page-title">Edit the space map</h1>
 <p class="hub-text-muted pl-map-edit__lede">
-    Add one row per floor, then drop each studio, cubby, and facility onto it. The map is drawn
+    Add one row per floor, then drop each studio and facility onto it. The map is drawn
     from those shapes — a floor plan image is optional, and only ever a faint tracing guide.
     Members see the result at <a href="{% url 'hub_spaces' %}">/spaces/</a>.
 </p>
@@ -125,6 +125,7 @@
     <h2 class="hub-detail-label pl-map-edit__h2">Place the markers</h2>
     <div class="pl-map-editor"
          data-position-url-template="{% url 'hub_map_hotspot_position' 0 %}"
+         data-status-url-template="{% url 'hub_map_hotspot_status' 0 %}"
          data-csrf="{{ csrf_token }}">
       {% comment %}The editor drags against the same drawn canvas members see, not against a
       picture — data-editor-stage sits on the canvas so percentages mean the same thing in
@@ -138,13 +139,29 @@
           <button type="button" class="pl-map-marker pl-map-marker--{{ h.shape }} pl-map-marker--{{ h.availability_class|default:'info' }} pl-map-marker--text-{{ h.detail_level }}"
                   data-editor-marker="{{ h.pk }}"
                   data-shape="{{ h.shape }}"
+                  data-code="{{ h.code_label }}"{% if h.space_id %}
+                  data-space-status="{{ h.availability_class }}"{% endif %}
                   style="left:{{ h.x|stringformat:'s' }}%; top:{{ h.y|stringformat:'s' }}%;{% if h.shape == 'region' %} width:{{ h.w|stringformat:'s' }}%; height:{{ h.h|stringformat:'s' }}%;{% endif %}"
-                  aria-label="Move {{ h.display_label }}">
+                  aria-label="{% if h.space_id %}Move or set status for{% else %}Move{% endif %} {{ h.display_label }}">
               <span class="pl-map-marker__body" aria-hidden="true">
                   <span class="pl-map-marker__code">{{ h.code_label }}</span>
               </span>
           </button>
           {% endfor %}
+        </div>
+      </div>
+      <p class="hub-text-muted pl-map-edit__hint">
+        Drag a marker to move it. Click a studio to set its status (Available, Occupied, or under Maintenance).
+      </p>
+      {# Click-to-set-status control, revealed by the editor JS when a studio marker is chosen. #}
+      <div class="pl-map-status-control" data-status-control hidden>
+        <p class="pl-map-status-control__label">
+          Status for <strong data-status-control-code></strong>
+        </p>
+        <div class="pl-map-status-control__btns" role="group" aria-label="Set space status">
+          <button type="button" class="pl-btn pl-btn--sm" data-set-status="available">Available</button>
+          <button type="button" class="pl-btn pl-btn--sm" data-set-status="occupied">Occupied</button>
+          <button type="button" class="pl-btn pl-btn--sm" data-set-status="maintenance">Maintenance</button>
         </div>
       </div>
       <p class="hub-text-muted pl-map-edit__hint" data-editor-status role="status"></p>
@@ -158,7 +175,7 @@
       <h2 class="hub-detail-label pl-map-edit__h2">Markers on {{ selected_floor.name }}</h2>
       {% if not space_count %}
       <p class="hub-text-muted pl-map-edit__hint">
-        No spaces have been pulled from Airtable yet, so studio and cubby markers have nothing to link to.
+        No spaces have been pulled from Airtable yet, so studio markers have nothing to link to.
         Facility and info markers still work.
       </p>
       {% endif %}
@@ -169,9 +186,10 @@
             {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
             {% include "components/form_field.html" with field=f.kind %}
             {% include "components/form_field.html" with field=f.shape %}
-            {% include "components/form_field.html" with field=f.space field_hint="Required for studio and cubby markers." %}
+            {% include "components/form_field.html" with field=f.space field_hint="Required for studio markers." %}
             {% include "components/form_field.html" with field=f.label field_hint="Used when no space is linked — e.g. 'Wood Shop'." %}
             {% include "components/form_field.html" with field=f.description %}
+            {% include "components/form_field.html" with field=f.guild field_hint="Optional — link a shop or room straight to its guild's page." %}
             {% if f.instance.pk %}
               <div class="pl-map-edit__hidden">{{ f.DELETE }}</div>
               <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-map-edit__delete"
@@ -195,6 +213,7 @@
             {% include "components/form_field.html" with field=ef.space %}
             {% include "components/form_field.html" with field=ef.label %}
             {% include "components/form_field.html" with field=ef.description %}
+            {% include "components/form_field.html" with field=ef.guild %}
             {{ ef.id }}
             {{ ef.sort_order }}
             <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-map-edit__delete" onclick="this.closest('.hub-card').remove();">Remove</button>

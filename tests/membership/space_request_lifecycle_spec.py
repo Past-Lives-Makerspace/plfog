@@ -73,7 +73,10 @@ def describe_submit():
         assert request.is_open is True
         assert _deliveries("space.lease_requested") == 1
 
-    def it_routes_a_guild_owned_cubby_to_that_guilds_lead():
+    def it_routes_a_guild_owned_shelf_to_the_admins_not_the_guild_lead():
+        # The request flow was lightened: a shelf ask now goes to the makerspace admins,
+        # the same inbox as a studio lease, and no longer to the owning guild's lead.
+        admin = _admin("boss2")
         lead = _member_with_user("lead")
         guild = GuildFactory(guild_lead=lead)
         requester = _member_with_user("robin2")
@@ -81,7 +84,8 @@ def describe_submit():
         request = SpaceRequest(space=space, kind=SpaceRequest.RequestKind.CUBBY)
         request.submit(requester=requester)
         assert _deliveries("space.cubby_requested") == 1
-        assert "lead" in _email_recipients("space.cubby_requested")
+        assert _email_recipients("space.cubby_requested") == {admin.user.username}
+        assert "lead" not in _email_recipients("space.cubby_requested")
 
     def it_falls_back_to_the_admins_for_an_unowned_cubby():
         _admin("boss")
@@ -220,10 +224,12 @@ def describe_relationships():
         assert request.hotspot is None
 
     def describe_review_audience_label():
-        def it_names_the_guild_lead_for_a_guild_owned_cubby():
+        def it_names_the_admins_for_a_guild_owned_shelf():
+            # Every request now routes to the admins, so the member-facing copy says so even
+            # for a guild-owned shelf (the guild-lead branch was retired but is reversible).
             guild = GuildFactory(name="Clay Guild")
             request = SpaceRequestFactory(space=SpaceFactory(sublet_guild=guild), kind=SpaceRequest.RequestKind.CUBBY)
-            assert request.review_audience_label == "the Clay Guild lead"
+            assert request.review_audience_label == "the makerspace admins"
 
         def it_names_the_admins_for_a_studio():
             guild = GuildFactory(name="Clay Guild")

@@ -5926,7 +5926,7 @@ class Floorplan(models.Model):
 class MapHotspotQuerySet(models.QuerySet):
     def for_map(self) -> MapHotspotQuerySet:
         """Everything the map/list rendering touches, in one query (kills the marker N+1)."""
-        return self.select_related("space", "space__sublet_guild", "floorplan")
+        return self.select_related("space", "space__sublet_guild", "guild", "floorplan")
 
 
 class MapHotspot(models.Model):
@@ -5944,7 +5944,7 @@ class MapHotspot(models.Model):
 
     class Kind(models.TextChoices):
         STUDIO = "studio", "Studio (leasable)"
-        CUBBY = "cubby", "Cubby / shelf"
+        CUBBY = "cubby", "Shelf"
         FACILITY = "facility", "Facility / shop"
         INFO = "info", "Info marker"
         RESTROOM = "restroom", "Restroom"
@@ -5982,6 +5982,14 @@ class MapHotspot(models.Model):
         on_delete=models.SET_NULL,
         related_name="hotspots",
         help_text="The space this marker represents. Leave blank for facility/info markers.",
+    )
+    guild = models.ForeignKey(
+        "Guild",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Optional: link this marker to a guild's page (e.g. a shop that is a guild's home).",
     )
     label = models.CharField(
         max_length=120,
@@ -6070,6 +6078,20 @@ class MapHotspot(models.Model):
         return self.label
 
     @property
+    def linked_guild(self) -> Guild | None:
+        """The guild this marker points at — an explicit link wins, else the space's sublet guild.
+
+        Lets a facility shop (Ceramics, Wood Shop) link straight to its guild's page while a
+        sublet studio still resolves through its :class:`Space`. The detail panel reads this
+        single source so both routes render the same link.
+        """
+        if self.guild_id is not None:
+            return self.guild
+        if self.space is not None:
+            return self.space.sublet_guild
+        return None
+
+    @property
     def status(self) -> str | None:
         """The linked space's status, or ``None`` for a facility/info marker."""
         return self.space.status if self.space is not None else None
@@ -6143,7 +6165,7 @@ class MapHotspot(models.Model):
         """The button text for this marker's action, or ``""`` when it has none."""
         return {
             "lease": "Request to lease",
-            "cubby": "Request this cubby",
+            "cubby": "Request this space",
             "reserve": "Reserve",
         }.get(self.cta_kind or "", "")
 
@@ -6325,10 +6347,12 @@ class SpaceRequest(models.Model):
 
     @property
     def review_audience_label(self) -> str:
-        """Plain-language description of who will read this request."""
-        guild = self.space.sublet_guild
-        if self.kind == self.RequestKind.CUBBY and guild is not None:
-            return f"the {guild.name} lead"
+        """Plain-language description of who will read this request.
+
+        Every request now routes to the makerspace admins (studio or shelf, owned or not),
+        so the copy a member reads says exactly that. Reversible: restore the guild-lead
+        branch here together with the registry recipient to send shelf asks back to leads.
+        """
         return "the makerspace admins"
 
     def submit(self, *, requester: Member) -> None:
@@ -6409,11 +6433,13 @@ class SpaceRequest(models.Model):
         return f"{base}{reverse('hub_spaces')}{anchor}"
 
     def _notify_submitted(self) -> None:
-        """Route a fresh request to whoever decides it.
+        """Route a fresh request to the makerspace admins.
 
-        A studio lease goes to the makerspace admins; a cubby goes to the owning guild's
-        leadership *plus* admins — that union is deliberately the fallback too, since an
-        unowned shelf has no guild leadership and resolves to admins alone.
+        Both event keys (``space.lease_requested`` and ``space.cubby_requested``) now resolve
+        to the admins in the registry, so a studio lease and a shelf ask land in the same
+        inbox. Reversible: point ``space.cubby_requested`` back at ``GUILD_LEADERSHIP_OR_ADMINS``
+        to send shelf asks to the owning guild's leadership again. The ``guild`` context below
+        is still passed so that switch needs no change here.
         """
         from core.events.emit import emit
 

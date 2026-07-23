@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, cast
@@ -67,6 +68,8 @@ from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
 from membership.permissions import can_manage_orientations as _can_manage_orientations
+
+logger = logging.getLogger("hub")
 
 
 def _get_hub_context(request: HttpRequest) -> dict[str, Any]:
@@ -5297,3 +5300,60 @@ def map_hotspot_position(request: HttpRequest, pk: int) -> HttpResponse:
             "h": float(hotspot.h) if hotspot.h is not None else None,
         }
     )
+
+
+def _push_space_status_to_airtable(space: Any) -> bool:
+    """Push a Space's status to Airtable. Returns ``False`` when the push failed.
+
+    Airtable is the system of record for ``Space.status``, so a local status change must be
+    written back or the next pull reverts it. ``sync_space_to_airtable`` already swallows its
+    own errors (Airtable is a secondary store), so a failure surfaces as ``None`` while sync is
+    enabled; the extra try/except guards the unlikely case of it raising anyway. Either way the
+    caller keeps the local change — an Airtable outage never fails the request.
+    """
+    from airtable_sync.service import sync_space_to_airtable
+
+    try:
+        record_id = sync_space_to_airtable(space)
+    except Exception:
+        logger.exception("Airtable push crashed for space %s", space.space_id)
+        return False
+    if settings.AIRTABLE_SYNC_ENABLED and record_id is None:
+        logger.error("Airtable push returned no record for space %s", space.space_id)
+        return False
+    return True
+
+
+@login_required
+@require_POST
+def map_hotspot_status(request: HttpRequest, pk: int) -> HttpResponse:
+    """JSON endpoint — set the status of the Space behind marker ``pk``. Admin only.
+
+    The edit map's click-to-set-status control. Writes ``Space.status`` locally, then pushes
+    back to Airtable (the system of record). An Airtable outage keeps the local change and
+    returns a non-fatal warning rather than 500ing — the marker recolors either way, and the
+    value may revert on the next pull. Facility/info markers have no space and are rejected.
+    """
+    from membership.models import MapHotspot, Space
+
+    if not _viewing_as_admin(request):
+        return JsonResponse({"error": "Forbidden"}, status=403)
+    hotspot = get_object_or_404(MapHotspot.objects.select_related("space"), pk=pk)
+    space = hotspot.space
+    if space is None:
+        return JsonResponse({"error": "This marker has no space to set a status on."}, status=400)
+    target = request.POST.get("status", "")
+    if target not in Space.Status.values:
+        return JsonResponse({"error": "Unknown status."}, status=400)
+    space.status = target
+    space.save(update_fields=["status"])
+    airtable_ok = _push_space_status_to_airtable(space)
+    payload: dict[str, Any] = {
+        "status": "ok",
+        "space_status": space.status,
+        "availability_class": space.status,
+        "status_display": space.get_status_display(),
+    }
+    if not airtable_ok:
+        payload["warning"] = "Saved here, but the Airtable push failed — it may revert on the next sync."
+    return JsonResponse(payload)

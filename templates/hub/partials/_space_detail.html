@@ -29,7 +29,7 @@ request is pending.
         {% if hotspot.size_display %}<dt>Size</dt><dd>{{ hotspot.size_display }}</dd>{% endif %}
         {% if hotspot.price_display %}<dt>Price</dt><dd>{{ hotspot.price_display }}</dd>{% endif %}
         {% if hotspot.occupant_names %}<dt>Currently used by</dt><dd>{{ hotspot.occupant_names|join:", " }}</dd>{% endif %}
-        {% if hotspot.space.sublet_guild %}<dt>Guild</dt><dd>{{ hotspot.space.sublet_guild.name }}</dd>{% endif %}
+        {% if hotspot.linked_guild %}<dt>Guild</dt><dd><a class="pl-map-detail__guild-link" href="{% url 'hub_guild_detail' slug=hotspot.linked_guild.slug %}">{{ hotspot.linked_guild.name }}</a></dd>{% endif %}
     </dl>
 
     {% if hotspot.description %}<p class="pl-map-detail__blurb">{{ hotspot.description }}</p>{% endif %}

@@ -17,18 +17,14 @@ A reader with no JavaScript gets the complete table rather than a dead set of bu
 
 {% if can_edit %}
     {% url 'hub_org_map_edit' as map_edit_url %}
-    {% include "components/page_header.html" with title="Spaces" description="Every studio, cubby, and shared area in the building — find one on the map, or browse the full list." action_url=map_edit_url action_label="Edit the map" action_class="hub-btn hub-btn--sm" %}
+    {% include "components/page_header.html" with title="Spaces" description="Every studio and shared area in the building — find one on the map, or browse the full list." action_url=map_edit_url action_label="Edit the map" action_class="hub-btn hub-btn--sm" %}
 {% else %}
-    {% include "components/page_header.html" with title="Spaces" description="Every studio, cubby, and shared area in the building — find one on the map, or browse the full list." %}
+    {% include "components/page_header.html" with title="Spaces" description="Every studio and shared area in the building — find one on the map, or browse the full list." %}
 {% endif %}
 
-{% if map_can_review %}
-<p class="pl-map-admin">
-    <a href="{% url 'hub_space_request_review_queue' %}" class="hub-btn hub-btn--sm">
-        Space requests{% if map_review_pending_count %} ({{ map_review_pending_count }}){% endif %} &rarr;
-    </a>
-</p>
-{% endif %}
+{% comment %}The space-request review queue is dormant: the view, URL and template still
+exist (see hub_space_request_review_queue) but the entry point here is intentionally removed.
+Requests now notify the makerspace admins directly by email and in the bell.{% endcomment %}
 
 {% if floorplans %}
 <div class="pl-map" x-data="plMap({{ floorplans.0.pk }}, '{{ active_tab }}')">

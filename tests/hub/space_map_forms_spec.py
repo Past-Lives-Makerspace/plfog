@@ -86,6 +86,12 @@ def describe_MapHotspotForm():
         assert form.instance.w is None
         assert form.instance.h is None
 
+    def it_links_a_facility_marker_to_a_guild():
+        guild = GuildFactory(name="Wood Guild")
+        form = MapHotspotForm(_marker_data(kind=MapHotspot.Kind.FACILITY, label="Wood Shop", guild=str(guild.pk)))
+        assert form.is_valid()
+        assert form.save(commit=False).guild == guild
+
 
 @pytest.mark.django_db
 def describe_MapHotspotPositionForm():
@@ -141,11 +147,13 @@ def describe_SpaceRequestForm():
         form = SpaceRequestForm({"message": "For pottery."}, hotspot=MapHotspotFactory(), member=member)
         assert form.is_valid()
 
-    def it_names_the_guild_lead_in_the_hint_for_a_guild_cubby():
+    def it_names_the_admins_in_the_hint_for_a_guild_shelf():
+        # The request flow was lightened: every ask now routes to the makerspace admins,
+        # a guild-owned shelf included, so the hint says the same for all of them.
         guild = GuildFactory(name="Clay Guild")
         hotspot = MapHotspotFactory(kind=MapHotspot.Kind.CUBBY, space=SpaceFactory(sublet_guild=guild))
         form = SpaceRequestForm(hotspot=hotspot, member=MemberFactory())
-        assert form.fields["message"].help_text == "This goes to the Clay Guild lead."
+        assert form.fields["message"].help_text == "This goes to the makerspace admins."
 
     def it_names_the_admins_in_the_hint_for_a_studio():
         form = SpaceRequestForm(hotspot=MapHotspotFactory(), member=MemberFactory())

@@ -2288,9 +2288,17 @@ class MapHotspotForm(forms.ModelForm):
 
     class Meta:
         model = MapHotspot
-        fields = ["space", "kind", "shape", "label", "description", "sort_order"]
+        fields = ["space", "kind", "shape", "label", "description", "guild", "sort_order"]
         widgets = {"sort_order": forms.HiddenInput(), "description": forms.Textarea(attrs={"rows": 2})}
-        labels = {"space": "Linked space", "label": "Marker label"}
+        labels = {"space": "Linked space", "label": "Marker label", "guild": "Links to guild"}
+        help_texts = {
+            "guild": "Optional — a shop or room that is a guild's home links straight to its page.",
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
+        guild_field.queryset = Guild.objects.order_by("name")
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
@@ -2380,9 +2388,7 @@ class SpaceRequestForm(forms.Form):
         self.fields["message"].help_text = f"This goes to {self._audience_label()}."
 
     def _audience_label(self) -> str:
-        guild = self.hotspot.space.sublet_guild if self.hotspot.space is not None else None
-        if self.hotspot.cta_kind == "cubby" and guild is not None:
-            return f"the {guild.name} lead"
+        # Every request now goes to the makerspace admins (see SpaceRequest._notify_submitted).
         return "the makerspace admins"
 
     def clean(self) -> dict[str, Any]:

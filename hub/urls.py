@@ -166,6 +166,7 @@ urlpatterns = [
     path("spaces/map/floors/<int:pk>/delete/", views.org_map_floor_delete, name="hub_org_map_floor_delete"),
     path("spaces/map/markers/save/", views.map_hotspots_save, name="hub_map_hotspots_save"),
     path("spaces/map/markers/<int:pk>/position/", views.map_hotspot_position, name="hub_map_hotspot_position"),
+    path("spaces/map/markers/<int:pk>/status/", views.map_hotspot_status, name="hub_map_hotspot_status"),
     path("spaces/map/markers/<int:pk>/", views.map_hotspot_detail, name="hub_map_hotspot_detail"),
     path("spaces/map/markers/<int:pk>/request/", views.space_request_create, name="hub_space_request_create"),
     path("spaces/requests/<int:pk>/withdraw/", views.space_request_withdraw, name="hub_space_request_withdraw"),

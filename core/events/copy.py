@@ -1196,8 +1196,9 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
-    # space.cubby_requested — same shape, routed to the owning guild's leadership (∪ admins);
-    # ``audience_label`` names who is being asked so a lead knows why it reached them.
+    # space.cubby_requested — same shape as a lease ask, now routed to the makerspace admins
+    # (the request flow was lightened). The member-facing word "cubby" is retired in favour of
+    # "shelf" here too, since this copy is rendered to whoever reads the notification.
     "space.cubby_requested": EventCopy(
         placeholders=("member_name", "space_code", "price_display", "requester_message", "review_url"),
         sample_context={
@@ -1209,19 +1210,19 @@ _CURATED: dict[str, EventCopy] = {
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="{{ member_name }} wants cubby {{ space_code }}",
-                body_text="{{ member_name }} asked for cubby {{ space_code }} ({{ price_display }}).",
+                subject="{{ member_name }} wants shelf {{ space_code }}",
+                body_text="{{ member_name }} asked for shelf {{ space_code }} ({{ price_display }}).",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="{{ member_name }} wants cubby {{ space_code }}",
+                subject="{{ member_name }} wants shelf {{ space_code }}",
                 body_text=(
-                    "{{ member_name }} asked for a cubby from the space map.\n\n"
+                    "{{ member_name }} asked for a shelf from the space map.\n\n"
                     "{{ space_code }} · {{ price_display }}\n\n"
                     'They wrote: "{{ requester_message }}"\n\n'
                     "Review the request: {{ review_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>{{ member_name }} asked for a cubby from the space map.</p>"
+                    "<p>{{ member_name }} asked for a shelf from the space map.</p>"
                     '<p><strong><a href="{{ review_url }}">{{ space_code }}</a></strong> · {{ price_display }}</p>'
                     "<p>They wrote: &ldquo;{{ requester_message }}&rdquo;</p>"
                     '<p><a href="{{ review_url }}">Review the request</a></p>'

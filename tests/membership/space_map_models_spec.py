@@ -139,6 +139,31 @@ def describe_MapHotspot():
             hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
             assert hotspot.display_label == "Wood Shop"
 
+    def describe_linked_guild():
+        def it_prefers_an_explicit_guild_link():
+            explicit = GuildFactory(name="Ceramics")
+            sublet = GuildFactory(name="Glass")
+            hotspot = MapHotspotFactory(space=SpaceFactory(sublet_guild=sublet), guild=explicit)
+            assert hotspot.linked_guild == explicit
+
+        def it_falls_back_to_the_spaces_sublet_guild():
+            sublet = GuildFactory(name="Glass")
+            hotspot = MapHotspotFactory(space=SpaceFactory(sublet_guild=sublet), guild=None)
+            assert hotspot.linked_guild == sublet
+
+        def it_links_a_facility_marker_with_no_space():
+            guild = GuildFactory(name="Wood")
+            hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop", guild=guild)
+            assert hotspot.linked_guild == guild
+
+        def it_is_none_when_neither_is_set():
+            hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Gallery", guild=None)
+            assert hotspot.linked_guild is None
+
+        def it_is_none_for_a_studio_whose_space_has_no_guild():
+            hotspot = MapHotspotFactory(space=SpaceFactory(sublet_guild=None), guild=None)
+            assert hotspot.linked_guild is None
+
     def describe_status_display():
         def it_reads_the_spaces_status():
             hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.MAINTENANCE))
@@ -201,7 +226,7 @@ def describe_MapHotspot():
             ("kind", "cta", "label"),
             [
                 (MapHotspot.Kind.STUDIO, "lease", "Request to lease"),
-                (MapHotspot.Kind.CUBBY, "cubby", "Request this cubby"),
+                (MapHotspot.Kind.CUBBY, "cubby", "Request this space"),
                 (MapHotspot.Kind.MEETING_ROOM, "reserve", "Reserve"),
                 (MapHotspot.Kind.EVENT_SPACE, "reserve", "Reserve"),
             ],
@@ -244,9 +269,12 @@ def describe_MapHotspot():
             hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
             assert "wood shop" in hotspot.search_text
 
-        def it_finds_a_cubby_by_what_kind_of_thing_it_is():
+        def it_finds_a_shelf_by_what_kind_of_thing_it_is():
+            # The word "cubby" is retired from the member surface; the shelf kind now reads
+            # "Shelf" everywhere a member sees it, including the search haystack.
             hotspot = MapHotspotFactory(kind=MapHotspot.Kind.CUBBY, space=SpaceFactory(space_id="S1-2"))
-            assert "cubby" in hotspot.search_text
+            assert "shelf" in hotspot.search_text
+            assert "cubby" not in hotspot.search_text
 
     def describe_aria_label():
         def it_names_the_space_its_status_and_its_price():

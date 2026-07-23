@@ -145,12 +145,15 @@ def describe_org_info_map():
             response = client.get(reverse("hub_spaces")).content.decode()
             assert "Showing all 1 space on Plain Floor." in response
 
-    def it_shows_a_reviewer_their_pending_count(client: Client):
+    def it_hides_the_review_queue_entry_point_even_from_a_reviewer(client: Client):
+        # The request flow was lightened: the review queue is dormant (view/URL kept) and its
+        # entry point on the Spaces page is gone — even an admin no longer sees it there.
         _user_with_role("adm-count", fog_role=Member.FogRole.ADMIN)
         SpaceRequestFactory()
         client.login(username="adm-count", password="pass")
         response = client.get(reverse("hub_spaces"))
-        assert b"Space requests (1)" in response.content
+        assert b"Space requests (1)" not in response.content
+        assert reverse("hub_space_request_review_queue").encode() not in response.content
 
     def it_lists_a_members_own_pending_requests_with_a_withdraw_button(client: Client):
         user = _user_with_role("mine")
@@ -225,6 +228,25 @@ def describe_hotspot_detail():
 
     def it_404s_an_unknown_marker(client: Client):
         assert client.get(reverse("hub_map_hotspot_detail", args=[9999])).status_code == 404
+
+    def it_links_a_studios_sublet_guild_to_its_page(client: Client):
+        guild = GuildFactory(name="Glass Guild")
+        hotspot = MapHotspotFactory(space=SpaceFactory(sublet_guild=guild))
+        response = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk]))
+        assert reverse("hub_guild_detail", args=[guild.slug]).encode() in response.content
+        assert b"Glass Guild" in response.content
+
+    def it_links_a_facility_marker_to_its_guild_page(client: Client):
+        guild = GuildFactory(name="Ceramics Guild")
+        hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Ceramics", guild=guild)
+        response = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk]))
+        assert reverse("hub_guild_detail", args=[guild.slug]).encode() in response.content
+        assert b"Ceramics Guild" in response.content
+
+    def it_shows_no_guild_link_when_neither_is_set(client: Client):
+        hotspot = MapHotspotFactory(space=SpaceFactory(sublet_guild=None))
+        response = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk]))
+        assert b"pl-map-detail__guild-link" not in response.content
 
 
 @pytest.mark.django_db
@@ -493,6 +515,94 @@ def describe_marker_position_endpoint():
         hotspot.refresh_from_db()
         assert hotspot.label == "Untouched"
         assert hotspot.kind == MapHotspot.Kind.STUDIO
+
+
+@pytest.mark.django_db
+def describe_marker_status_endpoint():
+    """The edit map's click-to-set-status control: admin-only, writes Space.status, and pushes
+    back to Airtable (the system of record) without ever 500ing on an Airtable outage."""
+
+    def _post(client, hotspot, status):
+        return client.post(reverse("hub_map_hotspot_status", args=[hotspot.pk]), {"status": status})
+
+    def it_403s_a_plain_member(client: Client):
+        _user_with_role("pm-st")
+        hotspot = MapHotspotFactory()
+        client.login(username="pm-st", password="pass")
+        response = _post(client, hotspot, "occupied")
+        assert response.status_code == 403
+        assert response.json()["error"] == "Forbidden"
+
+    @pytest.mark.parametrize("status", [Space.Status.AVAILABLE, Space.Status.OCCUPIED, Space.Status.MAINTENANCE])
+    def it_sets_each_status_and_recolours(client: Client, status):
+        _user_with_role("adm-st", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.AVAILABLE))
+        client.login(username="adm-st", password="pass")
+        response = _post(client, hotspot, status)
+        assert response.status_code == 200
+        assert response.json()["availability_class"] == status
+        hotspot.space.refresh_from_db()
+        assert hotspot.space.status == status
+
+    def it_pushes_the_change_to_airtable(client: Client, monkeypatch):
+        _user_with_role("adm-st2", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.AVAILABLE))
+        pushed = []
+        monkeypatch.setattr(
+            "airtable_sync.service.sync_space_to_airtable",
+            lambda space: pushed.append(space.pk) or "recPUSHED",
+        )
+        client.login(username="adm-st2", password="pass")
+        response = _post(client, hotspot, Space.Status.OCCUPIED)
+        assert response.status_code == 200
+        assert pushed == [hotspot.space_id]
+        assert "warning" not in response.json()
+
+    def it_keeps_the_local_change_when_the_airtable_push_fails(client: Client, monkeypatch):
+        _user_with_role("adm-st3", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.AVAILABLE))
+
+        def boom(space):
+            raise RuntimeError("Airtable down")
+
+        monkeypatch.setattr("airtable_sync.service.sync_space_to_airtable", boom)
+        client.login(username="adm-st3", password="pass")
+        response = _post(client, hotspot, Space.Status.MAINTENANCE)
+        # No 500 — the local change stands and the admin is warned it may revert.
+        assert response.status_code == 200
+        assert "warning" in response.json()
+        hotspot.space.refresh_from_db()
+        assert hotspot.space.status == Space.Status.MAINTENANCE
+
+    def it_warns_when_airtable_is_on_but_the_push_returns_nothing(client: Client, monkeypatch, settings):
+        # sync_space_to_airtable swallows its own errors and returns None; with sync enabled
+        # that None means the push failed, so the admin is warned (but the local change stands).
+        settings.AIRTABLE_SYNC_ENABLED = True
+        _user_with_role("adm-st6", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.AVAILABLE))
+        monkeypatch.setattr("airtable_sync.service.sync_space_to_airtable", lambda space: None)
+        client.login(username="adm-st6", password="pass")
+        response = _post(client, hotspot, Space.Status.OCCUPIED)
+        assert response.status_code == 200
+        assert "warning" in response.json()
+        hotspot.space.refresh_from_db()
+        assert hotspot.space.status == Space.Status.OCCUPIED
+
+    def it_rejects_a_facility_marker_with_no_space(client: Client):
+        _user_with_role("adm-st4", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
+        client.login(username="adm-st4", password="pass")
+        response = _post(client, hotspot, Space.Status.OCCUPIED)
+        assert response.status_code == 400
+
+    def it_rejects_an_unknown_status(client: Client):
+        _user_with_role("adm-st5", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory()
+        client.login(username="adm-st5", password="pass")
+        response = _post(client, hotspot, "nonsense")
+        assert response.status_code == 400
+        hotspot.space.refresh_from_db()
+        assert hotspot.space.status == Space.Status.AVAILABLE
 
 
 @pytest.mark.django_db

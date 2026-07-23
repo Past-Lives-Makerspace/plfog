@@ -50,6 +50,89 @@
             });
     }
 
+    // ── Click-to-set-status ──────────────────────────────────────────────
+    // A studio marker (one bound to a Space, marked with data-space-status) opens an
+    // inline status control on a click or keyboard activation — distinct from a drag,
+    // which is a pointer move. Picking a status POSTs to the marker's status endpoint;
+    // Airtable is the system of record, so the endpoint pushes the change back there.
+
+    var STATUS_CLASSES = ['available', 'occupied', 'maintenance', 'info'];
+
+    function recolour(marker, status) {
+        STATUS_CLASSES.forEach(function (name) {
+            marker.classList.remove('pl-map-marker--' + name);
+        });
+        marker.classList.add('pl-map-marker--' + (status || 'info'));
+        marker.setAttribute('data-space-status', status);
+    }
+
+    function highlightCurrent(control, status) {
+        control.querySelectorAll('[data-set-status]').forEach(function (button) {
+            var isCurrent = button.getAttribute('data-set-status') === status;
+            button.classList.toggle('is-current', isCurrent);
+            button.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
+        });
+    }
+
+    function openStatusControl(root, marker) {
+        var control = root.querySelector('[data-status-control]');
+        if (!control) return;
+        control.hidden = false;
+        control.setAttribute('data-for-marker', marker.getAttribute('data-editor-marker'));
+        var code = control.querySelector('[data-status-control-code]');
+        if (code) code.textContent = marker.getAttribute('data-code') || '';
+        highlightCurrent(control, marker.getAttribute('data-space-status'));
+        var first = control.querySelector('[data-set-status]');
+        if (first) first.focus();
+    }
+
+    function postStatus(root, marker, control, status) {
+        var template = root.getAttribute('data-status-url-template') || '';
+        var url = template.replace(/0\/status\/$/, marker.getAttribute('data-editor-marker') + '/status/');
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': root.getAttribute('data-csrf') || ''
+            },
+            body: 'status=' + encodeURIComponent(status)
+        })
+            .then(function (response) {
+                return response.json().then(function (data) {
+                    return { ok: response.ok, data: data };
+                });
+            })
+            .then(function (result) {
+                if (!result.ok) {
+                    setStatus(root, result.data.error || "That status couldn't be saved.", true);
+                    return;
+                }
+                recolour(marker, result.data.availability_class);
+                highlightCurrent(control, result.data.availability_class);
+                if (result.data.warning) {
+                    setStatus(root, result.data.warning, true);
+                } else {
+                    setStatus(root, 'Status set to ' + result.data.status_display + '.', false);
+                }
+            })
+            .catch(function () {
+                setStatus(root, "That status couldn't be saved — check your connection.", true);
+            });
+    }
+
+    function initStatusControl(root) {
+        var control = root.querySelector('[data-status-control]');
+        if (!control) return;
+        control.addEventListener('click', function (event) {
+            var button = event.target.closest ? event.target.closest('[data-set-status]') : null;
+            if (!button) return;
+            var markerId = control.getAttribute('data-for-marker');
+            var marker = root.querySelector('[data-editor-marker="' + markerId + '"]');
+            if (!marker) return;
+            postStatus(root, marker, control, button.getAttribute('data-set-status'));
+        });
+    }
+
     function initStage(root) {
         var stage = root.querySelector('[data-editor-stage]');
         if (!stage) return;
@@ -59,6 +142,7 @@
         var startY = 0;
         var originLeft = 0;
         var originTop = 0;
+        var moved = false;
 
         function stageBox() {
             return stage.getBoundingClientRect();
@@ -69,6 +153,7 @@
             if (!marker) return;
             event.preventDefault();
             active = marker;
+            moved = false;
             mode = event.shiftKey && marker.getAttribute('data-shape') === 'region' ? 'resize' : 'move';
             var rect = stageBox();
             startX = ((event.clientX - rect.left) / rect.width) * 100;
@@ -83,6 +168,7 @@
             var rect = stageBox();
             var nowX = ((event.clientX - rect.left) / rect.width) * 100;
             var nowY = ((event.clientY - rect.top) / rect.height) * 100;
+            if (Math.abs(nowX - startX) > 0.5 || Math.abs(nowY - startY) > 0.5) moved = true;
             if (mode === 'resize') {
                 active.style.width = percent(nowX - originLeft) + '%';
                 active.style.height = percent(nowY - originTop) + '%';
@@ -97,6 +183,12 @@
             var marker = active;
             active = null;
             if (stage.releasePointerCapture) stage.releasePointerCapture(event.pointerId);
+            if (!moved) {
+                // A click, not a drag: offer the status control for a space-bound marker,
+                // and never re-save an unchanged position.
+                if (marker.getAttribute('data-space-status') !== null) openStatusControl(root, marker);
+                return;
+            }
             var box = {
                 x: percent(parseFloat(marker.style.left) || 0),
                 y: percent(parseFloat(marker.style.top) || 0)
@@ -106,6 +198,16 @@
                 box.h = percent(parseFloat(marker.style.height) || 0);
             }
             save(root, marker, box);
+        });
+
+        // Keyboard: Enter/Space on a focused studio marker opens the status control
+        // (pointer clicks are handled on pointerup above, so this never double-fires).
+        stage.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+            var marker = event.target.closest ? event.target.closest('[data-editor-marker]') : null;
+            if (!marker || marker.getAttribute('data-space-status') === null) return;
+            event.preventDefault();
+            openStatusControl(root, marker);
         });
     }
 
@@ -154,7 +256,10 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-        document.querySelectorAll('.pl-map-editor').forEach(initStage);
+        document.querySelectorAll('.pl-map-editor').forEach(function (root) {
+            initStage(root);
+            initStatusControl(root);
+        });
         initAddButtons();
         initDropZones();
     });

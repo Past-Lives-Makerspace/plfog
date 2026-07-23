@@ -671,16 +671,17 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
     ),
-    # 23. space.cubby_requested — a member wants a cubby/shelf. GUILD_LEADERSHIP_OR_ADMINS
-    #     IS the fallback: a guild-owned shelf reaches that guild's lead + staff (∪ admins),
-    #     while an unowned shelf carries ``guild=None`` and resolves to admins alone — a
-    #     lead-bound resolver would silently drop it.
+    # 23. space.cubby_requested — a member wants a shelf. Routes to the makerspace admins,
+    #     same inbox as a studio lease: the request flow was deliberately lightened so a
+    #     single audience triages everything. Reversible — restore GUILD_LEADERSHIP_OR_ADMINS
+    #     here (and the guild-lead branch in SpaceRequest.review_audience_label) to send a
+    #     guild-owned shelf back to that guild's lead + staff.
     EventType(
         key=SPACE_CUBBY_REQUESTED,
-        label="Cubby requested",
-        description="A member asked for a cubby or shelf from the space map.",
+        label="Shelf requested",
+        description="A member asked for a shelf from the space map.",
         category="Spaces",
-        recipient=Recipients.GUILD_LEADERSHIP_OR_ADMINS,
+        recipient=Recipients.FOG_ADMINS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
     ),

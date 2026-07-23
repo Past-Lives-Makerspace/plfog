@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.33"
+VERSION = "0.23.34"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.23.33",
+        "version": "0.23.34",
         "date": "2026-07-23",
         "title": "Explore the makerspace on an interactive map",
         "changes": [
             (
                 "There's a new Spaces page in the sidebar with a real map of the building. Pick a "
-                "floor and every studio, cubby, and shop is drawn to shape and colour-coded at a "
+                "floor and every studio and shop is drawn to shape and colour-coded at a "
                 "glance — green for open, grey for taken, amber for under maintenance — with its "
                 "size and monthly price written right in the room. Drag to pan, pinch or scroll "
                 "to zoom, and tap any space for the full details and who's in it."
+            ),
+            (
+                "A space that belongs to a guild now links straight to that guild's page: open a "
+                "shop or studio on the map, and its guild's name in the details is a tap away from "
+                "everything that guild is about."
             ),
             (
                 "Prefer not to use the map? The Listings tab has every space in a plain table you "
@@ -36,10 +41,9 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "link in the sidebar that opens the makerspace's full knowledge base in a new tab."
             ),
             (
-                "See a studio or cubby you want? Ask for it right there. Your request goes to the "
-                "right person — the makerspace admins for a studio, the owning guild's lead for a "
-                "guild cubby — and you'll get an email and a notification when they answer. "
-                "Nothing is charged automatically; a human sorts the paperwork out with you."
+                "See a space you want? Ask for it right there. Your request goes to the makerspace "
+                "admins, and you'll get an email and a notification when they answer. Nothing is "
+                "charged automatically; a human sorts the paperwork out with you."
             ),
             (
                 "Changed your mind? Your open requests show on the same page with a Withdraw "
