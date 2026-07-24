@@ -2,17 +2,20 @@
 {% load static %}
 {% block title %}Edit the space map{% endblock %}
 {% block content %}
-<div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'floors' }">
-<h1 class="hub-page-title">Edit the space map</h1>
+<div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'placement' }">
+<div class="pl-map-edit__header">
+    <h1 class="hub-page-title">Edit the space map</h1>
+    <a class="pl-btn pl-btn--secondary pl-map-edit__done" href="{% url 'hub_spaces' %}">Done — view the map</a>
+</div>
 <p class="hub-text-muted pl-map-edit__lede">
     Add one row per floor, then drop each studio and facility onto it. The map is drawn
     from those shapes — a floor plan image is optional, and only ever a faint tracing guide.
-    Members see the result at <a href="{% url 'hub_spaces' %}">/spaces/</a>.
+    Every change here saves as you go; <strong>Done</strong> takes you to the members' map.
 </p>
 
 <div class="pl-map-edit__tabs">
-    <button type="button" class="vote-tab" :class="section === 'floors' ? 'vote-tab--active' : ''" @click="section = 'floors'">Floors</button>
     <button type="button" class="vote-tab" :class="section === 'placement' ? 'vote-tab--active' : ''" @click="section = 'placement'">Placement</button>
+    <button type="button" class="vote-tab" :class="section === 'floors' ? 'vote-tab--active' : ''" @click="section = 'floors'">Floors</button>
 </div>
 
 {# ── Floors ────────────────────────────────────────────────────────────── #}
@@ -149,8 +152,9 @@
   </div>
 
   <div class="hub-card pl-map-edit__card">
-    <div class="pl-map-edit__save">
-      <button type="button" class="pl-btn pl-btn--primary" data-add-marker>+ Add a marker</button>
+    <div class="pl-map-edit__actions-row">
+      <button type="button" class="pl-btn pl-btn--secondary" data-add-marker>+ Add a marker</button>
+      <a class="pl-btn pl-btn--primary" href="{% url 'hub_spaces' %}">Done — view the map</a>
     </div>
     {% if not space_count %}
     <p class="hub-text-muted pl-map-edit__hint">

@@ -94,6 +94,13 @@ def describe_Floorplan():
         def it_is_empty_for_a_floor_with_nothing_on_it():
             assert FloorplanFactory().legend == []
 
+        def it_leaves_walls_out_of_the_key():
+            # A wall is drawn on the map but is not a space, so it is never counted.
+            floor = FloorplanFactory()
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(status=Space.Status.AVAILABLE))
+            MapHotspotFactory(floorplan=floor, space=None, kind=MapHotspot.Kind.WALL, label="")
+            assert floor.legend == [("available", "Available", 1)]
+
     def describe_list_filters():
         def it_leads_with_an_all_chip_over_the_floors_own_colours():
             floor = FloorplanFactory()
@@ -127,6 +134,13 @@ def describe_Floorplan():
         def it_is_empty_for_a_floor_with_nothing_on_it():
             assert FloorplanFactory().list_hotspots == []
 
+        def it_leaves_walls_out_of_the_list():
+            # Walls are map decoration, not something a member reads or acts on in the list.
+            floor = FloorplanFactory()
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="B1", status=Space.Status.AVAILABLE))
+            MapHotspotFactory(floorplan=floor, space=None, kind=MapHotspot.Kind.WALL, label="")
+            assert [h.display_label for h in floor.list_hotspots] == ["B1"]
+
 
 @pytest.mark.django_db
 def describe_MapHotspot():
@@ -138,6 +152,22 @@ def describe_MapHotspot():
         def it_falls_back_to_the_free_text_label():
             hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
             assert hotspot.display_label == "Wood Shop"
+
+    def describe_is_decorative():
+        def it_is_true_for_a_wall():
+            assert MapHotspotFactory(space=None, kind=MapHotspot.Kind.WALL, label="").is_decorative is True
+
+        def it_is_false_for_a_studio():
+            assert MapHotspotFactory().is_decorative is False
+
+        def it_is_false_for_a_facility():
+            wood_shop = MapHotspotFactory(space=None, kind=MapHotspot.Kind.FACILITY, label="Wood Shop")
+            assert wood_shop.is_decorative is False
+
+        def it_offers_no_cta_and_carries_no_status():
+            wall = MapHotspotFactory(space=None, kind=MapHotspot.Kind.WALL, label="")
+            assert wall.cta_kind is None
+            assert wall.availability_class is None
 
     def describe_linked_guild():
         def it_prefers_an_explicit_guild_link():

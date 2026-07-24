@@ -4777,6 +4777,26 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
   font-weight: 500;
 }
 .pl-map-marker--pending { border-style: dashed; border-width: 2px; }
+/* Walls — a solid structural bar, not a control: no dashed border, no text, no hover. */
+.pl-map-marker--wall {
+  border: none;
+  border-radius: 2px;
+  background: var(--hub-text);
+  opacity: 0.72;
+  color: transparent;
+  cursor: default;
+  box-shadow: none;
+}
+.pl-map-marker--wall:hover,
+.pl-map-marker--wall:focus-visible {
+  background: var(--hub-text);
+  box-shadow: none;
+}
+/* In the editor a wall is still draggable and clickable, so it keeps a grab affordance. */
+.pl-map-editor .pl-map-marker--wall {
+  cursor: grab;
+  opacity: 0.8;
+}
 .pl-map-marker__body {
   display: flex;
   flex-direction: column;
@@ -4998,6 +5018,21 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-map-review__grow { flex: 1; }
 
 /* Admin placement editor */
+.pl-map-edit__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.pl-map-edit__done { white-space: nowrap; }
+.pl-map-edit__actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
 .pl-map-edit__lede { margin-bottom: 1.5rem; max-width: 65ch; }
 .pl-map-edit__tabs {
   display: flex;

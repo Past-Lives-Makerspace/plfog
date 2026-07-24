@@ -311,6 +311,12 @@ _FIRST_FLOOR = SeedFloor(
         SeedRoom("Electrical Access", 526, 200, 551, 262, kind="facility"),
         SeedRoom("Leather", 895, 585, 941, 630, kind="facility"),
         *_shelf_rooms(),
+        # A structural wall, not a room: it runs left-to-right just below the Garden Guild,
+        # out past the loading bay and sanding area, then turns and drops down the east side to
+        # the foot of the plan. Two thin rectangles that meet at the corner to draw the L. The
+        # labels only name the segment for the editor — a wall draws as a text-less bar.
+        SeedRoom("Wall (below Garden Guild)", 30, 168, 1162, 184, kind="wall"),
+        SeedRoom("Wall (east side)", 1146, 168, 1162, 798, kind="wall"),
     ),
 )
 

@@ -2311,7 +2311,9 @@ class MapHotspotForm(forms.ModelForm):
         label = (cleaned.get("label") or "").strip()
         if kind in MapHotspot.REQUESTABLE_KINDS and space is None:
             self.add_error("space", "Pick the space this marker stands for.")
-        if kind not in MapHotspot.REQUESTABLE_KINDS and space is None and not label:
+        # A wall is pure decoration — it carries neither a space nor a label.
+        needs_label = kind not in MapHotspot.REQUESTABLE_KINDS and kind not in MapHotspot.DECORATIVE_KINDS
+        if needs_label and space is None and not label:
             self.add_error("label", "Give this marker a label so members know what it is.")
         if shape == MapHotspot.Shape.REGION:
             if self.instance.w is None or self.instance.h is None:

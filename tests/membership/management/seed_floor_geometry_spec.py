@@ -107,6 +107,14 @@ def describe_seed_floor_geometry():
             _run()
             assert MapHotspot.objects.get(label="Bathroom 3").kind == MapHotspot.Kind.RESTROOM
 
+        def it_draws_the_structural_wall_as_a_wall(db):
+            # The wall is traced as decoration in the geometry — no space, no label.
+            _run()
+            expected = sum(1 for floor in FLOORS for room in floor.rooms if room.kind == "wall")
+            walls = MapHotspot.objects.filter(kind=MapHotspot.Kind.WALL)
+            assert walls.count() == expected > 0
+            assert all(wall.space_id is None for wall in walls)
+
         def it_leaves_the_drawings_working_notes_off_the_map(db):
             _run()
             drawn = set(MapHotspot.objects.values_list("label", flat=True))

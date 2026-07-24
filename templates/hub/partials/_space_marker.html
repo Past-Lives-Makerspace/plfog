@@ -12,6 +12,13 @@ hub.css. How much text a room can hold is the model's call (h.detail_level) — 
 narrower than a word draws as a colour block, and its name still reaches every reader
 through aria-label, the detail panel and the keyboard list.
 {% endcomment %}
+{% if h.is_decorative %}
+{% comment %}A wall or other pure decoration: drawn to shape the building, but not a control —
+no click, no detail panel, and hidden from screen readers (it names nothing).{% endcomment %}
+<div class="pl-map-marker pl-map-marker--{{ h.shape }} pl-map-marker--wall"
+     style="left:{{ h.x|stringformat:'s' }}%; top:{{ h.y|stringformat:'s' }}%;{% if h.shape == 'region' %} width:{{ h.w|stringformat:'s' }}%; height:{{ h.h|stringformat:'s' }}%;{% endif %}"
+     aria-hidden="true"></div>
+{% else %}
 <button type="button"
         id="hotspot-{{ h.pk }}"{% if oob %} hx-swap-oob="true"{% endif %}
         class="pl-map-marker pl-map-marker--{{ h.shape }} pl-map-marker--{{ h.availability_class|default:'info' }} pl-map-marker--text-{{ h.detail_level }}{% if h.space_id in pending_space_ids %} pl-map-marker--pending{% endif %}"
@@ -29,3 +36,4 @@ through aria-label, the detail panel and the keyboard list.
     </span>
     {% if h.space_id in pending_space_ids %}<span class="pl-map-marker__dot" aria-hidden="true">&bull;</span>{% endif %}
 </button>
+{% endif %}

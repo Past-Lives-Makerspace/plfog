@@ -5893,6 +5893,8 @@ class Floorplan(models.Model):
         """
         tally: dict[str, int] = {}
         for hotspot in self.hotspots.all():
+            if hotspot.is_decorative:
+                continue
             tally[hotspot.availability_class or "info"] = tally.get(hotspot.availability_class or "info", 0) + 1
         return [(slug, label, tally[slug]) for slug, label in self.LEGEND_ROWS if tally.get(slug)]
 
@@ -5920,7 +5922,8 @@ class Floorplan(models.Model):
         already-prefetched hotspots are sorted in Python — no extra query.
         """
         rank = {slug: index for index, (slug, _label) in enumerate(self.LEGEND_ROWS)}
-        return sorted(self.hotspots.all(), key=lambda hotspot: rank[hotspot.availability_class or "info"])
+        listed = (hotspot for hotspot in self.hotspots.all() if not hotspot.is_decorative)
+        return sorted(listed, key=lambda hotspot: rank[hotspot.availability_class or "info"])
 
 
 class MapHotspotQuerySet(models.QuerySet):
@@ -5951,11 +5954,15 @@ class MapHotspot(models.Model):
         EXIT = "exit", "Emergency exit"
         MEETING_ROOM = "meeting_room", "Meeting room"
         EVENT_SPACE = "event_space", "Event space"
+        WALL = "wall", "Wall"
 
     #: Kinds a member can request through the map (the rest are info-only or reservable).
     REQUESTABLE_KINDS: tuple[str, ...] = (Kind.STUDIO, Kind.CUBBY)
     #: Kinds whose CTA is a time-based reservation — owned by the reservations spec.
     RESERVABLE_KINDS: tuple[str, ...] = (Kind.MEETING_ROOM, Kind.EVENT_SPACE)
+    #: Pure map decoration — drawn to shape the building, but never listed, counted in the
+    #: legend, clickable for members, or given a status. A wall is the only one today.
+    DECORATIVE_KINDS: tuple[str, ...] = (Kind.WALL,)
 
     floorplan = models.ForeignKey(
         Floorplan,
@@ -6057,6 +6064,11 @@ class MapHotspot(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_kind_display()} · {self.display_label} ({self.floorplan.name})"
+
+    @property
+    def is_decorative(self) -> bool:
+        """A wall or other pure-decoration marker: drawn on the map, never listed or clickable."""
+        return self.kind in self.DECORATIVE_KINDS
 
     @property
     def display_label(self) -> str:

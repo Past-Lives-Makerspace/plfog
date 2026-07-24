@@ -93,6 +93,12 @@ def describe_MapHotspotForm():
         assert form.is_valid()
         assert form.save(commit=False).guild == guild
 
+    def it_accepts_a_wall_with_no_space_or_label():
+        # A wall is pure decoration, so it is exempt from the "give it a label" rule.
+        form = MapHotspotForm(_marker_data(kind=MapHotspot.Kind.WALL, space="", label=""))
+        assert form.is_valid(), form.errors
+        assert form.save(commit=False).kind == MapHotspot.Kind.WALL
+
 
 @pytest.mark.django_db
 def describe_MapHotspotPositionForm():

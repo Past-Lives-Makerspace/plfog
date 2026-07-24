@@ -109,6 +109,18 @@ def describe_org_info_map():
             # The name still reaches every reader, through the accessible name and the list.
             assert "TINY" in response
 
+    def describe_walls():
+        def it_draws_a_wall_but_not_as_a_control(client: Client):
+            floor = FloorplanFactory(is_published=True)
+            MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="B1", status=Space.Status.AVAILABLE))
+            wall = MapHotspotFactory(floorplan=floor, space=None, kind=MapHotspot.Kind.WALL, label="")
+            body = client.get(reverse("hub_spaces")).content.decode()
+            # The wall is drawn (its bar class is present)...
+            assert "pl-map-marker--wall" in body
+            # ...but it is neither a clickable detail control nor a listed row.
+            assert reverse("hub_map_hotspot_detail", args=[wall.pk]) not in body
+            assert f'id="hotspot-{wall.pk}"' not in body
+
     def describe_the_accessible_list():
         def it_gives_every_row_what_the_browser_filter_reads(client: Client):
             floor = FloorplanFactory(name="List Floor", image="")
@@ -277,6 +289,14 @@ def describe_editor_gating():
         response = client.get(reverse("hub_org_map_edit"))
         assert response.status_code == 200
         assert b"Ground Floor" in response.content
+
+    def it_offers_a_way_back_to_the_members_map(client: Client):
+        _user_with_role("adm-back", fog_role=Member.FogRole.ADMIN)
+        FloorplanFactory()
+        client.login(username="adm-back", password="pass")
+        body = client.get(reverse("hub_org_map_edit")).content.decode()
+        assert "view the map" in body
+        assert reverse("hub_spaces") in body
 
     def it_lets_an_admin_place_markers_on_a_floor_with_no_image(client: Client):
         # Placement drags against the drawn canvas now, so an image-less floor is workable.

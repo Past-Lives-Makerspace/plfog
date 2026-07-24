@@ -13,7 +13,7 @@ on the click. Position is inline because coordinates are per-marker data.
 {% endcomment %}
 <button type="button"
         id="hotspot-{{ h.pk }}"{% if oob_swap %} hx-swap-oob="{{ oob_swap }}"{% endif %}
-        class="pl-map-marker pl-map-marker--{{ h.shape }} pl-map-marker--{{ h.availability_class|default:'info' }} pl-map-marker--text-{{ h.detail_level }}"
+        class="pl-map-marker pl-map-marker--{{ h.shape }} pl-map-marker--{{ h.availability_class|default:'info' }} pl-map-marker--text-{{ h.detail_level }}{% if h.is_decorative %} pl-map-marker--wall{% endif %}"
         data-editor-marker="{{ h.pk }}"
         data-shape="{{ h.shape }}"
         data-code="{{ h.code_label }}"
