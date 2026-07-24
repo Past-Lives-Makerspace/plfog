@@ -3,12 +3,13 @@
 {% block content %}
 <div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'content' }">
 <h1 class="hub-page-title">Edit Space &amp; Org Info</h1>
-<p class="hub-text-muted" style="margin-bottom:1.5rem; max-width:65ch;">The org-wide info page: the floor plan, parking, who to contact, and the code of conduct. Members see it at <a href="{% url 'hub_org_info' %}" style="color:var(--color-tuscan-yellow);">/info/</a>.</p>
+<p class="hub-text-muted" style="margin-bottom:1.5rem; max-width:65ch;">How the organization works: parking, who to contact, the FAQ, and the code of conduct. Members see it at <a href="{% url 'hub_help' %}" style="color:var(--color-tuscan-yellow);">/help/</a>. The live space map is edited separately, on the Spaces page.</p>
 
 <div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;">
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">Content</button>
   <button type="button" class="vote-tab" :class="section === 'map' ? 'vote-tab--active' : ''" @click="section = 'map'">Map</button>
   <button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">FAQ &amp; Links</button>
+  <button type="button" class="vote-tab" :class="section === 'articles' ? 'vote-tab--active' : ''" @click="section = 'articles'">Articles</button>
 </div>
 
 {# ── Main form: Content + Map (banner + floor plan + Markdown sections) ── #}
@@ -50,7 +51,7 @@
 
   <div x-show="section === 'content' || section === 'map'" style="margin-top:0.5rem; display:flex; gap:1rem;">
     <button type="submit" class="pl-btn pl-btn--primary">Save Changes</button>
-    <a href="{% url 'hub_org_info' %}" class="pl-btn pl-btn--secondary">Cancel</a>
+    <a href="{% url 'hub_help' %}" class="pl-btn pl-btn--secondary">Cancel</a>
   </div>
 </form>
 
@@ -181,6 +182,72 @@
 
       <div style="margin-top:1rem;">
         <button type="submit" class="pl-btn pl-btn--primary">Save Links</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{# ── Articles (its own form — the anchored how-it-works guides on the Wiki page) ── #}
+<div x-show="section === 'articles'" x-cloak>
+  <form method="post" action="{% url 'hub_help_articles_save' %}" class="hub-form">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Articles</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Plain-language "how it works" guides. Each one gets a table-of-contents link and a #anchor on the page, so you can point members straight at it (e.g. /help/#guild-voting). Leave the anchor blank to fill it from the title. Uncheck "Is published" to keep a draft off the public page.</p>
+      {{ article_formset.management_form }}
+      <div id="article-rows" style="display:flex; flex-direction:column; gap:1rem;">
+        {% for f in article_formset %}
+          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+            {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+            {% include "components/form_field.html" with field=f.title %}
+            {% include "components/form_field.html" with field=f.slug %}
+            {% include "components/form_field.html" with field=f.body %}
+            {% include "components/form_field.html" with field=f.is_published %}
+            {% if f.instance.pk %}
+              <div style="display:none;">{{ f.DELETE }}</div>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                Delete this article
+              </button>
+            {% endif %}
+            {{ f.id }}
+            {{ f.sort_order }}
+          </div>
+        {% empty %}
+          <p class="hub-text-muted">No articles yet. Add your first.</p>
+        {% endfor %}
+      </div>
+
+      {# Hidden empty-form template, cloned by the +Add button below. #}
+      <template id="article-empty-template">
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {% with article_formset.empty_form as ef %}
+            {% include "components/form_field.html" with field=ef.title %}
+            {% include "components/form_field.html" with field=ef.slug %}
+            {% include "components/form_field.html" with field=ef.body %}
+            {% include "components/form_field.html" with field=ef.is_published %}
+            {{ ef.id }}
+            {{ ef.sort_order }}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+          {% endwith %}
+        </div>
+      </template>
+
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+              onclick="
+                const tpl = document.getElementById('article-empty-template');
+                const total = document.getElementById('id_articles-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                document.getElementById('article-rows').appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add an article
+      </button>
+
+      <div style="margin-top:1rem;">
+        <button type="submit" class="pl-btn pl-btn--primary">Save Articles</button>
       </div>
     </div>
   </form>

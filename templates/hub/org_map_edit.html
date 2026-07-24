@@ -1,0 +1,176 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Edit the space map{% endblock %}
+{% block content %}
+<div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'placement' }">
+<div class="pl-map-edit__header">
+    <h1 class="hub-page-title">Edit the space map</h1>
+    <a class="pl-btn pl-btn--secondary pl-map-edit__done" href="{% url 'hub_spaces' %}">Done — view the map</a>
+</div>
+<p class="hub-text-muted pl-map-edit__lede">
+    Add one row per floor, then drop each studio and facility onto it. The map is drawn
+    from those shapes — a floor plan image is optional, and only ever a faint tracing guide.
+    Every change here saves as you go; <strong>Done</strong> takes you to the members' map.
+</p>
+
+<div class="pl-map-edit__tabs">
+    <button type="button" class="vote-tab" :class="section === 'placement' ? 'vote-tab--active' : ''" @click="section = 'placement'">Placement</button>
+    <button type="button" class="vote-tab" :class="section === 'floors' ? 'vote-tab--active' : ''" @click="section = 'floors'">Floors</button>
+</div>
+
+{# ── Floors ────────────────────────────────────────────────────────────── #}
+<div x-show="section === 'floors'" x-cloak>
+  <form method="post" action="{% url 'hub_org_map_floors_save' %}" class="hub-form" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="hub-card pl-map-edit__card">
+      <h2 class="hub-detail-label pl-map-edit__h2">Floors</h2>
+      <p class="hub-text-muted pl-map-edit__hint">
+        One row per physical floor. A floor only appears on the members' map once it's published.
+      </p>
+      {{ floor_formset.management_form }}
+      <div id="floor-rows" class="pl-map-edit__rows">
+        {% for f in floor_formset %}
+          <div class="hub-card pl-map-edit__row">
+            {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+            {% include "components/form_field.html" with field=f.name %}
+            {% include "components/form_field.html" with field=f.aspect_ratio %}
+            {% include "components/image_field.html" with field=f.image current_image=f.instance.image label="Reference underlay (optional)" shape="rect" thumbnail_width="240px" thumbnail_height="150px" max_bytes=max_upload_bytes tooltip_html="Optional. A scan of the paper plan, shown faintly behind the drawn rooms so you can trace against it. The map works fine without one. JPG or PNG." %}
+            {% include "components/form_field.html" with field=f.caption %}
+            {% include "components/form_field.html" with field=f.is_published %}
+            {% if f.instance.pk %}
+              <div class="pl-map-edit__hidden">{{ f.DELETE }}</div>
+              {% with pk_str=f.instance.pk|stringformat:"s" marker_count=f.instance.hotspots.count %}
+              {% if marker_count %}
+                {% comment %}A populated floor cascades its markers, so it goes through a
+                confirm modal and its own delete endpoint rather than the plain
+                DELETE-flip below.{% endcomment %}
+                {% url 'hub_org_map_floor_delete' f.instance.pk as floor_delete_url %}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-map-edit__delete"
+                        @click="$dispatch('open-confirm', 'del-floor-{{ pk_str }}')">Delete this floor</button>
+                {% include "components/confirm_modal.html" with confirm_id="del-floor-"|add:pk_str confirm_title="Delete this floor?" confirm_message="This also removes its markers from the map. This can't be undone — save any other edits on this page first." confirm_action_url=floor_delete_url confirm_button_text="Delete floor" %}
+              {% else %}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-map-edit__delete"
+                        onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                  Delete this floor
+                </button>
+              {% endif %}
+              {% endwith %}
+            {% endif %}
+            {{ f.id }}
+            {{ f.sort_order }}
+          </div>
+        {% empty %}
+          <p class="hub-text-muted">No floors yet. Add your first floor to start the map.</p>
+        {% endfor %}
+      </div>
+
+      {# Hidden empty-form template, cloned by the +Add button below. #}
+      <template id="floor-empty-template">
+        <div class="hub-card pl-map-edit__row">
+          {% with ef=floor_formset.empty_form %}
+            {% include "components/form_field.html" with field=ef.name %}
+            {% include "components/form_field.html" with field=ef.aspect_ratio %}
+            {% include "components/form_field.html" with field=ef.caption %}
+            {% include "components/form_field.html" with field=ef.is_published %}
+            <div class="pl-form-group">
+              <label class="pl-form-label" for="{{ ef.image.id_for_label }}">Reference underlay (optional)</label>
+              <label class="cls-image-upload-zone">
+                <input type="file" name="{{ ef.image.html_name }}" id="{{ ef.image.id_for_label }}" accept="image/*" class="pl-map-edit__hidden">
+                <span class="cls-image-upload-label">+ Upload a reference underlay</span>
+                <span class="cls-image-upload-hint">Click or drag a file here</span>
+              </label>
+            </div>
+            {{ ef.id }}
+            {{ ef.sort_order }}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-map-edit__delete" onclick="this.closest('.hub-card').remove();">Remove</button>
+          {% endwith %}
+        </div>
+      </template>
+
+      <button type="button" class="hub-btn hub-btn--sm pl-map-edit__add" data-add-row="floor">+ Add a floor</button>
+
+      <div class="pl-map-edit__save">
+        <button type="submit" class="pl-btn pl-btn--primary">Save floors</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{# ── Placement ─────────────────────────────────────────────────────────── #}
+<div x-show="section === 'placement'" x-cloak>
+  {% if selected_floor %}
+  <div class="hub-card pl-map-edit__card">
+    <h2 class="hub-detail-label pl-map-edit__h2">Which floor?</h2>
+    <div class="hub-form-group">
+      <label class="pl-form-label" for="floor-picker">Floor</label>
+      <select id="floor-picker" class="pl-map-edit__select"
+              onchange="window.location.search = '?tab=placement&floor=' + this.value;">
+        {% for f in floors %}
+        <option value="{{ f.pk }}"{% if f.pk == selected_floor.pk %} selected{% endif %}>{{ f.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if selected_floor.image_changed %}
+    <div class="hub-message pl-map-warn">
+      You replaced this floor's underlay. The rooms haven't moved, but a differently-cropped
+      picture no longer lines up behind them — check they still sit where you meant before you
+      trace against it.
+    </div>
+    {% endif %}
+    <p class="hub-text-muted pl-map-edit__hint">
+      Add a marker below and it lands in the middle of the plan; then drag it (or drag a box for a
+      region) onto the right spot. Dragging saves straight away — the Save markers button below is
+      only for names, kinds, and linked spaces.
+    </p>
+  </div>
+
+  <div class="hub-card pl-map-edit__card">
+    <h2 class="hub-detail-label pl-map-edit__h2">Place the markers</h2>
+    <div class="pl-map-editor"
+         data-position-url-template="{% url 'hub_map_hotspot_position' 0 %}"
+         data-edit-url-template="{% url 'hub_map_hotspot_edit' 0 %}"
+         data-create-url="{% url 'hub_map_hotspot_create' %}"
+         data-floor-id="{{ selected_floor.pk }}"
+         data-csrf="{{ csrf_token }}">
+      {% comment %}The editor drags against the same drawn canvas members see, not against a
+      picture — data-editor-stage sits on the canvas so percentages mean the same thing in
+      both places. aspect-ratio is per-floor data, hence the one inline style.{% endcomment %}
+      <div class="pl-map-editor__stage">
+        <div class="pl-map-canvas" id="editor-stage" data-editor-stage style="aspect-ratio: {{ selected_floor.aspect_ratio|stringformat:'s' }};">
+          {% if selected_floor.image %}
+          <img class="pl-map-underlay" src="{{ selected_floor.image.url }}" alt="" aria-hidden="true" draggable="false">
+          {% endif %}
+          {% for h in hotspots %}{% include "hub/partials/_editor_marker.html" with h=h %}{% endfor %}
+        </div>
+      </div>
+      <p class="hub-text-muted pl-map-edit__hint">
+        Drag a tile to move it (Shift-drag to resize a room). Click a tile to set its status and
+        edit the details members see — or to delete it.
+      </p>
+      <p class="hub-text-muted pl-map-edit__hint" data-editor-status role="status"></p>
+    </div>
+  </div>
+
+  <div class="hub-card pl-map-edit__card">
+    <div class="pl-map-edit__actions-row">
+      <button type="button" class="pl-btn pl-btn--secondary" data-add-marker>+ Add a marker</button>
+      <a class="pl-btn pl-btn--primary" href="{% url 'hub_spaces' %}">Done — view the map</a>
+    </div>
+    {% if not space_count %}
+    <p class="hub-text-muted pl-map-edit__hint">
+      No spaces have been pulled from Airtable yet, so studio tiles have nothing to link to.
+      Facility and info tiles still work.
+    </p>
+    {% endif %}
+  </div>
+
+  {% include "components/modal.html" with modal_id="marker-edit" modal_title="Edit marker" modal_size="md" %}
+  {% else %}
+  <div class="hub-card pl-map-edit__card">
+    <p class="hub-text-muted pl-map-edit__empty">Add a floor first — markers need a plan to sit on.</p>
+  </div>
+  {% endif %}
+</div>
+</div>
+<script src="{% static 'js/space_map_editor.js' %}" defer></script>
+{% endblock %}

@@ -333,6 +333,10 @@ EVENT_CHANGES_REQUESTED = "event.changes_requested"
 EVENT_DECLINED = "event.declined"
 EVENT_REMINDER = "event.reminder"
 EVENT_HAPPENING_NOW = "event.happening_now"
+SPACE_LEASE_REQUESTED = "space.lease_requested"
+SPACE_CUBBY_REQUESTED = "space.cubby_requested"
+SPACE_REQUEST_APPROVED = "space.request_approved"
+SPACE_REQUEST_DECLINED = "space.request_declined"
 DISCORD_GUILDS_IMPORTED = "discord_guilds_imported"
 ORIENTATION_COMPLETED = "orientation.completed"  # dotted, matches the new-event vocabulary
 
@@ -649,6 +653,58 @@ _NEW_EVENTS: list[EventType] = [
         recipient=Recipients.GUILD_MEMBERS,
         channels=(_IN_APP_ON, _DISCORD_ON),
         activity_kind=None,
+    ),
+    # 22-25. space.* — the interactive space map's request flow. All four are personal
+    #     workflow notices (a named member asked; a named member is answered), never a
+    #     broadcast, so they are in-app + email with no Discord. ``activity_kind`` is
+    #     "space_request" on all four so the spine writes exactly one SiteActivity row per
+    #     event — the views never log their own.
+    #
+    # 22. space.lease_requested — a member wants to lease a studio. Studios are org-owned,
+    #     so this always routes to the makerspace admins.
+    EventType(
+        key=SPACE_LEASE_REQUESTED,
+        label="Studio lease requested",
+        description="A member asked to lease a studio from the space map.",
+        category="Spaces",
+        recipient=Recipients.FOG_ADMINS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind="space_request",
+    ),
+    # 23. space.cubby_requested — a member wants a shelf. Routes to the makerspace admins,
+    #     same inbox as a studio lease: the request flow was deliberately lightened so a
+    #     single audience triages everything. Reversible — restore GUILD_LEADERSHIP_OR_ADMINS
+    #     here (and the guild-lead branch in SpaceRequest.review_audience_label) to send a
+    #     guild-owned shelf back to that guild's lead + staff.
+    EventType(
+        key=SPACE_CUBBY_REQUESTED,
+        label="Shelf requested",
+        description="A member asked for a shelf from the space map.",
+        category="Spaces",
+        recipient=Recipients.FOG_ADMINS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind="space_request",
+    ),
+    # 24. space.request_approved — the member hears yes. Approving does not create a lease;
+    #     the copy says a human will be in touch to finalize it.
+    EventType(
+        key=SPACE_REQUEST_APPROVED,
+        label="Your space request was approved",
+        description="A reviewer approved a member's studio or cubby request.",
+        category="Spaces",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind="space_request",
+    ),
+    # 25. space.request_declined — the member hears no, with the reviewer's reason.
+    EventType(
+        key=SPACE_REQUEST_DECLINED,
+        label="Update on your space request",
+        description="A reviewer declined a member's studio or cubby request.",
+        category="Spaces",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind="space_request",
     ),
 ]
 

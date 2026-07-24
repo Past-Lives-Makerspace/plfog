@@ -71,6 +71,8 @@ def describe_feature_flags():
         config.tab_payments_enabled = False
         config.class_registration_enabled = False
         config.class_registration_disabled_note = "Call the studio."
+        config.help_page_enabled = False
+        config.wiki_link_enabled = False
         config.save()
 
         rf = RequestFactory()
@@ -80,6 +82,8 @@ def describe_feature_flags():
             "tab_payments_enabled": False,
             "class_registration_enabled": False,
             "class_registration_disabled_note": "Call the studio.",
+            "help_page_enabled": False,
+            "wiki_link_enabled": False,
         }
 
 

@@ -158,12 +158,41 @@ urlpatterns = [
         views.guild_mailing_list_import,
         name="hub_guild_mailing_list_import",
     ),
-    # Space & Org Info page (org-wide info: map, parking, who-to-contact, code of conduct).
-    path("info/", views.org_info, name="hub_org_info"),
-    path("info/edit/", views.org_info_edit, name="hub_org_info_edit"),
-    path("info/floorplan/delete/", views.org_info_floorplan_delete, name="hub_org_info_floorplan_delete"),
-    path("info/faq/save/", views.org_info_faq_save, name="hub_org_info_faq_save"),
-    path("info/links/save/", views.org_info_links_save, name="hub_org_info_links_save"),
+    # Spaces page — the map (tab 1) and the full space listings (tab 2).
+    path("spaces/", views.spaces, name="hub_spaces"),
+    # Interactive space map — public-read map + admin placement editor + request review.
+    path("spaces/map/edit/", views.org_map_edit, name="hub_org_map_edit"),
+    path("spaces/map/floors/save/", views.org_map_floors_save, name="hub_org_map_floors_save"),
+    path("spaces/map/floors/<int:pk>/delete/", views.org_map_floor_delete, name="hub_org_map_floor_delete"),
+    path("spaces/map/markers/save/", views.map_hotspots_save, name="hub_map_hotspots_save"),
+    path("spaces/map/markers/create/", views.map_hotspot_create, name="hub_map_hotspot_create"),
+    path("spaces/map/markers/<int:pk>/position/", views.map_hotspot_position, name="hub_map_hotspot_position"),
+    path("spaces/map/markers/<int:pk>/status/", views.map_hotspot_status, name="hub_map_hotspot_status"),
+    path("spaces/map/markers/<int:pk>/edit/", views.map_hotspot_edit, name="hub_map_hotspot_edit"),
+    path("spaces/map/markers/<int:pk>/delete/", views.map_hotspot_delete, name="hub_map_hotspot_delete"),
+    path("spaces/map/markers/<int:pk>/", views.map_hotspot_detail, name="hub_map_hotspot_detail"),
+    path("spaces/map/markers/<int:pk>/request/", views.space_request_create, name="hub_space_request_create"),
+    path("spaces/requests/<int:pk>/withdraw/", views.space_request_withdraw, name="hub_space_request_withdraw"),
+    path("spaces/requests/review/", views.space_request_review_queue, name="hub_space_request_review_queue"),
+    path(
+        "spaces/requests/review/<int:pk>/decision/",
+        views.space_request_review_decision,
+        name="hub_space_request_review_decision",
+    ),
+    # Help — how the app works: intro, guides, parking, who-to-contact, FAQ, code of conduct, resources.
+    path("help/", views.help_page, name="hub_help"),
+    path("help/edit/", views.help_edit, name="hub_help_edit"),
+    path("help/floorplan/delete/", views.org_info_floorplan_delete, name="hub_org_info_floorplan_delete"),
+    path("help/faq/save/", views.org_info_faq_save, name="hub_org_info_faq_save"),
+    path("help/links/save/", views.org_info_links_save, name="hub_org_info_links_save"),
+    path("help/articles/save/", views.help_articles_save, name="hub_help_articles_save"),
+    # Legacy: /info/ was the combined Space & Org Info page. Space-request emails and Discord
+    # posts already carry /info/#hotspot-N links, so this must keep resolving — to the map.
+    path(
+        "info/",
+        RedirectView.as_view(pattern_name="hub_spaces", permanent=True),
+        name="hub_org_info_legacy",
+    ),
     path("guilds/<int:pk>/meeting-notes/", views.guild_meeting_notes, name="hub_guild_meeting_notes"),
     path(
         "guilds/<int:pk>/meeting-notes/add/",

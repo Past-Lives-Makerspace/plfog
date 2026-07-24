@@ -1,0 +1,30 @@
+{% comment %}
+The one-field request form, revealed inside the space-detail modal by its own CTA
+(FRONTEND.md: an optional secondary form is toggled open, closed by default).
+
+Context: hotspot, request_form, request_form_open (True when a failed POST re-rendered it).
+Posts over HTMX and swaps this whole panel, so the reply is a toast plus the pending
+state — never a page reload.
+{% endcomment %}
+<div x-data="{ showForm: {% if request_form_open %}true{% else %}false{% endif %} }">
+    <button type="button" class="pl-btn pl-btn--primary" x-show="!showForm" @click="showForm = true">{{ hotspot.cta_label }}</button>
+
+    <form class="pl-map-request-form" x-show="showForm" x-cloak
+          hx-post="{% url 'hub_space_request_create' hotspot.pk %}"
+          hx-target="#space-detail-body"
+          hx-swap="innerHTML">
+        {% csrf_token %}
+        {% if request_form.non_field_errors %}
+        <ul class="pl-field-errors">
+            {% for error in request_form.non_field_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        <div class="hub-form-group">
+            {% include "components/form_field.html" with field=request_form.message %}
+        </div>
+        <div class="pl-map-request-form__actions">
+            <button type="submit" class="pl-btn pl-btn--primary">Send request</button>
+            <button type="button" class="pl-btn pl-btn--secondary" @click="showForm = false">Cancel</button>
+        </div>
+    </form>
+</div>

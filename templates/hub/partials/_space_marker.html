@@ -1,0 +1,39 @@
+{% comment %}
+One marker on the drawn map — a room shape (region) or a labelled pin.
+
+Params (via {% include ... with %}):
+  h                  — the MapHotspot
+  pending_space_ids  — space ids the viewer already has an open request for
+  oob                — True to render as an hx-swap-oob replacement (after a request)
+
+Position is an inline style because the coordinates are per-marker data, not a reusable
+rule; the fill, walls, hover, focus ring and text sizing all live in .pl-map-marker* in
+hub.css. How much text a room can hold is the model's call (h.detail_level) — a room
+narrower than a word draws as a colour block, and its name still reaches every reader
+through aria-label, the detail panel and the keyboard list.
+{% endcomment %}
+{% if h.is_decorative %}
+{% comment %}A wall or other pure decoration: drawn to shape the building, but not a control —
+no click, no detail panel, and hidden from screen readers (it names nothing).{% endcomment %}
+<div class="pl-map-marker pl-map-marker--{{ h.shape }} pl-map-marker--wall"
+     style="left:{{ h.x|stringformat:'s' }}%; top:{{ h.y|stringformat:'s' }}%;{% if h.shape == 'region' %} width:{{ h.w|stringformat:'s' }}%; height:{{ h.h|stringformat:'s' }}%;{% endif %}"
+     aria-hidden="true"></div>
+{% else %}
+<button type="button"
+        id="hotspot-{{ h.pk }}"{% if oob %} hx-swap-oob="true"{% endif %}
+        class="pl-map-marker pl-map-marker--{{ h.shape }} pl-map-marker--{{ h.availability_class|default:'info' }} pl-map-marker--text-{{ h.detail_level }}{% if h.space_id in pending_space_ids %} pl-map-marker--pending{% endif %}"
+        style="left:{{ h.x|stringformat:'s' }}%; top:{{ h.y|stringformat:'s' }}%;{% if h.shape == 'region' %} width:{{ h.w|stringformat:'s' }}%; height:{{ h.h|stringformat:'s' }}%;{% endif %}"
+        aria-label="{{ h.aria_label }}{% if h.space_id in pending_space_ids %} — your request is pending{% endif %}"
+        hx-get="{% url 'hub_map_hotspot_detail' h.pk %}"
+        hx-target="#space-detail-body"
+        hx-swap="innerHTML"
+        hx-indicator="#space-detail-body"
+        @click="$dispatch('open-modal', 'space-detail')">
+    <span class="pl-map-marker__body" aria-hidden="true">
+        <span class="pl-map-marker__code">{{ h.code_label }}</span>
+        {% if h.size_display %}<span class="pl-map-marker__meta">{{ h.size_display }}</span>{% endif %}
+        {% if h.price_display %}<span class="pl-map-marker__meta">{{ h.price_display }}</span>{% endif %}
+    </span>
+    {% if h.space_id in pending_space_ids %}<span class="pl-map-marker__dot" aria-hidden="true">&bull;</span>{% endif %}
+</button>
+{% endif %}

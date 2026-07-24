@@ -18,7 +18,7 @@
   <div class="pl-org-map pl-org-map--empty">
     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
     <p class="hub-text-muted" style="margin:0.5rem 0 0;">The facility map is coming soon — guild locations, restrooms, and emergency exits.</p>
-    {% if can_edit %}<a href="{% url 'hub_org_info_edit' %}?tab=map" class="hub-btn hub-btn--sm" style="margin-top:0.75rem;">Upload the floor plan →</a>{% endif %}
+    {% if can_edit %}<a href="{% url 'hub_help_edit' %}?tab=map" class="hub-btn hub-btn--sm" style="margin-top:0.75rem;">Upload the floor plan →</a>{% endif %}
   </div>
   {% endif %}
 </div>

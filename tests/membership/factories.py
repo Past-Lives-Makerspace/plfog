@@ -14,6 +14,7 @@ from factory.django import mute_signals
 from membership.models import (
     CommunityEvent,
     DiscordGuildEmoji,
+    Floorplan,
     FundingSnapshot,
     Guild,
     GuildAnnouncement,
@@ -26,6 +27,7 @@ from membership.models import (
     GuildOrientationSettings,
     GuildStaffMembership,
     Lease,
+    MapHotspot,
     Member,
     MemberContact,
     MemberEmail,
@@ -42,7 +44,9 @@ from membership.models import (
     SlideshowSlide,
     SlideshowZone,
     Space,
+    SpaceRequest,
     VotePreference,
+    WikiArticle,
 )
 
 
@@ -164,6 +168,16 @@ class OrgLinkFactory(factory.django.DjangoModelFactory):
     page = factory.SubFactory(OrgInfoPageFactory)
     label = factory.Sequence(lambda n: f"Org link {n}")
     url = "https://example.com"
+
+
+class WikiArticleFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = WikiArticle
+        skip_postgeneration_save = True
+
+    page = factory.SubFactory(OrgInfoPageFactory)
+    title = factory.Sequence(lambda n: f"Wiki guide {n}")
+    body = "How this part of the space works."
 
 
 class GuildAnnouncementFactory(factory.django.DjangoModelFactory):
@@ -454,3 +468,59 @@ class SlideshowSlideFactory(factory.django.DjangoModelFactory):
     title = factory.Sequence(lambda n: f"Slide {n}")
     is_enabled = True
     sort_order = factory.Sequence(lambda n: n)
+
+
+def tiny_png_bytes() -> bytes:
+    """A small but *complete* PNG.
+
+    Built with Pillow rather than hand-rolled bytes so the image-normalizing save()
+    path can actually decode it — a truncated stream would log a "broken data stream"
+    warning on every floor-plan save in the suite.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (32, 32), (200, 120, 40)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+class FloorplanFactory(factory.django.DjangoModelFactory):
+    """A published floor with a real (tiny) image so the map renders in specs."""
+
+    class Meta:
+        model = Floorplan
+
+    name = factory.Sequence(lambda n: f"Floor {n}")
+    image = factory.LazyFunction(lambda: SimpleUploadedFile("floor.png", tiny_png_bytes(), content_type="image/png"))
+    is_published = True
+    sort_order = factory.Sequence(lambda n: n)
+
+
+class MapHotspotFactory(factory.django.DjangoModelFactory):
+    """A studio region bound to an available Space by default."""
+
+    class Meta:
+        model = MapHotspot
+
+    floorplan = factory.SubFactory(FloorplanFactory)
+    shape = MapHotspot.Shape.REGION
+    kind = MapHotspot.Kind.STUDIO
+    space = factory.SubFactory(SpaceFactory)
+    x = Decimal("10.00")
+    y = Decimal("10.00")
+    w = Decimal("20.00")
+    h = Decimal("15.00")
+
+
+class SpaceRequestFactory(factory.django.DjangoModelFactory):
+    """A pending studio-lease request. Pass ``kind=`` for a cubby ask."""
+
+    class Meta:
+        model = SpaceRequest
+
+    requester = factory.SubFactory(MemberFactory)
+    space = factory.SubFactory(SpaceFactory)
+    kind = SpaceRequest.RequestKind.LEASE
+    state = SpaceRequest.ModerationState.PENDING

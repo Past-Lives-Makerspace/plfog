@@ -13,7 +13,7 @@ from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.core.serializers.json import DjangoJSONEncoder
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import BooleanField, Case, CharField, DecimalField, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
@@ -2195,6 +2195,71 @@ class OrgLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.label} (Space & Org Info)"
+
+
+class WikiArticleQuerySet(models.QuerySet):
+    def published(self) -> "WikiArticleQuerySet":
+        """Only the guides members should see — drafts stay off the public page."""
+        return self.filter(is_published=True)
+
+
+class WikiArticle(models.Model):
+    """A titled Markdown guide on the Wiki page, deep-linkable by slug anchor.
+
+    Ordered inline children of the :class:`OrgInfoPage` singleton, exactly like
+    :class:`OrgFAQItem` — the editor reuses that formset wiring. Rendered as a
+    table-of-contents entry plus an anchored ``<section id="{slug}">`` so Discord, email,
+    or other pages can link to a guide by name.
+    """
+
+    page = models.ForeignKey(
+        OrgInfoPage,
+        on_delete=models.CASCADE,
+        related_name="articles",
+        help_text="Parent Wiki page (the singleton).",
+    )
+    title = models.CharField(max_length=200, help_text="Guide heading, e.g. 'Guild voting'.")
+    slug = models.SlugField(
+        max_length=220,
+        blank=True,
+        help_text="URL anchor for deep links. Auto-filled from the title when left blank.",
+    )
+    body = models.TextField(help_text="The guide body. Supports Markdown.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Order on the page; lower shows first.")
+    is_published = models.BooleanField(
+        default=True,
+        help_text="Uncheck to keep a draft off the public page while writing.",
+    )
+
+    objects = WikiArticleQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["page", "slug"], name="uq_wikiarticle_page_slug"),
+        ]
+
+    def __str__(self) -> str:
+        return self.title
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Slugify the title into an empty slug, de-duplicating within the page.
+
+        Business logic on the model, per house style. The slug stays stable once set (so an
+        existing deep link never breaks) because we only fill it when blank.
+        """
+        from django.utils.text import slugify
+
+        if not self.slug:
+            base = slugify(self.title) or "article"
+            slug = base
+            n = 2
+            siblings = WikiArticle.objects.filter(page=self.page).exclude(pk=self.pk)
+            while siblings.filter(slug=slug).exists():
+                slug = f"{base}-{n}"
+                n += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
 
 
 class GuildAnnouncementQuerySet(models.QuerySet):
@@ -5712,3 +5777,731 @@ class SlideshowSlide(models.Model):
         delete_orphan_on_replace(self, "image")
         normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)  # 2400px — wall-sized
         super().save(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Interactive space map — Floorplan / MapHotspot / SpaceRequest
+# ---------------------------------------------------------------------------
+
+
+class FloorplanQuerySet(models.QuerySet):
+    def published(self) -> FloorplanQuerySet:
+        """Only the floors members should see on the public map."""
+        return self.filter(is_published=True)
+
+
+class Floorplan(models.Model):
+    """One physical floor of the interactive space map.
+
+    The map is **drawn by the app**: every room is a styled shape positioned from its
+    hotspot's percentage coordinates, so it stays crisp at any zoom, follows the light/dark
+    theme, and colours itself from live :class:`Space` status. :attr:`image` is an *optional*
+    reference underlay for admins who want to trace against a scan — a floor with no image
+    is the normal case.
+
+    Ordered by ``sort_order`` and publish-gated: draft floors are visible only in the admin
+    placement editor. Because coordinates are percentages of the drawn canvas (not of a
+    picture), resizing or normalizing the underlay never moves a marker — but swapping in a
+    differently-cropped underlay makes the tracing guide disagree with the shapes, which is
+    what :attr:`image_changed` warns the editor about.
+    """
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Floor label shown on the map's floor switcher — e.g. 'Floor 1' or '2nd Floor'.",
+    )
+    image = models.ImageField(
+        upload_to="org/floorplans/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text=(
+            "Optional reference underlay shown faintly behind the drawn rooms — handy when tracing a "
+            "scanned plan. The map renders perfectly well without one."
+        ),
+    )
+    aspect_ratio = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal("1.50"),
+        validators=[MinValueValidator(Decimal("0.10")), MaxValueValidator(Decimal("10.00"))],
+        help_text="Shape of the drawn floor, width divided by height — 1.50 is half again as wide as it is tall.",
+    )
+    sort_order = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Ascending — lower numbers show first (left-most on the floor switcher).",
+    )
+    is_published = models.BooleanField(
+        default=False,
+        help_text="When on, this floor appears on the public map. Draft floors are editor-only.",
+    )
+    caption = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        help_text="Optional line shown under this floor's map.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this floor was added.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this floor was last edited.")
+
+    objects = FloorplanQuerySet.as_manager()
+
+    #: Transient (never persisted) — True when :meth:`save` wrote a *different* underlay
+    #: than the one already in the database. The placement editor reads it to warn that the
+    #: new picture no longer lines up behind rooms traced against the old one.
+    image_changed: bool = False
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+        verbose_name = "Floor plan"
+        verbose_name_plural = "Floor plans"
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.image_changed = self._image_differs_from_db()
+        delete_orphan_on_replace(self, "image")
+        normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        super().save(*args, **kwargs)
+
+    def _image_differs_from_db(self) -> bool:
+        """True when this instance carries a different image file than the stored row.
+
+        A brand-new row is not a "change" (there is nothing to misplace yet).
+        """
+        if self.pk is None:
+            return False
+        stored = Floorplan.objects.filter(pk=self.pk).values_list("image", flat=True).first()
+        if stored is None:
+            return False
+        return stored != self.image.name
+
+    #: Legend rows, in the order members read them: status slug → human label.
+    LEGEND_ROWS: tuple[tuple[str, str], ...] = (
+        ("available", "Available"),
+        ("occupied", "Occupied"),
+        ("maintenance", "Maintenance"),
+        ("info", "Shops & facilities"),
+    )
+
+    @property
+    def legend(self) -> list[tuple[str, str, int]]:
+        """The map key for this floor — ``(status slug, label, live count)``, zeroes dropped.
+
+        Counted in Python over the already-prefetched hotspots, so rendering the key costs
+        no extra query, and the numbers are always the live :class:`Space` statuses.
+        """
+        tally: dict[str, int] = {}
+        for hotspot in self.hotspots.all():
+            if hotspot.is_decorative:
+                continue
+            tally[hotspot.availability_class or "info"] = tally.get(hotspot.availability_class or "info", 0) + 1
+        return [(slug, label, tally[slug]) for slug, label in self.LEGEND_ROWS if tally.get(slug)]
+
+    @property
+    def list_filters(self) -> list[tuple[str, str, int]]:
+        """The accessible list's status filters — ``All`` first, then this floor's own colours.
+
+        Straight off :attr:`legend` (same prefetched hotspots, no extra query, same live
+        counts), so the chips can never disagree with the map key sitting above them. A
+        floor with nothing on it gets no chips at all — there is nothing to filter.
+        """
+        counts = self.legend
+        if not counts:
+            return []
+        return [("all", "All", sum(count for _slug, _label, count in counts)), *counts]
+
+    @property
+    def list_hotspots(self) -> list[MapHotspot]:
+        """This floor's markers ordered for the accessible list — actionable first.
+
+        Grouped by status in the same order members just read in the legend (available,
+        occupied, maintenance, then shops & facilities), so someone scanning for a space
+        to rent meets the free ones first instead of paging through the leased studios.
+        Within a status the editor's ``sort_order`` survives (the sort is stable), and the
+        already-prefetched hotspots are sorted in Python — no extra query.
+        """
+        rank = {slug: index for index, (slug, _label) in enumerate(self.LEGEND_ROWS)}
+        listed = (hotspot for hotspot in self.hotspots.all() if not hotspot.is_decorative)
+        return sorted(listed, key=lambda hotspot: rank[hotspot.availability_class or "info"])
+
+
+class MapHotspotQuerySet(models.QuerySet):
+    def for_map(self) -> MapHotspotQuerySet:
+        """Everything the map/list rendering touches, in one query (kills the marker N+1)."""
+        return self.select_related("space", "space__sublet_guild", "guild", "floorplan")
+
+
+class MapHotspot(models.Model):
+    """A positioned marker on a floor plan — either a rectangular region or a labelled pin.
+
+    Optionally bound to a :class:`Space` (studios, cubbies): status, price, size and
+    occupants are always *derived* from that Space and never stored here, so the
+    Airtable pull stays the single source of truth. Unbound hotspots are facility/info
+    markers (wood shop, restroom, exit) that carry their own label and description.
+    """
+
+    class Shape(models.TextChoices):
+        REGION = "region", "Region (rectangle)"
+        PIN = "pin", "Pin (labelled dot)"
+
+    class Kind(models.TextChoices):
+        STUDIO = "studio", "Studio (leasable)"
+        CUBBY = "cubby", "Shelf"
+        FACILITY = "facility", "Facility / shop"
+        INFO = "info", "Info marker"
+        RESTROOM = "restroom", "Restroom"
+        EXIT = "exit", "Emergency exit"
+        MEETING_ROOM = "meeting_room", "Meeting room"
+        EVENT_SPACE = "event_space", "Event space"
+        WALL = "wall", "Wall"
+
+    #: Kinds a member can request through the map (the rest are info-only or reservable).
+    REQUESTABLE_KINDS: tuple[str, ...] = (Kind.STUDIO, Kind.CUBBY)
+    #: Kinds whose CTA is a time-based reservation — owned by the reservations spec.
+    RESERVABLE_KINDS: tuple[str, ...] = (Kind.MEETING_ROOM, Kind.EVENT_SPACE)
+    #: Pure map decoration — drawn to shape the building, but never listed, counted in the
+    #: legend, clickable for members, or given a status. A wall is the only one today.
+    DECORATIVE_KINDS: tuple[str, ...] = (Kind.WALL,)
+
+    floorplan = models.ForeignKey(
+        Floorplan,
+        on_delete=models.CASCADE,
+        related_name="hotspots",
+        help_text="The floor this marker sits on.",
+    )
+    shape = models.CharField(
+        max_length=10,
+        choices=Shape.choices,
+        default=Shape.REGION,
+        help_text="A region is a clickable rectangle; a pin is a small labelled dot.",
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.STUDIO,
+        help_text="What this marker is — drives its colour and which action members see.",
+    )
+    space = models.ForeignKey(
+        "Space",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="hotspots",
+        help_text="The space this marker represents. Leave blank for facility/info markers.",
+    )
+    guild = models.ForeignKey(
+        "Guild",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Optional: link this marker to a guild's page (e.g. a shop that is a guild's home).",
+    )
+    label = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        help_text="Marker text for facility/info markers — e.g. 'Wood Shop'. Ignored when a space is linked.",
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional blurb shown in this marker's detail panel.",
+    )
+    x = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("50.00"),
+        help_text="Horizontal position as a percent of the image width (region: left edge; pin: centre).",
+    )
+    y = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("50.00"),
+        help_text="Vertical position as a percent of the image height (region: top edge; pin: centre).",
+    )
+    w = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Region width as a percent of the image width. Blank for pins.",
+    )
+    h = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Region height as a percent of the image height. Blank for pins.",
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Ascending — orders the accessible list and breaks ties for stacking.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this marker was added.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this marker was last edited or moved.")
+
+    objects = MapHotspotQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["floorplan__sort_order", "sort_order", "id"]
+        verbose_name = "Map marker"
+        verbose_name_plural = "Map markers"
+        indexes = [
+            models.Index(fields=["floorplan", "sort_order"], name="idx_maphotspot_floor_order"),
+            models.Index(fields=["space"], name="idx_maphotspot_space"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                name="ck_maphotspot_region_has_dims",
+                condition=(
+                    (Q(shape="region") & Q(w__isnull=False) & Q(h__isnull=False))
+                    | (Q(shape="pin") & Q(w__isnull=True) & Q(h__isnull=True))
+                ),
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_kind_display()} · {self.display_label} ({self.floorplan.name})"
+
+    @property
+    def is_decorative(self) -> bool:
+        """A wall or other pure-decoration marker: drawn on the map, never listed or clickable."""
+        return self.kind in self.DECORATIVE_KINDS
+
+    @property
+    def display_label(self) -> str:
+        """The marker's name — the linked space's code, else the free-text label."""
+        if self.space is not None:
+            return str(self.space)
+        return self.label
+
+    @property
+    def code_label(self) -> str:
+        """The short name written *inside* the drawn shape — a room is only so wide.
+
+        The space's bare code ("A12"), never its full description; the fuller
+        :attr:`display_label` belongs in the list, the detail panel and the accessible name,
+        where there is room for it.
+        """
+        if self.space is not None:
+            return self.space.space_id
+        return self.label
+
+    @property
+    def linked_guild(self) -> Guild | None:
+        """The guild this marker points at — an explicit link wins, else the space's sublet guild.
+
+        Lets a facility shop (Ceramics, Wood Shop) link straight to its guild's page while a
+        sublet studio still resolves through its :class:`Space`. The detail panel reads this
+        single source so both routes render the same link.
+        """
+        if self.guild_id is not None:
+            return self.guild
+        if self.space is not None:
+            return self.space.sublet_guild
+        return None
+
+    @property
+    def status(self) -> str | None:
+        """The linked space's status, or ``None`` for a facility/info marker."""
+        return self.space.status if self.space is not None else None
+
+    @property
+    def status_display(self) -> str:
+        """Human status used in the marker's aria-label and the detail header."""
+        if self.space is None:
+            return "Facility"
+        return self.space.get_status_display()
+
+    @property
+    def availability_class(self) -> str | None:
+        """``available`` / ``occupied`` / ``maintenance`` — ``None`` for info markers."""
+        return self.space.status if self.space is not None else None
+
+    @property
+    def full_price(self) -> Decimal | None:
+        """The linked space's monthly price, if it has one."""
+        return self.space.full_price if self.space is not None else None
+
+    @property
+    def price_display(self) -> str:
+        """The one place price copy is composed — never re-derive it ad hoc.
+
+        ``"$420.00/mo"`` when a price is known, ``"Price on request"`` for a space with
+        no derivable price, and ``""`` for a facility/info marker (which has no price).
+        """
+        if self.space is None:
+            return ""
+        price = self.full_price
+        if price is None:
+            return "Price on request"
+        return f"${price:.2f}/mo"
+
+    @property
+    def size_display(self) -> str:
+        """The linked space's size in plain words, or ``""`` when it has none recorded."""
+        space = self.space
+        if space is None:
+            return ""
+        if space.size_sqft is not None:
+            return f"{space.size_sqft:.0f} sq ft"
+        if space.width is not None and space.depth is not None:
+            return f"{space.width:.0f} × {space.depth:.0f} ft"
+        return ""
+
+    @property
+    def occupants(self) -> list[Member | Guild]:
+        """Current tenants of the linked space (empty for info markers)."""
+        return self.space.current_occupants if self.space is not None else []
+
+    @property
+    def occupant_names(self) -> list[str]:
+        """Display names of the current tenants — members by preferred name, guilds by name."""
+        return [getattr(tenant, "display_name", "") or str(tenant) for tenant in self.occupants]
+
+    @property
+    def cta_kind(self) -> str | None:
+        """Which call-to-action this marker offers: ``lease`` / ``cubby`` / ``reserve`` / ``None``."""
+        if self.kind == self.Kind.STUDIO:
+            return "lease"
+        if self.kind == self.Kind.CUBBY:
+            return "cubby"
+        if self.kind in self.RESERVABLE_KINDS:
+            return "reserve"
+        return None
+
+    @property
+    def cta_label(self) -> str:
+        """The button text for this marker's action, or ``""`` when it has none."""
+        return {
+            "lease": "Request to lease",
+            "cubby": "Request this space",
+            "reserve": "Reserve",
+        }.get(self.cta_kind or "", "")
+
+    @property
+    def is_requestable(self) -> bool:
+        """True when a member could ask for this marker's space right now."""
+        return (
+            self.cta_kind in ("lease", "cubby")
+            and self.space is not None
+            and self.space.status == Space.Status.AVAILABLE
+        )
+
+    @property
+    def search_text(self) -> str:
+        """Lowercased haystack the accessible list's search box matches against.
+
+        Everything a member would plausibly type to find a space: its code or name
+        ("A12"), a facility's own label ("Wood Shop"), and what kind of thing it is
+        ("cubby"). Composed here so the search agrees with what the row actually shows.
+        """
+        parts = [self.display_label, self.label, self.get_kind_display()]
+        return " ".join(part for part in parts if part).lower()
+
+    @property
+    def aria_label(self) -> str:
+        """The marker's accessible name — label, status, and price when there is one."""
+        base = f"{self.display_label} — {self.status_display}"
+        if self.price_display:
+            return f"{base}, {self.price_display}"
+        return base
+
+    #: A drawn room needs at least this much of the canvas before its size/price will fit.
+    FULL_TEXT_MIN_W = Decimal("5.0")
+    FULL_TEXT_MIN_H = Decimal("6.0")
+    #: Below this it is a colour block only — text would spill past the walls and read as noise.
+    LABEL_MIN_W = Decimal("1.5")
+    LABEL_MIN_H = Decimal("1.8")
+
+    @property
+    def detail_level(self) -> str:
+        """How much text the drawn shape can carry without overflowing its walls.
+
+        ``"full"`` — the room's name plus its size and price; ``"label"`` — the name alone;
+        ``"minimal"`` — nothing, because the shape is smaller than a word. Nothing is ever
+        lost: the accessible name (:attr:`aria_label`), the detail panel and the keyboard
+        list always carry the whole story, and the shape grows legible as the map is zoomed.
+        Pins are label-sized by definition — they size themselves to their text.
+        """
+        if self.shape == self.Shape.PIN or self.w is None or self.h is None:
+            return "label"
+        if self.w >= self.FULL_TEXT_MIN_W and self.h >= self.FULL_TEXT_MIN_H:
+            return "full"
+        if self.w >= self.LABEL_MIN_W and self.h >= self.LABEL_MIN_H:
+            return "label"
+        return "minimal"
+
+
+class InvalidSpaceRequestTransition(ValueError):
+    """Raised when a :class:`SpaceRequest` lifecycle method is called from a state that
+    does not permit it (e.g. approving an already-withdrawn request)."""
+
+
+class SpaceRequestQuerySet(models.QuerySet):
+    def pending(self) -> SpaceRequestQuerySet:
+        """Requests still awaiting a decision — also the reviewer queue's contents."""
+        return self.filter(state=SpaceRequest.ModerationState.PENDING)
+
+    def for_scope(self, scope: Any) -> SpaceRequestQuerySet:
+        """Narrow to what a reviewer may act on.
+
+        ``scope is True`` means an admin (every lease and cubby request); anything else
+        is a ``Guild`` queryset/iterable — a lead sees only cubby requests for spaces
+        their guild sublets.
+        """
+        if scope is True:
+            return self
+        return self.filter(kind=SpaceRequest.RequestKind.CUBBY, space__sublet_guild__in=scope)
+
+
+class SpaceRequest(models.Model):
+    """A member's ask for a studio lease or a cubby, routed to a human approver.
+
+    Django-owned and purely advisory: approving one notifies the member and tells the
+    approver to finalize the lease in Airtable — it never writes a :class:`Lease` or
+    mutates the :class:`Space`. Mirrors :class:`CommunityEvent`'s proposal→decision
+    machine, minus the changes-requested state (a request has no editable body, so
+    "not this one" is a decline with a note).
+    """
+
+    class ModerationState(models.TextChoices):
+        PENDING = "pending", "Pending review"
+        APPROVED = "approved", "Approved"
+        DECLINED = "declined", "Declined"
+        WITHDRAWN = "withdrawn", "Withdrawn"
+
+    class RequestKind(models.TextChoices):
+        LEASE = "lease", "Studio lease"
+        CUBBY = "cubby", "Cubby / shelf"
+
+    requester = models.ForeignKey(
+        "Member",
+        on_delete=models.CASCADE,
+        related_name="space_requests",
+        help_text="The member who asked for this space.",
+    )
+    space = models.ForeignKey(
+        "Space",
+        on_delete=models.PROTECT,
+        related_name="requests",
+        help_text="The space being requested. Price and owning guild are read from it.",
+    )
+    hotspot = models.ForeignKey(
+        MapHotspot,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="requests",
+        help_text="Which map marker the member clicked. Provenance only — the space is the real target.",
+    )
+    kind = models.CharField(
+        max_length=10,
+        choices=RequestKind.choices,
+        default=RequestKind.LEASE,
+        help_text="Whether this is a studio lease ask or a cubby/shelf ask. Sets who reviews it.",
+    )
+    state = models.CharField(
+        max_length=12,
+        choices=ModerationState.choices,
+        default=ModerationState.PENDING,
+        help_text="Where this request is in review.",
+    )
+    message = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional note from the member — shown to the reviewer and carried into the notification.",
+    )
+    reviewed_by = models.ForeignKey(
+        "auth.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who approved or declined this request.",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True, help_text="When the decision was recorded.")
+    review_notes = models.TextField(
+        blank=True,
+        default="",
+        help_text="The reviewer's reason. Required for a decline.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the member sent this request.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this request last changed.")
+
+    objects = SpaceRequestQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Space request"
+        verbose_name_plural = "Space requests"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["requester", "space"],
+                condition=Q(state="pending"),
+                name="uq_spacerequest_one_pending_per_member_space",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["state", "created_at"], name="idx_spacerequest_state_created"),
+            models.Index(fields=["space", "state"], name="idx_spacerequest_space_state"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.requester.display_name} → {self.space.space_id} ({self.get_state_display()})"
+
+    @property
+    def is_open(self) -> bool:
+        """True while the request is still awaiting a decision."""
+        return self.state == self.ModerationState.PENDING
+
+    @property
+    def review_audience_label(self) -> str:
+        """Plain-language description of who will read this request.
+
+        Every request now routes to the makerspace admins (studio or shelf, owned or not),
+        so the copy a member reads says exactly that. Reversible: restore the guild-lead
+        branch here together with the registry recipient to send shelf asks back to leads.
+        """
+        return "the makerspace admins"
+
+    def submit(self, *, requester: Member) -> None:
+        """Create the request and notify its reviewers. One-shot — there is no resubmit.
+
+        Raises:
+            InvalidSpaceRequestTransition: If this request has already been saved.
+        """
+        if self.pk is not None:
+            raise InvalidSpaceRequestTransition("A space request is submitted once — it cannot be re-submitted.")
+        self.requester = requester
+        self.state = self.ModerationState.PENDING
+        self.save()
+        self._notify_submitted()
+
+    def approve(self, *, reviewer: User) -> None:
+        """Approve the ask and tell the member. Does NOT create a Lease — a human
+        finalizes that in Airtable.
+
+        Raises:
+            InvalidSpaceRequestTransition: If the request is not pending.
+        """
+        self._require_pending("approve")
+        self.state = self.ModerationState.APPROVED
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.save(update_fields=["state", "reviewed_by", "reviewed_at", "updated_at"])
+        self._notify_decision("space.request_approved", period=f"spacereq:{self.pk}:approved")
+
+    def decline(self, *, reviewer: User, notes: str) -> None:
+        """Turn the ask down with a reason the member will read.
+
+        Raises:
+            InvalidSpaceRequestTransition: If the request is not pending.
+            ValueError: If ``notes`` is blank (a decline must explain why).
+        """
+        self._require_pending("decline")
+        if not (notes or "").strip():
+            raise ValueError("A decline needs a note so the member knows why.")
+        self.state = self.ModerationState.DECLINED
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        self.save(update_fields=["state", "reviewed_by", "reviewed_at", "review_notes", "updated_at"])
+        self._notify_decision("space.request_declined", period=f"spacereq:{self.pk}:declined")
+
+    def withdraw(self, *, by: User) -> None:
+        """The requester pulls their own pending ask back.
+
+        Keeps the row as an audit record (unlike a withdrawn event, which is deleted)
+        and releases the one-pending-per-space constraint so they can ask again later.
+
+        Raises:
+            InvalidSpaceRequestTransition: If the request isn't pending, or ``by`` is
+                not the requester.
+        """
+        self._require_pending("withdraw")
+        if self.requester.user_id != by.pk:
+            raise InvalidSpaceRequestTransition("Only the member who made a request can withdraw it.")
+        self.state = self.ModerationState.WITHDRAWN
+        self.save(update_fields=["state", "updated_at"])
+
+    def _require_pending(self, action: str) -> None:
+        if self.state != self.ModerationState.PENDING:
+            raise InvalidSpaceRequestTransition(f"Cannot {action} a space request in state '{self.state}'.")
+
+    def _review_url(self) -> str:
+        from django.urls import reverse
+
+        base = settings.MEMBER_BASE_URL.rstrip("/")
+        return f"{base}{reverse('hub_space_request_review_queue')}#request-{self.pk}"
+
+    def _map_url(self) -> str:
+        from django.urls import reverse
+
+        base = settings.MEMBER_BASE_URL.rstrip("/")
+        anchor = f"#hotspot-{self.hotspot_id}" if self.hotspot_id else ""
+        return f"{base}{reverse('hub_spaces')}{anchor}"
+
+    def _notify_submitted(self) -> None:
+        """Route a fresh request to the makerspace admins.
+
+        Both event keys (``space.lease_requested`` and ``space.cubby_requested``) now resolve
+        to the admins in the registry, so a studio lease and a shelf ask land in the same
+        inbox. Reversible: point ``space.cubby_requested`` back at ``GUILD_LEADERSHIP_OR_ADMINS``
+        to send shelf asks to the owning guild's leadership again. The ``guild`` context below
+        is still passed so that switch needs no change here.
+        """
+        from core.events.emit import emit
+
+        guild = self.space.sublet_guild
+        is_cubby = self.kind == self.RequestKind.CUBBY
+        event_key = "space.cubby_requested" if is_cubby else "space.lease_requested"
+        review_url = self._review_url()
+        emit(
+            event_key,
+            actor=self.requester.user,
+            target=self,
+            context={
+                "guild": guild if is_cubby else None,
+                "space_code": self.space.space_id,
+                "space_label": str(self.space),
+                "member_name": self.requester.display_name,
+                "requester_message": self.message,
+                "price_display": self._price_display(),
+                "audience_label": self.review_audience_label,
+                "review_url": review_url,
+            },
+            url=review_url,
+            period=f"spacereq:{self.pk}:submitted",
+        )
+
+    def _notify_decision(self, event_key: str, *, period: str) -> None:
+        """Tell the requester what a reviewer decided."""
+        from core.events.emit import emit
+
+        map_url = self._map_url()
+        emit(
+            event_key,
+            actor=self.reviewed_by,
+            target=self,
+            context={
+                "user": self.requester.user,
+                "space_code": self.space.space_id,
+                "space_label": str(self.space),
+                "price_display": self._price_display(),
+                "audience_label": self.review_audience_label,
+                "reviewer_notes": self.review_notes,
+                "space_url": map_url,
+            },
+            url=map_url,
+            period=period,
+        )
+
+    def _price_display(self) -> str:
+        """The space's monthly price for notification copy, or 'Price on request'."""
+        price = self.space.full_price
+        if price is None:
+            return "Price on request"
+        return f"${price:.2f}/mo"

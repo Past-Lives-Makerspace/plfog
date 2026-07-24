@@ -1,0 +1,91 @@
+{% extends guilds_page_base|default:"hub/base.html" %}
+{% load static %}
+{% block title %}Spaces{% endblock %}
+
+{% comment %}
+The Spaces page: the map (tab 1) and the full listings (tab 2).
+
+Both tabs live inside ONE plMap() scope, so the floor you pick on either tab is the floor
+the other one shows. The floor switcher therefore sits above the tab panes, not inside one.
+
+No-JavaScript behaviour is deliberate: the tab nav and the floor switcher are x-cloak'd
+(they do nothing without Alpine, so they never appear), while the listings render in full.
+A reader with no JavaScript gets the complete table rather than a dead set of buttons.
+{% endcomment %}
+
+{% block content %}
+
+{% if can_edit %}
+    {% url 'hub_org_map_edit' as map_edit_url %}
+    {% include "components/page_header.html" with title="Spaces" description="Every studio and shared area in the building — find one on the map, or browse the full list." action_url=map_edit_url action_label="Edit the map" action_class="hub-btn hub-btn--sm" %}
+{% else %}
+    {% include "components/page_header.html" with title="Spaces" description="Every studio and shared area in the building — find one on the map, or browse the full list." %}
+{% endif %}
+
+{% comment %}The space-request review queue is dormant: the view, URL and template still
+exist (see hub_space_request_review_queue) but the entry point here is intentionally removed.
+Requests now notify the makerspace admins directly by email and in the bell.{% endcomment %}
+
+{% if floorplans %}
+<div class="pl-map" x-data="plMap({{ floorplans.0.pk }}, '{{ active_tab }}')">
+
+    <nav class="pl-space-tabs" role="tablist" aria-label="Spaces views" x-cloak>
+        <button type="button" role="tab" class="vote-tab"
+                :class="pane === 'map' ? 'vote-tab--active' : ''"
+                :aria-selected="pane === 'map' ? 'true' : 'false'"
+                @click="setPane('map')">Map</button>
+        <button type="button" role="tab" class="vote-tab"
+                :class="pane === 'listings' ? 'vote-tab--active' : ''"
+                :aria-selected="pane === 'listings' ? 'true' : 'false'"
+                @click="setPane('listings')">Listings</button>
+    </nav>
+
+    {% if floorplans|length > 1 %}
+    <div class="pl-map-switch" role="tablist" aria-label="Choose a floor" x-cloak>
+        {% for f in floorplans %}
+        <button type="button" role="tab" class="pl-map-switch__btn"
+                :class="floor === {{ f.pk }} ? 'is-active' : ''"
+                :aria-selected="floor === {{ f.pk }} ? 'true' : 'false'"
+                @click="setFloor({{ f.pk }})">{{ f.name }}</button>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div x-show="pane === 'map'">
+        {% include "hub/_org_map.html" %}
+    </div>
+
+    <div x-show="pane === 'listings'">
+        {% include "hub/_space_listings.html" %}
+    </div>
+</div>
+{% else %}
+    {% include "hub/_org_floorplan.html" %}
+{% endif %}
+
+{% if my_space_requests %}
+<section class="pl-guild-section">
+    <h2 class="pl-guild-section__h2">Your space requests</h2>
+    <div class="hub-card pl-map-mine">
+        {% for r in my_space_requests %}
+        {% with pk_str=r.pk|stringformat:"s" %}
+        {% url 'hub_space_request_withdraw' r.pk as withdraw_url %}
+        <div class="pl-map-mine__row">
+            <span class="pl-map-mine__code">{{ r.space }}</span>
+            <span class="hub-pill hub-pill--warn">Pending</span>
+            <span class="hub-text-muted">with {{ r.review_audience_label }}</span>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                    @click="$dispatch('open-confirm', 'withdraw-mine-{{ pk_str }}')">Withdraw</button>
+            {% include "components/confirm_modal.html" with confirm_id="withdraw-mine-"|add:pk_str confirm_title="Withdraw this request?" confirm_message="Your request is cancelled. You can ask for this space again later." confirm_action_url=withdraw_url confirm_button_text="Withdraw request" %}
+        </div>
+        {% endwith %}
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% if floorplans %}
+{% include "components/modal.html" with modal_id="space-detail" modal_title="Space details" modal_size="md" %}
+<script src="{% static 'js/space_map.js' %}" defer></script>
+{% endif %}
+{% endblock %}
