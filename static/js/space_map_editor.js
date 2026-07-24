@@ -1,15 +1,16 @@
 /* Admin placement editor for the space map.
  *
- * Two jobs, both plain DOM (no dependency, no build step):
+ * Plain DOM, no build step. The editor owns the pointer on the drawn canvas:
  *
- *  1. Drag a marker (or drag out a box for a region) on the floor plan and POST the
- *     new {x, y, w, h} — percentages of the natural image — to the marker's position
- *     endpoint. Mirrors hero_cropper.js's shape: a permission-gated JSON save that
- *     touches only the coordinate columns, so it can never fight the structural
- *     formset below it.
- *  2. Clone the "+ Add" formset rows, and keep drag-and-drop image upload alive on
- *     cloned rows (cloned innerHTML never runs its own <script>, so the drop zones
- *     are driven from one delegated listener here).
+ *  1. Drag a tile (or Shift-drag a corner of a region) and POST the new {x, y, w, h} —
+ *     percentages of the canvas — to the marker's position endpoint. Mirrors hero_cropper.js:
+ *     a permission-gated JSON save that touches only the coordinate columns, so it can never
+ *     fight the modal editor.
+ *  2. Click a tile (a pointer-up with no drag) to open the "Edit marker" modal — its status
+ *     and every detail members see — loaded over htmx. "+ Add a marker" creates a centred tile
+ *     and opens the same modal. A saved/created/deleted tile swaps itself on the map out-of-band.
+ *  3. Keep drag-and-drop image upload alive on cloned floor rows (cloned innerHTML never runs
+ *     its own <script>, so the drop zones are driven from one delegated listener here).
  */
 (function () {
     'use strict';
@@ -50,87 +51,20 @@
             });
     }
 
-    // ── Click-to-set-status ──────────────────────────────────────────────
-    // A studio marker (one bound to a Space, marked with data-space-status) opens an
-    // inline status control on a click or keyboard activation — distinct from a drag,
-    // which is a pointer move. Picking a status POSTs to the marker's status endpoint;
-    // Airtable is the system of record, so the endpoint pushes the change back there.
+    // ── Click-to-edit ────────────────────────────────────────────────────
+    // A click (not a drag) on any tile loads its editor into the modal body over htmx, then
+    // opens the modal. The modal form owns saving, status, and delete; a saved/deleted tile
+    // comes back as an out-of-band swap, so the map stays in sync without a reload.
 
-    var STATUS_CLASSES = ['available', 'occupied', 'maintenance', 'info'];
-
-    function recolour(marker, status) {
-        STATUS_CLASSES.forEach(function (name) {
-            marker.classList.remove('pl-map-marker--' + name);
-        });
-        marker.classList.add('pl-map-marker--' + (status || 'info'));
-        marker.setAttribute('data-space-status', status);
-    }
-
-    function highlightCurrent(control, status) {
-        control.querySelectorAll('[data-set-status]').forEach(function (button) {
-            var isCurrent = button.getAttribute('data-set-status') === status;
-            button.classList.toggle('is-current', isCurrent);
-            button.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
+    function openEditor(url) {
+        window.htmx.ajax('GET', url, { target: '#marker-edit-body', swap: 'innerHTML' }).then(function () {
+            window.dispatchEvent(new CustomEvent('open-modal', { detail: 'marker-edit' }));
         });
     }
 
-    function openStatusControl(root, marker) {
-        var control = root.querySelector('[data-status-control]');
-        if (!control) return;
-        control.hidden = false;
-        control.setAttribute('data-for-marker', marker.getAttribute('data-editor-marker'));
-        var code = control.querySelector('[data-status-control-code]');
-        if (code) code.textContent = marker.getAttribute('data-code') || '';
-        highlightCurrent(control, marker.getAttribute('data-space-status'));
-        var first = control.querySelector('[data-set-status]');
-        if (first) first.focus();
-    }
-
-    function postStatus(root, marker, control, status) {
-        var template = root.getAttribute('data-status-url-template') || '';
-        var url = template.replace(/0\/status\/$/, marker.getAttribute('data-editor-marker') + '/status/');
-        fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': root.getAttribute('data-csrf') || ''
-            },
-            body: 'status=' + encodeURIComponent(status)
-        })
-            .then(function (response) {
-                return response.json().then(function (data) {
-                    return { ok: response.ok, data: data };
-                });
-            })
-            .then(function (result) {
-                if (!result.ok) {
-                    setStatus(root, result.data.error || "That status couldn't be saved.", true);
-                    return;
-                }
-                recolour(marker, result.data.availability_class);
-                highlightCurrent(control, result.data.availability_class);
-                if (result.data.warning) {
-                    setStatus(root, result.data.warning, true);
-                } else {
-                    setStatus(root, 'Status set to ' + result.data.status_display + '.', false);
-                }
-            })
-            .catch(function () {
-                setStatus(root, "That status couldn't be saved — check your connection.", true);
-            });
-    }
-
-    function initStatusControl(root) {
-        var control = root.querySelector('[data-status-control]');
-        if (!control) return;
-        control.addEventListener('click', function (event) {
-            var button = event.target.closest ? event.target.closest('[data-set-status]') : null;
-            if (!button) return;
-            var markerId = control.getAttribute('data-for-marker');
-            var marker = root.querySelector('[data-editor-marker="' + markerId + '"]');
-            if (!marker) return;
-            postStatus(root, marker, control, button.getAttribute('data-set-status'));
-        });
+    function editUrl(root, marker) {
+        var template = root.getAttribute('data-edit-url-template') || '';
+        return template.replace(/0\/edit\/$/, marker.getAttribute('data-editor-marker') + '/edit/');
     }
 
     function initStage(root) {
@@ -184,9 +118,8 @@
             active = null;
             if (stage.releasePointerCapture) stage.releasePointerCapture(event.pointerId);
             if (!moved) {
-                // A click, not a drag: offer the status control for a space-bound marker,
-                // and never re-save an unchanged position.
-                if (marker.getAttribute('data-space-status') !== null) openStatusControl(root, marker);
+                // A click, not a drag: open the tile's editor, and never re-save an unchanged position.
+                openEditor(editUrl(root, marker));
                 return;
             }
             var box = {
@@ -200,14 +133,29 @@
             save(root, marker, box);
         });
 
-        // Keyboard: Enter/Space on a focused studio marker opens the status control
-        // (pointer clicks are handled on pointerup above, so this never double-fires).
+        // Keyboard: Enter/Space on a focused tile opens its editor (pointer clicks are handled
+        // on pointerup above, so this never double-fires).
         stage.addEventListener('keydown', function (event) {
             if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
             var marker = event.target.closest ? event.target.closest('[data-editor-marker]') : null;
-            if (!marker || marker.getAttribute('data-space-status') === null) return;
+            if (!marker) return;
             event.preventDefault();
-            openStatusControl(root, marker);
+            openEditor(editUrl(root, marker));
+        });
+    }
+
+    // "+ Add a marker" creates a centred tile on the current floor and opens its editor.
+    function initAddMarker(root) {
+        document.querySelectorAll('[data-add-marker]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                var url = root.getAttribute('data-create-url');
+                var floorId = root.getAttribute('data-floor-id');
+                window.htmx
+                    .ajax('POST', url, { target: '#marker-edit-body', swap: 'innerHTML', values: { floor_id: floorId } })
+                    .then(function () {
+                        window.dispatchEvent(new CustomEvent('open-modal', { detail: 'marker-edit' }));
+                    });
+            });
         });
     }
 
@@ -258,9 +206,13 @@
     document.addEventListener('DOMContentLoaded', function () {
         document.querySelectorAll('.pl-map-editor').forEach(function (root) {
             initStage(root);
-            initStatusControl(root);
+            initAddMarker(root);
         });
         initAddButtons();
         initDropZones();
+        // A saved or deleted marker answers with an HX-Trigger that closes the modal.
+        document.body.addEventListener('close-marker-edit', function () {
+            window.dispatchEvent(new CustomEvent('close-modal', { detail: 'marker-edit' }));
+        });
     });
 })();

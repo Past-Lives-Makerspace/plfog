@@ -1,0 +1,6 @@
+{% comment %}
+The out-of-band response to deleting a marker: htmx removes the matching tile from the
+canvas. hx-swap-oob="delete" discards this element's content and deletes the element in
+the page that shares its id.
+{% endcomment %}
+<button id="hotspot-{{ pk }}" hx-swap-oob="delete"></button>

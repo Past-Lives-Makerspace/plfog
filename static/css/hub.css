@@ -5044,27 +5044,53 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-map-editor__status--error { color: #f0a0a0; }
 [data-theme="light"] .pl-map-editor__status--error { color: #b03030; }
 
-/* Click-to-set-status control on the placement editor. */
-.pl-map-status-control {
-  margin: 0.75rem 0 0.25rem;
+/* Click-a-tile marker editor (the "Edit marker" modal). */
+.pl-marker-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.pl-marker-edit__status {
+  margin: 0;
   padding: 0.75rem;
   border: 1px solid var(--hub-border);
   border-radius: 8px;
   background: var(--hub-elevated);
 }
-.pl-map-status-control__label {
-  margin: 0 0 0.5rem;
-  font-size: 0.9rem;
+.pl-marker-edit__status legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
   color: var(--hub-text);
 }
-.pl-map-status-control__btns {
+.pl-marker-edit__chips {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  margin-top: 0.5rem;
 }
-.pl-map-status-control__btns .pl-btn.is-current {
+.pl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--hub-border);
+  border-radius: 999px;
+  background: var(--hub-elevated);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.pl-chip input {
+  margin: 0;
+}
+.pl-chip:has(input:checked) {
   border-color: var(--hub-blue);
   background: var(--hub-blue-soft);
   color: var(--hub-text);
   font-weight: 600;
+}
+.pl-marker-edit__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: space-between;
 }

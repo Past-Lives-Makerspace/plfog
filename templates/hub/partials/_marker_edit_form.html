@@ -1,0 +1,45 @@
+{% comment %}
+The click-a-tile editor, loaded by htmx into #marker-edit-body (the "Edit marker" modal).
+
+Context: hotspot (the MapHotspot), form (MapHotspotEditForm), new_marker (set only when the
+marker was just created — appends its tile to the canvas out-of-band so the map shows it at
+once). A valid save answers elsewhere with the re-rendered tile + an HX-Trigger that closes
+this modal; an invalid save re-renders this partial with field errors, so the modal stays open.
+{% endcomment %}
+<form class="hub-form pl-marker-edit"
+      hx-post="{% url 'hub_map_hotspot_edit' hotspot.pk %}"
+      hx-target="#marker-edit-body" hx-swap="innerHTML">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+
+    {% if hotspot.space_id %}
+    <fieldset class="pl-marker-edit__status">
+        <legend class="pl-form-label">Status</legend>
+        <p class="pl-form-hint">Sets the colour members see, and pushes to Airtable.</p>
+        <div class="pl-marker-edit__chips" role="radiogroup" aria-label="Space status">
+            {% for value, label in form.status.field.choices %}
+            <label class="pl-chip pl-chip--status-{{ value }}">
+                <input type="radio" name="{{ form.status.html_name }}" value="{{ value }}"{% if form.status.value|stringformat:'s' == value|stringformat:'s' %} checked{% endif %}>
+                <span>{{ label }}</span>
+            </label>
+            {% endfor %}
+        </div>
+    </fieldset>
+    {% endif %}
+
+    {% include "components/form_field.html" with field=form.kind %}
+    {% include "components/form_field.html" with field=form.space field_hint="Required for a studio — this is the room members can request." %}
+    {% include "components/form_field.html" with field=form.label field_hint="Shown when no space is linked — e.g. 'Wood Shop'." %}
+    {% include "components/form_field.html" with field=form.description field_hint="The blurb members read in the tile's pop-up." %}
+    {% include "components/form_field.html" with field=form.guild %}
+    {% include "components/form_field.html" with field=form.shape field_hint="A pin is a labelled dot; a region is a room-shaped box you can size on the map." %}
+
+    <div class="pl-marker-edit__actions">
+        <button type="submit" class="pl-btn pl-btn--primary">Save marker</button>
+        <button type="button" class="pl-btn pl-btn--danger"
+                hx-post="{% url 'hub_map_hotspot_delete' hotspot.pk %}"
+                hx-confirm="Delete this marker? This can't be undone."
+                hx-target="#marker-edit-body" hx-swap="innerHTML">Delete marker</button>
+    </div>
+</form>
+{% if new_marker %}{% include "hub/partials/_editor_marker.html" with h=new_marker oob_swap="beforeend:#editor-stage" %}{% endif %}

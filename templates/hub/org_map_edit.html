@@ -125,109 +125,42 @@
     <h2 class="hub-detail-label pl-map-edit__h2">Place the markers</h2>
     <div class="pl-map-editor"
          data-position-url-template="{% url 'hub_map_hotspot_position' 0 %}"
-         data-status-url-template="{% url 'hub_map_hotspot_status' 0 %}"
+         data-edit-url-template="{% url 'hub_map_hotspot_edit' 0 %}"
+         data-create-url="{% url 'hub_map_hotspot_create' %}"
+         data-floor-id="{{ selected_floor.pk }}"
          data-csrf="{{ csrf_token }}">
       {% comment %}The editor drags against the same drawn canvas members see, not against a
       picture — data-editor-stage sits on the canvas so percentages mean the same thing in
       both places. aspect-ratio is per-floor data, hence the one inline style.{% endcomment %}
       <div class="pl-map-editor__stage">
-        <div class="pl-map-canvas" data-editor-stage style="aspect-ratio: {{ selected_floor.aspect_ratio|stringformat:'s' }};">
+        <div class="pl-map-canvas" id="editor-stage" data-editor-stage style="aspect-ratio: {{ selected_floor.aspect_ratio|stringformat:'s' }};">
           {% if selected_floor.image %}
           <img class="pl-map-underlay" src="{{ selected_floor.image.url }}" alt="" aria-hidden="true" draggable="false">
           {% endif %}
-          {% for h in hotspots %}
-          <button type="button" class="pl-map-marker pl-map-marker--{{ h.shape }} pl-map-marker--{{ h.availability_class|default:'info' }} pl-map-marker--text-{{ h.detail_level }}"
-                  data-editor-marker="{{ h.pk }}"
-                  data-shape="{{ h.shape }}"
-                  data-code="{{ h.code_label }}"{% if h.space_id %}
-                  data-space-status="{{ h.availability_class }}"{% endif %}
-                  style="left:{{ h.x|stringformat:'s' }}%; top:{{ h.y|stringformat:'s' }}%;{% if h.shape == 'region' %} width:{{ h.w|stringformat:'s' }}%; height:{{ h.h|stringformat:'s' }}%;{% endif %}"
-                  aria-label="{% if h.space_id %}Move or set status for{% else %}Move{% endif %} {{ h.display_label }}">
-              <span class="pl-map-marker__body" aria-hidden="true">
-                  <span class="pl-map-marker__code">{{ h.code_label }}</span>
-              </span>
-          </button>
-          {% endfor %}
+          {% for h in hotspots %}{% include "hub/partials/_editor_marker.html" with h=h %}{% endfor %}
         </div>
       </div>
       <p class="hub-text-muted pl-map-edit__hint">
-        Drag a marker to move it. Click a studio to set its status (Available, Occupied, or under Maintenance).
+        Drag a tile to move it (Shift-drag to resize a room). Click a tile to set its status and
+        edit the details members see — or to delete it.
       </p>
-      {# Click-to-set-status control, revealed by the editor JS when a studio marker is chosen. #}
-      <div class="pl-map-status-control" data-status-control hidden>
-        <p class="pl-map-status-control__label">
-          Status for <strong data-status-control-code></strong>
-        </p>
-        <div class="pl-map-status-control__btns" role="group" aria-label="Set space status">
-          <button type="button" class="pl-btn pl-btn--sm" data-set-status="available">Available</button>
-          <button type="button" class="pl-btn pl-btn--sm" data-set-status="occupied">Occupied</button>
-          <button type="button" class="pl-btn pl-btn--sm" data-set-status="maintenance">Maintenance</button>
-        </div>
-      </div>
       <p class="hub-text-muted pl-map-edit__hint" data-editor-status role="status"></p>
     </div>
   </div>
 
-  <form method="post" action="{% url 'hub_map_hotspots_save' %}" class="hub-form">
-    {% csrf_token %}
-    <input type="hidden" name="floor_id" value="{{ selected_floor.pk }}">
-    <div class="hub-card pl-map-edit__card">
-      <h2 class="hub-detail-label pl-map-edit__h2">Markers on {{ selected_floor.name }}</h2>
-      {% if not space_count %}
-      <p class="hub-text-muted pl-map-edit__hint">
-        No spaces have been pulled from Airtable yet, so studio markers have nothing to link to.
-        Facility and info markers still work.
-      </p>
-      {% endif %}
-      {{ hotspot_formset.management_form }}
-      <div id="marker-rows" class="pl-map-edit__rows">
-        {% for f in hotspot_formset %}
-          <div class="hub-card pl-map-edit__row">
-            {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-            {% include "components/form_field.html" with field=f.kind %}
-            {% include "components/form_field.html" with field=f.shape %}
-            {% include "components/form_field.html" with field=f.space field_hint="Required for studio markers." %}
-            {% include "components/form_field.html" with field=f.label field_hint="Used when no space is linked — e.g. 'Wood Shop'." %}
-            {% include "components/form_field.html" with field=f.description %}
-            {% include "components/form_field.html" with field=f.guild field_hint="Optional — link a shop or room straight to its guild's page." %}
-            {% if f.instance.pk %}
-              <div class="pl-map-edit__hidden">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-map-edit__delete"
-                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
-                Delete this marker
-              </button>
-            {% endif %}
-            {{ f.id }}
-            {{ f.sort_order }}
-          </div>
-        {% empty %}
-          <p class="hub-text-muted">No markers on this floor yet. Add one and drag it into place.</p>
-        {% endfor %}
-      </div>
-
-      <template id="marker-empty-template">
-        <div class="hub-card pl-map-edit__row">
-          {% with ef=hotspot_formset.empty_form %}
-            {% include "components/form_field.html" with field=ef.kind %}
-            {% include "components/form_field.html" with field=ef.shape %}
-            {% include "components/form_field.html" with field=ef.space %}
-            {% include "components/form_field.html" with field=ef.label %}
-            {% include "components/form_field.html" with field=ef.description %}
-            {% include "components/form_field.html" with field=ef.guild %}
-            {{ ef.id }}
-            {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-map-edit__delete" onclick="this.closest('.hub-card').remove();">Remove</button>
-          {% endwith %}
-        </div>
-      </template>
-
-      <button type="button" class="hub-btn hub-btn--sm pl-map-edit__add" data-add-row="marker">+ Add a marker</button>
-
-      <div class="pl-map-edit__save">
-        <button type="submit" class="pl-btn pl-btn--primary">Save markers</button>
-      </div>
+  <div class="hub-card pl-map-edit__card">
+    <div class="pl-map-edit__save">
+      <button type="button" class="pl-btn pl-btn--primary" data-add-marker>+ Add a marker</button>
     </div>
-  </form>
+    {% if not space_count %}
+    <p class="hub-text-muted pl-map-edit__hint">
+      No spaces have been pulled from Airtable yet, so studio tiles have nothing to link to.
+      Facility and info tiles still work.
+    </p>
+    {% endif %}
+  </div>
+
+  {% include "components/modal.html" with modal_id="marker-edit" modal_title="Edit marker" modal_size="md" %}
   {% else %}
   <div class="hub-card pl-map-edit__card">
     <p class="hub-text-muted pl-map-edit__empty">Add a floor first — markers need a plan to sit on.</p>

@@ -652,3 +652,190 @@ def describe_the_spaces_page_split():
         def it_still_lands_on_a_real_page(client: Client):
             """Space-request emails already carry /info/#hotspot-N links."""
             assert client.get("/info/", follow=True).status_code == 200
+
+
+@pytest.mark.django_db
+def describe_marker_editing():
+    """The click-a-tile editor modal: open, save (fields + status), create, and delete — all
+    admin-only, all answering with the out-of-band tile so the map stays in sync without a reload."""
+
+    def _edit_payload(hotspot, **overrides):
+        data = {
+            "kind": hotspot.kind,
+            "shape": hotspot.shape,
+            "space": str(hotspot.space_id or ""),
+            "label": hotspot.label,
+            "description": "",
+            "guild": "",
+            "status": "",
+        }
+        data.update(overrides)
+        return data
+
+    def it_403s_a_plain_member_opening_the_editor(client: Client):
+        _user_with_role("pm-ed")
+        hotspot = MapHotspotFactory()
+        client.login(username="pm-ed", password="pass")
+        assert client.get(reverse("hub_map_hotspot_edit", args=[hotspot.pk])).status_code == 403
+
+    def it_403s_a_plain_member_creating(client: Client):
+        _user_with_role("pm-cr")
+        floor = FloorplanFactory()
+        client.login(username="pm-cr", password="pass")
+        assert client.post(reverse("hub_map_hotspot_create"), {"floor_id": floor.pk}).status_code == 403
+
+    def it_403s_a_plain_member_deleting(client: Client):
+        _user_with_role("pm-del")
+        hotspot = MapHotspotFactory()
+        client.login(username="pm-del", password="pass")
+        assert client.post(reverse("hub_map_hotspot_delete", args=[hotspot.pk])).status_code == 403
+
+    def it_opens_the_editor_for_a_marker(client: Client):
+        _user_with_role("adm-ed", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(description="A cosy corner studio.")
+        client.login(username="adm-ed", password="pass")
+        response = client.get(reverse("hub_map_hotspot_edit", args=[hotspot.pk]))
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert "Save marker" in body
+        assert "A cosy corner studio." in body
+        assert 'name="status"' in body  # a space-bound marker shows the status chips
+
+    def it_hides_status_for_a_marker_with_no_space(client: Client):
+        _user_with_role("adm-ed2", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
+        client.login(username="adm-ed2", password="pass")
+        body = client.get(reverse("hub_map_hotspot_edit", args=[hotspot.pk])).content.decode()
+        assert 'name="status"' not in body
+
+    def it_saves_the_details_members_see_without_moving_the_tile(client: Client):
+        _user_with_role("adm-ed3", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        hotspot = MapHotspotFactory(x=Decimal("12.50"), y=Decimal("33.25"))
+        client.login(username="adm-ed3", password="pass")
+        response = client.post(
+            reverse("hub_map_hotspot_edit", args=[hotspot.pk]),
+            _edit_payload(hotspot, description="Now with a kiln.", guild=str(guild.pk), status=hotspot.space.status),
+        )
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert f'id="hotspot-{hotspot.pk}"' in body  # the recoloured tile comes back...
+        assert 'hx-swap-oob="true"' in body  # ...as an out-of-band replacement
+        assert response["HX-Trigger"] == "close-marker-edit"
+        hotspot.refresh_from_db()
+        assert hotspot.description == "Now with a kiln."
+        assert hotspot.guild_id == guild.pk
+        assert (hotspot.x, hotspot.y) == (Decimal("12.50"), Decimal("33.25"))
+
+    def it_saves_a_facility_tiles_label_and_guild(client: Client):
+        _user_with_role("adm-ed9", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
+        client.login(username="adm-ed9", password="pass")
+        response = client.post(
+            reverse("hub_map_hotspot_edit", args=[hotspot.pk]),
+            _edit_payload(hotspot, label="Ceramics Studio", guild=str(guild.pk)),
+        )
+        assert response.status_code == 200
+        hotspot.refresh_from_db()
+        assert hotspot.label == "Ceramics Studio"
+        assert hotspot.guild_id == guild.pk
+
+    def it_sets_the_status_and_pushes_to_airtable(client: Client, monkeypatch):
+        _user_with_role("adm-ed4", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.AVAILABLE))
+        pushed = []
+        monkeypatch.setattr(
+            "airtable_sync.service.sync_space_to_airtable",
+            lambda space: pushed.append(space.pk) or "recX",
+        )
+        client.login(username="adm-ed4", password="pass")
+        response = client.post(
+            reverse("hub_map_hotspot_edit", args=[hotspot.pk]),
+            _edit_payload(hotspot, status=Space.Status.OCCUPIED),
+        )
+        assert response.status_code == 200
+        hotspot.space.refresh_from_db()
+        assert hotspot.space.status == Space.Status.OCCUPIED
+        assert pushed == [hotspot.space_id]
+
+    def it_skips_the_airtable_push_when_the_status_is_unchanged(client: Client, monkeypatch):
+        _user_with_role("adm-ed8", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.AVAILABLE))
+        pushed = []
+        monkeypatch.setattr("airtable_sync.service.sync_space_to_airtable", lambda space: pushed.append(space.pk))
+        client.login(username="adm-ed8", password="pass")
+        client.post(
+            reverse("hub_map_hotspot_edit", args=[hotspot.pk]), _edit_payload(hotspot, status=Space.Status.AVAILABLE)
+        )
+        assert pushed == []
+
+    def it_keeps_the_local_change_when_the_airtable_push_fails(client: Client, monkeypatch):
+        _user_with_role("adm-ed5", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.AVAILABLE))
+
+        def boom(space):
+            raise RuntimeError("Airtable down")
+
+        monkeypatch.setattr("airtable_sync.service.sync_space_to_airtable", boom)
+        client.login(username="adm-ed5", password="pass")
+        response = client.post(
+            reverse("hub_map_hotspot_edit", args=[hotspot.pk]),
+            _edit_payload(hotspot, status=Space.Status.MAINTENANCE),
+        )
+        assert response.status_code == 200  # no 500 — the local change stands
+        hotspot.space.refresh_from_db()
+        assert hotspot.space.status == Space.Status.MAINTENANCE
+
+    def it_rerenders_with_errors_for_a_studio_with_no_space(client: Client):
+        _user_with_role("adm-ed6", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(description="Keep me")
+        client.login(username="adm-ed6", password="pass")
+        response = client.post(
+            reverse("hub_map_hotspot_edit", args=[hotspot.pk]),
+            _edit_payload(hotspot, kind=MapHotspot.Kind.STUDIO, space="", description="Changed but invalid"),
+        )
+        assert response.status_code == 200
+        assert "HX-Trigger" not in response  # the modal stays open
+        assert "Save marker" in response.content.decode()  # the form is re-rendered
+        hotspot.refresh_from_db()
+        assert hotspot.description == "Keep me"  # nothing saved
+
+    def it_404s_editing_an_unknown_marker(client: Client):
+        _user_with_role("adm-ed7", fog_role=Member.FogRole.ADMIN)
+        client.login(username="adm-ed7", password="pass")
+        assert client.get(reverse("hub_map_hotspot_edit", args=[99999])).status_code == 404
+
+    def it_creates_a_centred_tile_on_the_floor(client: Client):
+        _user_with_role("adm-cr", fog_role=Member.FogRole.ADMIN)
+        floor = FloorplanFactory()
+        client.login(username="adm-cr", password="pass")
+        response = client.post(reverse("hub_map_hotspot_create"), {"floor_id": floor.pk})
+        assert response.status_code == 200
+        marker = MapHotspot.objects.get(floorplan=floor)
+        assert (marker.x, marker.y) == (Decimal("50.00"), Decimal("50.00"))
+        body = response.content.decode()
+        assert "Save marker" in body  # the editor form for the new tile
+        assert 'hx-swap-oob="beforeend:#editor-stage"' in body  # the tile is appended to the map
+
+    def it_404s_creating_on_an_unknown_floor(client: Client):
+        _user_with_role("adm-cr2", fog_role=Member.FogRole.ADMIN)
+        client.login(username="adm-cr2", password="pass")
+        assert client.post(reverse("hub_map_hotspot_create"), {"floor_id": "9999"}).status_code == 404
+
+    def it_deletes_a_marker(client: Client):
+        _user_with_role("adm-del", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory()
+        client.login(username="adm-del", password="pass")
+        response = client.post(reverse("hub_map_hotspot_delete", args=[hotspot.pk]))
+        assert response.status_code == 200
+        assert not MapHotspot.objects.filter(pk=hotspot.pk).exists()
+        body = response.content.decode()
+        assert f'id="hotspot-{hotspot.pk}"' in body
+        assert 'hx-swap-oob="delete"' in body
+        assert response["HX-Trigger"] == "close-marker-edit"
+
+    def it_404s_deleting_an_unknown_marker(client: Client):
+        _user_with_role("adm-del2", fog_role=Member.FogRole.ADMIN)
+        client.login(username="adm-del2", password="pass")
+        assert client.post(reverse("hub_map_hotspot_delete", args=[99999])).status_code == 404

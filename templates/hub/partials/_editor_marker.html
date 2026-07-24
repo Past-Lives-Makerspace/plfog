@@ -1,0 +1,26 @@
+{% comment %}
+One marker as it appears on the *admin* edit canvas — the click-a-tile target.
+
+Params (via {% include ... with %}):
+  h         — the MapHotspot
+  oob_swap  — optional hx-swap-oob value for an out-of-band response:
+              "true" replaces this tile after a save; "beforeend:#editor-stage"
+              appends a freshly-created tile to the canvas.
+
+Unlike the member tile (_space_marker.html) this one carries no hx-get: the editor JS
+owns the pointer (drag = move, click = open the edit modal), so htmx must not also fire
+on the click. Position is inline because coordinates are per-marker data.
+{% endcomment %}
+<button type="button"
+        id="hotspot-{{ h.pk }}"{% if oob_swap %} hx-swap-oob="{{ oob_swap }}"{% endif %}
+        class="pl-map-marker pl-map-marker--{{ h.shape }} pl-map-marker--{{ h.availability_class|default:'info' }} pl-map-marker--text-{{ h.detail_level }}"
+        data-editor-marker="{{ h.pk }}"
+        data-shape="{{ h.shape }}"
+        data-code="{{ h.code_label }}"
+        data-space-status="{{ h.availability_class|default:'' }}"
+        style="left:{{ h.x|stringformat:'s' }}%; top:{{ h.y|stringformat:'s' }}%;{% if h.shape == 'region' %} width:{{ h.w|stringformat:'s' }}%; height:{{ h.h|stringformat:'s' }}%;{% endif %}"
+        aria-label="Edit {{ h.display_label }}">
+    <span class="pl-map-marker__body" aria-hidden="true">
+        <span class="pl-map-marker__code">{{ h.code_label }}</span>
+    </span>
+</button>

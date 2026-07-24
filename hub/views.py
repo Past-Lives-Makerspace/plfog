@@ -6,6 +6,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
+from decimal import Decimal
 from typing import Any, cast
 
 from django.utils import timezone as dj_timezone
@@ -5360,3 +5361,103 @@ def map_hotspot_status(request: HttpRequest, pk: int) -> HttpResponse:
     if not airtable_ok:
         payload["warning"] = "Saved here, but the Airtable push failed — it may revert on the next sync."
     return JsonResponse(payload)
+
+
+def _render_marker_editor(request: HttpRequest, hotspot: Any, form: Any, *, new_marker: Any = None) -> HttpResponse:
+    """Render the click-a-tile modal form. ``new_marker`` appends its tile to the map (OOB)."""
+    return render(
+        request,
+        "hub/partials/_marker_edit_form.html",
+        {"hotspot": hotspot, "form": form, "new_marker": new_marker},
+    )
+
+
+def _apply_marker_status(request: HttpRequest, space: Any, target: str) -> None:
+    """Set a space's status from the marker modal and push it to Airtable (the system of record).
+
+    A no-op when the status hasn't changed. An Airtable outage keeps the local change and warns the
+    admin rather than failing the save — same posture as ``map_hotspot_status``.
+    """
+    if space.status == target:
+        return
+    space.status = target
+    space.save(update_fields=["status"])
+    if not _push_space_status_to_airtable(space):
+        messages.warning(request, "Status saved here, but the Airtable push failed — it may revert on the next sync.")
+
+
+@login_required
+def map_hotspot_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    """Open or save one marker's editor — the map's click-a-tile modal. Admin only.
+
+    GET returns the modal form. A valid POST saves the marker's fields and, for a space-bound
+    marker, applies the chosen status; it answers with the re-rendered tile (an ``hx-swap-oob``
+    replacement so the map recolors and relabels) and an ``HX-Trigger`` that closes the modal. An
+    invalid POST re-renders the form with its errors so the modal stays open. Coordinates are never
+    touched here — dragging owns them (``map_hotspot_position``).
+    """
+    from hub.forms import MapHotspotEditForm
+    from membership.models import MapHotspot
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    hotspot = get_object_or_404(MapHotspot.objects.select_related("space", "floorplan"), pk=pk)
+    if request.method != "POST":
+        return _render_marker_editor(request, hotspot, MapHotspotEditForm(instance=hotspot))
+    form = MapHotspotEditForm(request.POST, instance=hotspot)
+    if not form.is_valid():
+        return _render_marker_editor(request, hotspot, form)
+    hotspot = form.save()
+    if hotspot.space_id and form.cleaned_data["status"]:
+        _apply_marker_status(request, hotspot.space, form.cleaned_data["status"])
+    response = render(request, "hub/partials/_editor_marker.html", {"h": hotspot, "oob_swap": "true"})
+    response["HX-Trigger"] = "close-marker-edit"
+    return response
+
+
+@login_required
+@require_POST
+def map_hotspot_create(request: HttpRequest) -> HttpResponse:
+    """Drop a new marker on a floor and open its editor. Admin only.
+
+    The map-first "+ Add a marker": creates a centred info pin, then answers with the editor form
+    (into the modal) plus an ``hx-swap-oob`` copy of the new tile appended to the drawn canvas. The
+    admin sets its kind, linked space, and label in the modal, and drags it into place.
+    """
+    from hub.forms import MapHotspotEditForm
+    from membership.models import Floorplan, MapHotspot
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    floor = get_object_or_404(Floorplan, pk=request.POST.get("floor_id") or 0)
+    hotspot = MapHotspot.objects.create(
+        floorplan=floor,
+        kind=MapHotspot.Kind.INFO,
+        shape=MapHotspot.Shape.PIN,
+        label="New marker",
+        x=Decimal("50.00"),
+        y=Decimal("50.00"),
+    )
+    return _render_marker_editor(request, hotspot, MapHotspotEditForm(instance=hotspot), new_marker=hotspot)
+
+
+@login_required
+@require_POST
+def map_hotspot_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Delete one marker from the map. Admin only.
+
+    The modal's Delete: removes the marker and answers with an ``hx-swap-oob`` delete for its tile
+    plus an ``HX-Trigger`` that closes the modal. The floor and its other markers are untouched.
+    """
+    from membership.models import MapHotspot
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    hotspot = get_object_or_404(MapHotspot, pk=pk)
+    hotspot.delete()
+    response = render(request, "hub/partials/_editor_marker_deleted.html", {"pk": pk})
+    response["HX-Trigger"] = "close-marker-edit"
+    return response

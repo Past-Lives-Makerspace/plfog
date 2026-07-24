@@ -40,6 +40,7 @@ from membership.models import (
     OrientationSlot,
     Skill,
     SkillCategory,
+    Space,
     SpaceRequest,
     SlideshowSlide,
     SlideshowZone,
@@ -2323,6 +2324,33 @@ class MapHotspotForm(forms.ModelForm):
 
 
 MapHotspotFormSet = forms.inlineformset_factory(Floorplan, MapHotspot, form=MapHotspotForm, extra=0, can_delete=True)
+
+
+class MapHotspotEditForm(MapHotspotForm):
+    """One marker's editor, opened by clicking its tile on the map.
+
+    The map-first replacement for the old row-per-marker formset: an admin clicks a tile and
+    edits everything members see about it — the same structural fields as :class:`MapHotspotForm`
+    plus ``status``. ``status`` is not a marker field; it lives on the linked :class:`Space`
+    (Airtable's system of record), so the *view* applies it after ``save()`` and the field is
+    ignored for a marker with no space. Coordinates stay absent for the same two-write-path
+    reason as the parent form — dragging owns ``x/y/w/h``.
+    """
+
+    status = forms.ChoiceField(
+        required=False,
+        choices=Space.Status.choices,
+        label="Status",
+        help_text="Only a marker linked to a space carries a status.",
+    )
+
+    class Meta(MapHotspotForm.Meta):
+        fields = ["kind", "shape", "space", "label", "description", "guild"]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and self.instance.space_id:
+            self.fields["status"].initial = self.instance.space.status
 
 
 class MapHotspotPositionForm(forms.Form):

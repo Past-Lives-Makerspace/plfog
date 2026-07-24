@@ -8,6 +8,7 @@ from decimal import Decimal
 import pytest
 
 from hub.forms import (
+    MapHotspotEditForm,
     MapHotspotForm,
     MapHotspotPositionForm,
     SpaceRequestDecisionForm,
@@ -204,3 +205,55 @@ def describe_SpaceRequestDecisionForm():
     def it_has_no_changes_requested_outcome():
         # A space request has no editable body — "not this one" is a decline with a note.
         assert not SpaceRequestDecisionForm({"decision": "changes", "notes": "Fix it"}).is_valid()
+
+
+@pytest.mark.django_db
+def describe_MapHotspotEditForm():
+    """The click-a-tile editor form: the same structural validation plus a status field that
+    prefills from the linked space and is ignored for a marker with no space."""
+
+    def _edit_data(**overrides):
+        data = {
+            "kind": MapHotspot.Kind.STUDIO,
+            "shape": MapHotspot.Shape.REGION,
+            "space": "",
+            "label": "",
+            "description": "",
+            "guild": "",
+            "status": "",
+        }
+        data.update(overrides)
+        return data
+
+    def it_prefills_status_from_the_linked_space():
+        hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.OCCUPIED))
+        form = MapHotspotEditForm(instance=hotspot)
+        assert form.fields["status"].initial == Space.Status.OCCUPIED
+
+    def it_has_no_status_for_a_marker_with_no_space():
+        hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
+        form = MapHotspotEditForm(instance=hotspot)
+        assert form.fields["status"].initial is None
+
+    def it_saves_the_info_fields():
+        guild = GuildFactory()
+        hotspot = MapHotspotFactory()
+        form = MapHotspotEditForm(
+            _edit_data(space=str(hotspot.space_id), description="Kiln room.", guild=str(guild.pk)),
+            instance=hotspot,
+        )
+        assert form.is_valid(), form.errors
+        saved = form.save()
+        assert saved.description == "Kiln room."
+        assert saved.guild_id == guild.pk
+
+    def it_still_requires_a_space_for_a_studio():
+        hotspot = MapHotspotFactory()
+        form = MapHotspotEditForm(_edit_data(kind=MapHotspot.Kind.STUDIO, space=""), instance=hotspot)
+        assert not form.is_valid()
+        assert "space" in form.errors
+
+    def it_accepts_a_blank_status():
+        hotspot = MapHotspotFactory()
+        form = MapHotspotEditForm(_edit_data(space=str(hotspot.space_id), status=""), instance=hotspot)
+        assert form.is_valid(), form.errors
