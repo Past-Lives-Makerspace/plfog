@@ -6,6 +6,16 @@ VERSION = "0.23.39"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
+        "version": "0.23.39",
+        "date": "2026-07-27",
+        "title": "Cleaner Discord posts and event calendar",
+        "changes": [
+            "The weekly class and calendar digests no longer repeat several times on Monday mornings.",
+            "The community calendar Discord channel now lists events only. Classes stay in the classes channel.",
+            "Fixed a class that was showing the wrong instructor's name.",
+        ],
+    },
+    {
         "version": "0.23.38",
         "date": "2026-07-24",
         "title": "Explore the makerspace on an interactive map",
