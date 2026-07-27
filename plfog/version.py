@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.40"
+VERSION = "0.23.41"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.41",
+        "date": "2026-07-27",
+        "title": "Two-finger swipe to move around the Spaces map",
+        "changes": [
+            "On the Spaces map, a two-finger trackpad swipe (or a scroll) now pans around the floor, "
+            "the way you'd expect on a Mac. Pinch or Ctrl+scroll still zooms, and the plus and minus "
+            "buttons work as before.",
+        ],
+    },
     {
         "version": "0.23.40",
         "date": "2026-07-27",
