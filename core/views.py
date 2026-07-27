@@ -167,6 +167,17 @@ def robots_txt(request: HttpRequest) -> HttpResponse:
     return HttpResponse("\n".join(lines) + "\n", content_type="text/plain")
 
 
+@require_GET
+def privacy_policy(request: HttpRequest) -> HttpResponse:
+    """Public privacy policy page.
+
+    Deliberately reachable without login: Google Play's crawler and app
+    reviewers must be able to fetch it, it is linked from the store listing,
+    and it satisfies the Play Data safety requirement for a policy URL.
+    """
+    return render(request, "core/privacy_policy.html")
+
+
 def restart_login(request: HttpRequest) -> HttpResponse:
     """Clear any pending login stage and redirect to the login page."""
     clear_login(request)

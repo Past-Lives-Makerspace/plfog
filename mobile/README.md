@@ -2,7 +2,7 @@
 
 A thin native wrapper that ships the Past Lives Makerspace hub to the App Store
 and Google Play. It does **not** reimplement the app — the webview loads the live
-Django-served site (`https://pastlives.app`), so all UI, auth, and features come
+Django-served site (`https://members.pastlives.space`), so all UI, auth, and features come
 straight from the existing web app and update instantly with no store re-review.
 
 - **App ID:** `app.pastlives.hub`
@@ -13,7 +13,7 @@ straight from the existing web app and update instantly with no store re-review.
 
 ```
 mobile/
-├── capacitor.config.ts   # appId, appName, server.url → pastlives.app
+├── capacitor.config.ts   # appId, appName, server.url → members.pastlives.space
 ├── www/index.html        # splash/offline fallback (rarely shown)
 ├── android/              # generated native Android project (committed)
 └── ios/                  # generated on the Mac (see below) — not committed from WSL

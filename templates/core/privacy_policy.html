@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Privacy Policy — Past Lives Makerspace{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/privacy.css' %}">
+{% endblock %}
+
+{% block content %}
+<article class="pl-legal">
+    <h1>Privacy Policy</h1>
+    <p class="pl-legal__updated">Last updated: July 27, 2026</p>
+
+    <p>
+        This policy explains what information Past Lives Makerspace collects through its
+        member app and website, how we use it, and the choices you have. We keep it
+        short and plain. If anything is unclear, email us at
+        <a href="mailto:info@pastlives.space">info@pastlives.space</a>.
+    </p>
+
+    <h2>Who this covers</h2>
+    <p>
+        This app is the member hub for Past Lives Makerspace, a community workshop in
+        Portland, Oregon. The mobile app shows the same website you use in a browser, so
+        this policy applies whether you use the app or the site.
+    </p>
+
+    <h2>What we collect</h2>
+    <ul>
+        <li><strong>Account.</strong> The email address you sign in with (and any extra addresses you add). We sign you in with a one-time code sent to your email, so we do not store a password.</li>
+        <li><strong>Profile you choose to share.</strong> Your name, phone number, Discord handle, pronouns, photo, and a short about-you. You control what other members can see with a per-field public or hidden toggle on each item.</li>
+        <li><strong>Membership and billing.</strong> Your membership status and plan. Payments are processed by Stripe; your card details go directly to Stripe and are not stored on our servers.</li>
+        <li><strong>Things kept private from other members.</strong> Your legal name, billing details, and emergency contact are used only for running the makerspace and are never shown on your member card.</li>
+        <li><strong>Communications.</strong> Emails we send you (sign-in codes, announcements, class details) and, if you opt in, our newsletter.</li>
+        <li><strong>Notifications.</strong> If you turn on push notifications, we store the subscription your device needs to receive them.</li>
+        <li><strong>Usage and device.</strong> Basic technical data such as your IP address, browser or device type, and pages viewed, through standard server logs and analytics.</li>
+    </ul>
+
+    <h2>How we use it</h2>
+    <ul>
+        <li>To sign you in and run your membership.</li>
+        <li>To show the member directory, guilds, classes, calendar, and announcements.</li>
+        <li>To process payments and send receipts.</li>
+        <li>To send messages you have asked for or that are needed to run the space.</li>
+        <li>To keep the app secure and working, and to understand how it is used.</li>
+    </ul>
+
+    <h2>When we share it</h2>
+    <p>
+        We do not sell your personal information. We share it only with the service
+        providers that help us run the app, and only as needed:
+    </p>
+    <ul>
+        <li><strong>Stripe</strong> — payments and billing.</li>
+        <li><strong>Mailchimp</strong> — our opt-in newsletter.</li>
+        <li><strong>Google Analytics</strong> — anonymous, aggregate usage.</li>
+        <li><strong>Discord</strong> — only if you choose to link your Discord account.</li>
+        <li><strong>Email and hosting providers</strong> — to deliver messages and serve the app.</li>
+    </ul>
+    <p>We may also share information if the law requires it, or to protect the safety of our members and staff.</p>
+
+    <h2>Your choices</h2>
+    <ul>
+        <li>Change what other members see anytime with the public or hidden toggles in your profile settings.</li>
+        <li>Unsubscribe from the newsletter using the link in any newsletter email.</li>
+        <li>Turn push notifications on or off in your settings.</li>
+        <li>Ask us to view, correct, or delete your information by emailing <a href="mailto:info@pastlives.space">info@pastlives.space</a>.</li>
+    </ul>
+
+    <h2>How long we keep it</h2>
+    <p>
+        We keep your information while you are a member and for a reasonable period
+        afterward for records and legal reasons. You can ask us to delete your account
+        at any time.
+    </p>
+
+    <h2>Security</h2>
+    <p>
+        We use reasonable measures to protect your information, including passwordless
+        sign-in. No system is perfectly secure, but we work to keep your data safe.
+    </p>
+
+    <h2>Children</h2>
+    <p>
+        The app is intended for makerspace members. It is not directed at children under
+        13, and we do not knowingly collect their information. If you believe a child has
+        given us information, contact us and we will remove it.
+    </p>
+
+    <h2>Changes</h2>
+    <p>
+        If we update this policy we will change the date above, and we will let members
+        know if the changes are significant.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+        Past Lives Makerspace, Portland, Oregon<br>
+        <a href="mailto:info@pastlives.space">info@pastlives.space</a>
+    </p>
+</article>
+{% endblock %}

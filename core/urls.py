@@ -25,6 +25,8 @@ urlpatterns = [
     path("accounts/find-account/", views.find_account, name="find_account"),
     # Public newsletter signup (Mailchimp)
     path("newsletter/", views.newsletter_signup, name="newsletter_signup"),
+    # Public privacy policy — no login (linked from the app-store listing + footer)
+    path("privacy/", views.privacy_policy, name="privacy_policy"),
     # Service worker (served with Service-Worker-Allowed header)
     path("sw.js", views.service_worker, name="service_worker"),
     # WebPush endpoints

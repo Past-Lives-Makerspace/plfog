@@ -670,6 +670,107 @@ def describe_AdminRedirectAccountAdapter():
             ):
                 adapter.pre_login(request, user, signup=True)  # Should not raise
 
+    def describe_generate_login_code():
+        """App-store review carve-out: one designated email gets a fixed code.
+
+        Everyone else — and every environment without both env vars set — falls
+        through to allauth's random code. The carve-out is proven by patching the
+        base ``generate_login_code`` to a sentinel and asserting delegation.
+        """
+
+        REVIEW_EMAIL = "play-review@pastlives.space"
+        REVIEW_CODE = "PLR-9f3k2m7q"
+
+        def _request(rf, email):
+            """Build the request allauth would have in context during a code request.
+
+            ``email`` of None means a GET with no email field (nothing submitted).
+            """
+            if email is None:
+                return rf.get("/accounts/login/code/")
+            return rf.post("/accounts/login/code/", data={"email": email})
+
+        def _generate(rf, email):
+            """Run generate_login_code with the given request in allauth's context.
+
+            allauth 65 sources the request from ``allauth.core.context``, not the
+            adapter constructor, so the request is injected there (as the real
+            middleware does), mirroring the send_mail specs above.
+            """
+            from allauth.core import context as allauth_context
+
+            from plfog.adapters import AdminRedirectAccountAdapter
+
+            adapter = AdminRedirectAccountAdapter()
+            request = _request(rf, email) if email is not ... else None
+            with patch.object(allauth_context, "request", request):
+                return adapter.generate_login_code()
+
+        def _generate_delegating(rf, email):
+            """Same as _generate but with the base random generator stubbed to a sentinel."""
+            from plfog.adapters import AdminRedirectAccountAdapter
+
+            with patch.object(AdminRedirectAccountAdapter.__bases__[0], "generate_login_code", return_value="RANDOM"):
+                return _generate(rf, email)
+
+        def it_returns_the_fixed_code_for_the_review_email(rf, monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
+            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+
+            assert _generate(rf, REVIEW_EMAIL) == REVIEW_CODE
+
+        def it_normalizes_whitespace_and_case_on_both_sides(rf, monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_EMAIL", "  Play-Review@PastLives.Space  ")
+            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+
+            assert _generate(rf, "  play-review@pastlives.space  ") == REVIEW_CODE
+
+        def it_delegates_to_random_for_any_other_email(rf, monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
+            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+
+            assert _generate_delegating(rf, "member@example.com") == "RANDOM"
+
+        def it_delegates_to_random_when_env_is_not_set(rf, monkeypatch):
+            monkeypatch.delenv("PLAY_REVIEW_EMAIL", raising=False)
+            monkeypatch.delenv("PLAY_REVIEW_CODE", raising=False)
+
+            assert _generate_delegating(rf, REVIEW_EMAIL) == "RANDOM"
+
+        def it_delegates_when_only_the_email_env_is_set(rf, monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
+            monkeypatch.delenv("PLAY_REVIEW_CODE", raising=False)
+
+            assert _generate_delegating(rf, REVIEW_EMAIL) == "RANDOM"
+
+        def it_delegates_when_only_the_code_env_is_set(rf, monkeypatch):
+            monkeypatch.delenv("PLAY_REVIEW_EMAIL", raising=False)
+            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+
+            assert _generate_delegating(rf, REVIEW_EMAIL) == "RANDOM"
+
+        def it_delegates_when_there_is_no_request(rf, monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
+            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+
+            # email sentinel ``...`` forces the context request to None
+            assert _generate_delegating(rf, ...) == "RANDOM"
+
+        def it_delegates_when_no_email_is_submitted(rf, monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
+            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+
+            assert _generate_delegating(rf, None) == "RANDOM"  # GET, no email field
+
+        def it_logs_when_issuing_the_review_code(rf, monkeypatch, caplog):
+            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
+            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+
+            with caplog.at_level(logging.INFO, logger="plfog.adapters"):
+                _generate(rf, REVIEW_EMAIL)
+
+            assert "Issuing fixed review login code" in caplog.text
+
     def describe_send_mail():
         def it_adds_dev_message_in_debug_mode(rf, settings):
             from allauth.core import context as allauth_context
