@@ -29,6 +29,12 @@ def describe_find_instructor():
         MemberFactory(preferred_name="", full_legal_name="Billy Bims")
         assert _find_instructor("Billy") is None
 
+    def it_refuses_two_active_members_with_the_same_exact_name():
+        # Exact match must also refuse to guess when it is not unique.
+        MemberFactory(preferred_name="Billy", full_legal_name="William Ortega")
+        MemberFactory(preferred_name="Billy", full_legal_name="Billy Roberts")
+        assert _find_instructor("Billy") is None
+
     def it_links_a_unique_substring_match():
         only = MemberFactory(preferred_name="", full_legal_name="Billy O'Brien")
         assert _find_instructor("Billy") == only

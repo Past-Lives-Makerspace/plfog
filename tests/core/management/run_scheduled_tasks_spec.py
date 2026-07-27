@@ -22,15 +22,16 @@ def _boom_on_voting(cmd, *args, **kwargs):
         raise RuntimeError("kaboom")
 
 
-def _tasks_called(hour: int, side_effect=None, day: int = 1) -> list[str]:
-    """Run the dispatcher at a fixed UTC hour with ``call_command`` mocked; return the dispatched
+def _tasks_called(hour: int, side_effect=None, day: int = 1, minute: int = 0) -> list[str]:
+    """Run the dispatcher at a fixed UTC time with ``call_command`` mocked; return the dispatched
     command names. Pass ``side_effect`` to make a wrapped command raise (failure-path tests).
-    ``day`` picks the January 2026 date — 1 is a Thursday, 5 is a Monday (WEEKLY-gate tests)."""
+    ``day`` picks the January 2026 date — 1 is a Thursday, 5 is a Monday (WEEKLY-gate tests).
+    ``minute`` moves the tick within the hour (dedup-at-a-mid-hour-tick tests)."""
     with (
         patch("core.management.commands.run_scheduled_tasks.call_command", side_effect=side_effect) as cc,
         patch(
             "core.management.commands.run_scheduled_tasks.timezone.now",
-            return_value=datetime(2026, 1, day, hour, 0, tzinfo=UTC),
+            return_value=datetime(2026, 1, day, hour, minute, tzinfo=UTC),
         ),
     ):
         call_command("run_scheduled_tasks")
@@ -211,6 +212,16 @@ def describe_window_deduplication():
             started_at=MONDAY_1300 + timedelta(minutes=1),
         )
         assert "post_weekly_classes_digest" not in _tasks_called(hour=13, day=5)
+
+    def it_dedupes_at_a_mid_hour_tick_against_the_top_of_the_hour():
+        # The :45 tick must still see the :05 success and skip — the window boundary is the
+        # top of the hour, not `now`, which is the whole point of the ``.replace(minute=0)``.
+        ScheduledTaskRunFactory(
+            task_key="post_weekly_classes_digest",
+            status=ScheduledTaskRun.Status.OK,
+            started_at=MONDAY_1300 + timedelta(minutes=5),
+        )
+        assert "post_weekly_classes_digest" not in _tasks_called(hour=13, day=5, minute=45)
 
     def it_skips_a_daily_job_that_already_succeeded_this_window():
         ScheduledTaskRunFactory(
