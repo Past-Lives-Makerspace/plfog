@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.39"
+VERSION = "0.23.40"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.23.39",
+        "version": "0.23.40",
         "date": "2026-07-27",
         "title": "Cleaner Discord posts and event calendar",
         "changes": [
             "The weekly class and calendar digests no longer repeat several times on Monday mornings.",
-            "The community calendar Discord channel now lists events only. Classes stay in the classes channel.",
+            "The community calendar Discord channel now shows events only, so classes and open studio hours no longer clutter it.",
             "Fixed a class that was showing the wrong instructor's name.",
         ],
     },
