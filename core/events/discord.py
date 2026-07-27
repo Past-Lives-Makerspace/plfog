@@ -24,6 +24,7 @@ HTTP layer, distinct from the legacy ``requests``-based integration clients.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
 import httpx
@@ -38,6 +39,10 @@ logger = logging.getLogger(__name__)
 # Discord's blurple, the conventional accent for bot embeds.
 _EMBED_COLOR = 0x5865F2
 _DEFAULT_TIMEOUT_SECONDS = 5.0
+
+# A role ping literal is ``<@&{role_id}>``; capturing the numeric id lets us build the
+# ``allowed_mentions`` gate that actually authorizes the role ping (see _allowed_mentions_for).
+_ROLE_MENTION_RE = re.compile(r"<@&(\d+)>")
 
 # Per-event routing overrides: event_key → webhook URL. EMPTY by default — every
 # event falls back to the global webhook. A Phase-3 admin surface populates this
@@ -125,6 +130,30 @@ def _db_route(event_key: str) -> DiscordWebhookRoute | None:
         return None
 
 
+def _allowed_mentions_for(mention: str) -> dict[str, object]:
+    """The ``allowed_mentions`` gate that authorizes ``mention`` to actually fire.
+
+    Discord renders a ping literal in ``content`` but suppresses the notification unless
+    ``allowed_mentions`` explicitly authorizes it. Two shapes:
+
+    * a **role** ping (``"<@&123>"`` — the guild-role option on ``/create-announcement``):
+      ``{"parse": [], "roles": ["123", …]}`` — only the listed role ids fire, and an empty
+      ``parse`` deliberately blocks any stray ``@everyone`` / ``@here`` text from also pinging.
+    * ``@here`` / ``@everyone``: ``{"parse": ["everyone"]}`` — the single flag that gates BOTH
+      (byte-identical to the pre-role behavior, so every existing caller is unchanged).
+
+    Args:
+        mention: A non-blank ping literal from :attr:`Message.discord_mention`.
+
+    Returns:
+        The ``allowed_mentions`` dict for the payload.
+    """
+    role_ids = _ROLE_MENTION_RE.findall(mention)
+    if role_ids:
+        return {"parse": [], "roles": role_ids}
+    return {"parse": ["everyone"]}
+
+
 def build_embed_payload(message: Message) -> dict[str, object]:
     """Build the Discord webhook JSON payload from a rendered message.
 
@@ -132,12 +161,12 @@ def build_embed_payload(message: Message) -> dict[str, object]:
     event's ``title`` and ``body`` (as the embed description); ``url`` makes the
     title a clickable link when present.
 
-    When ``message.discord_mention`` is set (``"@here"`` / ``"@everyone"``), the ping
-    is added as top-level ``content`` — embeds themselves never notify anyone, so the
-    literal must ride in the message body — and ``allowed_mentions`` is set to
-    ``{"parse": ["everyone"]}``, the single Discord flag that authorizes BOTH ``@here``
-    and ``@everyone`` to actually fire (without it Discord renders the text but suppresses
-    the ping). A blank mention leaves the payload byte-identical to before.
+    When ``message.discord_mention`` is set, the ping is added as top-level ``content``
+    — embeds themselves never notify anyone, so the literal must ride in the message body
+    — and ``allowed_mentions`` is set (via :func:`_allowed_mentions_for`) to the flag that
+    authorizes exactly that ping: ``{"parse": ["everyone"]}`` for ``@here`` / ``@everyone``,
+    or ``{"parse": [], "roles": […]}`` for a ``<@&id>`` guild-role ping. A blank mention
+    leaves the payload byte-identical to before.
 
     Args:
         message: The rendered :class:`core.events.channels.Message`.
@@ -155,7 +184,7 @@ def build_embed_payload(message: Message) -> dict[str, object]:
     payload: dict[str, object] = {"embeds": [embed]}
     if message.discord_mention:
         payload["content"] = message.discord_mention
-        payload["allowed_mentions"] = {"parse": ["everyone"]}
+        payload["allowed_mentions"] = _allowed_mentions_for(message.discord_mention)
     return payload
 
 
