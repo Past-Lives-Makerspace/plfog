@@ -69,14 +69,28 @@ def _html_to_text(raw: str) -> str:
 
 
 def _find_instructor(name: str) -> "Member | None":
+    """Resolve an instructor name pulled from a class title to an active Member.
+
+    Prefers an exact (case-insensitive) match on preferred or legal name. Falls back to a
+    substring match ONLY when it is unambiguous: if a fragment like "Billy" matches more
+    than one active member, return None and leave the instructor unset rather than silently
+    linking an arbitrary same-named person. Auto-attaching the wrong member's name to a
+    class is worse than attaching none — a human assigns the right instructor instead.
+    """
     from django.db.models import Q
 
     from membership.models import Member
 
-    return Member.objects.filter(
-        Q(preferred_name__icontains=name) | Q(full_legal_name__icontains=name),
-        status=Member.Status.ACTIVE,
-    ).first()
+    active = Member.objects.filter(status=Member.Status.ACTIVE)
+    # A unique exact match is the strongest signal — take it even if others contain the name.
+    exact = list(active.filter(Q(preferred_name__iexact=name) | Q(full_legal_name__iexact=name))[:2])
+    if len(exact) == 1:
+        return exact[0]
+    # Otherwise only auto-link when the substring match resolves to exactly one member.
+    fuzzy = list(active.filter(Q(preferred_name__icontains=name) | Q(full_legal_name__icontains=name))[:2])
+    if len(fuzzy) == 1:
+        return fuzzy[0]
+    return None
 
 
 def _sync_sessions(offering: Any, date_items: list[dict[str, Any]]) -> None:
