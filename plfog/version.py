@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.41"
+VERSION = "0.23.42"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.23.41",
+        "version": "0.23.42",
         "date": "2026-07-27",
         "title": "Add members directly, and a tidier invites list",
         "changes": [
@@ -20,6 +20,16 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
                 "up, and a single Clear expired button clears them all at once. Resend and Revoke still "
                 "work for anything shown."
             ),
+        ],
+    },
+    {
+        "version": "0.23.41",
+        "date": "2026-07-27",
+        "title": "Two-finger swipe to move around the Spaces map",
+        "changes": [
+            "On the Spaces map, a two-finger trackpad swipe (or a scroll) now pans around the floor, "
+            "the way you'd expect on a Mac. Pinch or Ctrl+scroll still zooms, and the plus and minus "
+            "buttons work as before.",
         ],
     },
     {
