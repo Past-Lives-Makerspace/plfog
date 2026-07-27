@@ -15,7 +15,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.db import models
@@ -215,6 +215,22 @@ def is_enabled(key: str) -> bool:
     from core.models import ScheduledJobState
 
     return ScheduledJobState.objects.is_enabled(key)
+
+
+def has_succeeded_since(key: str, since: datetime) -> bool:
+    """Whether a job already completed OK at or after ``since``.
+
+    The dispatcher uses this to make DAILY/WEEKLY jobs run once per window instead of once
+    per 15-minute tick: those cadences qualify for a whole UTC hour, so the cron fires them
+    ~4 times each window otherwise (the duplicate #classes digests were this bug). A FAILED
+    run does not count, so a transient failure still retries within the same window — which
+    is exactly how a job recovers mid-window once its underlying cause is fixed.
+    """
+    from core.models import ScheduledTaskRun
+
+    return ScheduledTaskRun.objects.filter(
+        task_key=key, status=ScheduledTaskRun.Status.OK, started_at__gte=since
+    ).exists()
 
 
 @contextlib.contextmanager
