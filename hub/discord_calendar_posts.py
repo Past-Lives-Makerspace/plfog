@@ -84,13 +84,23 @@ def _is_studio_hours(item: Any) -> bool:
 
 
 def _digest_items(now: datetime) -> list[Any]:
-    """The next-7-days slice of the calendar union (feed + class + community events),
-    minus standing studio-hours blocks."""
+    """The next-7-days slice of the events calendar (feed + general + community events),
+    minus classes and standing studio-hours blocks.
+
+    #public-calendar is events-only: classes have their own #classes digest, so
+    class-sourced rows are dropped here even though they share the calendar union.
+    """
     from hub.calendar_entries import upcoming_calendar_events
+    from membership.models import CalendarEvent
 
     horizon = now + timedelta(days=DIGEST_WINDOW_DAYS)
     return [
-        e for e in upcoming_calendar_events() if e.start_dt < horizon and e.end_dt >= now and not _is_studio_hours(e)
+        e
+        for e in upcoming_calendar_events()
+        if e.start_dt < horizon
+        and e.end_dt >= now
+        and e.source != CalendarEvent.Source.CLASSES
+        and not _is_studio_hours(e)
     ]
 
 
@@ -302,6 +312,8 @@ def announce_new_events() -> int:
     pending: list[tuple[datetime, dict[str, Any], list[Any]]] = []
     feed_rows = (
         CalendarEvent.objects.filter(channel_announced_at__isnull=True, start_dt__gt=now)
+        # #public-calendar is events-only — classes announce to #classes, not here.
+        .exclude(source=CalendarEvent.Source.CLASSES)
         .exclude(uid__in=_pushed_event_uids())
         .order_by("start_dt")
     )
@@ -313,8 +325,9 @@ def announce_new_events() -> int:
     for rows in series.values():
         first = rows[0]
         url = _absolute(first.url) if first.url else ""
-        kind = "New class on the calendar" if first.source == CalendarEvent.Source.CLASSES else "New on the calendar"
-        embed = _announcement_embed(first.title, kind, _when(first.start_dt, first.end_dt, first.all_day), url)
+        embed = _announcement_embed(
+            first.title, "New on the calendar", _when(first.start_dt, first.end_dt, first.all_day), url
+        )
         pending.append((first.start_dt, embed, list(rows)))
 
     community_rows = (

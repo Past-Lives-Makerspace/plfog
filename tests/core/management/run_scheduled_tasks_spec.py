@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
 
-from core.factories import ScheduledJobStateFactory
+from core.factories import ScheduledJobStateFactory, ScheduledTaskRunFactory
 from core.models import ScheduledTaskRun
 
 # The dispatcher now records each run through ``record_run`` (a ScheduledTaskRun row),
@@ -22,15 +22,16 @@ def _boom_on_voting(cmd, *args, **kwargs):
         raise RuntimeError("kaboom")
 
 
-def _tasks_called(hour: int, side_effect=None, day: int = 1) -> list[str]:
-    """Run the dispatcher at a fixed UTC hour with ``call_command`` mocked; return the dispatched
+def _tasks_called(hour: int, side_effect=None, day: int = 1, minute: int = 0) -> list[str]:
+    """Run the dispatcher at a fixed UTC time with ``call_command`` mocked; return the dispatched
     command names. Pass ``side_effect`` to make a wrapped command raise (failure-path tests).
-    ``day`` picks the January 2026 date — 1 is a Thursday, 5 is a Monday (WEEKLY-gate tests)."""
+    ``day`` picks the January 2026 date — 1 is a Thursday, 5 is a Monday (WEEKLY-gate tests).
+    ``minute`` moves the tick within the hour (dedup-at-a-mid-hour-tick tests)."""
     with (
         patch("core.management.commands.run_scheduled_tasks.call_command", side_effect=side_effect) as cc,
         patch(
             "core.management.commands.run_scheduled_tasks.timezone.now",
-            return_value=datetime(2026, 1, day, hour, 0, tzinfo=UTC),
+            return_value=datetime(2026, 1, day, hour, minute, tzinfo=UTC),
         ),
     ):
         call_command("run_scheduled_tasks")
@@ -196,3 +197,63 @@ def describe_bill_tabs_self_gates_when_dispatched():
         call_command("bill_tabs")  # no --force, as the dispatcher invokes it
 
         assert TabCharge.objects.count() == 0
+
+
+def describe_window_deduplication():
+    """DAILY/WEEKLY jobs run once per window, not once per 15-min tick inside the hour."""
+
+    MONDAY_1300 = datetime(2026, 1, 5, 13, 0, tzinfo=UTC)  # day=5 is a Monday
+    THURSDAY_1300 = datetime(2026, 1, 1, 13, 0, tzinfo=UTC)  # day=1 is a Thursday
+
+    def it_skips_a_weekly_job_that_already_succeeded_this_window():
+        ScheduledTaskRunFactory(
+            task_key="post_weekly_classes_digest",
+            status=ScheduledTaskRun.Status.OK,
+            started_at=MONDAY_1300 + timedelta(minutes=1),
+        )
+        assert "post_weekly_classes_digest" not in _tasks_called(hour=13, day=5)
+
+    def it_dedupes_at_a_mid_hour_tick_against_the_top_of_the_hour():
+        # The :45 tick must still see the :05 success and skip — the window boundary is the
+        # top of the hour, not `now`, which is the whole point of the ``.replace(minute=0)``.
+        ScheduledTaskRunFactory(
+            task_key="post_weekly_classes_digest",
+            status=ScheduledTaskRun.Status.OK,
+            started_at=MONDAY_1300 + timedelta(minutes=5),
+        )
+        assert "post_weekly_classes_digest" not in _tasks_called(hour=13, day=5, minute=45)
+
+    def it_skips_a_daily_job_that_already_succeeded_this_window():
+        ScheduledTaskRunFactory(
+            task_key="sync_all_sources",
+            status=ScheduledTaskRun.Status.OK,
+            started_at=THURSDAY_1300 + timedelta(minutes=2),
+        )
+        assert "sync_all_sources" not in _tasks_called(hour=13, day=1)
+
+    def it_still_runs_a_weekly_job_after_only_a_failed_run_this_window():
+        # A FAILED run must not block a retry — this is what let the calendar digest
+        # recover on a later tick once its Discord permission was fixed.
+        ScheduledTaskRunFactory(
+            task_key="post_weekly_classes_digest",
+            status=ScheduledTaskRun.Status.FAILED,
+            started_at=MONDAY_1300 + timedelta(minutes=1),
+        )
+        assert "post_weekly_classes_digest" in _tasks_called(hour=13, day=5)
+
+    def it_still_runs_a_weekly_job_whose_only_success_was_a_prior_window():
+        ScheduledTaskRunFactory(
+            task_key="post_weekly_classes_digest",
+            status=ScheduledTaskRun.Status.OK,
+            started_at=MONDAY_1300 - timedelta(minutes=5),  # before the top of this hour
+        )
+        assert "post_weekly_classes_digest" in _tasks_called(hour=13, day=5)
+
+    def it_does_not_dedupe_always_jobs():
+        # ALWAYS jobs must run every tick even with a success logged this hour.
+        ScheduledTaskRunFactory(
+            task_key="auto_complete_orientations",
+            status=ScheduledTaskRun.Status.OK,
+            started_at=datetime(2026, 1, 1, 9, 1, tzinfo=UTC),
+        )
+        assert "auto_complete_orientations" in _tasks_called(hour=9, day=1)

@@ -20,7 +20,10 @@ const config: CapacitorConfig = {
   appName: 'Past Lives',
   webDir: 'www',
   server: {
-    url: 'https://pastlives.app',
+    // Canonical origin. `pastlives.app` 301-redirects here; pointing directly
+    // avoids the redirect hop and keeps the webview origin (and its auth
+    // cookies) unambiguous.
+    url: 'https://members.pastlives.space',
     cleartext: false,
     // --- Local dev against the WSL server ---
     // The emulator/device cannot reach `pastlives.test` or `localhost`.

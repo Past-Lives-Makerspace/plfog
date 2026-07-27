@@ -1,0 +1,17 @@
+# Upload-signing credentials for the Play Store release build.
+#
+# Copy this file to `key.properties` (same directory) and fill in real values.
+# `key.properties` and the keystore itself are gitignored — NEVER commit either.
+#
+# Generate the keystore once (keep it somewhere durable and backed up; losing
+# it means you can no longer push updates under the same upload key):
+#
+#   keytool -genkey -v -keystore ~/keys/pastlives-upload.jks \
+#     -alias upload -keyalg RSA -keysize 2048 -validity 10000
+#
+# Then set the four values below. `storeFile` is an absolute path to the .jks.
+
+storeFile=/home/josh/keys/pastlives-upload.jks
+storePassword=CHANGE_ME
+keyAlias=upload
+keyPassword=CHANGE_ME

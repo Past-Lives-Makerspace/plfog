@@ -8,9 +8,12 @@ Each due job is:
 - skipped if it's ``EXTERNAL`` (it has its own Render cron — e.g. ``airtable_pull``),
 - skipped if it's ``DAILY`` and it isn't ~6 AM Portland (UTC hour 13),
 - skipped if it's ``WEEKLY`` and it isn't Monday ~6 AM Portland (UTC weekday 0, hour 13),
+- skipped if it's ``DAILY``/``WEEKLY`` and already succeeded this window (the cron ticks ~4x
+  inside the qualifying hour, so without this each digest posts ~4 times — the dedup runs it
+  once per window while still letting a FAILED run retry in-window),
 - skipped if an admin has paused it (``is_enabled`` is false),
 - otherwise run inside ``record_run`` (which writes a ScheduledTaskRun row) and its own
-  try/except, so one failure cannot block the rest. Each task owns its idempotency.
+  try/except, so one failure cannot block the rest.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core.scheduled_jobs import SCHEDULED_JOBS, Cadence, Trigger, is_enabled, record_run
+from core.scheduled_jobs import SCHEDULED_JOBS, Cadence, Trigger, has_succeeded_since, is_enabled, record_run
 
 DAILY_UTC_HOUR = 13  # ~6 AM Portland
 WEEKLY_UTC_WEEKDAY = 0  # Monday (WEEKLY jobs run Mondays at DAILY_UTC_HOUR)
@@ -46,6 +49,15 @@ class Command(BaseCommand):
                 continue
             if job.cadence == Cadence.WEEKLY and (now.weekday() != WEEKLY_UTC_WEEKDAY or now.hour != DAILY_UTC_HOUR):
                 self.stdout.write(f"  – {job.key} skipped (weekly, not Monday {DAILY_UTC_HOUR}:xx UTC)")
+                continue
+            # DAILY/WEEKLY jobs qualify for the whole DAILY_UTC_HOUR, but the cron ticks ~4x within
+            # it. Run each at most once per window: skip if it already succeeded since the top of
+            # this hour — which, given the hour gate above, is the start of today's / this Monday's
+            # window. ALWAYS jobs are exempt (they run every tick); a FAILED run still retries.
+            if job.cadence in (Cadence.DAILY, Cadence.WEEKLY) and has_succeeded_since(
+                job.key, now.replace(minute=0, second=0, microsecond=0)
+            ):
+                self.stdout.write(f"  – {job.key} skipped (already ran this window)")
                 continue
             if not is_enabled(job.key):
                 self.stdout.write(f"  – {job.key} disabled")

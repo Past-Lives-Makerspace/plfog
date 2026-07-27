@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from allauth.account.adapter import DefaultAccountAdapter
@@ -160,6 +161,34 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         if surface == "public":
             return reverse("account:overview")
         return reverse("hub_home")
+
+    def generate_login_code(self) -> str:
+        """Issue a deterministic login code for the designated app-store review account.
+
+        App-store reviewers cannot receive our emailed one-time codes: review is
+        asynchronous and they cannot read a member's inbox. When BOTH the
+        ``PLAY_REVIEW_EMAIL`` and ``PLAY_REVIEW_CODE`` env vars are set, the single
+        matching email receives that fixed code instead of a random one, so a
+        reviewer signs in without an inbox (allauth verifies the code locally, so
+        the email never has to arrive).
+
+        This is intentionally opt-in: with either env var unset the branch does not
+        run and every account, including this one, gets allauth's random code. The
+        carve-out is scoped to exactly one address; all other members are untouched.
+        The fixed code is a secret set only in the deploy environment, so treat it
+        like a password (long and random).
+        """
+        review_email = os.environ.get("PLAY_REVIEW_EMAIL", "").strip().lower()
+        review_code = os.environ.get("PLAY_REVIEW_CODE", "").strip()
+        if review_email and review_code:
+            from allauth.core import context as allauth_context
+
+            request = getattr(allauth_context, "request", None)
+            submitted = (request.POST.get("email", "") if request is not None else "").strip().lower()
+            if submitted and submitted == review_email:
+                logger.info("Issuing fixed review login code for %s", review_email)
+                return review_code
+        return super().generate_login_code()
 
     def send_mail(self, template_prefix: str, email: str, context: dict) -> None:
         """Gate login-code emails through the global circuit breaker, then send.
