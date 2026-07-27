@@ -58,10 +58,9 @@ def _sent_embeds(route: respx.Route) -> list[dict]:
 
 
 def describe_build_weekly_digest_embeds():
-    def it_groups_the_next_seven_days_by_day_with_classes_and_community_events():
+    def it_groups_the_next_seven_days_by_day_with_feed_and_community_events():
         guild = GuildFactory(name="Woodshop")
         _feed_event("Forge Night", days=2, source="guild", guild=guild)
-        _feed_event("Intro to Welding", days=3, source="classes", url="/classes/welding/")
         now = timezone.now()
         CommunityEventFactory(
             community=True,
@@ -74,14 +73,28 @@ def describe_build_weekly_digest_embeds():
         assert len(embeds) == 1
         description = embeds[0]["description"]
         assert "Forge Night" in description
-        assert "Intro to Welding" in description
         assert "Spring Mixer" in description
         # Grouped under each event's own local day header.
         day = timezone.localtime(now + timedelta(days=2)).strftime("%A, %B %-d")
         assert f"**{day}**" in description
 
-    def it_links_items_absolutely_and_footers_to_the_full_calendar():
+    def it_excludes_classes_from_the_events_only_digest():
+        # #public-calendar is events-only; classes belong in the #classes digest.
         _feed_event("Intro to Welding", days=3, source="classes", url="/classes/welding/")
+        now = timezone.now()
+        CommunityEventFactory(
+            community=True,
+            title="Spring Mixer",
+            starts_at=now + timedelta(days=4),
+            ends_at=now + timedelta(days=4, hours=2),
+        )
+
+        description = dcp.build_weekly_digest_embeds(now)[0]["description"]
+        assert "Spring Mixer" in description
+        assert "Intro to Welding" not in description
+
+    def it_links_items_absolutely_and_footers_to_the_full_calendar():
+        _feed_event("Open Forge", days=3, source="general", url="/events/open-forge/")
         now = timezone.now()
         event = CommunityEventFactory(
             community=True,
@@ -91,7 +104,7 @@ def describe_build_weekly_digest_embeds():
         )
 
         description = dcp.build_weekly_digest_embeds(now)[0]["description"]
-        assert f"[Intro to Welding]({settings.MEMBER_BASE_URL}/classes/welding/)" in description
+        assert f"[Open Forge]({settings.MEMBER_BASE_URL}/events/open-forge/)" in description
         assert f"[Spring Mixer]({event.absolute_url})" in description
         assert event.absolute_url.startswith("http")
         assert f"[See the full calendar →]({settings.MEMBER_BASE_URL}/calendar/)" in description
@@ -208,7 +221,6 @@ def describe_announce_new_events():
         route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
         _enable_posts()
         feed = _feed_event("Forge Night", days=2)
-        klass = _feed_event("Intro to Welding", days=3, source="classes", url="/classes/welding/")
         now = timezone.now()
         community = CommunityEventFactory(
             community=True,
@@ -217,17 +229,27 @@ def describe_announce_new_events():
             ends_at=now + timedelta(days=4, hours=2),
         )
 
-        assert dcp.announce_new_events() == 3
-        assert route.call_count == 3  # one compact message per item
+        assert dcp.announce_new_events() == 2
+        assert route.call_count == 2  # one compact message per item
         embeds = _sent_embeds(route)
-        assert [e["title"] for e in embeds] == ["Forge Night", "Intro to Welding", "Spring Mixer"]
-        class_embed = embeds[1]
-        assert class_embed["url"] == f"{settings.MEMBER_BASE_URL}/classes/welding/"
-        assert "New class on the calendar" in class_embed["description"]
-        assert embeds[2]["url"] == community.absolute_url
-        for obj in (feed, klass, community):
+        assert [e["title"] for e in embeds] == ["Forge Night", "Spring Mixer"]
+        assert "New on the calendar" in embeds[0]["description"]
+        assert embeds[1]["url"] == community.absolute_url
+        for obj in (feed, community):
             obj.refresh_from_db()
             assert obj.channel_announced_at is not None
+
+    @respx.mock
+    def it_never_announces_class_events(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        klass = _feed_event("Intro to Welding", days=3, source="classes", url="/classes/welding/")
+
+        assert dcp.announce_new_events() == 0  # classes post to #classes, not #public-calendar
+        assert not route.called
+        klass.refresh_from_db()
+        assert klass.channel_announced_at is None  # left unstamped by the events-only announcer
 
     @respx.mock
     def it_never_announces_the_same_event_twice(settings):
