@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.39"
+VERSION = "0.23.40"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.40",
+        "date": "2026-07-27",
+        "title": "Add calendar events straight from Discord",
+        "changes": [
+            "You can now add a Community Calendar event without leaving Discord. Run `/create-event` with the "
+            "date, start time, and a short description.",
+            "Guild leads and admins post instantly; everyone else's event goes to a quick review first, exactly "
+            "like proposing one on the website.",
+            "Choose the guild it belongs to (or General), pick the members-only or public calendar, set an end "
+            "time or a length in minutes, and optionally email members about it.",
+        ],
+    },
     {
         "version": "0.23.39",
         "date": "2026-07-27",

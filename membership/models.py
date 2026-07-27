@@ -4035,6 +4035,21 @@ class CommunityEvent(models.Model):
 
     # --- Publish --------------------------------------------------------------
 
+    def _announce_context(self) -> dict[str, Any]:
+        """The resolver/copy context shared by the launch announcement and any audience email.
+
+        One source of truth for the emit context so :meth:`announce` and
+        :meth:`email_announcement` render byte-identical copy and resolve the same audience.
+        """
+        return {
+            "guild": self.guild,
+            "guild_name": self.guild.name if self.guild is not None else "",
+            "event_title": self.title,
+            "when": self.when_display,
+            "location": self.location,
+            "event_url": self.absolute_url,
+        }
+
     def announce(self, *, actor: User | None = None) -> None:
         """Post the launch announcement (in-app + Discord). Idempotent via ``period``.
 
@@ -4054,17 +4069,63 @@ class CommunityEvent(models.Model):
             self._ANNOUNCE_EVENT[self.event_type],
             actor=actor,
             target=self,
-            context={
-                "guild": self.guild,
-                "guild_name": self.guild.name if self.guild is not None else "",
-                "event_title": self.title,
-                "when": self.when_display,
-                "location": self.location,
-                "event_url": self.absolute_url,
-            },
+            context=self._announce_context(),
             url=self.absolute_url,
             period=f"event:{self.pk}:published",
         )
+
+    def email_announcement(self, audience: str, *, actor: User | None = None) -> int:
+        """Email this published event's launch announcement to a chosen audience.
+
+        Event emails are OFF by default (calendar + Discord + the in-app bell is enough), so
+        the launch :meth:`announce` reaches only members who opted into event emails. This is
+        the deliberate "also email everyone" escalation the ``/create-event`` Discord command
+        offers: it resolves the chosen audience, then hands their addresses to
+        ``emit(email_to=...)`` — which delivers the EMAIL channel to explicit addresses
+        regardless of the per-member email preference. Discord is suppressed and the in-app /
+        push fan-out is deduped against the launch (same ``period``), so only the extra emails
+        actually go out — nothing double-posts.
+
+        Args:
+            audience: ``"guild_members"`` (this event's guild roster; empty for a site-wide
+                event) or ``"all_active"`` (every active, signed-in member).
+            actor: The member's user, recorded on the (idempotent) delivery ledger.
+
+        Returns:
+            The number of distinct addresses emailed (``0`` when the audience is empty).
+
+        Raises:
+            ValueError: If ``audience`` is not one of the two known values (fail loudly).
+        """
+        if self.event_type == self.EventType.STUDIO_HOURS:
+            return 0
+        from core.events import resolvers
+        from core.events.emit import emit
+        from core.events.registry import Recipients
+
+        if audience == "guild_members":
+            recipients = (
+                resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self.guild}) if self.guild is not None else []
+            )
+        elif audience == "all_active":
+            recipients = resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {})
+        else:
+            raise ValueError(f"Unknown event email audience: {audience!r}")
+
+        addresses = sorted({(user.email or "").strip() for user, _reason in recipients if (user.email or "").strip()})
+        if not addresses:
+            return 0
+        emit(
+            self._ANNOUNCE_EVENT[self.event_type],
+            actor=actor,
+            target=self,
+            context=self._announce_context(),
+            url=self.absolute_url,
+            period=f"event:{self.pk}:published",
+            email_to=addresses,
+            suppress_broadcast=True,
+        )
+        return len(addresses)
 
     # --- Review lifecycle (member proposals) ----------------------------------
 
