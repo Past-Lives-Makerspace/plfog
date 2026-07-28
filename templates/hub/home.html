@@ -75,7 +75,8 @@
                     <span class="pl-upcoming__meta">
                         <span class="pl-upcoming__kind">{{ item.kind }}</span>
                         {% if item.guild_name %}<span class="hub-text-muted">{{ item.guild_name }}</span>{% endif %}
-                        {% if item.location %}<span class="hub-text-muted">· {{ item.location }}</span>{% endif %}
+                        {# No literal "·" — the flex gap separates items, and a middot looks orphaned when the span wraps to its own line. #}
+                        {% if item.location %}<span class="hub-text-muted">{{ item.location }}</span>{% endif %}
                     </span>
                 </span>
             </a>

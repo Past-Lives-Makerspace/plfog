@@ -4,11 +4,12 @@
 Base template for public /classes/* pages. The portal-specific styles
 live in static/css/cms-public.css (lifted out of this template in
 v2.3.0 so the portal can be theme-aware via the same data-theme system
-the hub uses). Light is the default on public class pages; the topbar
-toggle still wins.
+the hub uses). Light is the default on the public book surface; on the
+member hub the class pages follow the hub's dark default so the body
+matches the chrome. The topbar toggle still wins either way.
 {% endcomment %}
 
-{% block default_theme %}light{% endblock %}
+{% block default_theme %}{% if is_public_surface %}light{% else %}dark{% endif %}{% endblock %}
 
 {% block public_topbar %}
 <header class="cp-topbar" role="banner" x-data="{ drawerOpen: false }" @click.outside="drawerOpen = false">

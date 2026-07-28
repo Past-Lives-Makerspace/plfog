@@ -114,7 +114,7 @@
 
 {# Join lives in the "Get Involved" panel; leaving a guild is disabled for now. #}
 <div x-data="{ section: 'overview' }">
-<nav role="tablist" style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.25rem; flex-wrap:wrap;">
+<nav role="tablist" class="pl-tabs">
     <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
     {% if tab_payments_enabled and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
@@ -566,7 +566,8 @@
 {% endif %}
 </div>{# /section scope #}
 
-{# ── Become-a-member footer band — primarily for guests; harmless for members. ── #}
+{# ── Become-a-member footer band — guests and non-member accounts only; noise for actual members. ── #}
+{% if member is None %}
 <div class="hub-card" style="margin-top:1.5rem; display:flex; flex-wrap:wrap; gap:1rem; align-items:center; justify-content:space-between;">
     <div>
         <strong>Not a member yet?</strong>
@@ -574,6 +575,7 @@
     </div>
     <a href="https://pastlives.space/membership" class="pl-btn pl-btn--primary" hx-boost="false">Become a member</a>
 </div>
+{% endif %}
 
 {# Guild lead profile modal — triggered from the aside lead card. Contact details are member-only. #}
 {% if guild.guild_lead and user.is_authenticated %}
