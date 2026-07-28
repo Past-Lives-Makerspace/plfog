@@ -17,6 +17,7 @@ from datetime import date
 from pathlib import Path
 
 from tests.e2e.email_gallery import context as ctx_module
+from tests.e2e.email_gallery.comment_widget import COPY_REVIEW_WIDGET  # TEMPORARY — remove on/after 2026-08-10
 from tests.e2e.email_gallery.context import ORIENTATION_SUBJECTS, SampleData
 from tests.e2e.email_gallery.registry import (
     NO_EMAIL_SECTION,
@@ -185,7 +186,7 @@ def _card_html(rendered: RenderedEmail) -> str:
             '<p class="card-note">This email is plain-text only — the text below is the whole message.</p>'
             f'<pre class="card-plain">{_esc(rendered.text)}</pre>'
         )
-    return f"""<article class="card" id="{_esc(email.key)}">
+    return f"""<article class="card" id="{_esc(email.key)}" data-section-key="{_esc(email.key)}">
   <h3>{_esc(email.name)}</h3>
   <p class="inbox-row"><span class="from">From: Past Lives</span> · <strong>{_esc(rendered.subject)}</strong></p>
   <dl class="card-meta">
@@ -368,6 +369,7 @@ def build_site(out_dir: Path, data: SampleData) -> list[RenderedEmail]:
 {chr(10).join(sections_html)}
 </main>
 </div>
+{COPY_REVIEW_WIDGET}
 </body></html>
 """
     (out_dir / "index.html").write_text(doc, encoding="utf-8")

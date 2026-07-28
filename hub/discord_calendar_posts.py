@@ -19,6 +19,7 @@ Google-pushed events are excluded (same UID set the grid uses), and a run posts 
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -74,11 +75,24 @@ def _when(start: datetime, end: datetime, all_day: bool) -> str:
     return f"{day} {_time_of(start)} – {local_end.strftime('%A, %B %-d')} {_time_of(end)}"
 
 
+# Studio hours are ambient noise, never events. A typed CommunityEvent carries the
+# STUDIO_HOURS event type, but a guild's Google-calendar "open studio hours" block comes
+# through as a plain feed event with no type — so match the title too.
+_STUDIO_HOURS_TITLE = "studio hours"
+_STUDIO_HOURS_TITLE_RE = re.compile(re.escape(_STUDIO_HOURS_TITLE), re.IGNORECASE)
+
+
 def _is_studio_hours(item: Any) -> bool:
     """Whether a calendar entry is a standing studio-hours block — ambient noise the
-    digest skips, exactly as the announcer (and the Discord Events sync) skip them."""
+    digest skips, exactly as the announcer (and the Discord Events sync) skip them.
+
+    Catches the typed CommunityEvent (event_type == STUDIO_HOURS) and any feed event whose
+    title reads as studio hours (feed rows carry no event type to key off).
+    """
     from membership.models import CommunityEvent
 
+    if _STUDIO_HOURS_TITLE_RE.search(getattr(item, "title", "") or ""):
+        return True
     backing = getattr(item, "community_event", None)  # CalendarEvent rows have no such attr
     return backing is not None and backing.event_type == CommunityEvent.EventType.STUDIO_HOURS
 
@@ -314,6 +328,8 @@ def announce_new_events() -> int:
         CalendarEvent.objects.filter(channel_announced_at__isnull=True, start_dt__gt=now)
         # #public-calendar is events-only — classes announce to #classes, not here.
         .exclude(source=CalendarEvent.Source.CLASSES)
+        # Feed-based "open studio hours" blocks carry no event type; drop them by title.
+        .exclude(title__icontains=_STUDIO_HOURS_TITLE)
         .exclude(uid__in=_pushed_event_uids())
         .order_by("start_dt")
     )

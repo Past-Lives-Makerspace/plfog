@@ -9,7 +9,7 @@ from django.core.exceptions import ValidationError
 
 from core.models import Invite
 
-from .models import Member
+from .models import Member, MembershipPlan
 
 
 class MemberAdminForm(forms.ModelForm):
@@ -38,6 +38,67 @@ class InviteMemberForm(forms.Form):
         if Invite.objects.filter(email__iexact=email, accepted_at__isnull=True).exists():
             raise ValidationError("A pending invite for this email already exists.")
         return email
+
+
+class AddMemberForm(forms.Form):
+    """Create a member directly, without the invite-plus-email flow.
+
+    Staff use this to add someone straight to the roster. No invite is created and
+    no email is sent; the person signs in later with a passwordless login code (an
+    ACTIVE member is given a login-ready account automatically on save, and any
+    other status has its User auto-created from this email on first sign-in — see
+    ``plfog.adapters.AutoCreateUserLoginCodeForm``).
+    """
+
+    full_legal_name = forms.CharField(
+        max_length=255,
+        label="Full legal name",
+        help_text="The name on their membership record.",
+        error_messages={"required": "Enter the member's full legal name."},
+    )
+    email = forms.EmailField(
+        label="Email",
+        help_text="Where their one-time login code will be sent. No invite email goes out.",
+    )
+    membership_plan = forms.ModelChoiceField(
+        queryset=MembershipPlan.objects.all(),
+        label="Membership plan",
+        help_text="Which plan this member is on.",
+    )
+    preferred_name = forms.CharField(
+        max_length=255,
+        required=False,
+        label="Preferred name",
+        help_text="What they like to be called, if different (optional).",
+    )
+    status = forms.ChoiceField(
+        choices=Member.Status.choices,
+        initial=Member.Status.ACTIVE,
+        label="Status",
+        help_text="Membership status. Active members get a login-ready account right away.",
+    )
+
+    def clean_email(self) -> str:
+        email = self.cleaned_data["email"]
+        if Member.objects.filter(_pre_signup_email__iexact=email).exclude(status=Member.Status.INVITED).exists():
+            raise ValidationError("A member with this email already exists.")
+        return email
+
+    def create_member(self) -> Member:
+        """Create and return the Member from validated data.
+
+        Must be called only after ``is_valid()``. The email is stored on
+        ``_pre_signup_email``; an ACTIVE member is auto-provisioned a linked,
+        passwordless User by the ``auto_provision_member_user`` signal (silently,
+        no email), so no invite flow is involved.
+        """
+        return Member.objects.create(
+            full_legal_name=self.cleaned_data["full_legal_name"],
+            _pre_signup_email=self.cleaned_data["email"],
+            preferred_name=self.cleaned_data["preferred_name"],
+            membership_plan=self.cleaned_data["membership_plan"],
+            status=self.cleaned_data["status"],
+        )
 
 
 class AddEmailAliasForm(forms.Form):

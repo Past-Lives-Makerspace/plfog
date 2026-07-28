@@ -306,6 +306,12 @@ urlpatterns = [
     path("manage/voting/settings/", views.voting_settings, name="hub_admin_voting_settings"),
     path("manage/members/", views.admin_members, name="hub_admin_members"),
     path("manage/members/invite/", views.admin_member_invite, name="hub_admin_member_invite"),
+    path("manage/members/create/", views.admin_member_create, name="hub_admin_member_create"),
+    path(
+        "manage/members/invites/clear-expired/",
+        views.admin_invite_clear_expired,
+        name="hub_admin_invite_clear_expired",
+    ),
     path(
         "manage/members/invites/<int:pk>/resend/",
         views.admin_invite_resend,

@@ -3997,8 +3997,7 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     """
     from django.core.paginator import Paginator
 
-    from core.models import Invite
-    from membership.forms import InviteMemberForm
+    from membership.forms import AddMemberForm, InviteMemberForm
 
     ctx = _get_hub_context(request)
     status_filter = request.GET.get("status", "active")
@@ -4069,8 +4068,9 @@ def admin_members(request: HttpRequest) -> HttpResponse:
             "status_choices": Member.Status.choices,
             "role_choices": Member.FogRole.choices,
             "type_choices": Member.MemberType.choices,
-            "invites": Invite.objects.for_management_panel(),
             "invite_form": InviteMemberForm(),
+            "add_form": AddMemberForm(),
+            **_invites_panel_context(),
         },
     )
 
@@ -4372,15 +4372,26 @@ def admin_user_email_toggle_verified(request: HttpRequest, user_pk: int, email_p
     return redirect("hub_admin_user_edit", user_pk=user.pk)
 
 
-def _render_invites_panel(request: HttpRequest) -> HttpResponse:
-    """Render the swappable outstanding-invites panel with a fresh queryset."""
+def _invites_panel_context() -> dict[str, Any]:
+    """Split the invites card into its default rows and the collapsed expired ones.
+
+    ``invites`` are what show by default (pending + recently-accepted); ``expired_invites``
+    are un-accepted invites past the expiry window, hidden behind a count so the panel
+    isn't a wall of dead invites. Both derive from the one ``for_management_panel`` query,
+    partitioned in Python via the cheap ``is_expired`` property (no extra DB hits).
+    """
     from core.models import Invite
 
-    return render(
-        request,
-        "hub/admin/_invites_panel.html",
-        {"invites": Invite.objects.for_management_panel()},
-    )
+    panel = list(Invite.objects.for_management_panel())
+    return {
+        "invites": [invite for invite in panel if not invite.is_expired],
+        "expired_invites": [invite for invite in panel if invite.is_expired],
+    }
+
+
+def _render_invites_panel(request: HttpRequest) -> HttpResponse:
+    """Render the swappable outstanding-invites panel with a fresh queryset."""
+    return render(request, "hub/admin/_invites_panel.html", _invites_panel_context())
 
 
 @fog_admin_required
@@ -4417,6 +4428,30 @@ def admin_member_invite(request: HttpRequest) -> HttpResponse:
 
 @fog_admin_required
 @require_POST
+def admin_member_create(request: HttpRequest) -> HttpResponse:
+    """Create a member directly (HTMX), no invite and no email.
+
+    Mirrors the invite flow's gating and POST-only shape. On a valid form the member
+    is created and we hand the browser a full navigation back to the members list
+    (``HX-Redirect``) carrying a success message, so the new person shows up in the
+    table straight away. On a validation error we re-render just the form partial
+    (200, swaps itself) so the typed values and field errors survive.
+    """
+    from membership.forms import AddMemberForm
+
+    form = AddMemberForm(request.POST)
+    if not form.is_valid():
+        return render(request, "hub/admin/_add_member_form.html", {"add_form": form})
+
+    member = form.create_member()
+    messages.success(request, f"Added {member.display_name} to the roster.")
+    response = HttpResponse(status=204)
+    response["HX-Redirect"] = reverse("hub_admin_members")
+    return response
+
+
+@fog_admin_required
+@require_POST
 def admin_invite_resend(request: HttpRequest, pk: int) -> HttpResponse:
     """Re-fire the invite email for an un-accepted invite (HTMX) — refreshed panel + toast."""
     from core.models import Invite
@@ -4447,6 +4482,19 @@ def admin_invite_revoke(request: HttpRequest, pk: int) -> HttpResponse:
     except ValueError as exc:
         messages.error(request, str(exc))
     return redirect("hub_admin_members")
+
+
+@fog_admin_required
+@require_POST
+def admin_invite_clear_expired(request: HttpRequest) -> HttpResponse:
+    """Revoke every expired invite at once (HTMX) — refreshed panel + toast."""
+    from core.models import Invite
+
+    count = Invite.objects.clear_expired()
+    response = _render_invites_panel(request)
+    noun = "invite" if count == 1 else "invites"
+    trigger_toast(response, f"Cleared {count} expired {noun}.", "success")
+    return response
 
 
 def _legacy_instructor_sync_status() -> tuple[list[dict[str, object]], int]:
