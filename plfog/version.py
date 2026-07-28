@@ -7,7 +7,7 @@ VERSION = "0.23.44"
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "0.23.44",
-        "date": "2026-07-27",
+        "date": "2026-07-28",
         "title": "Add calendar events straight from Discord",
         "changes": [
             "You can now add a Community Calendar event without leaving Discord. Run `/create-event` with the "
@@ -16,6 +16,22 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "like proposing one on the website.",
             "Choose the guild it belongs to (or General), pick the members-only or public calendar, set an end "
             "time or a length in minutes, and optionally email members about it.",
+        ],
+    },
+    {
+        "version": "0.23.43",
+        "date": "2026-07-27",
+        "title": "Post announcements right from Discord",
+        "changes": [
+            (
+                "Guild leads and admins can now post an announcement without leaving Discord, using the new "
+                "/create-announcement command. Pick who hears it (the whole space, or one guild) and it lands "
+                "in Discord and in the app at the same time."
+            ),
+            (
+                "Big pings stay safe: if you choose to ping @everyone, @here, or a guild's role, the bot shows "
+                "you a private preview first and only posts when you tap Confirm."
+            ),
         ],
     },
     {
