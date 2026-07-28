@@ -37,10 +37,17 @@
 {% endblock %}
 
 {% block content %}
-<div class="hub-card" x-data="{ showInvite: false }">
+<div class="hub-card" x-data="{ showInvite: false, showAdd: false }">
   <div class="pl-invite-card__header">
-    <h2 class="hub-detail-label" style="margin:0;">Invites</h2>
-    <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="showInvite = !showInvite">+ Invite a member</button>
+    <h2 class="hub-detail-label" style="margin:0;">Members &amp; invites</h2>
+    <div class="pl-invite-card__actions">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="showAdd = !showAdd; showInvite = false">+ Add member</button>
+      <button type="button" class="hub-btn hub-btn--sm" @click="showInvite = !showInvite; showAdd = false">+ Invite a member</button>
+    </div>
+  </div>
+
+  <div x-show="showAdd" x-cloak>
+    {% include "hub/admin/_add_member_form.html" %}
   </div>
 
   <form class="pl-invite-form" x-show="showInvite" x-cloak

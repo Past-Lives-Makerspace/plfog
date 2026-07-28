@@ -1,0 +1,24 @@
+{% comment %}
+Direct "Add member" form for the Manage Members page. HTMX form that targets and
+swaps itself (outerHTML): on a validation error the view re-renders this partial so
+typed values + field errors survive; on success the view returns HX-Redirect back to
+the members list with a success message. Lives inside the card's x-data, so the
+Cancel button's `showAdd = false` still resolves after an afterSettle re-init.
+{% endcomment %}
+<form class="pl-invite-form" hx-post="{% url 'hub_admin_member_create' %}"
+      hx-target="this" hx-swap="outerHTML">
+  {% csrf_token %}
+  {% include "components/form_field.html" with field=add_form.full_legal_name %}
+  {% include "components/form_field.html" with field=add_form.preferred_name %}
+  {% include "components/form_field.html" with field=add_form.email %}
+  {% include "components/form_field.html" with field=add_form.membership_plan %}
+  {% include "components/form_field.html" with field=add_form.status %}
+  <p class="pl-invite-hint">
+    No invite email is sent. The member signs in with a one-time code emailed to them,
+    and their login is set up automatically the first time they sign in.
+  </p>
+  <div class="pl-invite-form__actions">
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" hx-disabled-elt="this">Add member</button>
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showAdd = false">Cancel</button>
+  </div>
+</form>

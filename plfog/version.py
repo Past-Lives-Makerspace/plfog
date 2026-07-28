@@ -2,15 +2,44 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.41"
+VERSION = "0.23.43"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        # Re-stamped to the current VERSION (was 0.23.40) so `announce_release`
-        # resolves an entry for VERSION. This release also carries an internal,
-        # temporary copy-review comments tool that is invisible to members, so it
-        # gets no changelog bullets of its own (see the copy-review spec / CLAUDE.md).
+        # Re-stamped from 0.23.42 to the current VERSION so `announce_release`
+        # resolves an entry for VERSION (the repo requires one entry whose version
+        # equals VERSION; the release specs enforce it). This release also carries an
+        # internal, temporary copy-review comments tool that is invisible to members,
+        # so it adds no changelog entry or bullets of its own (see the copy-review
+        # spec and CLAUDE.md). All member-facing entries below are unchanged.
+        "version": "0.23.43",
+        "date": "2026-07-27",
+        "title": "Add members directly, and a tidier invites list",
+        "changes": [
+            (
+                "Organizers can now add a new member straight from Manage Members, without sending an "
+                "invite first. The new person can sign in right away with a one-time login code emailed "
+                "to them; there's no password to set and no invite step to wait on."
+            ),
+            (
+                "The invites list stays tidy: expired invites are tucked behind a count instead of piling "
+                "up, and a single Clear expired button clears them all at once. Resend and Revoke still "
+                "work for anything shown."
+            ),
+        ],
+    },
+    {
         "version": "0.23.41",
+        "date": "2026-07-27",
+        "title": "Two-finger swipe to move around the Spaces map",
+        "changes": [
+            "On the Spaces map, a two-finger trackpad swipe (or a scroll) now pans around the floor, "
+            "the way you'd expect on a Mac. Pinch or Ctrl+scroll still zooms, and the plus and minus "
+            "buttons work as before.",
+        ],
+    },
+    {
+        "version": "0.23.40",
         "date": "2026-07-27",
         "title": "Cleaner Discord posts and event calendar",
         "changes": [

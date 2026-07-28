@@ -166,11 +166,20 @@
             },
 
             onWheel: function (event) {
-                if (event.deltaY < 0) {
-                    this.zoomIn();
-                } else {
-                    this.zoomOut();
+                // Trackpad pinch (browsers report it as a ctrl-wheel) and Ctrl+wheel zoom;
+                // a plain two-finger swipe pans, matching native trackpad behaviour. The
+                // +/- buttons remain for explicit zoom. @wheel.prevent stops the page scroll.
+                if (event.ctrlKey) {
+                    if (event.deltaY < 0) {
+                        this.zoomIn();
+                    } else {
+                        this.zoomOut();
+                    }
+                    return;
                 }
+                this.tx -= event.deltaX;
+                this.ty -= event.deltaY;
+                this.clampPan();
             },
 
             // --- The accessible list ---

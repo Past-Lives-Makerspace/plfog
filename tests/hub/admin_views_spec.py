@@ -80,7 +80,7 @@ def describe_admin_members():
     def it_renders_the_invites_card(client):
         _create_superuser(client)
         response = client.get(reverse("hub_admin_members"))
-        assert b"Invites" in response.content
+        assert b"Members &amp; invites" in response.content
         assert b'id="invites-list"' in response.content
         assert "invites" in response.context
         assert "invite_form" in response.context
@@ -278,6 +278,80 @@ def describe_admin_members():
         with django_assert_max_num_queries(budget):
             client.get(reverse("hub_admin_members") + "?status=all")
 
+    def it_shows_the_add_member_affordance(client):
+        _create_superuser(client, username="addaff")
+        response = client.get(reverse("hub_admin_members"))
+        assert b"+ Add member" in response.content
+        assert b'name="full_legal_name"' in response.content
+
+    def it_collapses_expired_invites_behind_a_count(client):
+        admin = _create_superuser(client, username="expcol")
+        expired = Invite.objects.create(email="stale@x.com", invited_by=admin)
+        Invite.objects.filter(pk=expired.pk).update(created_at=timezone.now() - timedelta(days=30))
+        response = client.get(reverse("hub_admin_members"))
+        assert b"Show 1 expired invite" in response.content
+        assert b"Clear expired" in response.content
+
+
+def describe_admin_member_create():
+    def _valid_post(plan, **overrides):
+        data = {
+            "full_legal_name": "New Member",
+            "email": "created@x.com",
+            "membership_plan": str(plan.pk),
+            "preferred_name": "",
+            "status": Member.Status.ACTIVE,
+        }
+        data.update(overrides)
+        return data
+
+    def it_requires_login(client):
+        response = client.post(reverse("hub_admin_member_create"), {})
+        assert response.status_code == 302
+
+    def it_forbids_plain_members(client):
+        user = _create_member_user(username="mc1")
+        client.login(username=user.username, password="p")
+        response = client.post(reverse("hub_admin_member_create"), {})
+        assert response.status_code == 403
+
+    def it_rejects_get(client):
+        _create_superuser(client, username="createadmin")
+        response = client.get(reverse("hub_admin_member_create"))
+        assert response.status_code == 405
+
+    def it_creates_a_member_and_redirects_to_the_list(client):
+        plan = MembershipPlanFactory()
+        _create_superuser(client, username="createadmin")
+        response = client.post(reverse("hub_admin_member_create"), _valid_post(plan))
+        assert response.status_code == 204
+        assert response["HX-Redirect"] == reverse("hub_admin_members")
+        member = Member.objects.get(_pre_signup_email="created@x.com")
+        assert member.full_legal_name == "New Member"
+        assert member.status == Member.Status.ACTIVE
+
+    def it_does_not_send_any_email(client, mailoutbox):
+        plan = MembershipPlanFactory()
+        _create_superuser(client, username="createadmin")
+        client.post(reverse("hub_admin_member_create"), _valid_post(plan))
+        assert len(mailoutbox) == 0
+
+    def it_re_renders_the_form_with_errors_for_a_duplicate_email(client):
+        plan = MembershipPlanFactory()
+        _create_superuser(client, username="createadmin")
+        MemberFactory(_pre_signup_email="dupe@x.com", status=Member.Status.ACTIVE)
+        response = client.post(reverse("hub_admin_member_create"), _valid_post(plan, email="dupe@x.com"))
+        assert response.status_code == 200
+        assert b"A member with this email already exists." in response.content
+        assert not Member.objects.filter(_pre_signup_email="dupe@x.com", full_legal_name="New Member").exists()
+
+    def it_re_renders_the_form_with_errors_for_a_blank_name(client):
+        plan = MembershipPlanFactory()
+        _create_superuser(client, username="createadmin")
+        response = client.post(reverse("hub_admin_member_create"), _valid_post(plan, full_legal_name="   "))
+        assert response.status_code == 200
+        assert b"Enter the member" in response.content
+
 
 def describe_admin_member_invite():
     def it_requires_login(client):
@@ -385,6 +459,43 @@ def describe_admin_invite_revoke():
         response = client.post(reverse("hub_admin_invite_revoke", args=[invite.pk]), follow=True)
         assert Invite.objects.filter(pk=invite.pk).exists()
         assert b"already been accepted" in response.content
+
+
+def describe_admin_invite_clear_expired():
+    def it_requires_login(client):
+        response = client.post(reverse("hub_admin_invite_clear_expired"))
+        assert response.status_code == 302
+
+    def it_forbids_plain_members(client):
+        user = _create_member_user(username="ce1")
+        client.login(username=user.username, password="p")
+        response = client.post(reverse("hub_admin_invite_clear_expired"))
+        assert response.status_code == 403
+
+    def it_rejects_get(client):
+        _create_superuser(client, username="clearadmin")
+        response = client.get(reverse("hub_admin_invite_clear_expired"))
+        assert response.status_code == 405
+
+    def it_clears_expired_invites_and_returns_the_panel(client):
+        admin = _create_superuser(client, username="clearadmin")
+        expired = Invite.objects.create(email="old@x.com", invited_by=admin)
+        Invite.objects.filter(pk=expired.pk).update(created_at=timezone.now() - timedelta(days=30))
+        fresh = Invite.objects.create(email="fresh@x.com", invited_by=admin)
+        response = client.post(reverse("hub_admin_invite_clear_expired"))
+        assert response.status_code == 200
+        assert "Cleared 1 expired invite" in response["HX-Trigger"]
+        assert not Invite.objects.filter(pk=expired.pk).exists()
+        assert Invite.objects.filter(pk=fresh.pk).exists()
+        assert b"fresh@x.com" in response.content
+
+    def it_pluralizes_the_toast_for_multiple_expired(client):
+        admin = _create_superuser(client, username="clearadmin")
+        a = Invite.objects.create(email="a@x.com", invited_by=admin)
+        b = Invite.objects.create(email="b@x.com", invited_by=admin)
+        Invite.objects.filter(pk__in=[a.pk, b.pk]).update(created_at=timezone.now() - timedelta(days=30))
+        response = client.post(reverse("hub_admin_invite_clear_expired"))
+        assert "Cleared 2 expired invites" in response["HX-Trigger"]
 
 
 def describe_admin_member_edit_role_dispatch():

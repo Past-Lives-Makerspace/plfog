@@ -518,6 +518,19 @@ class InviteManager(models.Manager["Invite"]):
             models.Q(accepted_at__isnull=True) | models.Q(accepted_at__gte=recent_accept)
         ).select_related("invited_by", "member")
 
+    def clear_expired(self) -> int:
+        """Revoke every currently-expired invite in one pass; return how many were cleared.
+
+        Each invite goes through :meth:`Invite.revoke`, so its placeholder Member is
+        cleaned up and a ``MEMBER_INVITE_REVOKED`` activity is logged, exactly as a
+        one-off revoke would. Expired invites are un-accepted by definition, so revoke
+        never raises here.
+        """
+        expired = list(self.expired())
+        for invite in expired:
+            invite.revoke()
+        return len(expired)
+
 
 class Invite(models.Model):
     """Tracks email invitations sent by admins for invite-only registration."""
