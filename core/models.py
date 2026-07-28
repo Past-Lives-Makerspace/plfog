@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -1589,3 +1590,101 @@ class ScheduledJobState(models.Model):
     def __str__(self) -> str:
         state = "enabled" if self.enabled else "disabled"
         return f"{self.task_key} ({state})"
+
+
+# ── TEMPORARY — remove on/after 2026-08-10 ─────────────────────────────────────
+# Copy-review gallery anonymous comments. A throwaway review aid, NOT a
+# member-facing feature. See docs/superpowers/plans/2026-07-27-copy-review-comments.md.
+# Teardown = revert the feature PR; the create migration reverses cleanly.
+class CopyReviewCommentManager(models.Manager["CopyReviewComment"]):
+    """Active-only manager (hides soft-deleted rows) plus create/grouping helpers.
+
+    TEMPORARY — remove on/after 2026-08-10.
+    """
+
+    def get_queryset(self) -> models.QuerySet[CopyReviewComment]:
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+    def post(self, *, section_key: str, author_name: str, body: str) -> CopyReviewComment:
+        """Create a comment with a freshly generated edit_token."""
+        return self.create(
+            section_key=section_key,
+            author_name=author_name,
+            body=body,
+            edit_token=secrets.token_hex(16),
+        )
+
+    def grouped(self) -> dict[str, list[CopyReviewComment]]:
+        """All active comments grouped by section_key, each list oldest-first."""
+        grouped: dict[str, list[CopyReviewComment]] = {}
+        for comment in self.get_queryset():
+            grouped.setdefault(comment.section_key, []).append(comment)
+        return grouped
+
+
+class CopyReviewComment(models.Model):
+    """A public, unauthenticated comment on one section of the copy-review gallery.
+
+    TEMPORARY — the whole copy-review comments feature is a ~2-week review aid.
+    Remove on/after 2026-08-10 (see docs/superpowers/plans/2026-07-27-copy-review-comments.md).
+    """
+
+    section_key = models.CharField(
+        max_length=200,
+        db_index=True,
+        help_text="Stable slug of the gallery section this comment belongs to (surface--label).",
+    )
+    author_name = models.CharField(
+        max_length=80,
+        help_text="Free-text name the commenter attributed the comment to. Not a user account.",
+    )
+    body = models.TextField(help_text="The comment text (max 2000 chars, enforced by the form).")
+    edit_token = models.CharField(
+        max_length=64,
+        help_text="Secret returned once on create; required to edit or delete this comment.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the comment was posted.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the comment was last edited.")
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set when the commenter soft-deletes the comment.",
+    )
+
+    objects = CopyReviewCommentManager()  # active only (deleted_at IS NULL)
+    all_objects = models.Manager()  # includes soft-deleted
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.author_name} on {self.section_key} ({self.created_at:%Y-%m-%d})"
+
+    def owned_by(self, token: str) -> bool:
+        """Constant-time check that ``token`` matches this comment's edit_token."""
+        return bool(token) and secrets.compare_digest(self.edit_token, token)
+
+    def apply_edit(self, author_name: str, body: str) -> None:
+        """Replace the author name and body, refreshing ``updated_at``."""
+        self.author_name = author_name
+        self.body = body
+        self.save(update_fields=["author_name", "body", "updated_at"])
+
+    def soft_delete(self) -> None:
+        """Hide the comment from the active manager without deleting the row."""
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["deleted_at"])
+
+    def as_public_dict(self) -> dict[str, object]:
+        """Serialize for the JSON API. NEVER includes ``edit_token``."""
+        return {
+            "id": self.pk,
+            "section_key": self.section_key,
+            "author_name": self.author_name,
+            "body": self.body,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+
+# ── END TEMPORARY (copy-review comments) ───────────────────────────────────────

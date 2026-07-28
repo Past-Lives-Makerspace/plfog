@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import secrets
+
 import factory
 from django.contrib.auth import get_user_model
 
-from core.models import ScheduledJobState, ScheduledTaskRun, UserProfile
+from core.models import CopyReviewComment, ScheduledJobState, ScheduledTaskRun, UserProfile
 from core.scheduled_jobs import Trigger
 
 User = get_user_model()
@@ -46,3 +48,14 @@ class ScheduledJobStateFactory(factory.django.DjangoModelFactory):
 
     task_key = factory.Sequence(lambda n: f"job_{n}")
     enabled = True
+
+
+# TEMPORARY — remove on/after 2026-08-10. Copy-review gallery anonymous comments.
+class CopyReviewCommentFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = CopyReviewComment
+
+    section_key = factory.Sequence(lambda n: f"public-account--overview-{n}")
+    author_name = factory.Sequence(lambda n: f"Reviewer {n}")
+    body = "The heading copy reads well; consider softening the button label."
+    edit_token = factory.LazyFunction(lambda: secrets.token_hex(16))

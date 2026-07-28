@@ -74,3 +74,40 @@ class FindAccountForm(forms.Form):
                 f"If you didn't request this, you can safely ignore this email."
             ),
         )
+
+
+# TEMPORARY — remove on/after 2026-08-10. Copy-review gallery anonymous comments.
+# See docs/superpowers/plans/2026-07-27-copy-review-comments.md.
+class CopyReviewCommentForm(forms.Form):
+    """Validation for a copy-review gallery comment (create + edit share it).
+
+    Every field is required and non-blank once surrounding whitespace is stripped.
+    Length caps (``body`` 2000, ``author_name`` 80, ``section`` 200) are the abuse
+    guard. Validation lives here, never in the view. TEMPORARY — remove on/after
+    2026-08-10.
+    """
+
+    section = forms.CharField(max_length=200, required=False)
+    author_name = forms.CharField(max_length=80, required=False)
+    body = forms.CharField(max_length=2000, required=False)
+
+    def clean_section(self) -> str:
+        return self._require("section")
+
+    def clean_author_name(self) -> str:
+        return self._require("author_name")
+
+    def clean_body(self) -> str:
+        return self._require("body")
+
+    def _require(self, field: str) -> str:
+        """Return the stripped value, rejecting anything blank after strip.
+
+        Fields are declared ``required=False`` so the field layer accepts an empty
+        string and defers the non-blank rule to here — otherwise the field's own
+        "required" error would fire first and this branch would be unreachable.
+        """
+        value = self.cleaned_data[field].strip()
+        if not value:
+            raise forms.ValidationError("This field is required.")
+        return value
