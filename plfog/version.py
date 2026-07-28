@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.40"
+VERSION = "0.23.41"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.23.40",
+        # Re-stamped to the current VERSION (was 0.23.40) so `announce_release`
+        # resolves an entry for VERSION. This release also carries an internal,
+        # temporary copy-review comments tool that is invisible to members, so it
+        # gets no changelog bullets of its own (see the copy-review spec / CLAUDE.md).
+        "version": "0.23.41",
         "date": "2026-07-27",
         "title": "Cleaner Discord posts and event calendar",
         "changes": [
