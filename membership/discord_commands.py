@@ -10,12 +10,12 @@ models/managers and :mod:`membership.orientations`; nothing new lands in the han
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from math import ceil
 from typing import TYPE_CHECKING, cast
 
 from core.events.discord_commands import ComponentHandler, SlashCommand, register, register_component
-from core.events.discord_interactions import error_reply, reply, update_message
+from core.events.discord_interactions import ack_deferred, error_reply, reply, send_followup, update_message
 from core.events.discord_replies import (
     format_local,
     guild_not_specified_reply,
@@ -26,7 +26,8 @@ from core.events.discord_replies import (
 )
 
 if TYPE_CHECKING:
-    from membership.models import Guild, GuildOrientationSettings, Member, MemberQuerySet
+    from hub.forms import CommunityEventForm
+    from membership.models import CommunityEvent, Guild, GuildOrientationSettings, Member, MemberQuerySet
     from membership.vote_calculator import VoteStanding
 
 logger = logging.getLogger(__name__)
@@ -813,3 +814,386 @@ MEMBERS = SlashCommand(
 
 register(MEMBERS)
 register_component(ComponentHandler(prefix="members", handler=_members_component, requires_link=True))
+
+
+# --- /create-event ------------------------------------------------------------
+
+# The "guild" choice value that means "no guild — a site-wide community event".
+_GENERAL_VALUE = "__general__"
+# Fallback event length in minutes when neither end_time nor duration_minutes is given.
+_DEFAULT_DURATION_MINUTES = 60
+# Time strings a member might type; tried in order against the raw / upper / space-stripped forms.
+_TIME_FORMATS = ("%H:%M", "%H:%M:%S", "%I:%M %p", "%I:%M%p", "%I %p", "%I%p")
+# The "email" option values that trigger an audience email blast (everything else is "no email").
+_EMAIL_AUDIENCES = ("guild_members", "all_active")
+
+_INVALID_WHEN = (
+    "I couldn't read that date or time. Use `date:` as `YYYY-MM-DD` and a time like `18:00` or `6:00 PM`.\n"
+    "Example: `/create-event title:Potluck date:2026-08-01 start_time:18:00 duration_minutes:120`"
+)
+_NOT_PERMITTED = (
+    "Posting an event straight to the calendar is limited to guild leads and admins right now. "
+    "Ask a lead to post it for you, or reach out to a Past Lives organizer."
+)
+_SETUP_INCOMPLETE = (
+    "Your Past Lives account isn't fully set up yet, so I can't create an event under your name. "
+    "Please reach out to a Past Lives organizer."
+)
+
+
+def _parse_event_date(raw: str) -> date | None:
+    """Parse a ``YYYY-MM-DD`` string to a ``date``, or ``None`` when it doesn't parse."""
+    try:
+        return datetime.strptime(raw.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _parse_time(raw: str) -> time | None:
+    """Parse a loose time string (``18:00``, ``6:00 PM``, ``6pm``) to a ``time``, or ``None``.
+
+    Tries the 24-hour form first (so ``18:00`` never mis-reads as 6 AM), then the AM/PM forms
+    against the raw, upper-cased, and space-stripped variants so ``6:00 PM`` and ``6:00PM`` both land.
+    """
+    candidates = [raw.strip(), raw.strip().upper(), raw.strip().upper().replace(" ", "")]
+    for candidate in candidates:
+        for fmt in _TIME_FORMATS:
+            try:
+                return datetime.strptime(candidate, fmt).time()
+            except ValueError:
+                continue
+    return None
+
+
+def _duration_minutes(interaction: Interaction) -> int:
+    """The ``duration_minutes`` option as an int, defaulting to :data:`_DEFAULT_DURATION_MINUTES`.
+
+    Discord validates the integer option (``min_value=1``), so a supplied value is a positive int;
+    an omitted / blank value falls back to the default one-hour length.
+    """
+    raw = option_value(interaction, "duration_minutes")
+    return int(raw) if raw else _DEFAULT_DURATION_MINUTES
+
+
+def _parse_when(interaction: Interaction) -> tuple[datetime, datetime] | None:
+    """The event's naive local (start, end) datetimes, or ``None`` if the date/time won't parse.
+
+    End is the explicit ``end_time`` when given, else ``start + duration_minutes``. Naive here on
+    purpose — :class:`~hub.forms.CommunityEventForm` makes them aware in the site timezone (Pacific).
+    """
+    event_date = _parse_event_date(option_value(interaction, "date") or "")
+    start_t = _parse_time(option_value(interaction, "start_time") or "")
+    if event_date is None or start_t is None:
+        return None
+    start_naive = datetime.combine(event_date, start_t)
+    end_raw = option_value(interaction, "end_time")
+    if end_raw:
+        end_t = _parse_time(end_raw)
+        if end_t is None:
+            return None
+        end_naive = datetime.combine(event_date, end_t)
+    else:
+        end_naive = start_naive + timedelta(minutes=_duration_minutes(interaction))
+    return start_naive, end_naive
+
+
+def _guild_not_found_reply(raw: str) -> dict:
+    """The ephemeral "no such guild" nudge, listing active guilds so it's never a dead end."""
+    from membership.models import Guild
+
+    names = list(Guild.objects.filter(is_active=True).order_by("name").values_list("name", flat=True)[:25])
+    content = (
+        f"I couldn't find an active guild matching `{raw}`. Pick one from the dropdown, choose "
+        "General, or run this in the guild's Discord channel."
+    )
+    if names:
+        content += "\n\nGuilds: " + ", ".join(names) + "."
+    return reply(content, ephemeral=True)
+
+
+def _resolve_target_guild(interaction: Interaction) -> tuple[Guild | None, dict | None]:
+    """Resolve the target guild: ``(guild, None)`` on success, ``(None, error_reply)`` on failure.
+
+    An explicit ``General`` choice or an omitted option with no channel match → a site-wide event
+    (``guild=None``); an explicit guild slug that no longer resolves → the not-found reply.
+    """
+    from membership.models import Guild
+
+    raw = option_value(interaction, "guild")
+    if raw == _GENERAL_VALUE:
+        return None, None
+    if raw:
+        guild = Guild.objects.filter(slug=raw, is_active=True).first()
+        if guild is None:
+            return None, _guild_not_found_reply(raw)
+        return guild, None
+    return Guild.objects.for_discord_channel(interaction.get("channel_id", "")), None
+
+
+def _build_event_form(
+    title: str, details: str, guild: Guild | None, start_naive: datetime, end_naive: datetime, calendar: str
+) -> CommunityEventForm:
+    """Bind the shared :class:`~hub.forms.CommunityEventForm` (member mode) to the command's inputs.
+
+    Reuses the web "Propose an event" form so date/time coercion (naive → aware) and the
+    end-after-start rule are validated exactly once, in one place. ``details`` binds straight
+    to the form's ``description`` field (a blank-friendly Textarea), so an omitted value is an
+    empty string and no post-save step is needed.
+    """
+    from hub.forms import CommunityEventForm
+    from membership.models import CommunityEvent
+
+    data = {
+        "title": title,
+        "description": details,
+        "starts_at": start_naive.strftime("%Y-%m-%dT%H:%M"),
+        "ends_at": end_naive.strftime("%Y-%m-%dT%H:%M"),
+        "recurrence": CommunityEvent.Recurrence.NONE,
+        "google_calendar_target": calendar,
+    }
+    if guild is not None:
+        data["guild"] = str(guild.pk)
+    return CommunityEventForm(data=data, as_member=True)
+
+
+def _form_error_reply(form: CommunityEventForm) -> dict:
+    """Surface the form's own validation message.
+
+    Two form-level errors are reachable here: the end-before-start rule, and a ``title`` longer
+    than the model's 200-char limit (the CharField length error). Both surface as the ephemeral
+    "adjust and try again" reply — nothing is created.
+    """
+    message = " ".join(str(error) for errors in form.errors.values() for error in errors)
+    return reply(f"{message} Nothing was created — adjust and try again.", ephemeral=True)
+
+
+def _published_reply(event: CommunityEvent, emailed: int) -> dict:
+    """The success reply for a live event — the hub link is the edit affordance (v1)."""
+    content = "Your event is live on the Community Calendar. ✅"
+    if emailed:
+        content += f"\nEmailed {emailed} member{'' if emailed == 1 else 's'}."
+    button_row = {
+        "type": 1,
+        "components": [{"type": 2, "style": 5, "label": "Open the event", "url": event.public_url}],
+    }
+    return reply(content, ephemeral=True, components=[button_row])
+
+
+def _pending_reply() -> dict:
+    """The reply for a proposal that entered the review queue (APPROVAL policy)."""
+    return reply(
+        "Thanks — your event was submitted for review. A lead or admin will take a look, and "
+        "you'll get a note when they respond.",
+        ephemeral=True,
+    )
+
+
+def _finalize_event(
+    member: Member,
+    guild: Guild | None,
+    form: CommunityEventForm,
+    policy: str,
+    authored: bool,
+    email_choice: str,
+) -> dict:
+    """Author or propose the validated event, optionally email the audience, and build the reply.
+
+    ``authored`` (a lead/admin) publishes straight to the calendar via
+    :meth:`CommunityEvent.schedule_or_go_live` (mirroring the web guild/admin event views);
+    everyone else routes through :meth:`CommunityEvent.propose`, whose OPEN/APPROVAL branch
+    decides publish-now vs the review queue. The email fan-out runs only on a published event,
+    and its own try/except keeps a post-publish email failure from reporting failure on an event
+    that is already live: the address fan-out is logged and the reply still reports it live
+    (``emailed = 0``). Once the event has a pk, the reply is always the published/pending one — the
+    caller's outer guard then only catches genuine publish/propose failures (nothing created).
+    """
+    from membership.models import CommunityEvent
+
+    event = form.save(commit=False)
+    if authored:
+        event.guild = guild
+        event.event_type = (
+            CommunityEvent.EventType.GUILD_MEETING if guild is not None else CommunityEvent.EventType.COMMUNITY
+        )
+        event.created_by = member.user
+        event.save()
+        event.schedule_or_go_live(actor=member.user)
+        published = True
+    else:
+        published = event.propose(by=member.user, guild=guild, policy=policy, editing=False)
+
+    if not published:
+        return _pending_reply()
+    emailed = 0
+    if email_choice in _EMAIL_AUDIENCES:
+        try:
+            emailed = event.email_announcement(email_choice, actor=member.user)
+        except Exception:
+            logger.exception("create-event: email announcement failed after the event was published")
+    return _published_reply(event, emailed)
+
+
+def _defer_and_finalize(
+    interaction: Interaction,
+    member: Member,
+    guild: Guild | None,
+    form: CommunityEventForm,
+    policy: str,
+    authored: bool,
+    email_choice: str,
+) -> dict:
+    """Ack deferred (type-5), run the publish/propose fan-out, then PATCH the real reply in.
+
+    Mirrors :func:`core.events.discord_commands._dispatch_deferred`: the slow, side-effecting
+    work (Discord + Google push, optional email) happens after the ack so Discord's 3-second
+    clock is satisfied, and any failure becomes the friendly error reply — never a 5xx.
+    """
+    ack_deferred(interaction["id"], interaction["token"], ephemeral=True)
+    try:
+        followup = _finalize_event(member, guild, form, policy, authored, email_choice)
+    except Exception:
+        logger.exception("create-event: publish/propose fan-out failed")
+        followup = error_reply()
+    data = followup["data"]
+    send_followup(
+        interaction["token"],
+        content=data.get("content", ""),
+        embeds=data.get("embeds"),
+        components=data.get("components"),
+    )
+    return {}
+
+
+def _create_event(interaction: Interaction, member: Member | None) -> dict:
+    """Create a Community Calendar event from Discord: validate cheaply, then defer the fan-out.
+
+    Every cheap check returns an immediate ephemeral reply *before* deferring (§ task flow):
+    an account with no linked user (setup incomplete), an unknown guild, an unparseable
+    date/time, an end-before-start, and the not-permitted gate (a non-lead/admin under the
+    DISABLED member-event policy). Only once everything validates do we ack deferred and run
+    the publish/propose fan-out via :func:`_defer_and_finalize`.
+
+    ``requires_link=True`` guarantees ``member`` is non-``None`` (dispatch shows the connect
+    prompt for an unlinked caller before this runs).
+    """
+    from core.models import SiteConfiguration
+    from membership.models import CommunityEvent
+
+    member = cast("Member", member)
+    if member.user is None:
+        return reply(_SETUP_INCOMPLETE, ephemeral=True)
+
+    guild, guild_error = _resolve_target_guild(interaction)
+    if guild_error is not None:
+        return guild_error
+
+    when = _parse_when(interaction)
+    if when is None:
+        return reply(_INVALID_WHEN, ephemeral=True)
+    start_naive, end_naive = when
+
+    title = (option_value(interaction, "title") or "").strip()
+    details = (option_value(interaction, "details") or "").strip()
+    calendar = option_value(interaction, "calendar") or CommunityEvent.GoogleCalendarTarget.MEMBER
+    form = _build_event_form(title, details, guild, start_naive, end_naive, calendar)
+    if not form.is_valid():
+        return _form_error_reply(form)
+
+    policy = SiteConfiguration.load().member_event_policy
+    authored = member.is_fog_admin or (guild is not None and member.can_edit_guild(guild))
+    if not authored and policy == SiteConfiguration.MemberEventPolicy.DISABLED:
+        return reply(_NOT_PERMITTED, ephemeral=True)
+
+    email_choice = option_value(interaction, "email") or "none"
+    return _defer_and_finalize(interaction, member, guild, form, policy, authored, email_choice)
+
+
+def _create_event_options() -> list[dict]:
+    """The ``/create-event`` options, guild dropdown built from the live active-guild list.
+
+    Required options (title, date, start_time) come first, as Discord requires — every optional
+    option must follow them. The guild dropdown always carries at least the ``General`` choice, so
+    it never ships an empty ``choices`` list (which would 400 the bulk command PUT); active guilds
+    are capped so the total stays within Discord's 25-choice limit.
+    """
+    from membership.models import Guild
+
+    guilds = list(Guild.objects.filter(is_active=True).order_by("name"))[:24]
+    guild_choices = [{"name": "General (whole makerspace)", "value": _GENERAL_VALUE}]
+    guild_choices += [{"name": g.name, "value": g.slug} for g in guilds]
+    return [
+        {
+            "name": "title",
+            "description": "The event's name — shown on the calendar (e.g. 'Monthly Potluck').",
+            "type": 3,
+            "required": True,
+        },
+        {"name": "date", "description": "Event date, YYYY-MM-DD (e.g. 2026-08-01).", "type": 3, "required": True},
+        {
+            "name": "start_time",
+            "description": "Start time, e.g. 18:00 or 6:00 PM.",
+            "type": 3,
+            "required": True,
+        },
+        {
+            "name": "end_time",
+            "description": "End time, e.g. 20:00. Omit to use duration_minutes instead.",
+            "type": 3,
+            "required": False,
+        },
+        {
+            "name": "duration_minutes",
+            "description": "How long, in minutes, if you skip end_time (default 60).",
+            "type": 4,
+            "required": False,
+            "min_value": 1,
+        },
+        {
+            "name": "details",
+            "description": "Optional. More about it — location, what to bring, agenda.",
+            "type": 3,
+            "required": False,
+        },
+        {
+            "name": "guild",
+            "description": "Which guild — pick one, choose General, or omit to use this channel's guild.",
+            "type": 3,
+            "required": False,
+            "choices": guild_choices,
+        },
+        {
+            "name": "calendar",
+            "description": "Which calendar to post to (defaults to members-only).",
+            "type": 3,
+            "required": False,
+            "choices": [
+                {"name": "Members only (default)", "value": "member"},
+                {"name": "Public", "value": "public"},
+            ],
+        },
+        {
+            "name": "email",
+            "description": "Also email members about it (off by default).",
+            "type": 3,
+            "required": False,
+            "choices": [
+                {"name": "Don't email", "value": "none"},
+                {"name": "This guild's members", "value": "guild_members"},
+                {"name": "The whole membership", "value": "all_active"},
+            ],
+        },
+    ]
+
+
+CREATE_EVENT = SlashCommand(
+    name="create-event",
+    description="Add an event to the Community Calendar.",
+    handler=_create_event,
+    options_builder=_create_event_options,
+    requires_link=True,
+    ephemeral=True,
+    defer=False,
+    scope="guild",
+)
+
+register(CREATE_EVENT)
