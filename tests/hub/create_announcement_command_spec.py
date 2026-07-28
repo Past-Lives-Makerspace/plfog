@@ -448,6 +448,18 @@ def describe_create_announcement_component_confirm():
         assert "expired or was already posted" in second["data"]["content"]
         assert post_spy.call_count == 1
 
+    def it_does_not_post_when_a_concurrent_confirm_wins_the_claim(post_spy):
+        # The draft is unsent when this confirm loads it, but a concurrent confirm wins the atomic
+        # claim (UPDATE ... WHERE sent_at IS NULL) before ours runs, so ours matches 0 rows and must
+        # NOT post — the guard against a genuine double-click / Discord-retry race.
+        _general_webhook()
+        admin = _admin()
+        draft = _draft_for(admin)
+        with mock.patch("django.db.models.query.QuerySet.update", return_value=0):
+            result = _create_announcement_component(_component(f"announce:confirm:{draft.pk}:everyone"), admin)
+        assert "expired or was already posted" in result["data"]["content"]
+        post_spy.assert_not_called()
+
     def it_re_blocks_a_confirm_when_authority_was_revoked(post_spy):
         _general_webhook()
         # A draft authored by someone who is no longer an admin: build the draft, then

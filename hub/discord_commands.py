@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from core.events.discord_commands import Interaction
-    from membership.models import Guild, Member
+    from membership.models import AnnouncementDraft, Guild, Member
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +339,9 @@ register(VOTE)
 
 _ANNOUNCE_AUDIENCE_SITE = "site"
 _ANNOUNCE_MENTIONS = ("none", "here", "everyone", "role")
+# The two-step confirm flow only ever pings — a no-ping post fires immediately and never
+# mints a confirm button, so a `:none` confirm must be rejected (it would KeyError the display).
+_ANNOUNCE_PING_MENTIONS = ("here", "everyone", "role")
 _ANNOUNCE_TITLE_LIMIT = 120  # the headline derived from the message's first line
 _ANNOUNCE_PREVIEW_TITLE_LIMIT = 240
 _ANNOUNCE_CUSTOM_PREFIX = "announce"
@@ -491,18 +494,18 @@ def _announce_post(*, author: User, is_site: bool, guild: Guild | None, title: s
     announcement.notify_members(discord_mention=mention_literal)
 
 
-def _announce_preview_reply(draft: object, *, is_site: bool, guild: Guild | None, mention: str) -> dict:
+def _announce_preview_reply(draft: AnnouncementDraft, *, is_site: bool, guild: Guild | None, mention: str) -> dict:
     """The ephemeral Step-2 preview: what will post, to where, pinging whom — Confirm / Cancel."""
-    count = draft.recipient_count()  # type: ignore[attr-defined]
+    count = draft.recipient_count()
     who = f"about {count} member" + ("" if count == 1 else "s")
     content = (
         "**Ready to post — please confirm.**\n"
-        f"> {truncate(draft.title, _ANNOUNCE_PREVIEW_TITLE_LIMIT)}\n\n"  # type: ignore[attr-defined]
+        f"> {truncate(draft.title, _ANNOUNCE_PREVIEW_TITLE_LIMIT)}\n\n"
         f"This will post to {_announce_channel_label(is_site, guild)} and ping "
         f"{_announce_ping_display(mention)} — {who} will be notified.\n\n"
         "That's a wide ping. Post it?"
     )
-    draft_pk = draft.pk  # type: ignore[attr-defined]
+    draft_pk = draft.pk
     row = {
         "type": 1,
         "components": [
@@ -605,7 +608,7 @@ def _create_announcement_component(interaction: Interaction, member: Member | No
         len(parts) != 4
         or parts[1] not in ("confirm", "cancel")
         or not parts[2].isdigit()
-        or parts[3] not in _ANNOUNCE_MENTIONS
+        or parts[3] not in _ANNOUNCE_PING_MENTIONS
     ):
         logger.warning("Malformed create-announcement custom_id %r", custom_id)
         return error_reply()
@@ -633,10 +636,18 @@ def _create_announcement_component(interaction: Interaction, member: Member | No
         draft.delete()
         return update_message(blocker)
 
-    # Claim the draft first — a lost race / double-click then finds it already sent (draft is None
-    # on the re-query) and can't post a second time.
-    draft.sent_at = _tz.now()
-    draft.save(update_fields=["sent_at", "updated_at"])
+    # Claim the draft atomically: a single conditional UPDATE ... WHERE sent_at IS NULL is the one
+    # point that resolves the race. A concurrent confirm (a genuine double-click, or a Discord retry
+    # after the ~3s timeout) that loses the claim updates 0 rows and must NOT post. A plain
+    # read-then-save here would let two callers both pass the `sent_at IS NULL` read and double-post.
+    claimed = AnnouncementDraft.objects.filter(pk=draft.pk, author=member.user, sent_at__isnull=True).update(
+        sent_at=_tz.now(), updated_at=_tz.now()
+    )
+    if not claimed:
+        return update_message(
+            "This announcement preview has expired or was already posted. "
+            "Run `/create-announcement` again if you still want to send it."
+        )
     _announce_post(
         author=cast("User", member.user),
         is_site=is_site,
