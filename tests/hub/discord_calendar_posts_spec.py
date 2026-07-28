@@ -143,6 +143,21 @@ def describe_build_weekly_digest_embeds():
         assert "Forge Night" in description
         assert "Wood Guild Studio Hours" not in description
 
+    def it_excludes_a_feed_event_titled_studio_hours():
+        # A guild's Google-calendar "open studio hours" block arrives as a feed event with
+        # no event type — filter it by title so #public-calendar stays real events only.
+        now = timezone.now()
+        _feed_event("Art Framing open studio hours", days=2)
+        CommunityEventFactory(
+            community=True,
+            title="Spring Mixer",
+            starts_at=now + timedelta(days=3),
+            ends_at=now + timedelta(days=3, hours=2),
+        )
+        description = dcp.build_weekly_digest_embeds(now)[0]["description"]
+        assert "Spring Mixer" in description
+        assert "Art Framing open studio hours" not in description
+
 
 def describe_batch_embeds():
     def it_splits_batches_under_the_combined_six_thousand_char_message_cap():
@@ -284,6 +299,18 @@ def describe_announce_new_events():
 
         assert dcp.announce_new_events() == 0
         assert not route.called
+
+    @respx.mock
+    def it_never_announces_a_feed_event_titled_studio_hours(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        hours = _feed_event("Woodshop open studio hours", days=2)
+
+        assert dcp.announce_new_events() == 0
+        assert not route.called
+        hours.refresh_from_db()
+        assert hours.channel_announced_at is None
 
     @respx.mock
     def it_caps_at_ten_posts_and_silently_stamps_the_overflow(settings):

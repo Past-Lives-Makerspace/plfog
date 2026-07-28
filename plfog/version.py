@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.40"
+VERSION = "0.23.44"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.23.40",
+        "version": "0.23.44",
         "date": "2026-07-27",
         "title": "Add calendar events straight from Discord",
         "changes": [
@@ -19,12 +19,39 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
-        "version": "0.23.39",
+        "version": "0.23.42",
+        "date": "2026-07-27",
+        "title": "Add members directly, and a tidier invites list",
+        "changes": [
+            (
+                "Organizers can now add a new member straight from Manage Members, without sending an "
+                "invite first. The new person can sign in right away with a one-time login code emailed "
+                "to them; there's no password to set and no invite step to wait on."
+            ),
+            (
+                "The invites list stays tidy: expired invites are tucked behind a count instead of piling "
+                "up, and a single Clear expired button clears them all at once. Resend and Revoke still "
+                "work for anything shown."
+            ),
+        ],
+    },
+    {
+        "version": "0.23.41",
+        "date": "2026-07-27",
+        "title": "Two-finger swipe to move around the Spaces map",
+        "changes": [
+            "On the Spaces map, a two-finger trackpad swipe (or a scroll) now pans around the floor, "
+            "the way you'd expect on a Mac. Pinch or Ctrl+scroll still zooms, and the plus and minus "
+            "buttons work as before.",
+        ],
+    },
+    {
+        "version": "0.23.40",
         "date": "2026-07-27",
         "title": "Cleaner Discord posts and event calendar",
         "changes": [
             "The weekly class and calendar digests no longer repeat several times on Monday mornings.",
-            "The community calendar Discord channel now lists events only. Classes stay in the classes channel.",
+            "The community calendar Discord channel now shows events only, so classes and open studio hours no longer clutter it.",
             "Fixed a class that was showing the wrong instructor's name.",
         ],
     },

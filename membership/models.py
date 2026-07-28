@@ -4086,6 +4086,13 @@ class CommunityEvent(models.Model):
         push fan-out is deduped against the launch (same ``period``), so only the extra emails
         actually go out — nothing double-posts.
 
+        The address list is also deduped against the launch email itself: a member who opted
+        into event emails already received the launch :meth:`announce` email through the normal
+        per-member fan-out, and the explicit ``email_to`` send is keyed by address (not user), so
+        without this exclusion they would receive two copies. Any recipient for whom the launch
+        event already enables the EMAIL channel is therefore dropped from ``addresses``, leaving
+        only the members this escalation genuinely adds.
+
         Args:
             audience: ``"guild_members"`` (this event's guild roster; empty for a site-wide
                 event) or ``"all_active"`` (every active, signed-in member).
@@ -4099,10 +4106,11 @@ class CommunityEvent(models.Model):
         """
         if self.event_type == self.EventType.STUDIO_HOURS:
             return 0
-        from core.events import resolvers
+        from core.events import preferences, resolvers
         from core.events.emit import emit
-        from core.events.registry import Recipients
+        from core.events.registry import Channel, Recipients
 
+        event_key = self._ANNOUNCE_EVENT[self.event_type]
         if audience == "guild_members":
             recipients = (
                 resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self.guild}) if self.guild is not None else []
@@ -4112,11 +4120,18 @@ class CommunityEvent(models.Model):
         else:
             raise ValueError(f"Unknown event email audience: {audience!r}")
 
-        addresses = sorted({(user.email or "").strip() for user, _reason in recipients if (user.email or "").strip()})
+        addresses = sorted(
+            {
+                email
+                for user, _reason in recipients
+                if (email := (user.email or "").strip())
+                and Channel.EMAIL not in preferences.enabled_channels(user, event_key)
+            }
+        )
         if not addresses:
             return 0
         emit(
-            self._ANNOUNCE_EVENT[self.event_type],
+            event_key,
             actor=actor,
             target=self,
             context=self._announce_context(),

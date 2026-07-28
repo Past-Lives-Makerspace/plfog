@@ -2,7 +2,7 @@
 
 from django.urls import path
 
-from . import views
+from . import copy_review_views, views
 
 urlpatterns = [
     # Cross-surface session relay (SSO between members and book surfaces)
@@ -40,6 +40,14 @@ urlpatterns = [
     path("notifications/unread-count/", views.notification_unread_count, name="notification_unread_count"),
     path("notifications/<int:pk>/read/", views.notification_read, name="notification_read"),
     path("notifications/read-all/", views.notification_read_all, name="notification_read_all"),
+    # TEMPORARY — remove on/after 2026-08-10. Public, unauthenticated comment API for
+    # the copy-review gallery (copy-review.pastlives.space). NOT member-facing; not
+    # gated by SurfaceMiddleware (no /copy-review/ prefix in MEMBER_ONLY_PATH_PREFIXES),
+    # so it resolves on the public book surface the gallery JS calls cross-origin.
+    path("copy-review/comments/", copy_review_views.comments, name="copy_review_comments"),
+    path("copy-review/comments/<int:pk>/edit/", copy_review_views.comment_edit, name="copy_review_comment_edit"),
+    path("copy-review/comments/<int:pk>/delete/", copy_review_views.comment_delete, name="copy_review_comment_delete"),
+    # END TEMPORARY (copy-review comments)
     # Signage slideshow (public kiosk). Registered LAST so any real member route
     # wins — a bare /<zone-slug>/ only falls through to the player when nothing else
     # matched. Both views raise Http404 off the signage surface (see core.views), and

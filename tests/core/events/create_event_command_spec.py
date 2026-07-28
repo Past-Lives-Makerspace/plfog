@@ -85,11 +85,12 @@ def describe_command_definition():
     def it_exposes_the_expected_options_with_required_ones_first():
         opts = CREATE_EVENT.to_api_dict()["options"]
         assert {o["name"] for o in opts} == {
-            "description",
+            "title",
             "date",
             "start_time",
             "end_time",
             "duration_minutes",
+            "details",
             "guild",
             "calendar",
             "email",
@@ -184,40 +185,47 @@ def describe_resolve_target_guild():
 def describe_cheap_validation():
     def it_reports_when_the_linked_account_has_no_user():
         member = MemberFactory()  # unlinked → member.user is None
-        assert "isn't fully set up" in _content(member, description="X", date="2099-08-01", start_time="18:00")
+        assert "isn't fully set up" in _content(member, title="X", date="2099-08-01", start_time="18:00")
 
     def it_reports_an_unknown_guild(linked_member):
         member = linked_member()
-        content = _content(member, description="X", date="2099-08-01", start_time="18:00", guild="ghost")
+        content = _content(member, title="X", date="2099-08-01", start_time="18:00", guild="ghost")
         assert "couldn't find an active guild" in content
 
     def it_reports_an_unparseable_date(linked_member):
         member = linked_member()
-        content = _content(member, description="X", date="not-a-date", start_time="18:00")
+        content = _content(member, title="X", date="not-a-date", start_time="18:00")
         assert "couldn't read that date or time" in content
 
     def it_reports_an_unparseable_start_time(linked_member):
         member = linked_member()
-        content = _content(member, description="X", date="2099-08-01", start_time="nope")
+        content = _content(member, title="X", date="2099-08-01", start_time="nope")
         assert "couldn't read that date or time" in content
 
     def it_reports_an_unparseable_end_time(linked_member):
         member = linked_member()
-        content = _content(member, description="X", date="2099-08-01", start_time="18:00", end_time="nope")
+        content = _content(member, title="X", date="2099-08-01", start_time="18:00", end_time="nope")
         assert "couldn't read that date or time" in content
 
     def it_rejects_an_end_before_the_start(linked_member):
         member = linked_member()
         content = _content(
-            member, description="X", date="2099-08-01", start_time="20:00", end_time="18:00", guild=_GENERAL_VALUE
+            member, title="X", date="2099-08-01", start_time="20:00", end_time="18:00", guild=_GENERAL_VALUE
         )
         assert "End time must be after the start" in content
 
     def it_refuses_a_non_lead_under_the_disabled_policy(linked_member):
         _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
         member = linked_member()
-        content = _content(member, description="X", date="2099-08-01", start_time="18:00", guild=_GENERAL_VALUE)
+        content = _content(member, title="X", date="2099-08-01", start_time="18:00", guild=_GENERAL_VALUE)
         assert "limited to guild leads and admins" in content
+
+    def it_rejects_a_title_longer_than_200_characters(linked_member):
+        member = linked_member()
+        content = _content(member, title="x" * 201, date="2099-08-01", start_time="18:00", guild=_GENERAL_VALUE)
+        assert "200 characters" in content
+        assert "Nothing was created" in content
+        assert not CommunityEvent.objects.exists()
 
 
 # --- Deferred publish / propose fan-out ---------------------------------------
@@ -236,7 +244,7 @@ def describe_authoring_published_events():
             _interaction(
                 interaction_id="intA",
                 token="tokB",
-                description="Potluck",
+                title="Potluck",
                 date="2099-08-01",
                 start_time="18:00",
                 duration_minutes=120,
@@ -267,7 +275,7 @@ def describe_authoring_published_events():
             _interaction(
                 interaction_id="intA",
                 token="tokB",
-                description="Fiber Night",
+                title="Fiber Night",
                 date="2099-08-01",
                 start_time="18:00",
                 guild=guild.slug,
@@ -289,7 +297,7 @@ def describe_authoring_published_events():
             _interaction(
                 interaction_id="intA",
                 token="tokB",
-                description="One Mic Night",
+                title="One Mic Night",
                 date="2099-08-01",
                 start_time="18:00",
                 guild=_GENERAL_VALUE,
@@ -302,6 +310,27 @@ def describe_authoring_published_events():
         assert event.event_type == CommunityEvent.EventType.COMMUNITY
         assert event.guild is None
         assert event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC
+
+    @respx.mock
+    def it_saves_the_details_option_as_the_event_description(settings, linked_member):
+        _discord_settings(settings)
+        _mock_discord()
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Print")
+
+        _create_event(
+            _interaction(
+                interaction_id="intA",
+                token="tokB",
+                title="Zine Night",
+                details="Bring paper and a stapler.",
+                date="2099-08-01",
+                start_time="18:00",
+                guild=guild.slug,
+            ),
+            admin,
+        )
+        assert CommunityEvent.objects.get(title="Zine Night").description == "Bring paper and a stapler."
 
 
 def describe_member_proposals():
@@ -316,7 +345,7 @@ def describe_member_proposals():
             _interaction(
                 interaction_id="intA",
                 token="tokB",
-                description="My Proposal",
+                title="My Proposal",
                 date="2099-08-01",
                 start_time="18:00",
                 guild=_GENERAL_VALUE,
@@ -340,7 +369,7 @@ def describe_member_proposals():
             _interaction(
                 interaction_id="intA",
                 token="tokB",
-                description="Open Proposal",
+                title="Open Proposal",
                 date="2099-08-01",
                 start_time="18:00",
                 guild=_GENERAL_VALUE,
@@ -367,7 +396,7 @@ def describe_the_also_email_option():
             _interaction(
                 interaction_id="intA",
                 token="tokB",
-                description="Glass Meetup",
+                title="Glass Meetup",
                 date="2099-08-01",
                 start_time="18:00",
                 guild=guild.slug,
@@ -377,6 +406,37 @@ def describe_the_also_email_option():
         )
         assert "Emailed 2 members" in _followup_content(followup)
         assert len(mailoutbox) == 2
+
+
+def describe_post_publish_email_failure():
+    @respx.mock
+    def it_reports_the_event_live_when_the_email_fan_out_raises(settings, linked_member):
+        _discord_settings(settings)
+        followup = _mock_discord()
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Solder")
+
+        with patch.object(CommunityEvent, "email_announcement", side_effect=Exception("smtp down")):
+            result = _create_event(
+                _interaction(
+                    interaction_id="intA",
+                    token="tokB",
+                    title="Repair Cafe",
+                    date="2099-08-01",
+                    start_time="18:00",
+                    guild=guild.slug,
+                    email="all_active",
+                ),
+                admin,
+            )
+
+        assert result == {}
+        content = _followup_content(followup)
+        assert "live on the Community Calendar" in content
+        assert "went wrong" not in content
+        assert "Emailed" not in content
+        event = CommunityEvent.objects.get(title="Repair Cafe")
+        assert event.moderation_state == CommunityEvent.ModerationState.PUBLISHED
 
 
 def describe_error_handling():
@@ -392,7 +452,7 @@ def describe_error_handling():
                 _interaction(
                     interaction_id="intA",
                     token="tokB",
-                    description="X",
+                    title="X",
                     date="2099-08-01",
                     start_time="18:00",
                     guild=guild.slug,

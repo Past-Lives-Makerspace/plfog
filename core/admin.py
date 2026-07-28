@@ -10,7 +10,7 @@ from django.http import HttpRequest, HttpResponse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 
-from .models import CalendarFeed, SiteConfiguration
+from .models import CalendarFeed, CopyReviewComment, SiteConfiguration
 
 
 _ICAL_TOOLTIP = (
@@ -56,6 +56,17 @@ class _SiteConfigurationAdminForm(dj_forms.ModelForm):
             "{}</div></span>",
             _ICAL_TOOLTIP,
         )
+
+
+# TEMPORARY — remove on/after 2026-08-10. Moderation surface for the copy-review
+# gallery comments. See docs/superpowers/plans/2026-07-27-copy-review-comments.md.
+@admin.register(CopyReviewComment)
+class CopyReviewCommentAdmin(ModelAdmin):
+    """Read/moderate copy-review comments (active rows; purge deleted via shell at teardown)."""
+
+    list_display = ["author_name", "section_key", "created_at", "updated_at"]
+    search_fields = ["author_name", "body", "section_key"]
+    readonly_fields = ["edit_token", "created_at", "updated_at"]
 
 
 @admin.register(CalendarFeed)

@@ -450,6 +450,11 @@ a:hover { color: var(--hub-link-hover); }
     gap: 0.75rem;
     margin-bottom: 1rem;
 }
+.pl-invite-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
 .pl-invite-form {
     margin-bottom: 1.25rem;
 }
@@ -457,6 +462,30 @@ a:hover { color: var(--hub-link-hover); }
     display: flex;
     gap: 0.5rem;
     margin-top: 0.75rem;
+}
+.pl-invite-hint {
+    margin: 0.75rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    line-height: 1.5;
+}
+.pl-invite-expired {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+.pl-invite-expired__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+.pl-invite-expired__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
 }
 .pl-invite-list {
     display: flex;

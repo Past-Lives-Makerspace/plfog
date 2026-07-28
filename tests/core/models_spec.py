@@ -347,6 +347,49 @@ def describe_Invite():
             assert accepted not in Invite.objects.pending()
             assert accepted not in Invite.objects.expired()
 
+    def describe_clear_expired():
+        def it_revokes_every_expired_invite_and_returns_the_count(admin_user):
+            expired_a = Invite.objects.create(email="ea@example.com", invited_by=admin_user)
+            expired_b = Invite.objects.create(email="eb@example.com", invited_by=admin_user)
+            Invite.objects.filter(pk__in=[expired_a.pk, expired_b.pk]).update(
+                created_at=timezone.now() - timedelta(days=30)
+            )
+            fresh = Invite.objects.create(email="fresh@example.com", invited_by=admin_user)
+
+            cleared = Invite.objects.clear_expired()
+
+            assert cleared == 2
+            assert not Invite.objects.filter(pk=expired_a.pk).exists()
+            assert not Invite.objects.filter(pk=expired_b.pk).exists()
+            assert Invite.objects.filter(pk=fresh.pk).exists()
+
+        def it_returns_zero_when_nothing_is_expired(admin_user):
+            Invite.objects.create(email="fresh@example.com", invited_by=admin_user)
+            assert Invite.objects.clear_expired() == 0
+
+        def it_leaves_accepted_invites_untouched(admin_user):
+            accepted = Invite.objects.create(email="acc@example.com", invited_by=admin_user)
+            Invite.objects.filter(pk=accepted.pk).update(created_at=timezone.now() - timedelta(days=30))
+            accepted.refresh_from_db()
+            accepted.mark_accepted()
+            assert Invite.objects.clear_expired() == 0
+            assert Invite.objects.filter(pk=accepted.pk).exists()
+
+        def it_deletes_the_placeholder_member_and_logs_activity(admin_user):
+            MembershipPlanFactory()
+            with patch("core.email.send_mail"):
+                invite = Invite.create_and_send(email="ghost@example.com", invited_by=admin_user)
+            aged = timezone.now() - timedelta(days=30)
+            Invite.objects.filter(pk=invite.pk).update(created_at=aged, last_sent_at=aged)
+            member_pk = invite.member_id
+            SiteActivity.objects.all().delete()
+
+            cleared = Invite.objects.clear_expired()
+
+            assert cleared == 1
+            assert not Member.objects.filter(pk=member_pk).exists()
+            assert SiteActivity.objects.filter(kind=SiteActivity.Kind.MEMBER_INVITE_REVOKED).exists()
+
     def describe_for_management_panel():
         def it_includes_un_accepted(admin_user):
             invite = Invite.objects.create(email="u@example.com", invited_by=admin_user)

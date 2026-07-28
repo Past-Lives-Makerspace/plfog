@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from core.models import NotificationPreference
 from tests.membership.factories import CommunityEventFactory, GuildFactory, GuildMembershipFactory
 
 pytestmark = pytest.mark.django_db
@@ -52,3 +53,34 @@ def describe_email_announcement():
         event = CommunityEventFactory()
         with pytest.raises(ValueError, match="Unknown event email audience"):
             event.email_announcement("everybody")
+
+    def describe_dedupe_against_the_launch_email():
+        def it_skips_a_recipient_who_already_gets_the_launch_email(linked_member, mailoutbox):
+            opted_in = linked_member()
+            default = linked_member()
+            NotificationPreference.objects.create(
+                user=opted_in.user, event_key="event.community_published", channel="email", enabled=True
+            )
+            event = CommunityEventFactory(community=True)
+
+            # The opted-in member already receives the launch announce() email, so the escalation
+            # adds only the default-preference member — no double-send, and a lower count.
+            assert event.email_announcement("all_active") == 1
+            recipients = {addr for message in mailoutbox for addr in message.to}
+            assert recipients == {default.user.email}
+            assert opted_in.user.email not in recipients
+
+        def it_still_emails_a_guild_member_with_the_launch_email_off(linked_member, mailoutbox):
+            guild = GuildFactory()
+            opted_in = linked_member()
+            default = linked_member()
+            GuildMembershipFactory(guild=guild, member=opted_in)
+            GuildMembershipFactory(guild=guild, member=default)
+            NotificationPreference.objects.create(
+                user=opted_in.user, event_key="event.guild_published", channel="email", enabled=True
+            )
+            event = CommunityEventFactory(guild=guild)
+
+            assert event.email_announcement("guild_members") == 1
+            recipients = {addr for message in mailoutbox for addr in message.to}
+            assert recipients == {default.user.email}

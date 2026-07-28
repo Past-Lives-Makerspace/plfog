@@ -931,18 +931,21 @@ def _resolve_target_guild(interaction: Interaction) -> tuple[Guild | None, dict 
 
 
 def _build_event_form(
-    text: str, guild: Guild | None, start_naive: datetime, end_naive: datetime, calendar: str
+    title: str, details: str, guild: Guild | None, start_naive: datetime, end_naive: datetime, calendar: str
 ) -> CommunityEventForm:
     """Bind the shared :class:`~hub.forms.CommunityEventForm` (member mode) to the command's inputs.
 
     Reuses the web "Propose an event" form so date/time coercion (naive → aware) and the
-    end-after-start rule are validated exactly once, in one place.
+    end-after-start rule are validated exactly once, in one place. ``details`` binds straight
+    to the form's ``description`` field (a blank-friendly Textarea), so an omitted value is an
+    empty string and no post-save step is needed.
     """
     from hub.forms import CommunityEventForm
     from membership.models import CommunityEvent
 
     data = {
-        "title": text,
+        "title": title,
+        "description": details,
         "starts_at": start_naive.strftime("%Y-%m-%dT%H:%M"),
         "ends_at": end_naive.strftime("%Y-%m-%dT%H:%M"),
         "recurrence": CommunityEvent.Recurrence.NONE,
@@ -954,7 +957,12 @@ def _build_event_form(
 
 
 def _form_error_reply(form: CommunityEventForm) -> dict:
-    """Surface the form's own validation message (only the end-before-start rule is reachable here)."""
+    """Surface the form's own validation message.
+
+    Two form-level errors are reachable here: the end-before-start rule, and a ``title`` longer
+    than the model's 200-char limit (the CharField length error). Both surface as the ephemeral
+    "adjust and try again" reply — nothing is created.
+    """
     message = " ".join(str(error) for errors in form.errors.values() for error in errors)
     return reply(f"{message} Nothing was created — adjust and try again.", ephemeral=True)
 
@@ -993,7 +1001,11 @@ def _finalize_event(
     ``authored`` (a lead/admin) publishes straight to the calendar via
     :meth:`CommunityEvent.schedule_or_go_live` (mirroring the web guild/admin event views);
     everyone else routes through :meth:`CommunityEvent.propose`, whose OPEN/APPROVAL branch
-    decides publish-now vs the review queue. The email fan-out runs only on a published event.
+    decides publish-now vs the review queue. The email fan-out runs only on a published event,
+    and its own try/except keeps a post-publish email failure from reporting failure on an event
+    that is already live: the address fan-out is logged and the reply still reports it live
+    (``emailed = 0``). Once the event has a pk, the reply is always the published/pending one — the
+    caller's outer guard then only catches genuine publish/propose failures (nothing created).
     """
     from membership.models import CommunityEvent
 
@@ -1012,7 +1024,12 @@ def _finalize_event(
 
     if not published:
         return _pending_reply()
-    emailed = event.email_announcement(email_choice, actor=member.user) if email_choice in _EMAIL_AUDIENCES else 0
+    emailed = 0
+    if email_choice in _EMAIL_AUDIENCES:
+        try:
+            emailed = event.email_announcement(email_choice, actor=member.user)
+        except Exception:
+            logger.exception("create-event: email announcement failed after the event was published")
     return _published_reply(event, emailed)
 
 
@@ -1075,9 +1092,10 @@ def _create_event(interaction: Interaction, member: Member | None) -> dict:
         return reply(_INVALID_WHEN, ephemeral=True)
     start_naive, end_naive = when
 
-    text = (option_value(interaction, "description") or "").strip()
+    title = (option_value(interaction, "title") or "").strip()
+    details = (option_value(interaction, "details") or "").strip()
     calendar = option_value(interaction, "calendar") or CommunityEvent.GoogleCalendarTarget.MEMBER
-    form = _build_event_form(text, guild, start_naive, end_naive, calendar)
+    form = _build_event_form(title, details, guild, start_naive, end_naive, calendar)
     if not form.is_valid():
         return _form_error_reply(form)
 
@@ -1093,10 +1111,10 @@ def _create_event(interaction: Interaction, member: Member | None) -> dict:
 def _create_event_options() -> list[dict]:
     """The ``/create-event`` options, guild dropdown built from the live active-guild list.
 
-    Required options (description, date, start_time) come first, as Discord requires. The guild
-    dropdown always carries at least the ``General`` choice, so it never ships an empty
-    ``choices`` list (which would 400 the bulk command PUT); active guilds are capped so the
-    total stays within Discord's 25-choice limit.
+    Required options (title, date, start_time) come first, as Discord requires — every optional
+    option must follow them. The guild dropdown always carries at least the ``General`` choice, so
+    it never ships an empty ``choices`` list (which would 400 the bulk command PUT); active guilds
+    are capped so the total stays within Discord's 25-choice limit.
     """
     from membership.models import Guild
 
@@ -1105,8 +1123,8 @@ def _create_event_options() -> list[dict]:
     guild_choices += [{"name": g.name, "value": g.slug} for g in guilds]
     return [
         {
-            "name": "description",
-            "description": "What the event is — shown on the calendar (e.g. 'Monthly Potluck').",
+            "name": "title",
+            "description": "The event's name — shown on the calendar (e.g. 'Monthly Potluck').",
             "type": 3,
             "required": True,
         },
@@ -1129,6 +1147,12 @@ def _create_event_options() -> list[dict]:
             "type": 4,
             "required": False,
             "min_value": 1,
+        },
+        {
+            "name": "details",
+            "description": "Optional. More about it — location, what to bring, agenda.",
+            "type": 3,
+            "required": False,
         },
         {
             "name": "guild",
