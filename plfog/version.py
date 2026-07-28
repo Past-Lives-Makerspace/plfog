@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.43"
+VERSION = "0.23.42"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        # Re-stamped from 0.23.42 to the current VERSION so `announce_release`
-        # resolves an entry for VERSION (the repo requires one entry whose version
-        # equals VERSION; the release specs enforce it). This release also carries an
-        # internal, temporary copy-review comments tool that is invisible to members,
-        # so it adds no changelog entry or bullets of its own (see the copy-review
-        # spec and CLAUDE.md). All member-facing entries below are unchanged.
-        "version": "0.23.43",
+        "version": "0.23.42",
         "date": "2026-07-27",
         "title": "Add members directly, and a tidier invites list",
         "changes": [
