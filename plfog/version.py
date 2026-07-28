@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.41"
+VERSION = "0.23.42"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.42",
+        "date": "2026-07-27",
+        "title": "Add members directly, and a tidier invites list",
+        "changes": [
+            (
+                "Organizers can now add a new member straight from Manage Members, without sending an "
+                "invite first. The new person can sign in right away with a one-time login code emailed "
+                "to them; there's no password to set and no invite step to wait on."
+            ),
+            (
+                "The invites list stays tidy: expired invites are tucked behind a count instead of piling "
+                "up, and a single Clear expired button clears them all at once. Resend and Revoke still "
+                "work for anything shown."
+            ),
+        ],
+    },
     {
         "version": "0.23.41",
         "date": "2026-07-27",
