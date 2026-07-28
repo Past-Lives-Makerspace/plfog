@@ -1,5 +1,7 @@
 # Copy-review gallery — anonymous comments (TEMPORARY, remove on/after 2026-08-10)
 
+> **Correction (2026-07-28):** the live page at copy-review.pastlives.space is the **email** gallery (`tests/e2e/email_gallery/build.py`), not the retired CMS screenshot gallery. The comment widget lives in `tests/e2e/email_gallery/comment_widget.py` and is injected by `build.py` onto each email card (`data-section-key` == `email.key`). Section 6 below describes the original, wrong target (`screenshots_spec.py::_write_index`), which no longer publishes anything.
+
 **Status:** spec + implementation plan
 **Author:** Josh (via assistant)
 **Date:** 2026-07-27
