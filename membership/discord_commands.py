@@ -829,7 +829,7 @@ _EMAIL_AUDIENCES = ("guild_members", "all_active")
 
 _INVALID_WHEN = (
     "I couldn't read that date or time. Use `date:` as `YYYY-MM-DD` and a time like `18:00` or `6:00 PM`.\n"
-    "Example: `/create-event description:Potluck date:2026-08-01 start_time:18:00 duration_minutes:120`"
+    "Example: `/create-event title:Potluck date:2026-08-01 start_time:18:00 duration_minutes:120`"
 )
 _NOT_PERMITTED = (
     "Posting an event straight to the calendar is limited to guild leads and admins right now. "
