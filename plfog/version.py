@@ -11,7 +11,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "Add calendar events straight from Discord",
         "changes": [
             "You can now add a Community Calendar event without leaving Discord. Run `/create-event` with the "
-            "date, start time, and a short description.",
+            "event's name, date, and start time.",
             "Guild leads and admins post instantly; everyone else's event goes to a quick review first, exactly "
             "like proposing one on the website.",
             "Choose the guild it belongs to (or General), pick the members-only or public calendar, set an end "
