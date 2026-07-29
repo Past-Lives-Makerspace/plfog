@@ -1480,23 +1480,34 @@ DEFAULT_CLASS_FAQS: list[dict] = [
     {
         "question": "What's your cancellation policy?",
         "answer": (
-            "Cancel up to 7 days before the first session for a full refund. Within 7 days, "
-            "we can usually transfer your spot to a future class or to someone on the waitlist."
+            "We know plans change, but late cancellations and no-shows leave empty seats that could've "
+            "gone to someone on the waitlist, and instructors still prep and hold space for every "
+            "registered student.\n\n"
+            "Canceling with 48+ hours' notice: No fee. Please cancel by emailing studios@pastlives.space "
+            "as early as possible so we can offer your spot to someone on the waitlist.\n\n"
+            "Canceling with less than 48 hours' notice, or no-shows: A $50 fee applies. Of this, $35 goes "
+            "to the instructor for their held time and prep, and $15 goes to Past Lives Makerspace for "
+            "administrative processing.\n\n"
+            "Emergencies: We understand things come up. Emergency exceptions are handled case-by-case. "
+            "Please reach out to us directly, and we'll work with you.\n\n"
+            "How to cancel: Email studios@pastlives.space"
         ),
     },
     {
         "question": "Is the space accessible?",
         "answer": (
-            "Yes — our studio has step-free entry, accessible restrooms, and adjustable-height "
-            "workstations available on request. Email info@pastlives.space with any specific "
-            "needs and we'll make it work."
+            "We have a ramp to reach our first floor, but please note that Past Lives Makerspace is not "
+            "currently ADA accessible, and we do not have ADA accessible restrooms at this time. If you "
+            "have questions about accessing a specific class or space, please reach out to us at "
+            "studios@pastlives.space and we'll do our best to help."
         ),
     },
     {
-        "question": "What if I've never done this before?",
+        "question": "Do I need any prior experience or skill level?",
         "answer": (
-            "Most of our classes are designed for beginners and welcome curious newcomers. "
-            "Check the Prerequisites section above for any required experience."
+            "Generally, no! Our classes are designed for all skill levels, from complete beginners to "
+            "those looking to refine existing techniques. Each class description will note if any prior "
+            "experience is recommended."
         ),
     },
 ]
