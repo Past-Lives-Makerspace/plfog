@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.44"
+VERSION = "0.23.45"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.45",
+        "date": "2026-07-28",
+        "title": "Discord events now show the right day",
+        "changes": [
+            "Evening events in the Discord server's Events tab could appear one day early. "
+            "Parallel Play showed Wednesday when it actually meets Thursday 5 to 8 PM. "
+            "Recurring evening events now land on the correct day.",
+        ],
+    },
     {
         "version": "0.23.44",
         "date": "2026-07-28",

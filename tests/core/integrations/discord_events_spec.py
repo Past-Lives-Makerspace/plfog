@@ -285,6 +285,28 @@ def describe__recurrence_rule_for():
         event = _anchored(CommunityEvent.Recurrence.WEEKLY, 2026, 7, 8)
         assert de._recurrence_rule_for(event) == {"frequency": 2, "interval": 1, "by_weekday": [2]}
 
+    def it_uses_the_utc_weekday_for_an_evening_event_that_crosses_the_utc_date_line() -> None:
+        # Thu 2026-07-16 17:00 PDT == Fri 2026-07-17 00:00 UTC. Discord evaluates the rule
+        # against the UTC scheduled_start_time it is sent, so the rule must say Friday (4).
+        # Sending the local weekday (Thursday, 3) made Discord snap the series to Thursday
+        # 00:00 UTC — Wednesday 5 PM in Portland — showing every weekly evening meeting a
+        # day early (the live "Parallel Play on Wednesday" bug, 2026-07-28).
+        start = timezone.make_aware(datetime(2026, 7, 16, 17, 0))
+        event = _event(CommunityEvent.Recurrence.WEEKLY, starts_at=start, ends_at=start + timedelta(hours=3))
+        assert de._recurrence_rule_for(event) == {"frequency": 2, "interval": 1, "by_weekday": [4]}
+
+    def it_uses_the_utc_calendar_day_for_a_monthly_evening_event_that_crosses_the_utc_date_line() -> None:
+        # Fri 2026-07-10 18:00 PDT == Sat 2026-07-11 01:00 UTC — the 2nd Friday locally is
+        # the 2nd Saturday in UTC. Both halves of the rule (n AND day) must come from the
+        # same UTC instant, or Discord anchors the series to the wrong day.
+        start = timezone.make_aware(datetime(2026, 7, 10, 18, 0))
+        event = _event(CommunityEvent.Recurrence.MONTHLY, starts_at=start, ends_at=start + timedelta(hours=1))
+        assert de._recurrence_rule_for(event) == {
+            "frequency": 1,
+            "interval": 1,
+            "by_n_weekday": [{"n": 2, "day": 5}],
+        }
+
     @pytest.mark.parametrize(
         ("day", "expected_n", "expected_weekday"),
         [
@@ -305,9 +327,10 @@ def describe__recurrence_rule_for():
         }
 
     def it_maps_a_last_weekday_ordinal_to_discord_5() -> None:
-        # Wed 2026-07-29 is the 5th (and last) Wednesday → model ordinal -1 → Discord n=5.
-        # Discord documents by_n_weekday.n as an int in 1–5 with no negative "last" form, so
-        # the model's -1 MUST be re-encoded; passing -1 straight through would be a hard 400.
+        # Wed 2026-07-29 is the 5th (and last) Wednesday — the model calls that ordinal -1,
+        # but Discord documents by_n_weekday.n as an int in 1–5 with no negative "last"
+        # form; the rule (computed from the UTC calendar day) must land on 5, never -1
+        # (which would be a hard 400).
         event = _anchored(CommunityEvent.Recurrence.MONTHLY, 2026, 7, 29)
         assert event._occurrence_ordinal() == -1
         assert de._recurrence_rule_for(event)["by_n_weekday"][0]["n"] == 5
