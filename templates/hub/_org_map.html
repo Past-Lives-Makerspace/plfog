@@ -19,7 +19,7 @@ Context: floorplans, pending_space_ids, can_edit.
         <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="zoomIn()" aria-label="Zoom in">+</button>
         <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="zoomOut()" aria-label="Zoom out">&minus;</button>
         <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="reset()">Reset</button>
-        <span class="pl-map-toolbar__hint hub-text-muted">Drag to pan &middot; scroll or pinch to zoom</span>
+        <span class="pl-map-toolbar__hint hub-text-muted">Drag or two-finger swipe to pan &middot; pinch or Ctrl+scroll to zoom</span>
     </div>
 
     {% if f.legend %}
@@ -34,8 +34,11 @@ Context: floorplans, pending_space_ids, can_edit.
     </ul>
     {% endif %}
 
+    {# data-floor lets the JS measure THIS floor's viewport — a shared x-ref resolved to
+       whichever floor rendered last, so pan-clamping measured a display:none box (0×0)
+       and froze panning on every other floor. #}
     <div class="pl-map-viewport"
-         x-ref="viewport"
+         data-floor="{{ f.pk }}"
          @pointerdown="onPointerDown($event)"
          @pointermove="onPointerMove($event)"
          @pointerup="onPointerUp($event)"
