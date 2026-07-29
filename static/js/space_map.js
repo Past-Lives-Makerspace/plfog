@@ -98,8 +98,6 @@
                 this.clampPan();
             },
 
-            // Keep the plan from being dragged off-screen: the further you zoom, the more
-            // slack there is, and at 1x there is none (so the map always snaps back square).
             // The visible floor's viewport. Every floor renders its own (x-show keeps the
             // rest in the DOM at display:none, measuring 0×0), so the lookup has to follow
             // the chosen floor — a single x-ref pointed at whichever floor came last.
@@ -107,6 +105,10 @@
                 return this.$root.querySelector('.pl-map-viewport[data-floor="' + this.floor + '"]');
             },
 
+            // Keep the plan from being dragged off-screen: the slack is however much of
+            // the stage overflows the viewport — from zooming in, or from the viewport's
+            // height cap cropping a tall floor even at 1x. A floor that fits entirely
+            // still snaps back square.
             clampPan: function () {
                 var el = this.viewportEl();
                 var stage = el ? el.querySelector('.pl-map-stage') : null;

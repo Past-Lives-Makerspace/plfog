@@ -34,9 +34,9 @@ Context: floorplans, pending_space_ids, can_edit.
     </ul>
     {% endif %}
 
-    {# data-floor lets the JS measure THIS floor's viewport — a shared x-ref resolved to
-       whichever floor rendered last, so pan-clamping measured a display:none box (0×0)
-       and froze panning on every other floor. #}
+    {% comment %}data-floor lets the JS measure THIS floor's viewport — a shared x-ref
+    resolved to whichever floor rendered last, so pan-clamping measured a display:none
+    box (0×0) and froze panning on every other floor.{% endcomment %}
     <div class="pl-map-viewport"
          data-floor="{{ f.pk }}"
          @pointerdown="onPointerDown($event)"
