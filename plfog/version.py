@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.45"
+VERSION = "0.23.46"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.46",
+        "date": "2026-07-29",
+        "title": "Moving around the Spaces map now works everywhere",
+        "changes": [
+            "Dragging the Spaces map (mouse or finger) now pans on every floor. Before, panning "
+            "silently did nothing on some floors no matter how far you zoomed in.",
+            "The map sits in a shorter frame, so a tall floor starts cropped and you can drag or "
+            "two-finger swipe around it right away, no zooming first.",
+            "On a phone or tablet, a two-finger swipe now moves the map while a pinch zooms it, "
+            "the way a maps app behaves.",
+        ],
+    },
     {
         "version": "0.23.45",
         "date": "2026-07-28",
