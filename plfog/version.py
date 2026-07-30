@@ -2,18 +2,41 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.45"
+VERSION = "0.23.47"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.23.45",
-        "date": "2026-07-28",
+        "version": "0.23.47",
+        "date": "2026-07-30",
         "title": "Better on your phone",
         "changes": [
             "Every page now fits phone screens properly. No more cramped rows, tabs wrapping onto two lines, "
             "or buttons hiding under the feedback bubble.",
             "Class pages now follow your light-or-dark theme choice instead of always being light.",
             "Guild pages only suggest becoming a member if you aren't one yet.",
+        ],
+    },
+    {
+        "version": "0.23.46",
+        "date": "2026-07-29",
+        "title": "Moving around the Spaces map now works everywhere",
+        "changes": [
+            "Dragging the Spaces map (mouse or finger) now pans on every floor. Before, panning "
+            "silently did nothing on some floors no matter how far you zoomed in.",
+            "The map sits in a shorter frame, so a tall floor starts cropped and you can drag or "
+            "two-finger swipe around it right away, no zooming first.",
+            "On a phone or tablet, a two-finger swipe now moves the map while a pinch zooms it, "
+            "the way a maps app behaves.",
+        ],
+    },
+    {
+        "version": "0.23.45",
+        "date": "2026-07-28",
+        "title": "Discord events now show the right day",
+        "changes": [
+            "Evening events in the Discord server's Events tab could appear one day early. "
+            "Parallel Play showed Wednesday when it actually meets Thursday 5 to 8 PM. "
+            "Recurring evening events now land on the correct day.",
         ],
     },
     {

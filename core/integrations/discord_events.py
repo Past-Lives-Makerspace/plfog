@@ -195,13 +195,6 @@ def _build_description(event: CommunityEvent) -> str:
     return "\n\n".join(parts)
 
 
-def _occurrence_n(event: CommunityEvent) -> int:
-    """Discord ``by_n_weekday.n`` (1–5) for a monthly-by-weekday event — the model's
-    ``-1`` ('last') maps to Discord's ``5``."""
-    ordinal = event._occurrence_ordinal()
-    return 5 if ordinal == -1 else ordinal
-
-
 def _recurrence_rule_for(event: CommunityEvent) -> dict[str, Any] | None:
     """Map a :class:`CommunityEvent` recurrence to a Discord ``recurrence_rule`` dict.
 
@@ -211,20 +204,30 @@ def _recurrence_rule_for(event: CommunityEvent) -> dict[str, Any] | None:
     to the single-next-occurrence fallback (§5.3). Weekday encoding is ``0=Monday … 6=Sunday``
     (Python ``weekday()`` == Discord's convention). See the module docstring: these limits
     are build-time-verify.
+
+    Both halves of the rule are computed from the **UTC** start, never local time: Discord
+    evaluates ``by_weekday``/``by_n_weekday`` against the UTC ``scheduled_start_time`` it is
+    sent, and a Portland evening event from 5 PM PDT onward crosses the UTC date line, so
+    its UTC weekday is one day later than its local weekday. Sending the local weekday made
+    Discord snap the whole series a day early (a Thursday 5–8 PM meeting displayed as
+    Wednesday 5–8 PM). The monthly ordinal has the same failure mode (a 2nd-Friday evening
+    is a 2nd-Saturday in UTC), so it comes from the UTC calendar day too.
     """
+    from datetime import UTC
+
     from membership.models import CommunityEvent as CE
-    from django.utils import timezone
 
     if event.recurrence == CE.Recurrence.NONE:
         return None
-    weekday = timezone.localtime(event.starts_at).weekday()
+    utc_start = event.starts_at.astimezone(UTC)
+    weekday = utc_start.weekday()
     if event.recurrence == CE.Recurrence.WEEKLY:
         return {"frequency": _FREQUENCY_WEEKLY, "interval": 1, "by_weekday": [weekday]}
     if event.recurrence == CE.Recurrence.MONTHLY:
         return {
             "frequency": _FREQUENCY_MONTHLY,
             "interval": 1,
-            "by_n_weekday": [{"n": _occurrence_n(event), "day": weekday}],
+            "by_n_weekday": [{"n": (utc_start.day - 1) // 7 + 1, "day": weekday}],
         }
     return None
 

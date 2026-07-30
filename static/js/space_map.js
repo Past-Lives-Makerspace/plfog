@@ -41,6 +41,9 @@
             pointers: {},
             pinchStart: 0,
             pinchScale: 1,
+            // Where the two-finger midpoint last was — its movement pans the map.
+            pinchX: 0,
+            pinchY: 0,
 
             // --- Accessible list state (see the .pl-map-list section) ---
             listQuery: '',
@@ -95,13 +98,23 @@
                 this.clampPan();
             },
 
-            // Keep the plan from being dragged off-screen: the further you zoom, the more
-            // slack there is, and at 1x there is none (so the map always snaps back square).
+            // The visible floor's viewport. Every floor renders its own (x-show keeps the
+            // rest in the DOM at display:none, measuring 0×0), so the lookup has to follow
+            // the chosen floor — a single x-ref pointed at whichever floor came last.
+            viewportEl: function () {
+                return this.$root.querySelector('.pl-map-viewport[data-floor="' + this.floor + '"]');
+            },
+
+            // Keep the plan from being dragged off-screen: the slack is however much of
+            // the stage overflows the viewport — from zooming in, or from the viewport's
+            // height cap cropping a tall floor even at 1x. A floor that fits entirely
+            // still snaps back square.
             clampPan: function () {
-                var el = this.$refs.viewport;
-                if (!el) return;
-                var slackX = (el.clientWidth * (this.scale - 1)) / 2;
-                var slackY = (el.clientHeight * (this.scale - 1)) / 2;
+                var el = this.viewportEl();
+                var stage = el ? el.querySelector('.pl-map-stage') : null;
+                if (!el || !stage) return;
+                var slackX = Math.max(0, stage.offsetWidth * this.scale - el.clientWidth) / 2;
+                var slackY = Math.max(0, stage.offsetHeight * this.scale - el.clientHeight) / 2;
                 this.tx = clamp(this.tx, -slackX, slackX);
                 this.ty = clamp(this.ty, -slackY, slackY);
             },
@@ -122,6 +135,13 @@
                 return Math.sqrt(dx * dx + dy * dy);
             },
 
+            // The midpoint between the two touches — moving it pans, so a two-finger
+            // swipe on a touchscreen drags the map even while it zooms, like a maps app.
+            pinchCentroid: function () {
+                var pts = this.pointerList();
+                return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+            },
+
             onPointerDown: function (event) {
                 // A marker is a real button — let the click through instead of panning.
                 if (event.target.closest && event.target.closest('.pl-map-marker')) return;
@@ -129,6 +149,9 @@
                 if (this.pointerList().length === 2) {
                     this.pinchStart = this.pinchDistance();
                     this.pinchScale = this.scale;
+                    var start = this.pinchCentroid();
+                    this.pinchX = start.x;
+                    this.pinchY = start.y;
                     this.dragging = false;
                     return;
                 }
@@ -147,8 +170,13 @@
                     var distance = this.pinchDistance();
                     if (this.pinchStart > 0 && distance > 0) {
                         this.scale = clamp((distance / this.pinchStart) * this.pinchScale, MIN_SCALE, MAX_SCALE);
-                        this.clampPan();
                     }
+                    var mid = this.pinchCentroid();
+                    this.tx += mid.x - this.pinchX;
+                    this.ty += mid.y - this.pinchY;
+                    this.pinchX = mid.x;
+                    this.pinchY = mid.y;
+                    this.clampPan();
                     return;
                 }
                 if (!this.dragging) return;
@@ -161,7 +189,16 @@
 
             onPointerUp: function (event) {
                 delete this.pointers[event.pointerId];
-                if (this.pointerList().length < 2) this.pinchStart = 0;
+                var pts = this.pointerList();
+                if (pts.length < 2) this.pinchStart = 0;
+                // Lifting one finger out of a pinch hands over to a plain drag, so the
+                // remaining finger keeps panning without a lift-and-retouch.
+                if (pts.length === 1) {
+                    this.dragging = true;
+                    this.lastX = pts[0].x;
+                    this.lastY = pts[0].y;
+                    return;
+                }
                 this.dragging = false;
             },
 

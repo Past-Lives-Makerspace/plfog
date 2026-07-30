@@ -4686,10 +4686,20 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
   background: var(--hub-surface);
   touch-action: none;
   cursor: grab;
+  /* Cap the frame so a tall floor (the 2nd floor is nearly square) is cropped
+     rather than filling the page — the crop is what gives drag and two-finger
+     swipe somewhere to go before any zoom. Centring the stage keeps the crop
+     symmetric, matching the JS clamp's centre-origin maths. */
+  max-height: min(60vh, 480px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .pl-map-viewport:active { cursor: grabbing; }
 .pl-map-stage {
   position: relative;
+  width: 100%;
+  flex: none;
   transform-origin: center center;
   transition: transform 0.12s ease-out;
 }
