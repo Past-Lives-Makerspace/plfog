@@ -14,6 +14,8 @@ from django.db.models.signals import post_save
 from django.utils import timezone
 from factory.django import mute_signals
 
+from decimal import Decimal
+
 from core.events.scheduler import run_sources
 from core.models import EventDelivery, Notification
 from membership.models import Member, VotingSettings
@@ -21,7 +23,9 @@ from membership.voting import (
     close_period,
     closing_soon_occurrences,
     cycle_start,
+    cycle_turnout_stats,
     month_end_close,
+    officers_closing_soon_occurrences,
     previous_cycle_label,
     vote_soon_occurrences,
 )
@@ -160,6 +164,89 @@ def describe_vote_soon_occurrences():
         _logged_in_no_vote("p@x.com")
 
         assert list(vote_soon_occurrences(_aware(2026, 6, 1))) == []
+
+
+def _lead(email):
+    """An active guild lead with a linked, signed-in user — an ALL_GUILD_LEADS recipient."""
+    member = MemberFactory()
+    _linked(member, email, last_login=timezone.now())
+    GuildFactory(name=f"Guild for {email}", guild_lead=member)
+    return member
+
+
+def describe_cycle_turnout_stats():
+    def it_counts_voters_nonvoters_and_applies_the_pool_floor():
+        _voted("v@x.com")  # one paying voter → $10 contributed
+        _logged_in_no_vote("nv@x.com")  # one eligible non-voter
+
+        stats = cycle_turnout_stats()
+
+        assert stats["turnout_count"] == "1"
+        assert stats["not_voted_count"] == "1"
+        # $10 contributed is below the default $1,000 floor, so the floor wins.
+        assert stats["pool_display"] == "$1,000"
+
+    def it_uses_the_contributed_pool_when_it_exceeds_the_floor():
+        settings = VotingSettings.load()
+        settings.minimum_pool_floor = Decimal("5.00")
+        settings.save()
+        _voted("a@x.com")
+        _voted("b@x.com")  # two paying voters → $20 contributed, above the $5 floor
+
+        assert cycle_turnout_stats()["pool_display"] == "$20"
+
+    def it_formats_a_fractional_pool_with_cents():
+        settings = VotingSettings.load()
+        settings.minimum_pool_floor = Decimal("1000.50")
+        settings.save()
+        _voted("v@x.com")
+
+        assert cycle_turnout_stats()["pool_display"] == "$1,000.50"
+
+
+def describe_officers_closing_soon_occurrences():
+    def it_yields_a_single_heads_up_carrying_turnout_context():
+        now = _aware(2026, 6, 1)
+        _voted("v@x.com")
+        _logged_in_no_vote("nv@x.com")
+
+        occ = list(officers_closing_soon_occurrences(now))
+
+        assert len(occ) == 1
+        o = occ[0]
+        assert o.event_key == "voting.officers_closing_soon"
+        assert "member" not in o.context  # broadcast-style: one shared occurrence
+        assert o.context["cycle_label"] == "June 2026"
+        assert o.context["turnout_count"] == "1"
+        assert o.context["not_voted_count"] == "1"
+        assert o.anchor == month_end_close(now)
+        assert o.offset.days == -3
+
+    def it_fires_to_guild_leadership_and_dedupes_per_cycle():
+        lead = _lead("lead@x.com")
+        fire = _aware(2026, 6, 28)  # default 3-day lead
+
+        first = run_sources([officers_closing_soon_occurrences], now=fire)
+        second = run_sources([officers_closing_soon_occurrences], now=fire)
+
+        assert first == 1
+        assert second == 0  # EventDelivery period voting:2026-06 dedupes per officer
+        assert Notification.objects.filter(trigger="voting.officers_closing_soon", user=lead.user).exists()
+        assert EventDelivery.objects.filter(event_key="voting.officers_closing_soon", period="voting:2026-06").exists()
+
+    def it_yields_nothing_when_the_officer_switch_is_off():
+        settings = VotingSettings.load()
+        settings.send_officer_reminder_enabled = False
+        settings.save()
+
+        assert list(officers_closing_soon_occurrences(_aware(2026, 6, 1))) == []
+
+    def it_yields_nothing_when_the_reminders_master_switch_is_off():
+        settings = VotingSettings.load()
+        settings.reminders_enabled = False  # send_officer_reminder_enabled still True
+        settings.save()
+
+        assert list(officers_closing_soon_occurrences(_aware(2026, 6, 1))) == []
 
 
 def describe_both_sources_together():

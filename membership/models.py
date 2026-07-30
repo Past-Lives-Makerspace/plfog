@@ -4952,6 +4952,10 @@ class VotingSettings(models.Model):
         default=True,
         help_text="Master switch for the 'Vote soon!' nudge to members who've signed in but never voted.",
     )
+    send_officer_reminder_enabled = models.BooleanField(
+        default=True,
+        help_text="Master switch for the 'Officer heads-up' turnout reminder to guild leadership before close.",
+    )
     auto_snapshot_enabled = models.BooleanField(
         default=True,
         help_text="Master switch for the automated cycle-end snapshot (it never auto-emails members).",

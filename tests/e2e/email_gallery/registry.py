@@ -561,6 +561,10 @@ _TRIGGER_NOTES: dict[str, str] = {
         "already voted, with their recorded picks."
     ),
     "voting.vote_soon": "Sent as a nudge to members who have signed in but haven't cast a funding vote yet.",
+    "voting.officers_closing_soon": (
+        "Sent a few days before the monthly guild-funding vote closes, to guild leadership, "
+        "with live turnout so they can rally their guilds."
+    ),
     "voting.results_published": (
         "Sent when an admin clicks Send results after a monthly funding snapshot — each voter "
         "gets their personalized results."

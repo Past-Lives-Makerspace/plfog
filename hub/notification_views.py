@@ -245,7 +245,7 @@ def preview_copy(request: HttpRequest, event_key: str, channel: str) -> HttpResp
     # document that actually arrives in the inbox) so the copy team isn't editing
     # blind to the brand. Rendered into an <iframe srcdoc> by the partial.
     wrapped_html = (
-        wrap_email_html(rendered.body_html)
+        wrap_email_html(rendered.body_html, shell=get_event(event_key).email_shell)
         if rendered.body_html and channel_enum in (Channel.EMAIL, Channel.SCHEDULED_EMAIL)
         else ""
     )

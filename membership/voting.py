@@ -8,7 +8,9 @@ Reminders hang off that close, fired N days before it where N is
 * :data:`voting.closing_soon` — to each member who has voted, carrying their own
   recorded 1st/2nd/3rd (:func:`closing_soon_occurrences`);
 * :data:`voting.vote_soon` — to each paying, signed-in member who hasn't voted yet
-  (:func:`vote_soon_occurrences`).
+  (:func:`vote_soon_occurrences`);
+* :data:`voting.officers_closing_soon` — a turnout heads-up to guild leadership
+  (:func:`officers_closing_soon_occurrences`).
 
 Both are *per-member* sources: the spine renders one message per ``emit`` (the
 context is shared across recipients), so personalization is done by emitting once
@@ -26,11 +28,12 @@ from __future__ import annotations
 
 import calendar
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
-from core.events.registry import VOTING_CLOSING_SOON, VOTING_VOTE_SOON
+from core.events.registry import VOTING_CLOSING_SOON, VOTING_OFFICERS_CLOSING_SOON, VOTING_VOTE_SOON
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -100,6 +103,43 @@ def close_period(moment: datetime) -> str:
     return f"voting_close:{cycle_start(moment):%Y-%m}"
 
 
+def _format_pool(amount: Decimal) -> str:
+    """Format a dollar pool for member copy: ``$1,000`` whole, ``$1,050.50`` with cents."""
+    if amount == amount.to_integral_value():
+        return f"${amount:,.0f}"
+    return f"${amount:,.2f}"
+
+
+def cycle_turnout_stats() -> dict[str, str]:
+    """Live turnout + pool figures for the current cycle, as ready-to-render strings.
+
+    Computed once per source run (not per member) so the reminder emails can carry
+    "N members have voted" and the running pool without an N+1 over the audience:
+
+    * ``turnout_count`` — active members who have cast a vote;
+    * ``not_voted_count`` — paying, signed-in members with no vote yet (the audience
+      the "Vote soon" nudge targets);
+    * ``pool_display`` — the funding pool as it stands, ``max(paying voters × $10,
+      floor)``, matching the snapshot's own formula (:func:`vote_calculator.calculate_results`).
+    """
+    from membership.models import Member, VotingSettings
+    from membership.vote_calculator import DOLLARS_PER_MEMBER
+
+    voted = Member.objects.active().filter(vote_preference__isnull=False)
+    turnout_count = voted.count()
+    paying_voters = voted.paying().count()
+    not_voted_count = (
+        Member.objects.paying().active().filter(user__last_login__isnull=False, vote_preference__isnull=True).count()
+    )
+    floor = VotingSettings.load().minimum_pool_floor
+    pool = max(Decimal(DOLLARS_PER_MEMBER * paying_voters), floor)
+    return {
+        "turnout_count": str(turnout_count),
+        "not_voted_count": str(not_voted_count),
+        "pool_display": _format_pool(pool),
+    }
+
+
 def closing_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
     """Yield one ``voting.closing_soon`` occurrence per voted member (a scheduler source).
 
@@ -127,6 +167,7 @@ def closing_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
     closes_on = closes_on_display(now)
     period = cycle_period(now)
     voting_url = _absolute_url(reverse("hub_guild_voting"))
+    stats = cycle_turnout_stats()
     voted = (
         Member.objects.active()
         .filter(vote_preference__isnull=False)
@@ -151,6 +192,8 @@ def closing_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
                 "vote_1st": pref.guild_1st.name,
                 "vote_2nd": pref.guild_2nd.name,
                 "vote_3rd": pref.guild_3rd.name,
+                "turnout_count": stats["turnout_count"],
+                "pool_display": stats["pool_display"],
                 "voting_url": voting_url,
             },
             period=period,
@@ -184,6 +227,7 @@ def vote_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
     closes_on = closes_on_display(now)
     period = cycle_period(now)
     voting_url = _absolute_url(reverse("hub_guild_voting"))
+    stats = cycle_turnout_stats()
     non_voters = (
         Member.objects.paying()
         .active()
@@ -200,8 +244,50 @@ def vote_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
                 "member_name": member.display_name,
                 "cycle_label": label,
                 "closes_on": closes_on,
+                "turnout_count": stats["turnout_count"],
+                "pool_display": stats["pool_display"],
                 "voting_url": voting_url,
             },
             period=period,
             url=voting_url,
         )
+
+
+def officers_closing_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
+    """Yield the single ``voting.officers_closing_soon`` heads-up to guild leadership.
+
+    Gated on ``VotingSettings.reminders_enabled`` *and* ``send_officer_reminder_enabled``.
+    Same close anchor/offset as the member reminders, so it fires in the same tick. This
+    is one shared occurrence — the ``ALL_GUILD_LEADS`` resolver expands it to every active
+    guild lead, staffer, and FOG guild officer, and ``emit`` fans out per recipient
+    (deduped on ``user:<pk>`` × the ``voting:YYYY-MM`` period). The context carries live
+    turnout so officers can see how many members still need to vote before rallying them.
+    """
+    from membership.models import VotingSettings
+
+    settings = VotingSettings.load()
+    if not (settings.reminders_enabled and settings.send_officer_reminder_enabled):
+        return
+
+    from django.urls import reverse
+
+    from core.events.scheduler import ScheduledOccurrence
+    from membership.orientations import _absolute_url
+
+    voting_url = _absolute_url(reverse("hub_guild_voting"))
+    stats = cycle_turnout_stats()
+    yield ScheduledOccurrence(
+        event_key=VOTING_OFFICERS_CLOSING_SOON,
+        anchor=month_end_close(now),
+        offset=timedelta(days=-settings.reminder_lead_days),
+        context={
+            "cycle_label": cycle_label(now),
+            "closes_on": closes_on_display(now),
+            "turnout_count": stats["turnout_count"],
+            "not_voted_count": stats["not_voted_count"],
+            "pool_display": stats["pool_display"],
+            "voting_url": voting_url,
+        },
+        period=cycle_period(now),
+        url=voting_url,
+    )

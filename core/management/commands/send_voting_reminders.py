@@ -2,11 +2,12 @@
 
 A thin driver over the generalized scheduler (design §2.6): it hands this tick's
 voting sources — :func:`membership.voting.closing_soon_occurrences` (members who
-voted) and :func:`membership.voting.vote_soon_occurrences` (signed-in non-voters) —
-to :func:`core.events.scheduler.run_sources`, which due-checks them against the
-15-minute tick window and fires them via ``emit``. Each source self-gates on the
-``VotingSettings`` master switches and windows its own member query; the
-``voting:YYYY-MM`` period dedupes each member to once per cycle so a re-run is safe.
+voted), :func:`membership.voting.vote_soon_occurrences` (signed-in non-voters), and
+:func:`membership.voting.officers_closing_soon_occurrences` (guild leadership turnout
+heads-up) — to :func:`core.events.scheduler.run_sources`, which due-checks them
+against the 15-minute tick window and fires them via ``emit``. Each source self-gates
+on the ``VotingSettings`` master switches and windows its own member query; the
+``voting:YYYY-MM`` period dedupes each recipient to once per cycle so a re-run is safe.
 
 Wired into the 15-minute ``run_scheduled_tasks`` cron exactly as before — the
 command name and its always-run placement are unchanged.
@@ -20,7 +21,11 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from core.events.scheduler import run_sources
-from membership.voting import closing_soon_occurrences, vote_soon_occurrences
+from membership.voting import (
+    closing_soon_occurrences,
+    officers_closing_soon_occurrences,
+    vote_soon_occurrences,
+)
 
 
 class Command(BaseCommand):
@@ -28,7 +33,10 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         now = timezone.now()
-        fired = run_sources([closing_soon_occurrences, vote_soon_occurrences], now=now)
+        fired = run_sources(
+            [closing_soon_occurrences, vote_soon_occurrences, officers_closing_soon_occurrences],
+            now=now,
+        )
         if fired:
             self.stdout.write(self.style.SUCCESS(f"Fired {fired} voting reminder(s)."))
         else:

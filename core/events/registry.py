@@ -120,6 +120,10 @@ class EventType:
         channels: The channels this event fans out to, each with a default state.
         activity_kind: The :class:`core.models.SiteActivity` kind written when the
             event is emitted, or ``None`` if the event logs no activity row.
+        email_shell: Which branded shell wraps this event's email HTML — ``"dark"``
+            (the transactional navy card) or ``"light"`` (the hybrid release-style
+            shell: logo hero band over a white body). Presentation only; the copy
+            fragment stays admin-editable either way.
     """
 
     key: str
@@ -129,6 +133,7 @@ class EventType:
     recipient: Recipients
     channels: tuple[ChannelSpec, ...] = field(default_factory=tuple)
     activity_kind: str | None = None
+    email_shell: str = "dark"
 
     def channel(self, channel: Channel) -> ChannelSpec | None:
         """Return this event's spec for ``channel``, or ``None`` if not declared."""
@@ -317,6 +322,7 @@ GUILD_ANNOUNCEMENT = "guild_announcement"  # re-uses the seeded key + curated co
 SITE_ANNOUNCEMENT = "site_announcement"  # re-uses the seeded key + curated copy
 VOTING_CLOSING_SOON = "voting.closing_soon"
 VOTING_VOTE_SOON = "voting.vote_soon"
+VOTING_OFFICERS_CLOSING_SOON = "voting.officers_closing_soon"
 VOTING_RESULTS_PUBLISHED = "voting.results_published"
 VOTING_RESULTS_READY = "voting.results_ready"
 RELEASE_PUBLISHED = "release.published"
@@ -430,6 +436,7 @@ _NEW_EVENTS: list[EventType] = [
         recipient=Recipients.REGISTRANT,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
+        email_shell="light",
     ),
     # 4b. voting.vote_soon — the nudge to members who've signed in but never voted.
     #    Per-member (REGISTRANT), email + in-app.
@@ -441,6 +448,21 @@ _NEW_EVENTS: list[EventType] = [
         recipient=Recipients.REGISTRANT,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
+        email_shell="light",
+    ),
+    # 4c. voting.officers_closing_soon — the heads-up to guild leadership (leads, guild
+    #    staff, and FOG guild officers) fired at the same lead as the member reminders,
+    #    carrying turnout so officers can rally their guilds before close. One shared
+    #    message (no per-member ballot), so a broadcast-style recipient list is correct.
+    EventType(
+        key=VOTING_OFFICERS_CLOSING_SOON,
+        label="Officer heads-up: vote closing",
+        description="A turnout heads-up to guild leadership before the monthly funding vote closes.",
+        category="Voting",
+        recipient=Recipients.ALL_GUILD_LEADS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+        email_shell="light",
     ),
     # 5. voting.results_published — the personalized member results email, sent only on
     #    the admin's Send results click (FundingSnapshot.send_results loops raw_votes
