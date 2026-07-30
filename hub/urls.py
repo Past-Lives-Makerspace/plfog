@@ -395,6 +395,11 @@ urlpatterns = [
         name="hub_admin_notification_preview",
     ),
     path(
+        "manage/notifications/<str:event_key>/email/visual/",
+        notification_views.preview_email_visual,
+        name="hub_admin_notification_visual",
+    ),
+    path(
         "manage/notifications/<str:event_key>/<str:channel>/revert/<int:version_id>/",
         notification_views.revert_copy,
         name="hub_admin_notification_revert",

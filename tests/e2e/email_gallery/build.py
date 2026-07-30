@@ -52,7 +52,7 @@ def _built_context(email: GalleryEmail, data: SampleData) -> dict[str, object]:
 
 def _render_spine(email: GalleryEmail) -> RenderedEmail:
     from core.events.copy import sample_context_for
-    from core.events.registry import Channel
+    from core.events.registry import Channel, get_event
     from core.events.rendering import render_copy
     from core.events.templates import resolved_copy, wrap_email_html
 
@@ -60,7 +60,7 @@ def _render_spine(email: GalleryEmail) -> RenderedEmail:
     rendered = render_copy(
         subject=subject, body_text=body_text, body_html=body_html, context=sample_context_for(email.key)
     )
-    html = wrap_email_html(rendered.body_html) if rendered.body_html else ""
+    html = wrap_email_html(rendered.body_html, shell=get_event(email.key).email_shell) if rendered.body_html else ""
     return RenderedEmail(email=email, subject=rendered.subject, html=html, text=rendered.body_text)
 
 

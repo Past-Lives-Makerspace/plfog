@@ -79,6 +79,36 @@ def describe_wrap_email_html():
 
         assert not isinstance(wrapped, SafeString)
 
+    def describe_light_shell():
+        def it_wraps_in_the_logo_hero_over_a_white_body():
+            wrapped = templates_module.wrap_email_html("<p>FRAGMENT-MARKER</p>", shell="light")
+            assert "FRAGMENT-MARKER" in wrapped
+            # The light shell shows the lantern logo image and a white body panel.
+            assert "favicon.png" in wrapped
+            assert "#FFFFFF" in wrapped
+            # Its footer band still carries the brand line.
+            assert "Do It Together" in wrapped
+
+        def it_colors_bare_paragraphs_slate_not_cream():
+            # On the white body the copy paragraph must be slate (#33424F), not the dark
+            # card's cream. (The footer band still uses cream on its own navy strip.)
+            wrapped = templates_module.wrap_email_html("<p>hello</p>", shell="light")
+            assert '<p style="margin:0 0 16px;color:#33424F' in wrapped
+
+        def it_colors_bare_links_navy_underlined_for_aa_on_white():
+            wrapped = templates_module.wrap_email_html('<a href="/x/">go</a>', shell="light")
+            assert "#092E4C" in wrapped
+            assert "text-decoration:underline" in wrapped
+
+        def it_leaves_already_styled_links_untouched():
+            styled = '<a style="color:#EEB44B;" href="/x/">btn</a>'
+            wrapped = templates_module.wrap_email_html(styled, shell="light")
+            assert 'style="color:#EEB44B;"' in wrapped
+
+    def it_fails_loudly_on_an_unknown_shell():
+        with pytest.raises(KeyError):
+            templates_module.wrap_email_html("<p>x</p>", shell="teal")
+
 
 def describe_rendered_message_email_wrapping():
     def it_wraps_the_html_body_for_the_email_channel():
@@ -133,6 +163,21 @@ def describe_rendered_message_email_wrapping():
         assert message.html_body is None
         assert "Casting" in message.body
         assert "Do It Together" not in message.body
+
+    def it_uses_the_events_registered_shell_for_a_light_shell_event():
+        # voting.closing_soon declares email_shell="light" — its email must render in the
+        # logo-hero light shell, not the default dark card.
+        from core.events.copy import sample_context_for
+
+        message = templates_module.rendered_message(
+            "voting.closing_soon",
+            Channel.EMAIL,
+            sample_context_for("voting.closing_soon"),
+        )
+        assert message.html_body is not None
+        assert "favicon.png" in message.html_body  # light shell only
+        assert "#33424F" in message.html_body  # slate copy on the white body
+        assert "Do It Together" in message.html_body  # wrapped in the branded shell (footer band present)
 
     def it_leaves_an_empty_html_body_as_none_without_rendering_the_shell():
         # An email row with a blank HTML body must NOT render the shell around nothing.

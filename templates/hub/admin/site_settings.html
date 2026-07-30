@@ -130,6 +130,12 @@
       Announcements
     </button>
     <button type="button"
+            @click="tab = 'emails'"
+            :class="{ 'vote-tab--active': tab === 'emails' }"
+            class="vote-tab">
+      Emails
+    </button>
+    <button type="button"
             @click="tab = 'discord'"
             :class="{ 'vote-tab--active': tab === 'discord' }"
             class="vote-tab">
@@ -700,10 +706,15 @@
       {% include "components/form_field.html" with field=form.signage_show_events %}
     </div>
 
-    <div x-show="tab !== 'announcements'" style="margin-bottom:1.5rem;">
+    <div x-show="tab !== 'announcements' && tab !== 'emails'" style="margin-bottom:1.5rem;">
       <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
     </div>
   </form>
+
+  {# -------- Emails tab (read-and-route: list every email, link out to edit/adjust) -------- #}
+  <div x-show="tab === 'emails'" x-cloak>
+    {% include "hub/admin/_emails_tab.html" %}
+  </div>
 
   {% comment %}
     Money-job guard for the Automations tab's "Charge member tabs" Run-now. A SIBLING of
