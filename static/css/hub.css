@@ -654,6 +654,50 @@ a:hover { color: var(--hub-link-hover); }
     .pl-automation-run .hub-btn { width: 100%; text-align: center; }
     .pl-automation-error { max-width: 100%; white-space: normal; }
 }
+
+/* Emails tab (Site Settings → Emails): the read-and-route email catalogue. Mirrors the
+   Automations card set — a stacked list of cards, one per email the app can send. */
+.pl-email-tab { display: flex; flex-direction: column; gap: 1.75rem; }
+.pl-email-intro { margin: 0; color: var(--hub-text-muted); font-size: 0.875rem; max-width: 70ch; }
+.pl-email-group { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-email-group__title {
+    margin: 0;
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--hub-text-muted);
+}
+.pl-email-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 8px;
+    background: var(--hub-card-bg);
+}
+.pl-email-row__head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+.pl-email-row__name { font-weight: 650; color: var(--hub-text); }
+.pl-email-row__desc { color: var(--hub-text-muted); font-size: 0.875rem; }
+.pl-email-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-email-meta strong { color: var(--hub-text); font-weight: 600; }
+.pl-email-chans { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.pl-email-chan {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--hub-text-muted);
+    border: 1px solid var(--hub-card-border);
+    border-radius: 999px;
+    padding: 2px 9px;
+}
+.pl-email-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.15rem; }
 @media (max-width: 640px) {
     .pl-invite-row__actions {
         width: 100%;
