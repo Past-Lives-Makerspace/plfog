@@ -261,6 +261,29 @@ def preview_copy(request: HttpRequest, event_key: str, channel: str) -> HttpResp
 
 
 @fog_admin_required
+def preview_email_visual(request: HttpRequest, event_key: str) -> HttpResponse:
+    """HTMX partial — the branded EMAIL as it arrives, for the Emails-tab preview modal.
+
+    Renders the *resolved* copy (the admin-edited DB row if any, else the seeded default)
+    against the event's sample context through the same send-path shell, so an admin can
+    eyeball the real email from the Emails tab without opening the editor. Read-only.
+    """
+    from core.events.templates import resolved_copy
+
+    event = get_event(event_key)
+    subject, body_text, body_html = resolved_copy(event_key, Channel.EMAIL)
+    rendered = render_copy(
+        subject=subject, body_text=body_text, body_html=body_html, context=copy_module.sample_context_for(event_key)
+    )
+    wrapped_html = wrap_email_html(rendered.body_html, shell=event.email_shell) if rendered.body_html else ""
+    return render(
+        request,
+        "hub/admin/notifications/_visual_preview.html",
+        {"label": event.label, "subject": rendered.subject, "wrapped_html": wrapped_html},
+    )
+
+
+@fog_admin_required
 @require_POST
 def revert_copy(request: HttpRequest, event_key: str, channel: str, version_id: int) -> HttpResponse:
     """Revert a copy row to a historical version (snapshots current first)."""

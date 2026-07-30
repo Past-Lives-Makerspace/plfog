@@ -698,6 +698,35 @@ a:hover { color: var(--hub-link-hover); }
     padding: 2px 9px;
 }
 .pl-email-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.15rem; }
+
+/* Branded email preview shown in the Emails-tab modal. The iframe renders a full email
+   document (its own light/dark shell), so it sits on a neutral canvas with internal scroll. */
+.pl-email-preview { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-email-preview__subject {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--hub-text);
+    padding: 0.5rem 0.7rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-card-border);
+    border-radius: 7px;
+}
+.pl-email-preview__subject span {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--hub-text-muted);
+    margin-right: 0.4rem;
+}
+.pl-email-preview__frame {
+    width: 100%;
+    height: 60vh;
+    min-height: 360px;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 7px;
+    background: #eef0f3;
+}
+.pl-email-preview__empty { color: var(--hub-text-muted); font-size: 0.85rem; font-style: italic; margin: 0; }
 @media (max-width: 640px) {
     .pl-invite-row__actions {
         width: 100%;

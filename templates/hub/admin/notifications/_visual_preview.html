@@ -1,0 +1,14 @@
+{% comment %}
+Branded EMAIL preview for the Emails-tab modal (HTMX-loaded on Preview click).
+Context: label, subject, wrapped_html (a full HTML email document). The wrapped_html
+goes into an <iframe srcdoc> — an HTML ATTRIBUTE, so it must be attribute-escaped:
+use {{ wrapped_html }} WITHOUT |safe (|safe would emit raw quotes and break the frame).
+{% endcomment %}
+<div class="pl-email-preview">
+  <p class="pl-email-preview__subject"><span>Subject</span> {{ subject|default:"(no subject)" }}</p>
+  {% if wrapped_html %}
+  <iframe class="pl-email-preview__frame" title="{{ label }} email preview" srcdoc="{{ wrapped_html }}"></iframe>
+  {% else %}
+  <p class="pl-email-preview__empty">This email has no HTML body to preview.</p>
+  {% endif %}
+</div>

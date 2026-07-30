@@ -35,10 +35,48 @@ def describe_emails_tab():
         assert reverse("hub_admin_notification_edit", args=["voting.closing_soon", "email"]) in body
         assert reverse("hub_admin_voting_settings") in body
 
+    def it_offers_a_preview_button_wired_to_the_visual_endpoint(client: Client):
+        _superuser(client)
+        body = client.get(f"{URL}?tab=emails").content.decode()
+        # Each row's Preview button HTMX-loads the branded email into the shared modal.
+        assert reverse("hub_admin_notification_visual", args=["voting.closing_soon"]) in body
+        assert 'hx-target="#email-preview-body"' in body
+        assert 'id="email-preview-body"' in body  # the modal is included once
+
     def it_is_admin_only(client: Client):
         from django.contrib.auth.models import User
 
         User.objects.create_user(username="plain", email="plain@x.com", password="p")
         client.login(username="plain", password="p")
         resp = client.get(f"{URL}?tab=emails")
+        assert resp.status_code in (302, 403)
+
+
+def describe_email_visual_preview():
+    def it_renders_the_branded_email_against_sample_data(client: Client):
+        _superuser(client)
+        url = reverse("hub_admin_notification_visual", args=["voting.closing_soon"])
+        resp = client.get(url)
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        # The framed, branded email (light shell for the voting reminders) with its subject.
+        assert 'class="pl-email-preview__frame"' in body
+        assert "srcdoc=" in body
+        assert "favicon.png" in body  # light-shell logo, attribute-escaped inside srcdoc
+        assert "Subject" in body
+
+    def it_uses_the_dark_shell_for_a_transactional_email(client: Client):
+        _superuser(client)
+        url = reverse("hub_admin_notification_visual", args=["registration_confirmed"])
+        body = client.get(url).content.decode()
+        assert 'class="pl-email-preview__frame"' in body
+        # The dark transactional card, not the light voting shell.
+        assert "favicon.png" not in body
+
+    def it_is_admin_only(client: Client):
+        from django.contrib.auth.models import User
+
+        User.objects.create_user(username="plain2", email="plain2@x.com", password="p")
+        client.login(username="plain2", password="p")
+        resp = client.get(reverse("hub_admin_notification_visual", args=["voting.closing_soon"]))
         assert resp.status_code in (302, 403)

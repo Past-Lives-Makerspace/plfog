@@ -44,6 +44,11 @@ in static/css/hub.css (.pl-email-*), mirroring the Automations card set.
       </div>
 
       <div class="pl-email-actions">
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--primary"
+                @click="$dispatch('open-modal', 'email-preview')"
+                hx-get="{{ row.preview_url }}" hx-target="#email-preview-body" hx-swap="innerHTML">
+          Preview
+        </button>
         <a href="{{ row.edit_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">Edit wording</a>
         {% if row.adjust_url %}
         <a href="{{ row.adjust_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ row.adjust_label }}</a>
@@ -53,4 +58,6 @@ in static/css/hub.css (.pl-email-*), mirroring the Automations card set.
     {% endfor %}
   </section>
   {% endfor %}
+
+  {% include "components/modal.html" with modal_id="email-preview" modal_title="Email preview" modal_size="lg" %}
 </div>

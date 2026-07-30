@@ -67,6 +67,11 @@ class EmailRow:
         """Deep link to the existing copy editor for this email's EMAIL wording."""
         return reverse("hub_admin_notification_edit", args=[self.key, Channel.EMAIL.value])
 
+    @property
+    def preview_url(self) -> str:
+        """HTMX endpoint that renders this email (branded) for the tab's preview modal."""
+        return reverse("hub_admin_notification_visual", args=[self.key])
+
 
 def _channels(event: EventType) -> list[str]:
     """Human labels of every channel this event fans out to, email-first."""
