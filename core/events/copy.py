@@ -591,7 +591,7 @@ _CURATED: dict[str, EventCopy] = {
                 body_text="{{ cycle_label }} guild voting closes {{ closes_on }}. Your current vote: {{ vote_1st }}, {{ vote_2nd }}, {{ vote_3rd }}.",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="Your {{ cycle_label }} guild vote is recorded {{ closes_on }}",
+                subject="Your {{ cycle_label }} guild vote is recorded",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
                     "The {{ cycle_label }} guild funding vote closes on {{ closes_on }}. Here's your ballot:\n\n"

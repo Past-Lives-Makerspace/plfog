@@ -162,6 +162,7 @@ def describe_rendered_message_email_wrapping():
         # In-app copy carries no HTML body, so there is nothing to (and we never) wrap.
         assert message.html_body is None
         assert "Casting" in message.body
+        assert "Do It Together" not in message.body
 
     def it_uses_the_events_registered_shell_for_a_light_shell_event():
         # voting.closing_soon declares email_shell="light" — its email must render in the
@@ -176,7 +177,7 @@ def describe_rendered_message_email_wrapping():
         assert message.html_body is not None
         assert "favicon.png" in message.html_body  # light shell only
         assert "#33424F" in message.html_body  # slate copy on the white body
-        assert "Do It Together" not in message.body
+        assert "Do It Together" in message.html_body  # wrapped in the branded shell (footer band present)
 
     def it_leaves_an_empty_html_body_as_none_without_rendering_the_shell():
         # An email row with a blank HTML body must NOT render the shell around nothing.

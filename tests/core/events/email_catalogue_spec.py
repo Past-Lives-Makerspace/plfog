@@ -69,6 +69,7 @@ def describe_build_email_catalogue():
             assert row.is_automatic
             assert "tab=automations" in row.adjust_url
             assert "Automations" in row.adjust_label
+            assert row.schedule_note == "Sent automatically before each class starts."
 
     def describe_triggered_emails():
         def it_marks_a_transactional_email_triggered_with_a_sent_when_note():

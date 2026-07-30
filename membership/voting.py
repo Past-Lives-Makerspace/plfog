@@ -121,11 +121,17 @@ def cycle_turnout_stats() -> dict[str, str]:
       the "Vote soon" nudge targets);
     * ``pool_display`` — the funding pool as it stands, ``max(paying voters × $10,
       floor)``, matching the snapshot's own formula (:func:`vote_calculator.calculate_results`).
+
+    Turnout counts **signed-up** voters only (``user__isnull=False``), exactly as
+    :meth:`FundingSnapshot.take` counts via ``VotePreference.from_signed_up_members``,
+    so the "N members have voted" figure and the pool never overstate what the cycle-end
+    snapshot will record (an Airtable-imported vote from a member who never signed up is
+    excluded from both).
     """
     from membership.models import Member, VotingSettings
     from membership.vote_calculator import DOLLARS_PER_MEMBER
 
-    voted = Member.objects.active().filter(vote_preference__isnull=False)
+    voted = Member.objects.active().filter(vote_preference__isnull=False, user__isnull=False)
     turnout_count = voted.count()
     paying_voters = voted.paying().count()
     not_voted_count = (

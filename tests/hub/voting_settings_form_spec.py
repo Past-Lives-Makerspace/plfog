@@ -31,6 +31,7 @@ def _valid_post(**overrides):
         "minimum_pool_floor": "1200.00",
         "reminders_enabled": "on",
         "send_vote_soon_enabled": "on",
+        "send_officer_reminder_enabled": "on",
         "auto_snapshot_enabled": "on",
     }
     data.update(overrides)
@@ -46,14 +47,25 @@ def describe_voting_settings_view():
             # Booleans render via the toggle component (pl-toggle), not raw checkboxes.
             assert "pl-toggle" in body
             # One "Edit wording" link per voting event copy-editor page.
-            for key in ("voting.closing_soon", "voting.vote_soon", "voting.results_published", "voting.results_ready"):
+            for key in (
+                "voting.closing_soon",
+                "voting.vote_soon",
+                "voting.officers_closing_soon",
+                "voting.results_published",
+                "voting.results_ready",
+            ):
                 assert reverse("hub_admin_notification_edit", args=[key, "email"]) in body
 
     def describe_post():
-        def it_saves_all_five_fields_and_redirects_with_a_message(admin_client):
+        def it_saves_all_six_fields_and_redirects_with_a_message(admin_client):
             resp = admin_client.post(
                 reverse("hub_admin_voting_settings"),
-                _valid_post(reminder_lead_days="6", minimum_pool_floor="900.00", send_vote_soon_enabled=""),
+                _valid_post(
+                    reminder_lead_days="6",
+                    minimum_pool_floor="900.00",
+                    send_vote_soon_enabled="",
+                    send_officer_reminder_enabled="",
+                ),
             )
             assert resp.status_code == 302
             assert resp.url == reverse("hub_admin_voting_settings")
@@ -64,8 +76,14 @@ def describe_voting_settings_view():
             assert settings.reminder_lead_days == 6
             assert settings.minimum_pool_floor == Decimal("900.00")
             assert settings.send_vote_soon_enabled is False
+            assert settings.send_officer_reminder_enabled is False  # unchecked → saved off
             assert settings.reminders_enabled is True
             assert settings.auto_snapshot_enabled is True
+
+        def it_saves_the_officer_reminder_toggle_on(admin_client):
+            resp = admin_client.post(reverse("hub_admin_voting_settings"), _valid_post())
+            assert resp.status_code == 302
+            assert VotingSettings.load().send_officer_reminder_enabled is True
 
         def it_accepts_a_lead_of_one(admin_client):
             resp = admin_client.post(reverse("hub_admin_voting_settings"), _valid_post(reminder_lead_days="1"))

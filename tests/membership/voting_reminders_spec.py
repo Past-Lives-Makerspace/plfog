@@ -203,6 +203,43 @@ def describe_cycle_turnout_stats():
 
         assert cycle_turnout_stats()["pool_display"] == "$1,000.50"
 
+    def it_counts_a_nonpaying_voter_in_turnout_but_not_the_pool():
+        # Separates turnout from the paying pool: a mutant dropping ``.paying()`` from the
+        # pool count would compute $20 here instead of $10 and be caught.
+        settings = VotingSettings.load()
+        settings.minimum_pool_floor = Decimal("5.00")  # let the contributed pool win
+        settings.save()
+        _voted("pay@x.com")  # paying voter → contributes $10
+        nonpaying = MemberFactory(member_type=Member.MemberType.WORK_TRADE)
+        _linked(nonpaying, "np@x.com", last_login=timezone.now())
+        VotePreferenceFactory(
+            member=nonpaying,
+            guild_1st=GuildFactory(),
+            guild_2nd=GuildFactory(),
+            guild_3rd=GuildFactory(),
+            signed_up=False,
+        )
+
+        stats = cycle_turnout_stats()
+
+        assert stats["turnout_count"] == "2"  # both voters counted
+        assert stats["pool_display"] == "$10"  # only the one paying voter contributes
+
+    def it_excludes_a_voter_with_no_linked_account():
+        # Matches FundingSnapshot.take (signed-up voters only): an Airtable-imported vote
+        # from a member who never signed up must not inflate turnout or the pool.
+        _voted("linked@x.com")
+        unlinked = MemberFactory()  # no user
+        VotePreferenceFactory(
+            member=unlinked,
+            guild_1st=GuildFactory(),
+            guild_2nd=GuildFactory(),
+            guild_3rd=GuildFactory(),
+            signed_up=False,
+        )
+
+        assert cycle_turnout_stats()["turnout_count"] == "1"
+
 
 def describe_officers_closing_soon_occurrences():
     def it_yields_a_single_heads_up_carrying_turnout_context():
@@ -262,3 +299,31 @@ def describe_both_sources_together():
         assert Notification.objects.filter(trigger="voting.closing_soon", user=voted.user).exists()
         assert Notification.objects.filter(trigger="voting.vote_soon", user=nonvoter.user).exists()
         assert not Notification.objects.filter(user=never_user).exists()
+
+
+def describe_voting_email_rendering():
+    """Render each reminder's EMAIL against its LIVE source context (not the sample data),
+    so a future rename of a context key in voting.py that no longer matches the copy's
+    placeholders surfaces as a failing test rather than a live ``[missing: x]`` marker."""
+
+    def _assert_no_missing(event_key, context):
+        from core.events.registry import Channel
+        from core.events.templates import rendered_message
+
+        message = rendered_message(event_key, Channel.EMAIL, context)
+        for part in (message.title, message.body, message.html_body or ""):
+            assert "[missing:" not in part, f"{event_key} email rendered a missing-placeholder marker"
+
+    def it_renders_closing_soon_with_every_placeholder_supplied():
+        _voted("v@x.com")
+        occ = next(iter(closing_soon_occurrences(_aware(2026, 6, 1))))
+        _assert_no_missing("voting.closing_soon", occ.context)
+
+    def it_renders_vote_soon_with_every_placeholder_supplied():
+        _logged_in_no_vote("nv@x.com")
+        occ = next(iter(vote_soon_occurrences(_aware(2026, 6, 1))))
+        _assert_no_missing("voting.vote_soon", occ.context)
+
+    def it_renders_the_officer_email_with_every_placeholder_supplied():
+        occ = next(iter(officers_closing_soon_occurrences(_aware(2026, 6, 1))))
+        _assert_no_missing("voting.officers_closing_soon", occ.context)
