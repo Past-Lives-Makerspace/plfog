@@ -12,6 +12,7 @@ from django.core.management import call_command
 from django.utils import timezone
 
 from billing.models import BillingSettings, TabCharge
+from core.models import SiteConfiguration
 from tests.billing.factories import (
     BillingSettingsFactory,
     ProductFactory,
@@ -38,6 +39,14 @@ def describe_bill_tabs():
             assert "Another billing run" in output
 
     def describe_schedule():
+        def it_exits_when_tab_payments_disabled():
+            BillingSettingsFactory()
+            config = SiteConfiguration.load()
+            config.tab_payments_enabled = False
+            config.save(update_fields=["tab_payments_enabled"])
+            output = _call_bill_tabs(force=True)
+            assert "disabled" in output
+
         def it_exits_when_billing_is_off():
             BillingSettingsFactory(charge_frequency=BillingSettings.ChargeFrequency.OFF)
             output = _call_bill_tabs()

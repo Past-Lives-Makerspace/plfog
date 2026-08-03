@@ -11,7 +11,7 @@ from django.db.models.signals import post_save
 from factory.django import mute_signals
 
 from billing.notifications import notify_admin_charge_failed, send_receipt
-from core.models import Notification
+from core.models import Notification, SiteConfiguration
 from tests.billing.factories import BillingSettingsFactory, TabChargeFactory, TabFactory, ProductFactory
 from tests.membership.factories import MemberFactory
 
@@ -135,3 +135,40 @@ def describe_tab_approaching_limit_dispatch():
         tab.add_entry(description="Below limit", amount=Decimal("79.00"), product=product)
 
         assert not Notification.objects.filter(user=user, trigger="tab_approaching_limit").exists()
+
+    def it_does_not_create_notification_when_tab_payments_disabled():
+        BillingSettingsFactory(default_tab_limit=Decimal("100.00"))
+        member = MemberFactory(_pre_signup_email="disabled@example.com")
+        user = _user_for_member(member)
+        tab = TabFactory(member=member, tab_limit=Decimal("100.00"))
+        product = ProductFactory()
+        config = SiteConfiguration.load()
+        config.tab_payments_enabled = False
+        config.save(update_fields=["tab_payments_enabled"])
+
+        tab.add_entry(description="Should not notify", amount=Decimal("80.00"), product=product)
+
+        assert not Notification.objects.filter(user=user, trigger="tab_approaching_limit").exists()
+
+
+def describe_tab_entry_added_when_payments_disabled():
+    def it_does_not_create_notification_when_tab_payments_disabled():
+        BillingSettingsFactory()
+        member = MemberFactory(_pre_signup_email="disabledentry@example.com")
+        user = _user_for_member(member)
+        tab = TabFactory(member=member)
+        admin = User.objects.create_user(username="admin_disabled", email="admin_disabled@example.com")
+        product = ProductFactory()
+        config = SiteConfiguration.load()
+        config.tab_payments_enabled = False
+        config.save(update_fields=["tab_payments_enabled"])
+
+        tab.add_entry(
+            description="Should not notify",
+            amount=Decimal("20.00"),
+            added_by=admin,
+            is_self_service=False,
+            product=product,
+        )
+
+        assert not Notification.objects.filter(user=user, trigger="tab_entry_added").exists()
