@@ -164,7 +164,11 @@ def describe_tab_entry_added_when_payments_disabled():
         config.save(update_fields=["tab_payments_enabled"])
 
         tab.add_entry(
-            description="Should not notify", amount=Decimal("20.00"), added_by=admin, is_self_service=False, product=product
+            description="Should not notify",
+            amount=Decimal("20.00"),
+            added_by=admin,
+            is_self_service=False,
+            product=product,
         )
 
         assert not Notification.objects.filter(user=user, trigger="tab_entry_added").exists()
