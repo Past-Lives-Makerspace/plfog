@@ -2,9 +2,12 @@
 
 from django.urls import path
 
-from . import copy_review_views, views
+from . import copy_review_views, diagnostics, views
 
 urlpatterns = [
+    # TEMPORARY reviewer-login diagnostics. 404s unless DIAG_TOKEN is set and matches.
+    # Delete this route with core/diagnostics.py once reviewer login is confirmed.
+    path("_diag/reviewer-login/", diagnostics.reviewer_login_diagnostics, name="reviewer_login_diagnostics"),
     # Cross-surface session relay (SSO between members and book surfaces)
     path("auth/relay/", views.relay_issue, name="relay_issue"),
     path("auth/relay/accept/", views.relay_accept, name="relay_accept"),
