@@ -438,7 +438,10 @@ LOGOUT_REDIRECT_URL = "/"
 ACCOUNT_ADAPTER = "plfog.adapters.AdminRedirectAccountAdapter"
 
 ACCOUNT_EMAIL_SUBJECT_PREFIX = ""
-ACCOUNT_FORMS = {"request_login_code": "plfog.adapters.AutoCreateUserLoginCodeForm"}
+ACCOUNT_FORMS = {
+    "request_login_code": "plfog.adapters.AutoCreateUserLoginCodeForm",
+    "confirm_login_code": "plfog.adapters.GoldenTicketConfirmLoginCodeForm",
+}
 
 # Login-by-code (passwordless email login)
 ACCOUNT_LOGIN_BY_CODE_ENABLED = True

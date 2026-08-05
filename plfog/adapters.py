@@ -7,7 +7,8 @@ import os
 from typing import Any
 
 from allauth.account.adapter import DefaultAccountAdapter
-from allauth.account.forms import RequestLoginCodeForm
+from allauth.account.forms import ConfirmLoginCodeForm, RequestLoginCodeForm
+from allauth.core.internal.cryptokit import compare_user_code
 from django import forms
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -161,34 +162,6 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         if surface == "public":
             return reverse("account:overview")
         return reverse("hub_home")
-
-    def generate_login_code(self) -> str:
-        """Issue a deterministic login code for the designated app-store review account.
-
-        App-store reviewers cannot receive our emailed one-time codes: review is
-        asynchronous and they cannot read a member's inbox. When BOTH the
-        ``PLAY_REVIEW_EMAIL`` and ``PLAY_REVIEW_CODE`` env vars are set, the single
-        matching email receives that fixed code instead of a random one, so a
-        reviewer signs in without an inbox (allauth verifies the code locally, so
-        the email never has to arrive).
-
-        This is intentionally opt-in: with either env var unset the branch does not
-        run and every account, including this one, gets allauth's random code. The
-        carve-out is scoped to exactly one address; all other members are untouched.
-        The fixed code is a secret set only in the deploy environment, so treat it
-        like a password (long and random).
-        """
-        review_email = os.environ.get("PLAY_REVIEW_EMAIL", "").strip().lower()
-        review_code = os.environ.get("PLAY_REVIEW_CODE", "").strip()
-        if review_email and review_code:
-            from allauth.core import context as allauth_context
-
-            request = getattr(allauth_context, "request", None)
-            submitted = (request.POST.get("email", "") if request is not None else "").strip().lower()
-            if submitted and submitted == review_email:
-                logger.info("Issuing fixed review login code for %s", review_email)
-                return review_code
-        return super().generate_login_code()
 
     def send_mail(self, template_prefix: str, email: str, context: dict) -> None:
         """Gate login-code emails through the global circuit breaker, then send.
@@ -377,3 +350,64 @@ class AutoCreateUserLoginCodeForm(RequestLoginCodeForm):
                     pass
 
         return super().clean_email()
+
+
+class GoldenTicketConfirmLoginCodeForm(ConfirmLoginCodeForm):
+    """Accept a single fixed login code for any account that requested one.
+
+    App-store reviewers cannot receive our emailed one-time codes: review is
+    asynchronous and they cannot read a member's inbox. When ``PLAY_REVIEW_CODE``
+    is set, that value is accepted *in addition to* the real emailed code, for
+    whichever account is mid-login. Nothing about code generation changes —
+    every member still gets a random emailed code, and the fixed value is never
+    sent to anyone.
+
+    Checking at verification time rather than generation time is what makes this
+    robust: it holds no matter how the code was issued, so "Resend code" can no
+    longer strand a reviewer with a code that silently stopped working.
+
+    SECURITY: this is a master key. Anyone holding ``PLAY_REVIEW_CODE`` can sign
+    in as any account that has an email address, including addresses on
+    ``ADMIN_DOMAINS``, which :meth:`AdminRedirectAccountAdapter._sync_permissions`
+    auto-grants ``is_staff`` and ``is_superuser``. Treat the value like a root
+    password: long, random, set only in the deploy environment, and rotated the
+    moment app-store review is finished. Leaving the env var unset disables the
+    behaviour entirely.
+    """
+
+    @staticmethod
+    def _pending_login_user() -> Any | None:
+        """The user allauth is mid-login for, or None if there isn't one.
+
+        Deliberately *not* keyed off ``expected_code``: whether a code was
+        successfully generated and stashed is exactly the thing that can go wrong,
+        and the golden ticket has to keep working when it does.
+        """
+        from allauth.core import context as allauth_context
+
+        request = getattr(allauth_context, "request", None)
+        stage = getattr(request, "_login_stage", None)
+        login = getattr(stage, "login", None)
+        return getattr(login, "user", None)
+
+    def clean_code(self) -> str:
+        """Accept the golden ticket, otherwise fall back to allauth's own check."""
+        code: str = self.cleaned_data["code"]
+        golden = os.environ.get("PLAY_REVIEW_CODE", "").strip()
+
+        if golden and compare_user_code(actual=code, expected=golden):
+            # Requiring a pending user keeps the enumeration-prevention path (unknown
+            # email -> fake process with no user) from reaching a login with nobody to
+            # log in as, which would otherwise assert deep inside allauth.
+            user = self._pending_login_user()
+            if user is not None:
+                # A master key that leaves no trace is not auditable. Name the account
+                # every time it is used, at WARNING so it survives prod log levels.
+                logger.warning(
+                    "Golden-ticket login code accepted for %s (pk=%s)",
+                    getattr(user, "email", "") or "<no email>",
+                    getattr(user, "pk", "?"),
+                )
+                return code
+
+        return super().clean_code()
