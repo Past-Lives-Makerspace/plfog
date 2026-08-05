@@ -669,6 +669,79 @@ a:hover { color: var(--hub-link-hover); }
     .pl-automation-run .hub-btn { width: 100%; text-align: center; }
     .pl-automation-error { max-width: 100%; white-space: normal; }
 }
+
+/* Emails tab (Site Settings → Emails): the read-and-route email catalogue. Mirrors the
+   Automations card set — a stacked list of cards, one per email the app can send. */
+.pl-email-tab { display: flex; flex-direction: column; gap: 1.75rem; }
+.pl-email-intro { margin: 0; color: var(--hub-text-muted); font-size: 0.875rem; max-width: 70ch; }
+.pl-email-group { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-email-group__title {
+    margin: 0;
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--hub-text-muted);
+}
+.pl-email-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 8px;
+    background: var(--hub-card-bg);
+}
+.pl-email-row__head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+.pl-email-row__name { font-weight: 650; color: var(--hub-text); }
+.pl-email-row__desc { color: var(--hub-text-muted); font-size: 0.875rem; }
+.pl-email-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-email-meta strong { color: var(--hub-text); font-weight: 600; }
+.pl-email-chans { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.pl-email-chan {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--hub-text-muted);
+    border: 1px solid var(--hub-card-border);
+    border-radius: 999px;
+    padding: 2px 9px;
+}
+.pl-email-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.15rem; }
+
+/* Branded email preview shown in the Emails-tab modal. The iframe renders a full email
+   document (its own light/dark shell), so it sits on a neutral canvas with internal scroll. */
+.pl-email-preview { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-email-preview__subject {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--hub-text);
+    padding: 0.5rem 0.7rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-card-border);
+    border-radius: 7px;
+}
+.pl-email-preview__subject span {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--hub-text-muted);
+    margin-right: 0.4rem;
+}
+.pl-email-preview__frame {
+    width: 100%;
+    height: 60vh;
+    min-height: 360px;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 7px;
+    background: #eef0f3;
+}
+.pl-email-preview__empty { color: var(--hub-text-muted); font-size: 0.85rem; font-style: italic; margin: 0; }
 @media (max-width: 640px) {
     .pl-invite-row__actions {
         width: 100%;

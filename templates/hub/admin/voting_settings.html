@@ -24,6 +24,7 @@
     {% include "components/form_field.html" with field=form.minimum_pool_floor %}
     {% include "components/form_field.html" with field=form.reminders_enabled %}
     {% include "components/form_field.html" with field=form.send_vote_soon_enabled %}
+    {% include "components/form_field.html" with field=form.send_officer_reminder_enabled %}
     {% include "components/form_field.html" with field=form.auto_snapshot_enabled %}
     <button type="submit" class="hub-btn hub-btn--primary pl-vote-settings-form__save">Save voting settings</button>
   </form>
@@ -40,6 +41,10 @@
     <li>
       <span>Vote soon! <span class="pl-vote-copy-links__who">signed-in non-voters</span></span>
       <a href="{% url 'hub_admin_notification_edit' 'voting.vote_soon' 'email' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Edit wording</a>
+    </li>
+    <li>
+      <span>Officer heads-up <span class="pl-vote-copy-links__who">guild leadership</span></span>
+      <a href="{% url 'hub_admin_notification_edit' 'voting.officers_closing_soon' 'email' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Edit wording</a>
     </li>
     <li>
       <span>Results are in! <span class="pl-vote-copy-links__who">members who voted</span></span>

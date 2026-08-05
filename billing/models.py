@@ -444,6 +444,10 @@ class Tab(models.Model):
         of the same add is idempotent.
         """
         from core.events.emit import emit
+        from core.models import SiteConfiguration
+
+        if not SiteConfiguration.load().tab_payments_enabled:
+            return
 
         # Both events resolve the TAB_MEMBER (the tab's own member) and are transactional
         # (money the member owes), so their EMAIL channel is FORCED — the bell row and the

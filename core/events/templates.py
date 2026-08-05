@@ -70,13 +70,34 @@ def rendered_copy(event_key: str, channel: Channel, context: dict[str, Any]) -> 
     return rendering.render_copy(subject=subject, body_text=body_text, body_html=body_html, context=context)
 
 
-def wrap_email_html(fragment: str) -> str:
+# Shell name → (template path, paragraph style, bare-link style). The dark card wants
+# cream text and gold links; the light body wants slate text and navy links (gold on
+# white fails AA). Keyed by ``EventType.email_shell``.
+_EMAIL_SHELLS: dict[str, tuple[str, str, str]] = {
+    "dark": (
+        "membership/emails/notification_shell.html",
+        "margin:0 0 16px;color:#F4EFDD;font-size:15px;line-height:1.6;",
+        "color:#EEB44B;text-decoration:none;font-weight:600;",
+    ),
+    "light": (
+        "membership/emails/notification_shell_light.html",
+        "margin:0 0 16px;color:#33424F;font-size:15px;line-height:1.6;",
+        "color:#092E4C;text-decoration:underline;font-weight:600;",
+    ),
+}
+
+
+def wrap_email_html(fragment: str, *, shell: str = "dark") -> str:
     """Render a copy-mode HTML fragment inside the branded email shell.
 
     ``fragment`` is the output of :func:`core.events.rendering.render_html` — trusted
     admin-authored literal markup with every interpolated *value* already HTML-escaped.
     The shell template marks it ``|safe``, so wrapping re-escapes nothing: the shell is
     trusted and the merge values stay escaped end to end.
+
+    ``shell`` selects the branded wrapper (``EventType.email_shell``): ``"dark"`` is the
+    transactional navy card; ``"light"`` is the hybrid logo-hero-over-white-body shell.
+    An unknown name raises ``KeyError`` — fail loudly, same contract as ``get_event``.
 
     Returns a *plain* ``str`` (not a ``SafeString``): ``render_to_string`` returns a
     ``SafeString``, but the admin preview renders this into ``srcdoc="{{ wrapped_html }}"``
@@ -85,32 +106,33 @@ def wrap_email_html(fragment: str) -> str:
     makes ``{{ wrapped_html }}`` attribute-escape it correctly; the email send path is
     unaffected by the ``str`` / ``SafeString`` distinction.
     """
-    return "" + render_to_string(
-        "membership/emails/notification_shell.html", {"body_html": _style_copy_fragment(fragment)}
-    )
+    template, _, _ = _EMAIL_SHELLS[shell]
+    return "" + render_to_string(template, {"body_html": _style_copy_fragment(fragment, shell=shell)})
 
 
-def _style_copy_fragment(fragment: str) -> str:
-    """Inline-style the unbranded copy fragment so it's readable on the dark card.
+def _style_copy_fragment(fragment: str, *, shell: str = "dark") -> str:
+    """Inline-style the unbranded copy fragment so it's readable on its shell's card.
 
     Copy bodies are authored as bare ``<p>`` / ``<a>`` / ``<strong>`` with no color.
     On the dark ``#092E4C`` card a bare ``<p>`` falls back to near-black text and an
     ``<a>`` to the client's default link color (color does not inherit into anchors),
     so the body comes out invisible / unbranded. We inject inline styles — which every
-    mail client honors, unlike a ``<style>`` block — for exactly the tags the copy uses.
-    Tags the author already styled (``<p style=...>``) don't match and are left as-is.
-    Text color is carried by the shell's wrapper ``<div>`` (inherited into ``<p>`` /
-    ``<strong>``); the only thing that genuinely can't inherit is an ``<a>`` color, so
-    the per-paragraph spacing and the link color are the two things injected here.
+    mail client honors, unlike a ``<style>`` block — for exactly the tags the copy uses,
+    with the palette picked by ``shell``. Tags the author already styled
+    (``<p style=...>``) don't match and are left as-is. Text color is carried by the
+    shell's wrapper ``<div>`` (inherited into ``<p>`` / ``<strong>``); the only thing
+    that genuinely can't inherit is an ``<a>`` color, so the per-paragraph spacing and
+    the link color are the two things injected here.
     """
-    fragment = fragment.replace("<p>", '<p style="margin:0 0 16px;color:#F4EFDD;font-size:15px;line-height:1.6;">')
+    _, p_style, a_style = _EMAIL_SHELLS[shell]
+    fragment = fragment.replace("<p>", f'<p style="{p_style}">')
     # Only colorize links that DON'T already carry an inline ``style`` — a bare copy
-    # link gets gold text, while an already-styled link (e.g. the seeded invite's gold
-    # button) is left intact. Prepending a second ``style`` attribute would win over and
-    # clobber the original, which silently broke that button.
+    # link gets the shell's link color, while an already-styled link (e.g. the seeded
+    # invite's gold button) is left intact. Prepending a second ``style`` attribute
+    # would win over and clobber the original, which silently broke that button.
     return re.sub(
         r"<a (?![^>]*\bstyle=)",
-        '<a style="color:#EEB44B;text-decoration:none;font-weight:600;" ',
+        f'<a style="{a_style}" ',
         fragment,
     )
 
@@ -160,14 +182,16 @@ def rendered_message(event_key: str, channel: Channel, context: dict[str, Any], 
     For the email channels the HTML body is the unbranded copy *fragment*, so it is
     wrapped in the branded shell here — the single choke point that covers both email
     send paths (per-recipient ``EmailAdapter`` and explicit-address ``email_to``).
+    The shell variant comes from the event's registry entry (``EventType.email_shell``).
     The text body, in-app/Discord channels, and an empty HTML body are untouched.
     """
     from core.events.channels import Message
+    from core.events.registry import get_event
 
     rendered = rendered_copy(event_key, channel, context)
     html = rendered.body_html or None
     if html is not None and channel in _EMAIL_CHANNELS:
-        html = wrap_email_html(html)
+        html = wrap_email_html(html, shell=get_event(event_key).email_shell)
     return Message(
         title=rendered.subject,
         body=rendered.body_text,

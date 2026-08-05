@@ -4836,6 +4836,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
         "features",
         "discord",
         "slideshow",
+        "emails",
     }
     if active_tab not in allowed_tabs:
         active_tab = "general"
@@ -4909,6 +4910,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     # else build a fresh one over the synced rows. Rows pair each registry job with its form + last run.
     automation_rows, jobstate_formset = _resolve_automation_context(jobstate_formset)
 
+    from core.events.email_catalogue import build_email_catalogue
+
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -4916,6 +4919,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
         {
             **ctx,
             "form": form,
+            "email_catalogue": build_email_catalogue(),
             "feed_formset": feed_formset,
             "emoji_formset": emoji_formset,
             "role_formset": role_formset,

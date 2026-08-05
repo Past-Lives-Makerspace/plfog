@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.47"
+VERSION = "0.23.48"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "0.23.47",
+        "version": "0.23.48",
         "date": "2026-07-30",
         "title": "Better on your phone",
         "changes": [
@@ -14,6 +14,18 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "or buttons hiding under the feedback bubble.",
             "Class pages now follow your light-or-dark theme choice instead of always being light.",
             "Guild pages only suggest becoming a member if you aren't one yet.",
+        ],
+    },
+    {
+        "version": "0.23.47",
+        "date": "2026-07-30",
+        "title": "The guild vote email got a refresh",
+        "changes": [
+            "The monthly guild vote reminder has a cleaner look with the Past Lives logo, and it now "
+            "shows your ranked picks laid out clearly, how many members have voted so far, and the "
+            "size of the funding pool.",
+            "Guild leads and officers now get their own heads-up a few days before the vote closes, "
+            "with live turnout numbers, so they can nudge their guilds to vote in time.",
         ],
     },
     {

@@ -17,6 +17,7 @@ _BRAND_NEW_KEYS = {
     "member.login_invite",
     "voting.closing_soon",
     "voting.vote_soon",
+    "voting.officers_closing_soon",
     "voting.results_published",
     "voting.results_ready",
     "release.published",

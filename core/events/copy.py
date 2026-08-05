@@ -563,7 +563,17 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     "voting.closing_soon": EventCopy(
-        placeholders=("member_name", "cycle_label", "closes_on", "vote_1st", "vote_2nd", "vote_3rd", "voting_url"),
+        placeholders=(
+            "member_name",
+            "cycle_label",
+            "closes_on",
+            "vote_1st",
+            "vote_2nd",
+            "vote_3rd",
+            "turnout_count",
+            "pool_display",
+            "voting_url",
+        ),
         sample_context={
             "member_name": "Robin Vale",
             "cycle_label": "June 2026",
@@ -571,6 +581,8 @@ _CURATED: dict[str, EventCopy] = {
             "vote_1st": "Metal Guild",
             "vote_2nd": "Fiber Guild",
             "vote_3rd": "Wood Guild",
+            "turnout_count": "24",
+            "pool_display": "$1,000",
             "voting_url": "https://pastlives.example/guilds/voting/",
         },
         channels={
@@ -579,30 +591,52 @@ _CURATED: dict[str, EventCopy] = {
                 body_text="{{ cycle_label }} guild voting closes {{ closes_on }}. Your current vote: {{ vote_1st }}, {{ vote_2nd }}, {{ vote_3rd }}.",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="Polls closing soon: guild voting closes {{ closes_on }}",
+                subject="Your {{ cycle_label }} guild vote is recorded",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "The {{ cycle_label }} guild funding vote closes on {{ closes_on }}. You're currently "
-                    "voting — 1st: {{ vote_1st }}, 2nd: {{ vote_2nd }}, 3rd: {{ vote_3rd }}.\n\n"
-                    "Change it any time before close: {{ voting_url }}\n\nPast Lives Makerspace"
+                    "The {{ cycle_label }} guild funding vote closes on {{ closes_on }}. Here's your ballot:\n\n"
+                    "1st: {{ vote_1st }}\n"
+                    "2nd: {{ vote_2nd }}\n"
+                    "3rd: {{ vote_3rd }}\n\n"
+                    "{{ turnout_count }} members have voted so far, and {{ pool_display }} goes to the guilds "
+                    "when the month rolls over. Results land in your inbox in the first week.\n\n"
+                    "Change your vote any time before close: {{ voting_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
-                    "<p>The {{ cycle_label }} guild funding vote closes on <strong>{{ closes_on }}</strong>.</p>"
-                    "<p>You're currently voting — 1st: <strong>{{ vote_1st }}</strong>, "
-                    "2nd: <strong>{{ vote_2nd }}</strong>, 3rd: <strong>{{ vote_3rd }}</strong>.</p>"
-                    '<p><a href="{{ voting_url }}">Change it any time before close</a></p>'
-                    "<p>Past Lives Makerspace</p>"
+                    "<p>The {{ cycle_label }} guild funding vote closes on <strong>{{ closes_on }}</strong>. "
+                    "Here's your ballot as it stands:</p>"
+                    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+                    'style="margin:0 0 20px;border:1px solid #e3e7ec;border-radius:10px;">'
+                    '<tr><td style="padding:12px 16px;border-bottom:1px solid #e3e7ec;">'
+                    '<span style="display:inline-block;min-width:34px;text-align:center;background-color:#EEB44B;color:#092E4C;font-size:11px;font-weight:700;padding:3px 8px;border-radius:10px;">1st</span>'
+                    ' <strong style="color:#092E4C;">{{ vote_1st }}</strong></td></tr>'
+                    '<tr><td style="padding:12px 16px;border-bottom:1px solid #e3e7ec;">'
+                    '<span style="display:inline-block;min-width:34px;text-align:center;background-color:#B9C7D3;color:#092E4C;font-size:11px;font-weight:700;padding:3px 8px;border-radius:10px;">2nd</span>'
+                    ' <strong style="color:#092E4C;">{{ vote_2nd }}</strong></td></tr>'
+                    '<tr><td style="padding:12px 16px;">'
+                    '<span style="display:inline-block;min-width:34px;text-align:center;background-color:#e3e7ec;color:#092E4C;font-size:11px;font-weight:700;padding:3px 8px;border-radius:10px;">3rd</span>'
+                    ' <strong style="color:#092E4C;">{{ vote_3rd }}</strong></td></tr>'
+                    "</table>"
+                    "<p><strong>{{ turnout_count }}</strong> members have voted so far, and "
+                    "<strong>{{ pool_display }}</strong> goes to the guilds when the month rolls over. "
+                    "Results land in your inbox in the first week.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ voting_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Review or change your vote</a></p>"
                 ),
             ),
         },
     ),
     "voting.vote_soon": EventCopy(
-        placeholders=("member_name", "cycle_label", "closes_on", "voting_url"),
+        placeholders=("member_name", "cycle_label", "closes_on", "turnout_count", "pool_display", "voting_url"),
         sample_context={
             "member_name": "Robin Vale",
             "cycle_label": "June 2026",
             "closes_on": "June 30, 2026",
+            "turnout_count": "24",
+            "pool_display": "$1,000",
             "voting_url": "https://pastlives.example/guilds/voting/",
         },
         channels={
@@ -611,19 +645,71 @@ _CURATED: dict[str, EventCopy] = {
                 body_text="You haven't cast a {{ cycle_label }} guild funding vote yet — it closes {{ closes_on }}.",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="Vote soon: the {{ cycle_label }} guild funding vote closes {{ closes_on }}",
+                subject="Your {{ cycle_label }} guild vote closes {{ closes_on }}",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
                     "You haven't cast a guild funding vote yet for {{ cycle_label }} — it closes {{ closes_on }}. "
-                    "It takes a minute and decides where the pool goes:\n\n"
-                    "{{ voting_url }}\n\nPast Lives Makerspace"
+                    "It takes a minute, and it decides how {{ pool_display }} is split between the guilds. "
+                    "{{ turnout_count }} members have voted so far.\n\n"
+                    "Cast your vote: {{ voting_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
                     "<p>You haven't cast a guild funding vote yet for {{ cycle_label }} — it closes "
-                    "<strong>{{ closes_on }}</strong>. It takes a minute and decides where the pool goes.</p>"
-                    '<p><a href="{{ voting_url }}">Cast your vote</a></p>'
-                    "<p>Past Lives Makerspace</p>"
+                    "<strong>{{ closes_on }}</strong>. It takes a minute, and it decides how "
+                    "<strong>{{ pool_display }}</strong> is split between the guilds. "
+                    "<strong>{{ turnout_count }}</strong> members have voted so far.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ voting_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Cast your vote</a></p>"
+                ),
+            ),
+        },
+    ),
+    "voting.officers_closing_soon": EventCopy(
+        placeholders=(
+            "cycle_label",
+            "closes_on",
+            "turnout_count",
+            "not_voted_count",
+            "pool_display",
+            "voting_url",
+        ),
+        sample_context={
+            "cycle_label": "June 2026",
+            "closes_on": "June 30, 2026",
+            "turnout_count": "24",
+            "not_voted_count": "9",
+            "pool_display": "$1,000",
+            "voting_url": "https://pastlives.example/guilds/voting/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Officer heads-up — {{ cycle_label }} vote closes {{ closes_on }}",
+                body_text="{{ turnout_count }} members have voted; {{ not_voted_count }} eligible members haven't yet.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Officer heads-up: the {{ cycle_label }} guild vote closes {{ closes_on }}",
+                body_text=(
+                    "Hi there,\n\n"
+                    "The {{ cycle_label }} guild funding vote closes on {{ closes_on }}.\n\n"
+                    "Turnout so far: {{ turnout_count }} members have voted; {{ not_voted_count }} eligible "
+                    "members haven't yet. {{ pool_display }} will be split by the final rankings.\n\n"
+                    "A quick nudge in your guild channels goes a long way.\n\n"
+                    "{{ voting_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi there,</p>"
+                    "<p>The {{ cycle_label }} guild funding vote closes on <strong>{{ closes_on }}</strong>.</p>"
+                    "<p>Turnout so far: <strong>{{ turnout_count }}</strong> members have voted; "
+                    "<strong>{{ not_voted_count }}</strong> eligible members haven't yet. "
+                    "<strong>{{ pool_display }}</strong> will be split by the final rankings.</p>"
+                    "<p>A quick nudge in your guild channels goes a long way.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ voting_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "See the voting page</a></p>"
                 ),
             ),
         },
