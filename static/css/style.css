@@ -173,6 +173,9 @@ p:last-child {
     max-width: 960px;
     margin: 0 auto;
     padding: var(--spacing-sm) var(--spacing-md);
+    /* Keep the nav clear of the notch/status bar in the app webview
+       (viewport-fit=cover makes the page edge-to-edge). */
+    padding-top: calc(var(--spacing-sm) + env(safe-area-inset-top, 0px));
     width: 100%;
 }
 

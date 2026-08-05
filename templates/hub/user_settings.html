@@ -5,7 +5,7 @@
 <h1 class="hub-page-title">User Settings</h1>
 
 <div x-data="{ tab: '{{ active_tab|default:"profile" }}' }">
-    <div style="display: flex; border-bottom: 1px solid var(--hub-border); gap: 0; margin-bottom: 1.25rem; flex-wrap: wrap;">
+    <div class="pl-tabs">
         <button type="button"
                 @click="tab = 'profile'"
                 :class="{ 'vote-tab--active': tab === 'profile' }"

@@ -3,6 +3,20 @@
 
 [x-cloak] { display: none !important; }
 
+/* Shared tab strip — one row, horizontally scrollable on phones instead of
+   wrapping to a second line. Used by guild pages, settings, and voting. */
+.pl-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--hub-border);
+    margin-bottom: 1.25rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+.pl-tabs::-webkit-scrollbar { display: none; }
+.pl-tabs .vote-tab { flex: 0 0 auto; white-space: nowrap; }
+
 /* Tab nav used in the voting standings card */
 .vote-tab {
     padding: 0.625rem 1.25rem;
@@ -197,6 +211,7 @@ a:hover { color: var(--hub-link-hover); }
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     transition: transform 0.2s ease;
+    padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -743,6 +758,10 @@ a:hover { color: var(--hub-link-hover); }
 .hub-main-wrapper {
     margin-left: var(--sidebar-width);
     flex: 1;
+    /* min-width: 0 lets the wrapper shrink below its content's min-content
+       width (flex items default to min-width: auto) — without it a wide
+       grid track forces a page-level horizontal scroll on small phones. */
+    min-width: 0;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
@@ -760,12 +779,15 @@ a:hover { color: var(--hub-link-hover); }
     position: sticky;
     top: 0;
     z-index: 50;
-    height: var(--topbar-height);
+    /* Grow by the status-bar/notch inset — the app webview is edge-to-edge
+       (viewport-fit=cover + Capacitor contentInset "never"), so the bar
+       itself must keep its controls below the system UI. */
+    height: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
     background-color: var(--hub-topbar-bg);
     border-bottom: 1px solid var(--hub-topbar-border);
     display: flex;
     align-items: center;
-    padding: 0 1.5rem;
+    padding: env(safe-area-inset-top, 0px) 1.5rem 0;
     gap: 0.75rem;
     overflow: visible;
 }
@@ -964,6 +986,7 @@ a:hover { color: var(--hub-link-hover); }
    ======================================== */
 .hub-content {
     flex: 1;
+    min-width: 0;
     padding: 2rem 2.5rem;
 }
 
@@ -2963,6 +2986,12 @@ a:hover { color: var(--hub-link-hover); }
     .hub-feedback-fab { display: inline-flex; }
     /* Hide the in-sidebar feedback link on mobile — the FAB replaces it. */
     .hub-sidebar__link--feedback { display: none; }
+    /* Clear the FAB's footprint (52px + 1rem offset) so it never sits on
+       top of the last form field or button on the page. */
+    .hub-content,
+    body.classes-portal .cp-page {
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 6rem);
+    }
 }
 
 /* ========================================
@@ -3442,7 +3471,9 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    flex-wrap: wrap;
+    /* Never wrap the icon/label/arrow row — long labels wrap inside
+       __body (min-width: 0) instead of shattering the row on phones. */
+    flex-wrap: nowrap;
     padding: 0.75rem 0.9rem;
     border: 1px solid var(--hub-card-border);
     border-radius: 10px;
