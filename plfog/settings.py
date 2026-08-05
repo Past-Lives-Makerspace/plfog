@@ -198,6 +198,9 @@ if _admin_domains_raw.strip():
 else:
     ADMIN_DOMAINS = []
 
+PLAY_REVIEW_EMAIL: str = os.environ.get("PLAY_REVIEW_EMAIL", "")
+PLAY_REVIEW_CODE: str = os.environ.get("PLAY_REVIEW_CODE", "")
+
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend" if DEBUG else "anymail.backends.resend.EmailBackend"
 
 ANYMAIL = {

@@ -88,6 +88,16 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
             return reverse("admin:index")
         return reverse("hub_guild_voting")
 
+    def generate_login_code(self) -> str:
+        """Return a fixed code for the app-store reviewer account, random for everyone else."""
+        review_email: str = getattr(settings, "PLAY_REVIEW_EMAIL", "") or ""
+        review_code: str = getattr(settings, "PLAY_REVIEW_CODE", "") or ""
+        if review_email and review_code:
+            request_email: str = self.request.POST.get("email", "") if self.request else ""
+            if request_email.lower() == review_email.lower():
+                return review_code
+        return super().generate_login_code()
+
     def _sync_permissions(self, user: object) -> None:
         """Sync is_staff/is_superuser from the user's Member fog_role.
 

@@ -652,3 +652,81 @@ def describe_AdminRedirectAccountAdapter():
                 return_value=None,
             ):
                 adapter.pre_login(request, user, signup=True)  # Should not raise
+
+    def describe_generate_login_code():
+        def it_returns_fixed_code_when_review_email_matches(rf, settings):
+            from plfog.adapters import AdminRedirectAccountAdapter
+
+            settings.PLAY_REVIEW_EMAIL = "appreview@pastlives.app"
+            settings.PLAY_REVIEW_CODE = "123456"
+            adapter = AdminRedirectAccountAdapter()
+            adapter.request = rf.post("/accounts/login/", data={"email": "appreview@pastlives.app"})
+
+            assert adapter.generate_login_code() == "123456"
+
+        def it_is_case_insensitive_on_review_email(rf, settings):
+            from plfog.adapters import AdminRedirectAccountAdapter
+
+            settings.PLAY_REVIEW_EMAIL = "appreview@pastlives.app"
+            settings.PLAY_REVIEW_CODE = "ABCDEF"
+            adapter = AdminRedirectAccountAdapter()
+            adapter.request = rf.post("/accounts/login/", data={"email": "APPREVIEW@PASTLIVES.APP"})
+
+            assert adapter.generate_login_code() == "ABCDEF"
+
+        def it_falls_through_to_random_code_for_other_emails(rf, settings):
+            from plfog.adapters import AdminRedirectAccountAdapter
+            from unittest.mock import patch
+
+            settings.PLAY_REVIEW_EMAIL = "appreview@pastlives.app"
+            settings.PLAY_REVIEW_CODE = "123456"
+            adapter = AdminRedirectAccountAdapter()
+            adapter.request = rf.post("/accounts/login/", data={"email": "member@example.com"})
+
+            with patch.object(
+                AdminRedirectAccountAdapter.__bases__[0],
+                "generate_login_code",
+                return_value="RANDOM",
+            ) as mock_super:
+                result = adapter.generate_login_code()
+
+            mock_super.assert_called_once()
+            assert result == "RANDOM"
+
+        def it_falls_through_when_env_vars_not_set(rf, settings):
+            from plfog.adapters import AdminRedirectAccountAdapter
+            from unittest.mock import patch
+
+            settings.PLAY_REVIEW_EMAIL = ""
+            settings.PLAY_REVIEW_CODE = ""
+            adapter = AdminRedirectAccountAdapter()
+            adapter.request = rf.post("/accounts/login/", data={"email": "appreview@pastlives.app"})
+
+            with patch.object(
+                AdminRedirectAccountAdapter.__bases__[0],
+                "generate_login_code",
+                return_value="RANDOM",
+            ) as mock_super:
+                result = adapter.generate_login_code()
+
+            mock_super.assert_called_once()
+            assert result == "RANDOM"
+
+        def it_falls_through_when_request_is_none(settings):
+            from plfog.adapters import AdminRedirectAccountAdapter
+            from unittest.mock import patch
+
+            settings.PLAY_REVIEW_EMAIL = "appreview@pastlives.app"
+            settings.PLAY_REVIEW_CODE = "123456"
+            adapter = AdminRedirectAccountAdapter()
+            adapter.request = None
+
+            with patch.object(
+                AdminRedirectAccountAdapter.__bases__[0],
+                "generate_login_code",
+                return_value="RANDOM",
+            ) as mock_super:
+                result = adapter.generate_login_code()
+
+            mock_super.assert_called_once()
+            assert result == "RANDOM"
