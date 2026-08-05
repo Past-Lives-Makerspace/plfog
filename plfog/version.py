@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.48"
+VERSION = "0.23.49"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.49",
+        "date": "2026-07-29",
+        "title": "Clearer answers to the top class questions",
+        "changes": [
+            "The cancellation policy on every class page now shows the full policy: 48-hour cutoff, "
+            "the $50 late fee breakdown, emergency exceptions handled case-by-case, and the right "
+            "email address to reach us.",
+            "The accessibility answer is honest: we have a ramp to the first floor but are not yet "
+            "ADA accessible. If you have questions about a specific class, studios@pastlives.space is "
+            "the place to ask.",
+            "The 'no experience needed' question is reworded to match what instructors actually say: "
+            "classes are for all skill levels, and each listing notes if any prior experience helps.",
+        ],
+    },
     {
         "version": "0.23.48",
         "date": "2026-07-30",
