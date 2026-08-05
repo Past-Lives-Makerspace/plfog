@@ -1,6 +1,7 @@
 """BDD-style tests for plfog.adapters module — auto-admin, admin redirect, and signup gating."""
 
 import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -670,106 +671,117 @@ def describe_AdminRedirectAccountAdapter():
             ):
                 adapter.pre_login(request, user, signup=True)  # Should not raise
 
-    def describe_generate_login_code():
-        """App-store review carve-out: one designated email gets a fixed code.
+    def describe_GoldenTicketConfirmLoginCodeForm():
+        """App-store review carve-out: one fixed code is accepted for any pending login.
 
-        Everyone else — and every environment without both env vars set — falls
-        through to allauth's random code. The carve-out is proven by patching the
-        base ``generate_login_code`` to a sentinel and asserting delegation.
+        Code *generation* is untouched — every account still gets a random emailed
+        code. The carve-out lives at verification time, so it survives resends and
+        every other entry path. With ``PLAY_REVIEW_CODE`` unset it does nothing.
         """
 
-        REVIEW_EMAIL = "play-review@pastlives.space"
-        REVIEW_CODE = "PLR-9f3k2m7q"
+        GOLDEN = "59157bd9bbf9873fd724ec09eb13bbd2"
+        REAL_CODE = "PLR-9f3k2m7q"
 
-        def _request(rf, email):
-            """Build the request allauth would have in context during a code request.
+        def _form(submitted, expected=REAL_CODE, pending_user=object()):
+            """Validate the confirm form the way allauth's view drives it.
 
-            ``email`` of None means a GET with no email field (nothing submitted).
-            """
-            if email is None:
-                return rf.get("/accounts/login/code/")
-            return rf.post("/accounts/login/code/", data={"email": email})
-
-        def _generate(rf, email):
-            """Run generate_login_code with the given request in allauth's context.
-
-            allauth 65 sources the request from ``allauth.core.context``, not the
-            adapter constructor, so the request is injected there (as the real
-            middleware does), mirroring the send_mail specs above.
+            ``expected`` is the code allauth generated and stashed for this login.
+            ``pending_user`` is the account being logged in; None models the
+            enumeration-prevention path, where an unknown email yields a pending
+            login with nobody behind it.
             """
             from allauth.core import context as allauth_context
 
-            from plfog.adapters import AdminRedirectAccountAdapter
+            from plfog.adapters import GoldenTicketConfirmLoginCodeForm
 
-            adapter = AdminRedirectAccountAdapter()
-            request = _request(rf, email) if email is not ... else None
+            request = SimpleNamespace(_login_stage=SimpleNamespace(login=SimpleNamespace(user=pending_user)))
+            form = GoldenTicketConfirmLoginCodeForm(data={"code": submitted}, code=expected)
             with patch.object(allauth_context, "request", request):
-                return adapter.generate_login_code()
+                return form.is_valid(), form
 
-        def _generate_delegating(rf, email):
-            """Same as _generate but with the base random generator stubbed to a sentinel."""
-            from plfog.adapters import AdminRedirectAccountAdapter
+        def it_accepts_the_golden_code_for_any_pending_login(monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
 
-            with patch.object(AdminRedirectAccountAdapter.__bases__[0], "generate_login_code", return_value="RANDOM"):
-                return _generate(rf, email)
+            valid, _ = _form(GOLDEN)
+            assert valid
 
-        def it_returns_the_fixed_code_for_the_review_email(rf, monkeypatch):
-            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
-            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+        def it_still_accepts_the_real_emailed_code(monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
 
-            assert _generate(rf, REVIEW_EMAIL) == REVIEW_CODE
+            valid, _ = _form(REAL_CODE)
+            assert valid
 
-        def it_normalizes_whitespace_and_case_on_both_sides(rf, monkeypatch):
-            monkeypatch.setenv("PLAY_REVIEW_EMAIL", "  Play-Review@PastLives.Space  ")
-            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+        def it_rejects_a_code_that_is_neither(monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
 
-            assert _generate(rf, "  play-review@pastlives.space  ") == REVIEW_CODE
+            valid, form = _form("not-the-code")
+            assert not valid
+            assert "code" in form.errors
 
-        def it_delegates_to_random_for_any_other_email(rf, monkeypatch):
-            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
-            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+        def it_ignores_punctuation_and_case_like_allauth_does(monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
 
-            assert _generate_delegating(rf, "member@example.com") == "RANDOM"
+            valid, _ = _form(f"  {GOLDEN.upper()}  ")
+            assert valid
 
-        def it_delegates_to_random_when_env_is_not_set(rf, monkeypatch):
-            monkeypatch.delenv("PLAY_REVIEW_EMAIL", raising=False)
+        # NOTE: keep these flat. ``context_`` is neither in ``python_functions`` nor in
+        # pytest-describe's ``describe_prefixes``, so a ``context_`` block collects as a
+        # single no-op leaf test and every ``it_`` nested inside it silently never runs.
+        def it_falls_back_to_allauth_verification_when_the_env_var_is_unset(monkeypatch):
             monkeypatch.delenv("PLAY_REVIEW_CODE", raising=False)
 
-            assert _generate_delegating(rf, REVIEW_EMAIL) == "RANDOM"
+            assert _form(REAL_CODE)[0]
+            assert not _form(GOLDEN)[0]
 
-        def it_delegates_when_only_the_email_env_is_set(rf, monkeypatch):
-            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
-            monkeypatch.delenv("PLAY_REVIEW_CODE", raising=False)
+        def it_does_not_accept_an_empty_code_when_the_env_var_is_blank(monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", "   ")
 
-            assert _generate_delegating(rf, REVIEW_EMAIL) == "RANDOM"
+            assert not _form("")[0]
 
-        def it_delegates_when_only_the_code_env_is_set(rf, monkeypatch):
-            monkeypatch.delenv("PLAY_REVIEW_EMAIL", raising=False)
-            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+        def it_still_accepts_the_golden_code_when_no_code_was_stashed(monkeypatch):
+            """The live bug: the generated code goes missing by verification time."""
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
 
-            assert _generate_delegating(rf, REVIEW_EMAIL) == "RANDOM"
+            assert _form(GOLDEN, expected="")[0]
 
-        def it_delegates_when_there_is_no_request(rf, monkeypatch):
-            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
-            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+        def it_still_rejects_other_codes_when_no_code_was_stashed(monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
 
-            # email sentinel ``...`` forces the context request to None
-            assert _generate_delegating(rf, ...) == "RANDOM"
+            assert not _form(REAL_CODE, expected="")[0]
 
-        def it_delegates_when_no_email_is_submitted(rf, monkeypatch):
-            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
-            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+        def it_rejects_the_golden_code_when_there_is_no_account_to_log_in_as(monkeypatch):
+            """Unknown email -> fake pending login with no user. Must not be accepted."""
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
 
-            assert _generate_delegating(rf, None) == "RANDOM"  # GET, no email field
+            assert not _form(GOLDEN, pending_user=None)[0]
 
-        def it_logs_when_issuing_the_review_code(rf, monkeypatch, caplog):
-            monkeypatch.setenv("PLAY_REVIEW_EMAIL", REVIEW_EMAIL)
-            monkeypatch.setenv("PLAY_REVIEW_CODE", REVIEW_CODE)
+        def it_logs_a_warning_when_the_golden_code_is_used(monkeypatch, caplog):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
 
-            with caplog.at_level(logging.INFO, logger="plfog.adapters"):
-                _generate(rf, REVIEW_EMAIL)
+            with caplog.at_level(logging.WARNING, logger="plfog.adapters"):
+                _form(GOLDEN)
 
-            assert "Issuing fixed review login code" in caplog.text
+            assert "Golden-ticket login code accepted" in caplog.text
+
+        def it_names_the_account_in_the_audit_log(monkeypatch, caplog):
+            """A master key that leaves no trace is not auditable."""
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+            user = SimpleNamespace(email="reviewer@example.com", pk=4242)
+
+            with caplog.at_level(logging.WARNING, logger="plfog.adapters"):
+                _form(GOLDEN, pending_user=user)
+
+            assert "reviewer@example.com" in caplog.text
+            assert "4242" in caplog.text
+
+        def it_logs_a_placeholder_when_the_account_has_no_email(monkeypatch, caplog):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+            user = SimpleNamespace(email="", pk=7)
+
+            with caplog.at_level(logging.WARNING, logger="plfog.adapters"):
+                _form(GOLDEN, pending_user=user)
+
+            assert "<no email>" in caplog.text
 
     def describe_send_mail():
         def it_adds_dev_message_in_debug_mode(rf, settings):
