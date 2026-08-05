@@ -2229,6 +2229,7 @@ class VotingSettingsForm(forms.ModelForm):
             "minimum_pool_floor",
             "reminders_enabled",
             "send_vote_soon_enabled",
+            "send_officer_reminder_enabled",
             "auto_snapshot_enabled",
         ]
         labels = {
@@ -2236,6 +2237,7 @@ class VotingSettingsForm(forms.ModelForm):
             "minimum_pool_floor": "Minimum pool floor ($)",
             "reminders_enabled": "Send 'Polls closing soon!' reminders",
             "send_vote_soon_enabled": "Send 'Vote soon!' nudges",
+            "send_officer_reminder_enabled": "Send officer turnout heads-up",
             "auto_snapshot_enabled": "Auto-take the cycle-end snapshot",
         }
 

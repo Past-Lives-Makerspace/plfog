@@ -1,0 +1,63 @@
+{% comment %}
+Emails tab (Site Settings). Read-and-route: every email the app can send, grouped by
+category, each with its audience, channels, cadence, and links to edit its wording or
+adjust its schedule. Context: email_catalogue = list[(category, list[EmailRow])].
+No form — pure listing + deep links, so it lives outside #site-settings-form. Styling is
+in static/css/hub.css (.pl-email-*), mirroring the Automations card set.
+{% endcomment %}
+<div class="pl-email-tab">
+  <div>
+    <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Emails</h2>
+    <p class="pl-email-intro">
+      Every email the app can send, grouped by area. <strong>Automatic</strong> emails go out on a
+      schedule; <strong>triggered</strong> emails send the moment something happens. Edit any email's
+      wording (with a live preview), or jump to where its timing is adjusted.
+    </p>
+  </div>
+
+  {% for category, rows in email_catalogue %}
+  <section class="pl-email-group">
+    <h3 class="pl-email-group__title">{{ category }}</h3>
+
+    {% for row in rows %}
+    <div class="pl-email-row">
+      <div class="pl-email-row__head">
+        <span class="pl-email-row__name">{{ row.label }}</span>
+        {% if row.is_automatic %}
+          <span class="hub-pill hub-pill--primary">Automatic</span>
+        {% else %}
+          <span class="hub-pill hub-pill--neutral">Triggered</span>
+        {% endif %}
+      </div>
+
+      <div class="pl-email-row__desc">{{ row.description }}</div>
+
+      <div class="pl-email-meta">
+        <span><strong>To:</strong> {{ row.audience }}</span>
+        <span><strong>When:</strong> {{ row.schedule_note }}</span>
+      </div>
+
+      <div class="pl-email-chans">
+        {% for channel in row.channels %}
+        <span class="pl-email-chan">{{ channel }}</span>
+        {% endfor %}
+      </div>
+
+      <div class="pl-email-actions">
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--primary"
+                @click="$dispatch('open-modal', 'email-preview')"
+                hx-get="{{ row.preview_url }}" hx-target="#email-preview-body" hx-swap="innerHTML">
+          Preview
+        </button>
+        <a href="{{ row.edit_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">Edit wording</a>
+        {% if row.adjust_url %}
+        <a href="{{ row.adjust_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ row.adjust_label }}</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+
+  {% include "components/modal.html" with modal_id="email-preview" modal_title="Email preview" modal_size="lg" %}
+</div>
