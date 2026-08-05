@@ -759,6 +759,17 @@ a.pl-calendar-list__title--link:hover {
     .pl-calendar-grid__day-name {
         display: none;
     }
+    /* Day columns are ~45px here — text clips mid-glyph, so render chips
+       as slim color bars instead. The list below the grid carries the
+       titles and times; the chip stays tappable and keeps its title attr. */
+    .pl-calendar-grid__chip {
+        min-height: 12px;
+        padding: 2px 0 2px 3px;
+    }
+    .pl-calendar-grid__chip-time,
+    .pl-calendar-grid__chip-title {
+        display: none;
+    }
     .pl-calendar-list__item {
         flex-direction: column;
         gap: 0.5rem;

@@ -131,7 +131,7 @@
 
 {# --- Tabbed Standings / New Votes / Last Month --- #}
 <div class="hub-card" style="margin-bottom: 1.5rem;" x-data="{ tab: 'standings' }">
-    <div class="vote-tab-nav" style="display: flex; border-bottom: 1px solid var(--hub-border); gap: 0; margin-bottom: 1.25rem; flex-wrap: wrap;">
+    <div class="vote-tab-nav pl-tabs">
         <button type="button"
                 @click="tab = 'standings'"
                 :class="{ 'vote-tab--active': tab === 'standings' }"
