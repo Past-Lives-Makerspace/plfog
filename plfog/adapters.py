@@ -32,6 +32,26 @@ _AUTH_TRIGGER_KINDS: dict[str, str] = {
 }
 
 
+def _get_or_create_passwordless_user(email: str) -> Any:
+    """Fetch the User for an email, creating a passwordless one if there isn't one.
+
+    Tolerates a concurrent create: two login-code requests for the same new email
+    (e.g. a double-clicked submit) can both miss the existence check; the username
+    unique constraint then makes the loser raise IntegrityError. The user exists
+    either way, so re-read instead of surfacing a 500.
+    """
+    from django.db import IntegrityError
+
+    user = User.objects.filter(email__iexact=email).first()
+    if user is not None:
+        return user
+    try:
+        return User.objects.create_user(username=email, email=email)
+    except IntegrityError:
+        logger.info("Login-code user already created concurrently for %s", email)
+        return User.objects.filter(email__iexact=email).first()
+
+
 def _auth_trigger_kind(template_prefix: str) -> str:
     """Derive a ``TransactionalEmailLog`` trigger label from an allauth template prefix.
 
@@ -310,19 +330,8 @@ class AutoCreateUserLoginCodeForm(RequestLoginCodeForm):
 
     @staticmethod
     def _create_user_idempotent(email: str) -> None:
-        """Create a passwordless User, tolerating a concurrent create.
-
-        Two login-code requests for the same new email (e.g. a double-clicked
-        submit) can both pass the existence check in ``clean_email``; the
-        username unique constraint then makes the loser raise IntegrityError.
-        Swallow it — the user exists either way — instead of surfacing a 500.
-        """
-        from django.db import IntegrityError
-
-        try:
-            User.objects.create_user(username=email, email=email)
-        except IntegrityError:
-            logger.info("Login-code user already created concurrently for %s", email)
+        """Create a passwordless User, tolerating a concurrent create."""
+        _get_or_create_passwordless_user(email)
 
     def clean_email(self) -> str:
         """Auto-create User for known Members, then run normal allauth lookup."""
@@ -364,31 +373,69 @@ class GoldenTicketConfirmLoginCodeForm(ConfirmLoginCodeForm):
 
     Checking at verification time rather than generation time is what makes this
     robust: it holds no matter how the code was issued, so "Resend code" can no
-    longer strand a reviewer with a code that silently stopped working.
+    longer strand a reviewer with a code that silently stopped working. When the
+    typed email has no account behind it, one is provisioned — see
+    :meth:`_login_user` for why that is required rather than merely convenient.
 
     SECURITY: this is a master key. Anyone holding ``PLAY_REVIEW_CODE`` can sign
-    in as any account that has an email address, including addresses on
-    ``ADMIN_DOMAINS``, which :meth:`AdminRedirectAccountAdapter._sync_permissions`
-    auto-grants ``is_staff`` and ``is_superuser``. Treat the value like a root
-    password: long, random, set only in the deploy environment, and rotated the
-    moment app-store review is finished. Leaving the env var unset disables the
-    behaviour entirely.
+    in as any email address, including one that does not exist yet and including
+    addresses on ``ADMIN_DOMAINS``, which
+    :meth:`AdminRedirectAccountAdapter._sync_permissions` auto-grants ``is_staff``
+    and ``is_superuser``. Treat the value like a root password: long, random, set
+    only in the deploy environment, and rotated the moment app-store review is
+    finished. Leaving the env var unset disables the behaviour entirely.
     """
 
     @staticmethod
-    def _pending_login_user() -> Any | None:
-        """The user allauth is mid-login for, or None if there isn't one.
-
-        Deliberately *not* keyed off ``expected_code``: whether a code was
-        successfully generated and stashed is exactly the thing that can go wrong,
-        and the golden ticket has to keep working when it does.
-        """
+    def _login_stage() -> Any | None:
+        """The allauth login stage for the request being verified, if there is one."""
         from allauth.core import context as allauth_context
 
         request = getattr(allauth_context, "request", None)
-        stage = getattr(request, "_login_stage", None)
-        login = getattr(stage, "login", None)
-        return getattr(login, "user", None)
+        return getattr(request, "_login_stage", None)
+
+    @staticmethod
+    def _attach_user(stage: Any, user: Any) -> None:
+        """Put ``user`` behind a pending login that has nobody behind it yet.
+
+        ``LoginCodeVerificationProcess`` is built before the form runs, so its
+        ``_user`` is already latched to ``None`` and setting ``login.user`` alone is
+        not enough. Its ``user`` property falls through to ``state["user_id"]``, and
+        that state dict is the same object as ``stage.state`` — so writing the id
+        there is what actually gives ``finish()`` somebody to log in.
+        """
+        from allauth.account.internal.userkit import user_id_to_str
+
+        stage.login.user = user
+        stage.state["user_id"] = user_id_to_str(user)
+
+    @classmethod
+    def _login_user(cls) -> Any | None:
+        """The account to log in, provisioning one from the typed email if needed.
+
+        An email with no ``User`` row does not fail the login-code request: allauth's
+        enumeration prevention runs the whole flow with an empty shell of a login so
+        the response is indistinguishable from a real one. Nothing is stashed to
+        compare against and there is no user to log in, so the golden ticket has to
+        supply the account itself or it is dead on exactly the accounts a reviewer is
+        most likely to be handed.
+        """
+        stage = cls._login_stage()
+        if stage is None:
+            return None
+
+        user = getattr(stage.login, "user", None)
+        if user is not None:
+            return user
+
+        email: str = (stage.state.get("email") or getattr(stage.login, "email", "") or "").strip()
+        if not email:
+            # A phone-only or otherwise contactless login: nothing to provision from.
+            return None
+
+        user = _get_or_create_passwordless_user(email)
+        cls._attach_user(stage, user)
+        return user
 
     def clean_code(self) -> str:
         """Accept the golden ticket, otherwise fall back to allauth's own check."""
@@ -396,10 +443,7 @@ class GoldenTicketConfirmLoginCodeForm(ConfirmLoginCodeForm):
         golden = os.environ.get("PLAY_REVIEW_CODE", "").strip()
 
         if golden and compare_user_code(actual=code, expected=golden):
-            # Requiring a pending user keeps the enumeration-prevention path (unknown
-            # email -> fake process with no user) from reaching a login with nobody to
-            # log in as, which would otherwise assert deep inside allauth.
-            user = self._pending_login_user()
+            user = self._login_user()
             if user is not None:
                 # A master key that leaves no trace is not auditable. Name the account
                 # every time it is used, at WARNING so it survives prod log levels.

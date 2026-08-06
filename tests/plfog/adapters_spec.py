@@ -682,19 +682,26 @@ def describe_AdminRedirectAccountAdapter():
         GOLDEN = "59157bd9bbf9873fd724ec09eb13bbd2"
         REAL_CODE = "PLR-9f3k2m7q"
 
-        def _form(submitted, expected=REAL_CODE, pending_user=object()):
+        def _stage(pending_user=object(), email=""):
+            """A stand-in for allauth's login stage, with the same shape the form reads."""
+            state = {"email": email} if email else {}
+            return SimpleNamespace(login=SimpleNamespace(user=pending_user, email=email), state=state)
+
+        def _form(submitted, expected=REAL_CODE, pending_user=object(), email="", stage=None):
             """Validate the confirm form the way allauth's view drives it.
 
             ``expected`` is the code allauth generated and stashed for this login.
             ``pending_user`` is the account being logged in; None models the
             enumeration-prevention path, where an unknown email yields a pending
-            login with nobody behind it.
+            login with nobody behind it and only the typed ``email`` to go on.
             """
             from allauth.core import context as allauth_context
 
             from plfog.adapters import GoldenTicketConfirmLoginCodeForm
 
-            request = SimpleNamespace(_login_stage=SimpleNamespace(login=SimpleNamespace(user=pending_user)))
+            if stage is None:
+                stage = _stage(pending_user=pending_user, email=email)
+            request = SimpleNamespace(_login_stage=stage)
             form = GoldenTicketConfirmLoginCodeForm(data={"code": submitted}, code=expected)
             with patch.object(allauth_context, "request", request):
                 return form.is_valid(), form
@@ -749,11 +756,60 @@ def describe_AdminRedirectAccountAdapter():
 
             assert not _form(REAL_CODE, expected="")[0]
 
-        def it_rejects_the_golden_code_when_there_is_no_account_to_log_in_as(monkeypatch):
-            """Unknown email -> fake pending login with no user. Must not be accepted."""
+        def it_provisions_an_account_when_the_email_has_none(monkeypatch):
+            """The live prod failure: an email with no User row.
+
+            allauth's enumeration prevention runs the whole flow with an empty shell
+            of a login, so requiring a pre-existing user silently disabled the golden
+            ticket on exactly the accounts a reviewer gets handed.
+            """
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+            assert not User.objects.filter(email="nobody@example.com").exists()
+
+            valid, _ = _form(GOLDEN, expected="", pending_user=None, email="nobody@example.com")
+
+            assert valid
+            assert User.objects.filter(email="nobody@example.com").count() == 1
+
+        def it_attaches_the_provisioned_account_to_the_pending_login(monkeypatch):
+            """Attaching to ``login.user`` alone is not enough — the process reads state."""
+            from allauth.account.internal.userkit import user_id_to_str
+
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+            stage = _stage(pending_user=None, email="nobody@example.com")
+
+            _form(GOLDEN, expected="", stage=stage)
+
+            user = User.objects.get(email="nobody@example.com")
+            assert stage.login.user == user
+            assert stage.state["user_id"] == user_id_to_str(user)
+
+        def it_reuses_an_existing_account_rather_than_duplicating_it(monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+            existing = User.objects.create_user(username="known@example.com", email="known@example.com")
+
+            valid, _ = _form(GOLDEN, expected="", pending_user=None, email="known@example.com")
+
+            assert valid
+            assert User.objects.filter(email="known@example.com").count() == 1
+            assert User.objects.get(email="known@example.com").pk == existing.pk
+
+        def it_rejects_the_golden_code_when_there_is_no_email_to_provision_from(monkeypatch):
+            """No user and no email — nothing to log in as, so fall through."""
             monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
 
-            assert not _form(GOLDEN, pending_user=None)[0]
+            assert not _form(GOLDEN, pending_user=None, email="")[0]
+
+        def it_rejects_the_golden_code_when_there_is_no_login_stage(monkeypatch):
+            """Not mid-login at all: nothing to attach a user to."""
+            from allauth.core import context as allauth_context
+
+            from plfog.adapters import GoldenTicketConfirmLoginCodeForm
+
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+            form = GoldenTicketConfirmLoginCodeForm(data={"code": GOLDEN}, code="")
+            with patch.object(allauth_context, "request", SimpleNamespace()):
+                assert not form.is_valid()
 
         def it_logs_a_warning_when_the_golden_code_is_used(monkeypatch, caplog):
             monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
@@ -782,6 +838,61 @@ def describe_AdminRedirectAccountAdapter():
                 _form(GOLDEN, pending_user=user)
 
             assert "<no email>" in caplog.text
+
+        # End-to-end, through allauth's real views and session state. The form-level
+        # specs above drive a hand-built stage, which is precisely how the prod-only
+        # failure slipped through: the fake always had a user, so the branch that
+        # matters never ran. These post to the actual URLs instead.
+        def _sign_in(client, email, code=GOLDEN):
+            """Drive the real two-step login-code flow and report whether it signed in."""
+            client.post(reverse("account_request_login_code"), {"email": email})
+            response = client.post(reverse("account_confirm_login_code"), {"code": code})
+            return response, client.session.get("_auth_user_id")
+
+        def it_signs_in_end_to_end_when_the_email_has_no_account(client, monkeypatch, settings):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+            settings.ACCOUNT_RATE_LIMITS = False
+
+            response, auth_user_id = _sign_in(client, "reviewer@example.com")
+
+            assert response.status_code == 302
+            assert auth_user_id is not None
+            assert User.objects.get(pk=auth_user_id).email == "reviewer@example.com"
+
+        def it_signs_in_end_to_end_when_the_account_already_exists(client, monkeypatch, settings):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+            settings.ACCOUNT_RATE_LIMITS = False
+            existing = User.objects.create_user(username="member@example.com", email="member@example.com")
+
+            response, auth_user_id = _sign_in(client, "member@example.com")
+
+            assert response.status_code == 302
+            assert auth_user_id == str(existing.pk)
+
+        def it_does_not_sign_in_end_to_end_with_a_wrong_code(client, monkeypatch, settings):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+            settings.ACCOUNT_RATE_LIMITS = False
+
+            _, auth_user_id = _sign_in(client, "reviewer@example.com", code="not-the-code")
+
+            assert auth_user_id is None
+
+        def it_does_not_provision_an_account_for_a_wrong_code(client, monkeypatch, settings):
+            """A rejected attempt must not leave a User behind for the typed email."""
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+            settings.ACCOUNT_RATE_LIMITS = False
+
+            _sign_in(client, "stranger@example.com", code="not-the-code")
+
+            assert not User.objects.filter(email="stranger@example.com").exists()
+
+        def it_does_not_sign_in_end_to_end_when_the_env_var_is_unset(client, monkeypatch, settings):
+            monkeypatch.delenv("PLAY_REVIEW_CODE", raising=False)
+            settings.ACCOUNT_RATE_LIMITS = False
+
+            _, auth_user_id = _sign_in(client, "reviewer@example.com")
+
+            assert auth_user_id is None
 
     def describe_send_mail():
         def it_adds_dev_message_in_debug_mode(rf, settings):
