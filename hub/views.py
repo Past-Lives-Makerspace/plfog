@@ -38,6 +38,7 @@ from hub.forms import (
     GuildEditForm,
     GuildRoleFormSet,
     MemberAdminEditForm,
+    MemberContactForm,
     MemberContactFormSet,
     MemberSkillForm,
     OrgInfoPageForm,
@@ -1448,7 +1449,10 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     member = _get_member(request)
 
     profile_form: ProfileSettingsForm | None
-    contact_formset: BaseInlineFormSet | None
+    # Parameterized on purpose: django-stubs 6.0.8 types inlineformset_factory's product as
+    # BaseInlineFormSet[MemberContact, Member, MemberContactForm], and a bare BaseInlineFormSet
+    # means BaseInlineFormSet[Any, Any, ModelForm[Any]], which no longer accepts that assignment.
+    contact_formset: BaseInlineFormSet[MemberContact, Member, MemberContactForm] | None
     if request.method == "POST" and request.POST.get("form_id") == "profile":
         if member is None:
             messages.error(request, "Your account is not linked to a membership.")
