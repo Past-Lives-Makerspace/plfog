@@ -5,5 +5,29 @@
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
   gtag('config', '{{ google_analytics_measurement_id }}');
+
+  // The member hub navigates with hx-boost: htmx swaps the body and pushes a new URL
+  // without a document load, so gtag's automatic page_view only ever fires for the
+  // first page of a session. The head-support extension keys head elements by their
+  // outerHTML and preserves identical ones, so this block is never re-evaluated on a
+  // boosted navigation either. Send page_view ourselves instead.
+  //
+  // afterSettle covers forward navigation; historyRestore covers back/forward, which
+  // merges the head without firing a swap. Both bubble to document. The path guard
+  // keeps partial swaps that leave the URL alone from counting as navigations.
+  (function () {
+    var lastPath = window.location.pathname + window.location.search;
+    function trackPageView() {
+      var currentPath = window.location.pathname + window.location.search;
+      if (currentPath === lastPath) { return; }
+      lastPath = currentPath;
+      gtag('event', 'page_view', {
+        page_location: window.location.href,
+        page_title: document.title
+      });
+    }
+    document.addEventListener('htmx:afterSettle', trackPageView);
+    document.addEventListener('htmx:historyRestore', trackPageView);
+  })();
 </script>
 {% endif %}

@@ -1,12 +1,24 @@
 name: Discord Notifications
 
-# Manual-only on purpose. This used to fire on every push to main, which re-posted the
-# WHOLE current release-line changelog on every routine hotfix merge — a duplicate
-# announcement to members each time. A release announcement is a deliberate act, so it is
-# now triggered by hand when a release actually ships:
-#   gh workflow run discord-notify.yml        (or the "Run workflow" button in the Actions UI)
+# Fires automatically when a push to main ships a new VERSION, and can still be run by
+# hand (`gh workflow run discord-notify.yml`, or the Actions "Run workflow" button).
+#
+# This was manual-only for a while because it used to re-post the WHOLE current
+# release-line changelog on every routine hotfix merge, spamming members with things
+# already announced. The script now posts ONLY the entry/entries stamped at the current
+# VERSION, so one merge means one deploy means one announcement. Two guards keep it that
+# way on automatic runs:
+#   1. `paths:` — the job is only considered when plfog/version.py itself changed.
+#   2. the "Check whether VERSION changed" step below — it compares VERSION against the
+#      parent commit and skips the post when it is unchanged, so edits to changelog
+#      wording (or any other version.py churn) never re-announce a shipped release.
+# A manual run always posts, which is the escape hatch for re-sending an announcement.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "plfog/version.py"
 
 jobs:
   notify:
@@ -14,13 +26,38 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Need the parent commit so the step below can diff VERSION across the push.
+          fetch-depth: 2
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
+      - name: Check whether VERSION changed
+        id: version_changed
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Manual run, announcing regardless of VERSION."
+            echo "should_post=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          current=$(python -c "import sys; sys.path.insert(0, '.'); from plfog.version import VERSION; print(VERSION)")
+          previous=$(git show HEAD^:plfog/version.py 2>/dev/null | grep -E '^VERSION = ' | head -1 | cut -d'"' -f2 || true)
+          echo "previous=${previous:-<none>} current=${current}"
+          if [ "$current" = "$previous" ]; then
+            echo "VERSION is unchanged, skipping the announcement."
+            echo "should_post=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_post=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Post release announcement to Discord
+        if: steps.version_changed.outputs.should_post == 'true'
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         # Posts only the current VERSION's changelog entry (what just shipped),

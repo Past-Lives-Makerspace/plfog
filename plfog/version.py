@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.49"
+VERSION = "0.23.50"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.50",
+        "date": "2026-08-06",
+        "title": "Usage measurement now covers the Member Hub",
+        "changes": [
+            "We already measured which pages get used on the main site and on class pages. That now "
+            "covers the Member Hub too, so we can see which tools members actually use and put our "
+            "time where it helps most.",
+            "This is anonymous, aggregate usage data through Google Analytics. It does not include "
+            "your name or your email address. The Privacy Policy has the details.",
+            "The staff admin area is still excluded, the same as before.",
+        ],
+    },
     {
         "version": "0.23.49",
         "date": "2026-07-29",
