@@ -259,7 +259,7 @@ class SiteConfiguration(models.Model):
         max_length=50,
         blank=True,
         verbose_name="Google Analytics measurement ID",
-        help_text="GA4 measurement ID (e.g. G-XXXXXXX) — injected site-wide (excludes the Django admin). Leave blank to disable.",
+        help_text="GA4 measurement ID (e.g. G-XXXXXXX) — injected on every page, this admin included. Leave blank to disable.",
     )
     tab_payments_enabled = models.BooleanField(
         default=True,

@@ -4,7 +4,44 @@
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
-  gtag('config', '{{ google_analytics_measurement_id }}');
+
+  // Personal data must never reach Google, which both their terms and our privacy policy
+  // require. Two sources of it end up in URLs, so page_location and page_referrer are
+  // cleaned before being sent.
+  //
+  // Deliberately implemented here rather than server-side: hx-boost navigations build
+  // the URL client-side, so a server-rendered flag would only ever protect the first
+  // page of a hub session.
+  function plCleanUrl(href) {
+    if (!href) { return href; }
+    try {
+      var u = new URL(href, window.location.origin);
+      // The admin's changelist search and filters can put anything in the query string,
+      // so drop it wholesale there. Prefix test, so /foo/admin/ is not caught.
+      if (u.pathname.indexOf('/admin/') === 0) {
+        return u.origin + u.pathname;
+      }
+      // Elsewhere remove only the parameters that actually carry personal data, so
+      // utm_* campaign attribution survives alongside them:
+      //   q      free-text search (member directory, class catalog)
+      //   email  prefilled on the login-code and invite-signup links FOG emails out,
+      //          e.g. /accounts/login/code/?email=<member email>
+      var stripped = false;
+      ['q', 'email'].forEach(function (key) {
+        if (u.searchParams.has(key)) { u.searchParams.delete(key); stripped = true; }
+      });
+      return stripped ? u.href : href;
+    } catch (e) {
+      // Fail closed. This is a privacy control, so a URL we cannot parse loses its query
+      // string rather than being sent verbatim.
+      return String(href).split('?')[0];
+    }
+  }
+
+  var plGaConfig = { page_location: plCleanUrl(window.location.href) };
+  // Referrers leak the same way: arriving from a search page carries its ?q= along.
+  if (document.referrer) { plGaConfig.page_referrer = plCleanUrl(document.referrer); }
+  gtag('config', '{{ google_analytics_measurement_id }}', plGaConfig);
 
   // The member hub navigates with hx-boost: htmx swaps the body and pushes a new URL
   // without a document load, so gtag's automatic page_view only ever fires for the
@@ -22,7 +59,7 @@
       if (currentPath === lastPath) { return; }
       lastPath = currentPath;
       gtag('event', 'page_view', {
-        page_location: window.location.href,
+        page_location: plCleanUrl(window.location.href),
         page_title: document.title
       });
     }

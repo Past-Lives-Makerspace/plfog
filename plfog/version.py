@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.50"
+VERSION = "0.23.51"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.51",
+        "date": "2026-08-07",
+        "title": "Usage measurement now covers all of FOG",
+        "changes": [
+            "The last update said the staff admin area was left out of usage measurement. It is no "
+            "longer left out. Staff pages are now measured the same way as member pages.",
+            "This is still anonymous, aggregate usage data through Google Analytics. What you type "
+            "into a search box, and the email address in a sign-in link, are now removed before "
+            "anything is sent. The Privacy Policy has the details.",
+        ],
+    },
     {
         "version": "0.23.50",
         "date": "2026-08-06",
