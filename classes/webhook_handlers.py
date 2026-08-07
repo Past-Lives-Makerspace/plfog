@@ -96,6 +96,10 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
     send_admin_registration_notification(registration)
     from classes.services.mailchimp_subscribe import subscribe_registration
 
+    # Subscribe BEFORE account creation: derive_tags decides `first-time-student`
+    # by asking whether this email is already a known member, and
+    # ensure_account_for_registration is what makes it one. The profile opt-in
+    # stamp is mirrored afterwards, inside that call.
     subscribe_registration(registration)
     from core.services.guest_account import ensure_account_for_registration
 

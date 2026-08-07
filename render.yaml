@@ -40,6 +40,12 @@ services:
         previewValue: "preview@example.com"
       - key: SENTRY_DSN
         sync: false
+      # Mailchimp newsletter/marketing subscribes. Blank disables the integration.
+      # Site Settings values (if an admin has entered any) take precedence over these.
+      - key: MAILCHIMP_API_KEY
+        sync: false
+      - key: MAILCHIMP_LIST_ID
+        sync: false
 
     # Preview environments for pull requests
     previews:

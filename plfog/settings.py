@@ -320,6 +320,13 @@ IMAGE_MAX_LONG_EDGE_HERO = int(os.environ.get("IMAGE_MAX_LONG_EDGE_HERO", "2400"
 IMAGE_MAX_LONG_EDGE_GALLERY = int(os.environ.get("IMAGE_MAX_LONG_EDGE_GALLERY", "1600"))
 IMAGE_MAX_LONG_EDGE_PROFILE = int(os.environ.get("IMAGE_MAX_LONG_EDGE_PROFILE", "1200"))
 
+# Mailchimp — newsletter/marketing subscribes. Fallback only: the SiteConfiguration
+# singleton wins when an admin has pasted credentials into Site Settings. These exist so
+# a deployment can enable Mailchimp without an account-scoped key sitting in the database
+# in plaintext. Blank on both sides disables the integration entirely.
+MAILCHIMP_API_KEY = os.environ.get("MAILCHIMP_API_KEY", "")
+MAILCHIMP_LIST_ID = os.environ.get("MAILCHIMP_LIST_ID", "")
+
 # Simplybook (https://simplybook.me) — tour status lookups. Disabled when blank.
 SIMPLYBOOK_API_KEY = os.environ.get("SIMPLYBOOK_API_KEY", "")
 SIMPLYBOOK_COMPANY_LOGIN = os.environ.get("SIMPLYBOOK_COMPANY_LOGIN", "")
@@ -439,6 +446,7 @@ ACCOUNT_ADAPTER = "plfog.adapters.AdminRedirectAccountAdapter"
 
 ACCOUNT_EMAIL_SUBJECT_PREFIX = ""
 ACCOUNT_FORMS = {
+    "signup": "plfog.adapters.MarketingOptInSignupForm",
     "request_login_code": "plfog.adapters.AutoCreateUserLoginCodeForm",
     "confirm_login_code": "plfog.adapters.GoldenTicketConfirmLoginCodeForm",
 }

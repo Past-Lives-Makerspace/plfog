@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.51"
+VERSION = "0.23.52"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.52",
+        "date": "2026-08-07",
+        "title": "Get class and event news by email",
+        "changes": [
+            "When you create an account you can now tick a box to hear about new classes, "
+            "workshops, and events. It is off unless you tick it, and every email we send has an "
+            "unsubscribe link.",
+            "Before, the only place to opt in was the class booking form, so anyone who made an "
+            "account without booking a class had no way to sign up.",
+            "If you already opted in when booking a class, we won't keep asking you.",
+        ],
+    },
     {
         "version": "0.23.51",
         "date": "2026-08-07",
