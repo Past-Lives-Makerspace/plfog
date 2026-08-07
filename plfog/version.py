@@ -11,9 +11,10 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "Usage measurement now covers all of FOG",
         "changes": [
             "The last update said the staff admin area was left out of usage measurement. It is no "
-            "longer left out. Every part of FOG is now measured the same way, staff pages included.",
-            "This is still anonymous, aggregate usage data through Google Analytics. It does not "
-            "include your name or your email address. The Privacy Policy has the details.",
+            "longer left out. Staff pages are now measured the same way as member pages.",
+            "This is still anonymous, aggregate usage data through Google Analytics. What you type "
+            "into a search box, and the email address in a sign-in link, are now removed before "
+            "anything is sent. The Privacy Policy has the details.",
         ],
     },
     {

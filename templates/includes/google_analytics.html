@@ -5,11 +5,9 @@
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
 
-  // Search text must never reach Google. The admin changelist search, the member
-  // directory, and the class catalog all put free text in ?q=, which is routinely a
-  // member's name or email address; sending that is a privacy leak and a violation of
-  // Google's terms. So drop the query string on exactly those URLs, and nowhere else,
-  // which keeps utm_* campaign attribution working on ordinary landing pages.
+  // Personal data must never reach Google, which both their terms and our privacy policy
+  // require. Two sources of it end up in URLs, so page_location and page_referrer are
+  // cleaned before being sent.
   //
   // Deliberately implemented here rather than server-side: hx-boost navigations build
   // the URL client-side, so a server-rendered flag would only ever protect the first
@@ -18,12 +16,25 @@
     if (!href) { return href; }
     try {
       var u = new URL(href, window.location.origin);
-      if (u.pathname.indexOf('/admin/') === 0 || u.searchParams.has('q')) {
+      // The admin's changelist search and filters can put anything in the query string,
+      // so drop it wholesale there. Prefix test, so /foo/admin/ is not caught.
+      if (u.pathname.indexOf('/admin/') === 0) {
         return u.origin + u.pathname;
       }
-      return u.href;
+      // Elsewhere remove only the parameters that actually carry personal data, so
+      // utm_* campaign attribution survives alongside them:
+      //   q      free-text search (member directory, class catalog)
+      //   email  prefilled on the login-code and invite-signup links FOG emails out,
+      //          e.g. /accounts/login/code/?email=<member email>
+      var stripped = false;
+      ['q', 'email'].forEach(function (key) {
+        if (u.searchParams.has(key)) { u.searchParams.delete(key); stripped = true; }
+      });
+      return stripped ? u.href : href;
     } catch (e) {
-      return href;
+      // Fail closed. This is a privacy control, so a URL we cannot parse loses its query
+      // string rather than being sent verbatim.
+      return String(href).split('?')[0];
     }
   }
 

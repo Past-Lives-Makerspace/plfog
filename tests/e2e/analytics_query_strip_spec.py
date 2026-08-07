@@ -59,5 +59,30 @@ def describe_analytics_query_stripping():
 
         locations = _page_locations(page)
         assert locations, "expected at least one page_location queued into dataLayer"
-        # Campaign attribution must survive; only free-text search is stripped.
+        # Campaign attribution must survive; only personal data is stripped.
+        assert any("utm_source=discord" in location for location in locations)
+
+    def it_drops_the_prefilled_email_from_the_login_code_page(live_server, page, settings):
+        # FOG emails members a link to /accounts/login/code/?email=<their address>, and
+        # invitees /accounts/signup/?email=<theirs>. Both pages render GA.
+        _configure_ga()
+
+        page.goto(f"{live_server.url}/accounts/login/code/?email={SEARCH_TERM}")
+
+        locations = _page_locations(page)
+        assert locations, "expected at least one page_location queued into dataLayer"
+        for location in locations:
+            assert SEARCH_TERM not in location
+
+    def it_strips_only_the_personal_parameter_and_keeps_the_rest(live_server, page, settings):
+        settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
+        _configure_ga()
+
+        page.goto(f"{live_server.url}{reverse('classes:public_list')}?q={SEARCH_TERM}&utm_source=discord")
+
+        locations = _page_locations(page)
+        assert locations, "expected at least one page_location queued into dataLayer"
+        # The search term goes, the campaign parameter stays. Dropping the whole query
+        # string here would silently break attribution on any campaign link with a search.
+        assert all(SEARCH_TERM not in location for location in locations)
         assert any("utm_source=discord" in location for location in locations)
