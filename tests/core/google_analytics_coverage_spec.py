@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
+from django.urls import reverse
 
 from core.models import SiteConfiguration
 
@@ -65,6 +66,17 @@ def describe_google_analytics_coverage():
         _staff(client)
 
         response = client.get("/admin/")
+
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert body.count("gtag('config'") == 1
+        assert MEASUREMENT_ID in body
+
+    def it_tags_allauth_pages_we_do_not_override(client: Client, configured_ga: None):
+        # Password reset renders through allauth's own layout, which we fork at
+        # templates/allauth/layouts/base.html purely to add the include. If an allauth
+        # upgrade drops that fork, this is what notices.
+        response = client.get(reverse("account_reset_password"))
 
         assert response.status_code == 200
         body = response.content.decode()
