@@ -5,6 +5,7 @@
 {% block extrahead %}
     {{ block.super }}
     <link rel="stylesheet" href="{% static 'css/components.css' %}">
+    {% include "includes/google_analytics.html" %}
     {# Unified theme system — one localStorage key ('theme'), works across hub + admin #}
     <script>
         (function() {

@@ -94,14 +94,12 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
 
 
 def google_analytics(request: HttpRequest) -> dict[str, str]:
-    """Expose the GA4 measurement ID site-wide.
+    """Expose the GA4 measurement ID on every page, the Django admin included.
 
-    Returns an empty string on the Django admin so analytics never fire on
-    internal back-office pages. The base template gates the gtag block on
-    the truthy value, so an empty string acts as "disabled".
+    There is deliberately no path exclusion: FOG is measured end to end, so staff
+    back-office activity is part of the picture. Templates gate the gtag block on the
+    truthy value, so a blank measurement ID acts as "disabled" everywhere at once.
     """
-    if request.path.startswith("/admin/"):
-        return {"google_analytics_measurement_id": ""}
     from core.models import SiteConfiguration
 
     return {"google_analytics_measurement_id": SiteConfiguration.load().google_analytics_measurement_id}

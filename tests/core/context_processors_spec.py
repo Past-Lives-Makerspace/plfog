@@ -104,7 +104,9 @@ def describe_google_analytics():
         result = google_analytics(request)
         assert result == {"google_analytics_measurement_id": "G-TEST123"}
 
-    def it_returns_empty_on_admin_paths_even_when_configured():
+    def it_returns_measurement_id_on_admin_paths_too():
+        # FOG is measured end to end, staff back-office activity included. There is
+        # deliberately no path exclusion here.
         config = SiteConfiguration.load()
         config.google_analytics_measurement_id = "G-TEST123"
         config.save()
@@ -112,7 +114,7 @@ def describe_google_analytics():
         rf = RequestFactory()
         request = rf.get("/admin/")
         result = google_analytics(request)
-        assert result == {"google_analytics_measurement_id": ""}
+        assert result == {"google_analytics_measurement_id": "G-TEST123"}
 
 
 def describe_surface():

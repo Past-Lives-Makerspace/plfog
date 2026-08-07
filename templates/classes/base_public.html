@@ -108,6 +108,7 @@ matches the chrome. The topbar toggle still wins either way.
 <meta name="description" content="{% block meta_description %}Past Lives Makerspace — Portland's community workshop for creators, builders, and makers. Browse classes and workshops and register online.{% endblock %}">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{% static 'css/cms-public.css' %}">
-{% include "includes/google_analytics.html" %}
+{# No GA include here: this template extends hub/base.html, which now renders it in <head>. #}
+{# Including it again put two gtag snippets on the page and double-counted every pageview. #}
 {% block classes_extra_head %}{% endblock %}
 {% endblock %}
