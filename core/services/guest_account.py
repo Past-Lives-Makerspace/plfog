@@ -163,6 +163,8 @@ def _seed_profile_from_registration(user, registration: Registration) -> None:  
     """Seed the new account's profile from the registration (mirrors the
     logged-in caching path in ``classes.views._cache_registration_to_profile``,
     which no-ops for the anonymous guest case)."""
+    from django.utils import timezone
+
     from core.models import UserProfile
 
     profile, _ = UserProfile.objects.get_or_create(user=user)
@@ -170,3 +172,15 @@ def _seed_profile_from_registration(user, registration: Registration) -> None:  
     answers = {a.question_id: a.answer_text for a in registration.custom_answers.all()}
     if answers:
         profile.set_custom_answers(answers)
+
+    # Mirror a completed newsletter opt-in onto the profile, so the marketing
+    # checkbox isn't re-asked on this person's next booking.
+    #
+    # This can't live in ``subscribe_registration``: that runs *before* us (it has
+    # to, or ``derive_tags`` would treat this brand-new account as a known member
+    # and drop the ``first-time-student`` tag), and at that point the guest has no
+    # user and therefore no profile to stamp. So the stamp lands here, where the
+    # profile is first created.
+    if registration.subscribed_to_mailchimp and profile.subscribed_to_mailchimp_at is None:
+        profile.subscribed_to_mailchimp_at = timezone.now()
+        profile.save(update_fields=["subscribed_to_mailchimp_at"])

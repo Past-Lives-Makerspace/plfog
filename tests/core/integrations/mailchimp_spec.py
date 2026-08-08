@@ -41,6 +41,16 @@ def describe_MailchimpConfig():
 
 def describe_MailchimpClient():
     def describe_from_site_config():
+        @pytest.fixture(autouse=True)
+        def _no_env_credentials(settings):
+            """Blank the env fallback so these cases exercise SiteConfiguration alone.
+
+            Without this a developer with MAILCHIMP_* set in their .env would see
+            the "disabled when blank" cases fail for the wrong reason.
+            """
+            settings.MAILCHIMP_API_KEY = ""
+            settings.MAILCHIMP_LIST_ID = ""
+
         def it_returns_disabled_when_api_key_blank():
             site = SiteConfiguration.load()
             site.mailchimp_api_key = ""
@@ -67,6 +77,47 @@ def describe_MailchimpClient():
             assert client.config is not None
             assert client.config.api_key == "abc-us17"
             assert client.config.list_id == "LIST"
+
+        def describe_env_fallback():
+            def it_uses_env_credentials_when_site_config_is_blank(settings):
+                settings.MAILCHIMP_API_KEY = "envkey-us14"
+                settings.MAILCHIMP_LIST_ID = "ENVLIST"
+                client = MailchimpClient.from_site_config()
+                assert client.enabled is True
+                assert client.config is not None
+                assert client.config.api_key == "envkey-us14"
+                assert client.config.list_id == "ENVLIST"
+
+            def it_prefers_site_config_over_env(settings):
+                settings.MAILCHIMP_API_KEY = "envkey-us14"
+                settings.MAILCHIMP_LIST_ID = "ENVLIST"
+                site = SiteConfiguration.load()
+                site.mailchimp_api_key = "dbkey-us17"
+                site.mailchimp_list_id = "DBLIST"
+                site.save()
+                client = MailchimpClient.from_site_config()
+                assert client.config is not None
+                assert client.config.api_key == "dbkey-us17"
+                assert client.config.list_id == "DBLIST"
+
+            def it_resolves_each_credential_independently(settings):
+                # List id configured in the admin, key supplied by the environment.
+                settings.MAILCHIMP_API_KEY = "envkey-us14"
+                settings.MAILCHIMP_LIST_ID = ""
+                site = SiteConfiguration.load()
+                site.mailchimp_api_key = ""
+                site.mailchimp_list_id = "DBLIST"
+                site.save()
+                client = MailchimpClient.from_site_config()
+                assert client.enabled is True
+                assert client.config is not None
+                assert client.config.api_key == "envkey-us14"
+                assert client.config.list_id == "DBLIST"
+
+            def it_stays_disabled_when_neither_source_is_complete(settings):
+                settings.MAILCHIMP_API_KEY = "envkey-us14"
+                settings.MAILCHIMP_LIST_ID = ""
+                assert MailchimpClient.from_site_config().enabled is False
 
     def describe_subscribe():
         @pytest.fixture

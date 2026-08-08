@@ -29,6 +29,15 @@ def site_with_mailchimp():
 
 
 def describe_subscribe_registration():
+    def it_subscribes_a_registration_whose_hidden_checkbox_was_recorded_as_opted_in(site_with_mailchimp):
+        # RegistrationForm.save() sets wants_newsletter=True when it suppressed the
+        # checkbox, so the class tags still go out for a returning opted-in member.
+        reg = RegistrationFactory(wants_newsletter=True)
+        with patch("core.integrations.mailchimp.MailchimpClient.subscribe", return_value=True) as spy:
+            subscribe_registration(reg)
+        spy.assert_called_once()
+        assert "class-registrant" in spy.call_args.kwargs["tags"]
+
     def it_does_nothing_when_user_did_not_opt_in(site_with_mailchimp):
         reg = RegistrationFactory(wants_newsletter=False)
         with patch("core.integrations.mailchimp.MailchimpClient.subscribe") as spy:

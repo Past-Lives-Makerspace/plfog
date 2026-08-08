@@ -764,9 +764,14 @@ class RegistrationForm(forms.ModelForm):
             # Hide model release fields entirely when the class doesn't need them.
             self.fields.pop("model_release_signature")
             self.fields.pop("accepts_model_release")
+        # Tracks whether we *asked*. A popped field can't bind, so without this the
+        # saved row would read False and be indistinguishable from a deliberate
+        # untick — see save().
+        self._newsletter_opt_in_suppressed = False
         if self._user_already_opted_in(user):
             # Don't re-ask a user who already opted in during a prior session.
             self.fields.pop("wants_newsletter", None)
+            self._newsletter_opt_in_suppressed = True
         if user is not None and user.is_authenticated:
             # Logged-in registrants already have an account — nothing to offer.
             self.fields.pop("create_account", None)
@@ -889,6 +894,13 @@ class RegistrationForm(forms.ModelForm):
         registration: Registration = super().save(commit=False)
         registration.class_offering = self.offering
         registration.discount_code = self._validated_discount
+        if self._newsletter_opt_in_suppressed:
+            # We hid the checkbox because this person already opted in, so the
+            # unbound field left the flag False. Record the opt-in they actually
+            # have: hiding the box means "don't ask again", never "unsubscribe".
+            # Downstream (subscribe_registration, the admin detail page) can then
+            # read one honest field instead of re-deriving what the form decided.
+            registration.wants_newsletter = True
         registration.amount_paid_cents = 0  # set on payment success or, for free classes, on confirm
         if self.is_waitlist:
             # Create the row already on the waitlist so Registration.save logs

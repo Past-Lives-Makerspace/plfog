@@ -543,6 +543,25 @@ p:last-child {
     letter-spacing: 0.02em;
 }
 
+/* Opt-in checkbox row -- overrides the block-level label rule above so the box
+   sits beside its text instead of stacking on top of it. */
+.auth-card form label.auth-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin: var(--spacing-md) 0 0;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.auth-card form label.auth-check input[type="checkbox"] {
+    width: auto;
+    margin: 0.15rem 0 0;
+    flex: none;
+    accent-color: var(--color-accent);
+    cursor: pointer;
+}
+
 .auth-card form input[type="text"],
 .auth-card form input[type="email"],
 .auth-card form input[type="password"] {

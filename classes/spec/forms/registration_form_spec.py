@@ -332,6 +332,56 @@ def describe_RegistrationForm():
             form = _build_form(user=user)
             assert "wants_newsletter" in form.fields
 
+    def describe_newsletter_opt_in_recorded_on_save(offering, settings_obj):
+        def _opted_in_user():
+            from django.contrib.auth import get_user_model
+            from django.utils import timezone
+
+            from core.models import UserProfile
+
+            user = get_user_model().objects.create_user(username="back", email="back@example.com", password="x")
+            UserProfile.objects.create(user=user, subscribed_to_mailchimp_at=timezone.now())
+            return user
+
+        def it_records_the_opt_in_when_the_checkbox_was_hidden(db):
+            # The field is popped, so it can never bind. save() has to record the
+            # opt-in this person already has, or the row is indistinguishable from
+            # a deliberate untick and the class tags are silently dropped.
+            form = RegistrationForm(
+                data=_post_data(),
+                offering=offering,
+                settings_obj=settings_obj,
+                user=_opted_in_user(),
+            )
+            assert "wants_newsletter" not in form.fields
+            assert form.is_valid(), form.errors
+            assert form.save().wants_newsletter is True
+
+        def it_honours_an_explicit_untick_when_the_checkbox_was_shown(db):
+            # A previously opted-in person booking while logged out still SEES the
+            # box (visibility keys off the request user). Leaving it unticked must
+            # mean no, even though Registration.save() auto-links them by email.
+            _opted_in_user()
+            form = RegistrationForm(
+                data=_post_data(email="back@example.com"),
+                offering=offering,
+                settings_obj=settings_obj,
+                user=None,
+            )
+            assert "wants_newsletter" in form.fields
+            assert form.is_valid(), form.errors
+            assert form.save().wants_newsletter is False
+
+        def it_records_a_ticked_checkbox_normally(db):
+            form = RegistrationForm(
+                data=_post_data(wants_newsletter="on"),
+                offering=offering,
+                settings_obj=settings_obj,
+                user=None,
+            )
+            assert form.is_valid(), form.errors
+            assert form.save().wants_newsletter is True
+
     def describe_create_account_checkbox_visibility():
         def it_shows_checkbox_for_an_anonymous_user(db):
             form = _build_form(user=None)

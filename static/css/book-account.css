@@ -509,6 +509,17 @@
 }
 .bk-field-hint { font-size: 11px; color: var(--text3); }
 
+/* Opt-in checkbox row on the auth cards. Deliberately not a .bk-field: the
+   uppercase micro-label styling above is wrong for a full sentence of consent copy. */
+.bk-auth-check {
+  display: flex; align-items: flex-start; gap: 9px;
+  margin-top: 14px; text-align: left; cursor: pointer;
+  font-size: 12px; line-height: 1.45; color: var(--text2);
+}
+.bk-auth-check input[type="checkbox"] {
+  margin: 2px 0 0; flex: none; accent-color: var(--gold); cursor: pointer;
+}
+
 /* Email list inside profile */
 .bk-emails {
   background: var(--bk-emails-bg);

@@ -51,22 +51,31 @@ class MailchimpClient:
 
     @classmethod
     def from_site_config(cls) -> MailchimpClient:
-        """Build a client from the singleton ``SiteConfiguration``.
+        """Build a client from ``SiteConfiguration``, falling back to env vars.
 
-        Returns a disabled client when api_key or list_id is blank — callers
-        check ``client.enabled`` (or rely on ``subscribe()`` returning False).
+        Each credential resolves independently: the ``SiteConfiguration`` value
+        wins when set, otherwise ``MAILCHIMP_API_KEY`` / ``MAILCHIMP_LIST_ID``
+        from the environment is used. That keeps the admin UI authoritative for
+        anyone who has already pasted credentials in, while letting a deployment
+        enable Mailchimp without storing an account-scoped key in the database
+        in plaintext.
+
+        Returns a disabled client when either credential is blank after that
+        resolution — callers check ``client.enabled`` (or rely on ``subscribe()``
+        returning False).
         """
+        from django.conf import settings
+
         from core.models import SiteConfiguration
 
         site = SiteConfiguration.load()
-        if not site.mailchimp_api_key or not site.mailchimp_list_id:
+        # Strip before testing truthiness: a stray space pasted into Site Settings
+        # would otherwise count as "configured" and beat a valid env var.
+        api_key = site.mailchimp_api_key.strip() or getattr(settings, "MAILCHIMP_API_KEY", "").strip()
+        list_id = site.mailchimp_list_id.strip() or getattr(settings, "MAILCHIMP_LIST_ID", "").strip()
+        if not api_key or not list_id:
             return cls(config=None)
-        return cls(
-            config=MailchimpConfig(
-                api_key=site.mailchimp_api_key,
-                list_id=site.mailchimp_list_id,
-            ),
-        )
+        return cls(config=MailchimpConfig(api_key=api_key, list_id=list_id))
 
     @property
     def enabled(self) -> bool:

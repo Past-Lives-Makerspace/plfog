@@ -29,6 +29,12 @@
           {% endif %}
           <div class="bk-field-hint">We'll send a code to verify it's you.</div>
         </div>
+        {% if form.wants_newsletter %}
+        <label class="bk-auth-check">
+          {{ form.wants_newsletter }}
+          <span>{{ form.wants_newsletter.label }}</span>
+        </label>
+        {% endif %}
         <div class="bk-auth-actions">
           <button type="submit" class="bk-btn-primary">Send my code</button>
         </div>
@@ -68,6 +74,12 @@
                 <li>{{ error }}</li>
                 {% endfor %}
             </ul>
+            {% endif %}
+            {% if form.wants_newsletter %}
+            <label class="auth-check">
+                {{ form.wants_newsletter }}
+                <span>{{ form.wants_newsletter.label }}</span>
+            </label>
             {% endif %}
             <button type="submit" class="btn btn--primary btn--full">Sign Up</button>
         </form>

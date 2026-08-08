@@ -75,6 +75,51 @@ def describe_ensure_account_for_registration():
             profile = UserProfile.objects.get(user=user)
             assert profile.custom_question_answers[str(question.pk)] == "Beginner"
 
+        def it_stamps_the_profile_when_the_registration_already_subscribed(membership_plan, open_registration):
+            # subscribe_registration runs before us and cannot stamp the profile
+            # itself: at that point the guest has no account. The stamp is what
+            # stops us re-asking for the newsletter opt-in on their next booking.
+            reg = RegistrationFactory(
+                email="ada@example.com",
+                create_account=True,
+                member=None,
+                wants_newsletter=True,
+                subscribed_to_mailchimp=True,
+            )
+            ensure_account_for_registration(reg)
+            user = User.objects.get(email="ada@example.com")
+            assert UserProfile.objects.get(user=user).subscribed_to_mailchimp_at is not None
+
+        def it_does_not_stamp_the_profile_when_the_guest_did_not_opt_in(membership_plan, open_registration):
+            reg = RegistrationFactory(
+                email="ada@example.com",
+                create_account=True,
+                member=None,
+                wants_newsletter=False,
+                subscribed_to_mailchimp=False,
+            )
+            ensure_account_for_registration(reg)
+            user = User.objects.get(email="ada@example.com")
+            assert UserProfile.objects.get(user=user).subscribed_to_mailchimp_at is None
+
+        def it_leaves_an_existing_stamp_untouched(membership_plan, open_registration):
+            from datetime import timedelta
+
+            from django.utils import timezone
+
+            user = User.objects.create_user(username="ada@example.com", email="ada@example.com")
+            original = timezone.now() - timedelta(days=30)
+            UserProfile.objects.create(user=user, subscribed_to_mailchimp_at=original)
+            reg = RegistrationFactory(
+                email="ada@example.com",
+                create_account=True,
+                member=None,
+                wants_newsletter=True,
+                subscribed_to_mailchimp=True,
+            )
+            ensure_account_for_registration(reg)
+            assert UserProfile.objects.get(user=user).subscribed_to_mailchimp_at == original
+
         def it_backfills_other_guest_registrations_sharing_the_email(membership_plan, open_registration):
             older = RegistrationFactory(email="ada@example.com", create_account=False, member=None)
             reg = RegistrationFactory(email="ada@example.com", create_account=True, member=None)

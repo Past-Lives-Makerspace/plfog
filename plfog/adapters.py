@@ -7,7 +7,7 @@ import os
 from typing import Any
 
 from allauth.account.adapter import DefaultAccountAdapter
-from allauth.account.forms import ConfirmLoginCodeForm, RequestLoginCodeForm
+from allauth.account.forms import ConfirmLoginCodeForm, RequestLoginCodeForm, SignupForm
 from allauth.core.internal.cryptokit import compare_user_code
 from django import forms
 from django.conf import settings
@@ -275,6 +275,39 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         if member is not None:
             member.sync_user_permissions()
             logger.info("Permissions synced for %s (fog_role: %s)", email, member.fog_role)
+
+
+class MarketingOptInSignupForm(SignupForm):
+    """Add an opt-in marketing checkbox to the account signup form.
+
+    The class-registration form has carried a newsletter opt-in for a while
+    (``classes.forms.RegistrationForm.wants_newsletter``); account signup had no
+    equivalent, so anyone who created an account without booking a class could
+    never opt in. This closes that gap using the same audience and the same
+    "unchecked means nothing happens" default.
+
+    The push is deliberately best-effort and runs *after* the user is committed:
+    Mailchimp being down must never cost someone their account.
+    """
+
+    wants_newsletter = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Email me about new classes, workshops, and events at Past Lives.",
+    )
+
+    def save(self, request: HttpRequest) -> Any:
+        user = super().save(request)
+        # A required=False BooleanField always lands in cleaned_data on a valid
+        # form, so index rather than .get() — a missing key is a bug, not a default.
+        if self.cleaned_data["wants_newsletter"]:
+            from core.services.mailchimp_account import subscribe_user
+
+            try:
+                subscribe_user(user)
+            except Exception:  # noqa: BLE001 - a newsletter opt-in must never cost someone their account
+                logger.exception("Mailchimp signup opt-in failed for %s; account stands.", user.email)
+        return user
 
 
 class AutoCreateUserLoginCodeForm(RequestLoginCodeForm):
