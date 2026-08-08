@@ -28,7 +28,67 @@ def site_with_mailchimp():
     return site
 
 
+def _member_user(email: str, *, subscribed_at):  # noqa: ANN001, ANN202 - test helper
+    """A user with a linked Member and a profile stamped (or not) with the opt-in.
+
+    ``ensure_user_has_member`` creates the Member on user save, so we use that one
+    rather than a factory (a second Member would violate the one-to-one).
+    """
+    from django.contrib.auth import get_user_model
+
+    from classes.factories import _MembershipPlanFactory
+    from core.models import UserProfile
+
+    _MembershipPlanFactory()
+    user = get_user_model().objects.create_user(username=email, email=email)
+    UserProfile.objects.create(user=user, subscribed_to_mailchimp_at=subscribed_at)
+    return user
+
+
+def _registration_for_opted_in_member(**kwargs):
+    """A registration linked to a member whose profile already carries the stamp.
+
+    This is the population whose marketing checkbox ``RegistrationForm`` hides,
+    so ``wants_newsletter`` stays False on the saved row.
+    """
+    from django.utils import timezone
+
+    user = _member_user("opted@example.com", subscribed_at=timezone.now())
+    return RegistrationFactory(email="opted@example.com", member=user.member, wants_newsletter=False, **kwargs)
+
+
 def describe_subscribe_registration():
+    def describe_when_the_checkbox_was_hidden_because_they_already_opted_in():
+        def it_still_subscribes_so_the_class_tags_are_not_lost(site_with_mailchimp):
+            # Hiding the box means "don't ask again", not "don't tag". Without this
+            # the registrant would silently lose class-registrant, category-*, etc.
+            reg = _registration_for_opted_in_member()
+            with patch("core.integrations.mailchimp.MailchimpClient.subscribe", return_value=True) as spy:
+                subscribe_registration(reg)
+            spy.assert_called_once()
+            assert "class-registrant" in spy.call_args.kwargs["tags"]
+
+        def it_marks_the_registration_subscribed(site_with_mailchimp):
+            reg = _registration_for_opted_in_member()
+            with patch("core.integrations.mailchimp.MailchimpClient.subscribe", return_value=True):
+                subscribe_registration(reg)
+            reg.refresh_from_db()
+            assert reg.subscribed_to_mailchimp is True
+
+    def it_does_nothing_for_an_anonymous_registrant_who_did_not_opt_in(site_with_mailchimp):
+        # No member, so no profile stamp to inherit an opt-in from.
+        reg = RegistrationFactory(wants_newsletter=False, member=None)
+        with patch("core.integrations.mailchimp.MailchimpClient.subscribe") as spy:
+            subscribe_registration(reg)
+        spy.assert_not_called()
+
+    def it_does_nothing_when_a_linked_member_never_opted_in(site_with_mailchimp):
+        user = _member_user("plain@example.com", subscribed_at=None)
+        reg = RegistrationFactory(email="plain@example.com", member=user.member, wants_newsletter=False)
+        with patch("core.integrations.mailchimp.MailchimpClient.subscribe") as spy:
+            subscribe_registration(reg)
+        spy.assert_not_called()
+
     def it_does_nothing_when_user_did_not_opt_in(site_with_mailchimp):
         reg = RegistrationFactory(wants_newsletter=False)
         with patch("core.integrations.mailchimp.MailchimpClient.subscribe") as spy:

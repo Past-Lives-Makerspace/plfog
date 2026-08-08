@@ -298,7 +298,9 @@ class MarketingOptInSignupForm(SignupForm):
 
     def save(self, request: HttpRequest) -> Any:
         user = super().save(request)
-        if self.cleaned_data.get("wants_newsletter"):
+        # A required=False BooleanField always lands in cleaned_data on a valid
+        # form, so index rather than .get() — a missing key is a bug, not a default.
+        if self.cleaned_data["wants_newsletter"]:
             from core.services.mailchimp_account import subscribe_user
 
             try:

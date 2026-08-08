@@ -6,8 +6,11 @@ checkbox on the allauth signup form.
 
 Both bridges share one Mailchimp audience and distinguish themselves by tag, so
 a single list backs every subscribe path (see the module docstring on
-:mod:`core.integrations.mailchimp`). Everyone who ticks a marketing box anywhere
-gets ``newsletter``; the second tag records *which* door they came through.
+:mod:`core.integrations.mailchimp`). This path applies ``newsletter`` — the same
+tag the standalone ``/newsletter/`` page uses — plus ``account-signup`` to record
+which door the subscriber came through. The class-registration path tags by
+class instead (``class-registrant``, ``category-*``, and friends) and does not
+apply ``newsletter``.
 
 Best-effort by design: Mailchimp being down, misconfigured, or disabled must
 never break account creation. Every failure path returns False and the user is

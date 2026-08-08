@@ -69,8 +69,10 @@ class MailchimpClient:
         from core.models import SiteConfiguration
 
         site = SiteConfiguration.load()
-        api_key = site.mailchimp_api_key or getattr(settings, "MAILCHIMP_API_KEY", "")
-        list_id = site.mailchimp_list_id or getattr(settings, "MAILCHIMP_LIST_ID", "")
+        # Strip before testing truthiness: a stray space pasted into Site Settings
+        # would otherwise count as "configured" and beat a valid env var.
+        api_key = site.mailchimp_api_key.strip() or getattr(settings, "MAILCHIMP_API_KEY", "").strip()
+        list_id = site.mailchimp_list_id.strip() or getattr(settings, "MAILCHIMP_LIST_ID", "").strip()
         if not api_key or not list_id:
             return cls(config=None)
         return cls(config=MailchimpConfig(api_key=api_key, list_id=list_id))

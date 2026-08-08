@@ -104,7 +104,7 @@ def subscribe_registration(registration: Registration) -> None:
     (early-returns when already subscribed) AND at the HTTP layer (Mailchimp's
     PUT upsert handles re-subscription safely).
     """
-    if not registration.wants_newsletter:
+    if not registration.wants_newsletter and not _already_opted_in(registration):
         return
     if registration.subscribed_to_mailchimp:
         return
@@ -128,6 +128,26 @@ def subscribe_registration(registration: Registration) -> None:
     registration.save(update_fields=["subscribed_to_mailchimp"])
 
     _stamp_profile_subscribed(registration)
+
+
+def _already_opted_in(registration: Registration) -> bool:
+    """True when this registrant's profile already carries the newsletter stamp.
+
+    ``RegistrationForm`` hides the marketing checkbox from anyone who has already
+    opted in (see ``_user_already_opted_in``), which leaves ``wants_newsletter``
+    at its ``False`` default on the saved registration. That suppression means
+    "don't ask again", not "don't subscribe".
+
+    Without this check, hiding the box would silently strip every class tag —
+    ``class-registrant``, ``category-*``, ``guild-*``, ``instructor-*``, and the
+    custom answer tags — from exactly the registrations those tags exist to
+    describe. Re-pushing is safe: the Mailchimp call is a PUT upsert that never
+    duplicates a contact and never resurrects an unsubscribe.
+    """
+    member = registration.member
+    user = getattr(member, "user", None) if member is not None else None
+    profile = getattr(user, "profile", None) if user is not None else None
+    return profile is not None and profile.subscribed_to_mailchimp_at is not None
 
 
 def _stamp_profile_subscribed(registration: Registration) -> None:
