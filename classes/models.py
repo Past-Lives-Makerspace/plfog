@@ -1889,7 +1889,10 @@ class Registration(models.Model):
     )
     wants_newsletter = models.BooleanField(
         default=False,
-        help_text="Did the registrant tick the newsletter opt-in box at signup?",
+        help_text=(
+            "Is this registration a newsletter opt-in? True when the registrant ticked the box, and also "
+            "when the box was hidden because they had already opted in elsewhere."
+        ),
     )
     create_account = models.BooleanField(
         default=False,
