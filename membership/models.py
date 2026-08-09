@@ -4830,7 +4830,9 @@ class FundingSnapshot(models.Model):
         lines = [f"{row['guild_name']} — ${row['funding']} ({row['share_pct']}%)" for row in results]
         return "\n".join(lines)
 
-    def send_results(self, *, actor: Any | None = None, resend: bool = False, intro_note: str = "", discord: bool = True) -> int:
+    def send_results(
+        self, *, actor: Any | None = None, resend: bool = False, intro_note: str = "", discord: bool = True
+    ) -> int:
         """Email every active member their results and post one @everyone Discord summary.
 
         Loops the snapshot's frozen ``raw_votes`` and emits ``voting.results_published``
