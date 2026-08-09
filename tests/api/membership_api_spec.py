@@ -165,6 +165,48 @@ def describe_CommunityEventViewSet():
             assert response.status_code == status.HTTP_200_OK
             mock_sog.assert_not_called()
 
+    def describe_sync_action():
+        def it_requires_fog_admin(member_client):
+            event = CommunityEventFactory()
+            response = member_client.post(f"/api/v1/events/{event.id}/sync/")
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        def it_calls_schedule_or_go_live(admin_client, admin_member):
+            event = CommunityEventFactory()
+            with patch.object(CommunityEvent, "schedule_or_go_live") as mock_sog:
+                response = admin_client.post(f"/api/v1/events/{event.id}/sync/")
+            assert response.status_code == status.HTTP_200_OK
+            mock_sog.assert_called_once()
+
+        def it_returns_event_data(admin_client, admin_member):
+            event = CommunityEventFactory()
+            with patch.object(CommunityEvent, "schedule_or_go_live"):
+                response = admin_client.post(f"/api/v1/events/{event.id}/sync/")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.data["id"] == event.id
+            assert "sync_state" in response.data
+
+    def describe_announce_action():
+        def it_requires_fog_admin(member_client):
+            event = CommunityEventFactory()
+            response = member_client.post(f"/api/v1/events/{event.id}/announce/")
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        def it_calls_announce(admin_client, admin_member):
+            event = CommunityEventFactory()
+            with patch.object(CommunityEvent, "announce") as mock_announce:
+                response = admin_client.post(f"/api/v1/events/{event.id}/announce/")
+            assert response.status_code == status.HTTP_200_OK
+            mock_announce.assert_called_once()
+
+        def it_returns_event_data(admin_client, admin_member):
+            event = CommunityEventFactory()
+            with patch.object(CommunityEvent, "announce"):
+                response = admin_client.post(f"/api/v1/events/{event.id}/announce/")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.data["id"] == event.id
+            assert "discord_sync_state" in response.data
+
 
 def describe_GuildAnnouncementViewSet():
     def describe_list():
