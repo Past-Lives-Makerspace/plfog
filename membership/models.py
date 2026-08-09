@@ -4830,6 +4830,54 @@ class FundingSnapshot(models.Model):
         lines = [f"{row['guild_name']} — ${row['funding']} ({row['share_pct']}%)" for row in results]
         return "\n".join(lines)
 
+    def allocation_chart_html(self) -> SafeString:
+        """A branded, email-safe bar chart of the per-guild allocation.
+
+        The HTML twin of :meth:`allocation_summary`: one bar per guild (funding
+        descending), each sized to that guild's funding relative to the leader — the top
+        guild fills the bar — with the dollar amount, share of the pool, and a medal on
+        the top three. Mirrors the live standings bars on the voting page so the results
+        email reads the same as what members watched all month.
+
+        Rendered through Django's autoescaping template engine (``_allocation_chart.html``),
+        so guild names are HTML-escaped; the returned :class:`SafeString` is injected
+        *unescaped* into the results email by the constrained copy renderer (see
+        :func:`core.events.rendering.render_html`). Empty ``SafeString`` when the snapshot
+        has no per-guild results (a legacy or vote-less snapshot), so the email simply
+        omits the chart.
+        """
+        from decimal import ROUND_HALF_UP
+
+        from django.template.loader import render_to_string
+        from django.utils.safestring import mark_safe
+
+        results = (self.results or {}).get("results", [])
+        if not results:
+            return mark_safe("")
+
+        # funding is a Decimal fresh from calculate_results, or a string once the results
+        # JSON has round-tripped the DB — coerce either way. The leader sets the scale.
+        fundings = [Decimal(str(row["funding"])) for row in results]
+        top = max(fundings)
+        medals = {0: "🥇 ", 1: "🥈 ", 2: "🥉 "}
+        rows = []
+        for index, (row, funding) in enumerate(zip(results, fundings, strict=True)):
+            if top > 0:
+                width = int((funding / top * 100).to_integral_value(rounding=ROUND_HALF_UP))
+                width = max(width, 2) if funding > 0 else 0
+            else:
+                width = 0  # every guild at $0 (degenerate) — flat empty bars
+            rows.append(
+                {
+                    "name": row["guild_name"],
+                    "funding_display": f"{funding:.2f}",
+                    "share_display": row["share_pct"],
+                    "width_pct": width,
+                    "medal": medals.get(index, ""),
+                }
+            )
+        return mark_safe(render_to_string("membership/emails/_allocation_chart.html", {"rows": rows}))
+
     def send_results(
         self, *, actor: Any | None = None, resend: bool = False, intro_note: str = "", discord: bool = True
     ) -> int:
@@ -4869,6 +4917,7 @@ class FundingSnapshot(models.Model):
         n = self.results_send_count
         sent = 0
         allocation = self.allocation_summary()
+        allocation_chart = self.allocation_chart_html()
         # The spine never absolutizes URLs — the results email's "See the full
         # breakdown" link must carry the full host or it's a dead link in an inbox.
         voting_url = _absolute_url("/guilds/voting/history/")
@@ -4899,6 +4948,7 @@ class FundingSnapshot(models.Model):
                     "intro_note": intro_note,
                     "cycle_label": self.cycle_label,
                     "allocation_summary": allocation,
+                    "allocation_chart": allocation_chart,
                     "ballot_recap": ballot_recap,
                     "vote_1st": vote["guild_1st_name"],
                     "vote_2nd": vote["guild_2nd_name"],
@@ -4923,6 +4973,7 @@ class FundingSnapshot(models.Model):
                     "intro_note": intro_note,
                     "cycle_label": self.cycle_label,
                     "allocation_summary": allocation,
+                    "allocation_chart": allocation_chart,
                     "ballot_recap": "",
                     "vote_1st": "",
                     "vote_2nd": "",

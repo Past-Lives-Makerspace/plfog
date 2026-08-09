@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.55"
+VERSION = "0.23.56"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.56",
+        "date": "2026-08-09",
+        "title": "Guild vote reminders and results now go to every member",
+        "changes": [
+            "A few days before the monthly vote closes, everyone with an account gets a reminder email. "
+            "If you've already voted, it shows your current picks. If you haven't, it tells you where to go. "
+            "Starting end of August, there's also an @everyone post in #general-member-chat with the live standings.",
+            "When the vote closes and results are tallied, every member gets a results email that shows, guild by "
+            "guild, how the funding pool was split — a visual bar chart with the dollar amount and share for each "
+            "guild, just like the standings on the voting page. Voters also see a recap of their own ballot. "
+            "The email goes out automatically — no admin needs to click 'send'.",
+            "The results @everyone post to #general-member-chat also starts at the end of August.",
+        ],
+    },
     {
         "version": "0.23.55",
         "date": "2026-08-09",
@@ -30,20 +45,6 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "to members who missed it.",
             "A new 'fog' terminal tool gives admins a fast command-line shortcut to list, read, "
             "create, sync, and announce events, and to list members and guilds, all from a shell prompt.",
-        ],
-    },
-    {
-        "version": "0.23.53",
-        "date": "2026-08-09",
-        "title": "Guild vote reminders and results now go to every member",
-        "changes": [
-            "A few days before the monthly vote closes, everyone with an account gets a reminder email. "
-            "If you've already voted, it shows your current picks. If you haven't, it tells you where to go. "
-            "Starting end of August, there's also an @everyone post in #general-member-chat with the live standings.",
-            "When the vote closes and results are tallied, every member gets a results email showing how "
-            "the funding pool was split. Voters see a recap of their own ballot. "
-            "The email goes out automatically — no admin needs to click 'send'.",
-            "The results @everyone post to #general-member-chat also starts at the end of August.",
         ],
     },
     {
