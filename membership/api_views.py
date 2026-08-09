@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+from allauth.account.models import EmailAddress
+from django.db.models import Prefetch
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -50,7 +52,15 @@ class MemberViewSet(viewsets.ModelViewSet):
 
 class GuildViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes: ClassVar = [IsFogAdminOrReadOnly]
-    queryset = Guild.objects.filter(is_active=True, deleted_at__isnull=True).select_related("guild_lead")
+    queryset = Guild.objects.filter(is_active=True, deleted_at__isnull=True).select_related(
+        "guild_lead__user"
+    ).prefetch_related(
+        Prefetch(
+            "guild_lead__user__emailaddress_set",
+            queryset=EmailAddress.objects.filter(primary=True),
+            to_attr="_primary_emailaddresses",
+        )
+    )
     serializer_class = GuildSerializer
 
 
