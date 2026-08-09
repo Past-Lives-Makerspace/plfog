@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.54"
+VERSION = "0.23.55"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.55",
+        "date": "2026-08-09",
+        "title": "Admin: one switch moves Stripe billing between test and live mode",
+        "changes": [
+            "The Payments settings now hold two full sets of Stripe keys at once, a test set and a live set, "
+            "so an admin can save both and never has to paste keys back and forth.",
+            "A single Testing Mode switch decides which set every charge, card setup, and webhook uses. "
+            "Turn it off to go live and start charging real cards; turn it back on to return to safe test mode.",
+            "Flipping to live mode asks for confirmation first, since real cards get charged from that point on.",
+        ],
+    },
     {
         "version": "0.23.54",
         "date": "2026-08-09",

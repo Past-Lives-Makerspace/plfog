@@ -80,9 +80,19 @@
   .pl-form-row select:focus, .pl-form-row input:focus { outline: none; border-color: #EEB44B; box-shadow: 0 0 0 3px rgba(238,180,75,0.15); }
   .pl-form-hint { font-size: 0.8125rem; color: #96ACBB; margin-top: 0.25rem; }
   .pl-form-errors { color: #f87171; font-size: 0.8125rem; margin-top: 0.25rem; }
+  .pl-form-actions { margin-top: 1.5rem; }
+
+  /* Stripe test/live key groups */
+  .pl-mode-badge-row { margin: 0.75rem 0 0.25rem; }
+  .pl-key-groups { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; margin-top: 1.5rem; }
+  .pl-key-group { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 1.25rem; }
+  .pl-key-group__header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 1rem; }
+  .pl-key-group__title { font-family: 'Lato', system-ui, sans-serif; font-size: 1.05rem; font-weight: 700; color: #F4EFDD; }
+  .pl-key-test-result { font-size: 0.875rem; margin: 0.5rem 0; min-height: 1.2em; }
 
   @media (max-width: 768px) {
     .pl-stats, .pl-stats--3 { grid-template-columns: 1fr; }
+    .pl-key-groups { grid-template-columns: 1fr; }
     .pl-dashboard { padding: 1.25rem; }
   }
 </style>
@@ -307,52 +317,62 @@
   <div class="pl-card">
     <div class="pl-section-label">Stripe Platform Credentials</div>
     <p style="color:#96ACBB;font-size:0.875rem;margin:0 0 1.25rem">
-      All charges route through the single Past Lives platform Stripe account. Get the keys from
+      All charges route through the single Past Lives platform Stripe account. Store both a Test and a Live key set;
+      the Testing Mode switch below decides which one every charge uses. Get the keys from
       <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener" style="color:#a0c0e0">dashboard.stripe.com/apikeys</a>.
     </p>
 
     <form method="post" action="{% url 'billing_save_connect_platform' %}" id="connect-platform-form">
       {% csrf_token %}
+      <input type="hidden" id="initial-test-mode" value="{{ billing_settings.test_mode|yesno:'true,false' }}">
 
-      <div class="pl-form-row">
-        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-          {{ connect_platform_form.connect_enabled }}
-          <span>Enable Stripe billing</span>
-        </label>
-        {% if connect_platform_form.connect_enabled.errors %}<div class="pl-form-errors">{{ connect_platform_form.connect_enabled.errors }}</div>{% endif %}
+      {% include "components/form_field.html" with field=connect_platform_form.connect_enabled field_label="Enable Stripe billing" field_hint="Master switch for platform billing. When off, no charges run." %}
+
+      {% include "components/form_field.html" with field=connect_platform_form.test_mode field_label="Testing Mode" field_hint="On uses the Test keys below for every charge, SetupIntent, and webhook. Off uses the Live keys, so real cards will be charged." %}
+
+      <div class="pl-mode-badge-row">
+        {% if billing_settings.test_mode %}
+        <span class="pl-badge pl-badge--ok">TEST MODE</span>
+        {% else %}
+        <span class="pl-badge pl-badge--fail">LIVE MODE (real cards)</span>
+        {% endif %}
       </div>
 
-      <div class="pl-form-row">
-        <label for="{{ connect_platform_form.connect_client_id.id_for_label }}">Connect Client ID</label>
-        {{ connect_platform_form.connect_client_id }}
-        <div class="pl-form-hint">From dashboard.stripe.com/settings/connect (Integration → OAuth settings)</div>
-        {% if connect_platform_form.connect_client_id.errors %}<div class="pl-form-errors">{{ connect_platform_form.connect_client_id.errors }}</div>{% endif %}
+      {% if connect_platform_form.non_field_errors %}<div class="pl-form-errors">{{ connect_platform_form.non_field_errors }}</div>{% endif %}
+
+      <div class="pl-key-groups">
+
+        {# ---- Test Keys ---- #}
+        <div class="pl-key-group">
+          <div class="pl-key-group__header">
+            <span class="pl-key-group__title">Test Keys</span>
+            {% if billing_settings.test_mode %}<span class="pl-badge pl-badge--ok">ACTIVE</span>{% endif %}
+          </div>
+          {% include "components/form_field.html" with field=connect_platform_form.test_connect_client_id field_label="Connect Client ID" %}
+          {% include "components/form_field.html" with field=connect_platform_form.test_connect_platform_publishable_key field_label="Publishable Key" %}
+          {% include "components/form_field.html" with field=connect_platform_form.test_connect_platform_secret_key field_label="Secret Key" %}
+          {% include "components/form_field.html" with field=connect_platform_form.test_connect_platform_webhook_secret field_label="Webhook Signing Secret" %}
+          <div id="connect-platform-test-result-test" class="pl-key-test-result"></div>
+          <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" onclick="testConnectPlatform('test')">Test connection</button>
+        </div>
+
+        {# ---- Live Keys ---- #}
+        <div class="pl-key-group">
+          <div class="pl-key-group__header">
+            <span class="pl-key-group__title">Live Keys</span>
+            {% if not billing_settings.test_mode %}<span class="pl-badge pl-badge--fail">ACTIVE</span>{% endif %}
+          </div>
+          {% include "components/form_field.html" with field=connect_platform_form.connect_client_id field_label="Connect Client ID" %}
+          {% include "components/form_field.html" with field=connect_platform_form.connect_platform_publishable_key field_label="Publishable Key" %}
+          {% include "components/form_field.html" with field=connect_platform_form.connect_platform_secret_key field_label="Secret Key" %}
+          {% include "components/form_field.html" with field=connect_platform_form.connect_platform_webhook_secret field_label="Webhook Signing Secret" %}
+          <div id="connect-platform-test-result-live" class="pl-key-test-result"></div>
+          <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" onclick="testConnectPlatform('live')">Test connection</button>
+        </div>
+
       </div>
 
-      <div class="pl-form-row">
-        <label for="{{ connect_platform_form.connect_platform_publishable_key.id_for_label }}">Platform Publishable Key</label>
-        {{ connect_platform_form.connect_platform_publishable_key }}
-        {% if connect_platform_form.connect_platform_publishable_key.errors %}<div class="pl-form-errors">{{ connect_platform_form.connect_platform_publishable_key.errors }}</div>{% endif %}
-      </div>
-
-      <div class="pl-form-row">
-        <label for="{{ connect_platform_form.connect_platform_secret_key.id_for_label }}">Platform Secret Key</label>
-        {{ connect_platform_form.connect_platform_secret_key }}
-        <div class="pl-form-hint">Encrypted at rest. Click "Test connection" below before saving.</div>
-        {% if connect_platform_form.connect_platform_secret_key.errors %}<div class="pl-form-errors">{{ connect_platform_form.connect_platform_secret_key.errors }}</div>{% endif %}
-      </div>
-
-      <div class="pl-form-row">
-        <label for="{{ connect_platform_form.connect_platform_webhook_secret.id_for_label }}">Webhook Signing Secret</label>
-        {{ connect_platform_form.connect_platform_webhook_secret }}
-        <div class="pl-form-hint">From dashboard.stripe.com/webhooks for the endpoint pointed at /billing/webhooks/stripe/</div>
-        {% if connect_platform_form.connect_platform_webhook_secret.errors %}<div class="pl-form-errors">{{ connect_platform_form.connect_platform_webhook_secret.errors }}</div>{% endif %}
-      </div>
-
-      <div id="connect-platform-test-result" style="font-size:0.875rem;margin:0.5rem 0;min-height:1.2em"></div>
-
-      <div style="display:flex;gap:0.5rem">
-        <button type="button" class="pl-btn pl-btn--secondary" onclick="testConnectPlatform()">Test connection</button>
+      <div class="pl-form-actions">
         <button type="submit" class="pl-btn pl-btn--primary">Save Stripe Settings</button>
       </div>
     </form>
@@ -388,9 +408,13 @@
   </div>
 
   <script>
-  function testConnectPlatform() {
-    var sk = document.getElementById('{{ connect_platform_form.connect_platform_secret_key.id_for_label }}').value;
-    var resultEl = document.getElementById('connect-platform-test-result');
+  function testConnectPlatform(slot) {
+    var secretIds = {
+      'test': '{{ connect_platform_form.test_connect_platform_secret_key.id_for_label }}',
+      'live': '{{ connect_platform_form.connect_platform_secret_key.id_for_label }}'
+    };
+    var sk = document.getElementById(secretIds[slot]).value;
+    var resultEl = document.getElementById('connect-platform-test-result-' + slot);
     resultEl.style.color = '#96ACBB';
     resultEl.textContent = 'Testing…';
     var fd = new FormData();
@@ -412,6 +436,20 @@
         resultEl.textContent = '✗ ' + e;
       });
   }
+
+  (function() {
+    var form = document.getElementById('connect-platform-form');
+    if (!form) { return; }
+    form.addEventListener('submit', function(e) {
+      var wasTest = document.getElementById('initial-test-mode').value === 'true';
+      var nowTest = document.getElementById('{{ connect_platform_form.test_mode.id_for_label }}').checked;
+      if (wasTest && !nowTest) {
+        if (!confirm('Switch to LIVE Stripe mode? Every charge from now on will hit a real card. Continue?')) {
+          e.preventDefault();
+        }
+      }
+    });
+  })();
   </script>
 
   {% endif %}{# /stripe #}

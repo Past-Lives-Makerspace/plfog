@@ -113,6 +113,86 @@ def describe_ConnectPlatformSettingsForm():
         )
         assert form.is_valid(), form.errors
 
+    def it_requires_all_test_keys_when_enabled_in_test_mode():
+        settings = BillingSettingsFactory()
+        form = ConnectPlatformSettingsForm(
+            instance=settings,
+            data={
+                "connect_enabled": True,
+                "test_mode": True,
+                "test_connect_client_id": "",
+                "test_connect_platform_publishable_key": "",
+                "test_connect_platform_secret_key": "",
+                "test_connect_platform_webhook_secret": "",
+            },
+        )
+        assert not form.is_valid()
+        for field in (
+            "test_connect_client_id",
+            "test_connect_platform_publishable_key",
+            "test_connect_platform_secret_key",
+            "test_connect_platform_webhook_secret",
+        ):
+            assert field in form.errors
+        # The inactive (live) slot must not be flagged.
+        assert "connect_client_id" not in form.errors
+
+    def it_accepts_full_test_credential_set():
+        settings = BillingSettingsFactory()
+        form = ConnectPlatformSettingsForm(
+            instance=settings,
+            data={
+                "connect_enabled": True,
+                "test_mode": True,
+                "test_connect_client_id": "ca_test_1",
+                "test_connect_platform_publishable_key": "pk_test_1",
+                "test_connect_platform_secret_key": "sk_test_1",
+                "test_connect_platform_webhook_secret": "whsec_test_1",
+            },
+        )
+        assert form.is_valid(), form.errors
+
+    def it_allows_saving_with_the_inactive_slot_unfilled():
+        settings = BillingSettingsFactory()
+        form = ConnectPlatformSettingsForm(
+            instance=settings,
+            data={
+                "connect_enabled": True,
+                "test_mode": True,
+                "test_connect_client_id": "ca_test_1",
+                "test_connect_platform_publishable_key": "pk_test_1",
+                "test_connect_platform_secret_key": "sk_test_1",
+                "test_connect_platform_webhook_secret": "whsec_test_1",
+                "connect_client_id": "",
+                "connect_platform_publishable_key": "",
+                "connect_platform_secret_key": "",
+                "connect_platform_webhook_secret": "",
+            },
+        )
+        assert form.is_valid(), form.errors
+
+    def it_allows_prefilling_both_slots_at_once():
+        settings = BillingSettingsFactory()
+        form = ConnectPlatformSettingsForm(
+            instance=settings,
+            data={
+                "connect_enabled": True,
+                "test_mode": True,
+                "test_connect_client_id": "ca_test_1",
+                "test_connect_platform_publishable_key": "pk_test_1",
+                "test_connect_platform_secret_key": "sk_test_1",
+                "test_connect_platform_webhook_secret": "whsec_test_1",
+                "connect_client_id": "ca_live_1",
+                "connect_platform_publishable_key": "pk_live_1",
+                "connect_platform_secret_key": "sk_live_1",
+                "connect_platform_webhook_secret": "whsec_live_1",
+            },
+        )
+        assert form.is_valid(), form.errors
+        saved = form.save()
+        assert saved.test_connect_platform_secret_key == "sk_test_1"
+        assert saved.connect_platform_secret_key == "sk_live_1"
+
 
 def describe_TabItemForm():
     def describe_save_with_product():

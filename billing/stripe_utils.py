@@ -31,20 +31,20 @@ def _billing_settings() -> BillingSettings:
 
 def _platform_secret_key() -> str:
     bs = _billing_settings()
-    if not bs.connect_platform_secret_key:
+    if not bs.active_secret_key:
         raise ImproperlyConfigured(
-            "Stripe platform secret key is not set. Configure it in the admin Payments dashboard → Settings tab."
+            "Stripe platform secret key is not set. Configure it in the admin Payments dashboard → Stripe tab."
         )
-    return bs.connect_platform_secret_key
+    return bs.active_secret_key
 
 
 def _platform_webhook_secret() -> str:
     bs = _billing_settings()
-    if not bs.connect_platform_webhook_secret:
+    if not bs.active_webhook_secret:
         raise ImproperlyConfigured(
-            "Stripe platform webhook secret is not set. Configure it in the admin Payments dashboard → Settings tab."
+            "Stripe platform webhook secret is not set. Configure it in the admin Payments dashboard → Stripe tab."
         )
-    return bs.connect_platform_webhook_secret
+    return bs.active_webhook_secret
 
 
 def _get_stripe_client() -> stripe.StripeClient:

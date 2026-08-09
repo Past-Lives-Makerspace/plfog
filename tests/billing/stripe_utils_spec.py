@@ -195,6 +195,36 @@ def describe_construct_webhook_event():
             stripe_utils.construct_webhook_event(payload=b"{}", sig_header="t=1,v1=foo")
 
 
+def describe_active_key_selection():
+    def _configure(*, test_mode: bool):
+        from billing.models import BillingSettings
+
+        bs = BillingSettings.load()
+        bs.test_mode = test_mode
+        bs.connect_platform_secret_key = "sk_live_secret"
+        bs.connect_platform_webhook_secret = "whsec_live"
+        bs.test_connect_platform_secret_key = "sk_test_secret"
+        bs.test_connect_platform_webhook_secret = "whsec_test"
+        bs.save()
+        return bs
+
+    def it_reads_the_test_secret_when_test_mode_on():
+        _configure(test_mode=True)
+        assert stripe_utils._platform_secret_key() == "sk_test_secret"
+
+    def it_reads_the_live_secret_when_test_mode_off():
+        _configure(test_mode=False)
+        assert stripe_utils._platform_secret_key() == "sk_live_secret"
+
+    def it_reads_the_test_webhook_secret_when_test_mode_on():
+        _configure(test_mode=True)
+        assert stripe_utils._platform_webhook_secret() == "whsec_test"
+
+    def it_reads_the_live_webhook_secret_when_test_mode_off():
+        _configure(test_mode=False)
+        assert stripe_utils._platform_webhook_secret() == "whsec_live"
+
+
 def describe_verify_platform_credentials():
     @patch("billing.stripe_utils.stripe.StripeClient")
     def it_returns_account_metadata(mock_stripe_client_cls):

@@ -58,7 +58,7 @@ def setup_payment_method(request: HttpRequest) -> HttpResponse:
         "billing/setup_payment_method.html",
         {
             "tab": tab,
-            "stripe_publishable_key": BillingSettings.load().connect_platform_publishable_key,
+            "stripe_publishable_key": BillingSettings.load().active_publishable_key,
         },
     )
 

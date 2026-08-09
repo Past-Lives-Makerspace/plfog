@@ -265,26 +265,75 @@ def describe_BillingSettings():
             settings.refresh_from_db()
             assert settings.charge_day_of_month == 28
 
+    def describe_test_mode_accessors():
+        def it_defaults_test_mode_to_true():
+            settings = BillingSettings.load()
+            assert settings.test_mode is True
+
+        def it_returns_test_slot_values_when_test_mode_on():
+            settings = BillingSettings.load()
+            settings.test_mode = True
+            settings.test_connect_client_id = "ca_test"
+            settings.test_connect_platform_publishable_key = "pk_test"
+            settings.test_connect_platform_secret_key = "sk_test"
+            settings.test_connect_platform_webhook_secret = "whsec_test"
+            settings.connect_client_id = "ca_live"
+            settings.connect_platform_publishable_key = "pk_live"
+            settings.connect_platform_secret_key = "sk_live"
+            settings.connect_platform_webhook_secret = "whsec_live"
+            assert settings.active_client_id == "ca_test"
+            assert settings.active_publishable_key == "pk_test"
+            assert settings.active_secret_key == "sk_test"
+            assert settings.active_webhook_secret == "whsec_test"
+
+        def it_returns_live_slot_values_when_test_mode_off():
+            settings = BillingSettings.load()
+            settings.test_mode = False
+            settings.test_connect_client_id = "ca_test"
+            settings.test_connect_platform_publishable_key = "pk_test"
+            settings.test_connect_platform_secret_key = "sk_test"
+            settings.test_connect_platform_webhook_secret = "whsec_test"
+            settings.connect_client_id = "ca_live"
+            settings.connect_platform_publishable_key = "pk_live"
+            settings.connect_platform_secret_key = "sk_live"
+            settings.connect_platform_webhook_secret = "whsec_live"
+            assert settings.active_client_id == "ca_live"
+            assert settings.active_publishable_key == "pk_live"
+            assert settings.active_secret_key == "sk_live"
+            assert settings.active_webhook_secret == "whsec_live"
+
+        def it_labels_mode_test_when_on():
+            settings = BillingSettings.load()
+            settings.test_mode = True
+            assert settings.mode_label == "Test"
+
+        def it_labels_mode_live_when_off():
+            settings = BillingSettings.load()
+            settings.test_mode = False
+            assert settings.mode_label == "Live"
+
     def describe_clean_connect_validation():
         def it_passes_when_connect_disabled_and_fields_empty():
             settings = BillingSettings.load()
             settings.connect_enabled = False
             settings.clean()  # should not raise
 
-        def it_passes_when_connect_enabled_and_all_fields_set():
+        def it_passes_when_connect_enabled_and_all_live_fields_set():
             settings = BillingSettings.load()
             settings.connect_enabled = True
+            settings.test_mode = False
             settings.connect_client_id = "ca_test_1"
             settings.connect_platform_publishable_key = "pk_test_1"
             settings.connect_platform_secret_key = "sk_test_1"
             settings.connect_platform_webhook_secret = "whsec_1"
             settings.clean()  # should not raise
 
-        def it_raises_when_enabled_with_missing_client_id():
+        def it_raises_when_live_mode_enabled_with_missing_client_id():
             from django.core.exceptions import ValidationError
 
             settings = BillingSettings.load()
             settings.connect_enabled = True
+            settings.test_mode = False
             settings.connect_platform_publishable_key = "pk_x"
             settings.connect_platform_secret_key = "sk_x"
             settings.connect_platform_webhook_secret = "whsec_x"
@@ -293,11 +342,12 @@ def describe_BillingSettings():
                 settings.clean()
             assert "connect_client_id" in excinfo.value.message_dict
 
-        def it_raises_when_enabled_with_all_fields_missing():
+        def it_raises_when_live_mode_enabled_with_all_fields_missing():
             from django.core.exceptions import ValidationError
 
             settings = BillingSettings.load()
             settings.connect_enabled = True
+            settings.test_mode = False
             settings.connect_client_id = ""
             settings.connect_platform_publishable_key = ""
             settings.connect_platform_secret_key = ""
@@ -308,3 +358,45 @@ def describe_BillingSettings():
             assert "connect_platform_publishable_key" in excinfo.value.message_dict
             assert "connect_platform_secret_key" in excinfo.value.message_dict
             assert "connect_platform_webhook_secret" in excinfo.value.message_dict
+
+        def it_passes_when_test_mode_enabled_with_all_test_fields_set():
+            settings = BillingSettings.load()
+            settings.connect_enabled = True
+            settings.test_mode = True
+            settings.test_connect_client_id = "ca_test_1"
+            settings.test_connect_platform_publishable_key = "pk_test_1"
+            settings.test_connect_platform_secret_key = "sk_test_1"
+            settings.test_connect_platform_webhook_secret = "whsec_test_1"
+            settings.clean()  # should not raise
+
+        def it_raises_when_test_mode_enabled_with_all_test_fields_missing():
+            from django.core.exceptions import ValidationError
+
+            settings = BillingSettings.load()
+            settings.connect_enabled = True
+            settings.test_mode = True
+            settings.test_connect_client_id = ""
+            settings.test_connect_platform_publishable_key = ""
+            settings.test_connect_platform_secret_key = ""
+            settings.test_connect_platform_webhook_secret = ""
+            with pytest.raises(ValidationError) as excinfo:
+                settings.clean()
+            assert "test_connect_client_id" in excinfo.value.message_dict
+            assert "test_connect_platform_publishable_key" in excinfo.value.message_dict
+            assert "test_connect_platform_secret_key" in excinfo.value.message_dict
+            assert "test_connect_platform_webhook_secret" in excinfo.value.message_dict
+
+        def it_does_not_require_the_inactive_slot():
+            # Test mode on, only the test slot filled, live slot blank → no error.
+            settings = BillingSettings.load()
+            settings.connect_enabled = True
+            settings.test_mode = True
+            settings.test_connect_client_id = "ca_test_1"
+            settings.test_connect_platform_publishable_key = "pk_test_1"
+            settings.test_connect_platform_secret_key = "sk_test_1"
+            settings.test_connect_platform_webhook_secret = "whsec_test_1"
+            settings.connect_client_id = ""
+            settings.connect_platform_publishable_key = ""
+            settings.connect_platform_secret_key = ""
+            settings.connect_platform_webhook_secret = ""
+            settings.clean()  # should not raise
