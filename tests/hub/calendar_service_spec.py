@@ -397,7 +397,11 @@ def describe_sync_discord_feed_events():
         for _ in range(3):
             _feed_event()
         client = _events_client()
-        with _with_client(client), patch("hub.calendar_service._DISCORD_PUSH_CAP", 2):
+        with (
+            _with_client(client),
+            patch("hub.calendar_service._DISCORD_PUSH_CAP", 2),
+            patch("hub.calendar_service.time.sleep"),
+        ):
             assert sync_discord_feed_events() == 2
         assert client.insert_event.call_count == 2
 
@@ -425,6 +429,39 @@ def describe_sync_discord_feed_events():
         past.refresh_from_db()
         assert past.discord_event_id == "disc-past"
 
+    def it_does_not_pace_a_single_push():
+        # The very first Discord call of a run is un-paced — a lone event never sleeps.
+        from hub.calendar_service import sync_discord_feed_events
+
+        _feed_event()
+        client = _events_client()
+        with _with_client(client), patch("hub.calendar_service.time.sleep") as sleep:
+            sync_discord_feed_events()
+        sleep.assert_not_called()
+
+    def it_paces_between_two_pushes():
+        from hub.calendar_service import _DISCORD_PUSH_PACE_SECONDS, sync_discord_feed_events
+
+        _feed_event(days=1)
+        _feed_event(days=2)
+        client = _events_client()
+        with _with_client(client), patch("hub.calendar_service.time.sleep") as sleep:
+            sync_discord_feed_events()
+        sleep.assert_called_once_with(_DISCORD_PUSH_PACE_SECONDS)
+
+    def it_paces_between_a_push_and_a_later_delete_in_the_same_run():
+        # One shared counter across both loops: the push is call #1 (un-paced), the
+        # later delete is call #2 and sleeps first. A per-loop counter would reset and
+        # never sleep the delete — this pins that down.
+        from hub.calendar_service import _DISCORD_PUSH_PACE_SECONDS, sync_discord_feed_events
+
+        _feed_event(days=1)  # inside the 30-day window → pushed
+        _feed_event(days=40, discord_event_id="disc-drop")  # future but out of window → dropped
+        client = _events_client()
+        with _with_client(client), patch("hub.calendar_service.time.sleep") as sleep:
+            sync_discord_feed_events()
+        sleep.assert_called_once_with(_DISCORD_PUSH_PACE_SECONDS)
+
     def it_attempts_every_event_then_raises_on_failures():
         from core.integrations.discord_events import DiscordEventsError
         from hub.calendar_service import sync_discord_feed_events
@@ -433,7 +470,11 @@ def describe_sync_discord_feed_events():
         second = _feed_event(days=2)
         client = _events_client()
         client.insert_event.side_effect = [DiscordEventsError("boom"), {"id": "disc-2"}]
-        with _with_client(client), pytest.raises(DiscordEventsError, match="1 Discord event push"):
+        with (
+            _with_client(client),
+            patch("hub.calendar_service.time.sleep"),
+            pytest.raises(DiscordEventsError, match="1 Discord event push"),
+        ):
             sync_discord_feed_events()
 
         second.refresh_from_db()

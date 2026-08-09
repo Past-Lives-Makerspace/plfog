@@ -129,23 +129,31 @@ def post_dm(discord_user_id: str, message: Message) -> bool:
     return False
 
 
-_CLOSED_DM_ERROR_CODE = 50007  # Discord's "Cannot send messages to this user".
+def _dm_undeliverable(response: httpx.Response) -> bool:
+    """``True`` when Discord refused a DM open/send with 403 — undeliverable to this recipient.
 
-
-def _dms_closed(response: httpx.Response) -> bool:
-    """``True`` when Discord refused with 403 + JSON error code 50007.
-
-    That combination means the recipient's privacy settings block DMs from the bot —
-    permanently undeliverable, never worth a retry. Anything else (other statuses,
-    non-JSON bodies, other error codes) is NOT "closed DMs" and stays loud.
+    A 403 means closed DMs, a blocked bot, no mutual server, or any other per-user block, and
+    is never worth retrying. Broadened from the original 403 + code-50007 check after a 403
+    with a different sub-code on the message-post call crashed the reconcile cron every 15
+    minutes on the same reactor forever (2026-08-09): the guard row is only written on a clean
+    or closed send, so an uncaught raise never wrote it and the same reactor was retried and
+    crashed every tick. A non-403 failure (401 bad token, 429, 5xx, network) is systemic, not
+    per-user, and must stay loud.
     """
-    if response.status_code != 403:
-        return False
+    return response.status_code == 403
+
+
+def _discord_error_code(response: httpx.Response) -> int | None:
+    """The Discord JSON error ``code`` for the undeliverable-DM log line.
+
+    Returns ``None`` when the body isn't JSON, isn't an object, or has no int ``code``.
+    """
     try:
         payload = response.json()
     except ValueError:
-        return False
-    return isinstance(payload, dict) and payload.get("code") == _CLOSED_DM_ERROR_CODE
+        return None
+    code = payload.get("code") if isinstance(payload, dict) else None
+    return code if isinstance(code, int) else None
 
 
 def send_dm_text(discord_user_id: str, content: str) -> bool:
@@ -153,9 +161,9 @@ def send_dm_text(discord_user_id: str, content: str) -> bool:
 
     For callers that must know whether a send genuinely went out (e.g. the one-time
     guild-link nudge, which persists "already nudged" state on the result). Returns
-    ``True`` on a 2xx send, and ``False`` ONLY when the recipient's DMs are closed
-    (403 + Discord error code 50007 on either call — logged, permanently
-    undeliverable, never retried). Any other non-2xx raises
+    ``True`` on a 2xx send, and ``False`` on ANY 403 from either call (undeliverable to
+    this recipient — closed DMs, a blocked bot, no mutual server, or any other per-user
+    block — logged, never retried). Any other non-2xx (401, 429, 5xx) raises
     :class:`httpx.HTTPStatusError`, and network errors propagate as
     :class:`httpx.HTTPError` — the caller decides what an undelivered send means.
     The caller ensures the bot is configured (a blank token would just 401 loudly).
@@ -166,8 +174,8 @@ def send_dm_text(discord_user_id: str, content: str) -> bool:
         headers=_auth_headers(),
         timeout=_DEFAULT_TIMEOUT_SECONDS,
     )
-    if _dms_closed(response):
-        logger.info("Discord DM to %s undeliverable (DMs closed).", discord_user_id)
+    if _dm_undeliverable(response):
+        logger.info("Discord DM to %s undeliverable (403, code %s).", discord_user_id, _discord_error_code(response))
         return False
     response.raise_for_status()
     channel_id = str(response.json()["id"])
@@ -177,8 +185,8 @@ def send_dm_text(discord_user_id: str, content: str) -> bool:
         headers=_auth_headers(),
         timeout=_DEFAULT_TIMEOUT_SECONDS,
     )
-    if _dms_closed(response):
-        logger.info("Discord DM to %s undeliverable (DMs closed).", discord_user_id)
+    if _dm_undeliverable(response):
+        logger.info("Discord DM to %s undeliverable (403, code %s).", discord_user_id, _discord_error_code(response))
         return False
     response.raise_for_status()
     return True

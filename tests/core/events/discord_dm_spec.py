@@ -180,23 +180,40 @@ def describe_send_dm_text():
             discord_dm.send_dm_text("555", "hi")
 
     @respx.mock
-    def it_raises_on_a_403_with_a_different_error_code(settings):
+    def it_returns_false_on_a_403_with_a_different_error_code(settings):
+        # Any 403 is per-recipient undeliverable now, not just code 50007 — never raises.
         settings.DISCORD_BOT_TOKEN = "tok"
         respx.post(_CHANNELS_URL).mock(return_value=httpx.Response(403, json={"code": 50001}))
-        with pytest.raises(httpx.HTTPStatusError):
-            discord_dm.send_dm_text("555", "hi")
+        assert discord_dm.send_dm_text("555", "hi") is False
 
     @respx.mock
-    def it_raises_on_a_non_json_403(settings):
+    def it_returns_false_on_a_non_json_403(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
         respx.post(_CHANNELS_URL).mock(return_value=httpx.Response(403, text="forbidden"))
-        with pytest.raises(httpx.HTTPStatusError):
-            discord_dm.send_dm_text("555", "hi")
+        assert discord_dm.send_dm_text("555", "hi") is False
 
     @respx.mock
-    def it_raises_on_a_403_with_a_non_object_json_body(settings):
+    def it_returns_false_on_a_403_with_a_non_object_json_body(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
         respx.post(_CHANNELS_URL).mock(return_value=httpx.Response(403, json=["nope"]))
+        assert discord_dm.send_dm_text("555", "hi") is False
+
+    @respx.mock
+    def it_returns_false_on_a_403_with_no_code_key_on_the_message_post(settings):
+        # The channel opens, but the message post 403s with a body that carries no `code` —
+        # the exact shape that used to crash the reconcile cron. It's now a quiet False.
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_CHANNELS_URL).mock(return_value=httpx.Response(200, json={"id": "dm99"}))
+        respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(403, json={"message": "Missing Access"}))
+        assert discord_dm.send_dm_text("555", "hi") is False
+
+    @respx.mock
+    def it_raises_on_a_401_bad_token(settings):
+        # A bot-wide auth failure is systemic, not per-recipient — it must still surface.
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_CHANNELS_URL).mock(
+            return_value=httpx.Response(401, json={"code": 0, "message": "401: Unauthorized"})
+        )
         with pytest.raises(httpx.HTTPStatusError):
             discord_dm.send_dm_text("555", "hi")
 
