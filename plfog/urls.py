@@ -94,6 +94,7 @@ urlpatterns = admin_custom_urls + [
     path("billing/", include("billing.urls")),
     path("classes/", include("classes.urls")),
     path("account/", include("classes.account.urls", namespace="account")),
+    path("api/v1/", include("plfog.api_urls")),
     # Member hub
     path("", include("hub.urls")),
     path("", include("core.urls")),
