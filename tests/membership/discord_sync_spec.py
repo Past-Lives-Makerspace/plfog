@@ -263,6 +263,18 @@ def describe_reconcile_nudges_unlinked_reactors():
         assert DiscordLinkNudge.objects.filter(discord_user_id="stranger").exists()  # never retried
 
     @respx.mock
+    def it_marks_the_reactor_nudged_on_a_403_with_a_different_error_code(sync_config):
+        # A 403 that isn't the 50007 "DMs closed" code (e.g. a blocked bot / no mutual server)
+        # used to raise and crash the cron on the same reactor every tick. Any 403 is now a
+        # quiet, permanent "undeliverable" — the guard row is written so it's never retried.
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        _mock_reactions({"🔥": ["stranger"]})
+        _mock_dm(message_response=httpx.Response(403, json={"message": "Missing Access"}))
+        stats = discord_sync.reconcile_reactions()  # must not raise
+        assert stats.nudged == 1
+        assert DiscordLinkNudge.objects.filter(discord_user_id="stranger").exists()
+
+    @respx.mock
     def it_raises_and_leaves_the_reactor_unmarked_on_any_other_dm_error(sync_config):
         DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
         _mock_reactions({"🔥": ["stranger"]})

@@ -53,6 +53,7 @@ DEFAULT_LOCATION = "Past Lives Makerspace"
 
 _TIMEOUT_SECONDS = 5.0
 _RATE_LIMIT_MAX_WAIT_SECONDS = 15.0
+_RATE_LIMIT_MAX_ATTEMPTS = 3  # the initial send + up to 2 retries
 _SYNC_ERROR_MAX = 500
 _NAME_MAX = 100
 _LOCATION_MAX = 100
@@ -142,19 +143,23 @@ class DiscordScheduledEventsClient:
 
         Both a transport failure (``httpx.HTTPError``) and a non-2xx status become a
         ``DiscordEventsError``; a 2xx with an empty body (a ``DELETE`` 204) returns ``{}``.
-        With ``retry_on_rate_limit`` a 429 is retried once after Discord's ``Retry-After``
-        — the scheduled-events bucket is tiny, so the daily mirror's burst of ~a-dozen
-        calls reliably trips it mid-run; waiting the advertised second or two clears it.
+        With ``retry_on_rate_limit`` a 429 is retried up to ``_RATE_LIMIT_MAX_ATTEMPTS - 1``
+        more times, each after Discord's ``Retry-After`` — the scheduled-events bucket is
+        tiny, so the daily mirror's burst of ~a-dozen calls reliably trips it mid-run, at
+        times on consecutive calls; waiting the advertised second or two each time clears it.
         Only batch paths opt in: an interactive FOG save should fail fast into the retry
         cron, not hang the request sleeping. A 429 without the flag, or with no usable or
-        too-long ``Retry-After``, raises immediately.
+        too-long ``Retry-After`` on any attempt, raises immediately.
         """
         response = DiscordScheduledEventsClient._send(method, path, json=json)
-        if response.status_code == 429 and retry_on_rate_limit:
+        attempts = 1
+        while response.status_code == 429 and retry_on_rate_limit and attempts < _RATE_LIMIT_MAX_ATTEMPTS:
             retry_after = _retry_after_seconds(response)
-            if retry_after is not None and retry_after <= _RATE_LIMIT_MAX_WAIT_SECONDS:
-                time.sleep(retry_after)
-                response = DiscordScheduledEventsClient._send(method, path, json=json)
+            if retry_after is None or retry_after > _RATE_LIMIT_MAX_WAIT_SECONDS:
+                break
+            time.sleep(retry_after)
+            response = DiscordScheduledEventsClient._send(method, path, json=json)
+            attempts += 1
         if not response.is_success:
             raise DiscordEventsError(f"Discord API {response.status_code}: {response.text[:300]}")
         return response.json() if response.content else {}

@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.55"
+VERSION = "0.23.57"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.57",
+        "date": "2026-08-09",
+        "title": "Behind-the-scenes fixes for Discord sync",
+        "changes": [
+            "The nightly sync to Discord's Events tab could miss a few events if Discord "
+            "asked us to slow down partway through. It now waits a moment and tries again, "
+            "so every event makes it over.",
+            "If you reacted in #choose-your-guild but the bot could not send you a DM, that "
+            "used to block the 'link your Discord' reminder for everyone who reacted after "
+            "you too. That is fixed: your reminder is now marked as sent and everyone else "
+            "still gets theirs.",
+        ],
+    },
     {
         "version": "0.23.55",
         "date": "2026-08-09",
