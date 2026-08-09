@@ -20,6 +20,8 @@ _BRAND_NEW_KEYS = {
     "voting.officers_closing_soon",
     "voting.results_published",
     "voting.results_ready",
+    "voting.discord_reminder",
+    "voting.results_discord",
     "release.published",
     "event.guild_published",
     "event.community_published",
@@ -72,7 +74,14 @@ def describe_event_registry():
             # login-invite reaches someone who hasn't signed in; the Discord-guilds import
             # is a transactional email_to confirmation with no bell row), so the in-app
             # invariant holds for every OTHER event.
-            email_only = {"member.invited", "member.login_invite", "discord_guilds_imported"}
+            # Discord-broadcast events have no in-app bell (they're @everyone channel posts)
+            email_only = {
+                "member.invited",
+                "member.login_invite",
+                "discord_guilds_imported",
+                "voting.discord_reminder",
+                "voting.results_discord",
+            }
             for event in registry.EVENTS:
                 if event.key in email_only:
                     assert event.channel(Channel.IN_APP) is None
