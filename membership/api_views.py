@@ -52,13 +52,15 @@ class MemberViewSet(viewsets.ModelViewSet):
 
 class GuildViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes: ClassVar = [IsFogAdminOrReadOnly]
-    queryset = Guild.objects.filter(is_active=True, deleted_at__isnull=True).select_related(
-        "guild_lead__user"
-    ).prefetch_related(
-        Prefetch(
-            "guild_lead__user__emailaddress_set",
-            queryset=EmailAddress.objects.filter(primary=True),
-            to_attr="_primary_emailaddresses",
+    queryset = (
+        Guild.objects.filter(is_active=True, deleted_at__isnull=True)
+        .select_related("guild_lead__user")
+        .prefetch_related(
+            Prefetch(
+                "guild_lead__user__emailaddress_set",
+                queryset=EmailAddress.objects.filter(primary=True),
+                to_attr="_primary_emailaddresses",
+            )
         )
     )
     serializer_class = GuildSerializer
