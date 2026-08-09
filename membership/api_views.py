@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -26,12 +26,12 @@ class MemberViewSet(viewsets.ModelViewSet):
     queryset = Member.objects.active().select_related("membership_plan", "user")
     http_method_names: ClassVar = ["get", "patch", "post", "head", "options"]
 
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.request.method == "PATCH":
             return MemberWriteSerializer
         return MemberSerializer
 
-    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         serializer = MemberWriteSerializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -59,11 +59,11 @@ class CommunityEventViewSet(viewsets.ModelViewSet):
     serializer_class = CommunityEventSerializer
     queryset = CommunityEvent.objects.select_related("guild", "created_by").order_by("-starts_at")
 
-    def perform_create(self, serializer) -> None:
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         event = serializer.save(created_by=self.request.user)
         event.schedule_or_go_live(actor=self.request.user)
 
-    def perform_update(self, serializer) -> None:
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         serializer.save()
 
 
@@ -72,7 +72,7 @@ class GuildAnnouncementViewSet(viewsets.ModelViewSet):
     serializer_class = GuildAnnouncementSerializer
     queryset = GuildAnnouncement.objects.select_related("guild", "author").order_by("-published_at")
 
-    def perform_create(self, serializer) -> None:
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         announcement = serializer.save(
             author=self.request.user,
             moderation_state=GuildAnnouncement.ModerationState.PUBLISHED,
