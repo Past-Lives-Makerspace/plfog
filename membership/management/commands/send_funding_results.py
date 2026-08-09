@@ -11,6 +11,7 @@ base64 is a single whitespace-free token, so it survives intact.
     python manage.py send_funding_results --snapshot-id 4
     python manage.py send_funding_results --snapshot-id 4 --note-b64 "$(printf '%s' 'Sorry this is late!' | base64 -w0)"
     python manage.py send_funding_results --snapshot-id 4 --resend   # re-send an already-sent snapshot
+    python manage.py send_funding_results --snapshot-id 4 --no-discord  # suppress the Discord @everyone post
 """
 
 from __future__ import annotations
@@ -40,6 +41,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Allow re-sending a snapshot whose results were already sent.",
         )
+        parser.add_argument(
+            "--no-discord",
+            action="store_true",
+            help="Suppress the @everyone Discord broadcast — email members only.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         note = self._decode_note(options["note_b64"])
@@ -50,7 +56,11 @@ class Command(BaseCommand):
             raise CommandError(f"No FundingSnapshot with id {options['snapshot_id']}.")
 
         try:
-            sent = snapshot.send_results(resend=options["resend"], intro_note=note)
+            sent = snapshot.send_results(
+                resend=options["resend"],
+                intro_note=note,
+                discord=not options["no_discord"],
+            )
         except ResultsAlreadySentError as exc:
             raise CommandError(f"{exc} Pass --resend to send it again.")
 

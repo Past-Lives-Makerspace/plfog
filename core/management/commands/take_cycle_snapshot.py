@@ -63,3 +63,5 @@ class Command(BaseCommand):
             self.stdout.write("No votes — nothing to snapshot.")
         else:
             self.stdout.write(self.style.SUCCESS(f"Auto-took snapshot '{label}'."))
+            sent = snapshot.send_results()
+            self.stdout.write(self.style.SUCCESS(f"Auto-sent results to {sent} member(s)."))

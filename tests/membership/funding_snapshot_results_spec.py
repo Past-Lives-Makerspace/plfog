@@ -212,7 +212,10 @@ def describe_send_results():
         assert snap is not None
         with patch("core.events.emit.emit") as mock_emit:
             snap.send_results()
-        kwargs = mock_emit.call_args.kwargs
+        # send_results now calls emit multiple times (voter, non-voter loop, Discord broadcast).
+        # Find the voting.results_published call — it carries the absolute url.
+        results_call = next(c for c in mock_emit.call_args_list if c.args[0] == "voting.results_published")
+        kwargs = results_call.kwargs
         assert kwargs["url"].startswith(dj_settings.MEMBER_BASE_URL)
         assert kwargs["context"]["voting_url"].startswith(dj_settings.MEMBER_BASE_URL)
         assert kwargs["url"].endswith("/guilds/voting/history/")

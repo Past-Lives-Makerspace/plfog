@@ -325,6 +325,8 @@ VOTING_VOTE_SOON = "voting.vote_soon"
 VOTING_OFFICERS_CLOSING_SOON = "voting.officers_closing_soon"
 VOTING_RESULTS_PUBLISHED = "voting.results_published"
 VOTING_RESULTS_READY = "voting.results_ready"
+VOTING_DISCORD_REMINDER = "voting.discord_reminder"
+VOTING_RESULTS_DISCORD = "voting.results_discord"
 RELEASE_PUBLISHED = "release.published"
 EVENT_GUILD_PUBLISHED = "event.guild_published"
 EVENT_COMMUNITY_PUBLISHED = "event.community_published"
@@ -727,6 +729,31 @@ _NEW_EVENTS: list[EventType] = [
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
+    ),
+    # 26. voting.discord_reminder — a single @everyone Discord post (no email/in-app) fired
+    #     in the same tick as the per-member reminder sources. Shows live standings + close date.
+    #     Discord-only because the email side is handled by the per-member events (closing_soon
+    #     / vote_soon); emitting one broadcast here avoids N webhook calls for N members.
+    EventType(
+        key=VOTING_DISCORD_REMINDER,
+        label="Voting reminder to #general-member-chat",
+        description="A @everyone Discord post with current standings, sent before polls close.",
+        category="Voting",
+        recipient=Recipients.ALL_ACTIVE_MEMBERS,
+        channels=(_DISCORD_ON,),
+        activity_kind=None,
+    ),
+    # 27. voting.results_discord — a single @everyone Discord post (no email/in-app) announcing
+    #     this month's allocation. Emitted once per send_results call alongside the per-member
+    #     results emails so the public channel hears the outcome.
+    EventType(
+        key=VOTING_RESULTS_DISCORD,
+        label="Funding results to #general-member-chat",
+        description="A @everyone Discord post announcing this month's guild funding allocation.",
+        category="Voting",
+        recipient=Recipients.ALL_ACTIVE_MEMBERS,
+        channels=(_DISCORD_ON,),
+        activity_kind=None,
     ),
 ]
 

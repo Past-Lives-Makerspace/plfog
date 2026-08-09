@@ -28,6 +28,7 @@ from membership.voting import (
     officers_closing_soon_occurrences,
     previous_cycle_label,
     vote_soon_occurrences,
+    voting_discord_reminder_occurrences,
 )
 from tests.membership.factories import GuildFactory, MemberFactory, VotePreferenceFactory
 
@@ -130,19 +131,22 @@ def describe_closing_soon_occurrences():
 
 
 def describe_vote_soon_occurrences():
-    def it_targets_only_paying_active_logged_in_non_voters():
+    def it_targets_all_active_members_with_accounts_who_havent_voted():
         paying = _logged_in_no_vote("p@x.com")
         nonpaying = _logged_in_no_vote("np@x.com", member_type=Member.MemberType.WORK_TRADE)
-        never = MemberFactory()
-        _linked(never, "never@x.com", last_login=None)
+        # member with account but never logged in — still included (has a user)
+        never_logged_in = MemberFactory()
+        _linked(never_logged_in, "never@x.com", last_login=None)
         voted = _voted("voted@x.com")
+        unlinked = MemberFactory()  # no user at all — excluded
 
         members = {o.context["member"].pk for o in vote_soon_occurrences(_aware(2026, 6, 1))}
 
         assert paying.pk in members
-        assert nonpaying.pk not in members
-        assert never.pk not in members
-        assert voted.pk not in members
+        assert nonpaying.pk in members  # non-paying now included
+        assert never_logged_in.pk in members  # linked user, no login → included
+        assert voted.pk not in members  # already voted
+        assert unlinked.pk not in members  # no user account
 
     def it_emits_the_vote_soon_event_key():
         _logged_in_no_vote("p@x.com")
@@ -287,18 +291,24 @@ def describe_officers_closing_soon_occurrences():
 
 
 def describe_both_sources_together():
-    def it_reminds_a_voter_and_a_nonvoter_distinctly_and_skips_never_logged_in():
+    def it_reminds_a_voter_closing_soon_and_non_voters_via_vote_soon():
         voted = _voted("voted@x.com")
         nonvoter = _logged_in_no_vote("nv@x.com")
-        never = MemberFactory()
-        never_user = _linked(never, "never@x.com", last_login=None)
+        # never_logged_in still gets vote_soon — they have an account but haven't voted
+        never_logged_in = MemberFactory()
+        never_user = _linked(never_logged_in, "never@x.com", last_login=None)
+        unlinked = MemberFactory()  # no user at all — excluded from both
         fire = _aware(2026, 6, 28)  # default 3-day lead
 
         run_sources([closing_soon_occurrences, vote_soon_occurrences], now=fire)
 
         assert Notification.objects.filter(trigger="voting.closing_soon", user=voted.user).exists()
         assert Notification.objects.filter(trigger="voting.vote_soon", user=nonvoter.user).exists()
-        assert not Notification.objects.filter(user=never_user).exists()
+        assert Notification.objects.filter(trigger="voting.vote_soon", user=never_user).exists()
+        assert not Notification.objects.filter(user__isnull=True).exists()
+        # unlinked member has no user, so no notification for them
+
+        assert not Notification.objects.filter(user__member=unlinked).exists()
 
 
 def describe_voting_email_rendering():
@@ -327,3 +337,63 @@ def describe_voting_email_rendering():
     def it_renders_the_officer_email_with_every_placeholder_supplied():
         occ = next(iter(officers_closing_soon_occurrences(_aware(2026, 6, 1))))
         _assert_no_missing("voting.officers_closing_soon", occ.context)
+
+
+def describe_voting_discord_reminder_occurrences():
+    def it_yields_one_broadcast_occurrence_with_standings_and_everyone_mention():
+        now = _aware(2026, 6, 1)
+        _voted("v@x.com")
+
+        occ = list(voting_discord_reminder_occurrences(now))
+
+        assert len(occ) == 1
+        o = occ[0]
+        assert o.event_key == "voting.discord_reminder"
+        assert o.discord_mention == "@everyone"
+        assert "member" not in o.context
+        assert o.context["cycle_label"] == "June 2026"
+        assert "standings_text" in o.context
+        assert o.anchor == month_end_close(now)
+        assert o.offset.days == -3
+
+    def it_uses_a_distinct_period_from_the_per_member_reminders():
+        occ = list(voting_discord_reminder_occurrences(_aware(2026, 6, 1)))
+        assert len(occ) == 1
+        assert occ[0].period == "discord:voting:2026-06"
+
+    def it_fires_once_per_cycle_and_dedupes():
+        _voted("v@x.com")
+        fire = _aware(2026, 6, 28)  # default 3-day lead
+
+        first = run_sources([voting_discord_reminder_occurrences], now=fire)
+        second = run_sources([voting_discord_reminder_occurrences], now=fire)
+
+        assert first == 1
+        assert second == 0
+        assert EventDelivery.objects.filter(
+            event_key="voting.discord_reminder",
+            target_ref="broadcast",
+            period="discord:voting:2026-06",
+        ).exists()
+
+    def it_yields_nothing_when_reminders_are_disabled():
+        settings = VotingSettings.load()
+        settings.reminders_enabled = False
+        settings.save()
+
+        assert list(voting_discord_reminder_occurrences(_aware(2026, 6, 1))) == []
+
+    def it_includes_a_no_votes_placeholder_when_nobody_has_voted():
+        occ = list(voting_discord_reminder_occurrences(_aware(2026, 6, 1)))
+        assert len(occ) == 1
+        assert "No votes yet" in occ[0].context["standings_text"]
+
+    def it_renders_the_discord_copy_with_every_placeholder_supplied():
+        _voted("v@x.com")
+        from core.events.registry import Channel
+        from core.events.templates import rendered_message
+
+        occ = next(iter(voting_discord_reminder_occurrences(_aware(2026, 6, 1))))
+        message = rendered_message("voting.discord_reminder", Channel.DISCORD, occ.context)
+        for part in (message.title, message.body, message.html_body or ""):
+            assert "[missing:" not in part, "voting.discord_reminder Discord copy has a missing placeholder"

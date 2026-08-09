@@ -4830,27 +4830,31 @@ class FundingSnapshot(models.Model):
         lines = [f"{row['guild_name']} — ${row['funding']} ({row['share_pct']}%)" for row in results]
         return "\n".join(lines)
 
-    def send_results(self, *, actor: Any | None = None, resend: bool = False, intro_note: str = "") -> int:
-        """Email each member who voted their personalized results — the admin-confirmed send.
+    def send_results(
+        self, *, actor: Any | None = None, resend: bool = False, intro_note: str = "", discord: bool = True
+    ) -> int:
+        """Email every active member their results and post one @everyone Discord summary.
 
         Loops the snapshot's frozen ``raw_votes`` and emits ``voting.results_published``
-        once per still-active voter, carrying that member's own 1st/2nd/3rd recorded
-        vote so the email can say "here's what we recorded *you* voting for". Stamps
-        ``results_sent_at`` and bumps ``results_send_count`` so the UI can flip to the
-        sent state and idempotency is visible.
+        once per still-active voter with a personalized ballot recap, then emits the same
+        event to every active member with a linked user account who did NOT appear in the
+        voter list — giving non-voters the allocation without a ballot recap. Finally, one
+        ``voting.results_discord`` broadcast fires so #general-member-chat hears the outcome.
+        Stamps ``results_sent_at`` and bumps ``results_send_count`` for UI state + idempotency.
 
         Args:
-            actor: The admin who clicked Send (unused for the per-member emit, kept for
+            actor: The admin who triggered the send (unused in per-member emit, kept for
                 symmetry/auditing of the calling view).
             resend: When True, allows re-sending already-sent results (a fresh ``period``
                 re-delivers); when False a second send raises ``ResultsAlreadySentError``.
             intro_note: Optional organizer note rendered at the top of the results email
-                (blank for a normal automated send; used for a one-off, e.g. explaining a
-                late send). Carried into the ``voting.results_published`` ``intro_note``
-                merge field.
+                (blank for a normal automated send). Carried into the ``intro_note`` merge field.
+            discord: When False, suppresses the ``voting.results_discord`` @everyone broadcast
+                while still emailing all members. Use ``--no-discord`` on the management command
+                when back-filling a cycle that predates Discord notifications.
 
         Returns:
-            The number of voters who received a fresh delivery this send.
+            The number of members who received a fresh delivery this send.
 
         Raises:
             ResultsAlreadySentError: If results were already sent and ``resend`` is False.
@@ -4873,10 +4877,19 @@ class FundingSnapshot(models.Model):
             member.pk: member
             for member in Member.objects.filter(pk__in=member_ids, status=Member.Status.ACTIVE).select_related("user")
         }
+
+        # --- 1. Voters: personalized ballot recap ---
+        voter_ids: set[int] = set()
         for vote in self.raw_votes:
             member = active.get(vote["member_id"])
             if member is None:
                 continue  # voter no longer active → skip (audience safety)
+            voter_ids.add(vote["member_id"])
+            ballot_recap = (
+                f"You voted — 1st: {vote['guild_1st_name']}, "
+                f"2nd: {vote['guild_2nd_name']}, "
+                f"3rd: {vote['guild_3rd_name']}."
+            )
             result = emit(
                 "voting.results_published",
                 target=self,
@@ -4886,6 +4899,7 @@ class FundingSnapshot(models.Model):
                     "intro_note": intro_note,
                     "cycle_label": self.cycle_label,
                     "allocation_summary": allocation,
+                    "ballot_recap": ballot_recap,
                     "vote_1st": vote["guild_1st_name"],
                     "vote_2nd": vote["guild_2nd_name"],
                     "vote_3rd": vote["guild_3rd_name"],
@@ -4896,6 +4910,45 @@ class FundingSnapshot(models.Model):
             )
             if result.delivery_count:
                 sent += 1
+
+        # --- 2. Non-voters: allocation only, no ballot recap ---
+        non_voters = Member.objects.active().filter(user__isnull=False).exclude(pk__in=voter_ids).select_related("user")
+        for member in non_voters:
+            result = emit(
+                "voting.results_published",
+                target=self,
+                context={
+                    "member": member,
+                    "member_name": member.display_name,
+                    "intro_note": intro_note,
+                    "cycle_label": self.cycle_label,
+                    "allocation_summary": allocation,
+                    "ballot_recap": "",
+                    "vote_1st": "",
+                    "vote_2nd": "",
+                    "vote_3rd": "",
+                    "voting_url": voting_url,
+                },
+                url=voting_url,
+                period=f"snapshot:{self.pk}:nonvoter:{member.pk}:send:{n}",
+            )
+            if result.delivery_count:
+                sent += 1
+
+        # --- 3. Discord: one @everyone broadcast to #general-member-chat ---
+        if discord:
+            emit(
+                "voting.results_discord",
+                target=self,
+                context={
+                    "cycle_label": self.cycle_label,
+                    "allocation_summary": allocation,
+                    "voting_url": voting_url,
+                },
+                discord_mention="@everyone",
+                period=f"snapshot_discord:{self.pk}:send:{n}",
+            )
+
         self.results_sent_at = timezone.now()
         self.save(update_fields=["results_sent_at", "results_send_count"])
         return sent

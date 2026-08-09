@@ -25,6 +25,7 @@ from membership.voting import (
     closing_soon_occurrences,
     officers_closing_soon_occurrences,
     vote_soon_occurrences,
+    voting_discord_reminder_occurrences,
 )
 
 
@@ -34,7 +35,12 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         now = timezone.now()
         fired = run_sources(
-            [closing_soon_occurrences, vote_soon_occurrences, officers_closing_soon_occurrences],
+            [
+                closing_soon_occurrences,
+                vote_soon_occurrences,
+                officers_closing_soon_occurrences,
+                voting_discord_reminder_occurrences,
+            ],
             now=now,
         )
         if fired:

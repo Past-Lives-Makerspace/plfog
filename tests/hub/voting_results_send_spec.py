@@ -23,7 +23,8 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture()
 def admin_client():
-    user = User.objects.create_superuser("rsadmin", "rsadmin@x.com", "p")
+    with mute_signals(post_save):
+        user = User.objects.create_superuser("rsadmin", "rsadmin@x.com", "p")
     client = Client()
     client.force_login(user)
     return client

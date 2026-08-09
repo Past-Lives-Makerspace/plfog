@@ -54,7 +54,7 @@ def _july():
 def describe_take_cycle_snapshot():
     def it_auto_takes_once_per_cycle_flagging_is_auto_and_pinging_admins(monkeypatch):
         _freeze(monkeypatch, _july())
-        _voter("voter@x.com")
+        voter = _voter("voter@x.com")
         admin_user = _admin("admin@x.com")
 
         call_command("take_cycle_snapshot")
@@ -65,9 +65,10 @@ def describe_take_cycle_snapshot():
         snap = autos.first()
         assert snap.cycle_label == "June 2026"
         assert EventDelivery.objects.filter(event_key="voting.auto_snapshot", period="voting_close:2026-06").exists()
-        # Admins pinged; members not emailed.
+        # Admins pinged AND results auto-sent to every linked member.
         assert Notification.objects.filter(user=admin_user, trigger="voting.results_ready").exists()
-        assert not Notification.objects.filter(trigger="voting.results_published").exists()
+        assert Notification.objects.filter(user=voter.user, trigger="voting.results_published").exists()
+        assert Notification.objects.filter(user=admin_user, trigger="voting.results_published").exists()
 
     def it_is_a_noop_when_auto_snapshot_is_disabled(monkeypatch):
         settings = VotingSettings.load()
