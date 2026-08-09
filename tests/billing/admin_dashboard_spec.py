@@ -140,6 +140,28 @@ def describe_admin_tab_dashboard_extended():
         assert "products" in response.context
         assert "guilds" in response.context
 
+    def it_shows_test_mode_badge_when_test_mode_on(client: Client):
+        _create_superuser(client)
+        bs = BillingSettings.load()
+        bs.test_mode = True
+        bs.save()
+
+        response = client.get("/billing/admin/dashboard/?tab=stripe")
+        content = response.content.decode()
+        assert "TEST MODE" in content
+        assert "LIVE MODE" not in content
+
+    def it_shows_live_mode_badge_when_test_mode_off(client: Client):
+        _create_superuser(client)
+        bs = BillingSettings.load()
+        bs.test_mode = False
+        bs.save()
+
+        response = client.get("/billing/admin/dashboard/?tab=stripe")
+        content = response.content.decode()
+        assert "LIVE MODE" in content
+        assert "TEST MODE" not in content
+
 
 def describe_billing_admin_tab_detail_api():
     def it_requires_staff(client: Client):
@@ -603,3 +625,54 @@ def describe_billing_save_connect_platform():
 
         assert response.status_code == 302
         assert response.url == "/billing/admin/dashboard/?tab=stripe"
+
+    def it_saves_test_mode_and_test_keys(client: Client):
+        from tests.billing.factories import BillingSettingsFactory
+
+        _create_superuser(client)
+        BillingSettingsFactory()
+
+        response = client.post(
+            "/billing/admin/connect-platform/save/",
+            {
+                "connect_enabled": "on",
+                "test_mode": "on",
+                "test_connect_client_id": "ca_test_1",
+                "test_connect_platform_publishable_key": "pk_test_1",
+                "test_connect_platform_secret_key": "sk_test_1",
+                "test_connect_platform_webhook_secret": "whsec_test_1",
+            },
+        )
+
+        assert response.status_code == 302
+        settings = BillingSettings.load()
+        assert settings.test_mode is True
+        assert settings.test_connect_platform_secret_key == "sk_test_1"
+
+    def it_saves_both_key_slots_at_once(client: Client):
+        from tests.billing.factories import BillingSettingsFactory
+
+        _create_superuser(client)
+        BillingSettingsFactory()
+
+        response = client.post(
+            "/billing/admin/connect-platform/save/",
+            {
+                "connect_enabled": "on",
+                "test_mode": "on",
+                "test_connect_client_id": "ca_test_1",
+                "test_connect_platform_publishable_key": "pk_test_1",
+                "test_connect_platform_secret_key": "sk_test_1",
+                "test_connect_platform_webhook_secret": "whsec_test_1",
+                "connect_client_id": "ca_live_1",
+                "connect_platform_publishable_key": "pk_live_1",
+                "connect_platform_secret_key": "sk_live_1",
+                "connect_platform_webhook_secret": "whsec_live_1",
+            },
+        )
+
+        assert response.status_code == 302
+        settings = BillingSettings.load()
+        assert settings.test_mode is True
+        assert settings.test_connect_platform_secret_key == "sk_test_1"
+        assert settings.connect_platform_secret_key == "sk_live_1"

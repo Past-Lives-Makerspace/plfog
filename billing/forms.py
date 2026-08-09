@@ -339,37 +339,52 @@ class ConnectPlatformSettingsForm(forms.ModelForm):
         model = BillingSettings
         fields = [
             "connect_enabled",
+            "test_mode",
             "connect_client_id",
             "connect_platform_publishable_key",
             "connect_platform_secret_key",
             "connect_platform_webhook_secret",
+            "test_connect_client_id",
+            "test_connect_platform_publishable_key",
+            "test_connect_platform_secret_key",
+            "test_connect_platform_webhook_secret",
         ]
         widgets = {
             "connect_client_id": forms.TextInput(attrs={"placeholder": "ca_…", "autocomplete": "off"}),
-            "connect_platform_publishable_key": forms.TextInput(attrs={"placeholder": "pk_…", "autocomplete": "off"}),
+            "connect_platform_publishable_key": forms.TextInput(
+                attrs={"placeholder": "pk_live_…", "autocomplete": "off"}
+            ),
             "connect_platform_secret_key": forms.PasswordInput(
-                render_value=True, attrs={"placeholder": "sk_…", "autocomplete": "off"}
+                render_value=True, attrs={"placeholder": "sk_live_…", "autocomplete": "off"}
             ),
             "connect_platform_webhook_secret": forms.PasswordInput(
+                render_value=True, attrs={"placeholder": "whsec_…", "autocomplete": "off"}
+            ),
+            "test_connect_client_id": forms.TextInput(attrs={"placeholder": "ca_…", "autocomplete": "off"}),
+            "test_connect_platform_publishable_key": forms.TextInput(
+                attrs={"placeholder": "pk_test_…", "autocomplete": "off"}
+            ),
+            "test_connect_platform_secret_key": forms.PasswordInput(
+                render_value=True, attrs={"placeholder": "sk_test_…", "autocomplete": "off"}
+            ),
+            "test_connect_platform_webhook_secret": forms.PasswordInput(
                 render_value=True, attrs={"placeholder": "whsec_…", "autocomplete": "off"}
             ),
         }
 
     def clean(self) -> dict:
+        """Require only the active mode's four credential fields when Connect is enabled.
+
+        Mirrors ``BillingSettings.clean`` so the inactive slot may be blank or
+        pre-filled — both key sets can be saved side by side.
+        """
         cleaned = super().clean() or {}
         if cleaned.get("connect_enabled"):
-            missing = [
-                field
-                for field in (
-                    "connect_client_id",
-                    "connect_platform_publishable_key",
-                    "connect_platform_secret_key",
-                    "connect_platform_webhook_secret",
-                )
-                if not cleaned.get(field)
-            ]
-            for field in missing:
-                self.add_error(field, "Required when Stripe Connect is enabled.")
+            test_mode = cleaned.get("test_mode")
+            for suffix in BillingSettings._CREDENTIAL_SUFFIXES:
+                field_name = f"test_connect_{suffix}" if test_mode else f"connect_{suffix}"
+                if not cleaned.get(field_name):
+                    self.add_error(field_name, "Required when Stripe Connect is enabled in the current mode.")
         return cleaned
 
 

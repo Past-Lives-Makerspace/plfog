@@ -98,28 +98,79 @@ class BillingSettings(models.Model):
         max_length=255,
         blank=True,
         default="",
-        help_text="Stripe Connect application client ID (ca_…). From dashboard.stripe.com/settings/connect.",
+        help_text=(
+            "Stripe Connect application client ID (ca_…) for LIVE mode. From dashboard.stripe.com/settings/connect. "
+            "Used only while Testing Mode is off."
+        ),
     )
     connect_platform_publishable_key = models.CharField(
         max_length=255,
         blank=True,
         default="",
-        help_text="PL platform Stripe publishable key (pk_…). Sent to the browser for the payment-method setup flow.",
+        help_text=("LIVE-mode Stripe publishable key (pk_live_…). Sent to the browser only while Testing Mode is off."),
     )
     connect_platform_secret_key = EncryptedCharField(
         max_length=512,
         blank=True,
         default="",
-        help_text="PL platform Stripe secret key (sk_…). Used for OAuth Connect destination charges. Encrypted at rest.",
+        help_text=("LIVE-mode Stripe secret key (sk_live_…). Used only while Testing Mode is off. Encrypted at rest."),
     )
     connect_platform_webhook_secret = EncryptedCharField(
         max_length=512,
         blank=True,
         default="",
-        help_text="Webhook signing secret for the global /billing/webhooks/stripe/ endpoint. Encrypted at rest.",
+        help_text=(
+            "LIVE-mode webhook signing secret for the global /billing/webhooks/stripe/ endpoint. Used only while "
+            "Testing Mode is off. Encrypted at rest."
+        ),
+    )
+
+    # ---- Stripe TEST-mode credential slot ----
+    # A parallel set of credentials so the platform can flip between test and
+    # live keys instantly without re-pasting anything. ``active_*`` accessors
+    # branch on ``test_mode`` to pick the slot every read site uses.
+    test_mode = models.BooleanField(
+        default=True,
+        help_text=(
+            "Master mode switch. When on, all Stripe operations (charges, SetupIntents, webhooks) use the TEST key "
+            "set below. Turn off to charge real cards using the LIVE key set. Toggle from the admin Payments "
+            "dashboard → Stripe tab."
+        ),
+    )
+    test_connect_client_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Stripe Connect application client ID (ca_…) for TEST mode. Used only while Testing Mode is on.",
+    )
+    test_connect_platform_publishable_key = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="TEST-mode Stripe publishable key (pk_test_…). Sent to the browser only while Testing Mode is on.",
+    )
+    test_connect_platform_secret_key = EncryptedCharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=("TEST-mode Stripe secret key (sk_test_…). Used only while Testing Mode is on. Encrypted at rest."),
+    )
+    test_connect_platform_webhook_secret = EncryptedCharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=(
+            "TEST-mode webhook signing secret for /billing/webhooks/stripe/, from the TEST-mode webhook listener in "
+            "the Stripe dashboard. Used only while Testing Mode is on. Encrypted at rest."
+        ),
     )
 
     updated_at = models.DateTimeField(auto_now=True, help_text="Last time billing settings were changed.")
+
+    # Field-name suffixes shared by the LIVE (``connect_*``) and TEST
+    # (``test_connect_*``) credential slots — the single source of truth for
+    # which four fields each slot holds.
+    _CREDENTIAL_SUFFIXES = ("client_id", "platform_publishable_key", "platform_secret_key", "platform_webhook_secret")
 
     class Meta:
         verbose_name = "Billing Settings"
@@ -154,21 +205,49 @@ class BillingSettings(models.Model):
     def __str__(self) -> str:
         return "Billing Settings"
 
+    @property
+    def active_client_id(self) -> str:
+        """The Connect client ID for the currently selected (test/live) mode."""
+        return self.test_connect_client_id if self.test_mode else self.connect_client_id
+
+    @property
+    def active_publishable_key(self) -> str:
+        """The publishable key for the currently selected (test/live) mode."""
+        return self.test_connect_platform_publishable_key if self.test_mode else self.connect_platform_publishable_key
+
+    @property
+    def active_secret_key(self) -> str:
+        """The secret key for the currently selected (test/live) mode."""
+        return self.test_connect_platform_secret_key if self.test_mode else self.connect_platform_secret_key
+
+    @property
+    def active_webhook_secret(self) -> str:
+        """The webhook signing secret for the currently selected (test/live) mode."""
+        return self.test_connect_platform_webhook_secret if self.test_mode else self.connect_platform_webhook_secret
+
+    @property
+    def mode_label(self) -> str:
+        """Human-readable name of the current mode."""
+        return "Test" if self.test_mode else "Live"
+
     def clean(self) -> None:
-        """If Connect is enabled, all four platform credential fields must be non-empty."""
+        """If Connect is enabled, the active mode's four credential fields must be non-empty.
+
+        Only the slot selected by ``test_mode`` is required — the inactive slot may be
+        left blank or pre-filled so both key sets can live side by side.
+        """
         super().clean()
-        if self.connect_enabled:
-            missing = []
-            if not self.connect_client_id:
-                missing.append("connect_client_id")
-            if not self.connect_platform_publishable_key:
-                missing.append("connect_platform_publishable_key")
-            if not self.connect_platform_secret_key:
-                missing.append("connect_platform_secret_key")
-            if not self.connect_platform_webhook_secret:
-                missing.append("connect_platform_webhook_secret")
-            if missing:
-                raise ValidationError({field: "Required when Stripe Connect is enabled." for field in missing})
+        if not self.connect_enabled:
+            return
+        missing = []
+        for suffix in self._CREDENTIAL_SUFFIXES:
+            field_name = f"test_connect_{suffix}" if self.test_mode else f"connect_{suffix}"
+            if not getattr(self, field_name):
+                missing.append(field_name)
+        if missing:
+            raise ValidationError(
+                {field: "Required when Stripe Connect is enabled in the current mode." for field in missing}
+            )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Force singleton by always using pk=1."""

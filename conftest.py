@@ -54,5 +54,8 @@ def configured_billing_stripe(db):
     bs.connect_platform_publishable_key = "pk_test_fake_for_testing"
     bs.connect_platform_secret_key = "sk_test_fake_for_testing"
     bs.connect_platform_webhook_secret = "whsec_fake_for_testing"
+    # The fake values live in the LIVE-named fields, so keep test mode off — otherwise
+    # the new mode toggle would shadow them behind the (empty) TEST slot.
+    bs.test_mode = False
     bs.save()
     return bs
