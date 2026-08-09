@@ -78,6 +78,20 @@ class CommunityEventViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         serializer.save()
 
+    @action(detail=True, methods=["post"], permission_classes=[IsFogAdmin])
+    def sync(self, request: Request, pk: str | None = None) -> Response:
+        """Re-push this event to Google Calendar and Discord. Idempotent."""
+        event = self.get_object()
+        event.schedule_or_go_live(actor=request.user)
+        return Response(CommunityEventSerializer(event).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsFogAdmin])
+    def announce(self, request: Request, pk: str | None = None) -> Response:
+        """Fire the in-app, email, and Discord announcement without re-pushing to Google Calendar."""
+        event = self.get_object()
+        event.announce(actor=request.user)
+        return Response(CommunityEventSerializer(event).data)
+
 
 class GuildAnnouncementViewSet(viewsets.ModelViewSet):
     permission_classes: ClassVar = [IsFogAdminOrReadOnly]

@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.53"
+VERSION = "0.23.54"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.54",
+        "date": "2026-08-09",
+        "title": "Admin tools: manual event sync, re-announce, and a terminal shortcut",
+        "changes": [
+            "Admins can now force-sync any Community Calendar event to Google Calendar and the "
+            "Discord events list with one API call -- handy when an event falls out of sync after "
+            "a brief outage.",
+            "A separate call lets admins re-send an event's in-app notification, email, and Discord "
+            "announcement without touching Google Calendar -- useful for a quiet correction or a nudge "
+            "to members who missed it.",
+            "A new 'fog' terminal tool gives admins a fast command-line shortcut to list, read, "
+            "create, sync, and announce events, and to list members and guilds, all from a shell prompt.",
+        ],
+    },
     {
         "version": "0.23.53",
         "date": "2026-08-09",
