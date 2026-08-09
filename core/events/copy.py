@@ -722,6 +722,11 @@ _CURATED: dict[str, EventCopy] = {
             "intro_note",
             "cycle_label",
             "allocation_summary",
+            # ballot_recap: pre-formatted sentence for voters ("You voted — 1st: X, 2nd: Y, 3rd: Z.")
+            # Empty string for non-voters so the paragraph renders blank rather than showing
+            # "1st: , 2nd: , 3rd: ." with missing values.
+            "ballot_recap",
+            # vote_1st/2nd/3rd kept for any existing DB-stored NotificationTemplate rows.
             "vote_1st",
             "vote_2nd",
             "vote_3rd",
@@ -732,6 +737,7 @@ _CURATED: dict[str, EventCopy] = {
             "intro_note": "Heads-up: this one's a little late — going forward results are automated.",
             "cycle_label": "June 2026",
             "allocation_summary": "Metal Guild — $600.00 (45.0%)\nFiber Guild — $400.00 (30.0%)",
+            "ballot_recap": "You voted — 1st: Metal Guild, 2nd: Fiber Guild, 3rd: Wood Guild.",
             "vote_1st": "Metal Guild",
             "vote_2nd": "Fiber Guild",
             "vote_3rd": "Wood Guild",
@@ -749,7 +755,7 @@ _CURATED: dict[str, EventCopy] = {
                     "{{ intro_note }}\n\n"
                     "The votes for {{ cycle_label }} are counted. Here's how the funding pool was split:\n\n"
                     "{{ allocation_summary }}\n\n"
-                    "You were recorded as voting — 1st: {{ vote_1st }}, 2nd: {{ vote_2nd }}, 3rd: {{ vote_3rd }}.\n\n"
+                    "{{ ballot_recap }}\n\n"
                     "Full breakdown: {{ voting_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
@@ -757,8 +763,7 @@ _CURATED: dict[str, EventCopy] = {
                     "<p>{{ intro_note }}</p>"
                     "<p>The votes for {{ cycle_label }} are counted. Here's how the funding pool was split:</p>"
                     "<pre>{{ allocation_summary }}</pre>"
-                    "<p>You were recorded as voting — 1st: <strong>{{ vote_1st }}</strong>, "
-                    "2nd: <strong>{{ vote_2nd }}</strong>, 3rd: <strong>{{ vote_3rd }}</strong>.</p>"
+                    "<p>{{ ballot_recap }}</p>"
                     '<p><a href="{{ voting_url }}">See the full breakdown</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
@@ -790,6 +795,46 @@ _CURATED: dict[str, EventCopy] = {
                     "(${{ funding_pool }} pool, {{ votes_cast }} votes).</p>"
                     '<p><a href="{{ review_url }}">Review the numbers and send results to members</a></p>'
                     "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "voting.discord_reminder": EventCopy(
+        placeholders=("cycle_label", "closes_on", "turnout_count", "pool_display", "standings_text", "voting_url"),
+        sample_context={
+            "cycle_label": "June 2026",
+            "closes_on": "June 30, 2026",
+            "turnout_count": "18",
+            "pool_display": "$1,000",
+            "standings_text": "🥇 `████████░░` **Metal Guild** — 42 pts\n🥈 `█████░░░░░` **Fiber Guild** — 25 pts",
+            "voting_url": "https://pastlives.example/guilds/voting/",
+        },
+        channels={
+            Channel.DISCORD: ChannelCopy(
+                subject="Guild funding — {{ cycle_label }}",
+                body_text=(
+                    "Polls close {{ closes_on }}. Cast or update your picks before then — every vote moves the needle.\n\n"
+                    "{{ standings_text }}\n\n"
+                    "{{ turnout_count }} vote(s) counted · estimated pool {{ pool_display }}\n\n"
+                    "{{ voting_url }}"
+                ),
+            ),
+        },
+    ),
+    "voting.results_discord": EventCopy(
+        placeholders=("cycle_label", "allocation_summary", "voting_url"),
+        sample_context={
+            "cycle_label": "June 2026",
+            "allocation_summary": "Metal Guild — $600.00 (45.0%)\nFiber Guild — $400.00 (30.0%)",
+            "voting_url": "https://pastlives.example/guilds/voting/history/",
+        },
+        channels={
+            Channel.DISCORD: ChannelCopy(
+                subject="{{ cycle_label }} guild funding results",
+                body_text=(
+                    "The {{ cycle_label }} funding vote is closed. Here's how the pool was split:\n\n"
+                    "{{ allocation_summary }}\n\n"
+                    "Full breakdown: {{ voting_url }}"
                 ),
             ),
         },

@@ -33,7 +33,12 @@ from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
-from core.events.registry import VOTING_CLOSING_SOON, VOTING_OFFICERS_CLOSING_SOON, VOTING_VOTE_SOON
+from core.events.registry import (
+    VOTING_CLOSING_SOON,
+    VOTING_DISCORD_REMINDER,
+    VOTING_OFFICERS_CLOSING_SOON,
+    VOTING_VOTE_SOON,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -208,13 +213,13 @@ def closing_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
 
 
 def vote_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
-    """Yield one ``voting.vote_soon`` occurrence per signed-in member who hasn't voted.
+    """Yield one ``voting.vote_soon`` occurrence per active member with an account who hasn't voted.
 
     Gated on ``VotingSettings.reminders_enabled`` *and* ``send_vote_soon_enabled``.
-    Same anchor/offset as :func:`closing_soon_occurrences`. The audience is paying,
-    active members who have logged in at least once but have no vote yet — nudging a
-    non-paying member who can't vote would be noise. The per-member ``registrant``
-    resolver + the ``voting:YYYY-MM`` period give the same safety + dedupe.
+    Same anchor/offset as :func:`closing_soon_occurrences`. Targets all active members
+    with a linked user account — paying or not — who have not yet cast a vote, so every
+    member who can log in and vote gets a nudge. The per-member ``registrant`` resolver
+    + the ``voting:YYYY-MM`` period give the same safety + dedupe.
     """
     from membership.models import Member, VotingSettings
 
@@ -234,12 +239,7 @@ def vote_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
     period = cycle_period(now)
     voting_url = _absolute_url(reverse("hub_guild_voting"))
     stats = cycle_turnout_stats()
-    non_voters = (
-        Member.objects.paying()
-        .active()
-        .filter(user__last_login__isnull=False, vote_preference__isnull=True)
-        .select_related("user")
-    )
+    non_voters = Member.objects.active().filter(user__isnull=False, vote_preference__isnull=True).select_related("user")
     for member in non_voters:
         yield ScheduledOccurrence(
             event_key=VOTING_VOTE_SOON,
@@ -296,4 +296,70 @@ def officers_closing_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurr
         },
         period=cycle_period(now),
         url=voting_url,
+    )
+
+
+def voting_discord_reminder_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
+    """Yield one ``voting.discord_reminder`` broadcast occurrence (Discord @everyone only).
+
+    Fires in the same tick as the per-member reminders — same anchor/offset — but yields
+    exactly one occurrence for the whole cycle so only a single webhook post goes to
+    #general-member-chat. The period key is ``discord:voting:YYYY-MM`` (distinct from the
+    per-member period) so this fires independently of whether the member reminders have
+    already been deduped.
+
+    The Discord body includes live standings built the same way as the ``/voting`` slash
+    command: ranked bars for guilds with points, then zero-point guilds alphabetically.
+    """
+    from membership.models import VotingSettings
+
+    settings = VotingSettings.load()
+    if not settings.reminders_enabled:
+        return
+
+    from django.urls import reverse
+
+    from core.events.scheduler import ScheduledOccurrence
+    from membership.discord_commands import _BAR_WIDTH, _bar
+    from membership.models import Guild
+    from membership.orientations import _absolute_url
+    from membership.vote_calculator import compute_live_standings
+
+    standings = compute_live_standings()
+    ranked_names = {row["guild_name"] for row in standings}
+    active_names = list(Guild.objects.filter(is_active=True).order_by("name").values_list("name", flat=True))
+    zero_point_names = [name for name in active_names if name not in ranked_names]
+
+    _MEDALS = ["🥇", "🥈", "🥉"]
+    lines: list[str] = []
+    if not standings:
+        lines.append("No votes yet this cycle — the standings are wide open. Be the first!")
+    for rank, row in enumerate(standings, start=1):
+        bar = f"`{_bar(row['bar_pct'])}`"
+        if rank <= len(_MEDALS):
+            lines.append(f"{_MEDALS[rank - 1]} {bar} **{row['guild_name']}** — {row['total_points']} pts")
+        else:
+            lines.append(f"`{rank}.` {bar} {row['guild_name']} — {row['total_points']} pts")
+    empty_bar = "░" * _BAR_WIDTH
+    lines.extend(f"`{empty_bar}` {name} — 0 pts" for name in zero_point_names)
+    standings_text = "\n".join(lines)
+
+    stats = cycle_turnout_stats()
+    voting_url = _absolute_url(reverse("hub_guild_voting"))
+
+    yield ScheduledOccurrence(
+        event_key=VOTING_DISCORD_REMINDER,
+        anchor=month_end_close(now),
+        offset=timedelta(days=-settings.reminder_lead_days),
+        context={
+            "cycle_label": cycle_label(now),
+            "closes_on": closes_on_display(now),
+            "turnout_count": stats["turnout_count"],
+            "pool_display": stats["pool_display"],
+            "standings_text": standings_text,
+            "voting_url": voting_url,
+        },
+        period=f"discord:{cycle_period(now)}",
+        url=voting_url,
+        discord_mention="@everyone",
     )

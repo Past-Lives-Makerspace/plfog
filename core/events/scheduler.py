@@ -79,6 +79,7 @@ class ScheduledOccurrence:
     messages: dict[Channel, Message] | None = None
     attachments: dict[Channel, list[Attachment]] | None = None
     email_to: str | list[str] | None = None
+    discord_mention: str = ""
 
     def is_due(self, *, now: datetime | None = None, window: timedelta = DEFAULT_WINDOW) -> bool:
         """Whether this occurrence's fire time lands in the current tick window."""
@@ -99,6 +100,7 @@ class ScheduledOccurrence:
             messages=self.messages,
             attachments=self.attachments,
             email_to=self.email_to,
+            discord_mention=self.discord_mention,
         )
 
 
