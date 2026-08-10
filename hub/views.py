@@ -57,6 +57,7 @@ from membership.vote_calculator import compute_live_standings, compute_new_votes
 from membership.models import (
     FundingSnapshot,
     Guild,
+    HelpCategory,
     Member,
     MemberContact,
     OrgInfoPage,
@@ -64,6 +65,7 @@ from membership.models import (
     SkillCategory,
     SpaceRequestQuerySet,
     VotePreference,
+    WikiArticle,
 )
 from membership.ical import ical_escape
 from membership.permissions import can_edit_category as _can_edit_category
@@ -2294,29 +2296,144 @@ def spaces(request: HttpRequest) -> HttpResponse:
 
 
 def help_page(request: HttpRequest) -> HttpResponse:
-    """Public Help page — how the app works: intro, how-it-works guides, FAQ, conduct link.
+    """Public Help landing — category grid, search, Josh's reference blocks, FAQ, resources.
 
-    The reference half of the old combined ``/info/`` page. Public-read for the same reason
-    it always was: org-wide reference content, no member PII. Editing is admin-only via
-    ``help_edit``. Anything about the *building* now lives on ``spaces``; the makerspace's
-    full external knowledge base is the separate "Wiki" nav link.
+    Public-read for the same reason it always was: org-wide reference content, no member
+    PII. Editing is admin-only via ``help_edit``. Uncategorized published guides render in
+    the permanent "All guides" fallback list, so nothing vanishes between migrate and seed.
+    ``legacy_anchor_map`` covers the old ``/help/#slug`` deep links — filtered to targets
+    that exist and are published, resolved to full article URLs for the inline redirect JS.
     """
+    from membership.help_content import LEGACY_SLUG_MAP, UNLISTED_SLUGS
+
     if not SiteConfiguration.load().help_page_enabled:
         return redirect("hub_home")
 
     page = OrgInfoPage.load()
     org_ct = ContentType.objects.get_for_model(OrgInfoPage)
+    live_targets = {
+        a.slug: a
+        for a in WikiArticle.objects.published()
+        .filter(slug__in=set(LEGACY_SLUG_MAP.values()))
+        .select_related("category")
+    }
+    legacy_anchor_map = {
+        old: live_targets[new].get_absolute_url() for old, new in LEGACY_SLUG_MAP.items() if new in live_targets
+    }
     return render(
         request,
         "hub/help.html",
         {
             **_get_hub_context(request),
             "page": page,
-            "articles": page.articles.filter(is_published=True).order_by("sort_order", "pk"),
+            "categories": HelpCategory.objects.with_published_counts().nonempty().landing_ranked(),
+            "uncategorized": (
+                WikiArticle.objects.published()
+                .filter(category__isnull=True)
+                .exclude(slug__in=UNLISTED_SLUGS)
+                .order_by("sort_order", "pk")
+            ),
+            "legacy_anchor_map": legacy_anchor_map,
             "faq_items": page.faq_items.all(),
             "links": page.links.all(),
             "can_edit": _viewing_as_admin(request),
             "org_ct_id": org_ct.pk,
+        },
+    )
+
+
+def help_category(request: HttpRequest, category_slug: str) -> HttpResponse:
+    """Public category browse — the published guides in one category, in ``(sort_order, pk)`` order.
+
+    Admins additionally see the category's drafts, flagged with a Draft badge. Unlisted
+    guides never appear here (their canonical URL is the only way in, by design).
+    """
+    from membership.help_content import UNLISTED_SLUGS
+
+    if not SiteConfiguration.load().help_page_enabled:
+        return redirect("hub_home")
+
+    category = get_object_or_404(HelpCategory, slug=category_slug)
+    articles = category.articles.filter(is_published=True).exclude(slug__in=UNLISTED_SLUGS).order_by("sort_order", "pk")
+    is_admin = _viewing_as_admin(request)
+    drafts = (
+        category.articles.filter(is_published=False).order_by("sort_order", "pk")
+        if is_admin
+        else WikiArticle.objects.none()
+    )
+    return render(
+        request,
+        "hub/help_category.html",
+        {
+            **_get_hub_context(request),
+            "category": category,
+            "articles": articles,
+            "drafts": drafts,
+            "can_edit": is_admin,
+        },
+    )
+
+
+def help_article(request: HttpRequest, category_slug: str, article_slug: str) -> HttpResponse:
+    """Public article page — resolved by article slug alone (globally unique via the page constraint).
+
+    Missing → 404. Unpublished → 404 unless the viewer is an admin (who sees a Draft
+    banner). A stale ``category_slug`` (recategorized guide, hand-typed URL) 301s to the
+    canonical URL, so old article links never break when a guide moves categories.
+    Unlisted articles resolve normally here — the URL is the only way in, by design.
+    """
+    if not SiteConfiguration.load().help_page_enabled:
+        return redirect("hub_home")
+
+    article = WikiArticle.objects.filter(slug=article_slug).select_related("category").first()
+    if article is None:
+        raise Http404("No guide with that slug.")
+    is_admin = _viewing_as_admin(request)
+    if not article.is_published and not is_admin:
+        raise Http404("No guide with that slug.")
+    if category_slug != article.url_category_segment:
+        return redirect(article.get_absolute_url(), permanent=True)
+    siblings = (
+        list(article.category.articles.filter(is_published=True).order_by("sort_order", "pk"))
+        if article.category
+        else []
+    )
+    return render(
+        request,
+        "hub/help_article.html",
+        {
+            **_get_hub_context(request),
+            "article": article,
+            "toc": article.toc(),
+            "related": article.related_for_display(),
+            "previous_article": article.previous_in_category(),
+            "next_article": article.next_in_category(),
+            "siblings": siblings,
+            "has_other_siblings": any(s.pk != article.pk for s in siblings),
+            "can_edit": is_admin,
+        },
+    )
+
+
+def help_search(request: HttpRequest) -> HttpResponse:
+    """Public help search — plain GET ``?q=``, per-term AND across title/body/category name.
+
+    The view builds ``(article, snippet)`` pairs via ``search_snippet``; empty ``q``
+    renders the prompt state with the category list as suggestions.
+    """
+    if not SiteConfiguration.load().help_page_enabled:
+        return redirect("hub_home")
+
+    q = request.GET.get("q", "").strip()
+    results = [(article, article.search_snippet(q)) for article in WikiArticle.objects.search(q)]
+    return render(
+        request,
+        "hub/help_search.html",
+        {
+            **_get_hub_context(request),
+            "q": q,
+            "results": results,
+            "categories": HelpCategory.objects.with_published_counts().nonempty().landing_ranked(),
         },
     )
 

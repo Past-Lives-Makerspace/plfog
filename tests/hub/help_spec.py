@@ -195,12 +195,12 @@ def describe_org_info_read_page():
         OrgLinkFactory(label="Handbook", url="https://example.com/h")
         assert b"Handbook" in client.get(reverse("hub_help")).content
 
-    def describe_wiki_articles():
-        def it_renders_a_published_article_with_its_anchor_and_toc_link(client: Client):
-            WikiArticleFactory(title="Guild voting", body="Rank three guilds.", is_published=True)
+    def describe_the_all_guides_fallback_list():
+        def it_lists_an_uncategorized_published_guide_with_its_canonical_link(client: Client):
+            article = WikiArticleFactory(title="Guild voting", body="Rank three guilds.", is_published=True)
             resp = client.get(reverse("hub_help"))
-            assert b'id="guild-voting"' in resp.content
-            assert b'href="#guild-voting"' in resp.content
+            assert b"All guides" in resp.content
+            assert f'href="{article.get_absolute_url()}"'.encode() in resp.content
             assert b"Rank three guilds." in resp.content
 
         def it_hides_a_draft_article_from_a_guest(client: Client):
@@ -209,15 +209,85 @@ def describe_org_info_read_page():
             assert b"Secret draft" not in resp.content
             assert b"Not ready yet." not in resp.content
 
-        def it_hides_the_table_of_contents_when_no_articles_are_published(client: Client):
-            WikiArticleFactory(title="Draft only", is_published=False)
-            assert b"pl-wiki-toc" not in client.get(reverse("hub_help")).content
+        def it_hides_unlisted_articles(client: Client):
+            WikiArticleFactory(title="Instructor orientation", slug="instructor-orientation", is_published=True)
+            assert b"Instructor orientation" not in client.get(reverse("hub_help")).content
 
-        def it_exposes_only_published_articles_in_the_context(client: Client):
+        def it_keeps_categorized_guides_off_the_fallback_list(client: Client):
+            category = HelpCategoryFactory(name="Guilds")
+            WikiArticleFactory(title="Guild voting", category=category, is_published=True)
+            resp = client.get(reverse("hub_help"))
+            assert b"All guides" not in resp.content
+
+        def it_exposes_only_published_uncategorized_articles_in_the_context(client: Client):
             WikiArticleFactory(title="Live guide", is_published=True)
             WikiArticleFactory(title="Hidden guide", is_published=False)
+            WikiArticleFactory(title="Categorized guide", category=HelpCategoryFactory(), is_published=True)
             resp = client.get(reverse("hub_help"))
-            assert [a.title for a in resp.context["articles"]] == ["Live guide"]
+            assert [a.title for a in resp.context["uncategorized"]] == ["Live guide"]
+
+    def describe_the_category_grid():
+        def it_groups_categories_under_audience_headings_in_rank_order(client: Client):
+            for audience, name, sort in [
+                (HelpCategory.Audience.ADMIN, "Admin tools", 10),
+                (HelpCategory.Audience.GUILD_LEAD, "Running a guild", 20),
+                (HelpCategory.Audience.INSTRUCTOR, "Teaching things", 30),
+                (HelpCategory.Audience.MEMBER, "Getting started", 40),
+            ]:
+                WikiArticleFactory(category=HelpCategoryFactory(name=name, audience=audience, sort_order=sort))
+            content = client.get(reverse("hub_help")).content
+            positions = [
+                content.index(b"For every member"),
+                content.index(b"Teaching"),
+                content.index(b"Running a guild"),
+                content.index(b"Admin"),
+            ]
+            assert positions == sorted(positions)
+
+        def it_renders_the_card_with_count_badge_and_category_link(client: Client):
+            category = HelpCategoryFactory(name="Guilds", description="Voting and pages.")
+            WikiArticleFactory(category=category)
+            WikiArticleFactory(category=category)
+            resp = client.get(reverse("hub_help"))
+            assert f'href="{reverse("hub_help_category", args=[category.slug])}"'.encode() in resp.content
+            assert b"2 guides" in resp.content
+            assert b"Voting and pages." in resp.content
+            assert b"pl-help-badge" in resp.content
+
+        def it_hides_a_category_with_no_published_guides(client: Client):
+            HelpCategoryFactory(name="Empty category")
+            draft_cat = HelpCategoryFactory(name="Drafts only")
+            WikiArticleFactory(category=draft_cat, is_published=False)
+            content = client.get(reverse("hub_help")).content
+            assert b"Empty category" not in content
+            assert b"Drafts only" not in content
+
+    def describe_the_search_card():
+        def it_points_the_search_form_at_the_search_view(client: Client):
+            resp = client.get(reverse("hub_help"))
+            assert f'action="{reverse("hub_help_search")}"'.encode() in resp.content
+
+    def describe_legacy_anchors():
+        def it_maps_old_slugs_to_live_article_urls_and_drops_dead_targets(client: Client, monkeypatch):
+            article = WikiArticleFactory(title="Getting oriented", slug="getting-oriented", is_published=True)
+            monkeypatch.setattr(
+                "membership.help_content.LEGACY_SLUG_MAP",
+                {"orientations": "getting-oriented", "connecting-discord": "notifications"},
+            )
+            resp = client.get(reverse("hub_help"))
+            assert resp.context["legacy_anchor_map"] == {"orientations": article.get_absolute_url()}
+            assert b'id="help-legacy-anchors"' in resp.content
+
+        def it_drops_targets_that_exist_but_are_unpublished(client: Client, monkeypatch):
+            WikiArticleFactory(slug="getting-oriented", is_published=False)
+            monkeypatch.setattr("membership.help_content.LEGACY_SLUG_MAP", {"orientations": "getting-oriented"})
+            resp = client.get(reverse("hub_help"))
+            assert resp.context["legacy_anchor_map"] == {}
+
+        def it_emits_an_empty_map_by_default(client: Client):
+            resp = client.get(reverse("hub_help"))
+            assert resp.context["legacy_anchor_map"] == {}
+            assert b'id="help-legacy-anchors"' in resp.content
 
     def it_shows_an_edit_button_for_an_admin(client: Client):
         _user_with_role("adm_edit_btn", fog_role=Member.FogRole.ADMIN)
@@ -535,6 +605,198 @@ def describe_wiki_article_form_category_and_related():
 
     def it_labels_the_empty_category_choice_as_hidden_from_the_landing_grid(db):
         assert WikiArticleForm().fields["category"].empty_label == "— No category (hidden from the landing grid) —"
+
+
+def describe_help_center_feature_flag():
+    @pytest.fixture
+    def flag_off(db) -> None:
+        config = SiteConfiguration.load()
+        config.help_page_enabled = False
+        config.save()
+
+    def it_redirects_every_public_help_get_to_home_when_disabled(client: Client, flag_off):
+        urls = [
+            reverse("hub_help"),
+            reverse("hub_help_search"),
+            reverse("hub_help_category", args=["guilds"]),
+            reverse("hub_help_article", args=["guilds", "guild-voting"]),
+        ]
+        for url in urls:
+            resp = client.get(url)
+            assert resp.status_code == 302, url
+            assert resp.url == reverse("hub_home"), url
+
+
+def describe_help_category_page():
+    def it_lists_published_guides_in_order_with_lead_text(client: Client):
+        category = HelpCategoryFactory(name="Guilds", description="Everything guilds.")
+        second = WikiArticleFactory(title="Zed guide", category=category, sort_order=20, body="Zed lead here.")
+        first = WikiArticleFactory(title="Alpha guide", category=category, sort_order=10)
+        resp = client.get(reverse("hub_help_category", args=[category.slug]))
+        assert resp.status_code == 200
+        assert list(resp.context["articles"]) == [first, second]
+        assert b"Zed lead here." in resp.content
+        assert f'href="{first.get_absolute_url()}"'.encode() in resp.content
+        assert b"Everything guilds." in resp.content
+
+    def it_renders_the_breadcrumb_back_to_help(client: Client):
+        category = HelpCategoryFactory()
+        WikiArticleFactory(category=category)
+        resp = client.get(reverse("hub_help_category", args=[category.slug]))
+        assert b"pl-help-breadcrumbs" in resp.content
+        assert f'href="{reverse("hub_help")}"'.encode() in resp.content
+
+    def it_excludes_unlisted_articles(client: Client):
+        category = HelpCategoryFactory()
+        WikiArticleFactory(title="Instructor orientation", slug="instructor-orientation", category=category)
+        resp = client.get(reverse("hub_help_category", args=[category.slug]))
+        assert b"Instructor orientation" not in resp.content
+
+    def it_hides_drafts_from_a_member(client: Client):
+        category = HelpCategoryFactory()
+        WikiArticleFactory(title="Live guide", category=category)
+        WikiArticleFactory(title="Hidden draft", category=category, is_published=False)
+        resp = client.get(reverse("hub_help_category", args=[category.slug]))
+        assert b"Live guide" in resp.content
+        assert b"Hidden draft" not in resp.content
+
+    def it_flags_drafts_for_an_admin(client: Client):
+        _user_with_role("cat_draft_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="cat_draft_admin", password="pass")
+        category = HelpCategoryFactory()
+        WikiArticleFactory(title="Hidden draft", category=category, is_published=False)
+        resp = client.get(reverse("hub_help_category", args=[category.slug]))
+        assert b"Hidden draft" in resp.content
+        assert b"Draft" in resp.content
+        assert b"Edit guides" in resp.content
+
+    def it_renders_the_empty_state_with_a_way_back(client: Client):
+        category = HelpCategoryFactory(name="Nothing here")
+        resp = client.get(reverse("hub_help_category", args=[category.slug]))
+        assert b"No guides here yet." in resp.content
+        assert b"Back to Help" in resp.content
+
+    def it_404s_an_unknown_slug(client: Client):
+        assert client.get(reverse("hub_help_category", args=["nope"])).status_code == 404
+
+
+def describe_help_article_page():
+    def it_renders_the_body_through_the_help_profile_with_toc_and_aside(client: Client):
+        category = HelpCategoryFactory(name="Guilds")
+        article = WikiArticleFactory(
+            title="Guild voting",
+            category=category,
+            body="## Rank your top 3 {#rank-top-3}\n\nPick three guilds.",
+        )
+        sibling = WikiArticleFactory(title="Other guide", category=category)
+        resp = client.get(article.get_absolute_url())
+        assert resp.status_code == 200
+        assert b"pl-md--help" in resp.content
+        assert b'href="#rank-top-3"' in resp.content
+        assert b"On this page" in resp.content
+        assert b"In this category" in resp.content
+        assert f'href="{sibling.get_absolute_url()}"'.encode() in resp.content
+        assert f'href="{reverse("hub_help_category", args=[category.slug])}"'.encode() in resp.content
+
+    def it_hides_the_toc_when_the_body_has_no_anchored_headings(client: Client):
+        article = WikiArticleFactory(body="Just a paragraph.")
+        resp = client.get(article.get_absolute_url())
+        assert b"On this page" not in resp.content
+
+    def it_renders_related_guides_and_prev_next(client: Client):
+        category = HelpCategoryFactory()
+        previous = WikiArticleFactory(title="Previous guide", category=category, sort_order=10)
+        article = WikiArticleFactory(title="Middle guide", category=category, sort_order=20)
+        upcoming = WikiArticleFactory(title="Upcoming guide", category=category, sort_order=30)
+        resp = client.get(article.get_absolute_url())
+        assert b"Related guides" in resp.content
+        assert b"pl-help-prevnext" in resp.content
+        assert f'href="{previous.get_absolute_url()}"'.encode() in resp.content
+        assert f'href="{upcoming.get_absolute_url()}"'.encode() in resp.content
+
+    def it_hides_the_related_footer_and_prevnext_when_alone(client: Client):
+        article = WikiArticleFactory(title="Loner guide")
+        resp = client.get(article.get_absolute_url())
+        assert b"Related guides" not in resp.content
+        assert b"pl-help-prevnext" not in resp.content
+
+    def describe_when_uncategorized():
+        def it_renders_at_the_more_segment_with_help_only_breadcrumbs(client: Client):
+            article = WikiArticleFactory(title="Floating guide")
+            resp = client.get(article.get_absolute_url())
+            assert resp.status_code == 200
+            assert resp.request["PATH_INFO"].startswith("/help/more/")
+            assert b"In this category" not in resp.content
+            assert "Can't find it?".encode() in resp.content
+
+        def it_never_links_the_more_listing_itself(client: Client):
+            article = WikiArticleFactory(title="Floating guide")
+            resp = client.get(article.get_absolute_url())
+            assert b'href="/help/more/"' not in resp.content
+
+    def it_301s_a_stale_category_segment_to_the_canonical_url(client: Client):
+        category = HelpCategoryFactory(name="Guilds")
+        article = WikiArticleFactory(title="Guild voting", category=category)
+        resp = client.get(reverse("hub_help_article", args=["more", article.slug]))
+        assert resp.status_code == 301
+        assert resp.url == article.get_absolute_url()
+
+    def it_404s_an_unknown_article(client: Client):
+        HelpCategoryFactory(name="Guilds")
+        assert client.get(reverse("hub_help_article", args=["guilds", "nope"])).status_code == 404
+
+    def it_404s_the_more_pseudo_category_listing(client: Client):
+        assert client.get("/help/more/").status_code == 404
+
+    def it_resolves_an_unlisted_article_by_direct_url(client: Client):
+        article = WikiArticleFactory(title="Instructor orientation", slug="instructor-orientation")
+        assert client.get(article.get_absolute_url()).status_code == 200
+
+    def describe_when_the_article_is_a_draft():
+        def it_404s_for_a_member(client: Client):
+            article = WikiArticleFactory(title="Draft guide", is_published=False)
+            assert client.get(article.get_absolute_url()).status_code == 404
+
+        def it_shows_the_draft_banner_to_an_admin(client: Client):
+            _user_with_role("art_draft_admin", fog_role=Member.FogRole.ADMIN)
+            client.login(username="art_draft_admin", password="pass")
+            article = WikiArticleFactory(title="Draft guide", is_published=False)
+            resp = client.get(article.get_absolute_url())
+            assert resp.status_code == 200
+            assert "Draft — members can't see this yet".encode() in resp.content
+
+
+def describe_help_search_page():
+    def it_finds_articles_by_per_term_and_matching(client: Client):
+        match = WikiArticleFactory(title="Book a slot", body="How an orientation works.")
+        WikiArticleFactory(title="Book a slot", body="Nothing else.")
+        resp = client.get(reverse("hub_help_search"), {"q": "book orientation"})
+        assert resp.status_code == 200
+        assert [a for a, _ in resp.context["results"]] == [match]
+        assert b"1 guide matches" in resp.content
+
+    def it_marks_the_hit_in_the_snippet_and_shows_the_badges(client: Client):
+        category = HelpCategoryFactory(name="Guilds", audience=HelpCategory.Audience.GUILD_LEAD)
+        WikiArticleFactory(title="Guild voting", body="Rank the kiln guild.", category=category)
+        resp = client.get(reverse("hub_help_search"), {"q": "kiln"})
+        assert b"<mark>kiln</mark>" in resp.content
+        assert b"Guilds" in resp.content
+        assert b"Guild leads &amp; staff" in resp.content
+
+    def it_renders_the_prompt_state_with_category_suggestions_for_an_empty_q(client: Client):
+        category = HelpCategoryFactory(name="Getting started")
+        WikiArticleFactory(category=category)
+        resp = client.get(reverse("hub_help_search"))
+        assert b"Type something to search the guides." in resp.content
+        assert f'href="{reverse("hub_help_category", args=[category.slug])}"'.encode() in resp.content
+
+    def it_renders_the_no_results_state_with_a_browse_all_button(client: Client):
+        WikiArticleFactory(title="Guild voting")
+        resp = client.get(reverse("hub_help_search"), {"q": "zzzunfindable"})
+        assert b"Nothing matched &ldquo;zzzunfindable&rdquo;." in resp.content
+        assert b"Try fewer or different words." in resp.content
+        assert b"Browse all guides" in resp.content
+        assert f'href="{reverse("hub_help")}"'.encode() in resp.content
 
 
 def describe_hero_adjust_for_the_org_banner():

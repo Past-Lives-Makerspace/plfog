@@ -4,10 +4,12 @@
 {% block title %}Help{% endblock %}
 
 {% comment %}
-The Help page: how the makerspace app works — an intro, the plain-language how-it-works
-guides, parking & arrival, who to contact, the FAQ, and resource links (code of conduct
-included). Anything about the *building* lives on the Spaces page; the makerspace's full
-external knowledge base is the separate "Wiki" nav link. This page is prose and reference only.
+The Help landing: search, the category grid grouped by audience, the "All guides"
+fallback list for uncategorized guides, then Josh's reference blocks — parking &
+arrival, who to contact, the FAQ, and resource links (code of conduct included).
+Anything about the *building* lives on the Spaces page; the makerspace's full
+external knowledge base is the separate "Wiki" nav link. Old /help/#slug deep links
+are re-pointed at their article pages by the legacy-anchor script at the bottom.
 {% endcomment %}
 
 {% block content %}
@@ -84,21 +86,47 @@ external knowledge base is the separate "Wiki" nav link. This page is prose and 
 </div>
 {% endif %}
 
+{# Search first — the first interactive thing on the page. #}
+<div class="hub-card pl-help-searchcard">
+    {% url 'hub_help_search' as search_url %}
+    {% include "components/table_search.html" with action=search_url placeholder="Search the guides…" %}
+</div>
+
 <div class="pl-guild-grid">
     <main>
-        {% if articles %}
-        <nav class="pl-wiki-toc" aria-label="On this page">
-            <h2 class="hub-detail-label">On this page</h2>
-            <ul>
-                {% for a in articles %}<li><a href="#{{ a.slug }}">{{ a.title }}</a></li>{% endfor %}
-            </ul>
-        </nav>
-        {% for a in articles %}
-        <section class="pl-guild-section pl-wiki-article" id="{{ a.slug }}">
-            <h2 class="pl-guild-section__h2">{{ a.title }}</h2>
-            <div class="pl-md">{{ a.body|guild_markdown }}</div>
+        {% if categories %}
+        {% regroup categories by audience_heading as audience_groups %}
+        {% for group in audience_groups %}
+        <section class="pl-guild-section">
+            <h2 class="hub-detail-label">{{ group.grouper }}</h2>
+            <div class="pl-helpcat-grid">
+                {% for category in group.list %}
+                <a class="pl-helpcat-card" href="{% url 'hub_help_category' category.slug %}">
+                    <span class="pl-helpcat-card__name">{{ category.name }}</span>
+                    {% if category.description %}<span class="pl-helpcat-card__desc">{{ category.description }}</span>{% endif %}
+                    <span class="pl-helpcat-card__meta">
+                        <span class="pl-helpcat-card__count">{{ category.published_count }} guide{{ category.published_count|pluralize }}</span>
+                        <span class="pl-help-badge">{{ category.get_audience_display }}</span>
+                    </span>
+                </a>
+                {% endfor %}
+            </div>
         </section>
         {% endfor %}
+        {% endif %}
+
+        {% if uncategorized %}
+        <section class="pl-guild-section">
+            <h2 class="hub-detail-label">All guides</h2>
+            <ul class="pl-help-linklist">
+                {% for a in uncategorized %}
+                <li>
+                    <a href="{{ a.get_absolute_url }}">{{ a.title }}</a>
+                    {% if a.lead_text %}<span class="hub-text-muted">{{ a.lead_text }}</span>{% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </section>
         {% endif %}
 
         {% if page.parking %}
@@ -158,4 +186,14 @@ external knowledge base is the separate "Wiki" nav link. This page is prose and 
         </div>
     </aside>
 </div>
+
+{# Old /help/#slug links: a fragment never reaches the server, so re-point it client-side. #}
+{{ legacy_anchor_map|json_script:"help-legacy-anchors" }}
+<script>
+    (function () {
+        var map = JSON.parse(document.getElementById("help-legacy-anchors").textContent);
+        var slug = window.location.hash.replace("#", "");
+        if (map[slug]) { window.location.replace(map[slug]); }
+    })();
+</script>
 {% endblock %}

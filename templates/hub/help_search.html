@@ -1,0 +1,59 @@
+{% extends guilds_page_base|default:"hub/base.html" %}
+{% block title %}Search help{% endblock %}
+
+{% comment %}
+Search results: plain GET ?q= (the form posts back to this URL — no action needed).
+One card per hit with the category + audience badges and the <mark>-highlighted
+snippet (pre-escaped server-side, so |safe is safe here). Empty q renders the prompt
+state with the category list as suggestions; no results renders the tip plus a
+"Browse all guides" way back. Never a bare blank region.
+{% endcomment %}
+
+{% block content %}
+
+<nav class="pl-help-breadcrumbs" aria-label="Breadcrumb">
+    <a href="{% url 'hub_help' %}">Help</a>
+</nav>
+
+{% include "components/page_header.html" with title="Search help" %}
+
+<div class="hub-card pl-help-searchcard">
+    {% include "components/table_search.html" with q=q placeholder="Search the guides…" %}
+</div>
+
+{% if q %}
+    <p class="pl-help-searchcount hub-text-muted">{{ results|length }} guide{{ results|length|pluralize }} match{{ results|length|pluralize:"es," }} &ldquo;{{ q }}&rdquo;</p>
+    {% for article, snippet in results %}
+    <div class="hub-card pl-help-result">
+        <a class="pl-help-result__title" href="{{ article.get_absolute_url }}">{{ article.title }}</a>
+        <span class="pl-help-result__badges">
+            {% if article.category %}
+            <span class="pl-help-badge">{{ article.category.name }}</span>
+            <span class="pl-help-badge">{{ article.category.get_audience_display }}</span>
+            {% else %}
+            <span class="pl-help-badge">Members</span>
+            {% endif %}
+        </span>
+        <p class="pl-help-result__snippet">{{ snippet|safe }}</p>
+    </div>
+    {% endfor %}
+    {% if not results %}
+    <div class="hub-card">
+        <p style="margin:0 0 0.5rem;">Nothing matched &ldquo;{{ q }}&rdquo;.</p>
+        <p class="hub-text-muted" style="margin:0 0 1rem;">Try fewer or different words.</p>
+        <a href="{% url 'hub_help' %}" class="pl-btn pl-btn--secondary">Browse all guides</a>
+    </div>
+    {% endif %}
+{% else %}
+    <div class="hub-card">
+        <p class="hub-text-muted" style="margin:0;">Type something to search the guides.</p>
+        {% if categories %}
+        <ul class="pl-help-linklist" style="margin-top:1rem;">
+            {% for category in categories %}
+            <li><a href="{% url 'hub_help_category' category.slug %}">{{ category.name }}</a></li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+{% endif %}
+{% endblock %}

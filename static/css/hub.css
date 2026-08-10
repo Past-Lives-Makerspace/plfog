@@ -3241,6 +3241,48 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-md--help img { max-width: 100%; height: auto; border: 1px solid var(--hub-border); border-radius: 8px; margin: 0.75rem 0; }
 .pl-md--help [id] { scroll-margin-top: 1rem; }
 
+/* Help center — landing grid, badges, breadcrumbs, rows, article chrome, search. */
+.pl-help-searchcard { margin-bottom: 1.5rem; padding: 0.75rem 1rem; }
+.pl-helpcat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
+.pl-helpcat-card { display: flex; flex-direction: column; gap: 0.5rem; padding: 1rem 1.25rem; background: var(--hub-card-bg); border: 1px solid var(--hub-border); border-radius: 8px; text-decoration: none; color: var(--hub-text); }
+.pl-helpcat-card:hover { border-color: var(--color-tuscan-yellow); }
+.pl-helpcat-card__name { font-weight: 700; }
+.pl-helpcat-card__desc { color: var(--hub-text-muted); font-size: 0.875rem; }
+.pl-helpcat-card__meta { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: auto; }
+.pl-helpcat-card__count { color: var(--hub-text-muted); font-size: 0.8rem; }
+.pl-help-badge { display: inline-block; padding: 0.1rem 0.5rem; border: 1px solid var(--hub-border); border-radius: 999px; background: var(--hub-surface); color: var(--hub-text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.pl-help-breadcrumbs { margin-bottom: 0.75rem; font-size: 0.875rem; color: var(--hub-text-muted); }
+.pl-help-breadcrumbs a { color: var(--hub-text-muted); text-decoration: none; }
+.pl-help-breadcrumbs a:hover { color: var(--color-tuscan-yellow); }
+.pl-help-linklist { list-style: none; margin: 0; padding: 0; }
+.pl-help-linklist li { margin: 0 0 0.5rem; }
+.pl-help-linklist a { display: inline-block; margin-right: 0.5rem; color: var(--color-tuscan-yellow); text-decoration: none; }
+.pl-help-linklist a:hover { text-decoration: underline; }
+.pl-help-row { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 0.25rem; border-bottom: 1px solid var(--hub-border); text-decoration: none; color: var(--hub-text); }
+.pl-help-row:last-child { border-bottom: none; }
+.pl-help-row__body { flex: 1; min-width: 0; }
+.pl-help-row__title { display: block; color: var(--color-tuscan-yellow); font-weight: 600; }
+.pl-help-row:hover .pl-help-row__title { text-decoration: underline; }
+.pl-help-row__lead { display: block; font-size: 0.875rem; margin-top: 0.25rem; }
+.pl-help-row__chevron { color: var(--hub-text-muted); font-size: 1.25rem; }
+.pl-help-draftbanner { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; padding: 0.5rem 1rem; border: 1px solid var(--hub-border); border-radius: 8px; background: var(--hub-surface); color: var(--hub-text-muted); font-size: 0.875rem; }
+.pl-help-relatedgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.75rem; }
+.pl-help-relatedcard { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; padding: 0.75rem 1rem; background: var(--hub-card-bg); border: 1px solid var(--hub-border); border-radius: 8px; text-decoration: none; color: var(--hub-text); }
+.pl-help-relatedcard:hover { border-color: var(--color-tuscan-yellow); }
+.pl-help-relatedcard__title { font-weight: 600; }
+.pl-help-prevnext { display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-top: 1.5rem; }
+.pl-help-asidelist { list-style: none; margin: 0; padding: 0; }
+.pl-help-asidelist li { margin: 0 0 0.5rem; }
+.pl-help-asidelist a { color: var(--color-tuscan-yellow); text-decoration: none; }
+.pl-help-asidelist a:hover { text-decoration: underline; }
+.pl-help-searchcount { margin: 0 0 1rem; font-size: 0.875rem; }
+.pl-help-result { margin-bottom: 1rem; }
+.pl-help-result__title { display: inline-block; color: var(--color-tuscan-yellow); font-weight: 700; text-decoration: none; margin-right: 0.5rem; }
+.pl-help-result__title:hover { text-decoration: underline; }
+.pl-help-result__badges { display: inline-flex; gap: 0.5rem; vertical-align: middle; }
+.pl-help-result__snippet { margin: 0.5rem 0 0; color: var(--hub-text-muted); font-size: 0.9rem; }
+mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparent); color: inherit; border-radius: 3px; }
+
 .pl-guild-video { position: relative; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; background: #000; }
 .pl-guild-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .pl-guild-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5rem; }

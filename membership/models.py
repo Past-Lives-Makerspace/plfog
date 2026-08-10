@@ -7,6 +7,7 @@ from datetime import datetime as datetime_type
 from datetime import time as time_type
 from datetime import timedelta
 from decimal import Decimal
+from html import unescape
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
@@ -17,9 +18,10 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import BooleanField, Case, CharField, Count, DecimalField, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.functional import cached_property
-from django.utils.html import format_html
+from django.utils.html import escape, format_html, strip_tags
 from django.utils.safestring import SafeString
 
 from core.files import delete_orphan_on_replace
@@ -2206,6 +2208,29 @@ class HelpCategoryQuerySet(models.QuerySet):
         """Only categories with at least one published guide — call after ``with_published_counts``."""
         return self.filter(published_count__gt=0)
 
+    def landing_ranked(self) -> "HelpCategoryQuerySet":
+        """Audience-rank ordering for the Help landing: member → instructor → guild_lead → admin.
+
+        ``{% regroup %}`` only groups *adjacent* rows, so this ordering is what keeps each
+        audience heading contiguous on the landing grid (global ``(sort_order, pk)`` alone
+        would interleave the groups). ``audience_heading`` carries the group's display label.
+        """
+        rank = Case(
+            When(audience=HelpCategory.Audience.MEMBER, then=Value(0)),
+            When(audience=HelpCategory.Audience.INSTRUCTOR, then=Value(1)),
+            When(audience=HelpCategory.Audience.GUILD_LEAD, then=Value(2)),
+            When(audience=HelpCategory.Audience.ADMIN, then=Value(3)),
+            output_field=models.IntegerField(),
+        )
+        heading = Case(
+            When(audience=HelpCategory.Audience.MEMBER, then=Value("For every member")),
+            When(audience=HelpCategory.Audience.INSTRUCTOR, then=Value("Teaching")),
+            When(audience=HelpCategory.Audience.GUILD_LEAD, then=Value("Running a guild")),
+            When(audience=HelpCategory.Audience.ADMIN, then=Value("Admin")),
+            output_field=CharField(),
+        )
+        return self.annotate(audience_rank=rank, audience_heading=heading).order_by("audience_rank", "sort_order", "pk")
+
 
 class HelpCategory(models.Model):
     """A help-center category — groups :class:`WikiArticle` guides on the Help landing page."""
@@ -2276,10 +2301,54 @@ class HelpCategory(models.Model):
         super().save(*args, **kwargs)
 
 
+# Regex-based Markdown stripping for snippets/leads — deliberately no HTML round
+# trip, so raw HTML an author typed (e.g. a literal <script>) survives into the
+# plain text and gets escaped exactly once, at snippet-build time.
+_MD_CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+_MD_HEADING_MARK_RE = re.compile(r"^#{1,6}\s*", flags=re.MULTILINE)
+_MD_ANCHOR_RE = re.compile(r"\{#[^}]*\}")
+_MD_EMPHASIS_RE = re.compile(r"[*_`]")
+
+# One pass over the help-rendered body: h2/h3 headings that carry an id.
+_HELP_TOC_HEADING_RE = re.compile(r'<h([23])[^>]*\bid="([^"]+)"[^>]*>(.*?)</h\1>', re.DOTALL)
+
+
+def _markdown_to_text(source: str) -> str:
+    """Strip Markdown syntax to whitespace-normalized plain text."""
+    text = _MD_CODE_FENCE_RE.sub(" ", source)
+    text = _MD_IMAGE_RE.sub(r"\1", text)
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _MD_HEADING_MARK_RE.sub("", text)
+    text = _MD_ANCHOR_RE.sub("", text)
+    text = _MD_EMPHASIS_RE.sub("", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 class WikiArticleQuerySet(models.QuerySet):
     def published(self) -> "WikiArticleQuerySet":
         """Only the guides members should see — drafts stay off the public page."""
         return self.filter(is_published=True)
+
+    def search(self, q: str) -> "WikiArticleQuerySet":
+        """Plain help-center search: split ``q`` on whitespace and AND one clause per term.
+
+        Each term matches ``icontains`` across title, body, and category name; chained
+        filters AND the terms (a whole-string match would return zero results for
+        "how do I book an orientation"). Published, listed guides only — drafts and
+        ``help_content.UNLISTED_SLUGS`` never surface. Empty ``q`` returns ``none()``
+        (the view shows the prompt state instead).
+        """
+        terms = q.split()
+        if not terms:
+            return self.none()
+        from membership.help_content import UNLISTED_SLUGS
+
+        qs = self.published().exclude(slug__in=UNLISTED_SLUGS).select_related("category")
+        for term in terms:
+            qs = qs.filter(Q(title__icontains=term) | Q(body__icontains=term) | Q(category__name__icontains=term))
+        return qs
 
 
 class WikiArticle(models.Model):
@@ -2346,6 +2415,136 @@ class WikiArticle(models.Model):
         if category is None:
             return HelpCategory.Audience.MEMBER
         return category.audience
+
+    @property
+    def url_category_segment(self) -> str:
+        """The category segment of this guide's URL — the reserved ``more`` when uncategorized,
+        so every published article always has a canonical URL."""
+        return self.category.slug if self.category is not None else "more"
+
+    def get_absolute_url(self) -> str:
+        """Canonical help-center URL: ``/help/<category>/<article>/``."""
+        return reverse(
+            "hub_help_article",
+            kwargs={"category_slug": self.url_category_segment, "article_slug": self.slug},
+        )
+
+    def lead_text(self, limit: int = 160) -> str:
+        """First paragraph of the body, Markdown-stripped, truncated on a word boundary.
+
+        Used by category rows, the landing's "All guides" list, and search fallbacks.
+        Heading-only and image-only blocks are skipped — they aren't lead copy.
+        """
+        for block in re.split(r"\n\s*\n", self.body):
+            if block.lstrip().startswith("#"):
+                continue
+            text = _markdown_to_text(block)
+            if not text:
+                continue
+            if len(text) <= limit:
+                return text
+            return text[:limit].rsplit(" ", 1)[0] + "…"
+        return ""
+
+    def search_snippet(self, q: str, radius: int = 90) -> str:
+        """An HTML-escaped window around the first hit of ``q``, the match wrapped in ``<mark>``.
+
+        The body is Markdown-stripped to plain text; escaping happens *before* the
+        ``<mark>`` insertion, so the return value is safe to ``mark_safe`` in the
+        template. Title-only hits (no term in the body) fall back to the lead text.
+        """
+        text = _markdown_to_text(self.body)
+        lowered = text.lower()
+        hit_start = -1
+        hit_len = 0
+        for term in q.split():
+            idx = lowered.find(term.lower())
+            if idx != -1 and (hit_start == -1 or idx < hit_start):
+                hit_start, hit_len = idx, len(term)
+        if hit_start == -1:
+            return escape(self.lead_text())
+        start = max(0, hit_start - radius)
+        end = min(len(text), hit_start + hit_len + radius)
+        prefix = "…" if start > 0 else ""
+        suffix = "…" if end < len(text) else ""
+        return (
+            prefix
+            + escape(text[start:hit_start])
+            + "<mark>"
+            + escape(text[hit_start : hit_start + hit_len])
+            + "</mark>"
+            + escape(text[hit_start + hit_len : end])
+            + suffix
+        )
+
+    def related_for_display(self, limit: int = 3) -> list["WikiArticle"]:
+        """Guides for the "Related guides" footer — explicit picks first, same-category fill after.
+
+        Explicit published ``related_articles`` lead, in the order they were picked
+        (the M2M through rows' insertion order — seed order). Same-category published
+        siblings fill remaining slots by ``(sort_order, pk)``, excluding this article
+        and the already-picked; uncategorized guides get explicit picks only. Fewer
+        than ``limit`` exist → return fewer (the template hides an empty footer).
+        """
+        through = WikiArticle.related_articles.through
+        seed_order = list(
+            through.objects.filter(from_wikiarticle=self).order_by("pk").values_list("to_wikiarticle_id", flat=True)
+        )
+        explicit = {a.pk: a for a in self.related_articles.filter(is_published=True).select_related("category")}
+        picked = [explicit[pk] for pk in seed_order if pk in explicit][:limit]
+        if self.category_id is not None and len(picked) < limit:
+            fill = (
+                WikiArticle.objects.published()
+                .filter(category_id=self.category_id)
+                .exclude(pk__in={self.pk, *(a.pk for a in picked)})
+                .select_related("category")
+                .order_by("sort_order", "pk")
+            )
+            picked.extend(fill[: limit - len(picked)])
+        return picked
+
+    def next_in_category(self) -> "WikiArticle | None":
+        """The published neighbor after this guide in its category, ``(sort_order, pk)`` order.
+
+        ``None`` at the end of the category and for uncategorized guides — the
+        template hides the missing side.
+        """
+        if self.category_id is None:
+            return None
+        return (
+            WikiArticle.objects.published()
+            .filter(category_id=self.category_id)
+            .filter(Q(sort_order__gt=self.sort_order) | Q(sort_order=self.sort_order, pk__gt=self.pk))
+            .order_by("sort_order", "pk")
+            .first()
+        )
+
+    def previous_in_category(self) -> "WikiArticle | None":
+        """The published neighbor before this guide in its category — see :meth:`next_in_category`."""
+        if self.category_id is None:
+            return None
+        return (
+            WikiArticle.objects.published()
+            .filter(category_id=self.category_id)
+            .filter(Q(sort_order__lt=self.sort_order) | Q(sort_order=self.sort_order, pk__lt=self.pk))
+            .order_by("-sort_order", "-pk")
+            .first()
+        )
+
+    def toc(self) -> list[tuple[int, str, str]]:
+        """``(level, anchor_id, text)`` for the h2/h3 headings *with ids* in the rendered body.
+
+        One regex pass over the sanitized help-profile output — testable, no client JS.
+        Headings without ids are skipped; an article with none yields ``[]`` and the
+        TOC block hides.
+        """
+        from membership.markdown import render_markdown
+
+        html = render_markdown(self.body, profile="help")
+        return [
+            (int(level), anchor, unescape(strip_tags(inner)).strip())
+            for level, anchor, inner in _HELP_TOC_HEADING_RE.findall(html)
+        ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Slugify the title into an empty slug, de-duplicating within the page.

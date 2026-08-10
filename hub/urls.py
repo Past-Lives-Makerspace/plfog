@@ -187,6 +187,12 @@ urlpatterns = [
     path("help/links/save/", views.org_info_links_save, name="hub_org_info_links_save"),
     path("help/articles/save/", views.help_articles_save, name="hub_help_articles_save"),
     path("help/categories/save/", views.help_categories_save, name="hub_help_categories_save"),
+    path("help/search/", views.help_search, name="hub_help_search"),
+    # The slug catch-alls MUST stay below every fixed /help/… route (this rule also binds
+    # Spec B's /help/topics.json). "more" is the reserved uncategorized article segment —
+    # /help/more/ itself has no listing view and 404s in help_category by design.
+    path("help/<slug:category_slug>/", views.help_category, name="hub_help_category"),
+    path("help/<slug:category_slug>/<slug:article_slug>/", views.help_article, name="hub_help_article"),
     # Legacy: /info/ was the combined Space & Org Info page. Space-request emails and Discord
     # posts already carry /info/#hotspot-N links, so this must keep resolving — to the map.
     path(

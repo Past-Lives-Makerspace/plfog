@@ -109,5 +109,4 @@ def url_for(key: str) -> str:
     article = WikiArticle.objects.published().filter(slug=article_slug).select_related("category").first()
     if article is None:
         return "/help/"
-    category_segment = article.category.slug if article.category else "more"
-    return f"/help/{category_segment}/{article_slug}/#{key_entry['anchor']}"
+    return f"{article.get_absolute_url()}#{key_entry['anchor']}"

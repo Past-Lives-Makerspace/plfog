@@ -1,0 +1,93 @@
+{% extends guilds_page_base|default:"hub/base.html" %}
+{% load membership_md %}
+{% block title %}{{ article.title }} — Help{% endblock %}
+
+{% comment %}
+Article page: breadcrumbs (Help / category — /help/-only when uncategorized), the
+"On this page" TOC built server-side from article.toc(), the help-profile Markdown
+body (local screenshots, heading anchors, same-tab internal links), the related-guides
+footer, and prev/next within the category. The aside lists the category's guides plus
+a "Can't find it?" search card — uncategorized articles collapse to the search card
+alone. Admins previewing a draft get the Draft banner; members 404 instead.
+{% endcomment %}
+
+{% block content %}
+
+<nav class="pl-help-breadcrumbs" aria-label="Breadcrumb">
+    <a href="{% url 'hub_help' %}">Help</a>
+    {% if article.category %}<span aria-hidden="true">/</span> <a href="{% url 'hub_help_category' article.category.slug %}">{{ article.category.name }}</a>{% endif %}
+</nav>
+
+{% if can_edit %}
+    {% url 'hub_help_edit' as help_edit_url %}
+    {% include "components/page_header.html" with title=article.title action_url=help_edit_url|add:"?tab=articles" action_label="Edit" %}
+{% else %}
+    {% include "components/page_header.html" with title=article.title %}
+{% endif %}
+
+{% if not article.is_published %}
+<div class="pl-help-draftbanner">
+    <span class="pl-help-badge">Draft</span> Draft — members can't see this yet
+</div>
+{% endif %}
+
+<div class="pl-guild-grid">
+    <main>
+        {% if toc %}
+        <nav class="pl-wiki-toc" aria-label="On this page">
+            <h2 class="hub-detail-label">On this page</h2>
+            <ul>
+                {% for level, anchor, text in toc %}
+                <li class="pl-wiki-toc__l{{ level }}"><a href="#{{ anchor }}">{{ text }}</a></li>
+                {% endfor %}
+            </ul>
+        </nav>
+        {% endif %}
+
+        <div class="pl-md pl-md--help">{{ article.body|help_markdown }}</div>
+
+        {% if related %}
+        <section class="pl-guild-section">
+            <h2 class="hub-detail-label">Related guides</h2>
+            <div class="pl-help-relatedgrid">
+                {% for rel in related %}
+                <a class="pl-help-relatedcard" href="{{ rel.get_absolute_url }}">
+                    <span class="pl-help-relatedcard__title">{{ rel.title }}</span>
+                    {% if rel.category %}<span class="pl-help-badge">{{ rel.category.name }}</span>{% endif %}
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        {% if previous_article or next_article %}
+        <div class="pl-help-prevnext">
+            <span>{% if previous_article %}<a class="pl-btn pl-btn--secondary pl-btn--sm" href="{{ previous_article.get_absolute_url }}">&larr; {{ previous_article.title }}</a>{% endif %}</span>
+            <span>{% if next_article %}<a class="pl-btn pl-btn--secondary pl-btn--sm" href="{{ next_article.get_absolute_url }}">{{ next_article.title }} &rarr;</a>{% endif %}</span>
+        </div>
+        {% endif %}
+    </main>
+
+    <aside>
+        {% if article.category and has_other_siblings %}
+        <div class="hub-card">
+            <h3 class="hub-detail-label">In this category</h3>
+            <ul class="pl-help-asidelist">
+                {% for sibling in siblings %}
+                {% if sibling.pk == article.pk %}
+                <li class="pl-help-asidelist__current hub-text-muted">{{ sibling.title }}</li>
+                {% else %}
+                <li><a href="{{ sibling.get_absolute_url }}">{{ sibling.title }}</a></li>
+                {% endif %}
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+        <div class="hub-card">
+            <h3 class="hub-detail-label">Can't find it?</h3>
+            <p class="hub-text-muted" style="margin:0 0 0.75rem;">Search every guide in the help center.</p>
+            <a href="{% url 'hub_help_search' %}" class="pl-btn pl-btn--secondary pl-btn--sm">Search the guides</a>
+        </div>
+    </aside>
+</div>
+{% endblock %}
