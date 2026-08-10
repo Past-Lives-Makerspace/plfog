@@ -558,8 +558,11 @@ html.dark .cp-page {
 .cp-page .empty{padding:24px;text-align:center;color:var(--text3);font-size:11px}
 
 @media(max-width:768px){
-  .cp-page .cls-card{grid-template-columns:64px 1fr auto;gap:10px;padding:10px 12px}
-  .cp-page .cls-img,.cp-page .cls-img-ph{width:64px;height:48px}
+  /* Phone: the class card stays a vertical stack (flex column), so the photo fills
+     the full-width media box like the desktop card. The old compact 64x48 thumbnail
+     was for a horizontal 64px|text|price row that was never wired up (the card never
+     became display:grid), which left a tiny photo stranded in the 150px image box. */
+  .cp-page .cls-card{gap:10px;padding:10px 12px}
   .cp-page .dc-igrid{grid-template-columns:1fr}
   .cp-page #hero{padding:32px 20px}
   .cp-page #hero h1{font-size:24px}
