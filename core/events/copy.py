@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from django.utils.safestring import mark_safe
+
 from core.events.registry import Channel, EventType, Recipients, all_events, get_event
 
 # Channels that carry authored copy. Discord reuses the in-app/email copy (it is a
@@ -721,7 +723,12 @@ _CURATED: dict[str, EventCopy] = {
             # automated send; used for a one-off, e.g. a late "sorry this is overdue").
             "intro_note",
             "cycle_label",
+            # allocation_summary: plain-text lines for the text body.
             "allocation_summary",
+            # allocation_chart: app-built, email-safe HTML bar chart for the HTML body
+            # (FundingSnapshot.allocation_chart_html) — a SafeString the renderer injects
+            # unescaped. The text body still uses allocation_summary.
+            "allocation_chart",
             # ballot_recap: pre-formatted sentence for voters ("You voted — 1st: X, 2nd: Y, 3rd: Z.")
             # Empty string for non-voters so the paragraph renders blank rather than showing
             # "1st: , 2nd: , 3rd: ." with missing values.
@@ -737,6 +744,29 @@ _CURATED: dict[str, EventCopy] = {
             "intro_note": "Heads-up: this one's a little late — going forward results are automated.",
             "cycle_label": "June 2026",
             "allocation_summary": "Metal Guild — $600.00 (45.0%)\nFiber Guild — $400.00 (30.0%)",
+            # A two-bar sample so the live copy preview shows the real chart, not escaped
+            # tags. The send path builds this from FundingSnapshot.allocation_chart_html.
+            "allocation_chart": mark_safe(
+                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+                "style=\"border-collapse:collapse;margin:8px 0 20px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;\">"
+                '<tr><td style="padding:0 0 6px;">'
+                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>'
+                '<td align="left" style="color:#F4EFDD;font-size:14px;font-weight:600;padding:0 8px 5px 0;">🥇 Metal Guild</td>'
+                '<td align="right" style="color:#EEB44B;font-size:14px;font-weight:700;padding:0 0 5px;white-space:nowrap;">$600.00 &middot; 45.0%</td>'
+                "</tr></table>"
+                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#0a1929;border-radius:5px;">'
+                '<tr><td width="100%" style="height:18px;font-size:0;background-color:#EEB44B;background-image:linear-gradient(90deg,#EEB44B,#d4a043);border-radius:5px;">&nbsp;</td></tr></table>'
+                "</td></tr>"
+                '<tr><td style="padding:0 0 6px;">'
+                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>'
+                '<td align="left" style="color:#F4EFDD;font-size:14px;font-weight:600;padding:0 8px 5px 0;">🥈 Fiber Guild</td>'
+                '<td align="right" style="color:#EEB44B;font-size:14px;font-weight:700;padding:0 0 5px;white-space:nowrap;">$400.00 &middot; 30.0%</td>'
+                "</tr></table>"
+                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#0a1929;border-radius:5px;">'
+                '<tr><td width="67%" style="height:18px;font-size:0;background-color:#EEB44B;background-image:linear-gradient(90deg,#EEB44B,#d4a043);border-radius:5px;">&nbsp;</td>'
+                '<td style="height:18px;font-size:0;">&nbsp;</td></tr></table>'
+                "</td></tr></table>"
+            ),
             "ballot_recap": "You voted — 1st: Metal Guild, 2nd: Fiber Guild, 3rd: Wood Guild.",
             "vote_1st": "Metal Guild",
             "vote_2nd": "Fiber Guild",
@@ -762,7 +792,7 @@ _CURATED: dict[str, EventCopy] = {
                     "<p>Hi {{ member_name }},</p>"
                     "<p>{{ intro_note }}</p>"
                     "<p>The votes for {{ cycle_label }} are counted. Here's how the funding pool was split:</p>"
-                    "<pre>{{ allocation_summary }}</pre>"
+                    "{{ allocation_chart }}"
                     "<p>{{ ballot_recap }}</p>"
                     '<p><a href="{{ voting_url }}">See the full breakdown</a></p>'
                     "<p>Past Lives Makerspace</p>"

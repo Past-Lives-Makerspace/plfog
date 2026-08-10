@@ -279,3 +279,40 @@ def describe_send_results_audience_safety():
         )
         assert inapp_users == {active.user_id, opted_out.user_id}
         assert n == 2  # active + opted-out each had at least one fresh delivery
+
+
+def describe_allocation_chart_html():
+    def it_renders_one_escaped_bar_per_guild_with_dollars_and_share(db):
+        # Metal leads (both a 1st and a 2nd place point), so it should top the chart.
+        _voter("a@x.com", picks=(GuildFactory(name="Metal"), GuildFactory(name="Fiber"), GuildFactory(name="Wood")))
+        _voter("b@x.com", picks=(GuildFactory(name="Metal"), GuildFactory(name="Clay"), GuildFactory(name="Glass")))
+        snap = FundingSnapshot.take()
+        assert snap is not None
+
+        html = str(snap.allocation_chart_html())
+        # A guild name per row, the medal on the leader, and a money/percent figure.
+        assert "Metal" in html
+        assert "🥇" in html
+        assert "$" in html and "%" in html
+        # The leader fills the bar (width 100%); it is a real table bar, not a <pre> block.
+        assert 'width="100%"' in html
+        assert "<pre>" not in html
+
+    def it_html_escapes_guild_names(db):
+        _voter(
+            "a@x.com",
+            picks=(GuildFactory(name="Ben & Jerry's <Guild>"), GuildFactory(name="Fiber"), GuildFactory(name="Wood")),
+        )
+        snap = FundingSnapshot.take()
+        assert snap is not None
+        html = str(snap.allocation_chart_html())
+        assert "<Guild>" not in html
+        assert "&lt;Guild&gt;" in html
+        assert "&amp;" in html
+
+    def describe_with_a_voteless_or_legacy_snapshot():
+        def it_returns_empty_markup(db):
+            snap = FundingSnapshot.objects.create(
+                cycle_label="Legacy", contributor_count=0, funding_pool=Decimal("0"), results={}
+            )
+            assert str(snap.allocation_chart_html()) == ""

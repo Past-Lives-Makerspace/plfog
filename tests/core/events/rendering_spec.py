@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from django.utils.safestring import mark_safe
+
 from core.events.rendering import (
     placeholders_in,
     render_copy,
@@ -50,6 +52,26 @@ def describe_render_html():
     def it_escapes_the_missing_marker_too():
         out = str(render_html("<p>{{ gone }}</p>", {}))
         assert "[missing: gone]" in out
+
+    def describe_with_a_safestring_value():
+        def it_passes_app_built_markup_through_unescaped():
+            # A SafeString value is trusted app-built markup (e.g. the allocation chart)
+            # and is inserted verbatim — the whole point of the opt-in.
+            chart = mark_safe('<table><tr><td width="100%">bar</td></tr></table>')
+            out = str(render_html("<div>{{ chart }}</div>", {"chart": chart}))
+            assert '<table><tr><td width="100%">bar</td></tr></table>' in out
+
+        def it_still_escapes_plain_string_values_alongside_a_safestring():
+            # Marking one value safe must not weaken escaping for the others.
+            out = str(
+                render_html(
+                    "{{ chart }}{{ evil }}",
+                    {"chart": mark_safe("<b>ok</b>"), "evil": "<script>x</script>"},
+                )
+            )
+            assert "<b>ok</b>" in out
+            assert "<script>" not in out
+            assert "&lt;script&gt;" in out
 
 
 def describe_render_copy():

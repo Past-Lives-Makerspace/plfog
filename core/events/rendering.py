@@ -72,12 +72,23 @@ def render_html(template: str, context: Mapping[str, object]) -> SafeString:
     markup. Unknown placeholders become an escaped ``[missing: name]`` marker. Returns
     a :class:`~django.utils.safestring.SafeString` (the surrounding template is the
     intended HTML; only the interpolated values were escaped). Never raises.
+
+    A value that is already a :class:`~django.utils.safestring.SafeString` is inserted
+    **unescaped** — the opt-in Django convention for trusted, app-built markup (e.g. the
+    voting results bar chart :meth:`FundingSnapshot.allocation_chart_html`). This never
+    weakens the injection guard for DB copy: only *application code* can mark a context
+    value safe; a value drawn from the DB or user input is a plain ``str`` and is still
+    escaped. Any dynamic text inside a SafeString value must be escaped by whoever built
+    it (the chart renders through Django's autoescaping template engine, which does).
     """
 
     def _sub(match: re.Match[str]) -> str:
         name = match.group(1)
         if name in context:
-            return escape(str(context[name]))
+            value = context[name]
+            if isinstance(value, SafeString):
+                return str(value)  # trusted app-built markup — pass through unescaped
+            return escape(str(value))
         return escape(f"[missing: {name}]")
 
     return mark_safe(_PLACEHOLDER_RE.sub(_sub, template))  # noqa: S308 - values escaped above; literal is admin-authored

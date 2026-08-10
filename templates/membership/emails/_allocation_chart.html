@@ -1,0 +1,33 @@
+{% comment %}
+Email-safe guild-funding bar chart for the results email (voting.results_published).
+
+Rendered by FundingSnapshot.allocation_chart_html() into a SafeString and injected
+into the branded dark shell (#092E4C card, cream #F4EFDD text, gold #EEB44B). One row
+per guild, funding-descending: name (+ medal for the top three), the dollar amount and
+share of the pool, and a bar whose width is that guild's funding relative to the leader
+(the top guild fills the bar) -- mirroring the live standings on the voting page.
+
+Table-based with inline styles only, so it survives Gmail/Apple Mail/Outlook. `rows` is
+a list of {name, funding_display, share_display, width_pct, medal}; `name` is escaped by
+autoescape, the rest are app-built numbers.
+{% endcomment %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:8px 0 20px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+{% for row in rows %}
+    <tr>
+        <td style="padding:0 0 6px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+                <tr>
+                    <td align="left" style="color:#F4EFDD;font-size:14px;font-weight:600;line-height:1.3;padding:0 8px 5px 0;">{{ row.medal }}{{ row.name }}</td>
+                    <td align="right" style="color:#EEB44B;font-size:14px;font-weight:700;line-height:1.3;padding:0 0 5px;white-space:nowrap;">${{ row.funding_display }} &middot; {{ row.share_display }}%</td>
+                </tr>
+            </table>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;background-color:#0a1929;border-radius:5px;">
+                <tr>
+                    <td width="{{ row.width_pct }}%" style="height:18px;line-height:18px;font-size:0;background-color:#EEB44B;background-image:linear-gradient(90deg,#EEB44B,#d4a043);border-radius:5px;">&nbsp;</td>
+                    <td style="height:18px;line-height:18px;font-size:0;">&nbsp;</td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+{% endfor %}
+</table>
