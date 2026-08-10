@@ -6,6 +6,19 @@
    for dark mode via [data-theme="dark"] .cp-page.
 ==================================================================== */
 
+/* ── Global responsive-image reset ──────────────────────────────────────
+   Any <img> without a scoped size rule falls back to its native/attribute
+   size and can overflow a narrow viewport (guild logo SVGs in particular
+   ship with only a viewBox, no width/height, so an unscoped <img> renders
+   at the browser's 300x150 replaced-element default). Existing sized rules
+   (.pl-guild-hero__img, .pl-guild-gallery__item img, .cp-detail__hero-logo
+   img, etc.) all win by specificity — class selectors beat this bare
+   element selector — so nothing below needs to change. */
+img {
+    max-width: 100%;
+    height: auto;
+}
+
 /* Page background — replaces the old fixed Squarespace backdrop image.
    The portal now uses the FOG body background (light by default;
    dark when the theme toggle is on). */
