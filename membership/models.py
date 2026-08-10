@@ -15,7 +15,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.serializers.json import DjangoJSONEncoder
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.db.models import BooleanField, Case, CharField, DecimalField, Exists, OuterRef, Q, Sum, Value, When
+from django.db.models import BooleanField, Case, CharField, Count, DecimalField, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.functional import cached_property
@@ -2197,6 +2197,85 @@ class OrgLink(models.Model):
         return f"{self.label} (Space & Org Info)"
 
 
+class HelpCategoryQuerySet(models.QuerySet):
+    def with_published_counts(self) -> "HelpCategoryQuerySet":
+        """Annotate each category with the number of published guides it holds."""
+        return self.annotate(published_count=Count("articles", filter=Q(articles__is_published=True)))
+
+    def nonempty(self) -> "HelpCategoryQuerySet":
+        """Only categories with at least one published guide — call after ``with_published_counts``."""
+        return self.filter(published_count__gt=0)
+
+
+class HelpCategory(models.Model):
+    """A help-center category — groups :class:`WikiArticle` guides on the Help landing page."""
+
+    class Audience(models.TextChoices):
+        MEMBER = "member", "Members"
+        GUILD_LEAD = "guild_lead", "Guild leads & staff"
+        INSTRUCTOR = "instructor", "Instructors"
+        ADMIN = "admin", "Admins"
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Category name shown on the Help landing page, e.g. 'Running a guild'.",
+    )
+    slug = models.SlugField(
+        max_length=120,
+        unique=True,
+        blank=True,
+        help_text="URL segment (/help/<slug>/). Auto-filled from the name; stable once set.",
+    )
+    audience = models.CharField(
+        max_length=20,
+        choices=Audience.choices,
+        default=Audience.MEMBER,
+        help_text="Who this category is for — groups it on the landing page and drives the badge.",
+    )
+    description = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        help_text="One-liner under the name on the landing card.",
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Order within its audience group; lower shows first.",
+    )
+
+    objects = HelpCategoryQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.get_audience_display()})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Slugify the name into an empty slug (de-duplicated) and place new rows at the end.
+
+        The slug stays stable once set — only filled when blank, same idiom as
+        :meth:`WikiArticle.save`. A new row created with the default ``sort_order=0`` gets
+        ``max(existing sort_order) + 10`` so an admin-created category lands at the end
+        instead of jumping to the front (seeded categories pass explicit values).
+        """
+        from django.utils.text import slugify
+
+        if not self.slug:
+            base = slugify(self.name) or "category"
+            slug = base
+            n = 2
+            siblings = HelpCategory.objects.exclude(pk=self.pk)
+            while siblings.filter(slug=slug).exists():
+                slug = f"{base}-{n}"
+                n += 1
+            self.slug = slug
+        if self._state.adding and self.sort_order == 0:
+            current_max = HelpCategory.objects.aggregate(models.Max("sort_order"))["sort_order__max"]
+            self.sort_order = (current_max or 0) + 10
+        super().save(*args, **kwargs)
+
+
 class WikiArticleQuerySet(models.QuerySet):
     def published(self) -> "WikiArticleQuerySet":
         """Only the guides members should see — drafts stay off the public page."""
@@ -2225,6 +2304,24 @@ class WikiArticle(models.Model):
         help_text="URL anchor for deep links. Auto-filled from the title when left blank.",
     )
     body = models.TextField(help_text="The guide body. Supports Markdown.")
+    category = models.ForeignKey(
+        HelpCategory,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="articles",
+        help_text="Where this guide lives in the help center. Uncategorized guides don't appear on the landing grid.",
+    )
+    related_articles = models.ManyToManyField(
+        "self",
+        symmetrical=False,
+        blank=True,
+        related_name="related_to",
+        help_text=(
+            "Hand-picked guides shown under 'Related guides'. "
+            "Same-category guides fill any remaining slots automatically."
+        ),
+    )
     sort_order = models.PositiveIntegerField(default=0, help_text="Order on the page; lower shows first.")
     is_published = models.BooleanField(
         default=True,
@@ -2241,6 +2338,14 @@ class WikiArticle(models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+    @property
+    def audience(self) -> str:
+        """The category's audience — one source of truth; uncategorized guides read as member-facing."""
+        category = self.category
+        if category is None:
+            return HelpCategory.Audience.MEMBER
+        return category.audience
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Slugify the title into an empty slug, de-duplicating within the page.

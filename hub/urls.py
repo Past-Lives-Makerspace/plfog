@@ -186,6 +186,7 @@ urlpatterns = [
     path("help/faq/save/", views.org_info_faq_save, name="hub_org_info_faq_save"),
     path("help/links/save/", views.org_info_links_save, name="hub_org_info_links_save"),
     path("help/articles/save/", views.help_articles_save, name="hub_help_articles_save"),
+    path("help/categories/save/", views.help_categories_save, name="hub_help_categories_save"),
     # Legacy: /info/ was the combined Space & Org Info page. Space-request emails and Discord
     # posts already carry /info/#hotspot-N links, so this must keep resolving — to the map.
     path(

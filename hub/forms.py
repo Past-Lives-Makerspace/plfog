@@ -29,6 +29,7 @@ from membership.models import (
     GuildMeetingNote,
     GuildMeetingNoteAttachment,
     GuildOrientationSettings,
+    HelpCategory,
     MapHotspot,
     Member,
     MemberContact,
@@ -1096,20 +1097,73 @@ class OrgLinkForm(forms.ModelForm):
 OrgLinkFormSet = forms.inlineformset_factory(OrgInfoPage, OrgLink, form=OrgLinkForm, extra=0, can_delete=True)
 
 
+RESERVED_HELP_SLUGS = frozenset({"edit", "search", "categories", "articles", "faq", "links", "floorplan", "more"})
+"""Slugs that collide with the fixed /help/… routes — a category can never claim one."""
+
+
+class HelpCategoryForm(forms.ModelForm):
+    """A single help-center category row in the editor — mirrors ``OrgFAQItemForm``."""
+
+    class Meta:
+        model = HelpCategory
+        fields = ["name", "slug", "audience", "description", "sort_order"]
+        widgets = {"sort_order": forms.HiddenInput()}
+        help_texts = {
+            "slug": "Optional — the /help/ URL segment; auto-filled from the name.",
+        }
+
+    def clean_slug(self) -> str:
+        """Reject slugs that collide with the fixed /help/… routes."""
+        slug = cast(str, self.cleaned_data["slug"])
+        if slug in RESERVED_HELP_SLUGS:
+            raise forms.ValidationError("That name is reserved — pick another.")
+        return slug
+
+
+HelpCategoryFormSet = forms.modelformset_factory(HelpCategory, form=HelpCategoryForm, extra=0, can_delete=True)
+
+
 class WikiArticleForm(forms.ModelForm):
     """A single Wiki article row in the editor — mirrors ``OrgFAQItemForm``."""
 
+    category = forms.ModelChoiceField(
+        queryset=HelpCategory.objects.all(),
+        required=False,
+        empty_label="— No category (hidden from the landing grid) —",
+    )
+    related_articles = forms.ModelMultipleChoiceField(
+        queryset=WikiArticle.objects.all(),
+        required=False,
+        widget=forms.SelectMultiple(attrs={"size": 6}),
+        help_text=(
+            "Ctrl/Cmd-click to pick a few — shown under 'Related guides'. "
+            "Same-category guides fill the rest automatically."
+        ),
+    )
+
     class Meta:
         model = WikiArticle
-        fields = ["title", "slug", "body", "sort_order", "is_published"]
+        fields = ["title", "slug", "category", "body", "related_articles", "sort_order", "is_published"]
         widgets = {
             "sort_order": forms.HiddenInput(),
             "body": forms.Textarea(attrs={"rows": 10}),
         }
         help_texts = {
             "slug": "Optional. The #anchor for deep links (e.g. /help/#guild-voting). Leave blank to fill it from the title.",
-            "body": "You can use Markdown — **bold**, numbered lists, and [links](https://example.com) all render on the page.",
+            "body": (
+                "You can use Markdown — **bold**, numbered lists, and [links](https://example.com) all render "
+                "on the page. `![caption](/static/help/<guide-slug>/01-step.png)` embeds a screenshot — only "
+                "`/static/help/` images render. `### Heading {#anchor-id}` makes a linkable section."
+            ),
         }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """An article can't relate to itself — drop the row being edited from the picker."""
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            self.fields["related_articles"].queryset = WikiArticle.objects.exclude(  # type: ignore[attr-defined]
+                pk=self.instance.pk
+            )
 
 
 WikiArticleFormSet = forms.inlineformset_factory(

@@ -19,7 +19,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.views import redirect_to_login
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, QuerySet
-from django.forms import BaseInlineFormSet
+from django.forms import BaseInlineFormSet, BaseModelFormSet
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -2326,24 +2326,37 @@ def _org_info_edit_context(
     page: OrgInfoPage,
     *,
     form: OrgInfoPageForm | None = None,
+    faq_formset: BaseInlineFormSet | None = None,
+    link_formset: BaseInlineFormSet | None = None,
+    article_formset: BaseInlineFormSet | None = None,
+    category_formset: BaseModelFormSet | None = None,
+    active_tab: str | None = None,
 ) -> dict[str, Any]:
-    """Build the render context for the Space & Org Info editor (Content / Map / FAQ & Links).
+    """Build the render context for the Space & Org Info editor (Content / Map / FAQ & Links / …).
 
-    The main form covers Content + Map; the FAQ and Links formsets each save via their own
-    endpoint (they can't nest inside the main form), so they are always unbound here —
-    exactly the guild-editor idiom in ``_guild_edit_context``.
+    The main form covers Content + Map; the FAQ, Links, Articles, and Categories formsets each
+    save via their own endpoint (they can't nest inside the main form), so they render unbound
+    here unless the caller passes a bound one back in — the invalid-save re-render path, which
+    keeps field errors visible and the admin's edits intact. ``active_tab`` tells the template
+    which tab to open (it wins over the ``?tab=`` query param).
     """
-    from hub.forms import OrgFAQItemFormSet, OrgLinkFormSet, WikiArticleFormSet
+    from hub.forms import HelpCategoryFormSet, OrgFAQItemFormSet, OrgLinkFormSet, WikiArticleFormSet
 
     ctx = _get_hub_context(request)
     return {
         **ctx,
         "page": page,
         "form": form if form is not None else OrgInfoPageForm(instance=page),
-        "faq_formset": OrgFAQItemFormSet(instance=page, prefix="faq"),
-        "link_formset": OrgLinkFormSet(instance=page, prefix="links"),
-        "article_formset": WikiArticleFormSet(instance=page, prefix="articles"),
+        "faq_formset": faq_formset if faq_formset is not None else OrgFAQItemFormSet(instance=page, prefix="faq"),
+        "link_formset": link_formset if link_formset is not None else OrgLinkFormSet(instance=page, prefix="links"),
+        "article_formset": (
+            article_formset if article_formset is not None else WikiArticleFormSet(instance=page, prefix="articles")
+        ),
+        "category_formset": (
+            category_formset if category_formset is not None else HelpCategoryFormSet(prefix="categories")
+        ),
         "is_admin": _viewing_as_admin(request),
+        "active_tab": active_tab,
     }
 
 
@@ -2383,9 +2396,12 @@ def org_info_faq_save(request: HttpRequest) -> HttpResponse:
     if formset.is_valid():
         formset.save()
         messages.success(request, "FAQ saved.")
-    else:
-        messages.error(request, "Couldn't save the FAQ — check the highlighted fields.")
-    return redirect(f"{reverse('hub_help_edit')}?tab=faq")
+        return redirect(f"{reverse('hub_help_edit')}?tab=faq")
+    return render(
+        request,
+        "hub/org_info_edit.html",
+        _org_info_edit_context(request, page, faq_formset=formset, active_tab="faq"),
+    )
 
 
 @login_required
@@ -2402,9 +2418,12 @@ def org_info_links_save(request: HttpRequest) -> HttpResponse:
     if formset.is_valid():
         formset.save()
         messages.success(request, "Links saved.")
-    else:
-        messages.error(request, "Couldn't save the links — check the highlighted fields.")
-    return redirect(f"{reverse('hub_help_edit')}?tab=faq")
+        return redirect(f"{reverse('hub_help_edit')}?tab=faq")
+    return render(
+        request,
+        "hub/org_info_edit.html",
+        _org_info_edit_context(request, page, link_formset=formset, active_tab="faq"),
+    )
 
 
 @login_required
@@ -2421,9 +2440,38 @@ def help_articles_save(request: HttpRequest) -> HttpResponse:
     if formset.is_valid():
         formset.save()
         messages.success(request, "Help guides saved.")
-    else:
-        messages.error(request, "Couldn't save the guides — check the highlighted fields.")
-    return redirect(f"{reverse('hub_help_edit')}?tab=articles")
+        return redirect(f"{reverse('hub_help_edit')}?tab=articles")
+    return render(
+        request,
+        "hub/org_info_edit.html",
+        _org_info_edit_context(request, page, article_formset=formset, active_tab="articles"),
+    )
+
+
+@login_required
+@require_POST
+def help_categories_save(request: HttpRequest) -> HttpResponse:
+    """Save the help-center categories from their own form on the Categories tab. Admin only.
+
+    Valid → save + redirect back to the tab. Invalid → re-render the editor with the *bound*
+    formset and the Categories tab active, so field errors show inline and no edit is lost.
+    """
+    from hub.forms import HelpCategoryFormSet
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    formset = HelpCategoryFormSet(request.POST, prefix="categories")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Categories saved.")
+        return redirect(f"{reverse('hub_help_edit')}?tab=categories")
+    page = OrgInfoPage.load()
+    return render(
+        request,
+        "hub/org_info_edit.html",
+        _org_info_edit_context(request, page, category_formset=formset, active_tab="categories"),
+    )
 
 
 @login_required

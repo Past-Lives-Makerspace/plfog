@@ -14,8 +14,10 @@ from django.urls import reverse
 from PIL import Image
 
 from core.models import SiteConfiguration
-from membership.models import Member, OrgFAQItem, OrgInfoPage, OrgLink, WikiArticle
+from hub.forms import WikiArticleForm
+from membership.models import HelpCategory, Member, OrgFAQItem, OrgInfoPage, OrgLink, WikiArticle
 from tests.membership.factories import (
+    HelpCategoryFactory,
     MembershipPlanFactory,
     OrgFAQItemFactory,
     OrgLinkFactory,
@@ -67,6 +69,21 @@ def _link_payload(label: str, url: str) -> dict:
         "links-0-label": label,
         "links-0-url": url,
         "links-0-sort_order": "0",
+    }
+
+
+def _category_payload(name: str, *, slug: str = "", audience: str = "member", description: str = "") -> dict:
+    return {
+        "categories-TOTAL_FORMS": "1",
+        "categories-INITIAL_FORMS": "0",
+        "categories-MIN_NUM_FORMS": "0",
+        "categories-MAX_NUM_FORMS": "1000",
+        "categories-0-id": "",
+        "categories-0-name": name,
+        "categories-0-slug": slug,
+        "categories-0-audience": audience,
+        "categories-0-description": description,
+        "categories-0-sort_order": "0",
     }
 
 
@@ -274,6 +291,9 @@ def describe_org_info_editor_permissions():
     def it_forbids_a_member_from_saving_articles(member_client: Client):
         assert member_client.post(reverse("hub_help_articles_save")).status_code == 403
 
+    def it_forbids_a_member_from_saving_categories(member_client: Client):
+        assert member_client.post(reverse("hub_help_categories_save")).status_code == 403
+
     def it_forbids_a_member_from_deleting_the_floorplan(member_client: Client):
         assert member_client.post(reverse("hub_org_info_floorplan_delete")).status_code == 403
 
@@ -324,21 +344,25 @@ def describe_org_info_editor():
         assert resp.status_code == 302
         assert OrgFAQItem.objects.filter(question="Where are the restrooms?").exists()
 
-    def it_reports_a_faq_row_with_a_non_youtube_video(admin_client: Client):
+    def it_re_renders_a_faq_row_with_a_non_youtube_video(admin_client: Client):
         # A valid URL that isn't YouTube — passes URLField, then fails clean_video_url.
         resp = admin_client.post(
             reverse("hub_org_info_faq_save"), _faq_payload("Q?", "A", video_url="https://vimeo.com/12345")
         )
-        assert resp.status_code == 302
+        assert resp.status_code == 200
         assert not OrgFAQItem.objects.filter(question="Q?").exists()
+        # The bound formset re-renders on the right tab with the admin's edits intact.
+        assert b"section: 'faq' ||" in resp.content
+        assert b'value="Q?"' in resp.content
 
-    def it_rejects_a_faq_row_with_both_a_document_and_a_link(admin_client: Client):
+    def it_re_renders_a_faq_row_with_both_a_document_and_a_link(admin_client: Client):
         payload = _faq_payload("Q?", "A")
         payload["faq-0-document_url"] = "https://docs.example/x"
         payload["faq-0-document"] = SimpleUploadedFile("a.pdf", b"%PDF-1.4")
         resp = admin_client.post(reverse("hub_org_info_faq_save"), payload)
-        assert resp.status_code == 302
+        assert resp.status_code == 200
         assert not OrgFAQItem.objects.filter(question="Q?").exists()
+        assert b"Add a document OR a link for this answer, not both." in resp.content
 
     def it_deletes_a_saved_faq_row_flagged_for_deletion(admin_client: Client):
         faq = OrgFAQItemFactory(question="Old question?")
@@ -364,10 +388,13 @@ def describe_org_info_editor():
         assert resp.status_code == 302
         assert OrgLink.objects.filter(label="Handbook").exists()
 
-    def it_reports_invalid_links(admin_client: Client):
+    def it_re_renders_invalid_links_with_the_bound_formset(admin_client: Client):
         resp = admin_client.post(reverse("hub_org_info_links_save"), _link_payload("Bad", "not a url"))
-        assert resp.status_code == 302
+        assert resp.status_code == 200
         assert not OrgLink.objects.filter(label="Bad").exists()
+        # The FAQ & Links tab stays active and the admin's edits survive.
+        assert b"section: 'faq' ||" in resp.content
+        assert b'value="Bad"' in resp.content
 
     def it_deletes_the_floorplan(admin_client: Client):
         page = OrgInfoPage.load()
@@ -395,10 +422,14 @@ def describe_org_info_editor():
         article = WikiArticle.objects.get(title="Guild voting")
         assert article.slug == "guild-voting"
 
-    def it_reports_an_article_row_missing_its_body(admin_client: Client):
+    def it_re_renders_an_article_row_missing_its_body(admin_client: Client):
         resp = admin_client.post(reverse("hub_help_articles_save"), _article_payload("No body", ""))
-        assert resp.status_code == 302
+        assert resp.status_code == 200
         assert not WikiArticle.objects.filter(title="No body").exists()
+        # Bound re-render: the Articles tab stays active, the field error shows, edits survive.
+        assert b"section: 'articles' ||" in resp.content
+        assert b"This field is required." in resp.content
+        assert b'value="No body"' in resp.content
 
     def it_deletes_a_saved_article_row_flagged_for_deletion(admin_client: Client):
         article = WikiArticleFactory(title="Old guide")
@@ -418,6 +449,92 @@ def describe_org_info_editor():
         resp = admin_client.post(reverse("hub_help_articles_save"), payload)
         assert resp.status_code == 302
         assert not WikiArticle.objects.filter(pk=article.pk).exists()
+
+
+def describe_help_categories_editor():
+    @pytest.fixture
+    def admin_client(client: Client) -> Client:
+        _user_with_role("cat_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="cat_admin", password="pass")
+        return client
+
+    def it_renders_the_categories_tab_for_an_admin(admin_client: Client):
+        resp = admin_client.get(reverse("hub_help_edit"))
+        assert resp.status_code == 200
+        assert b"Save Categories" in resp.content
+        assert b"+ Add a category" in resp.content
+
+    def it_saves_a_new_category_and_redirects_back_to_the_tab(admin_client: Client):
+        resp = admin_client.post(reverse("hub_help_categories_save"), _category_payload("Getting started"))
+        assert resp.status_code == 302
+        assert resp.url == f"{reverse('hub_help_edit')}?tab=categories"
+        category = HelpCategory.objects.get(name="Getting started")
+        assert category.slug == "getting-started"
+
+    def it_deletes_a_saved_category_row_flagged_for_deletion(admin_client: Client):
+        category = HelpCategoryFactory(name="Old category")
+        payload = _category_payload(category.name, slug=category.slug)
+        payload["categories-INITIAL_FORMS"] = "1"
+        payload["categories-0-id"] = str(category.pk)
+        payload["categories-0-DELETE"] = "on"
+        resp = admin_client.post(reverse("hub_help_categories_save"), payload)
+        assert resp.status_code == 302
+        assert not HelpCategory.objects.filter(pk=category.pk).exists()
+
+    def describe_with_a_reserved_slug():
+        def it_re_renders_the_bound_formset_with_the_field_error(admin_client: Client):
+            resp = admin_client.post(reverse("hub_help_categories_save"), _category_payload("Weird name", slug="edit"))
+            assert resp.status_code == 200
+            assert "That name is reserved — pick another.".encode() in resp.content
+            assert not HelpCategory.objects.filter(name="Weird name").exists()
+
+        def it_keeps_the_categories_tab_active(admin_client: Client):
+            resp = admin_client.post(
+                reverse("hub_help_categories_save"), _category_payload("Weird name", slug="search")
+            )
+            assert b"section: 'categories' ||" in resp.content
+
+        def it_preserves_the_submitted_values(admin_client: Client):
+            resp = admin_client.post(
+                reverse("hub_help_categories_save"),
+                _category_payload("Weird name", slug="more", description="A description to keep."),
+            )
+            assert b'value="Weird name"' in resp.content
+            assert b'value="A description to keep."' in resp.content
+
+
+def describe_wiki_article_form_category_and_related():
+    @pytest.fixture
+    def admin_client(client: Client) -> Client:
+        _user_with_role("rel_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="rel_admin", password="pass")
+        return client
+
+    def it_round_trips_category_and_related_articles_through_the_editor(admin_client: Client):
+        category = HelpCategoryFactory(name="Guilds")
+        other = WikiArticleFactory(title="Other guide")
+        payload = _article_payload("Guild voting", "Rank three guilds.")
+        payload["articles-0-category"] = str(category.pk)
+        payload["articles-0-related_articles"] = [str(other.pk)]
+        resp = admin_client.post(reverse("hub_help_articles_save"), payload)
+        assert resp.status_code == 302
+        article = WikiArticle.objects.get(title="Guild voting")
+        assert article.category == category
+        assert list(article.related_articles.all()) == [other]
+
+    def it_excludes_the_article_itself_from_the_related_picker_when_editing(db):
+        article = WikiArticleFactory(title="Self guide")
+        other = WikiArticleFactory(title="Other guide")
+        queryset = WikiArticleForm(instance=article).fields["related_articles"].queryset
+        assert other in queryset
+        assert article not in queryset
+
+    def it_offers_every_article_on_an_unsaved_row(db):
+        existing = WikiArticleFactory(title="Existing guide")
+        assert existing in WikiArticleForm().fields["related_articles"].queryset
+
+    def it_labels_the_empty_category_choice_as_hidden_from_the_landing_grid(db):
+        assert WikiArticleForm().fields["category"].empty_label == "— No category (hidden from the landing grid) —"
 
 
 def describe_hero_adjust_for_the_org_banner():

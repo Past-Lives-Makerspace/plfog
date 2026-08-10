@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from django.db.utils import IntegrityError
 
-from membership.models import WikiArticle
-from tests.membership.factories import WikiArticleFactory
+from membership.models import HelpCategory, WikiArticle
+from tests.membership.factories import HelpCategoryFactory, WikiArticleFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -61,3 +61,11 @@ def describe_WikiArticle():
             live = WikiArticleFactory(title="Live", is_published=True)
             WikiArticleFactory(title="Draft", is_published=False)
             assert list(WikiArticle.objects.published()) == [live]
+
+    def describe_audience():
+        def it_delegates_to_the_category(db):
+            category = HelpCategoryFactory(audience=HelpCategory.Audience.INSTRUCTOR)
+            assert WikiArticleFactory(category=category).audience == HelpCategory.Audience.INSTRUCTOR
+
+        def it_falls_back_to_member_when_uncategorized(db):
+            assert WikiArticleFactory(category=None).audience == HelpCategory.Audience.MEMBER
