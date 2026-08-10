@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.58"
+VERSION = "0.23.59"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.59",
+        "date": "2026-08-09",
+        "title": "Photos now fit your screen, especially on phones",
+        "changes": [
+            "Some photos — guild icons and logos especially — could show up way too big on a phone and "
+            "spill off the edge of the screen. Every photo across the site now automatically resizes to "
+            "fit, so pages look right no matter what device you're using.",
+        ],
+    },
     {
         "version": "0.23.58",
         "date": "2026-08-09",
