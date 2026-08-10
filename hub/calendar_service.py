@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import urllib.request
 from collections.abc import Callable
 from datetime import date as date_type
@@ -219,6 +220,10 @@ def sync_general_calendar() -> int:
 # list — only this near window is pushed, capped well under Discord's 100-per-guild limit.
 _DISCORD_PUSH_HORIZON = timedelta(days=30)
 _DISCORD_PUSH_CAP = 50
+_DISCORD_PUSH_PACE_SECONDS = 0.5  # light pacing between Discord calls so a capped-50
+# nightly run doesn't burst the tiny scheduled-events bucket in one breath. Worst case
+# (the full cap, no 429s) adds ~25s -- fine for an unattended nightly cron; the
+# interactive single-event save (push_community_event) never goes through this loop.
 
 
 def _discord_event_body(event: CalendarEvent) -> dict[str, Any]:
@@ -264,6 +269,12 @@ def sync_discord_feed_events() -> int:
 
     Every event is attempted even when one fails; failures are then raised as one
     :class:`DiscordEventsError` so ``sync_all_sources`` records the source as failed.
+
+    Discord calls are lightly paced: the very first call of the run is un-paced, then every
+    later call — push OR delete — sleeps ``_DISCORD_PUSH_PACE_SECONDS`` first. Pacing is at
+    one-call-per-feed-event granularity; the rare update-then-recreate double-call inside a
+    single ``_push_feed_event`` is not internally paced (an isolated one-off, and
+    ``_execute``'s own retry covers a transient 429 there).
     """
     from core.integrations.discord_events import DiscordEventsError, DiscordScheduledEventsClient
 
@@ -287,8 +298,17 @@ def sync_discord_feed_events() -> int:
         .order_by("start_dt")[:_DISCORD_PUSH_CAP]
     )
     failures: list[str] = []
+    made_a_call = False
+
+    def _pace() -> None:
+        """Sleep before every Discord call except the first, sharing one run-wide counter."""
+        nonlocal made_a_call
+        if made_a_call:
+            time.sleep(_DISCORD_PUSH_PACE_SECONDS)
+        made_a_call = True
 
     for event in push_set:
+        _pace()
         try:
             _push_feed_event(client, event)
         except DiscordEventsError as exc:
@@ -300,6 +320,7 @@ def sync_discord_feed_events() -> int:
         .exclude(pk__in=[event.pk for event in push_set])
     )
     for event in dropped:
+        _pace()
         try:
             _delete_feed_event_copy(client, event)
         except DiscordEventsError as exc:
