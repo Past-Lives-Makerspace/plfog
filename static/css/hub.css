@@ -3236,6 +3236,11 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-wiki-toc a:hover { text-decoration: underline; }
 .pl-wiki-article { scroll-margin-top: 1rem; }
 
+/* Help-profile prose: committed screenshots + anchor jumps that clear the topbar.
+   Scoped to .pl-md--help — the base .pl-md deliberately has no img rule. */
+.pl-md--help img { max-width: 100%; height: auto; border: 1px solid var(--hub-border); border-radius: 8px; margin: 0.75rem 0; }
+.pl-md--help [id] { scroll-margin-top: 1rem; }
+
 .pl-guild-video { position: relative; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; background: #000; }
 .pl-guild-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .pl-guild-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5rem; }

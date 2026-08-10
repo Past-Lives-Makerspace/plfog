@@ -18,3 +18,14 @@ def guild_markdown(value: str) -> SafeString:
     allowlist — never apply ``|safe`` to raw Markdown source directly.
     """
     return mark_safe(render_markdown(value or ""))  # noqa: S308 — render_markdown sanitizes
+
+
+@register.filter(name="help_markdown")
+def help_markdown(value: str) -> SafeString:
+    """Render help-center Markdown (admin/repo-authored) to sanitized HTML.
+
+    The ``help`` profile allows ``/static/help/`` images, heading ``id``
+    anchors, and same-tab internal links — still fully sanitized, so the same
+    mark_safe caveat as ``guild_markdown`` applies.
+    """
+    return mark_safe(render_markdown(value or "", profile="help"))  # noqa: S308 — render_markdown sanitizes
