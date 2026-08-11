@@ -4,18 +4,26 @@
 {% block title %}Help{% endblock %}
 
 {% comment %}
-The Help page: how the makerspace app works — an intro, the plain-language how-it-works
-guides, parking & arrival, who to contact, the FAQ, and resource links (code of conduct
-included). Anything about the *building* lives on the Spaces page; the makerspace's full
-external knowledge base is the separate "Wiki" nav link. This page is prose and reference only.
+The Help landing: search, the category grid grouped by audience, the "All guides"
+fallback list for uncategorized guides, then Josh's reference blocks — parking &
+arrival, who to contact, the FAQ, and resource links (code of conduct included).
+Anything about the *building* lives on the Spaces page; the makerspace's full
+external knowledge base is the separate "Wiki" nav link. Old /help/#slug deep links
+are re-pointed at their article pages by the legacy-anchor script at the bottom.
 {% endcomment %}
 
 {% block content %}
 
-{# ── Optional banner ── #}
-{% if page.banner_image %}
-<div class="pl-guild-hero"
-     {% if can_edit %}
+{% with intro=page.intro_parts %}
+{% comment %}
+Help-center hero — one cohesive block: title, the intro's lead line, and the search
+bar as the centerpiece. With a banner the photo is the backdrop (existing overlay +
+admin placement machinery); without one the shared --noimg gradient carries it. The
+intro's admonition tail (the seeded tip) drops below the hero in normal flow via
+OrgInfoPage.intro_parts, and admins keep Edit this page / Adjust in the top corner.
+{% endcomment %}
+<div class="pl-guild-hero pl-help-hero{% if not page.banner_image %} pl-guild-hero--noimg{% endif %}"
+     {% if can_edit and page.banner_image %}
      x-data="heroPlacement({
          updateUrl: '{% url 'hub_hero_adjust' %}',
          contentTypeId: {{ org_ct_id }},
@@ -30,6 +38,7 @@ external knowledge base is the separate "Wiki" nav link. This page is prose and 
          }
      })"
      {% endif %}>
+    {% if page.banner_image %}
     <img class="pl-guild-hero__img"
          src="{{ page.banner_image.url }}"
          alt="Past Lives Makerspace"
@@ -40,78 +49,121 @@ external knowledge base is the separate "Wiki" nav link. This page is prose and 
          style="object-position: {{ page.hero_object_position }};"
          {% endif %}>
     <div class="pl-guild-hero__overlay"></div>
+    {% endif %}
     {% if can_edit %}
-    <div class="pl-guild-hero__content">
-        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
-            <button type="button" class="pl-btn pl-btn--secondary"
-                    @click="startAdjusting()" x-show="!isAdjusting" :disabled="isLoading" title="Adjust Placement">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
-                </svg>
-                <span x-text="isLoading ? '...' : 'Adjust'"></span>
-            </button>
-            <div x-show="isAdjusting" x-cloak class="pl-hero-adjust" style="background:rgba(0,0,0,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
-                <div style="display:flex; flex-direction:column; gap:2px;">
-                    <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Vertical</label>
-                    <input type="range" min="0" max="100" x-model="posY" style="width:120px; cursor:pointer;">
-                </div>
-                <div style="display:flex; flex-direction:column; gap:2px;">
-                    <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Horizontal</label>
-                    <input type="range" min="0" max="100" x-model="posX" style="width:120px; cursor:pointer;">
-                </div>
+    <div class="pl-help-hero__admin">
+        {% if page.banner_image %}
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                @click="startAdjusting()" x-show="!isAdjusting" :disabled="isLoading" title="Adjust Placement">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+            </svg>
+            <span x-text="isLoading ? '...' : 'Adjust'"></span>
+        </button>
+        <div x-show="isAdjusting" x-cloak class="pl-hero-adjust" style="background:rgba(0,0,0,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
+            <div style="display:flex; flex-direction:column; gap:2px;">
+                <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Vertical</label>
+                <input type="range" min="0" max="100" x-model="posY" style="width:120px; cursor:pointer;">
             </div>
-            <button type="button" class="pl-btn pl-btn--primary" @click="save()" x-show="isAdjusting" :disabled="isLoading">
-                <span x-text="isLoading ? '...' : 'Save'"></span>
-            </button>
-            <button type="button" class="pl-btn pl-btn--secondary" @click="cancel()" x-show="isAdjusting" :disabled="isLoading">Cancel</button>
+            <div style="display:flex; flex-direction:column; gap:2px;">
+                <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Horizontal</label>
+                <input type="range" min="0" max="100" x-model="posX" style="width:120px; cursor:pointer;">
+            </div>
         </div>
+        <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" @click="save()" x-show="isAdjusting" :disabled="isLoading">
+            <span x-text="isLoading ? '...' : 'Save'"></span>
+        </button>
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="cancel()" x-show="isAdjusting" :disabled="isLoading">Cancel</button>
+        <a href="{% url 'hub_help_edit' %}" class="pl-btn pl-btn--secondary pl-btn--sm"{% if page.banner_image %} x-show="!isAdjusting"{% endif %}>Edit this page</a>
+        {% else %}
+        <a href="{% url 'hub_help_edit' %}" class="pl-btn pl-btn--secondary pl-btn--sm">Edit this page</a>
+        {% endif %}
     </div>
     {% endif %}
+    <div class="pl-guild-hero__content pl-help-hero__content">
+        <h1 class="pl-guild-hero__title">How can we help?</h1>
+        {% if intro.lead %}
+        <div class="pl-guild-hero__lead pl-help-hero__lead">{{ intro.lead }}</div>
+        {% else %}
+        <div class="pl-guild-hero__lead pl-help-hero__lead"><p>Guides to how the makerspace works, plus parking and arrival, who to contact, and the answers to the questions we get asked most.</p></div>
+        {% endif %}
+        <form method="get" action="{% url 'hub_help_search' %}" class="pl-help-hero__search" role="search">
+            <input type="search" name="q" class="pl-help-hero__input" placeholder="Search the guides…" aria-label="Search the guides">
+            <button type="submit" class="pl-btn pl-btn--primary">Search</button>
+        </form>
+    </div>
 </div>
-{% endif %}
 
-{# ── Header + purpose blurb ── #}
-{% if can_edit %}
-    {% url 'hub_help_edit' as org_edit_url %}
-    {% include "components/page_header.html" with title="Help" description="Guides to how the makerspace works, plus parking and arrival, who to contact, and the answers to the questions we get asked most." action_url=org_edit_url action_label="Edit this page" action_class="hub-btn hub-btn--sm" %}
-{% else %}
-    {% include "components/page_header.html" with title="Help" description="Guides to how the makerspace works, plus parking and arrival, who to contact, and the answers to the questions we get asked most." %}
+{% if intro.admonitions %}
+{# The intro's tip/note admonitions stay in normal flow under the hero. #}
+<div class="pl-md pl-md--help pl-help-intro-rest">{{ intro.admonitions }}</div>
 {% endif %}
-
-{% if page.intro %}
-<div class="hub-card" style="margin-bottom:1.5rem;">
-    <div class="pl-md">{{ page.intro|guild_markdown }}</div>
-</div>
-{% endif %}
+{% endwith %}
 
 <div class="pl-guild-grid">
     <main>
-        {% if articles %}
-        <nav class="pl-wiki-toc" aria-label="On this page">
-            <h2 class="hub-detail-label">On this page</h2>
-            <ul>
-                {% for a in articles %}<li><a href="#{{ a.slug }}">{{ a.title }}</a></li>{% endfor %}
-            </ul>
-        </nav>
-        {% for a in articles %}
-        <section class="pl-guild-section pl-wiki-article" id="{{ a.slug }}">
-            <h2 class="pl-guild-section__h2">{{ a.title }}</h2>
-            <div class="pl-md">{{ a.body|guild_markdown }}</div>
+        {% comment %}
+        Confluence-style category sections: every published guide is a direct link on
+        this page — no need to click into a category to see what's inside. The category
+        name still links to its browse page; groups with a single category render as a
+        full-width row (auto-fit collapses the empty track).
+        {% endcomment %}
+        {% if categories %}
+        {% regroup categories by audience_heading as audience_groups %}
+        {% for group in audience_groups %}
+        <section class="pl-guild-section">
+            <h2 class="hub-detail-label">{{ group.grouper }}</h2>
+            <div class="pl-helpcat-grid">
+                {% for category in group.list %}
+                <div class="pl-helpcat-card">
+                    <div class="pl-helpcat-card__head">
+                        <a class="pl-helpcat-card__name" href="{% url 'hub_help_category' category.slug %}">{{ category.name }}</a>
+                        <span class="pl-help-badge pl-help-badge--{{ category.audience }}">{{ category.get_audience_display }}</span>
+                    </div>
+                    {% if category.description %}<p class="pl-helpcat-card__desc">{{ category.description }}</p>{% endif %}
+                    <ul class="pl-helpcat-card__guides">
+                        {% for guide in category.landing_articles %}
+                        <li>
+                            <a href="{{ guide.get_absolute_url }}">
+                                <span>{{ guide.title }}</span>
+                                <span class="pl-helpcat-card__chev" aria-hidden="true">&rsaquo;</span>
+                            </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    <span class="pl-helpcat-card__count">{{ category.landing_articles|length }} guide{{ category.landing_articles|length|pluralize }}</span>
+                </div>
+                {% endfor %}
+            </div>
         </section>
         {% endfor %}
+        {% endif %}
+
+        {% if uncategorized %}
+        <section class="pl-guild-section">
+            <h2 class="hub-detail-label">All guides</h2>
+            <ul class="pl-help-linklist">
+                {% for a in uncategorized %}
+                <li>
+                    <a href="{{ a.get_absolute_url }}">{{ a.title }}</a>
+                    {% if a.lead_text %}<span class="hub-text-muted">{{ a.lead_text }}</span>{% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </section>
         {% endif %}
 
         {% if page.parking %}
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">Parking &amp; Arrival</h2>
-            <div class="pl-md">{{ page.parking|guild_markdown }}</div>
+            <div class="pl-md pl-md--help">{{ page.parking|page_content }}</div>
         </section>
         {% endif %}
 
         {% if page.who_to_contact %}
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">Who's Who &amp; Who to Contact</h2>
-            <div class="pl-md">{{ page.who_to_contact|guild_markdown }}</div>
+            <div class="pl-md pl-md--help">{{ page.who_to_contact|page_content }}</div>
         </section>
         {% endif %}
 
@@ -122,7 +174,7 @@ external knowledge base is the separate "Wiki" nav link. This page is prose and 
             <div x-data="{ open: false }">
                 <div class="pl-guild-faq__q" @click="open = !open">{{ item.question }}</div>
                 <div class="pl-guild-faq__a" x-show="open" x-cloak>
-                    <div class="pl-md">{{ item.answer|guild_markdown }}</div>
+                    <div class="pl-md">{{ item.answer|page_content:"member" }}</div>
                     {% if item.video_url %}{% with vid=item.video_url|youtube_embed_id %}{% if vid %}
                     <div class="pl-guild-video" style="margin-top:0.75rem;">
                         <iframe src="https://www.youtube-nocookie.com/embed/{{ vid }}" title="{{ item.question }}" allowfullscreen></iframe>
@@ -142,6 +194,45 @@ external knowledge base is the separate "Wiki" nav link. This page is prose and 
     </main>
 
     <aside>
+        {% if tour_rows is not None %}
+        {% comment %}Guided tours (Spec C §6.5) — authenticated members only, audience-filtered
+        rows. Start = never taken or dismissed; Retake = completed. The empty state is in
+        practice unreachable (member-welcome matches every member) but guarded anyway.{% endcomment %}
+        <div class="hub-card" style="margin-bottom:1rem;">
+            <div class="pl-tour-card__heading">
+                <h3 class="hub-detail-label">Guided tours</h3>
+                <span class="pl-help pl-help--right" tabindex="0" aria-label="What is a guided tour?">
+                    <span class="pl-help__icon" aria-hidden="true">?</span>
+                    <span class="pl-help__bubble" role="tooltip">
+                        Starting a tour opens the page it covers and pops up a short series of tips that point at the actual buttons and panels, one step at a time. You can leave a tour at any point, and retake it whenever you like.
+                    </span>
+                </span>
+            </div>
+            <p class="pl-tour-card__explainer hub-text-muted">Interactive walkthroughs that highlight parts of the app, right on the page.</p>
+            {% if tour_rows %}
+            <div class="pl-tour-rows">
+                {% for row in tour_rows %}
+                <div class="pl-tour-row">
+                    {% if row.completed %}
+                    <span class="pl-tour-row__status pl-tour-row__status--done" title="Taken">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span class="sr-only">✓ Taken</span>
+                    </span>
+                    {% else %}
+                    <span class="pl-tour-row__status" title="Not taken yet">
+                        <span class="sr-only">Not taken</span>
+                    </span>
+                    {% endif %}
+                    <span class="pl-tour-row__title">{{ row.tour.title }}</span>
+                    <a href="{{ row.url }}" class="hub-btn hub-btn--sm pl-tour-row__btn">{% if row.completed %}Retake{% else %}Start{% endif %}</a>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="hub-text-muted" style="margin:0;">No tours for your role yet.</p>
+            {% endif %}
+        </div>
+        {% endif %}
         {% if page.code_of_conduct_url or links %}
         <div class="hub-card">
             <h3 class="hub-detail-label">Resources</h3>
@@ -158,4 +249,14 @@ external knowledge base is the separate "Wiki" nav link. This page is prose and 
         </div>
     </aside>
 </div>
+
+{# Old /help/#slug links: a fragment never reaches the server, so re-point it client-side. #}
+{{ legacy_anchor_map|json_script:"help-legacy-anchors" }}
+<script>
+    (function () {
+        var map = JSON.parse(document.getElementById("help-legacy-anchors").textContent);
+        var slug = window.location.hash.replace("#", "");
+        if (map[slug]) { window.location.replace(map[slug]); }
+    })();
+</script>
 {% endblock %}

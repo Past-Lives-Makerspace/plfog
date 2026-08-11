@@ -2,7 +2,7 @@
 {% load classes_tags %}
 {% block tab_content %}
 <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_class_create' %}">+ New Class</a>
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_class_create' %}" data-help-key="teach.create-class">+ New Class</a>
 </div>
 {% if classes %}
 <table style="width:100%; border-collapse:collapse;">

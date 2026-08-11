@@ -186,6 +186,14 @@ urlpatterns = [
     path("help/faq/save/", views.org_info_faq_save, name="hub_org_info_faq_save"),
     path("help/links/save/", views.org_info_links_save, name="hub_org_info_links_save"),
     path("help/articles/save/", views.help_articles_save, name="hub_help_articles_save"),
+    path("help/categories/save/", views.help_categories_save, name="hub_help_categories_save"),
+    path("help/search/", views.help_search, name="hub_help_search"),
+    path("help/topics.json", views.help_topics_json, name="hub_help_topics_json"),
+    # The slug catch-alls MUST stay below every fixed /help/… route (this rule also binds
+    # Spec B's /help/topics.json). "more" is the reserved uncategorized article segment —
+    # /help/more/ itself has no listing view and 404s in help_category by design.
+    path("help/<slug:category_slug>/", views.help_category, name="hub_help_category"),
+    path("help/<slug:category_slug>/<slug:article_slug>/", views.help_article, name="hub_help_article"),
     # Legacy: /info/ was the combined Space & Org Info page. Space-request emails and Discord
     # posts already carry /info/#hotspot-N links, so this must keep resolving — to the map.
     path(
@@ -239,6 +247,9 @@ urlpatterns = [
         name="hub_guild_product_delete",
     ),
     path("welcome/dismiss/", views.welcome_dismiss, name="hub_welcome_dismiss"),
+    # Guided tours (Spec C): the one state-recording endpoint — the offer card's
+    # "No thanks" and the tour runtime's end-of-tour hook both POST here.
+    path("tours/<slug:tour_key>/state/", views.tour_state, name="hub_tour_state"),
     path("settings/onboarding/dismiss/", views.onboarding_dismiss, name="hub_onboarding_dismiss"),
     path("settings/", views.user_settings, name="hub_user_settings"),
     path(
@@ -323,6 +334,11 @@ urlpatterns = [
         name="hub_admin_invite_revoke",
     ),
     path("manage/members/<int:pk>/edit/", views.admin_member_edit, name="hub_admin_member_edit"),
+    path(
+        "manage/members/<int:pk>/teaching/",
+        views.admin_member_teaching_set,
+        name="hub_admin_member_teaching",
+    ),
     path(
         "manage/members/<int:pk>/send-login-invite/",
         views.admin_member_send_login_invite,

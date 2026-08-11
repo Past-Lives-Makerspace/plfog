@@ -26,6 +26,7 @@ from membership.models import (
     GuildMembership,
     GuildOrientationSettings,
     GuildStaffMembership,
+    HelpCategory,
     Lease,
     MapHotspot,
     Member,
@@ -168,6 +169,13 @@ class OrgLinkFactory(factory.django.DjangoModelFactory):
     page = factory.SubFactory(OrgInfoPageFactory)
     label = factory.Sequence(lambda n: f"Org link {n}")
     url = "https://example.com"
+
+
+class HelpCategoryFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = HelpCategory
+
+    name = factory.Sequence(lambda n: f"Help category {n}")
 
 
 class WikiArticleFactory(factory.django.DjangoModelFactory):

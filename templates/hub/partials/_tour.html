@@ -1,0 +1,17 @@
+{% load static %}
+{% comment %}
+Guided-tour runtime plumbing (Spec C §6.2) — included from entry pages' extra_js block only.
+Emits the json_script payload pl_tour.js consumes, the offer card when show_tour_offer is
+true, and pl_tour.js itself (~2 KB). Driver.js assets are NOT referenced here — pl_tour.js
+injects them lazily (from the data-driver-* URLs below) only when a tour actually starts.
+Boosted swaps re-execute the script; it is a guarded window.plTour IIFE, safe to re-run.
+{% endcomment %}
+{% if tour_json %}
+<div id="pl-tour-root" hidden
+     data-csrf="{{ csrf_token }}"
+     data-driver-css="{% static 'css/driver.css' %}"
+     data-driver-js="{% static 'js/driver.min.js' %}"></div>
+{{ tour_json|json_script:"pl-tour-data" }}
+{% if show_tour_offer %}{% include "hub/partials/_tour_offer.html" %}{% endif %}
+<script src="{% static 'js/pl_tour.js' %}"></script>
+{% endif %}

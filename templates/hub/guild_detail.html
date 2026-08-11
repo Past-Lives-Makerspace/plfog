@@ -211,7 +211,7 @@
     <aside>
         {% with staff_members=guild.staff_by_member %}
         {% if guild.guild_lead or staff_members %}
-        <div class="hub-card">
+        <div class="hub-card" data-help-key="guild.staff-roster">
             <h3 class="hub-detail-label">Guild Staff</h3>
             {% if guild.guild_lead %}
             {# Anon guests see the lead's name only — the clickable contact modal (email/phone/Discord/bio) is gated behind auth. #}
@@ -285,13 +285,13 @@
                 {% if not user.is_authenticated %}
                 <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" class="pl-btn pl-btn--primary" style="width:100%;">Log in to join</a>
                 {% elif member and not is_member_of_guild %}
-                <form method="post" action="{% url 'hub_guild_join' guild.pk %}">
+                <form method="post" action="{% url 'hub_guild_join' guild.pk %}" data-help-key="guild.join-leave">
                     {% csrf_token %}
                     <button type="submit" class="pl-btn pl-btn--primary" style="width:100%;">Join This Guild</button>
                 </form>
                 {% elif member and is_member_of_guild and is_guilds_surface %}
                 {# Leave is guilds-surface-only (per coordinator decision — do not add it to the members hub). #}
-                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="width:100%;" @click="$dispatch('open-confirm', 'leave-guild')">Leave this guild</button>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="width:100%;" data-help-key="guild.join-leave" @click="$dispatch('open-confirm', 'leave-guild')">Leave this guild</button>
                 {% url 'hub_guild_leave' guild.pk as leave_url %}
                 {% include "components/confirm_modal.html" with confirm_id="leave-guild" confirm_title="Leave "|add:guild.name|add:"?" confirm_message="You can rejoin any time. Your orientation history stays." confirm_action_url=leave_url confirm_button_text="Leave guild" %}
                 {% elif member and is_member_of_guild %}
@@ -303,7 +303,7 @@
                 <a href="{% url 'hub_user_settings' %}?tab=guilds" class="pl-btn pl-btn--secondary" style="width:100%;">Manage in Settings</a>
                 {% endif %}
                 {% if show_orientation and not is_oriented %}
-                <button type="button" class="pl-btn pl-btn--primary" style="width:100%;"
+                <button type="button" class="pl-btn pl-btn--primary" style="width:100%;" data-help-key="orientation.book-slot"
                         @click="section = 'schedule'; $nextTick(() => document.getElementById('guild-orientation')?.scrollIntoView({ behavior: 'smooth' }))">
                     Join an Orientation
                 </button>
@@ -384,7 +384,7 @@
 
 {% if faq_items %}
 <div x-show="section === 'faq'" x-cloak>
-    <section class="pl-guild-section">
+    <section class="pl-guild-section" data-help-key="guild.faq">
         <h2 class="pl-guild-section__h2">{{ guild.faq_label|default:"FAQ" }}</h2>
         {% for item in faq_items %}
         <div x-data="{ open: false }">

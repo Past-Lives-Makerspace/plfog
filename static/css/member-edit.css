@@ -187,3 +187,19 @@
 [data-theme="light"] .pl-email-list .hub-pill--neutral { color: #5b6675; }
 [data-theme="light"] .pl-person-header .hub-pill--danger,
 [data-theme="light"] .pl-person-identity .hub-pill--danger { color: #b03030; }
+
+/* Teaching access card (Spec D) — its own block below the form, clear separation. */
+.pl-teaching-access {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-teaching-access__status {
+    margin: 0.5rem 0 1rem;
+}
+
+.pl-teaching-access__hint {
+    margin: 1rem 0 0;
+    font-size: 0.85rem;
+}

@@ -63,6 +63,9 @@ class InstructorFactory(DjangoModelFactory):
     instructor_slug = factory.LazyAttribute(lambda o: o.full_legal_name.lower().replace(" ", "-"))
     about_me = "A great teacher."
     status = Member.Status.ACTIVE
+    # Slug holders are grandfathered into the teaching unlock by migration 0110;
+    # the factory mirrors that so instructor fixtures pass the teach-portal gate.
+    instructor_oriented_at = factory.LazyFunction(timezone.now)
     user = None
 
     @classmethod

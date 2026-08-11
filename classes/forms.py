@@ -436,6 +436,22 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Sched
         return offering
 
 
+class InstructorOrientationCompleteForm(forms.Form):
+    """The orientation page's single acknowledge toggle (Spec D §5).
+
+    Validation lives here, not the view: ``required=True`` means a JS-less
+    submit gets the field error, never a bypass. The Alpine ``x-model`` attr
+    only drives the page's disabled-button affordance.
+    """
+
+    acknowledge = forms.BooleanField(
+        required=True,
+        label="I've read the expectations above and I'm ready to teach.",
+        widget=forms.CheckboxInput(attrs={"x-model": "ok"}),
+        error_messages={"required": "Please confirm you've read the orientation before unlocking teaching."},
+    )
+
+
 class ClassSessionForm(forms.ModelForm):
     class Meta:
         model = ClassSession

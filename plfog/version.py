@@ -2,9 +2,33 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.61"
+VERSION = "0.24.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.24.0",
+        "date": "2026-08-11",
+        "title": "A real Help Center",
+        "changes": [
+            "The Help page grew into a full Help Center. Every guide now has its own page, and the guides "
+            "are organized by what you're trying to do — getting started, guilds, taking classes, and "
+            "events & community.",
+            "There's a search box now. Type what you're stuck on, like 'book an orientation', and the "
+            "matching guides come up with the relevant line highlighted.",
+            "The how-to guides walk you through step by step, with screenshots of the actual app so you "
+            "can see exactly where to click.",
+            "It's not just for members: instructors get guides on creating and running their classes, and "
+            "guild leads get guides on running their guild page, orientations, and announcements.",
+            "Guided tours now show you around in the app itself. New members get a 30-second spotlight "
+            "tour of the hub, and there are tours for guild leads and instructors too. Take one anytime "
+            "from the Help page, or turn tours off in Settings.",
+            "There's also a new Info View: flip it on from the top bar and hover anything highlighted to "
+            "get a plain-language explanation right there, with a link to the full guide.",
+            "Become an instructor: a short orientation now walks you through what we expect, how class "
+            "review works, and the quality bar. Complete it once and the teaching portal unlocks "
+            "automatically — no waiting on an admin. Already taught a class? You're grandfathered in.",
+        ],
+    },
     {
         "version": "0.23.61",
         "date": "2026-08-11",

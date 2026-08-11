@@ -951,6 +951,9 @@ class SiteActivity(models.Model):
         ORIENTATION_DECLINED = "orientation_declined", "Orientation declined"
         ORIENTATION_CANCELLED = "orientation_cancelled", "Orientation cancelled"
         ORIENTATION_COMPLETED = "orientation_completed", "Orientation completed"
+        INSTRUCTOR_ORIENTED = "instructor_oriented", "Completed instructor orientation"
+        TEACHING_GRANTED = "teaching_granted", "Teaching access granted"
+        TEACHING_REVOKED = "teaching_revoked", "Teaching access revoked"
         GUILD_JOINED = "guild_joined", "Joined a guild"
         LEASE_ACTIVATED = "lease_activated", "Lease activated"
         SPACE_REQUEST = "space_request", "Space request"
@@ -1099,6 +1102,101 @@ class NotificationPreference(models.Model):
     def __str__(self) -> str:
         state = "on" if self.enabled else "off"
         return f"{self.user.email}:{self.event_key}/{self.channel}={state}"
+
+
+class TourStateManager(models.Manager["TourState"]):
+    """The whole guided-tour lifecycle, fat-model style (Spec C §4).
+
+    Every method validates ``tour_key`` against :data:`core.tours.TOURS` and
+    raises ``ValueError`` on an unknown key — ``TourState.tour_key`` values are
+    exactly the registered tour keys, never free-form strings.
+    ``mark_completed`` / ``Member.has_completed_tour`` are Spec D's frozen
+    contract for completion tracking.
+    """
+
+    def _validate_key(self, tour_key: str) -> None:
+        from core.tours import TOURS
+
+        if tour_key not in TOURS:
+            raise ValueError(f"Unknown tour key {tour_key!r} — not registered in core.tours.TOURS")
+
+    def mark_offered(self, user: User, tour_key: str) -> TourState:
+        """Record that the offer was shown. Never changes an existing row's status."""
+        self._validate_key(tour_key)
+        state, _ = self.get_or_create(user=user, tour_key=tour_key)
+        return state
+
+    def mark_completed(self, user: User, tour_key: str) -> TourState:
+        """Record completion — upgrades from absent/offered/dismissed. Spec D's contract."""
+        self._validate_key(tour_key)
+        state, _ = self.update_or_create(user=user, tour_key=tour_key, defaults={"status": TourState.Status.COMPLETED})
+        return state
+
+    def mark_dismissed(self, user: User, tour_key: str) -> TourState:
+        """Record dismissal — unless the row is COMPLETED (completed is sticky).
+
+        A re-run of a finished tour Esc'd halfway must not erase the completion —
+        Spec D leans on this guard.
+        """
+        self._validate_key(tour_key)
+        state, created = self.get_or_create(
+            user=user, tour_key=tour_key, defaults={"status": TourState.Status.DISMISSED}
+        )
+        if not created and state.status != TourState.Status.COMPLETED:
+            state.status = TourState.Status.DISMISSED
+            state.save(update_fields=["status", "updated_at"])
+        return state
+
+    def status_for(self, user: User, tour_key: str) -> str | None:
+        """This user's status for one tour; ``None`` when no row (never offered)."""
+        self._validate_key(tour_key)
+        try:
+            return self.get(user=user, tour_key=tour_key).status
+        except TourState.DoesNotExist:
+            return None
+
+    def statuses_for(self, user: User) -> dict[str, str]:
+        """Every ``{tour_key: status}`` for this user in one query (the Help-page card)."""
+        return dict(self.filter(user=user).values_list("tour_key", "status"))
+
+
+class TourState(models.Model):
+    """Per-user, per-tour guided-tour state (Spec C §4).
+
+    One row per ``(user, tour_key)`` — created when the tour is first offered,
+    upgraded when dismissed or completed. Absent row = never offered.
+    """
+
+    class Status(models.TextChoices):
+        OFFERED = "offered", "Offered"
+        COMPLETED = "completed", "Completed"
+        DISMISSED = "dismissed", "Dismissed"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="tour_states",
+        help_text="The user this tour state belongs to.",
+    )
+    tour_key = models.CharField(max_length=60, help_text="Tour key from core.tours.TOURS.")
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.OFFERED,
+        help_text="Where this user is with this tour.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the tour was first offered to this user.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the status last changed.")
+
+    objects = TourStateManager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "tour_key"], name="uq_tourstate_user_tour_key"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user.email}:{self.tour_key}={self.get_status_display()}"
 
 
 class EventDelivery(models.Model):
