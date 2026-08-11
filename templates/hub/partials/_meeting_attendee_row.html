@@ -1,0 +1,38 @@
+{% comment %}
+One attendance row (Meetings spec §6.3). Draft/editors: [present checkbox] [name]
+[× remove]; a roster row's name is static text, a guest row's name is an autosave
+input. present=False renders struck through + muted (the strikethrough absentee).
+Read-only: static name only. Context: attendee, is_editable.
+{% endcomment %}
+{% with attendee_pk=attendee.pk|stringformat:"s" %}
+{% if is_editable %}
+<div class="pl-meeting-attendee" id="attendee-{{ attendee.pk }}"
+     x-data="{ present: {% if attendee.present %}true{% else %}false{% endif %} }"
+     :class="present ? '' : 'pl-meeting-attendee--absent'">
+  <label class="pl-meeting-check">
+    <input type="checkbox" x-model="present"
+           @change="save('{% url 'hub_meeting_attendee_save' attendee.pk %}', 'present', $event.target.checked, $el, 400)">
+    <span class="pl-meeting-check__box" aria-hidden="true"></span>
+    <span class="sr-only">Present</span>
+  </label>
+  {% if attendee.member %}
+  <span class="pl-meeting-attendee__name">{{ attendee.display_name }}</span>
+  {% else %}
+  <input type="text" class="pl-meeting-attendee__name-input" name="value" maxlength="120"
+         value="{{ attendee.guest_name }}"
+         data-autosave data-saved="{{ attendee.guest_name }}"
+         hx-post="{% url 'hub_meeting_attendee_save' attendee.pk %}"
+         hx-vals='{"field": "guest_name"}'
+         hx-trigger="change" hx-swap="none">
+  {% endif %}
+  <button type="button" class="pl-meeting-row-delete" aria-label="Remove {{ attendee.display_name }}"
+          @click="$dispatch('open-confirm', 'del-attendee-{{ attendee.pk }}')">&times;</button>
+  {% url 'hub_meeting_attendee_delete' attendee.pk as attendee_delete_url %}
+  {% include "components/confirm_modal.html" with confirm_id="del-attendee-"|add:attendee_pk confirm_title="Remove attendee?" confirm_message="Remove "|add:attendee.display_name|add:" from attendance?" confirm_action_url="" confirm_hx_post=attendee_delete_url confirm_hx_target="#attendee-"|add:attendee_pk confirm_button_text="Remove" %}
+</div>
+{% else %}
+<div class="pl-meeting-attendee pl-meeting-attendee--static {% if not attendee.present %}pl-meeting-attendee--absent{% endif %}" id="attendee-{{ attendee.pk }}">
+  <span class="pl-meeting-attendee__name">{{ attendee.display_name }}</span>
+</div>
+{% endif %}
+{% endwith %}

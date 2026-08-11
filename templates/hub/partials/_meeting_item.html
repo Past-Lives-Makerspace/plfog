@@ -1,0 +1,98 @@
+{% comment %}
+One agenda item — an accordion row (Meetings spec §6.3). Collapsed: chevrons
+(editors, only while nothing is open), name, N★ open-actions badge. Expanded
+(draft/editors): Topic input, Description textarea, lazy-Quill Minutes, action
+items, Delete item. Expanded (read-only): static text + rendered minutes HTML.
+Context: item, meeting, is_editable, new_item_pk (optional).
+{% endcomment %}
+{% with item_pk=item.pk|stringformat:"s" %}
+<div class="pl-meeting-item" id="item-{{ item.pk }}"
+     :class="itemClass({{ item.pk }})"
+     {% if item.pk == new_item_pk %}x-init="$nextTick(() => openAgendaItem({{ item.pk }}, true))"{% endif %}>
+  <div class="pl-meeting-item__row" @click="toggleAgendaItem({{ item.pk }})">
+    {% if is_editable %}
+    <span class="pl-meeting-item__chevrons" x-show="openItem === null">
+      <button type="button" class="pl-meeting-chevron" aria-label="Move up" @click.stop
+              hx-post="{% url 'hub_meeting_item_move' item.pk %}"
+              hx-vals='{"direction": "up"}'
+              hx-target="#pl-meeting-item-list" hx-swap="outerHTML">▲</button>
+      <button type="button" class="pl-meeting-chevron" aria-label="Move down" @click.stop
+              hx-post="{% url 'hub_meeting_item_move' item.pk %}"
+              hx-vals='{"direction": "down"}'
+              hx-target="#pl-meeting-item-list" hx-swap="outerHTML">▼</button>
+    </span>
+    {% endif %}
+    <span class="pl-meeting-item__name">
+      {% if item.name %}{{ item.name }}{% else %}<span class="hub-text-muted">Untitled item</span>{% endif %}
+    </span>
+    {% if item.open_action_count %}
+    <span class="pl-meeting-badge pl-meeting-badge--actions">{{ item.open_action_count }}★</span>
+    {% endif %}
+  </div>
+  <div class="pl-meeting-item__body" x-show="openItem === {{ item.pk }}">
+    {% if is_editable %}
+    <div class="hub-form-group">
+      <label for="item-name-{{ item.pk }}">Topic</label>
+      <input type="text" id="item-name-{{ item.pk }}" name="value" maxlength="200"
+             value="{{ item.name }}"
+             data-autosave data-saved="{{ item.name }}"
+             hx-post="{% url 'hub_meeting_item_save' item.pk %}"
+             hx-vals='{"field": "name"}'
+             hx-trigger="change" hx-swap="none">
+    </div>
+    <div class="hub-form-group">
+      <label for="item-desc-{{ item.pk }}">Description</label>
+      <textarea id="item-desc-{{ item.pk }}" name="value" rows="3"
+                data-autosave data-saved="{{ item.description }}"
+                hx-post="{% url 'hub_meeting_item_save' item.pk %}"
+                hx-vals='{"field": "description"}'
+                hx-trigger="change" hx-swap="none">{{ item.description }}</textarea>
+    </div>
+    <div class="hub-form-group">
+      <label id="item-minutes-label-{{ item.pk }}">Minutes</label>
+      <div class="pl-meeting-minutes-wrap" id="minutes-wrap-{{ item.pk }}"
+           data-minutes-url="{% url 'hub_meeting_item_save' item.pk %}"
+           aria-labelledby="item-minutes-label-{{ item.pk }}">
+        <div class="pl-meeting-minutes-mount">{{ item.minutes|safe }}</div>
+      </div>
+    </div>
+    {% if item.proposed_by %}
+    <p class="hub-text-muted pl-meeting-credit">Proposed by {% firstof item.proposed_by.member.display_name item.proposed_by.username %}</p>
+    {% endif %}
+    <div class="pl-meeting-actions" id="action-list-{{ item.pk }}">
+      {% for action in item.actions.all %}
+      {% include "hub/partials/_meeting_action.html" %}
+      {% endfor %}
+    </div>
+    <div class="pl-meeting-item__footer">
+      <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+              hx-post="{% url 'hub_meeting_action_add' item.pk %}"
+              hx-target="#action-list-{{ item.pk }}" hx-swap="beforeend">+ Add action item</button>
+      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+              @click="$dispatch('open-confirm', 'del-item-{{ item.pk }}')">Delete item</button>
+    </div>
+    {% url 'hub_meeting_item_delete' item.pk as item_delete_url %}
+    {% with action_count=item.actions.all|length|stringformat:"s" %}
+    {% include "components/confirm_modal.html" with confirm_id="del-item-"|add:item_pk confirm_title="Delete this topic?" confirm_message="Deletes this topic and its "|add:action_count|add:" action items." confirm_action_url="" confirm_hx_post=item_delete_url confirm_hx_target="#item-"|add:item_pk confirm_button_text="Delete topic" %}
+    {% endwith %}
+    {% else %}
+    {% if item.description %}
+    <p class="pl-meeting-item__description">{{ item.description }}</p>
+    {% endif %}
+    {% if item.minutes %}
+    <div class="pl-md pl-meeting-prose">{{ item.minutes|safe }}</div>
+    {% endif %}
+    {% if item.proposed_by %}
+    <p class="hub-text-muted pl-meeting-credit">Proposed by {% firstof item.proposed_by.member.display_name item.proposed_by.username %}</p>
+    {% endif %}
+    {% if item.actions.all %}
+    <div class="pl-meeting-actions">
+      {% for action in item.actions.all %}
+      {% include "hub/partials/_meeting_action.html" %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endwith %}

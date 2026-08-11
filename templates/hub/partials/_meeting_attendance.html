@@ -1,0 +1,20 @@
+{% comment %}
+The Attendance card (Meetings spec §6.3). Draft/editors: editable rows (present
+checkbox, guest-name input, per-row remove confirm) + the roster/guest add row.
+Locked mode and non-editors: a strictly-static name list — absentees struck
+through + muted, no checkboxes, no × buttons, no add row. The empty-state line
+hides via CSS (:only-child) once rows exist, so HTMX appends need no bookkeeping.
+Context: meeting, attendees, is_editable, roster_options.
+{% endcomment %}
+<div class="hub-card pl-meeting-attendance" id="pl-meeting-attendance" {% if is_editable %}:class="dimClass()"{% endif %}>
+  <h2 class="hub-detail-label">Attendance</h2>
+  <div id="pl-meeting-attendee-list" class="pl-meeting-attendee-list">
+    <p class="pl-meeting-empty hub-text-muted">No attendance taken yet.</p>
+    {% for attendee in attendees %}
+    {% include "hub/partials/_meeting_attendee_row.html" %}
+    {% endfor %}
+  </div>
+  {% if is_editable %}
+  {% include "hub/partials/_meeting_attendee_picker.html" %}
+  {% endif %}
+</div>

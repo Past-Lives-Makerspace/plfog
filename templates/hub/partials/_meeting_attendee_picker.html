@@ -1,0 +1,30 @@
+{% comment %}
+The attendee add row (Meetings spec §6.3): a roster <select> (scope roster minus
+already-added members) + Add, and a guest-name input + Add guest. The add
+response re-renders this partial with oob=True so the just-added member drops out
+of the select immediately; the duplicate-422 toast stays the server backstop for
+a stale select. Context: meeting, roster_options, oob (optional).
+{% endcomment %}
+<div class="pl-meeting-attendee-picker" id="pl-meeting-attendee-picker"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="hub-form-group pl-meeting-picker-group">
+    <label for="pl-meeting-roster-select" class="sr-only">Add from roster</label>
+    <select id="pl-meeting-roster-select" name="member">
+      <option value="">Add from roster…</option>
+      {% for roster_member in roster_options %}
+      <option value="{{ roster_member.pk }}">{{ roster_member.display_name }}</option>
+      {% endfor %}
+    </select>
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+            hx-post="{% url 'hub_meeting_attendee_add' meeting.pk %}"
+            hx-include="#pl-meeting-roster-select"
+            hx-target="#pl-meeting-attendee-list" hx-swap="beforeend">Add</button>
+  </div>
+  <div class="hub-form-group pl-meeting-picker-group">
+    <label for="pl-meeting-guest-input" class="sr-only">Guest name</label>
+    <input type="text" id="pl-meeting-guest-input" name="guest_name" maxlength="120" placeholder="Guest name">
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+            hx-post="{% url 'hub_meeting_attendee_add' meeting.pk %}"
+            hx-include="#pl-meeting-guest-input"
+            hx-target="#pl-meeting-attendee-list" hx-swap="beforeend">Add guest</button>
+  </div>
+</div>

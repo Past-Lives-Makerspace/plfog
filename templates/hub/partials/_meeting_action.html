@@ -1,0 +1,43 @@
+{% comment %}
+One action item row (Meetings spec §6.3). Draft/editors: restyled done checkbox
+(strikethrough when done), name input (autosave), red flag toggle (aria-pressed),
+per-row × delete with its own confirm modal. Read-only: static text row.
+Context: action, is_editable, focus_new (optional — HTMX-appended row focuses its name).
+{% endcomment %}
+{% with action_pk=action.pk|stringformat:"s" %}
+{% if is_editable %}
+<div class="pl-meeting-action" id="action-{{ action.pk }}"
+     x-data="{ done: {% if action.status == 'done' %}true{% else %}false{% endif %}, flagged: {% if action.is_flagged %}true{% else %}false{% endif %} }"
+     :class="done ? 'pl-meeting-action--done' : ''"
+     {% if focus_new %}x-init="$nextTick(() => $el.querySelector('input[type=text]').focus())"{% endif %}>
+  <label class="pl-meeting-check">
+    <input type="checkbox" x-model="done" {% if action.status == 'dismissed' %}disabled{% endif %}
+           @change="save('{% url 'hub_meeting_action_save' action.pk %}', 'status', $event.target.checked ? 'done' : 'open', $el, 400)">
+    <span class="pl-meeting-check__box" aria-hidden="true"></span>
+    <span class="sr-only">Done</span>
+  </label>
+  <input type="text" class="pl-meeting-action__name" name="value" maxlength="300"
+         placeholder="What needs doing?"
+         value="{{ action.name }}"
+         data-autosave data-saved="{{ action.name }}"
+         hx-post="{% url 'hub_meeting_action_save' action.pk %}"
+         hx-vals='{"field": "name"}'
+         hx-trigger="change" hx-swap="none">
+  <button type="button" class="pl-meeting-flag"
+          :class="flagged ? 'pl-meeting-flag--on' : ''"
+          :aria-pressed="flagged ? 'true' : 'false'"
+          aria-label="Priority flag"
+          @click="flagged = !flagged; save('{% url 'hub_meeting_action_save' action.pk %}', 'is_flagged', flagged, $el, 400)">⚑</button>
+  <button type="button" class="pl-meeting-row-delete" aria-label="Delete action item"
+          @click="$dispatch('open-confirm', 'del-action-{{ action.pk }}')">&times;</button>
+  {% url 'hub_meeting_action_delete' action.pk as action_delete_url %}
+  {% include "components/confirm_modal.html" with confirm_id="del-action-"|add:action_pk confirm_title="Delete this action item?" confirm_message="Delete this action item?" confirm_action_url="" confirm_hx_post=action_delete_url confirm_hx_target="#action-"|add:action_pk confirm_button_text="Delete" %}
+</div>
+{% else %}
+<div class="pl-meeting-action pl-meeting-action--static {% if action.status == 'done' %}pl-meeting-action--done{% endif %}" id="action-{{ action.pk }}">
+  <span class="pl-meeting-check pl-meeting-check--static" aria-hidden="true">{% if action.status == 'done' %}✓{% endif %}</span>
+  <span class="pl-meeting-action__name">{% if action.name %}{{ action.name }}{% else %}<span class="hub-text-muted">Untitled action</span>{% endif %}</span>
+  {% if action.is_flagged %}<span class="pl-meeting-flag pl-meeting-flag--on pl-meeting-flag--static" aria-hidden="true">⚑</span>{% endif %}
+</div>
+{% endif %}
+{% endwith %}

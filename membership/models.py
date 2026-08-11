@@ -4712,9 +4712,10 @@ class Meeting(models.Model):
 
     @property
     def absolute_url(self) -> str:
-        """Absolute workspace URL for notifications — the §6.0 ``/meetings/<pk>/`` route
-        (the view lands in a later phase; the path is the locked URL map)."""
-        return f"{settings.MEMBER_BASE_URL}/meetings/{self.pk}/"
+        """Absolute workspace URL for notifications — the §6.0 ``hub_meeting`` route."""
+        from django.urls import reverse
+
+        return f"{settings.MEMBER_BASE_URL}{reverse('hub_meeting', args=[self.pk])}"
 
     def _event_location(self) -> str:
         """The linked event's location expression — the video link wins, then the guild's
@@ -5073,6 +5074,27 @@ class MeetingAgendaItem(models.Model):
         """Open actions under this topic (the collapsed-item 'N★' badge). Counts in
         Python so a ``prefetch_related("items__actions")`` workspace query stays N+1-free."""
         return sum(1 for action in self.actions.all() if action.status == MeetingActionItem.Status.OPEN)
+
+    def move(self, *, direction: str) -> None:
+        """Swap this item one position up or down the agenda; a clamped no-op at the ends.
+
+        Renumbers the whole sibling list (position × 10) so ties in ``sort_order``
+        can never make a move invisible.
+
+        Args:
+            direction: ``"up"`` or ``"down"``.
+        """
+        siblings = list(self.meeting.items.all())
+        index = siblings.index(self)
+        target = index - 1 if direction == "up" else index + 1
+        if target < 0 or target >= len(siblings):
+            return
+        siblings[index], siblings[target] = siblings[target], siblings[index]
+        for position, item in enumerate(siblings):
+            new_order = (position + 1) * 10
+            if item.sort_order != new_order:
+                item.sort_order = new_order
+                item.save(update_fields=["sort_order"])
 
 
 class MeetingActionItemQuerySet(models.QuerySet):

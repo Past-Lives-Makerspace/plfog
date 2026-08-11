@@ -1,0 +1,470 @@
+{% extends "hub/base.html" %}
+{% block title %}{{ meeting.display_title }}{% endblock %}
+{% block content %}
+{% include "_components/rich_editor_assets.html" %}
+
+{% comment %}
+The meeting workspace (Meetings spec §6.3) — one page, two modes: draft (autosave
+everywhere, no Save buttons) and locked (static record). Members who can't edit see
+the read-only rendering of either mode. The Alpine component owns the focus-mode
+accordion (one item open, dimming, collapse-only dim-click), the lazy per-item
+Quill, the eager notes Quills, and the savestate pill's full §5.2 error contract.
+{% endcomment %}
+<div class="pl-meeting-workspace"
+     x-data="plMeetingWorkspace"
+     @click.capture="onDimClick($event)"
+     @meeting-saved="onSaved()"
+     @htmx:before-request.camel="onBeforeRequest()"
+     @htmx:after-request.camel="onAfterRequest($event)"
+     @htmx:response-error.camel="onResponseError($event)"
+     @htmx:send-error.camel="onSendError()">
+
+  {# ── Header row: breadcrumb, computed H1, savestate pill, Print ── #}
+  <div class="pl-meeting-header">
+    <div class="pl-meeting-header__titles">
+      <a href="/meetings/" class="pl-meeting-breadcrumb">← Meetings</a>
+      {% if is_editable %}
+      <h1 class="hub-page-title pl-meeting-title" x-text="displayTitle()">{{ meeting.display_title }}</h1>
+      {% else %}
+      <h1 class="hub-page-title pl-meeting-title">{{ meeting.display_title }}</h1>
+      {% endif %}
+    </div>
+    <div class="pl-meeting-header__actions">
+      {% if is_editable %}
+      <span class="pl-meeting-savestate"
+            :class="'pl-meeting-savestate--' + saveState"
+            x-text="saveStateLabel()"
+            aria-live="polite">Saved ✓</span>
+      {% endif %}
+      <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+  </div>
+
+  {% comment %}
+  Phase 3 placeholder: the locked-mode approved banner ("✓ Minutes approved by
+  {name} on {date}") with the admin-only Unlock button lands with the lifecycle
+  flows (spec §6.3 Header / §8 phase 3).
+  {% endcomment %}
+
+  {# ── Meeting facts strip (draft: inline editable; locked/read-only: static) ── #}
+  <div class="hub-card pl-meeting-facts" :class="dimClass()">
+    {% if is_editable %}
+    <div class="pl-meeting-fact pl-meeting-fact--special">
+      <div class="pl-toggle-row">
+        <div class="pl-toggle-info">
+          <div class="pl-toggle-label">Special meeting</div>
+        </div>
+        <label class="pl-toggle">
+          <input type="checkbox" {% if meeting.is_special %}checked{% endif %} @change="onSpecialToggle($event)">
+          <span class="pl-toggle__slider"></span>
+          <span class="sr-only">Special meeting</span>
+        </label>
+      </div>
+      <div class="hub-form-group pl-meeting-special-name" x-show="isSpecial">
+        <label for="pl-meeting-special-title">Meeting name</label>
+        <input type="text" id="pl-meeting-special-title" name="value" maxlength="120"
+               placeholder="Emergency, Planning…"
+               value="{{ meeting.special_title }}"
+               data-autosave data-saved="{{ meeting.special_title }}"
+               @input="specialTitle = $event.target.value"
+               hx-post="{% url 'hub_meeting_save' meeting.pk %}"
+               hx-vals='{"field": "special_title"}'
+               hx-trigger="change" hx-swap="none">
+      </div>
+    </div>
+    <div class="pl-meeting-fact hub-form-group">
+      <label for="pl-meeting-date">Date</label>
+      <input type="date" id="pl-meeting-date" class="pl-meeting-date" name="value"
+             value="{{ meeting.scheduled_date|date:'Y-m-d' }}"
+             data-autosave data-saved="{{ meeting.scheduled_date|date:'Y-m-d' }}"
+             @click="try { $event.currentTarget.showPicker() } catch (e) {}"
+             hx-post="{% url 'hub_meeting_save' meeting.pk %}"
+             hx-vals='{"field": "scheduled_date"}'
+             hx-trigger="change" hx-swap="none">
+    </div>
+    <div class="pl-meeting-fact hub-form-group">
+      <label for="pl-meeting-time">Time</label>
+      <select id="pl-meeting-time" name="value"
+              data-autosave data-saved="{{ meeting.scheduled_time|time:'H:i' }}"
+              hx-post="{% url 'hub_meeting_save' meeting.pk %}"
+              hx-vals='{"field": "scheduled_time"}'
+              hx-trigger="change" hx-swap="none">
+        {% for choice_value, choice_label in time_choices %}
+        <option value="{{ choice_value }}" {% if meeting.scheduled_time|time:"H:i" == choice_value %}selected{% endif %}>
+          {% if choice_value %}{{ choice_label }}{% else %}Time TBD{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="pl-meeting-fact hub-form-group pl-meeting-fact--video">
+      <label for="pl-meeting-video">Video call link</label>
+      <div class="pl-meeting-video-row">
+        <input type="url" id="pl-meeting-video" name="value" placeholder="https://meet.google.com/…"
+               value="{{ meeting.video_call_url }}"
+               data-autosave data-saved="{{ meeting.video_call_url }}"
+               @input="videoUrl = $event.target.value"
+               hx-post="{% url 'hub_meeting_save' meeting.pk %}"
+               hx-vals='{"field": "video_call_url"}'
+               hx-trigger="change" hx-swap="none">
+        <a x-show="videoUrl" :href="videoUrl" target="_blank" rel="noopener" class="pl-btn pl-btn--primary pl-meeting-join">Join meeting</a>
+      </div>
+    </div>
+    {% else %}
+    <div class="pl-meeting-fact pl-meeting-fact--static">
+      <span class="pl-meeting-fact__label">Date</span>
+      <span>{% if meeting.scheduled_date %}{{ meeting.scheduled_date|date:"F j, Y" }}{% else %}No date set{% endif %}</span>
+    </div>
+    <div class="pl-meeting-fact pl-meeting-fact--static">
+      <span class="pl-meeting-fact__label">Time</span>
+      <span>{% if meeting.scheduled_time %}{{ meeting.scheduled_time|time:"g:i A" }}{% else %}Time TBD{% endif %}</span>
+    </div>
+    {% if meeting.video_call_url %}
+    <div class="pl-meeting-fact pl-meeting-fact--static">
+      <a href="{{ meeting.video_call_url }}" target="_blank" rel="noopener" class="pl-btn pl-btn--primary pl-meeting-join">Join meeting</a>
+    </div>
+    {% endif %}
+    {% endif %}
+    {% comment %}
+    Phase 4 placeholder: the calendar block ("Add to calendar" modal, the linked
+    "On the calendar ✓" line, unlink + mismatch warnings) rides the CommunityEvent
+    rails and lands with spec §8 phase 4.
+    {% endcomment %}
+    <div class="pl-meeting-calendar-slot"></div>
+  </div>
+
+  {# ── Attachments ── #}
+  {% if is_editable or attachments %}
+  <div class="hub-card pl-meeting-attachments" :class="dimClass()">
+    <h2 class="hub-detail-label">Attachments</h2>
+    {% if attachments %}
+    <div class="pl-meeting-attachment-list">
+      {% for attachment in attachments %}
+      {% with attachment_pk=attachment.pk|stringformat:"s" %}
+      <div class="pl-meeting-attachment" id="attachment-{{ attachment.pk }}">
+        <a href="{% if attachment.is_file %}{{ attachment.file.url }}{% else %}{{ attachment.url }}{% endif %}"
+           target="_blank" rel="noopener">{{ attachment.display_name }}</a>
+        {% if is_editable %}
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                @click="$dispatch('open-confirm', 'del-attachment-{{ attachment.pk }}')">Delete</button>
+        {% url 'hub_meeting_attachment_delete' attachment.pk as attachment_delete_url %}
+        {% include "components/confirm_modal.html" with confirm_id="del-attachment-"|add:attachment_pk confirm_title="Remove this attachment?" confirm_message="Removes the file from these minutes." confirm_action_url="" confirm_hx_post=attachment_delete_url confirm_hx_target="#attachment-"|add:attachment_pk confirm_button_text="Remove" %}
+        {% endif %}
+      </div>
+      {% endwith %}
+      {% endfor %}
+    </div>
+    {% elif is_editable %}
+    <p class="hub-text-muted pl-meeting-attachments__empty">Nothing attached yet.</p>
+    {% endif %}
+    {% if is_editable %}
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-meeting-attach-btn"
+            @click="$dispatch('open-modal', 'add-attachment')">+ Attach file or link</button>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% comment %}
+  Phase 3 placeholder: the carryover panel ("Carried over — still open from earlier
+  meetings") and the pending-proposals review strip + "Your proposals" block land
+  with spec §8 phase 3.
+  {% endcomment %}
+
+  {# ── Special notes ── #}
+  {% if is_editable or meeting.special_notes %}
+  <div class="hub-card pl-meeting-notes" :class="dimClass()">
+    <h2 class="hub-detail-label">Notes for this meeting</h2>
+    {% if is_editable %}
+    <div class="pl-meeting-rte" data-notes-field="special_notes">{{ meeting.special_notes|safe }}</div>
+    {% else %}
+    <div class="pl-md pl-meeting-prose">{{ meeting.special_notes|safe }}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# ── Agenda: the focus-mode accordion ── #}
+  <div class="pl-meeting-agenda">
+    <h2 class="hub-detail-label">Agenda</h2>
+    {% include "hub/partials/_meeting_items.html" %}
+    {% if is_editable %}
+    <button type="button" class="pl-meeting-add-item"
+            hx-post="{% url 'hub_meeting_item_add' meeting.pk %}"
+            hx-target="#pl-meeting-item-list" hx-swap="outerHTML">+ Add item</button>
+    {% endif %}
+  </div>
+
+  {# ── Attendance ── #}
+  {% include "hub/partials/_meeting_attendance.html" %}
+
+  {# ── Other notes ── #}
+  {% if is_editable or meeting.other_notes %}
+  <div class="hub-card pl-meeting-notes" :class="dimClass()">
+    <h2 class="hub-detail-label">Other discussion</h2>
+    {% if is_editable %}
+    <div class="pl-meeting-rte" data-notes-field="other_notes">{{ meeting.other_notes|safe }}</div>
+    {% else %}
+    <div class="pl-md pl-meeting-prose">{{ meeting.other_notes|safe }}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% comment %}
+  Phase 3 placeholder: the footer — "Approve minutes" (primary, confirm modal) and
+  "Delete meeting" (danger, drafts only, calendar-aware confirm copy) — lands with
+  the lifecycle flows (spec §6.3 Footer / §8 phase 3).
+  {% endcomment %}
+</div>
+
+{# ── The "+ Attach file or link" modal (house inline pl-modal pattern) ── #}
+{% if is_editable %}
+<div x-data="{ open: {% if open_attachment_modal %}true{% else %}false{% endif %} }"
+     x-show="open"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-modal.window="if ($event.detail === 'add-attachment') open = true"
+     @close-modal.window="if ($event.detail === 'add-attachment') open = false"
+     @keydown.escape.window="open = false"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="add-attachment-title">
+  <div class="pl-modal pl-modal--sm" @click.outside="open = false">
+    <div class="pl-modal__header">
+      <h2 class="pl-modal__title" id="add-attachment-title">Attach file or link</h2>
+      <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+    </div>
+    <div class="pl-modal__body">
+      <form method="post" action="{% url 'hub_meeting_attachment_add' meeting.pk %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% if attachment_form.non_field_errors %}
+        <div class="pl-field-error">{{ attachment_form.non_field_errors.0 }}</div>
+        {% endif %}
+        {% include "components/form_field.html" with field=attachment_form.label field_hint="What to call it — defaults to the file name or link." %}
+        <div class="hub-form-group">
+          <label for="{{ attachment_form.file.id_for_label }}">File</label>
+          {{ attachment_form.file }}
+          {% if attachment_form.file.errors %}<div class="pl-field-error">{{ attachment_form.file.errors.0 }}</div>{% endif %}
+        </div>
+        {% include "components/form_field.html" with field=attachment_form.url field_hint="Or paste a link (e.g. a Google Doc) instead of uploading." %}
+        <div class="pl-modal__actions">
+          <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Attach</button>
+          <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+document.addEventListener('alpine:init', () => {
+  Alpine.data('plMeetingWorkspace', () => ({
+    openItem: null,
+    saveState: 'saved',
+    editable: {{ is_editable|yesno:'true,false' }},
+    isSpecial: {{ meeting.is_special|yesno:'true,false' }},
+    specialTitle: '{{ meeting.special_title|escapejs }}',
+    videoUrl: '{{ meeting.video_call_url|escapejs }}',
+    scopeLabel: '{{ meeting.scope_label|escapejs }}',
+    meetingSaveUrl: '{% url "hub_meeting_save" meeting.pk %}',
+    quills: {},        // open item pk -> Quill (at most one live instance)
+    minutesSaved: {},  // item pk -> last-saved minutes HTML
+    notesQuills: {},   // notes field -> { quill, saved }
+    _timers: {},
+
+    QUILL_TOOLBAR: [
+      ['bold', 'italic', 'underline'],
+      [{ header: 2 }, { header: 3 }],
+      [{ list: 'bullet' }, { list: 'ordered' }],
+      ['link'],
+      ['clean'],
+    ],
+
+    init() {
+      this.initNotes();
+    },
+
+    // --- Computed header title (derives live from the facts strip) ---
+    displayTitle() {
+      const kind = this.isSpecial ? (this.specialTitle || 'Special') : 'Monthly';
+      return this.scopeLabel + ' — ' + kind + ' Meeting';
+    },
+
+    // --- Savestate pill (§5.2 feedback) ---
+    saveStateLabel() {
+      return {
+        saved: 'Saved ✓',
+        saving: 'Saving…',
+        error: "Couldn't save — check your connection",
+      }[this.saveState];
+    },
+    onBeforeRequest() { this.saveState = 'saving'; },
+    onSaved() { this.saveState = 'saved'; },
+    onAfterRequest(evt) {
+      if (!evt.detail.successful) return;
+      const elt = evt.detail.elt;
+      if (elt && elt.dataset && elt.dataset.autosave !== undefined && 'value' in elt) {
+        elt.dataset.saved = elt.value;
+      }
+      const path = (evt.detail.pathInfo && evt.detail.pathInfo.requestPath) || '';
+      if (path.indexOf('/delete/') !== -1 && this.openItem !== null
+          && !document.getElementById('item-' + this.openItem)) {
+        delete this.quills[this.openItem];
+        this.openItem = null;
+      }
+    },
+    // The full §5.2 error contract — "connection" is reserved for genuine network/5xx.
+    onResponseError(evt) {
+      const status = evt.detail.xhr.status;
+      const path = (evt.detail.pathInfo && evt.detail.pathInfo.requestPath) || '';
+      if (status === 403) {
+        this.toast('These minutes were just approved and locked.', 'error');
+        setTimeout(() => window.location.reload(), 1200);
+        return;
+      }
+      if (status === 404) {
+        if (path.indexOf('/meetings/{{ meeting.pk }}/') === 0) {
+          this.toast('This meeting was deleted.', 'error');
+          window.location.href = '/meetings/';
+        } else {
+          this.toast('That was just deleted by another editor.', 'error');
+          const row = evt.detail.elt.closest('.pl-meeting-action, .pl-meeting-attendee, .pl-meeting-item, .pl-meeting-attachment');
+          if (row) row.remove();
+          if (this.openItem !== null && !document.getElementById('item-' + this.openItem)) {
+            delete this.quills[this.openItem];
+            this.openItem = null;
+          }
+          this.saveState = 'saved';
+        }
+        return;
+      }
+      if (status === 422) {
+        const elt = evt.detail.elt;
+        if (elt && elt.dataset && elt.dataset.autosave !== undefined && 'value' in elt) {
+          elt.value = elt.dataset.saved || '';
+          elt.dispatchEvent(new Event('input'));
+        }
+        this.saveState = 'saved';  // the error toast arrives via the HX-Trigger header
+        return;
+      }
+      this.saveState = 'error';
+    },
+    onSendError() { this.saveState = 'error'; },
+    toast(message, type) {
+      window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: message, type: type } }));
+    },
+
+    // --- Autosave plumbing (htmx.ajax so the pill's events still fire) ---
+    save(url, field, value, sourceEl, debounceMs = 0) {
+      const send = () => htmx.ajax('POST', url, {
+        source: sourceEl || this.$el,
+        values: { field: field, value: String(value) },
+        swap: 'none',
+      });
+      if (!debounceMs) { send(); return; }
+      const key = url + '|' + field;
+      clearTimeout(this._timers[key]);
+      this._timers[key] = setTimeout(send, debounceMs);
+    },
+    onSpecialToggle(evt) {
+      const on = evt.target.checked;
+      this.isSpecial = on;
+      if (!on) {
+        // Hide AND clear client-side; the server clears special_title in the same save (§5.2).
+        this.specialTitle = '';
+        const input = document.getElementById('pl-meeting-special-title');
+        if (input) { input.value = ''; input.dataset.saved = ''; }
+      }
+      this.save(this.meetingSaveUrl, 'is_special', on, evt.target, 400);
+    },
+
+    // --- Focus-mode accordion (one open, dimming, collapse-only dim-click) ---
+    dimClass() { return this.openItem !== null ? 'pl-meeting-dimmed' : ''; },
+    itemClass(pk) {
+      if (this.openItem === pk) return 'pl-meeting-item--open';
+      return this.openItem !== null ? 'pl-meeting-dimmed' : '';
+    },
+    onDimClick(evt) {
+      if (this.openItem === null) return;
+      if (evt.target.closest('.pl-meeting-item--open') !== null) return;
+      // A dim-click only collapses — never both (§6.3): the collapse flushes the
+      // open item's dirty saves and the SECOND click acts normally.
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.collapseItem();
+    },
+    toggleAgendaItem(pk) {
+      if (this.openItem === pk) { this.collapseItem(); return; }
+      this.openAgendaItem(pk);
+    },
+    openAgendaItem(pk, focusName = false) {
+      if (this.openItem !== null) this.collapseItem();
+      this.openItem = pk;
+      this.$nextTick(() => {
+        if (this.editable) this.initMinutesQuill(pk);
+        if (focusName) {
+          const nameInput = document.getElementById('item-name-' + pk);
+          if (nameInput) nameInput.focus();
+        }
+      });
+    },
+    collapseItem() {
+      const pk = this.openItem;
+      if (pk === null) return;
+      const active = document.activeElement;
+      if (active && active.closest('#item-' + pk)) active.blur();  // flush dirty input saves
+      this.flushMinutes(pk);
+      this.teardownMinutesQuill(pk);
+      this.openItem = null;
+    },
+
+    // --- Lazy per-item Quill: init on expand, teardown on collapse ---
+    initMinutesQuill(pk) {
+      if (this.quills[pk] || !window.Quill) return;
+      const wrap = document.getElementById('minutes-wrap-' + pk);
+      if (!wrap) return;
+      const mount = wrap.querySelector('.pl-meeting-minutes-mount');
+      const quill = new Quill(mount, { theme: 'snow', modules: { toolbar: this.QUILL_TOOLBAR } });
+      this.quills[pk] = quill;
+      this.minutesSaved[pk] = quill.root.innerHTML;
+      quill.on('selection-change', (range) => { if (range === null) this.flushMinutes(pk); });
+    },
+    flushMinutes(pk) {
+      const quill = this.quills[pk];
+      if (!quill) return;
+      const html = quill.root.innerHTML;
+      if (html === this.minutesSaved[pk]) return;
+      this.minutesSaved[pk] = html;
+      const wrap = document.getElementById('minutes-wrap-' + pk);
+      this.save(wrap.dataset.minutesUrl, 'minutes', html, wrap);
+    },
+    teardownMinutesQuill(pk) {
+      const quill = this.quills[pk];
+      if (!quill) return;
+      const html = quill.root.innerHTML;
+      delete this.quills[pk];
+      const wrap = document.getElementById('minutes-wrap-' + pk);
+      if (wrap) wrap.innerHTML = '<div class="pl-meeting-minutes-mount">' + html + '</div>';
+    },
+
+    // --- The two always-visible notes Quills (eager init, save on blur-dirty) ---
+    initNotes() {
+      if (!this.editable || !window.Quill) return;
+      this.$el.querySelectorAll('[data-notes-field]').forEach((el) => {
+        const field = el.dataset.notesField;
+        const quill = new Quill(el, { theme: 'snow', modules: { toolbar: this.QUILL_TOOLBAR } });
+        this.notesQuills[field] = { quill: quill, saved: quill.root.innerHTML };
+        quill.on('selection-change', (range) => { if (range === null) this.flushNotes(field); });
+      });
+    },
+    flushNotes(field) {
+      const entry = this.notesQuills[field];
+      const html = entry.quill.root.innerHTML;
+      if (html === entry.saved) return;
+      entry.saved = html;
+      this.save(this.meetingSaveUrl, field, html, this.$el);
+    },
+  }));
+});
+</script>
+{% endblock %}

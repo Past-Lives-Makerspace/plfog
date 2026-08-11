@@ -13,6 +13,7 @@ from django.utils.text import slugify
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+    from django.http import HttpRequest
 
 from core.html_sanitize import sanitize_rich_html
 from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
@@ -30,6 +31,8 @@ from membership.models import (
     GuildMeetingNoteAttachment,
     GuildOrientationSettings,
     MapHotspot,
+    Meeting,
+    MeetingAttachment,
     Member,
     MemberContact,
     MemberSkill,
@@ -1156,6 +1159,59 @@ GuildMeetingNoteAttachmentFormSet = forms.inlineformset_factory(
     extra=0,
     can_delete=True,
 )
+
+
+class MeetingCreateForm(forms.Form):
+    """The '+ New meeting' modal (Meetings spec §6.2): For scope + Type, both per-user.
+
+    The For choices are permission-derived — the guilds this user can edit, plus
+    Council for everyone who passes :func:`~membership.permissions.can_edit_meeting`
+    for the council scope (admins AND any guild's lead/staff). A posted scope outside
+    the list is therefore a permission failure, which the create view returns as 403.
+    """
+
+    KIND_CHOICES = [("monthly", "Monthly"), ("special", "Special")]
+
+    scope = forms.ChoiceField(label="For", choices=[])
+    kind = forms.ChoiceField(label="Type", choices=KIND_CHOICES, initial="monthly")
+
+    def __init__(self, *args: Any, request: HttpRequest, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        from membership.permissions import can_edit_guild, can_edit_meeting
+
+        choices: list[tuple[str, str]] = [
+            (str(guild.pk), guild.name) for guild in Guild.objects.order_by("name") if can_edit_guild(request, guild)
+        ]
+        if can_edit_meeting(request, Meeting()):  # an unsaved Meeting() is the council scope (guild NULL)
+            choices.append(("council", "Council"))
+        cast(forms.ChoiceField, self.fields["scope"]).choices = choices
+
+    def scope_guild(self) -> Guild | None:
+        """The chosen scope as a Guild, or ``None`` for the council. Valid forms only."""
+        value = self.cleaned_data["scope"]
+        if value == "council":
+            return None
+        return Guild.objects.get(pk=int(value))
+
+
+class MeetingAttachmentForm(forms.ModelForm):
+    """The workspace's '+ Attach file or link' modal — exactly one of file / url.
+
+    Copies the meeting-note attachment XOR idiom (the user-facing guard in front of
+    the model's ``ck_meetingattachment_file_xor_url`` constraint).
+    """
+
+    class Meta:
+        model = MeetingAttachment
+        fields = ["label", "file", "url"]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        has_file = bool(cleaned.get("file"))
+        has_url = bool(cleaned.get("url"))
+        if has_file == has_url:  # both empty or both filled
+            raise forms.ValidationError("Pick a file or paste a link, not both.")
+        return cleaned
 
 
 class GuildOrientationSettingsForm(forms.ModelForm):

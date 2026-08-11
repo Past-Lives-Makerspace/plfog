@@ -5285,3 +5285,389 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
   gap: 0.5rem;
   justify-content: space-between;
 }
+
+/* ========================================
+   Meetings workspace (.pl-meeting-*)
+   Spec: docs/superpowers/plans/2026-08-11-meetings.md §6.3
+   Theme tokens only — verified on Obsidian + Slate.
+   ======================================== */
+
+.pl-meeting-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    max-width: 860px;
+}
+
+/* --- Header row --- */
+.pl-meeting-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.pl-meeting-breadcrumb {
+    display: inline-block;
+    margin-bottom: 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    text-decoration: none;
+}
+.pl-meeting-breadcrumb:hover { color: var(--hub-link); }
+.pl-meeting-title { margin: 0; }
+.pl-meeting-header__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+/* --- Savestate pill (§5.2 feedback) --- */
+.pl-meeting-savestate {
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border-strong);
+    background: var(--hub-elevated);
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    white-space: nowrap;
+}
+.pl-meeting-savestate--saving {
+    color: var(--hub-text);
+    animation: pl-meeting-pulse 1.2s ease-in-out infinite;
+}
+.pl-meeting-savestate--error {
+    color: var(--color-error);
+    border-color: var(--color-error);
+    background: var(--color-error-bg);
+}
+@keyframes pl-meeting-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+
+/* --- Focus-mode dimming: opacity via class, never inline (§6.3) --- */
+.pl-meeting-dimmed {
+    opacity: 0.3;
+    transition: opacity 0.15s ease;
+    pointer-events: auto;
+}
+
+/* --- Facts strip --- */
+.pl-meeting-facts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem 1.5rem;
+    padding: 1.5rem;
+}
+.pl-meeting-fact { margin: 0; }
+.pl-meeting-fact--special {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.pl-meeting-special-name { margin: 0; min-width: 180px; }
+.pl-meeting-fact--static {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.9375rem;
+}
+.pl-meeting-fact__label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--hub-text-muted);
+}
+/* Rule 14: the native date picker icon is black by default — invisible on Obsidian. */
+.pl-meeting-date::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+[data-theme="light"] .pl-meeting-date::-webkit-calendar-picker-indicator { filter: none; }
+.pl-meeting-video-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.pl-meeting-video-row input[type="url"] { min-width: 260px; }
+
+/* --- Attachments --- */
+.pl-meeting-attachments { padding: 1.5rem; }
+.pl-meeting-attachment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.pl-meeting-attachment {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.pl-meeting-attachment a { color: var(--hub-link); }
+.pl-meeting-attachments__empty { font-size: 0.875rem; margin: 0 0 0.75rem; }
+.pl-meeting-attach-btn { margin-top: 0.25rem; }
+
+/* --- Notes cards + read-only prose --- */
+.pl-meeting-notes { padding: 1.5rem; }
+.pl-meeting-prose { font-size: 0.9375rem; line-height: 1.6; }
+.pl-meeting-prose a { color: var(--hub-link); }
+
+/* --- Agenda: the focus-mode accordion --- */
+.pl-meeting-agenda { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-meeting-item-list { display: flex; flex-direction: column; gap: 0.5rem; }
+/* Empty-state line hides itself the moment real rows exist (HTMX appends included). */
+.pl-meeting-empty { font-size: 0.875rem; margin: 0; }
+.pl-meeting-empty:not(:only-child) { display: none; }
+.pl-meeting-item {
+    background: var(--hub-card-bg);
+    border: 1px solid var(--hub-card-border);
+    border-radius: 8px;
+}
+.pl-meeting-item__row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    min-height: 44px;
+    cursor: pointer;
+}
+.pl-meeting-item--open { border-color: var(--hub-border-strong); }
+.pl-meeting-item--open .pl-meeting-item__row { cursor: default; }
+.pl-meeting-item__chevrons { display: flex; flex-direction: column; gap: 0.25rem; }
+.pl-meeting-chevron {
+    background: transparent;
+    border: none;
+    color: var(--hub-text-muted);
+    font-size: 0.625rem;
+    line-height: 1;
+    padding: 0.125rem 0.25rem;
+    cursor: pointer;
+}
+.pl-meeting-chevron:hover { color: var(--hub-text); }
+.pl-meeting-item__name { flex: 1; font-weight: 600; font-size: 0.9375rem; }
+.pl-meeting-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.pl-meeting-badge--actions {
+    color: var(--color-navy);
+    background: var(--color-tuscan-yellow);
+}
+.pl-meeting-badge--draft {
+    color: var(--hub-text-muted);
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border-strong);
+}
+.pl-meeting-badge--approved {
+    color: var(--color-success);
+    background: var(--color-success-bg);
+}
+.pl-meeting-item__body { padding: 0.25rem 1rem 1rem; }
+.pl-meeting-item__description { font-size: 0.9375rem; margin: 0 0 0.75rem; white-space: pre-line; }
+.pl-meeting-credit { font-size: 0.8125rem; margin: 0.5rem 0; }
+.pl-meeting-item__footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 0.75rem;
+}
+.pl-meeting-minutes-wrap {
+    background: var(--hub-input-bg);
+    border: 1px solid var(--hub-input-border);
+    border-radius: 6px;
+}
+.pl-meeting-add-item {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px dashed var(--hub-border-strong);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--hub-text-muted);
+    font-size: 0.9375rem;
+    cursor: pointer;
+}
+.pl-meeting-add-item:hover { color: var(--hub-link); border-color: var(--hub-link); }
+
+/* --- Action items --- */
+.pl-meeting-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+.pl-meeting-action {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.pl-meeting-action__name { flex: 1; }
+.pl-meeting-action--done .pl-meeting-action__name {
+    text-decoration: line-through;
+    color: var(--hub-text-muted);
+}
+/* Restyled native checkbox — a data value, not a settings toggle (§6.3). */
+.pl-meeting-check { position: relative; display: inline-flex; cursor: pointer; }
+.pl-meeting-check input {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+}
+.pl-meeting-check__box {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 4px;
+    background: var(--hub-input-bg);
+    color: var(--color-navy);
+    font-size: 0.75rem;
+    line-height: 1;
+}
+.pl-meeting-check input:checked + .pl-meeting-check__box {
+    background: var(--color-tuscan-yellow);
+    border-color: var(--color-tuscan-yellow);
+}
+.pl-meeting-check input:checked + .pl-meeting-check__box::after { content: "✓"; font-weight: 700; }
+.pl-meeting-check input:focus-visible + .pl-meeting-check__box { outline: 2px solid var(--hub-blue); outline-offset: 1px; }
+.pl-meeting-check--static {
+    width: 18px;
+    text-align: center;
+    color: var(--color-success);
+    font-weight: 700;
+}
+.pl-meeting-flag {
+    background: transparent;
+    border: none;
+    color: var(--hub-text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0.25rem;
+    cursor: pointer;
+}
+.pl-meeting-flag--on { color: #ef4444; }
+.pl-meeting-flag--static { cursor: default; }
+.pl-meeting-row-delete {
+    background: transparent;
+    border: none;
+    color: var(--hub-text-muted);
+    font-size: 1.125rem;
+    line-height: 1;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
+}
+.pl-meeting-row-delete:hover { color: var(--color-error); }
+
+/* --- Attendance --- */
+.pl-meeting-attendance { padding: 1.5rem; }
+.pl-meeting-attendee-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+.pl-meeting-attendee {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9375rem;
+}
+.pl-meeting-attendee__name { flex: 1; }
+.pl-meeting-attendee__name-input { flex: 1; }
+.pl-meeting-attendee--absent .pl-meeting-attendee__name,
+.pl-meeting-attendee--absent .pl-meeting-attendee__name-input {
+    text-decoration: line-through;
+    color: var(--hub-text-muted);
+}
+.pl-meeting-attendee-picker {
+    display: flex;
+    gap: 1rem 1.5rem;
+    flex-wrap: wrap;
+}
+.pl-meeting-picker-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+}
+
+/* --- Attention / approved tints (home strip + locked banner, later phases) --- */
+.pl-meeting-attention { border-left: 3px solid var(--color-tuscan-yellow); }
+.pl-meeting-approved {
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    background: var(--color-success-bg);
+    color: var(--color-success);
+    font-size: 0.9375rem;
+}
+
+/* --- Row-level busy pulse while an HTMX request is in flight --- */
+.pl-meeting-workspace .htmx-request { opacity: 0.6; }
+
+/* --- Mobile --- */
+@media (max-width: 480px) {
+    .pl-meeting-action { flex-wrap: wrap; }
+    .pl-meeting-action__name { flex-basis: 100%; order: -1; }
+    .pl-meeting-picker-group { flex-wrap: wrap; }
+    .pl-meeting-video-row input[type="url"] { min-width: 0; width: 100%; }
+}
+
+/* --- Print: the workspace IS the export (spec §6.3 — window.print()) --- */
+@media print {
+    .hub-sidebar,
+    .hub-topbar,
+    .pl-meeting-header__actions,
+    .pl-meeting-breadcrumb,
+    .pl-meeting-item__chevrons,
+    .pl-meeting-add-item,
+    .pl-meeting-attach-btn,
+    .pl-meeting-item__footer,
+    .pl-meeting-row-delete,
+    .pl-meeting-flag:not(.pl-meeting-flag--on),
+    .pl-meeting-attendee-picker,
+    .pl-meeting-calendar-slot,
+    .ql-toolbar {
+        display: none !important;
+    }
+    body, .hub-main, .hub-content { background: #fff !important; color: #000 !important; }
+    .pl-meeting-workspace { max-width: none; color: #000; }
+    .pl-meeting-workspace .hub-card,
+    .pl-meeting-item {
+        background: #fff !important;
+        border-color: #ccc !important;
+        color: #000 !important;
+        box-shadow: none !important;
+    }
+    /* Force every accordion body visible — overrides Alpine's inline display:none. */
+    .pl-meeting-item__body { display: block !important; }
+    /* Undim everything. */
+    .pl-meeting-dimmed { opacity: 1 !important; }
+    .pl-meeting-workspace input,
+    .pl-meeting-workspace select,
+    .pl-meeting-workspace textarea,
+    .pl-meeting-minutes-wrap,
+    .ql-container {
+        background: #fff !important;
+        border: none !important;
+        color: #000 !important;
+        appearance: none;
+        padding: 0;
+    }
+    .pl-meeting-title, .pl-meeting-fact, .pl-meeting-item__name, .pl-meeting-prose { color: #000 !important; }
+    .pl-meeting-savestate { display: none !important; }
+}
