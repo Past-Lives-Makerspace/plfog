@@ -9,8 +9,12 @@ is set in a second pass once every article row exists.
 
 Retired legacy guides (a ``LEGACY_SLUG_MAP`` key that is no longer a seeded
 slug) are **unpublished, never deleted** — an admin-edited body is preserved,
-just hidden. The :class:`~membership.models.OrgInfoPage` singleton's own blocks
-(intro, parking, who-to-contact, code of conduct) are never touched.
+just hidden. The :class:`~membership.models.OrgInfoPage` singleton's blocks
+(intro, parking, who-to-contact, banner image) are **filled only when still
+blank** from the ``PAGE_*`` defaults in ``help_content.py`` — the same
+fill-if-blank contract the old ``seed_wiki_articles._sync_intro`` had, so an
+admin edit is never clobbered. The banner default ships with the repo at
+``static/help/_defaults/`` and is saved into each environment's media storage.
 
 Replaces ``seed_wiki_articles`` (its bodies were absorbed as raw material for
 the P1 articles); the deploy step is now ``manage.py seed_help_center``.
@@ -24,9 +28,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
-from membership.help_content import ARTICLES, CATEGORIES, LEGACY_SLUG_MAP
+from membership.help_content import (
+    ARTICLES,
+    CATEGORIES,
+    LEGACY_SLUG_MAP,
+    PAGE_BANNER_STATIC_PATH,
+    PAGE_INTRO,
+    PAGE_PARKING,
+    PAGE_WHO_TO_CONTACT,
+)
 
 
 class Command(BaseCommand):
@@ -55,7 +67,8 @@ class Command(BaseCommand):
             totals["created" if created else "updated"] += 1
         self._sync_related(page, WikiArticle, dry_run=dry_run)
         retired = self._retire_legacy(page, WikiArticle, dry_run=dry_run)
-        self._report(totals, retired, dry_run=dry_run)
+        filled = self._sync_page_defaults(page, dry_run=dry_run)
+        self._report(totals, retired, filled, dry_run=dry_run)
 
     @staticmethod
     def _sync_categories(category_model: Any, *, dry_run: bool) -> dict[str, Any]:
@@ -129,9 +142,48 @@ class Command(BaseCommand):
             rows.update(is_published=False)
         return count
 
-    def _report(self, totals: dict[str, int], retired: int, *, dry_run: bool) -> None:
+    @staticmethod
+    def _sync_page_defaults(page: Any, *, dry_run: bool) -> list[str]:
+        """Fill each still-blank OrgInfoPage block with its launch default.
+
+        Only blank blocks are written — an admin-edited intro, parking note,
+        who-to-contact list, or uploaded banner is never clobbered, and a
+        re-run is a no-op. The banner default is read from the committed
+        ``static/help/_defaults/`` asset and saved through the ``ImageField``
+        into this environment's media storage (so ``OrgInfoPage.save()``'s
+        normalization runs as for any upload). Returns the filled field names.
+        """
+        from django.contrib.staticfiles import finders
+        from django.core.files import File
+
+        text_defaults = (
+            ("intro", PAGE_INTRO),
+            ("parking", PAGE_PARKING),
+            ("who_to_contact", PAGE_WHO_TO_CONTACT),
+        )
+        filled = [name for name, _default in text_defaults if not getattr(page, name).strip()]
+        banner_blank = not page.banner_image
+        if banner_blank:
+            filled.append("banner_image")
+        if dry_run or not filled:
+            return filled
+        for name, default in text_defaults:
+            if name in filled:
+                setattr(page, name, default)
+        if banner_blank:
+            asset = finders.find(PAGE_BANNER_STATIC_PATH)
+            if asset is None:
+                raise CommandError(f"Default help banner missing from the repo: static/{PAGE_BANNER_STATIC_PATH}")
+            with open(asset, "rb") as fh:
+                page.banner_image.save(PAGE_BANNER_STATIC_PATH.rsplit("/", 1)[-1], File(fh), save=False)
+        page.save(update_fields=[*filled, "updated_at"])
+        return filled
+
+    def _report(self, totals: dict[str, int], retired: int, filled: list[str], *, dry_run: bool) -> None:
         prefix = "Would seed" if dry_run else "Seeded"
         self.stdout.write(
             f"{prefix} {len(CATEGORIES)} categories, {len(ARTICLES)} guides: "
             f"{totals['created']} added, {totals['updated']} refreshed, {retired} retired."
         )
+        blocks = ", ".join(filled) if filled else "none (all set already)"
+        self.stdout.write(f"{'Would fill' if dry_run else 'Filled'} blank page blocks: {blocks}.")

@@ -246,6 +246,7 @@ def describe_help_page_tours_card():
         TourState.objects.mark_completed(member.user, "member-welcome")
         content = client.get(reverse("hub_help")).content.decode()
         assert "✓ Taken" in content
+        assert "pl-tour-row__status--done" in content
         assert ">Retake<" in content
 
     def it_links_the_guild_lead_tour_through_a_staffed_guild(client):

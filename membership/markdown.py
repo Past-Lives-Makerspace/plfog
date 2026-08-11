@@ -13,9 +13,12 @@ Two profiles:
 - ``member`` (default) — today's exact behavior, used for every member-authored
   surface. No images, every link hardened and opened in a new tab.
 - ``help`` — the admin/repo-authored help-center profile: ``img`` restricted to
-  ``/static/help/…`` sources, heading ``id`` anchors on ``h2``-``h4``, and
-  internal links kept same-tab. Scripts, styles, and event handlers are stripped
-  identically in both profiles.
+  ``/static/help/…`` sources, heading ``id`` anchors on ``h2``-``h4``,
+  internal links kept same-tab, and Confluence-style callouts via
+  python-markdown's bundled ``admonition`` extension (``!!! tip`` etc. — the
+  emitted ``div``/``p`` classes are allowlisted below, never a free ``class``
+  attribute). Scripts, styles, and event handlers are stripped identically in
+  both profiles.
 """
 
 from __future__ import annotations
@@ -59,8 +62,19 @@ _ALLOWED_TAGS = [
 # event handlers: the sanitizer stays strict.
 _ALLOWED_ATTRS = {"a": ["href", "title"], "th": ["align"], "td": ["align"]}
 
-# Help profile: images join the allowlist (sources restricted below).
-_HELP_TAGS = [*_ALLOWED_TAGS, "img"]
+# Help profile: images and admonition ``div`` wrappers join the allowlist
+# (image sources and div/p classes restricted below).
+_HELP_TAGS = [*_ALLOWED_TAGS, "img", "div"]
+
+# The member profile's exact extension list — unchanged, so member output stays
+# byte-identical. The help profile adds the bundled ``admonition`` extension.
+_MEMBER_EXTENSIONS = ["extra", "sane_lists", "tables"]
+_HELP_EXTENSIONS = [*_MEMBER_EXTENSIONS, "admonition"]
+
+# The only class values that survive on a help-profile ``div`` — exactly what
+# the admonition extension emits for the callout types we style. Anything else
+# (``!!! danger``, a hand-written ``class="pl-anything"``) loses the attribute.
+_ADMONITION_DIV_CLASSES = frozenset({"admonition", "note", "info", "tip", "warning"})
 
 # Help images may only come from the committed screenshot tree — no external
 # URLs, no data: payloads, no protocol-relative hosts, no /media/ uploads.
@@ -86,6 +100,24 @@ def _allow_help_heading_attr(tag: str, name: str, value: str) -> bool:
     return name == "id" and bool(_HEADING_ID_PATTERN.match(value))
 
 
+def _allow_help_div_attr(tag: str, name: str, value: str) -> bool:
+    """Bleach attribute filter for help-profile ``div``: admonition classes only.
+
+    Every whitespace-separated token must come from the admonition allowlist —
+    a smuggled class (``admonition evil``) drops the whole attribute, so a
+    ``div`` can never carry an arbitrary class into the page.
+    """
+    if name != "class":
+        return False
+    tokens = value.split()
+    return bool(tokens) and all(token in _ADMONITION_DIV_CLASSES for token in tokens)
+
+
+def _allow_help_p_attr(tag: str, name: str, value: str) -> bool:
+    """Bleach attribute filter for help-profile ``p``: the admonition title row only."""
+    return name == "class" and value == "admonition-title"
+
+
 _HELP_ATTRS = {
     "a": ["href", "title"],
     "th": ["align"],
@@ -94,6 +126,8 @@ _HELP_ATTRS = {
     "h2": _allow_help_heading_attr,
     "h3": _allow_help_heading_attr,
     "h4": _allow_help_heading_attr,
+    "div": _allow_help_div_attr,
+    "p": _allow_help_p_attr,
 }
 
 
@@ -144,7 +178,7 @@ def render_markdown(source: str, *, profile: str = "member") -> str:
         raise ValueError(f"Unknown markdown profile '{profile}'")
     if not source:
         return ""
-    raw = md.markdown(source, extensions=["extra", "sane_lists", "tables"])
+    raw = md.markdown(source, extensions=_HELP_EXTENSIONS if profile == "help" else _MEMBER_EXTENSIONS)
     if profile == "member":
         cleaned = bleach.clean(raw, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS, strip=True)
         return bleach.linkify(cleaned, callbacks=[_harden_link], parse_email=False)

@@ -1856,6 +1856,12 @@ a:hover { color: var(--hub-link-hover); }
     visibility: visible;
     transform: translateY(0);
 }
+/* Right-anchored variant for bubbles in the narrow right-hand aside — a
+   left-anchored 320px bubble would overflow the viewport there. */
+.pl-help--right .pl-help__bubble {
+    left: auto;
+    right: 0;
+}
 
 .tab-history-link {
     font-size: 0.85rem;
@@ -3241,15 +3247,37 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-md--help img { max-width: 100%; height: auto; border: 1px solid var(--hub-border); border-radius: 8px; margin: 0.75rem 0; }
 .pl-md--help [id] { scroll-margin-top: 1rem; }
 
+/* Confluence-style callouts (help profile only) — `!!! note` / info / tip / warning.
+   Bordered card on the surface layer with a colored left edge + title row. All
+   colors are theme-aware tokens: --hub-blue and --hub-link swap under
+   [data-theme="light"], and --pl-sync-synced is the existing theme-aware green. */
+.pl-md--help .admonition { margin: 1rem 0; padding: 0.75rem 1rem; background: var(--hub-surface); border: 1px solid var(--hub-border); border-left: 4px solid var(--hub-blue); border-radius: 8px; }
+.pl-md--help .admonition > p { margin: 0 0 0.5rem; }
+.pl-md--help .admonition > p:last-child { margin-bottom: 0; }
+.pl-md--help .admonition .admonition-title { margin: 0 0 0.25rem; font-weight: 700; font-size: 0.9rem; color: var(--hub-blue); }
+.pl-md--help .admonition.tip { border-left-color: var(--pl-sync-synced); }
+.pl-md--help .admonition.tip .admonition-title { color: var(--pl-sync-synced); }
+.pl-md--help .admonition.warning { border-left-color: var(--color-tuscan-yellow); }
+.pl-md--help .admonition.warning .admonition-title { color: var(--hub-link); }
+
 /* Help center — landing grid, badges, breadcrumbs, rows, article chrome, search. */
 .pl-help-searchcard { margin-bottom: 1.5rem; padding: 0.75rem 1rem; }
-.pl-helpcat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
-.pl-helpcat-card { display: flex; flex-direction: column; gap: 0.5rem; padding: 1rem 1.25rem; background: var(--hub-card-bg); border: 1px solid var(--hub-border); border-radius: 8px; text-decoration: none; color: var(--hub-text); }
-.pl-helpcat-card:hover { border-color: var(--color-tuscan-yellow); }
-.pl-helpcat-card__name { font-weight: 700; }
-.pl-helpcat-card__desc { color: var(--hub-text-muted); font-size: 0.875rem; }
-.pl-helpcat-card__meta { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: auto; }
-.pl-helpcat-card__count { color: var(--hub-text-muted); font-size: 0.8rem; }
+/* Landing category sections — every published guide is linked right on the card
+   (Confluence-space style). auto-fit: a lone card in its audience group stretches
+   to a full-width row; the member group packs two-up. */
+.pl-helpcat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+.pl-helpcat-card { display: flex; flex-direction: column; gap: 0.5rem; padding: 1rem 1.25rem; background: var(--hub-card-bg); border: 1px solid var(--hub-border); border-radius: 8px; color: var(--hub-text); }
+.pl-helpcat-card__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.pl-helpcat-card__name { font-weight: 700; color: var(--hub-text); text-decoration: none; }
+.pl-helpcat-card__name:hover { color: var(--hub-link); }
+.pl-helpcat-card__desc { margin: 0; color: var(--hub-text-muted); font-size: 0.875rem; }
+.pl-helpcat-card__guides { list-style: none; margin: 0.25rem 0 0; padding: 0; }
+.pl-helpcat-card__guides li + li { border-top: 1px solid var(--hub-border); }
+.pl-helpcat-card__guides a { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0; color: var(--hub-link); text-decoration: none; font-size: 0.9rem; }
+.pl-helpcat-card__guides a:hover { color: var(--hub-link-hover); text-decoration: underline; }
+.pl-helpcat-card__chev { color: var(--hub-text-muted); font-size: 1rem; line-height: 1; }
+.pl-helpcat-card__guides a:hover .pl-helpcat-card__chev { color: var(--hub-link-hover); }
+.pl-helpcat-card__count { margin-top: auto; padding-top: 0.25rem; color: var(--hub-text-muted); font-size: 0.8rem; }
 .pl-help-badge { display: inline-block; padding: 0.1rem 0.5rem; border: 1px solid var(--hub-border); border-radius: 999px; background: var(--hub-surface); color: var(--hub-text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
 .pl-help-breadcrumbs { margin-bottom: 0.75rem; font-size: 0.875rem; color: var(--hub-text-muted); }
 .pl-help-breadcrumbs a { color: var(--hub-text-muted); text-decoration: none; }
@@ -5607,13 +5635,46 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     flex-wrap: wrap;
 }
 
+.pl-tour-card__heading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.pl-tour-card__heading .hub-detail-label {
+    margin-bottom: 0;
+}
+
+.pl-tour-card__explainer {
+    margin: 0.25rem 0 0.75rem;
+    font-size: 0.8125rem;
+}
+
 .pl-tour-row__title {
     color: var(--hub-text);
     font-size: 0.9rem;
 }
 
-.pl-tour-row__pill--muted {
-    color: var(--hub-text-muted);
+/* Taken / not-taken state: a checked green circle vs an empty one. The green is
+   the theme-aware sync token, softened with color-mix for the fill so it reads
+   on both Obsidian and Slate cards. */
+.pl-tour-row__status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 50%;
+    border: 2px solid var(--hub-border-strong);
+}
+.pl-tour-row__status--done {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--pl-sync-synced) 22%, transparent);
+    color: var(--pl-sync-synced);
+}
+.pl-tour-row__status--done svg {
+    width: 0.75rem;
+    height: 0.75rem;
 }
 
 .pl-tour-row__btn {

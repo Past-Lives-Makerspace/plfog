@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import io
 from io import StringIO
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
+from django.core.management.base import CommandError
+from PIL import Image
 
-from membership.help_content import ARTICLES, CATEGORIES
+from membership.help_content import ARTICLES, CATEGORIES, PAGE_INTRO, PAGE_PARKING, PAGE_WHO_TO_CONTACT
 from membership.models import HelpCategory, OrgInfoPage, WikiArticle
 from tests.membership.factories import WikiArticleFactory
 
@@ -161,8 +165,20 @@ def describe_seed_help_center():
             _run()
             assert "0 retired." in _run()
 
-    def describe_the_org_info_page():
-        def it_never_touches_the_page_blocks(db):
+    def describe_the_org_info_page_defaults():
+        def it_fills_every_blank_block_on_a_first_run(db):
+            _run()
+            page = OrgInfoPage.load()
+            assert page.intro == PAGE_INTRO
+            assert page.parking == PAGE_PARKING
+            assert page.who_to_contact == PAGE_WHO_TO_CONTACT
+            assert page.banner_image
+            assert "help-banner" in page.banner_image.name
+
+        def it_reports_which_blocks_it_filled(db):
+            assert "Filled blank page blocks: intro, parking, who_to_contact, banner_image." in _run()
+
+        def it_never_clobbers_an_admin_edited_block(db):
             page = OrgInfoPage.load()
             page.intro = "Josh's intro"
             page.parking = "Josh's parking notes"
@@ -171,3 +187,39 @@ def describe_seed_help_center():
             page.refresh_from_db()
             assert page.intro == "Josh's intro"
             assert page.parking == "Josh's parking notes"
+            # The still-blank blocks were filled around the edits.
+            assert page.who_to_contact == PAGE_WHO_TO_CONTACT
+
+        def it_never_replaces_an_uploaded_banner(db):
+            buf = io.BytesIO()
+            Image.new("RGB", (400, 200), (120, 120, 120)).save(buf, format="PNG")
+            page = OrgInfoPage.load()
+            page.banner_image = SimpleUploadedFile("josh-banner.png", buf.getvalue(), content_type="image/png")
+            page.save()
+            _run()
+            page.refresh_from_db()
+            assert "josh-banner" in page.banner_image.name
+
+        def it_is_idempotent_on_a_second_run(db):
+            _run()
+            first_banner = OrgInfoPage.load().banner_image.name
+            report = _run()
+            page = OrgInfoPage.load()
+            assert page.banner_image.name == first_banner
+            assert page.intro == PAGE_INTRO
+            assert "Filled blank page blocks: none (all set already)." in report
+
+        def it_fails_loudly_when_the_banner_asset_is_missing(db, monkeypatch):
+            monkeypatch.setattr("django.contrib.staticfiles.finders.find", lambda path: None)
+            with pytest.raises(CommandError, match="Default help banner missing"):
+                _run()
+
+        def describe_dry_run():
+            def it_fills_nothing(db):
+                report = _run(dry_run=True)
+                page = OrgInfoPage.load()
+                assert page.intro == ""
+                assert page.parking == ""
+                assert page.who_to_contact == ""
+                assert not page.banner_image
+                assert "Would fill blank page blocks: intro, parking, who_to_contact, banner_image." in report

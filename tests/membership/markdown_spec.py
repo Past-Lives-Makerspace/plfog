@@ -191,6 +191,52 @@ def describe_render_markdown():
                 assert "javascript:" not in html
                 assert 'rel="noopener nofollow noreferrer"' in html
 
+        def describe_admonitions():
+            def it_renders_a_tip_callout_with_its_title_row():
+                html = render_markdown('!!! tip "Stuck?"\n    Check Who\'s Who below.', profile="help")
+                assert '<div class="admonition tip">' in html
+                assert '<p class="admonition-title">Stuck?</p>' in html
+                assert "Check Who's Who below." in html
+
+            def it_renders_every_allowed_callout_type():
+                for kind in ("note", "info", "tip", "warning"):
+                    html = render_markdown(f"!!! {kind}\n    Body.", profile="help")
+                    assert f'<div class="admonition {kind}">' in html
+
+            def it_strips_the_class_from_an_unknown_callout_type():
+                # `!!! danger` emits class="admonition danger" — "danger" is outside the
+                # allowlist, so the whole div class is dropped (the content survives).
+                html = render_markdown("!!! danger\n    Boom.", profile="help")
+                assert "danger" not in html
+                assert "Boom." in html
+
+            def it_strips_a_smuggled_div_class_entirely():
+                html = render_markdown('<div class="admonition pl-modal">hi</div>', profile="help")
+                assert "pl-modal" not in html
+                assert "class=" not in html
+
+            def it_strips_a_free_class_on_a_paragraph():
+                html = render_markdown('<p class="pl-hax">hi</p>', profile="help")
+                assert "class=" not in html
+                assert "hi" in html
+
+            def it_keeps_a_hand_written_admonition_title_class_on_a_paragraph():
+                html = render_markdown('<p class="admonition-title">Note</p>', profile="help")
+                assert '<p class="admonition-title">Note</p>' in html
+
+            def it_leaves_the_member_profile_without_admonitions():
+                # The member profile has no admonition extension and no div allowlist —
+                # the `!!!` block stays literal text and no div survives.
+                html = render_markdown("!!! tip\n    Stuck?")
+                assert "admonition" not in html
+                assert "<div" not in html
+                assert "!!! tip" in html
+
+            def it_strips_a_raw_div_in_the_member_profile():
+                html = render_markdown('<div class="admonition note">hi</div>')
+                assert "<div" not in html
+                assert "hi" in html
+
         def describe_sanitization_stays_strict():
             def it_strips_script_tags():
                 html = render_markdown("<script>alert(1)</script>\n\nHello", profile="help")

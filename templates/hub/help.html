@@ -82,7 +82,8 @@ are re-pointed at their article pages by the legacy-anchor script at the bottom.
 
 {% if page.intro %}
 <div class="hub-card" style="margin-bottom:1.5rem;">
-    <div class="pl-md">{{ page.intro|guild_markdown }}</div>
+    {# Josh's blocks render through the help profile (admin-authored) so admonitions work. #}
+    <div class="pl-md pl-md--help">{{ page.intro|help_markdown }}</div>
 </div>
 {% endif %}
 
@@ -94,6 +95,12 @@ are re-pointed at their article pages by the legacy-anchor script at the bottom.
 
 <div class="pl-guild-grid">
     <main>
+        {% comment %}
+        Confluence-style category sections: every published guide is a direct link on
+        this page — no need to click into a category to see what's inside. The category
+        name still links to its browse page; groups with a single category render as a
+        full-width row (auto-fit collapses the empty track).
+        {% endcomment %}
         {% if categories %}
         {% regroup categories by audience_heading as audience_groups %}
         {% for group in audience_groups %}
@@ -101,14 +108,24 @@ are re-pointed at their article pages by the legacy-anchor script at the bottom.
             <h2 class="hub-detail-label">{{ group.grouper }}</h2>
             <div class="pl-helpcat-grid">
                 {% for category in group.list %}
-                <a class="pl-helpcat-card" href="{% url 'hub_help_category' category.slug %}">
-                    <span class="pl-helpcat-card__name">{{ category.name }}</span>
-                    {% if category.description %}<span class="pl-helpcat-card__desc">{{ category.description }}</span>{% endif %}
-                    <span class="pl-helpcat-card__meta">
-                        <span class="pl-helpcat-card__count">{{ category.published_count }} guide{{ category.published_count|pluralize }}</span>
+                <div class="pl-helpcat-card">
+                    <div class="pl-helpcat-card__head">
+                        <a class="pl-helpcat-card__name" href="{% url 'hub_help_category' category.slug %}">{{ category.name }}</a>
                         <span class="pl-help-badge">{{ category.get_audience_display }}</span>
-                    </span>
-                </a>
+                    </div>
+                    {% if category.description %}<p class="pl-helpcat-card__desc">{{ category.description }}</p>{% endif %}
+                    <ul class="pl-helpcat-card__guides">
+                        {% for guide in category.landing_articles %}
+                        <li>
+                            <a href="{{ guide.get_absolute_url }}">
+                                <span>{{ guide.title }}</span>
+                                <span class="pl-helpcat-card__chev" aria-hidden="true">&rsaquo;</span>
+                            </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    <span class="pl-helpcat-card__count">{{ category.landing_articles|length }} guide{{ category.landing_articles|length|pluralize }}</span>
+                </div>
                 {% endfor %}
             </div>
         </section>
@@ -132,14 +149,14 @@ are re-pointed at their article pages by the legacy-anchor script at the bottom.
         {% if page.parking %}
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">Parking &amp; Arrival</h2>
-            <div class="pl-md">{{ page.parking|guild_markdown }}</div>
+            <div class="pl-md pl-md--help">{{ page.parking|help_markdown }}</div>
         </section>
         {% endif %}
 
         {% if page.who_to_contact %}
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">Who's Who &amp; Who to Contact</h2>
-            <div class="pl-md">{{ page.who_to_contact|guild_markdown }}</div>
+            <div class="pl-md pl-md--help">{{ page.who_to_contact|help_markdown }}</div>
         </section>
         {% endif %}
 
@@ -175,17 +192,31 @@ are re-pointed at their article pages by the legacy-anchor script at the bottom.
         rows. Start = never taken or dismissed; Retake = completed. The empty state is in
         practice unreachable (member-welcome matches every member) but guarded anyway.{% endcomment %}
         <div class="hub-card" style="margin-bottom:1rem;">
-            <h3 class="hub-detail-label">Guided tours</h3>
+            <div class="pl-tour-card__heading">
+                <h3 class="hub-detail-label">Guided tours</h3>
+                <span class="pl-help pl-help--right" tabindex="0" aria-label="What is a guided tour?">
+                    <span class="pl-help__icon" aria-hidden="true">?</span>
+                    <span class="pl-help__bubble" role="tooltip">
+                        Starting a tour opens the page it covers and pops up a short series of tips that point at the actual buttons and panels, one step at a time. You can leave a tour at any point, and retake it whenever you like.
+                    </span>
+                </span>
+            </div>
+            <p class="pl-tour-card__explainer hub-text-muted">Interactive walkthroughs that highlight parts of the app, right on the page.</p>
             {% if tour_rows %}
             <div class="pl-tour-rows">
                 {% for row in tour_rows %}
                 <div class="pl-tour-row">
-                    <span class="pl-tour-row__title">{{ row.tour.title }}</span>
                     {% if row.completed %}
-                    <span class="hub-pill pl-tour-row__pill">✓ Taken</span>
+                    <span class="pl-tour-row__status pl-tour-row__status--done" title="Taken">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span class="sr-only">✓ Taken</span>
+                    </span>
                     {% else %}
-                    <span class="hub-pill pl-tour-row__pill pl-tour-row__pill--muted">Not taken</span>
+                    <span class="pl-tour-row__status" title="Not taken yet">
+                        <span class="sr-only">Not taken</span>
+                    </span>
                     {% endif %}
+                    <span class="pl-tour-row__title">{{ row.tour.title }}</span>
                     <a href="{{ row.url }}" class="hub-btn hub-btn--sm pl-tour-row__btn">{% if row.completed %}Retake{% else %}Start{% endif %}</a>
                 </div>
                 {% endfor %}

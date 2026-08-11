@@ -2361,10 +2361,12 @@ def help_page(request: HttpRequest) -> HttpResponse:
     """Public Help landing — category grid, search, Josh's reference blocks, FAQ, resources.
 
     Public-read for the same reason it always was: org-wide reference content, no member
-    PII. Editing is admin-only via ``help_edit``. Uncategorized published guides render in
-    the permanent "All guides" fallback list, so nothing vanishes between migrate and seed.
-    ``legacy_anchor_map`` covers the old ``/help/#slug`` deep links — filtered to targets
-    that exist and are published, resolved to full article URLs for the inline redirect JS.
+    PII. Editing is admin-only via ``help_edit``. Every category card lists its published
+    guides directly (one ``Prefetch`` into ``landing_articles`` — no per-category queries);
+    uncategorized published guides render in the permanent "All guides" fallback list, so
+    nothing vanishes between migrate and seed. ``legacy_anchor_map`` covers the old
+    ``/help/#slug`` deep links — filtered to targets that exist and are published,
+    resolved to full article URLs for the inline redirect JS.
     """
     from membership.help_content import LEGACY_SLUG_MAP, UNLISTED_SLUGS
 
@@ -2394,7 +2396,25 @@ def help_page(request: HttpRequest) -> HttpResponse:
         {
             **_get_hub_context(request),
             "page": page,
-            "categories": HelpCategory.objects.with_published_counts().nonempty().landing_ranked(),
+            "categories": (
+                HelpCategory.objects.with_published_counts()
+                .nonempty()
+                .landing_ranked()
+                .prefetch_related(
+                    Prefetch(
+                        "articles",
+                        queryset=(
+                            WikiArticle.objects.published()
+                            .exclude(slug__in=UNLISTED_SLUGS)
+                            # get_absolute_url reads article.category — join it here so
+                            # the card links stay inside the single prefetch query.
+                            .select_related("category")
+                            .order_by("sort_order", "pk")
+                        ),
+                        to_attr="landing_articles",
+                    )
+                )
+            ),
             "uncategorized": (
                 WikiArticle.objects.published()
                 .filter(category__isnull=True)

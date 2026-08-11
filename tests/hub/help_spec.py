@@ -262,10 +262,61 @@ def describe_org_info_read_page():
             assert b"Empty category" not in content
             assert b"Drafts only" not in content
 
+        def it_lists_every_published_guide_as_a_link_inside_its_category_card(client: Client):
+            category = HelpCategoryFactory(name="Guilds")
+            first = WikiArticleFactory(title="Alpha guide", category=category, sort_order=10)
+            second = WikiArticleFactory(title="Zed guide", category=category, sort_order=20)
+            content = client.get(reverse("hub_help")).content
+            assert f'href="{first.get_absolute_url()}"'.encode() in content
+            assert f'href="{second.get_absolute_url()}"'.encode() in content
+            assert content.index(b"Alpha guide") < content.index(b"Zed guide")
+
+        def it_keeps_drafts_and_unlisted_guides_out_of_the_card_lists(client: Client):
+            category = HelpCategoryFactory(name="Guilds")
+            WikiArticleFactory(title="Live guide", category=category)
+            WikiArticleFactory(title="Hidden draft", category=category, is_published=False)
+            WikiArticleFactory(title="Instructor orientation", slug="instructor-orientation", category=category)
+            content = client.get(reverse("hub_help")).content
+            assert b"Live guide" in content
+            assert b"Hidden draft" not in content
+            assert b"Instructor orientation" not in content
+
+        def it_does_not_grow_queries_with_more_categories_and_guides(client: Client):
+            from django.db import connection
+            from django.test.utils import CaptureQueriesContext
+
+            WikiArticleFactory(category=HelpCategoryFactory(name="Cat A"))
+            client.get(reverse("hub_help"))  # warm per-process caches (content types, site config)
+            with CaptureQueriesContext(connection) as baseline:
+                client.get(reverse("hub_help"))
+            for name in ("Cat B", "Cat C", "Cat D"):
+                category = HelpCategoryFactory(name=name)
+                WikiArticleFactory(category=category)
+                WikiArticleFactory(category=category)
+            with CaptureQueriesContext(connection) as grown:
+                client.get(reverse("hub_help"))
+            assert len(grown) == len(baseline)
+
     def describe_the_search_card():
         def it_points_the_search_form_at_the_search_view(client: Client):
             resp = client.get(reverse("hub_help"))
             assert f'action="{reverse("hub_help_search")}"'.encode() in resp.content
+
+    def describe_the_tours_card():
+        def it_explains_what_a_tour_is_with_an_explainer_line_and_tooltip(client: Client):
+            _user_with_role("tour_expl")
+            client.login(username="tour_expl", password="pass")
+            content = client.get(reverse("hub_help")).content.decode()
+            assert "Interactive walkthroughs that highlight parts of the app, right on the page." in content
+            assert "pl-help__bubble" in content
+            assert "one step at a time" in content
+
+        def it_marks_an_untaken_tour_with_an_empty_status_circle(client: Client):
+            _user_with_role("tour_circle")
+            client.login(username="tour_circle", password="pass")
+            content = client.get(reverse("hub_help")).content.decode()
+            assert "pl-tour-row__status" in content
+            assert "pl-tour-row__status--done" not in content
 
     def describe_legacy_anchors():
         def it_maps_old_slugs_to_live_article_urls_and_drops_dead_targets(client: Client, monkeypatch):

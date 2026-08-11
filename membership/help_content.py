@@ -62,6 +62,39 @@ LEGACY_SLUG_MAP: dict[str, str] = {
 # end — until the article ships.
 PENDING_LEGACY_TARGETS: frozenset[str] = frozenset({"notifications"})
 
+# ── OrgInfoPage launch defaults ──────────────────────────────────────────────
+# Fill-if-blank defaults for the Help landing's page blocks. ``seed_help_center``
+# writes each one ONLY when the block is still blank, so an admin edit is never
+# clobbered (the same contract the old ``seed_wiki_articles._sync_intro`` had).
+# Rendered through the help profile — the ``!!!`` blocks are admonitions.
+
+PAGE_INTRO = """\
+Welcome to the FOG hub, the app that runs Past Lives day to day. Everything you can do \
+here, from taking classes to guild voting, has a short guide below. Pick a category, or \
+search if you already know what you need.
+
+!!! tip
+    Stuck on something the guides don't cover? Check Who's Who further down this page to \
+see who to ask."""
+
+PAGE_PARKING = """\
+You can park on the street along SE 9th Ave, SE 10th Ave, and Woodward St.
+
+!!! note
+    Check the posted signs before you park."""
+
+PAGE_WHO_TO_CONTACT = """\
+Not sure who to ask? Start here:
+
+- **Sushuma** for finances.
+- **Lee** for operations.
+- **Morlock** for general questions and everything else."""
+
+# The default hero banner, committed to the repo at static/help/_defaults/ so
+# every environment seeds the same image into its own media storage (R2 in
+# prod, the filesystem locally). Pixabay, license-free.
+PAGE_BANNER_STATIC_PATH = "help/_defaults/help-banner.jpg"
+
 # The seeded help-center categories (§10.1) — slug keys the seed command
 # update_or_creates on; audience groups them on the landing page.
 CATEGORIES: list[dict[str, Any]] = [
