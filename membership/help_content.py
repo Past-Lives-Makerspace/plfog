@@ -68,6 +68,28 @@ PENDING_LEGACY_TARGETS: frozenset[str] = frozenset({"notifications"})
 # clobbered (the same contract the old ``seed_wiki_articles._sync_intro`` had).
 # Rendered through the help profile — the ``!!!`` blocks are admonitions.
 
+#: The retired seed_wiki_articles default intro, verbatim. Production still holds this
+#: text (that seed also filled only-when-blank), so seed_help_center treats an intro
+#: exactly equal to it as stale seed output and replaces it with PAGE_INTRO. A
+#: hand-edited intro never matches and is never touched.
+RETIRED_INTRO = """\
+Welcome to the Past Lives member hub. This is where the makerspace runs day to day: your \
+guilds, the class catalog, the community calendar, guild voting, and your account settings.
+
+Use the menu on the left to get around:
+
+- Home: your dashboard and recent activity.
+- Class Catalog: every class and workshop you can sign up for.
+- Community Calendar: everything happening at the space, in one place.
+- Spaces: the floor plan and every studio and shared area.
+- Guild Voting: rank the guilds you want the monthly funding pool to support.
+- Help: this page, plus answers to common questions.
+- Member Directory: find other members by skill or guild.
+- Guilds: jump straight to any guild's page.
+
+The guides below cover the parts people ask about most. Stuck? The Who's Who section \
+further down says who to contact."""
+
 PAGE_INTRO = """\
 Welcome to the FOG hub, the app that runs Past Lives day to day. Everything you can do \
 here, from taking classes to guild voting, has a short guide below. Pick a category, or \

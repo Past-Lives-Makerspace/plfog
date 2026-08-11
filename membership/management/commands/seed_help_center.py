@@ -13,7 +13,9 @@ just hidden. The :class:`~membership.models.OrgInfoPage` singleton's blocks
 (intro, parking, who-to-contact, banner image) are **filled only when still
 blank** from the ``PAGE_*`` defaults in ``help_content.py`` — the same
 fill-if-blank contract the old ``seed_wiki_articles._sync_intro`` had, so an
-admin edit is never clobbered. The banner default ships with the repo at
+admin edit is never clobbered. One exception: an intro exactly equal to the
+retired seed's default (``RETIRED_INTRO``) counts as stale seed output and is
+replaced — production still carries that text. The banner default ships with the repo at
 ``static/help/_defaults/`` and is saved into each environment's media storage.
 
 Replaces ``seed_wiki_articles`` (its bodies were absorbed as raw material for
@@ -38,6 +40,7 @@ from membership.help_content import (
     PAGE_INTRO,
     PAGE_PARKING,
     PAGE_WHO_TO_CONTACT,
+    RETIRED_INTRO,
 )
 
 
@@ -161,7 +164,14 @@ class Command(BaseCommand):
             ("parking", PAGE_PARKING),
             ("who_to_contact", PAGE_WHO_TO_CONTACT),
         )
-        filled = [name for name, _default in text_defaults if not getattr(page, name).strip()]
+
+        def _is_stale(name: str) -> bool:
+            current = getattr(page, name).strip()
+            # The retired seed's intro counts as blank: production still carries it,
+            # and replacing known seed output is the point. Hand edits never match.
+            return not current or (name == "intro" and current == RETIRED_INTRO.strip())
+
+        filled = [name for name, _default in text_defaults if _is_stale(name)]
         banner_blank = not page.banner_image
         if banner_blank:
             filled.append("banner_image")

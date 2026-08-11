@@ -11,7 +11,14 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from PIL import Image
 
-from membership.help_content import ARTICLES, CATEGORIES, PAGE_INTRO, PAGE_PARKING, PAGE_WHO_TO_CONTACT
+from membership.help_content import (
+    ARTICLES,
+    CATEGORIES,
+    PAGE_INTRO,
+    PAGE_PARKING,
+    PAGE_WHO_TO_CONTACT,
+    RETIRED_INTRO,
+)
 from membership.models import HelpCategory, OrgInfoPage, WikiArticle
 from tests.membership.factories import WikiArticleFactory
 
@@ -177,6 +184,14 @@ def describe_seed_help_center():
 
         def it_reports_which_blocks_it_filled(db):
             assert "Filled blank page blocks: intro, parking, who_to_contact, banner_image." in _run()
+
+        def it_replaces_the_retired_seeds_intro_as_stale(db):
+            page = OrgInfoPage.load()
+            page.intro = RETIRED_INTRO
+            page.save()
+            _run()
+            page.refresh_from_db()
+            assert page.intro == PAGE_INTRO
 
         def it_never_clobbers_an_admin_edited_block(db):
             page = OrgInfoPage.load()
