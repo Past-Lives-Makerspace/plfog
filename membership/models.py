@@ -4488,6 +4488,928 @@ class CommunityEvent(models.Model):
         )
 
 
+class MeetingLockedError(Exception):
+    """Raised when a mutating operation targets an approved (locked) meeting."""
+
+
+class InvalidProposalTransition(ValueError):
+    """Raised when a :class:`MeetingItemProposal` decision method is called from a state
+    that does not permit it (e.g. approving an already-declined proposal)."""
+
+
+class MeetingQuerySet(models.QuerySet):
+    """Window + scope queries for the Meetings feature (upcoming / archive / attention)."""
+
+    def upcoming(self) -> MeetingQuerySet:
+        """Meetings dated today or later — drafts AND approved (an approved agenda for a
+        future meeting still shows). Ordered ascending (soonest first, blank times last),
+        overriding ``Meta.ordering`` so ``.first()`` is the *soonest* meeting."""
+        return self.filter(scheduled_date__gte=timezone.localdate()).order_by(
+            "scheduled_date", models.F("scheduled_time").asc(nulls_last=True), "pk"
+        )
+
+    def past(self) -> MeetingQuerySet:
+        """Meetings dated before today (undated drafts are neither past nor upcoming)."""
+        return self.filter(scheduled_date__lt=timezone.localdate())
+
+    def archive(self) -> MeetingQuerySet:
+        """Everything NOT upcoming: past meetings plus undated drafts, dated rows newest
+        first, undated rows last — an interrupted create-empty-then-fill draft is always
+        reachable here."""
+        return self.filter(Q(scheduled_date__lt=timezone.localdate()) | Q(scheduled_date__isnull=True)).order_by(
+            models.F("scheduled_date").desc(nulls_last=True), "-created_at"
+        )
+
+    def needs_attention(self) -> MeetingQuerySet:
+        """Drafts an editor forgot: undated drafts + past-dated drafts still unapproved."""
+        return self.filter(status=Meeting.Status.DRAFT).filter(
+            Q(scheduled_date__isnull=True) | Q(scheduled_date__lt=timezone.localdate())
+        )
+
+    def for_scope(self, guild: Guild | None) -> MeetingQuerySet:
+        """This guild's meetings, or (``None``) the cross-guild council meetings."""
+        if guild is None:
+            return self.filter(guild__isnull=True)
+        return self.filter(guild=guild)
+
+    def approved(self) -> MeetingQuerySet:
+        return self.filter(status=Meeting.Status.APPROVED)
+
+    def drafts(self) -> MeetingQuerySet:
+        return self.filter(status=Meeting.Status.DRAFT)
+
+    def visible_to(self, user: User) -> MeetingQuerySet:
+        """Every meeting — all meetings are member-readable (transparency). Exists as the
+        single seam should visibility ever narrow."""
+        return self.all()
+
+
+class Meeting(models.Model):
+    """One meeting's workspace: the agenda that evolves into the minutes.
+
+    A meeting belongs to a guild, or — with ``guild`` NULL — to the cross-guild
+    council (guild leads) scope, the same convention as :class:`CommunityEvent`.
+    It starts life as an editable DRAFT workspace (agenda items, attendance,
+    action items, autosave) and locks into the permanent record when leadership
+    approves the minutes (APPROVED). It optionally rides a :class:`CommunityEvent`
+    for Google Calendar / Discord sync and reminder emails.
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        APPROVED = "approved", "Approved"
+
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="meetings",
+        help_text="The guild this meeting belongs to. Blank = the cross-guild council (guild leads) meeting.",
+    )
+    is_special = models.BooleanField(
+        default=False,
+        help_text="Off = the regular Monthly meeting. On = a named special meeting (Emergency, Planning…).",
+    )
+    special_title = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        help_text="Name of the special meeting, e.g. 'Emergency'. Blank shows as 'Special'.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+        help_text="Draft = editable workspace. Approved = locked minutes of record.",
+    )
+    scheduled_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="The day of the meeting. Blank until scheduled — a meeting can be drafted first.",
+    )
+    scheduled_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Start time. Always a half-hour value from the shared dropdown; blank = time TBD.",
+    )
+    video_call_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Video call link (Meet, Zoom…). Shown as a 'Join meeting' button wherever the meeting appears.",
+    )
+    special_notes = models.TextField(
+        blank=True,
+        default="",
+        help_text="Sanitized HTML. The top-of-page notes box — context everyone should read before the meeting.",
+    )
+    other_notes = models.TextField(
+        blank=True,
+        default="",
+        help_text="Sanitized HTML. Off-agenda discussion recorded at the bottom of the page.",
+    )
+    event = models.ForeignKey(
+        CommunityEvent,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="meetings",
+        help_text="The calendar event this meeting rides for Google/Discord sync and reminders.",
+    )
+    event_occurrence = models.DateField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Which occurrence of a recurring event this meeting is — recurring events expand "
+            "virtually, so the date pins it."
+        ),
+    )
+    owns_event = models.BooleanField(
+        default=False,
+        help_text=(
+            "On when the linked event was created from this workspace: it deletes with the meeting "
+            "and follows date/time changes. Off for a pre-existing event that was merely linked."
+        ),
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who approved (locked) the minutes.",
+    )
+    approved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the minutes were approved. Re-approving after an admin unlock re-stamps this.",
+    )
+    legacy_note_id = models.IntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="PK of the GuildMeetingNote this row was migrated from; migration bookkeeping only.",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who created the meeting.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = MeetingQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-scheduled_date", "-created_at"]
+        indexes = [
+            models.Index(fields=["guild", "-scheduled_date"], name="idx_%(class)s_guild_date"),
+            models.Index(fields=["status"], name="idx_%(class)s_draft", condition=Q(status="draft")),
+        ]
+        constraints = [
+            # The is_special autosave cleaner clears special_title in the same save when the
+            # toggle goes off (§5.2 coupled fields) — this constraint is the backstop, never
+            # the error path.
+            models.CheckConstraint(
+                condition=Q(is_special=True) | Q(special_title=""),
+                name="ck_meeting_special_title_only_when_special",
+            ),
+            models.UniqueConstraint(
+                fields=["legacy_note_id"],
+                condition=Q(legacy_note_id__isnull=False),
+                name="uq_meeting_legacy_note",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        when = f"{self.scheduled_date:%Y-%m-%d}" if self.scheduled_date is not None else "no date"
+        return f"{self.display_title} ({when})"
+
+    @property
+    def display_title(self) -> str:
+        """The absorbed app's naming convention verbatim: '{scope} — {kind} Meeting'."""
+        kind = ((self.special_title or "Special") if self.is_special else "Monthly") + " Meeting"
+        return f"{self.scope_label} — {kind}"
+
+    @property
+    def is_locked(self) -> bool:
+        return self.status == self.Status.APPROVED
+
+    @property
+    def scope_label(self) -> str:
+        return self.guild.name if self.guild is not None else "Council"
+
+    @property
+    def starts_at(self) -> datetime_type | None:
+        """Aware start datetime from date + time, or ``None`` while undated. A blank time
+        means midnight — mirrors the ``NextMeeting.has_time`` handling."""
+        if self.scheduled_date is None:
+            return None
+        return timezone.make_aware(datetime_type.combine(self.scheduled_date, self.scheduled_time or time_type()))
+
+    @property
+    def absolute_url(self) -> str:
+        """Absolute workspace URL for notifications — the §6.0 ``/meetings/<pk>/`` route
+        (the view lands in a later phase; the path is the locked URL map)."""
+        return f"{settings.MEMBER_BASE_URL}/meetings/{self.pk}/"
+
+    def _event_location(self) -> str:
+        """The linked event's location expression — the video link wins, then the guild's
+        meeting location; a council meeting (no guild) must not raise."""
+        return self.video_call_url or (self.guild.meeting_location if self.guild is not None else "")
+
+    def assert_editable(self) -> None:
+        """Raise :class:`MeetingLockedError` when the minutes are approved (locked).
+
+        Called by every mutating path — approved minutes are the permanent record.
+        """
+        if self.is_locked:
+            raise MeetingLockedError("Approved minutes are locked.")
+
+    def approve(self, *, by: User) -> None:
+        """Approve and lock the minutes: stamp, auto-decline pending proposals, notify.
+
+        Still-pending proposals are declined first (each proposer notified — no proposal
+        silently dies; withdrawn ones are skipped by the PENDING filter). The approval
+        emit's period is timestamped so a re-approval after an admin unlock announces the
+        corrected minutes again; the spine writes the ``meeting_approved`` activity row.
+
+        Raises:
+            MeetingLockedError: If already approved.
+            ValueError: If no ``scheduled_date`` is set.
+        """
+        self.assert_editable()
+        if self.scheduled_date is None:
+            raise ValueError("Set the meeting date before approving.")
+        for proposal in self.proposals.filter(state=MeetingItemProposal.State.PENDING):
+            proposal.decline(reviewer=by, note="The meeting was closed before this was reviewed.")
+        self.status = self.Status.APPROVED
+        self.approved_by = by
+        self.approved_at = timezone.now()
+        self.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+        from core.events.emit import emit
+
+        key = "meeting.minutes_approved" if self.guild_id is not None else "meeting.council_minutes_approved"
+        emit(
+            key,
+            actor=by,
+            target=self,
+            context={
+                "guild": self.guild,
+                "guild_name": self.scope_label,
+                "meeting_title": self.display_title,
+                "meeting_url": self.absolute_url,
+            },
+            url=self.absolute_url,
+            period=f"meeting:{self.pk}:approved:{self.approved_at.timestamp()}",
+        )
+
+    def unlock(self, *, by: User) -> None:
+        """Reopen approved minutes for editing (FOG admin only — the view enforces).
+
+        The approval stamps are left in place as history until a re-approve overwrites
+        them. No broadcast — unlocking is corrective plumbing (activity row only).
+
+        Raises:
+            ValueError: If the meeting is not currently approved.
+        """
+        if not self.is_locked:
+            raise ValueError("Only approved minutes can be unlocked.")
+        self.status = self.Status.DRAFT
+        self.save(update_fields=["status", "updated_at"])
+        from core.models import SiteActivity
+
+        SiteActivity.log(SiteActivity.Kind.MEETING_UNLOCKED, actor=by, target=self)
+
+    def create_calendar_event(self, *, by: User) -> CommunityEvent:
+        """Create + publish a calendar event from the workspace and link it as owned.
+
+        Builds the scope's event type (guild meeting / lead meeting), seeds the location
+        from the video link or the guild's meeting location (a council meeting has no
+        guild — the expression must not raise), and rides
+        :meth:`CommunityEvent.schedule_or_go_live` — announce + Google + Discord +
+        reminders all on the existing rails.
+
+        Raises:
+            MeetingLockedError: If the minutes are locked.
+            ValueError: If already linked, or date/time are not both set.
+        """
+        self.assert_editable()
+        if self.event_id is not None:
+            raise ValueError("This meeting is already linked to a calendar event.")
+        if self.scheduled_date is None or self.scheduled_time is None:
+            raise ValueError("Set a date and time before adding the meeting to the calendar.")
+        starts = timezone.make_aware(datetime_type.combine(self.scheduled_date, self.scheduled_time))
+        event = CommunityEvent(
+            title=self.display_title,
+            event_type=(
+                CommunityEvent.EventType.GUILD_MEETING
+                if self.guild_id is not None
+                else CommunityEvent.EventType.LEAD_MEETING
+            ),
+            guild=self.guild,
+            starts_at=starts,
+            ends_at=starts + timedelta(minutes=90),
+            location=self._event_location(),
+            recurrence=CommunityEvent.Recurrence.NONE,
+            created_by=by,
+        )
+        event.save()
+        event.schedule_or_go_live(actor=by)
+        self.event = event
+        self.event_occurrence = self.scheduled_date
+        self.owns_event = True
+        self.save(update_fields=["event", "event_occurrence", "owns_event", "updated_at"])
+        return event
+
+    def link_event(self, event: CommunityEvent, occurrence_date: date_type, *, by: User) -> None:
+        """Link a pre-existing calendar event (never mutated by the meeting).
+
+        ``owns_event`` stays False — a merely-linked (possibly recurring, possibly
+        shared) event is never edited or deleted from the workspace.
+
+        Raises:
+            MeetingLockedError: If the minutes are locked.
+            ValueError: If already linked, or ``occurrence_date`` is not one of the
+                event's occurrences.
+        """
+        self.assert_editable()
+        if self.event_id is not None:
+            raise ValueError("This meeting is already linked to a calendar event.")
+        if not event.occurrences_in(occurrence_date, occurrence_date):
+            raise ValueError("That date is not an occurrence of the chosen event.")
+        self.event = event
+        self.event_occurrence = occurrence_date
+        self.owns_event = False
+        self.save(update_fields=["event", "event_occurrence", "owns_event", "updated_at"])
+
+    def sync_event(self) -> None:
+        """Push workspace changes through to an OWNED calendar event (else no-op).
+
+        Recomputes title, location (a changed or cleared ``video_call_url`` propagates —
+        no dead link lives on), start/end (duration preserved) and the pinned occurrence,
+        then re-pushes via the event's own Google/Discord push methods (the retry cron
+        covers transient failures). Never re-announces — a reschedule is a sync, not a
+        new event. Clearing the meeting's date leaves the event where it was (the
+        workspace shows the mismatch rather than guessing).
+        """
+        event = self.event
+        if event is None or not self.owns_event:
+            return
+        event.title = self.display_title
+        event.location = self._event_location()
+        starts = self.starts_at
+        if starts is not None:
+            duration = event.ends_at - event.starts_at
+            event.starts_at = starts
+            event.ends_at = starts + duration
+            if self.event_occurrence != self.scheduled_date:
+                self.event_occurrence = self.scheduled_date
+                self.save(update_fields=["event_occurrence", "updated_at"])
+        event.save(update_fields=["title", "starts_at", "ends_at", "location", "updated_at"])
+        event.push_to_google()
+        event.push_to_discord()
+
+    def unlink_event(self, *, by: User) -> None:
+        """Drop the calendar link. Never deletes or edits the event — non-destructive by
+        design (a formerly-owned event simply becomes a normal calendar event).
+
+        Raises:
+            MeetingLockedError: If the minutes are locked.
+            ValueError: If no event is linked.
+        """
+        self.assert_editable()
+        if self.event_id is None:
+            raise ValueError("No calendar event is linked.")
+        self.event = None
+        self.event_occurrence = None
+        self.owns_event = False
+        self.save(update_fields=["event", "event_occurrence", "owns_event", "updated_at"])
+
+    def remove(self, *, by: User) -> None:
+        """Delete this draft meeting (the delete view calls this, not raw ``.delete()``).
+
+        An OWNED calendar event is unwound through the existing rails first —
+        ``remove_from_google`` + ``remove_from_discord`` — then its row is deleted, so no
+        orphaned event keeps announcing a cancelled meeting. A merely-linked event is
+        left completely alone.
+
+        Raises:
+            MeetingLockedError: If the minutes are locked (deletion requires unlock first).
+        """
+        self.assert_editable()
+        event = self.event
+        if event is not None and self.owns_event:
+            event.remove_from_google()
+            event.remove_from_discord()
+            event.delete()
+        self.delete()
+
+    def add_item(self, *, by: User) -> MeetingAgendaItem:
+        """Append an EMPTY agenda item (create-empty-then-fill) and return it.
+
+        Raises:
+            MeetingLockedError: If the minutes are locked.
+        """
+        self.assert_editable()
+        return MeetingAgendaItem.objects.create(meeting=self)
+
+    def add_attendee(self, *, member: Member | None = None, guest_name: str = "") -> MeetingAttendee:
+        """Add a roster member OR a free-text guest to the attendance list.
+
+        The member-XOR-guest shape is enforced by the check constraint; the friendly
+        duplicate guard here surfaces as a 422 toast in the workspace.
+
+        Raises:
+            MeetingLockedError: If the minutes are locked.
+            ValueError: If the member is already on the list.
+        """
+        self.assert_editable()
+        if member is not None and self.attendees.filter(member=member).exists():
+            raise ValueError("Already on the list.")
+        return MeetingAttendee.objects.create(meeting=self, member=member, guest_name=guest_name)
+
+    def propose_item(self, *, by: User, title: str, why: str) -> MeetingItemProposal:
+        """A member proposes an agenda item for this (upcoming, editable) meeting.
+
+        The view guards ``can_propose_to_meeting``; the model re-asserts the hard
+        invariants (not locked, not past) and pings the reviewers via the spine.
+
+        Raises:
+            MeetingLockedError: If the minutes are locked.
+            ValueError: If the meeting date has already passed.
+        """
+        self.assert_editable()
+        if self.scheduled_date is not None and self.scheduled_date < timezone.localdate():
+            raise ValueError("This meeting has already happened — proposals are closed.")
+        proposal = MeetingItemProposal.objects.create(meeting=self, title=title, why=why, proposed_by=by)
+        from core.events.emit import emit
+
+        emit(
+            "meeting.item_proposed",
+            actor=by,
+            target=proposal,
+            context={
+                "guild": self.guild,
+                "meeting": self,
+                "meeting_title": self.display_title,
+                "proposal_title": title,
+            },
+            url=self.absolute_url,
+            period=f"meeting-proposal:{proposal.pk}:submitted",
+        )
+        return proposal
+
+    def carryover_actions(self) -> MeetingActionItemQuerySet:
+        """Open action items from the scope's earlier meetings (empty while undated)."""
+        return MeetingActionItem.objects.carryover_for(self)
+
+
+class MeetingAttendee(models.Model):
+    """One attendance row: a roster member OR a free-text guest, present or absent."""
+
+    meeting = models.ForeignKey(
+        Meeting,
+        on_delete=models.CASCADE,
+        related_name="attendees",
+        help_text="Parent meeting.",
+    )
+    member = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="+",
+        help_text="A roster member. Blank when this row is a free-text guest.",
+    )
+    guest_name = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        help_text="Name of a non-member guest. Blank when a roster member is picked.",
+    )
+    present = models.BooleanField(default=True, help_text="Off = marked absent (shown struck through).")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+        constraints = [
+            models.CheckConstraint(
+                condition=((Q(member__isnull=False) & Q(guest_name="")) | (Q(member__isnull=True) & ~Q(guest_name=""))),
+                name="ck_meetingattendee_member_xor_guest",
+            ),
+            models.UniqueConstraint(
+                fields=["meeting", "member"],
+                condition=Q(member__isnull=False),
+                name="uq_meetingattendee_meeting_member",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.display_name} @ {self.meeting}"
+
+    @property
+    def display_name(self) -> str:
+        """The roster member's name, or the guest's free-text name."""
+        return self.member.display_name if self.member is not None else self.guest_name
+
+
+class MeetingAgendaItem(models.Model):
+    """One agenda topic: the plan (name + description) that grows minutes and actions."""
+
+    meeting = models.ForeignKey(
+        Meeting,
+        on_delete=models.CASCADE,
+        related_name="items",
+        help_text="Parent meeting.",
+    )
+    name = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="The topic. Blank right after '+ Add item' — fill it in place.",
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Plain text. What this item is about — the 'agenda' half.",
+    )
+    minutes = models.TextField(
+        blank=True,
+        default="",
+        help_text="Sanitized HTML (Quill). What was discussed/decided — the 'minutes' half.",
+    )
+    proposed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Member whose approved proposal created this item; shown as a credit.",
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0, help_text="Position on the agenda; the up/down buttons swap these."
+    )
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+
+    def __str__(self) -> str:
+        return f"{self.name or 'Untitled item'} ({self.meeting})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Auto-assign ``max(sibling sort_order) + 10`` on create so new items land at
+        the bottom (an explicit non-zero ``sort_order`` is respected)."""
+        if self._state.adding and self.sort_order == 0:
+            max_order = self.meeting.items.aggregate(max_order=models.Max("sort_order"))["max_order"]
+            self.sort_order = (max_order or 0) + 10
+        super().save(*args, **kwargs)
+
+    @property
+    def open_action_count(self) -> int:
+        """Open actions under this topic (the collapsed-item 'N★' badge). Counts in
+        Python so a ``prefetch_related("items__actions")`` workspace query stays N+1-free."""
+        return sum(1 for action in self.actions.all() if action.status == MeetingActionItem.Status.OPEN)
+
+
+class MeetingActionItemQuerySet(models.QuerySet):
+    """Carryover query for open action items."""
+
+    def carryover_for(self, meeting: Meeting) -> MeetingActionItemQuerySet:
+        """Open actions from OTHER meetings in the same scope (guild, or both NULL for
+        council) dated before this meeting — oldest source meeting first, then row order.
+
+        Approval status of the source meeting does not matter (an open task is open);
+        undated source drafts are excluded by the date comparison, and an undated
+        *target* meeting has no carryover at all.
+        """
+        if meeting.scheduled_date is None:
+            return self.none()
+        qs = self.filter(
+            status=MeetingActionItem.Status.OPEN,
+            item__meeting__scheduled_date__lt=meeting.scheduled_date,
+        )
+        if meeting.guild_id is None:
+            qs = qs.filter(item__meeting__guild__isnull=True)
+        else:
+            qs = qs.filter(item__meeting__guild=meeting.guild_id)
+        return qs.select_related("item__meeting").order_by("item__meeting__scheduled_date", "sort_order", "pk")
+
+
+class MeetingActionItem(models.Model):
+    """A task that came out of an agenda topic; open ones carry over until closed."""
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        DONE = "done", "Done"
+        DISMISSED = "dismissed", "Dismissed"
+
+    item = models.ForeignKey(
+        MeetingAgendaItem,
+        on_delete=models.CASCADE,
+        related_name="actions",
+        help_text="The agenda topic this action came out of.",
+    )
+    name = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        help_text="The task, e.g. 'Order more 80-grit sandpaper'.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.OPEN,
+        help_text="Open items carry over to the next meeting until done or dismissed.",
+    )
+    is_flagged = models.BooleanField(default=False, help_text="Red priority flag.")
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    closed_at = models.DateTimeField(null=True, blank=True, help_text="When it was completed or dismissed.")
+    closed_in = models.ForeignKey(
+        Meeting,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The meeting whose carryover panel closed it (blank when closed in its own meeting).",
+    )
+
+    objects = MeetingActionItemQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+        indexes = [
+            models.Index(fields=["status"], name="idx_%(class)s_open", condition=Q(status="open")),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name or 'Untitled action'} [{self.get_status_display()}]"
+
+    def complete(self, *, by: User, in_meeting: Meeting | None = None) -> None:
+        """Mark done — ``in_meeting`` when closed from another meeting's carryover panel
+        (allowed even when the source meeting is locked; that's the point of carryover).
+
+        Raises:
+            ValueError: If not currently open.
+        """
+        if self.status != self.Status.OPEN:
+            raise ValueError("Only an open action item can be completed.")
+        self.status = self.Status.DONE
+        self.closed_at = timezone.now()
+        self.closed_in = in_meeting
+        self.save(update_fields=["status", "closed_at", "closed_in"])
+
+    def dismiss(self, *, by: User, in_meeting: Meeting) -> None:
+        """Wave off a stale carryover item without lying that it was done.
+
+        Raises:
+            ValueError: If not currently open.
+        """
+        if self.status != self.Status.OPEN:
+            raise ValueError("Only an open action item can be dismissed.")
+        self.status = self.Status.DISMISSED
+        self.closed_at = timezone.now()
+        self.closed_in = in_meeting
+        self.save(update_fields=["status", "closed_at", "closed_in"])
+
+    def reopen(self) -> None:
+        """Uncheck the done box (its own meeting only) — DONE back to OPEN, stamps
+        cleared. A dismissal is not reopenable from the UI: it's a wave-off.
+
+        Raises:
+            ValueError: If not currently done.
+        """
+        if self.status != self.Status.DONE:
+            raise ValueError("Only a completed action item can be reopened.")
+        self.status = self.Status.OPEN
+        self.closed_at = None
+        self.closed_in = None
+        self.save(update_fields=["status", "closed_at", "closed_in"])
+
+
+class MeetingAttachment(models.Model):
+    """A file OR a link attached to a meeting — migrated note attachments and the slide
+    deck / budget sheet a locked record carries.
+
+    A structural copy of :class:`GuildMeetingNoteAttachment` re-parented to
+    :class:`Meeting`: same upload mechanics, XOR shape, and orphan cleanup.
+    """
+
+    meeting = models.ForeignKey(
+        Meeting,
+        on_delete=models.CASCADE,
+        related_name="attachments",
+        help_text="Parent meeting.",
+    )
+    label = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="What to call this — e.g. 'Agenda PDF'. Defaults to the file name or link.",
+    )
+    file = models.FileField(
+        upload_to="meetings/attachments/",
+        blank=True,
+        validators=[validate_document],
+        help_text="Upload a document (PDF, Word, slides, spreadsheet…). Leave blank if you're adding a link instead.",
+    )
+    url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Link to an external doc (e.g. a Google Doc). Leave blank if you uploaded a file instead.",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=((Q(file="") & ~Q(url="")) | (~Q(file="") & Q(url=""))),
+                name="ck_meetingattachment_file_xor_url",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Attachment #{self.pk} for {self.meeting}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "file")  # mirror GuildMeetingNoteAttachment; no image normalization
+        super().save(*args, **kwargs)
+
+    @property
+    def is_file(self) -> bool:
+        return bool(self.file)
+
+    @property
+    def is_link(self) -> bool:
+        return bool(self.url)
+
+    @property
+    def display_name(self) -> str:
+        """Label if set, else the file's base name, else the URL."""
+        if self.label:
+            return self.label
+        if self.file and self.file.name:
+            return self.file.name.rsplit("/", 1)[-1]
+        return self.url
+
+
+class MeetingItemProposal(models.Model):
+    """A member's proposed agenda item for an upcoming meeting, awaiting a decision."""
+
+    class State(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        DECLINED = "declined", "Declined"
+        WITHDRAWN = "withdrawn", "Withdrawn"
+
+    meeting = models.ForeignKey(
+        Meeting,
+        on_delete=models.CASCADE,
+        related_name="proposals",
+        help_text="The upcoming meeting this item is proposed for.",
+    )
+    title = models.CharField(max_length=200, help_text="The topic the member wants on the agenda.")
+    why = models.TextField(
+        blank=True,
+        default="",
+        help_text="Why it matters / what needs deciding. Becomes the item's description on approval.",
+    )
+    proposed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="+",
+        help_text="Who proposed it.",
+    )
+    state = models.CharField(
+        max_length=20,
+        choices=State.choices,
+        default=State.PENDING,
+        help_text="Pending until leadership decides.",
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who decided.",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True, help_text="When the decision was recorded.")
+    review_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional note back to the proposer (why declined, or what was tweaked).",
+    )
+    created_item = models.OneToOneField(
+        MeetingAgendaItem,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="source_proposal",
+        help_text="The agenda item an approval created.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["state"], name="idx_meetingproposal_pending", condition=Q(state="pending")),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.title} → {self.meeting} ({self.get_state_display()})"
+
+    def approve(self, *, reviewer: User, title: str | None = None, why: str | None = None) -> MeetingAgendaItem:
+        """Put the proposal on the agenda; the proposer is credited on the item.
+
+        The optional ``title``/``why`` overrides are the edit-then-approve path (the
+        decision modal posts possibly-tweaked text). The new item lands at the agenda
+        bottom via the sort_order auto-assign.
+
+        Raises:
+            InvalidProposalTransition: If not currently pending.
+            MeetingLockedError: If the meeting's minutes are locked.
+        """
+        if self.state != self.State.PENDING:
+            raise InvalidProposalTransition(f"Cannot approve a proposal in state '{self.state}'.")
+        self.meeting.assert_editable()
+        item = MeetingAgendaItem.objects.create(
+            meeting=self.meeting,
+            name=title or self.title,
+            description=why or self.why,
+            proposed_by=self.proposed_by,
+        )
+        self.state = self.State.APPROVED
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.created_item = item
+        self.save(update_fields=["state", "reviewed_by", "reviewed_at", "created_item"])
+        self._emit_decided(period=f"meeting-proposal:{self.pk}:approved")
+        return item
+
+    def decline(self, *, reviewer: User, note: str = "") -> None:
+        """Turn the proposal down; the note back to the proposer is optional.
+
+        Raises:
+            InvalidProposalTransition: If not currently pending.
+            MeetingLockedError: If the meeting's minutes are locked.
+        """
+        if self.state != self.State.PENDING:
+            raise InvalidProposalTransition(f"Cannot decline a proposal in state '{self.state}'.")
+        self.meeting.assert_editable()
+        self.state = self.State.DECLINED
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.review_note = note
+        self.save(update_fields=["state", "reviewed_by", "reviewed_at", "review_note"])
+        self._emit_decided(period=f"meeting-proposal:{self.pk}:declined")
+
+    def withdraw(self, *, by: User) -> None:
+        """The proposer pulls back their own pending proposal. Silent — no emit; the
+        reviewer queue simply loses the row, and ``Meeting.approve``'s auto-decline
+        skips withdrawn proposals.
+
+        Raises:
+            InvalidProposalTransition: If not currently pending.
+            ValueError: If ``by`` is not the proposer (the view 403s anyone else first).
+        """
+        if self.state != self.State.PENDING:
+            raise InvalidProposalTransition(f"Cannot withdraw a proposal in state '{self.state}'.")
+        if by.pk != self.proposed_by_id:
+            raise ValueError("Only the proposer can withdraw their proposal.")
+        self.state = self.State.WITHDRAWN
+        self.save(update_fields=["state"])
+
+    def _emit_decided(self, *, period: str) -> None:
+        """Notify the proposer of the outcome (added to the agenda / declined + note)."""
+        from core.events.emit import emit
+
+        if self.state == self.State.APPROVED:
+            outcome = f"'{self.title}' was added to the agenda for {self.meeting.display_title}."
+        else:
+            outcome = f"'{self.title}' wasn't added to the agenda for {self.meeting.display_title}."
+        emit(
+            "meeting.item_decided",
+            actor=self.reviewed_by,
+            target=self,
+            context={
+                "user": self.proposed_by,
+                "proposal_title": self.title,
+                "meeting_title": self.meeting.display_title,
+                "meeting_url": self.meeting.absolute_url,
+                "review_note": self.review_note,
+                "outcome": outcome,
+            },
+            url=self.meeting.absolute_url,
+            period=period,
+        )
+
+
 class VotePreferenceQuerySet(models.QuerySet):
     def from_signed_up_members(self) -> VotePreferenceQuerySet:
         """Votes cast by members who have a linked User account.

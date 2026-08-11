@@ -955,6 +955,8 @@ class SiteActivity(models.Model):
         LEASE_ACTIVATED = "lease_activated", "Lease activated"
         SPACE_REQUEST = "space_request", "Space request"
         SITE_ANNOUNCEMENT = "site_announcement", "Site announcement"
+        MEETING_APPROVED = "meeting_approved", "Meeting minutes approved"
+        MEETING_UNLOCKED = "meeting_unlocked", "Meeting minutes unlocked"
 
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,

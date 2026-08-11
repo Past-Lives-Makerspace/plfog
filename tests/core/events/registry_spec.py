@@ -42,6 +42,10 @@ _BRAND_NEW_KEYS = {
     "space.cubby_requested",
     "space.request_approved",
     "space.request_declined",
+    "meeting.item_proposed",
+    "meeting.item_decided",
+    "meeting.minutes_approved",
+    "meeting.council_minutes_approved",
 }
 
 
