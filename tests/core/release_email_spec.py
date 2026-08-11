@@ -297,7 +297,7 @@ def describe_render_release_email():
         assert "display: none" in html  # preheader is hidden
         assert "v0.20" in html  # version badge
         assert "2026-07-10" in html  # release date
-        assert "What's new" in html
+        assert "Heads-Up: New Member Portal Features" in html
         assert "A home base when you sign in" in html
         assert "See what&#x27;s coming up." in html or "See what's coming up." in html  # bullet
         assert "Open Past Lives" in html  # CTA button
@@ -355,7 +355,7 @@ def describe_render_release_email():
             # A line with no changelog entries (near-unreachable) → empty hero date, no cards.
             html, _text = render_release_email("3.0.0", subject="s", preheader="p", intro="", cards=[])
             assert "v3.0" in html
-            assert "What's new" in html
+            assert "Heads-Up: New Member Portal Features" in html
 
 
 def describe_save_feature_shot():

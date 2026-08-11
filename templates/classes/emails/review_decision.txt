@@ -2,7 +2,7 @@
 
 {{ offering.title }}
 
-{% if fully_approved %}Every required reviewer has approved your class. It's now live on the public site.
+{% if fully_approved %}Your class is approved and is now live on the website's public Classes page.
 
 View public page:
 {{ public_url }}

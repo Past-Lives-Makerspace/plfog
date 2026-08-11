@@ -5,7 +5,7 @@ The branded shell wrap lives *inside* ``rendered_message`` (copy mode only). The
 ``emit_with_email_shell`` override and the explicit ``html_body`` fixed message — never
 call ``rendered_message``, so they must be delivered verbatim with no card-inside-a-card.
 
-Shell-presence is asserted with the SHELL-ONLY footer marker ``Do It Together`` (unique
+Shell-presence is asserted with the SHELL-ONLY footer marker ``because you have a … Makerspace account`` footer line (unique
 to ``_base.html``), never the ``Past Lives`` wordmark.
 """
 
@@ -37,7 +37,7 @@ def describe_email_shell_override_is_not_double_wrapped():
         )
         html = mail.outbox[0].alternatives[0][0]
         # Exactly one footer → exactly one card → no card-inside-a-card.
-        assert html.count("Do It Together") == 1
+        assert html.count("because you have a Past Lives Makerspace account") == 1
 
 
 def describe_fixed_html_body_is_not_wrapped():
@@ -56,4 +56,4 @@ def describe_fixed_html_body_is_not_wrapped():
         )
         html = mail.outbox[0].alternatives[0][0]
         assert html == doc
-        assert html.count("Do It Together") == 1
+        assert html.count("because you have a Past Lives Makerspace account") == 1

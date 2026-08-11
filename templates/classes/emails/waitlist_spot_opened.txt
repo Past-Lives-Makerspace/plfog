@@ -1,14 +1,13 @@
-SPOT OPENED
+CONGRATULATIONS, YOU GOT IN!
 
 {{ offering.title }}
 
-A confirmed spot just opened up and you're next in line. You have
-{{ claim_window_hours }} hours to claim it before we move on to the
-next person on the waitlist.
+Still want to attend? You have {{ claim_window_hours }} hours to
+confirm your spot.
 
 Claim my spot:
 {{ register_url }}
 
-Full class details (what to bring, parking, and more):
+Click to see full class details:
 {{ class_url }}
 {% include "membership/emails/_footer.txt" %}

@@ -5,14 +5,12 @@ by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offeri
 Price {{ offering.price_cents }} cents · Capacity {{ offering.capacity }}
 {% if offering.member_discount_pct %}{{ offering.member_discount_pct }}% member discount{% endif %}
 
-An instructor submitted this class for review and you've been asked to
-weigh in as {{ role_label }}. Open the review page to see the full class
-details, decide approve / request changes / decline, and leave optional
-notes.
+An instructor submitted this class for review, and you've been asked
+to approve the date. Open the review page to see details.
 
 Open the review page:
 {{ review_url }}
 
-You're getting this because your address is configured as a class
-reviewer at Past Lives Makerspace.
+You're receiving this email because you're a {{ role_label }} at
+Past Lives Makerspace.
 {% include "membership/emails/_footer.txt" %}

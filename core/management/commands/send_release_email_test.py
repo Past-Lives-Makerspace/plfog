@@ -47,7 +47,11 @@ class Command(BaseCommand):
                 raise CommandError(str(exc))
 
         cards = build_release_cards(VERSION, lines=lines)
-        subject = f"What's new at Past Lives: {cards[0].title}" if cards else "What's new at Past Lives"
+        subject = (
+            f"Heads-Up: New Member Portal Features — {cards[0].title}"
+            if cards
+            else "Heads-Up: New Member Portal Features"
+        )
         html, text = render_release_email(
             VERSION,
             subject=subject,

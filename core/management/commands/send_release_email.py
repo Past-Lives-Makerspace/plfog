@@ -87,7 +87,7 @@ class Command(BaseCommand):
             scope = ", ".join(lines) if lines else _current_minor(VERSION)
             raise CommandError(f"No changelog entries for line(s) {scope} — nothing to send.")
 
-        subject = (options["subject"] or "").strip() or f"What's new at Past Lives: {cards[0].title}"
+        subject = (options["subject"] or "").strip() or f"Heads-Up: New Member Portal Features — {cards[0].title}"
         intro = self._resolve_intro(options["intro"])
         html, text = render_release_email(
             VERSION,
