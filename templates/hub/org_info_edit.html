@@ -1,6 +1,15 @@
 {% extends "hub/base.html" %}
 {% block title %}Edit Space & Org Info{% endblock %}
 {% block content %}
+{% include "_components/rich_editor_assets.html" %}
+{% comment %}The text areas here are dual-mode rich-text editors (PageContentEditorWidget):
+stored Markdown opens in Quill as its RENDERED formatting (server-seeded mount), and saving
+writes sanitized HTML back to the same column — a one-way, explicit Markdown→HTML conversion.
+Markdown is not what we're moving forward with for members/non-techies; seeded guides are the
+exception (the seed pipeline re-writes their Markdown on deploy — see the row warning below).
+Rows cloned by a "+ Add" button never execute the widget's scripts (FRONTEND.md rule 16), so
+each clone handler calls window.plRteInitAll() — the shared, idempotent initializer loaded by
+rich_editor_assets.html.{% endcomment %}
 {# The server-set active_tab (bound re-render after an invalid save) wins over the ?tab= query param. #}
 <div x-data="{ section: '{{ active_tab|default_if_none:'' }}' || new URLSearchParams(window.location.search).get('tab') || 'content' }">
 <h1 class="hub-page-title">Edit Space &amp; Org Info</h1>
@@ -117,6 +126,7 @@
                 wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
                 document.getElementById('faq-rows').appendChild(wrap.firstElementChild);
                 total.value = idx + 1;
+                window.plRteInitAll();
               ">
         + Add a question
       </button>
@@ -267,6 +277,9 @@
         {% for f in article_formset %}
           <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
             {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+            {% if f.instance.pk and f.instance.slug in seeded_slugs %}
+              <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 0.75rem;">⚠ This guide ships with the app — each deploy refreshes its text from the repo and will overwrite edits made here.</p>
+            {% endif %}
             {% include "components/form_field.html" with field=f.title %}
             {% include "components/form_field.html" with field=f.slug %}
             {% include "components/form_field.html" with field=f.category %}
@@ -314,6 +327,7 @@
                 wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
                 document.getElementById('article-rows').appendChild(wrap.firstElementChild);
                 total.value = idx + 1;
+                window.plRteInitAll();
               ">
         + Add an article
       </button>

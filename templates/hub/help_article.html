@@ -44,7 +44,7 @@ alone. Admins previewing a draft get the Draft banner; members 404 instead.
         </nav>
         {% endif %}
 
-        <div class="pl-md pl-md--help">{{ article.body|help_markdown }}</div>
+        <div class="pl-md pl-md--help">{{ article.body|page_content }}</div>
 
         {% if related %}
         <section class="pl-guild-section">

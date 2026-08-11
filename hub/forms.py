@@ -16,7 +16,8 @@ if TYPE_CHECKING:
 
 from core.html_sanitize import sanitize_rich_html
 from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
-from core.widgets import RichTextEditorWidget
+from core.widgets import PageContentEditorWidget, RichTextEditorWidget
+from membership.markdown import sanitize_page_submission
 from membership.models import (
     CommunityEvent,
     DiscordGuildEmoji,
@@ -991,11 +992,13 @@ GuildMailingListFormSet = forms.inlineformset_factory(
 
 
 class OrgInfoPageForm(forms.ModelForm):
-    """Main edit form for the Space & Org Info page — Markdown sections + the two images.
+    """Main edit form for the Space & Org Info page — rich-text sections + the two images.
 
-    Mirrors ``GuildEditForm``'s shape: plain Markdown textareas (rendered on the page via
-    the ``guild_markdown`` filter) plus the banner and floor-plan images. The FAQ and Links
-    save via their own endpoints, exactly like the guild editor.
+    The text blocks are dual-mode fields: legacy values are Markdown, but the editor is a
+    Quill rich-text editor (``PageContentEditorWidget``) and every save goes through
+    ``sanitize_page_submission`` — editor HTML is sanitized to the page-content allowlist,
+    a non-HTML value (no-JS fallback) passes through and keeps rendering as Markdown. The
+    FAQ and Links save via their own endpoints, exactly like the guild editor.
     """
 
     class Meta:
@@ -1011,15 +1014,13 @@ class OrgInfoPageForm(forms.ModelForm):
             "floorplan_image",
         ]
         widgets = {
-            "intro": forms.Textarea(attrs={"rows": 4, "placeholder": "Welcome members to the space…"}),
+            "intro": PageContentEditorWidget(attrs={"rows": 4}),
             "floorplan_caption": forms.TextInput(
                 attrs={"placeholder": "Guild locations, restrooms, and emergency exits."}
             ),
-            "parking": forms.Textarea(attrs={"rows": 4, "placeholder": "Where to park, when it's free, entrances…"}),
-            "who_to_contact": forms.Textarea(
-                attrs={"rows": 6, "placeholder": "Who to ask about billing, keys, a class idea…"}
-            ),
-            "code_of_conduct": forms.Textarea(attrs={"rows": 8, "placeholder": "Our code of conduct…"}),
+            "parking": PageContentEditorWidget(attrs={"rows": 4}),
+            "who_to_contact": PageContentEditorWidget(attrs={"rows": 6}),
+            "code_of_conduct": PageContentEditorWidget(attrs={"rows": 8}),
             "code_of_conduct_url": forms.URLInput(attrs={"placeholder": "https://docs.google.com/…"}),
         }
         labels = {
@@ -1033,22 +1034,40 @@ class OrgInfoPageForm(forms.ModelForm):
             "floorplan_image": "Floor plan / map",
         }
         help_texts = {
-            "intro": "Supports Markdown — **bold**, lists, and [links](https://example.com) all render.",
-            "parking": "Supports Markdown.",
-            "who_to_contact": "Supports Markdown — a list of 'topic → who to contact' works well.",
-            "code_of_conduct": "Supports Markdown. Leave blank to link out with the field below instead.",
+            "intro": "Use the toolbar to format — bold, lists, and links.",
+            "parking": "Use the toolbar to format.",
+            "who_to_contact": "Use the toolbar to format — a list of 'topic → who to contact' works well.",
+            "code_of_conduct": "Use the toolbar to format. Leave blank to link out with the field below instead.",
             "code_of_conduct_url": "Used only when the body above is blank.",
         }
 
+    def clean_intro(self) -> str:
+        return sanitize_page_submission(self.cleaned_data.get("intro") or "")
+
+    def clean_parking(self) -> str:
+        return sanitize_page_submission(self.cleaned_data.get("parking") or "")
+
+    def clean_who_to_contact(self) -> str:
+        return sanitize_page_submission(self.cleaned_data.get("who_to_contact") or "")
+
+    def clean_code_of_conduct(self) -> str:
+        return sanitize_page_submission(self.cleaned_data.get("code_of_conduct") or "")
+
 
 class OrgFAQItemForm(forms.ModelForm):
-    """A single FAQ question/answer row on the Space & Org Info editor — mirrors ``GuildFAQItemForm``."""
+    """A single FAQ question/answer row on the Space & Org Info editor — mirrors ``GuildFAQItemForm``.
+
+    The answer is a dual-mode rich-text field (see ``OrgInfoPageForm``); the guild FAQ
+    form stays plain Markdown — only the admin help-center editor moved to rich text.
+    """
 
     class Meta:
         model = OrgFAQItem
         fields = ["question", "answer", "video_url", "document", "document_url", "sort_order"]
         widgets = {
-            "answer": forms.Textarea(attrs={"rows": 3}),
+            # Org FAQ answers historically rendered through the *member* Markdown profile —
+            # the widget's markdown_profile keeps a legacy answer displaying identically.
+            "answer": PageContentEditorWidget(attrs={"rows": 3}, markdown_profile="member"),
             "video_url": forms.URLInput(attrs={"placeholder": "https://youtube.com/watch?v=…"}),
             "document_url": forms.URLInput(attrs={"placeholder": "https://docs.google.com/…"}),
             "sort_order": forms.HiddenInput(),
@@ -1059,8 +1078,15 @@ class OrgFAQItemForm(forms.ModelForm):
             "document_url": "…or document link",
         }
         help_texts = {
-            "answer": "You can use Markdown — **bold**, lists, and [links](https://example.com) all render on the page.",
+            "answer": "Use the toolbar to format — bold, lists, and links all render on the page.",
         }
+
+    def clean_answer(self) -> str:
+        """Sanitize a rich-editor answer; reject one that sanitizes to nothing (e.g. ``<p><br></p>``)."""
+        answer = sanitize_page_submission(self.cleaned_data["answer"])
+        if not answer:
+            raise forms.ValidationError("Add an answer.")
+        return answer
 
     def clean_video_url(self) -> str:
         """Accept only a YouTube URL (or blank) so the answer can embed it."""
@@ -1146,14 +1172,14 @@ class WikiArticleForm(forms.ModelForm):
         fields = ["title", "slug", "category", "body", "related_articles", "sort_order", "is_published"]
         widgets = {
             "sort_order": forms.HiddenInput(),
-            "body": forms.Textarea(attrs={"rows": 10}),
+            "body": PageContentEditorWidget(attrs={"rows": 10}),
         }
         help_texts = {
             "slug": "Optional. The #anchor for deep links (e.g. /help/#guild-voting). Leave blank to fill it from the title.",
             "body": (
-                "You can use Markdown — **bold**, numbered lists, and [links](https://example.com) all render "
-                "on the page. `![caption](/static/help/<guide-slug>/01-step.png)` embeds a screenshot — only "
-                "`/static/help/` images render. `### Heading {#anchor-id}` makes a linkable section."
+                "Use the toolbar to format — bold, headings, lists, and links all render on the page. "
+                "A guide originally written in Markdown opens here as formatted text and saves as rich "
+                "text from then on."
             ),
         }
 
@@ -1164,6 +1190,13 @@ class WikiArticleForm(forms.ModelForm):
             self.fields["related_articles"].queryset = WikiArticle.objects.exclude(  # type: ignore[attr-defined]
                 pk=self.instance.pk
             )
+
+    def clean_body(self) -> str:
+        """Sanitize a rich-editor body; reject one that sanitizes to nothing (e.g. ``<p><br></p>``)."""
+        body = sanitize_page_submission(self.cleaned_data["body"])
+        if not body:
+            raise forms.ValidationError("The guide needs a body.")
+        return body
 
 
 WikiArticleFormSet = forms.inlineformset_factory(

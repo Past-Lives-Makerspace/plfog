@@ -133,6 +133,12 @@ def describe_WikiArticle():
             article = WikiArticleFactory(title="Kiln safety", body="Nothing about that word here.")
             assert article.search_snippet("kiln") == escape(article.lead_text())
 
+        def it_strips_tags_from_a_rich_editor_html_body_before_windowing(db):
+            article = WikiArticleFactory(body="<p>The <strong>kiln</strong> room stays locked.</p>")
+            snippet = article.search_snippet("kiln")
+            assert "<mark>kiln</mark>" in snippet
+            assert "<strong>" not in snippet
+
     def describe_lead_text():
         def it_strips_markdown_from_the_first_paragraph(db):
             article = WikiArticleFactory(body="## Heading {#h}\n\nRead the **full** [guide](/help/) first.")
@@ -153,6 +159,23 @@ def describe_WikiArticle():
         def it_returns_empty_for_a_heading_only_body(db):
             article = WikiArticleFactory(body="## Only a heading")
             assert article.lead_text() == ""
+
+        def describe_with_a_rich_editor_html_body():
+            def it_strips_tags_from_the_first_paragraph(db):
+                article = WikiArticleFactory(body="<p>Read the <strong>full</strong> <a href='/help/'>guide</a>.</p>")
+                assert article.lead_text() == "Read the full guide."
+
+            def it_skips_headings_and_empty_paragraphs(db):
+                article = WikiArticleFactory(body="<h2>Heading</h2><p><br></p><p>Real lead copy.</p>")
+                assert article.lead_text() == "Real lead copy."
+
+            def it_truncates_on_a_word_boundary(db):
+                article = WikiArticleFactory(body="<p>alpha bravo charlie delta</p>")
+                assert article.lead_text(limit=14) == "alpha bravo…"
+
+            def it_returns_empty_for_a_heading_only_body(db):
+                article = WikiArticleFactory(body="<h2>Only a heading</h2>")
+                assert article.lead_text() == ""
 
     def describe_related_for_display():
         def it_returns_explicit_published_picks_first_in_pick_order(db):
@@ -278,4 +301,8 @@ def describe_WikiArticle():
 
         def it_returns_empty_when_there_are_no_headings(db):
             article = WikiArticleFactory(body="Just a paragraph.")
+            assert article.toc() == []
+
+        def it_returns_empty_for_a_rich_editor_html_body_whose_headings_carry_no_ids(db):
+            article = WikiArticleFactory(body="<h2>Alpha</h2><p>text</p><h3>Beta</h3>")
             assert article.toc() == []

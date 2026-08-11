@@ -871,3 +871,157 @@ def describe_hero_adjust_for_the_org_banner():
         _user_with_role("hero_member")
         client.login(username="hero_member", password="pass")
         assert _adjust(client).status_code == 403
+
+
+def describe_help_editor_rich_text():
+    """The /help/edit/ text areas are dual-mode Quill editors (PageContentEditorWidget)."""
+
+    @pytest.fixture
+    def admin_client(client: Client) -> Client:
+        _user_with_role("rte_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="rte_admin", password="pass")
+        return client
+
+    def describe_the_editor_page_markup():
+        def it_renders_a_server_seeded_page_toolbar_mount_for_each_org_block(admin_client: Client):
+            html = admin_client.get(reverse("hub_help_edit")).content.decode()
+            for field in ("intro", "parking", "who_to_contact", "code_of_conduct"):
+                assert f'data-rte-for="id_{field}"' in html
+            assert 'data-rte-seed="server"' in html
+            assert 'data-rte-toolbar="page"' in html
+
+        def it_seeds_the_mount_with_the_rendered_markdown_not_the_raw_source(admin_client: Client):
+            page = OrgInfoPage.load()
+            page.parking = "**Free** after 5pm."
+            page.save()
+            html = admin_client.get(reverse("hub_help_edit")).content.decode()
+            assert "<strong>Free</strong> after 5pm." in html
+
+        def it_loads_the_quill_assets_and_the_shared_initializer(admin_client: Client):
+            html = admin_client.get(reverse("hub_help_edit")).content.decode()
+            assert "js/quill.min.js" in html
+            assert "js/rich-editor-init.js" in html
+
+        def it_renders_rich_editors_for_article_bodies_and_faq_answers_including_the_clone_templates(
+            admin_client: Client,
+        ):
+            WikiArticleFactory(title="Existing guide", slug="existing-guide")
+            OrgFAQItemFactory(question="Existing?")
+            html = admin_client.get(reverse("hub_help_edit")).content.decode()
+            assert 'data-rte-for="id_articles-0-body"' in html
+            assert 'data-rte-for="id_articles-__prefix__-body"' in html
+            assert 'data-rte-for="id_faq-0-answer"' in html
+            assert 'data-rte-for="id_faq-__prefix__-answer"' in html
+
+        def it_reinitializes_editors_after_a_row_clone(admin_client: Client):
+            # Cloned template rows never execute widget scripts (FRONTEND.md rule 16) —
+            # both "+ Add" handlers with rich fields must call the shared initializer.
+            html = admin_client.get(reverse("hub_help_edit")).content.decode()
+            assert html.count("window.plRteInitAll();") >= 2
+
+        def describe_the_seed_owned_hint():
+            def it_warns_on_a_seed_owned_article_row(admin_client: Client):
+                WikiArticleFactory(title="Welcome to FOG", slug="welcome-to-fog")
+                html = admin_client.get(reverse("hub_help_edit")).content.decode()
+                assert "will overwrite edits made here" in html
+
+            def it_stays_quiet_for_an_admin_authored_article(admin_client: Client):
+                WikiArticleFactory(title="House rules", slug="house-rules-custom")
+                html = admin_client.get(reverse("hub_help_edit")).content.decode()
+                assert "will overwrite edits made here" not in html
+
+    def describe_saving_rich_html():
+        def it_sanitizes_and_saves_an_html_org_block(admin_client: Client):
+            resp = admin_client.post(
+                reverse("hub_help_edit"),
+                {
+                    "intro": "",
+                    "parking": '<p class="ql-align-center"><strong>Free</strong> after 5pm.<script>evil()</script></p>',
+                    "who_to_contact": "",
+                    "code_of_conduct": "",
+                    "code_of_conduct_url": "",
+                    "floorplan_caption": "",
+                },
+            )
+            assert resp.status_code == 302
+            parking = OrgInfoPage.load().parking
+            assert "<strong>Free</strong>" in parking
+            assert "<script" not in parking
+            assert "class=" not in parking
+
+        def it_passes_a_markdown_org_block_through_unchanged(admin_client: Client):
+            resp = admin_client.post(
+                reverse("hub_help_edit"),
+                {
+                    "intro": "",
+                    "parking": "**Free** after 5pm.",
+                    "who_to_contact": "",
+                    "code_of_conduct": "",
+                    "code_of_conduct_url": "",
+                    "floorplan_caption": "",
+                },
+            )
+            assert resp.status_code == 302
+            assert OrgInfoPage.load().parking == "**Free** after 5pm."
+
+        def it_stores_an_emptied_editor_as_blank(admin_client: Client):
+            page = OrgInfoPage.load()
+            page.parking = "old text"
+            page.save()
+            resp = admin_client.post(
+                reverse("hub_help_edit"),
+                {
+                    "intro": "",
+                    "parking": "<p><br></p>",
+                    "who_to_contact": "",
+                    "code_of_conduct": "",
+                    "code_of_conduct_url": "",
+                    "floorplan_caption": "",
+                },
+            )
+            assert resp.status_code == 302
+            assert OrgInfoPage.load().parking == ""
+
+        def it_round_trips_a_rich_article_body_to_the_public_page(admin_client: Client):
+            resp = admin_client.post(
+                reverse("hub_help_articles_save"),
+                _article_payload("Guild voting", '<p><u>Rank</u> three guilds.<img src="https://evil.example/x"></p>'),
+            )
+            assert resp.status_code == 302
+            article = WikiArticle.objects.get(title="Guild voting")
+            assert article.body == "<p><u>Rank</u> three guilds.</p>"
+            page = admin_client.get(article.get_absolute_url()).content.decode()
+            assert "<u>Rank</u> three guilds." in page
+
+        def it_rejects_an_article_body_that_sanitizes_to_nothing(admin_client: Client):
+            resp = admin_client.post(reverse("hub_help_articles_save"), _article_payload("Empty", "<p><br></p>"))
+            assert resp.status_code == 200
+            assert not WikiArticle.objects.filter(title="Empty").exists()
+            assert b"The guide needs a body." in resp.content
+
+        def it_round_trips_a_rich_faq_answer_to_the_help_page(admin_client: Client):
+            resp = admin_client.post(
+                reverse("hub_org_info_faq_save"),
+                _faq_payload("Restrooms?", "<p>Down the hall, past the <em>kiln</em>.<script>x()</script></p>"),
+            )
+            assert resp.status_code == 302
+            faq = OrgFAQItem.objects.get(question="Restrooms?")
+            assert "<em>kiln</em>" in faq.answer
+            assert "<script" not in faq.answer
+            page = admin_client.get(reverse("hub_help")).content.decode()
+            assert "<em>kiln</em>" in page
+
+        def it_rejects_a_faq_answer_that_sanitizes_to_nothing(admin_client: Client):
+            resp = admin_client.post(reverse("hub_org_info_faq_save"), _faq_payload("Q?", "<p><br></p>"))
+            assert resp.status_code == 200
+            assert not OrgFAQItem.objects.filter(question="Q?").exists()
+            assert b"Add an answer." in resp.content
+
+    def describe_rendering_rich_html_on_the_public_pages():
+        def it_renders_a_stored_html_org_block_sanitized_on_help(client: Client):
+            page = OrgInfoPage.load()
+            page.parking = "<p><strong>Free</strong> after 5pm.<script>evil()</script></p>"
+            page.save()
+            html = client.get(reverse("hub_help")).content.decode()
+            assert "<strong>Free</strong> after 5pm." in html
+            assert "<script>evil()" not in html

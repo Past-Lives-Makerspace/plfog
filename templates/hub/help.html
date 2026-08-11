@@ -83,7 +83,7 @@ are re-pointed at their article pages by the legacy-anchor script at the bottom.
 {% if page.intro %}
 <div class="hub-card" style="margin-bottom:1.5rem;">
     {# Josh's blocks render through the help profile (admin-authored) so admonitions work. #}
-    <div class="pl-md pl-md--help">{{ page.intro|help_markdown }}</div>
+    <div class="pl-md pl-md--help">{{ page.intro|page_content }}</div>
 </div>
 {% endif %}
 
@@ -149,14 +149,14 @@ are re-pointed at their article pages by the legacy-anchor script at the bottom.
         {% if page.parking %}
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">Parking &amp; Arrival</h2>
-            <div class="pl-md pl-md--help">{{ page.parking|help_markdown }}</div>
+            <div class="pl-md pl-md--help">{{ page.parking|page_content }}</div>
         </section>
         {% endif %}
 
         {% if page.who_to_contact %}
         <section class="pl-guild-section">
             <h2 class="pl-guild-section__h2">Who's Who &amp; Who to Contact</h2>
-            <div class="pl-md pl-md--help">{{ page.who_to_contact|help_markdown }}</div>
+            <div class="pl-md pl-md--help">{{ page.who_to_contact|page_content }}</div>
         </section>
         {% endif %}
 
@@ -167,7 +167,7 @@ are re-pointed at their article pages by the legacy-anchor script at the bottom.
             <div x-data="{ open: false }">
                 <div class="pl-guild-faq__q" @click="open = !open">{{ item.question }}</div>
                 <div class="pl-guild-faq__a" x-show="open" x-cloak>
-                    <div class="pl-md">{{ item.answer|guild_markdown }}</div>
+                    <div class="pl-md">{{ item.answer|page_content:"member" }}</div>
                     {% if item.video_url %}{% with vid=item.video_url|youtube_embed_id %}{% if vid %}
                     <div class="pl-guild-video" style="margin-top:0.75rem;">
                         <iframe src="https://www.youtube-nocookie.com/embed/{{ vid }}" title="{{ item.question }}" allowfullscreen></iframe>

@@ -2432,6 +2432,9 @@ _MD_EMPHASIS_RE = re.compile(r"[*_`]")
 
 # One pass over the help-rendered body: h2/h3 headings that carry an id.
 _HELP_TOC_HEADING_RE = re.compile(r'<h([23])[^>]*\bid="([^"]+)"[^>]*>(.*?)</h\1>', re.DOTALL)
+# Paragraph blocks of a rich-editor HTML body — lead_text's HTML-mode analog of splitting
+# Markdown on blank lines (headings/lists fall outside <p> and are skipped naturally).
+_HTML_PARAGRAPH_RE = re.compile(r"<p[^>]*>(.*?)</p>", re.IGNORECASE | re.DOTALL)
 
 
 def _markdown_to_text(source: str) -> str:
@@ -2443,6 +2446,21 @@ def _markdown_to_text(source: str) -> str:
     text = _MD_ANCHOR_RE.sub("", text)
     text = _MD_EMPHASIS_RE.sub("", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _source_to_text(source: str) -> str:
+    """Flatten a dual-mode body — Markdown *or* rich-editor HTML — to plain text.
+
+    The same sniff as :func:`membership.markdown.render_page_content`: HTML bodies (saved
+    by the /help/edit/ rich editors) are tag-stripped via the email sanitizer's flattener;
+    everything else is Markdown-stripped as before. Feeds search snippets and lead text.
+    """
+    from core.html_sanitize import rich_html_to_text
+    from membership.markdown import looks_like_html
+
+    if looks_like_html(source):
+        return rich_html_to_text(source)
+    return _markdown_to_text(source)
 
 
 class WikiArticleQuerySet(models.QuerySet):
@@ -2549,15 +2567,20 @@ class WikiArticle(models.Model):
         )
 
     def lead_text(self, limit: int = 160) -> str:
-        """First paragraph of the body, Markdown-stripped, truncated on a word boundary.
+        """First paragraph of the body, stripped to plain text, truncated on a word boundary.
 
         Used by category rows, the landing's "All guides" list, and search fallbacks.
-        Heading-only and image-only blocks are skipped — they aren't lead copy.
+        Heading-only and image-only blocks are skipped — they aren't lead copy. Dual-mode:
+        a rich-editor HTML body iterates its ``<p>`` blocks instead of Markdown blocks.
         """
-        for block in re.split(r"\n\s*\n", self.body):
-            if block.lstrip().startswith("#"):
-                continue
-            text = _markdown_to_text(block)
+        from membership.markdown import looks_like_html
+
+        if looks_like_html(self.body):
+            blocks = [f"<p>{inner}</p>" for inner in _HTML_PARAGRAPH_RE.findall(self.body)]
+        else:
+            blocks = [b for b in re.split(r"\n\s*\n", self.body) if not b.lstrip().startswith("#")]
+        for block in blocks:
+            text = _source_to_text(block)
             if not text:
                 continue
             if len(text) <= limit:
@@ -2568,11 +2591,12 @@ class WikiArticle(models.Model):
     def search_snippet(self, q: str, radius: int = 90) -> str:
         """An HTML-escaped window around the first hit of ``q``, the match wrapped in ``<mark>``.
 
-        The body is Markdown-stripped to plain text; escaping happens *before* the
-        ``<mark>`` insertion, so the return value is safe to ``mark_safe`` in the
-        template. Title-only hits (no term in the body) fall back to the lead text.
+        The body — Markdown or rich-editor HTML — is stripped to plain text; escaping
+        happens *before* the ``<mark>`` insertion, so the return value is safe to
+        ``mark_safe`` in the template. Title-only hits (no term in the body) fall back
+        to the lead text.
         """
-        text = _markdown_to_text(self.body)
+        text = _source_to_text(self.body)
         lowered = text.lower()
         hit_start = -1
         hit_len = 0
@@ -2653,13 +2677,14 @@ class WikiArticle(models.Model):
     def toc(self) -> list[tuple[int, str, str]]:
         """``(level, anchor_id, text)`` for the h2/h3 headings *with ids* in the rendered body.
 
-        One regex pass over the sanitized help-profile output — testable, no client JS.
-        Headings without ids are skipped; an article with none yields ``[]`` and the
-        TOC block hides.
+        One regex pass over the sanitized output — testable, no client JS. Headings
+        without ids are skipped; an article with none yields ``[]`` and the TOC block
+        hides. Rich-editor HTML bodies route through the page-content sanitizer, whose
+        headings carry no ids — so their TOC is empty by design.
         """
-        from membership.markdown import render_markdown
+        from membership.markdown import render_page_content
 
-        html = render_markdown(self.body, profile="help")
+        html = render_page_content(self.body, profile="help")
         return [
             (int(level), anchor, unescape(strip_tags(inner)).strip())
             for level, anchor, inner in _HELP_TOC_HEADING_RE.findall(html)

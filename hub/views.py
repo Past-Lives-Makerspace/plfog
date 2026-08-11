@@ -2586,11 +2586,15 @@ def _org_info_edit_context(
     which tab to open (it wins over the ``?tab=`` query param).
     """
     from hub.forms import HelpCategoryFormSet, OrgFAQItemFormSet, OrgLinkFormSet, WikiArticleFormSet
+    from membership.help_content import ARTICLES
 
     ctx = _get_hub_context(request)
     return {
         **ctx,
         "page": page,
+        # Slugs owned by the seed pipeline — the Articles tab flags these rows with an
+        # overwrite warning (a deploy's seed_help_center refreshes their text in place).
+        "seeded_slugs": {article["slug"] for article in ARTICLES},
         "form": form if form is not None else OrgInfoPageForm(instance=page),
         "faq_formset": faq_formset if faq_formset is not None else OrgFAQItemFormSet(instance=page, prefix="faq"),
         "link_formset": link_formset if link_formset is not None else OrgLinkFormSet(instance=page, prefix="links"),

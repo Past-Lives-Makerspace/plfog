@@ -39,7 +39,7 @@ auto-offers on the first post-unlock visit to the teach overview.
     <div class="hub-card">
         <h1 class="hub-page-title">Become an instructor at Past Lives</h1>
         {% if article %}
-        <div class="pl-md pl-md--help">{{ article.body|help_markdown }}</div>
+        <div class="pl-md pl-md--help">{{ article.body|page_content }}</div>
         {% else %}
         <p class="hub-text-muted">Orientation content hasn't been loaded yet — run the help-center seed command.</p>
         {% endif %}

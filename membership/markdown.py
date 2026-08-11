@@ -19,6 +19,13 @@ Two profiles:
   emitted ``div``/``p`` classes are allowlisted below, never a free ``class``
   attribute). Scripts, styles, and event handlers are stripped identically in
   both profiles.
+
+This module is also the **dual-mode seam** for help/org page content
+(:func:`render_page_content`): the /help/edit/ Quill editors save sanitized
+HTML into the same columns that historically held Markdown, and a single sniff
+— stored content whose ``lstrip()`` starts with ``<`` — routes HTML through
+:func:`sanitize_page_html` while everything else renders through
+:func:`render_markdown` exactly as before.
 """
 
 from __future__ import annotations
@@ -28,6 +35,11 @@ from typing import Any
 
 import bleach
 import markdown as md
+
+# Reused, not re-invented: the email rich-editor's Quill bullet-list normalizer and its
+# HTML→text flattener (both battle-tested against Quill 2.x output). core.html_sanitize
+# has no module-level project imports, so this cross-app import cannot cycle.
+from core.html_sanitize import _normalize_quill_lists, rich_html_to_text
 
 # Only these tags survive sanitization. Everything else is stripped (text kept).
 _ALLOWED_TAGS = [
@@ -185,3 +197,98 @@ def render_markdown(source: str, *, profile: str = "member") -> str:
     cleaned = bleach.clean(raw, tags=_HELP_TAGS, attributes=_HELP_ATTRS, strip=True)
     cleaned = _SRCLESS_IMG_RE.sub("", cleaned)
     return bleach.linkify(cleaned, callbacks=[_harden_link_help], parse_email=False)
+
+
+# Page-content profile: exactly the /help/edit/ Quill toolbar's output and nothing more.
+# No images (screenshots come from the committed /static/help/ pipeline, via Markdown),
+# no headings past h3, no tables/code — the toolbar can't produce them, so the sanitizer
+# doesn't allow them. Fail-closed: anything outside this list is stripped (inner text kept).
+_PAGE_TAGS = [
+    "p",
+    "br",
+    "h2",
+    "h3",
+    "strong",
+    "em",
+    "u",
+    "s",
+    "ol",
+    "ul",
+    "li",
+    "a",
+    "blockquote",
+]
+# ``href`` only — Quill's own target/rel are stripped and re-applied by the linkify
+# callback below, and Quill classes (ql-*) never survive. No free attributes anywhere.
+_PAGE_ATTRS = {"a": ["href"]}
+
+
+def looks_like_html(source: str) -> bool:
+    """The dual-mode sniff: stored content whose ``lstrip()`` starts with ``<`` is editor HTML.
+
+    Markdown never opens with a raw ``<`` in practice (a line starting with ``<`` would be
+    treated as inline HTML by the renderer anyway), and every Quill save starts with a block
+    tag (``<p>``, ``<h2>``, …) — so one cheap check routes each stored value correctly.
+    """
+    return source.lstrip().startswith("<")
+
+
+def sanitize_page_html(raw: str) -> str:
+    """Sanitize /help/edit/ editor HTML to the page-content allowlist; harden links.
+
+    Args:
+        raw: The Quill editor's HTML. Treated as hostile input.
+
+    Returns:
+        Sanitized HTML — ``script``/``style``/``img``/``iframe``, event handlers, inline
+        ``style=``, and every ``class`` (Quill's included) are dropped, tags outside
+        :data:`_PAGE_TAGS` are stripped (inner text kept), Quill bullet lists become
+        semantic ``<ul>``, and links are hardened like the help profile (internal links
+        same-tab with ``rel="noopener"``, external fully hardened + new-tab). Empty,
+        blank, or contentless input (an empty Quill editor is ``<p><br></p>``) returns
+        ``""`` so blank-checks and the seed fill-if-blank contract keep working.
+    """
+    if not raw or not raw.strip():
+        return ""
+    normalized = _normalize_quill_lists(raw)
+    cleaned = bleach.clean(normalized, tags=_PAGE_TAGS, attributes=_PAGE_ATTRS, strip=True)
+    hardened = bleach.linkify(cleaned, callbacks=[_harden_link_help], parse_email=False)
+    if not rich_html_to_text(hardened):
+        return ""
+    return hardened
+
+
+def render_page_content(source: str, *, profile: str = "help") -> str:
+    """Render a stored help/org page field — Markdown *or* rich-editor HTML — to safe HTML.
+
+    The single decision point for the dual-mode columns (OrgInfoPage blocks, WikiArticle
+    bodies, org FAQ answers): content that :func:`looks_like_html` goes through
+    :func:`sanitize_page_html`; everything else renders through :func:`render_markdown`
+    with ``profile``, byte-identical to the pre-editor behavior.
+
+    Args:
+        source: The stored field value. Empty/blank returns an empty string.
+        profile: The Markdown profile used for non-HTML content (``"help"`` for page
+            blocks and article bodies, ``"member"`` for org FAQ answers).
+
+    Returns:
+        Sanitized HTML, safe to ``mark_safe`` in a template.
+    """
+    if not source:
+        return ""
+    if looks_like_html(source):
+        return sanitize_page_html(source)
+    return render_markdown(source, profile=profile)
+
+
+def sanitize_page_submission(value: str) -> str:
+    """Form-save seam for a dual-mode field: sanitize editor HTML, pass Markdown through.
+
+    A normal /help/edit/ save carries Quill HTML and gets sanitized before storage; a
+    save whose value doesn't sniff as HTML (a no-JS fallback typing into the raw
+    textarea, or an untouched Markdown value) is stored unchanged so it keeps rendering
+    through the Markdown path.
+    """
+    if looks_like_html(value):
+        return sanitize_page_html(value)
+    return value
