@@ -7,8 +7,9 @@ thin per CLAUDE.md: parse request → permission guard (``can_edit_meeting``) �
 render for the add/move endpoints). An unlisted field is a 400 (fail loudly); an
 invalid value is a 422 + error toast.
 
-Lifecycle (approve / unlock / delete), proposals, and the calendar-event routes
-are phases 3/4 and deliberately absent here.
+Lifecycle (approve / unlock / delete), the carryover panel, and the proposal
+routes (propose / decide / withdraw) are phase 3 and live at the bottom; the
+calendar-event routes are phase 4 and deliberately absent here.
 """
 
 from __future__ import annotations
@@ -27,23 +28,33 @@ from django.db.models import Prefetch, Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from core.html_sanitize import sanitize_rich_html
-from hub.forms import MeetingAttachmentForm, MeetingCreateForm, half_hour_time_choices
+from hub.forms import (
+    MeetingAttachmentForm,
+    MeetingCreateForm,
+    MeetingItemProposalForm,
+    MeetingProposalDecisionForm,
+    half_hour_time_choices,
+)
 from hub.toast import trigger_toast
+from hub.view_as import ROLE_ADMIN, fog_admin_required
 from hub.views import _get_hub_context
 from membership.models import (
     Guild,
+    InvalidProposalTransition,
     Meeting,
     MeetingActionItem,
     MeetingAgendaItem,
     MeetingAttachment,
     MeetingAttendee,
+    MeetingItemProposal,
     MeetingLockedError,
     Member,
 )
-from membership.permissions import can_edit_meeting
+from membership.permissions import can_edit_meeting, can_propose_to_meeting
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -68,6 +79,18 @@ def _invalid(message: str) -> HttpResponse:
     """422 + error toast — the field re-renders its last-saved value client-side."""
     response = HttpResponse(message, status=422)
     trigger_toast(response, message, "error")
+    return response
+
+
+def _hx_redirect(url: str) -> HttpResponse:
+    """204 + ``HX-Redirect`` — a real browser navigation from an HTMX confirm POST.
+
+    The lifecycle confirm modals POST via HTMX, so a plain 302 would be swapped
+    inline; the header redirect (the ``hub_admin_member_add`` idiom) navigates the
+    whole page and the queued Django message renders on the destination.
+    """
+    response = HttpResponse(status=204)
+    response["HX-Redirect"] = url
     return response
 
 
@@ -229,6 +252,9 @@ def _attendee_picker_context(meeting: Meeting) -> dict[str, Any]:
 def _workspace_context(request: HttpRequest, meeting: Meeting) -> dict[str, Any]:
     """The full draft/locked × editor/read-only rendering context (§6.3)."""
     can_edit = can_edit_meeting(request, meeting)
+    is_editable = can_edit and not meeting.is_locked
+    view_as = getattr(request, "view_as", None)
+    user: User = request.user  # type: ignore[assignment]  # every caller is @login_required
     return {
         **_get_hub_context(request),
         "meeting": meeting,
@@ -236,7 +262,27 @@ def _workspace_context(request: HttpRequest, meeting: Meeting) -> dict[str, Any]
         "attendees": meeting.attendees.all(),
         "attachments": meeting.attachments.all(),
         "can_edit": can_edit,
-        "is_editable": can_edit and not meeting.is_locked,
+        "is_editable": is_editable,
+        # The Unlock button mirrors the endpoint's gate: ACTUAL admin role, so a
+        # view-as preview can't grant or hide it inconsistently (fog_admin_required).
+        "can_unlock": meeting.is_locked and view_as is not None and view_as.has_actual(ROLE_ADMIN),
+        # The propose button is for members who can't edit (§6.3) — editors add directly.
+        "can_propose": not can_edit and can_propose_to_meeting(request, meeting),
+        # Deeper than carryover_for's select_related: the panel's group headers render
+        # each source meeting's display_title, which touches guild.
+        "carryover_actions": (
+            meeting.carryover_actions().select_related("item__meeting__guild")
+            if is_editable
+            else MeetingActionItem.objects.none()
+        ),
+        "pending_proposals": (
+            meeting.proposals.filter(state=MeetingItemProposal.State.PENDING).select_related("proposed_by__member")
+            if is_editable
+            else MeetingItemProposal.objects.none()
+        ),
+        "my_proposals": meeting.proposals.filter(proposed_by=user)
+        .exclude(state=MeetingItemProposal.State.WITHDRAWN)
+        .select_related("created_item"),
         "time_choices": half_hour_time_choices(required=False),
         "attachment_form": MeetingAttachmentForm(),
         "open_attachment_modal": False,
@@ -585,4 +631,196 @@ def hub_meeting_attachment_delete(request: HttpRequest, pk: int) -> HttpResponse
     attachment.delete()  # row only — stored files are never deleted from here
     response = HttpResponse("")
     trigger_toast(response, "Attachment removed.", "success")
+    return response
+
+
+# --- Lifecycle: approve / unlock / delete (§5.3, §6.3 banner + footer) ---------
+
+
+@login_required
+@require_POST
+def hub_meeting_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    """Approve and lock the minutes (footer confirm modal → redirect to locked mode)."""
+    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
+    guard = _guard(request, meeting)
+    if guard is not None:
+        return guard
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    try:
+        meeting.approve(by=user)
+    except ValueError as exc:  # undated — "Set the meeting date before approving."
+        return _invalid(str(exc))
+    messages.success(request, "Minutes approved and locked.")
+    return _hx_redirect(reverse("hub_meeting", args=[meeting.pk]))
+
+
+@fog_admin_required
+@require_POST
+def hub_meeting_unlock(request: HttpRequest, pk: int) -> HttpResponse:
+    """Reopen approved minutes for editing — FOG admin only (banner confirm modal)."""
+    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
+    user: User = request.user  # type: ignore[assignment]  # @fog_admin_required guarantees User
+    try:
+        meeting.unlock(by=user)
+    except ValueError as exc:  # not currently approved
+        return _invalid(str(exc))
+    messages.success(request, "Minutes unlocked — the workspace is editable again.")
+    return _hx_redirect(reverse("hub_meeting", args=[meeting.pk]))
+
+
+@login_required
+@require_POST
+def hub_meeting_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Delete a DRAFT meeting via ``Meeting.remove`` (locked minutes 403 — unlock first).
+
+    ``remove()`` unwinds an OWNED calendar event through the existing rails and
+    leaves a merely-linked one alone (§5.3); the confirm copy names each case.
+    """
+    meeting = get_object_or_404(Meeting.objects.select_related("guild", "event"), pk=pk)
+    guard = _guard(request, meeting)
+    if guard is not None:
+        return guard
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    meeting.remove(by=user)
+    messages.success(request, "Meeting deleted.")
+    # Literal path on purpose — the hub_meetings home route lands in phase 4 (the
+    # same contract as the workspace JS's meeting-deleted redirect).
+    return _hx_redirect("/meetings/")
+
+
+# --- Carryover panel (§5.5, §6.3) ---------------------------------------------
+
+
+@login_required
+@require_POST
+def hub_meeting_action_carryover(request: HttpRequest, pk: int) -> HttpResponse:
+    """Close (Done) or wave off (Dismiss) a carried-over action from a draft meeting.
+
+    The guard runs against the PANEL meeting (must be an editable draft); the
+    action's SOURCE meeting may be locked — that's the one deliberate write into a
+    locked meeting's data (§5.5). The response re-renders the whole panel, which
+    removes itself once empty.
+    """
+    action = _get_action(pk)
+    meeting_pk = request.POST.get("meeting", "").strip()
+    if not meeting_pk.isdigit():
+        return HttpResponse("Unknown meeting.", status=400)
+    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=int(meeting_pk))
+    guard = _guard(request, meeting)
+    if guard is not None:
+        return guard
+    if not meeting.carryover_actions().filter(pk=action.pk).exists():
+        # Wrong scope, undated panel meeting, or already closed by another editor.
+        return HttpResponse("Not a carryover item for this meeting.", status=404)
+    op = request.POST.get("op", "")
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    if op == "complete":
+        action.complete(by=user, in_meeting=meeting)
+        toast = "Marked done."
+    elif op == "dismiss":
+        action.dismiss(by=user, in_meeting=meeting)
+        toast = "Dismissed."
+    else:
+        return HttpResponse("Unknown op.", status=400)
+    response = render(
+        request,
+        "hub/partials/_meeting_carryover.html",
+        {"meeting": meeting, "carryover_actions": meeting.carryover_actions().select_related("item__meeting__guild")},
+    )
+    trigger_toast(response, toast, "success")
+    return response
+
+
+# --- Agenda-item proposals (§5.4, §6.3) ---------------------------------------
+
+
+def _proposer_name(proposal: MeetingItemProposal) -> str:
+    member = getattr(proposal.proposed_by, "member", None)
+    return member.display_name if member is not None else proposal.proposed_by.username
+
+
+@login_required
+@require_POST
+def hub_meeting_propose(request: HttpRequest, pk: int) -> HttpResponse:
+    """A member proposes an agenda item (the propose modal POST → 204 + toast).
+
+    ``can_propose_to_meeting`` is the whole gate: it already refuses locked and
+    past meetings, so the button-absent states 403 here too.
+    """
+    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
+    if not can_propose_to_meeting(request, meeting):
+        return HttpResponse("Forbidden", status=403)
+    form = MeetingItemProposalForm(request.POST)
+    if not form.is_valid():
+        return _invalid(str(next(iter(form.errors.values()))[0]))
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    meeting.propose_item(by=user, title=form.cleaned_data["title"], why=form.cleaned_data["why"])
+    response = HttpResponse(status=204)
+    trigger_toast(response, f"Proposed — {meeting.scope_label} leadership will review it.", "success")
+    return response
+
+
+@login_required
+def hub_meeting_proposal_decide(request: HttpRequest, pk: int) -> HttpResponse:
+    """The reviewer decision modal: GET loads it (HTMX), POST records the decision.
+
+    Approve is edit-then-approve — the posted Title/Why (possibly tweaked) land on
+    the created item, the response removes the strip row and OOB-appends the new
+    item partial to the accordion. Decline carries an optional note.
+    """
+    proposal = get_object_or_404(
+        MeetingItemProposal.objects.select_related("meeting__guild", "proposed_by__member"), pk=pk
+    )
+    guard = _guard(request, proposal.meeting)  # reviewer gate + locked-meeting 403
+    if guard is not None:
+        return guard
+    if request.method == "GET":
+        mode = request.GET.get("mode", "")
+        if mode not in ("approve", "decline"):
+            return HttpResponse("Unknown mode.", status=400)
+        return render(
+            request,
+            "hub/partials/_meeting_proposal_decide_modal.html",
+            {"proposal": proposal, "mode": mode, "proposer_name": _proposer_name(proposal)},
+        )
+    form = MeetingProposalDecisionForm(request.POST)
+    if not form.is_valid():
+        if "decision" in form.errors:
+            return HttpResponse("Unknown decision.", status=400)
+        return _invalid(str(next(iter(form.errors.values()))[0]))
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    try:
+        if form.cleaned_data["decision"] == "approve":
+            item = proposal.approve(reviewer=user, title=form.cleaned_data["title"], why=form.cleaned_data["why"])
+            item_html = render_to_string(
+                "hub/partials/_meeting_item.html",
+                {"item": item, "meeting": proposal.meeting, "is_editable": True, "oob_append": True},
+                request=request,
+            )
+            response = HttpResponse(item_html)  # OOB append; the empty remainder removes the row
+            trigger_toast(response, "Added to the agenda.", "success")
+        else:
+            proposal.decline(reviewer=user, note=form.cleaned_data["note"])
+            response = HttpResponse("")
+            trigger_toast(response, f"Declined — {_proposer_name(proposal)} was notified.", "success")
+    except InvalidProposalTransition:
+        return _invalid("This proposal was already decided.")
+    return response
+
+
+@login_required
+@require_POST
+def hub_meeting_proposal_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
+    """The proposer pulls back their own pending proposal — anyone else 403s,
+    admins included (a reviewer who wants it gone already has Decline, §5.4)."""
+    proposal = get_object_or_404(MeetingItemProposal.objects.select_related("meeting__guild"), pk=pk)
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    if proposal.proposed_by_id != user.pk:
+        return HttpResponse("Forbidden", status=403)
+    try:
+        proposal.withdraw(by=user)
+    except InvalidProposalTransition:
+        return _invalid("This proposal was already decided.")
+    response = HttpResponse("")
+    trigger_toast(response, "Withdrawn.", "success")
     return response

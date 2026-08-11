@@ -1,17 +1,21 @@
-"""BDD specs for the meeting workspace views (Meetings spec §6.2/§6.3 — phase 2).
+"""BDD specs for the meeting workspace views (Meetings spec §6.2/§6.3 — phases 2+3).
 
 The workspace GET rendering matrix (draft/locked × editor/read-only, incl. the
 strictly-static attendance), the create endpoint (§6.2 prefill contract +
-double-create guard + forbidden-scope 403), and the add/delete endpoints with
-their template-state assertions. Home/guild-tab/lifecycle surfaces are phases 3/4.
+double-create guard + forbidden-scope 403), the add/delete endpoints, and the
+phase-3 lifecycle (approve / unlock / delete), carryover, and proposal flows
+(propose / decide / withdraw) with their template-state assertions. The home and
+guild-tab surfaces are phase 4.
 """
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import time, timedelta
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
+from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.test import Client
@@ -19,13 +23,25 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from membership.models import GuildStaffMembership, Meeting, MeetingActionItem, MeetingAttachment, Member
+from core.models import EventDelivery
+from membership.models import (
+    CommunityEvent,
+    GuildStaffMembership,
+    Meeting,
+    MeetingActionItem,
+    MeetingAttachment,
+    MeetingItemProposal,
+    Member,
+)
 from tests.membership.factories import (
+    CommunityEventFactory,
     GuildFactory,
+    GuildMembershipFactory,
     MeetingActionItemFactory,
     MeetingAgendaItemFactory,
     MeetingAttendeeFactory,
     MeetingFactory,
+    MeetingItemProposalFactory,
     MemberFactory,
     MembershipPlanFactory,
     UserFactory,
@@ -54,6 +70,24 @@ def _member_client(client: Client) -> User:
     user = _user_with_role("plainmember")
     client.login(username=user.username, password="pass")
     return user
+
+
+def _guild_member_client(client: Client, guild) -> User:
+    """An active plain member OF the guild (proposal rights, no edit rights)."""
+    user = _user_with_role(f"guildmember-{guild.pk}")
+    GuildMembershipFactory(guild=guild, member=user.member)
+    client.login(username=user.username, password="pass")
+    return user
+
+
+def _admin_client(client: Client) -> User:
+    user = _user_with_role("adminuser", fog_role=Member.FogRole.ADMIN)
+    client.login(username=user.username, password="pass")
+    return user
+
+
+def _messages(resp) -> list[str]:
+    return [str(m) for m in get_messages(resp.wsgi_request)]
 
 
 @pytest.mark.django_db
@@ -596,3 +630,818 @@ def describe_workspace_rendering_of_attachments():
         meeting = MeetingFactory()
         resp = client.get(reverse("hub_meeting", args=[meeting.pk]))
         assert "Attachments" not in resp.content.decode()
+
+
+# --- Phase 3: lifecycle (approve / unlock / delete) ---------------------------
+
+
+@pytest.mark.django_db
+def describe_approve():
+    def it_locks_stamps_and_redirects_with_a_message(client: Client):
+        guild = GuildFactory()
+        user = _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        resp = client.post(reverse("hub_meeting_approve", args=[meeting.pk]))
+        assert resp.status_code == 204
+        assert resp["HX-Redirect"] == reverse("hub_meeting", args=[meeting.pk])
+        assert "Minutes approved and locked." in _messages(resp)
+        meeting.refresh_from_db()
+        assert meeting.status == Meeting.Status.APPROVED
+        assert meeting.approved_by == user
+        assert meeting.approved_at is not None
+
+    def it_auto_declines_pending_proposals_and_notifies_each_proposer(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        proposal = MeetingItemProposalFactory(meeting=meeting, proposed_by=UserFactory())
+        client.post(reverse("hub_meeting_approve", args=[meeting.pk]))
+        proposal.refresh_from_db()
+        assert proposal.state == MeetingItemProposal.State.DECLINED
+        assert proposal.review_note == "The meeting was closed before this was reviewed."
+        assert EventDelivery.objects.filter(event_key="meeting.item_decided", channel="in_app").count() == 1
+
+    def it_422s_an_undated_meeting_with_the_toast(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, scheduled_date=None)
+        resp = client.post(reverse("hub_meeting_approve", args=[meeting.pk]))
+        assert resp.status_code == 422
+        assert "Set the meeting date before approving." in resp["HX-Trigger"]
+        meeting.refresh_from_db()
+        assert meeting.status == Meeting.Status.DRAFT
+
+    def it_403s_a_non_editor(client: Client):
+        _member_client(client)
+        meeting = MeetingFactory()
+        assert client.post(reverse("hub_meeting_approve", args=[meeting.pk])).status_code == 403
+
+    def it_403s_when_already_locked(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, approved=True)
+        assert client.post(reverse("hub_meeting_approve", args=[meeting.pk])).status_code == 403
+
+    def it_405s_a_get(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        assert client.get(reverse("hub_meeting_approve", args=[meeting.pk])).status_code == 405
+
+
+@pytest.mark.django_db
+def describe_unlock():
+    def it_reopens_the_workspace_for_an_admin_keeping_the_stamps(client: Client):
+        _admin_client(client)
+        meeting = MeetingFactory(approved=True)
+        stamped_by = meeting.approved_by
+        resp = client.post(reverse("hub_meeting_unlock", args=[meeting.pk]))
+        assert resp.status_code == 204
+        assert resp["HX-Redirect"] == reverse("hub_meeting", args=[meeting.pk])
+        assert "Minutes unlocked — the workspace is editable again." in _messages(resp)
+        meeting.refresh_from_db()
+        assert meeting.status == Meeting.Status.DRAFT
+        assert meeting.approved_by == stamped_by  # history kept until re-approve
+
+    def it_403s_the_guilds_own_lead(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, approved=True)
+        resp = client.post(reverse("hub_meeting_unlock", args=[meeting.pk]))
+        assert resp.status_code == 403
+        meeting.refresh_from_db()
+        assert meeting.status == Meeting.Status.APPROVED
+
+    def it_403s_a_plain_member(client: Client):
+        _member_client(client)
+        meeting = MeetingFactory(approved=True)
+        assert client.post(reverse("hub_meeting_unlock", args=[meeting.pk])).status_code == 403
+
+    def it_422s_a_meeting_that_is_not_locked(client: Client):
+        _admin_client(client)
+        meeting = MeetingFactory()
+        resp = client.post(reverse("hub_meeting_unlock", args=[meeting.pk]))
+        assert resp.status_code == 422
+        assert "Only approved minutes can be unlocked." in resp["HX-Trigger"]
+
+
+@pytest.mark.django_db
+def describe_delete():
+    def it_deletes_a_draft_and_redirects_to_the_meetings_home(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        resp = client.post(reverse("hub_meeting_delete", args=[meeting.pk]))
+        assert resp.status_code == 204
+        assert resp["HX-Redirect"] == "/meetings/"
+        assert "Meeting deleted." in _messages(resp)
+        assert not Meeting.objects.exists()
+
+    def it_unwinds_an_owned_calendar_event_through_the_rails(client: Client):
+        guild = GuildFactory()
+        user = _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
+        with patch.object(CommunityEvent, "schedule_or_go_live"):
+            meeting.create_calendar_event(by=user)
+        meeting.refresh_from_db()
+        event_pk = meeting.event_id
+        with (
+            patch.object(CommunityEvent, "remove_from_google") as google,
+            patch.object(CommunityEvent, "remove_from_discord") as discord,
+        ):
+            resp = client.post(reverse("hub_meeting_delete", args=[meeting.pk]))
+        assert resp.status_code == 204
+        google.assert_called_once()
+        discord.assert_called_once()
+        assert not CommunityEvent.objects.filter(pk=event_pk).exists()
+        assert not Meeting.objects.exists()
+
+    def it_leaves_a_merely_linked_event_completely_alone(client: Client):
+        guild = GuildFactory()
+        user = _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        event = CommunityEventFactory(guild=guild)
+        meeting.link_event(event, event.starts_at.date(), by=user)
+        with patch.object(CommunityEvent, "remove_from_google") as google:
+            resp = client.post(reverse("hub_meeting_delete", args=[meeting.pk]))
+        assert resp.status_code == 204
+        google.assert_not_called()
+        assert CommunityEvent.objects.filter(pk=event.pk).exists()
+        assert not Meeting.objects.exists()
+
+    def it_403s_locked_minutes(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, approved=True)
+        assert client.post(reverse("hub_meeting_delete", args=[meeting.pk])).status_code == 403
+        assert Meeting.objects.filter(pk=meeting.pk).exists()
+
+    def it_403s_a_non_editor(client: Client):
+        _member_client(client)
+        meeting = MeetingFactory()
+        assert client.post(reverse("hub_meeting_delete", args=[meeting.pk])).status_code == 403
+        assert Meeting.objects.filter(pk=meeting.pk).exists()
+
+
+# --- Phase 3: the carryover endpoint (§5.5) -----------------------------------
+
+
+def _carryover_setup(client: Client, *, source_approved: bool = False):
+    """A source meeting with one open action, and a later draft target meeting."""
+    guild = GuildFactory()
+    user = _lead_client(client, guild)
+    source = MeetingFactory(
+        guild=guild, scheduled_date=timezone.localdate() + timedelta(days=1), approved=source_approved
+    )
+    action = MeetingActionItemFactory(item__meeting=source)
+    target = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=7))
+    return user, guild, source, action, target
+
+
+@pytest.mark.django_db
+def describe_carryover():
+    def it_completes_the_action_stamping_closed_in(client: Client):
+        _, _, _, action, target = _carryover_setup(client)
+        resp = client.post(
+            reverse("hub_meeting_action_carryover", args=[action.pk]),
+            {"op": "complete", "meeting": str(target.pk)},
+        )
+        assert resp.status_code == 200
+        assert "Marked done." in resp["HX-Trigger"]
+        action.refresh_from_db()
+        assert action.status == MeetingActionItem.Status.DONE
+        assert action.closed_in == target
+
+    def it_dismisses_the_action(client: Client):
+        _, _, _, action, target = _carryover_setup(client)
+        resp = client.post(
+            reverse("hub_meeting_action_carryover", args=[action.pk]),
+            {"op": "dismiss", "meeting": str(target.pk)},
+        )
+        assert resp.status_code == 200
+        assert "Dismissed." in resp["HX-Trigger"]
+        action.refresh_from_db()
+        assert action.status == MeetingActionItem.Status.DISMISSED
+        assert action.closed_in == target
+
+    def it_removes_the_panel_once_the_last_row_closes(client: Client):
+        _, _, _, action, target = _carryover_setup(client)
+        resp = client.post(
+            reverse("hub_meeting_action_carryover", args=[action.pk]),
+            {"op": "complete", "meeting": str(target.pk)},
+        )
+        assert "pl-meeting-carryover" not in resp.content.decode()
+
+    def it_re_renders_the_remaining_rows(client: Client):
+        _, _, source, action, target = _carryover_setup(client)
+        other = MeetingActionItemFactory(item=action.item, name="Still open")
+        resp = client.post(
+            reverse("hub_meeting_action_carryover", args=[action.pk]),
+            {"op": "complete", "meeting": str(target.pk)},
+        )
+        content = resp.content.decode()
+        assert f'id="carryover-{other.pk}"' in content
+        assert "Still open" in content
+        assert f"From {source.display_title}" in content
+
+    def it_allows_closing_an_action_from_a_locked_source_meeting(client: Client):
+        _, _, _, action, target = _carryover_setup(client, source_approved=True)
+        resp = client.post(
+            reverse("hub_meeting_action_carryover", args=[action.pk]),
+            {"op": "complete", "meeting": str(target.pk)},
+        )
+        assert resp.status_code == 200
+        action.refresh_from_db()
+        assert action.status == MeetingActionItem.Status.DONE
+
+    def it_403s_when_the_panel_meeting_is_locked(client: Client):
+        _, guild, _, action, _ = _carryover_setup(client)
+        locked_target = MeetingFactory(
+            guild=guild, scheduled_date=timezone.localdate() + timedelta(days=14), approved=True
+        )
+        resp = client.post(
+            reverse("hub_meeting_action_carryover", args=[action.pk]),
+            {"op": "complete", "meeting": str(locked_target.pk)},
+        )
+        assert resp.status_code == 403
+
+    def it_403s_a_non_editor(client: Client):
+        source = MeetingFactory(scheduled_date=timezone.localdate() + timedelta(days=1))
+        action = MeetingActionItemFactory(item__meeting=source)
+        target = MeetingFactory(guild=source.guild, scheduled_date=timezone.localdate() + timedelta(days=7))
+        _member_client(client)
+        resp = client.post(
+            reverse("hub_meeting_action_carryover", args=[action.pk]),
+            {"op": "complete", "meeting": str(target.pk)},
+        )
+        assert resp.status_code == 403
+
+    def it_404s_an_action_outside_the_panel_meetings_scope(client: Client):
+        _, _, _, _, target = _carryover_setup(client)
+        foreign = MeetingActionItemFactory(
+            item__meeting=MeetingFactory(scheduled_date=timezone.localdate() + timedelta(days=1))
+        )
+        resp = client.post(
+            reverse("hub_meeting_action_carryover", args=[foreign.pk]),
+            {"op": "complete", "meeting": str(target.pk)},
+        )
+        assert resp.status_code == 404
+
+    def it_404s_when_the_panel_meeting_is_undated(client: Client):
+        _, guild, _, action, _ = _carryover_setup(client)
+        undated = MeetingFactory(guild=guild, scheduled_date=None)
+        resp = client.post(
+            reverse("hub_meeting_action_carryover", args=[action.pk]),
+            {"op": "complete", "meeting": str(undated.pk)},
+        )
+        assert resp.status_code == 404
+
+    def it_400s_an_unknown_op(client: Client):
+        _, _, _, action, target = _carryover_setup(client)
+        resp = client.post(
+            reverse("hub_meeting_action_carryover", args=[action.pk]),
+            {"op": "snooze", "meeting": str(target.pk)},
+        )
+        assert resp.status_code == 400
+
+    def it_400s_a_garbage_meeting_param(client: Client):
+        _, _, _, action, _ = _carryover_setup(client)
+        resp = client.post(reverse("hub_meeting_action_carryover", args=[action.pk]), {"op": "complete"})
+        assert resp.status_code == 400
+
+
+# --- Phase 3: proposals (propose / decide / withdraw) -------------------------
+
+
+@pytest.mark.django_db
+def describe_propose():
+    def it_creates_a_pending_proposal_with_the_scope_toast(client: Client):
+        guild = GuildFactory(name="Woodshop")
+        user = _guild_member_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        resp = client.post(
+            reverse("hub_meeting_propose", args=[meeting.pk]),
+            {"title": "New sander", "why": "Ours died."},
+        )
+        assert resp.status_code == 204
+        # json.dumps escapes the em dash in the header, so assert the ASCII tail.
+        assert "Woodshop leadership will review it." in resp["HX-Trigger"]
+        proposal = meeting.proposals.get()
+        assert proposal.title == "New sander"
+        assert proposal.why == "Ours died."
+        assert proposal.proposed_by == user
+        assert proposal.state == MeetingItemProposal.State.PENDING
+
+    def it_pings_the_reviewers_through_the_spine(client: Client):
+        guild = GuildFactory()
+        lead_user = _user_with_role("leadnotify")
+        lead_user.email = "leadnotify@example.com"  # recipients need a usable email
+        lead_user.last_login = timezone.now()
+        lead_user.save(update_fields=["email", "last_login"])
+        guild.guild_lead = lead_user.member
+        guild.save(update_fields=["guild_lead"])
+        _guild_member_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        client.post(reverse("hub_meeting_propose", args=[meeting.pk]), {"title": "Dust collection", "why": ""})
+        assert EventDelivery.objects.filter(event_key="meeting.item_proposed", channel="in_app").exists()
+
+    def it_422s_a_blank_topic(client: Client):
+        guild = GuildFactory()
+        _guild_member_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        resp = client.post(reverse("hub_meeting_propose", args=[meeting.pk]), {"title": "", "why": "x"})
+        assert resp.status_code == 422
+        assert not meeting.proposals.exists()
+
+    def it_403s_a_non_member_of_the_guild(client: Client):
+        _member_client(client)
+        meeting = MeetingFactory()
+        resp = client.post(reverse("hub_meeting_propose", args=[meeting.pk]), {"title": "Nope"})
+        assert resp.status_code == 403
+
+    def it_403s_a_locked_meeting(client: Client):
+        guild = GuildFactory()
+        _guild_member_client(client, guild)
+        meeting = MeetingFactory(guild=guild, approved=True)
+        resp = client.post(reverse("hub_meeting_propose", args=[meeting.pk]), {"title": "Too late"})
+        assert resp.status_code == 403
+        assert not meeting.proposals.exists()
+
+    def it_403s_a_past_meeting(client: Client):
+        guild = GuildFactory()
+        _guild_member_client(client, guild)
+        meeting = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=1))
+        assert client.post(reverse("hub_meeting_propose", args=[meeting.pk]), {"title": "Too late"}).status_code == 403
+
+    def it_403s_a_plain_member_for_the_council_scope(client: Client):
+        _member_client(client)
+        meeting = MeetingFactory(guild=None)
+        assert (
+            client.post(reverse("hub_meeting_propose", args=[meeting.pk]), {"title": "Council thing"}).status_code
+            == 403
+        )
+
+    def it_lets_a_guild_lead_propose_to_the_council(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=None)
+        resp = client.post(reverse("hub_meeting_propose", args=[meeting.pk]), {"title": "Budget summit"})
+        assert resp.status_code == 204
+        assert "Council leadership will review it." in resp["HX-Trigger"]
+
+
+@pytest.mark.django_db
+def describe_proposal_decide():
+    def describe_loading_the_modal():
+        def it_loads_the_approve_form_prefilled_for_edit_then_approve(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            proposal = MeetingItemProposalFactory(
+                meeting=MeetingFactory(guild=guild), title="Raw idea", why="Rough rationale"
+            )
+            resp = client.get(reverse("hub_meeting_proposal_decide", args=[proposal.pk]), {"mode": "approve"})
+            assert resp.status_code == 200
+            content = resp.content.decode()
+            assert 'value="Raw idea"' in content
+            assert "Rough rationale" in content
+            assert "Add to agenda" in content
+            assert 'name="decision" value="approve"' in content
+
+        def it_loads_the_decline_form_with_the_optional_note(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild))
+            resp = client.get(reverse("hub_meeting_proposal_decide", args=[proposal.pk]), {"mode": "decline"})
+            content = resp.content.decode()
+            assert "Note to the proposer (optional)" in content
+            assert 'name="decision" value="decline"' in content
+
+        def it_400s_an_unknown_mode(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild))
+            assert (
+                client.get(reverse("hub_meeting_proposal_decide", args=[proposal.pk]), {"mode": "maybe"}).status_code
+                == 400
+            )
+
+        def it_403s_a_plain_member_even_the_proposer(client: Client):
+            guild = GuildFactory()
+            user = _guild_member_client(client, guild)
+            proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild), proposed_by=user)
+            resp = client.get(reverse("hub_meeting_proposal_decide", args=[proposal.pk]), {"mode": "approve"})
+            assert resp.status_code == 403
+
+    def describe_approving():
+        def it_adds_the_item_credited_and_oob_appends_it(client: Client):
+            guild = GuildFactory()
+            reviewer = _lead_client(client, guild)
+            proposer = UserFactory()
+            proposal = MeetingItemProposalFactory(
+                meeting=MeetingFactory(guild=guild), title="New sander", why="Ours died.", proposed_by=proposer
+            )
+            resp = client.post(
+                reverse("hub_meeting_proposal_decide", args=[proposal.pk]),
+                {"decision": "approve", "title": "New sander", "why": "Ours died."},
+            )
+            assert resp.status_code == 200
+            assert "Added to the agenda." in resp["HX-Trigger"]
+            proposal.refresh_from_db()
+            assert proposal.state == MeetingItemProposal.State.APPROVED
+            assert proposal.reviewed_by == reviewer
+            item = proposal.created_item
+            assert item is not None
+            assert item.name == "New sander"
+            assert item.description == "Ours died."
+            assert item.proposed_by == proposer
+            content = resp.content.decode()
+            assert 'hx-swap-oob="beforeend:#pl-meeting-item-list"' in content
+            assert f'id="item-{item.pk}"' in content
+
+        def it_applies_edit_then_approve_overrides(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            proposer = UserFactory()
+            proposal = MeetingItemProposalFactory(
+                meeting=MeetingFactory(guild=guild), title="Raw idea", why="Rough", proposed_by=proposer
+            )
+            client.post(
+                reverse("hub_meeting_proposal_decide", args=[proposal.pk]),
+                {"decision": "approve", "title": "Polished topic", "why": "Sharpened rationale"},
+            )
+            proposal.refresh_from_db()
+            item = proposal.created_item
+            assert item is not None
+            assert item.name == "Polished topic"
+            assert item.description == "Sharpened rationale"
+            assert item.proposed_by == proposer  # credit survives the edit
+
+        def it_422s_approve_without_a_topic(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild))
+            resp = client.post(
+                reverse("hub_meeting_proposal_decide", args=[proposal.pk]), {"decision": "approve", "title": ""}
+            )
+            assert resp.status_code == 422
+            proposal.refresh_from_db()
+            assert proposal.state == MeetingItemProposal.State.PENDING
+
+    def describe_declining():
+        def it_declines_with_a_note_and_names_the_proposer_in_the_toast(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild))
+            resp = client.post(
+                reverse("hub_meeting_proposal_decide", args=[proposal.pk]),
+                {"decision": "decline", "note": "Covered last month."},
+            )
+            assert resp.status_code == 200
+            assert "was notified." in resp["HX-Trigger"]  # "Declined — {proposer} was notified."
+            proposal.refresh_from_db()
+            assert proposal.state == MeetingItemProposal.State.DECLINED
+            assert proposal.review_note == "Covered last month."
+
+        def it_falls_back_to_the_username_when_the_proposer_has_no_member(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            proposer = UserFactory(username="ghostuser")
+            proposer.member.delete()
+            proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild), proposed_by=proposer)
+            resp = client.post(reverse("hub_meeting_proposal_decide", args=[proposal.pk]), {"decision": "decline"})
+            assert resp.status_code == 200
+            assert "ghostuser" in resp["HX-Trigger"]
+
+        def it_allows_a_blank_note(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild))
+            resp = client.post(reverse("hub_meeting_proposal_decide", args=[proposal.pk]), {"decision": "decline"})
+            assert resp.status_code == 200
+            proposal.refresh_from_db()
+            assert proposal.state == MeetingItemProposal.State.DECLINED
+            assert proposal.review_note == ""
+
+    def it_422s_a_double_decision(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild))
+        client.post(reverse("hub_meeting_proposal_decide", args=[proposal.pk]), {"decision": "decline"})
+        resp = client.post(
+            reverse("hub_meeting_proposal_decide", args=[proposal.pk]),
+            {"decision": "approve", "title": "Again"},
+        )
+        assert resp.status_code == 422
+        assert "This proposal was already decided." in resp["HX-Trigger"]
+
+    def it_400s_an_unknown_decision(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild))
+        assert (
+            client.post(reverse("hub_meeting_proposal_decide", args=[proposal.pk]), {"decision": "maybe"}).status_code
+            == 400
+        )
+
+    def it_403s_when_the_meeting_is_locked(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild, approved=True))
+        resp = client.post(
+            reverse("hub_meeting_proposal_decide", args=[proposal.pk]), {"decision": "approve", "title": "X"}
+        )
+        assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def describe_proposal_withdraw():
+    def it_lets_the_proposer_withdraw_with_a_toast(client: Client):
+        guild = GuildFactory()
+        user = _guild_member_client(client, guild)
+        proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild), proposed_by=user)
+        resp = client.post(reverse("hub_meeting_proposal_withdraw", args=[proposal.pk]))
+        assert resp.status_code == 200
+        assert resp.content == b""
+        assert "Withdrawn." in resp["HX-Trigger"]
+        proposal.refresh_from_db()
+        assert proposal.state == MeetingItemProposal.State.WITHDRAWN
+
+    def it_403s_an_admin(client: Client):
+        _admin_client(client)
+        proposal = MeetingItemProposalFactory(proposed_by=UserFactory())
+        resp = client.post(reverse("hub_meeting_proposal_withdraw", args=[proposal.pk]))
+        assert resp.status_code == 403
+        proposal.refresh_from_db()
+        assert proposal.state == MeetingItemProposal.State.PENDING
+
+    def it_403s_the_meetings_editor(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild), proposed_by=UserFactory())
+        assert client.post(reverse("hub_meeting_proposal_withdraw", args=[proposal.pk])).status_code == 403
+
+    def it_403s_another_plain_member(client: Client):
+        _member_client(client)
+        proposal = MeetingItemProposalFactory(proposed_by=UserFactory())
+        assert client.post(reverse("hub_meeting_proposal_withdraw", args=[proposal.pk])).status_code == 403
+
+    def it_422s_an_already_decided_proposal(client: Client):
+        guild = GuildFactory()
+        user = _guild_member_client(client, guild)
+        proposal = MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild), proposed_by=user)
+        proposal.decline(reviewer=UserFactory())
+        resp = client.post(reverse("hub_meeting_proposal_withdraw", args=[proposal.pk]))
+        assert resp.status_code == 422
+
+
+# --- Phase 3: workspace template states (banner / footer / carryover / strips) --
+
+
+@pytest.mark.django_db
+def describe_workspace_lifecycle_rendering():
+    def describe_the_approved_banner():
+        def it_names_the_approver_and_date(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild, approved=True)
+            resp = client.get(reverse("hub_meeting", args=[meeting.pk]))
+            content = resp.content.decode()
+            assert "Minutes approved by" in content
+            assert meeting.approved_at.strftime("%B") in content
+
+        def it_offers_unlock_to_admins_only(client: Client):
+            meeting = MeetingFactory(approved=True)
+            _admin_client(client)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "unlock-meeting" in content
+            assert "Unlock minutes" in content
+
+        def it_hides_unlock_from_the_guilds_lead(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild, approved=True)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Minutes approved by" in content
+            assert "unlock-meeting" not in content
+
+        def it_is_absent_on_a_draft(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            assert "Minutes approved by" not in client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+
+    def describe_the_footer():
+        def it_shows_approve_and_delete_with_the_guild_audience_line(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Approve minutes" in content
+            assert "Delete meeting" in content
+            assert "Guild members will be notified." in content
+            assert "Any pending proposals are declined." in content
+            assert "Deletes this meeting, its agenda, attendance, and action items." in content
+
+        def it_shows_the_council_audience_line(client: Client):
+            _admin_client(client)
+            meeting = MeetingFactory(guild=None)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "All guild leads will be notified." in content
+
+        def it_names_the_calendar_cascade_for_an_owned_event(client: Client):
+            guild = GuildFactory()
+            user = _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
+            with patch.object(CommunityEvent, "schedule_or_go_live"):
+                meeting.create_calendar_event(by=user)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Its calendar event is also removed from the calendar, Google, and Discord." in content
+
+        def it_names_the_guild_stay_line_for_a_merely_linked_event(client: Client):
+            guild = GuildFactory()
+            user = _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            event = CommunityEventFactory(guild=guild)
+            meeting.link_event(event, event.starts_at.date(), by=user)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "cancel it separately from the guild's Events tab" in content
+
+        def it_names_the_council_stay_line_for_a_merely_linked_event(client: Client):
+            _admin_client(client)
+            meeting = MeetingFactory(guild=None)
+            event = CommunityEventFactory(lead_meeting=True)
+            meeting.event = event
+            meeting.save(update_fields=["event"])
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "an admin can cancel it from the events editor" in content
+
+        def it_is_absent_for_read_only_viewers(client: Client):
+            _member_client(client)
+            meeting = MeetingFactory()
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Approve minutes" not in content
+            assert "Delete meeting" not in content
+
+        def it_is_absent_in_locked_mode(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild, approved=True)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Approve minutes" not in content
+            assert "Delete meeting" not in content
+
+    def describe_the_carryover_panel():
+        def it_shows_open_actions_grouped_by_source_meeting(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            source = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=1))
+            MeetingActionItemFactory(item__meeting=source, name="Order sandpaper")
+            target = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=7))
+            content = client.get(reverse("hub_meeting", args=[target.pk])).content.decode()
+            assert "Carried over — still open from earlier meetings" in content
+            assert f"From {source.display_title}" in content
+            assert "Order sandpaper" in content
+
+        def it_is_absent_when_nothing_carries_over(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            assert "Carried over" not in client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+
+        def it_is_absent_for_read_only_members(client: Client):
+            guild = GuildFactory()
+            source = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=1))
+            MeetingActionItemFactory(item__meeting=source)
+            target = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=7))
+            _member_client(client)
+            assert "Carried over" not in client.get(reverse("hub_meeting", args=[target.pk])).content.decode()
+
+        def it_is_absent_in_locked_mode(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            source = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=1))
+            MeetingActionItemFactory(item__meeting=source)
+            target = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=7), approved=True)
+            assert "Carried over" not in client.get(reverse("hub_meeting", args=[target.pk])).content.decode()
+
+    def describe_the_pending_proposals_strip():
+        def it_shows_pending_rows_with_decide_buttons_to_editors(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            proposal = MeetingItemProposalFactory(meeting=meeting, title="New sander", why="Ours died.")
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Proposed agenda items (1)" in content
+            assert "New sander" in content
+            assert "Ours died." in content
+            assert f"/meetings/proposals/{proposal.pk}/decide/?mode=approve" in content
+            assert f"/meetings/proposals/{proposal.pk}/decide/?mode=decline" in content
+
+        def it_is_absent_for_read_only_members(client: Client):
+            guild = GuildFactory()
+            meeting = MeetingFactory(guild=guild)
+            MeetingItemProposalFactory(meeting=meeting)
+            _member_client(client)
+            assert "Proposed agenda items" not in client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+
+        def it_omits_decided_proposals(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            declined = MeetingItemProposalFactory(meeting=meeting, title="Old idea")
+            declined.decline(reviewer=UserFactory())
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Proposed agenda items" not in content
+
+    def describe_your_proposals():
+        def it_shows_a_pending_proposal_with_a_withdraw_confirm(client: Client):
+            guild = GuildFactory()
+            user = _guild_member_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            proposal = MeetingItemProposalFactory(meeting=meeting, proposed_by=user, title="New sander")
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Your proposals" in content
+            assert "Waiting for review" in content
+            assert f"withdraw-prop-{proposal.pk}" in content
+
+        def it_links_an_approved_proposal_to_its_item(client: Client):
+            guild = GuildFactory()
+            user = _guild_member_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            proposal = MeetingItemProposalFactory(meeting=meeting, proposed_by=user)
+            item = proposal.approve(reviewer=UserFactory())
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Added to the agenda ✓" in content
+            assert f'href="#item-{item.pk}"' in content
+
+        def it_shows_a_declined_proposal_with_the_reviewer_note(client: Client):
+            guild = GuildFactory()
+            user = _guild_member_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            proposal = MeetingItemProposalFactory(meeting=meeting, proposed_by=user)
+            proposal.decline(reviewer=UserFactory(), note="Covered last month.")
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Declined" in content
+            assert "Covered last month." in content
+
+        def it_hides_withdrawn_proposals(client: Client):
+            guild = GuildFactory()
+            user = _guild_member_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            proposal = MeetingItemProposalFactory(meeting=meeting, proposed_by=user, title="Changed my mind")
+            proposal.withdraw(by=user)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Your proposals" not in content
+            assert "Changed my mind" not in content
+
+        def it_renders_read_only_in_locked_mode(client: Client):
+            guild = GuildFactory()
+            user = _guild_member_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            proposal = MeetingItemProposalFactory(meeting=meeting, proposed_by=user)
+            proposal.decline(reviewer=UserFactory(), note="")
+            meeting.approve(by=UserFactory())
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Your proposals" in content
+            assert "withdraw-prop-" not in content
+
+    def describe_the_propose_button():
+        def it_shows_for_a_guild_member_with_the_modal(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Propose an agenda item" in content
+            assert "propose-item" in content
+            assert "Helps leadership slot it into the meeting." in content
+
+        def it_is_absent_for_editors(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            assert (
+                "Propose an agenda item" not in client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            )
+
+        def it_is_absent_on_a_locked_upcoming_meeting(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            meeting = MeetingFactory(guild=guild, approved=True)  # dated a week out, already approved
+            assert (
+                "Propose an agenda item" not in client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            )
+
+        def it_is_absent_on_a_past_meeting(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            meeting = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=1))
+            assert (
+                "Propose an agenda item" not in client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            )
+
+        def it_is_absent_for_non_members_of_the_guild(client: Client):
+            _member_client(client)
+            meeting = MeetingFactory()
+            assert (
+                "Propose an agenda item" not in client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            )

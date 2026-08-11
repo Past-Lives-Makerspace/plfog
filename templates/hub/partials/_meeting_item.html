@@ -3,10 +3,12 @@ One agenda item — an accordion row (Meetings spec §6.3). Collapsed: chevrons
 (editors, only while nothing is open), name, N★ open-actions badge. Expanded
 (draft/editors): Topic input, Description textarea, lazy-Quill Minutes, action
 items, Delete item. Expanded (read-only): static text + rendered minutes HTML.
-Context: item, meeting, is_editable, new_item_pk (optional).
+Context: item, meeting, is_editable, new_item_pk (optional), oob_append (optional —
+a proposal approval's response appends this item to the accordion out-of-band).
 {% endcomment %}
 {% with item_pk=item.pk|stringformat:"s" %}
 <div class="pl-meeting-item" id="item-{{ item.pk }}"
+     {% if oob_append %}hx-swap-oob="beforeend:#pl-meeting-item-list"{% endif %}
      :class="itemClass({{ item.pk }})"
      {% if item.pk == new_item_pk %}x-init="$nextTick(() => openAgendaItem({{ item.pk }}, true))"{% endif %}>
   <div class="pl-meeting-item__row" @click="toggleAgendaItem({{ item.pk }})">

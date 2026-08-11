@@ -40,11 +40,18 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
     </div>
   </div>
 
-  {% comment %}
-  Phase 3 placeholder: the locked-mode approved banner ("✓ Minutes approved by
-  {name} on {date}") with the admin-only Unlock button lands with the lifecycle
-  flows (spec §6.3 Header / §8 phase 3).
-  {% endcomment %}
+  {% if meeting.is_locked %}
+  {# ── Approved banner: the locked-mode strip, admin-only Unlock (spec §6.3 Header) ── #}
+  <div class="pl-meeting-approved">
+    <span>✓ Minutes approved by {% firstof meeting.approved_by.member.display_name meeting.approved_by.username "an admin" %} on {{ meeting.approved_at|date:"F j, Y" }}</span>
+    {% if can_unlock %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+            @click="$dispatch('open-confirm', 'unlock-meeting')">Unlock</button>
+    {% url 'hub_meeting_unlock' meeting.pk as unlock_url %}
+    {% include "components/confirm_modal.html" with confirm_id="unlock-meeting" confirm_title="Unlock these minutes?" confirm_message="Unlocking reopens these approved minutes for editing. The current approval stamp is replaced when someone re-approves. Members will be re-notified on re-approval." confirm_action_url="" confirm_hx_post=unlock_url confirm_button_text="Unlock minutes" %}
+    {% endif %}
+  </div>
+  {% endif %}
 
   {# ── Meeting facts strip (draft: inline editable; locked/read-only: static) ── #}
   <div class="hub-card pl-meeting-facts" :class="dimClass()">
@@ -163,11 +170,10 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
   </div>
   {% endif %}
 
-  {% comment %}
-  Phase 3 placeholder: the carryover panel ("Carried over — still open from earlier
-  meetings") and the pending-proposals review strip + "Your proposals" block land
-  with spec §8 phase 3.
-  {% endcomment %}
+  {# ── Carryover panel (draft, editors, non-empty — the partial guards emptiness) ── #}
+  {% if is_editable %}
+  {% include "hub/partials/_meeting_carryover.html" %}
+  {% endif %}
 
   {# ── Special notes ── #}
   {% if is_editable or meeting.special_notes %}
@@ -181,6 +187,11 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
   </div>
   {% endif %}
 
+  {# ── Pending proposals review strip (draft, editors, only when pending exist) ── #}
+  {% if is_editable and pending_proposals %}
+  {% include "hub/partials/_meeting_proposals.html" %}
+  {% endif %}
+
   {# ── Agenda: the focus-mode accordion ── #}
   <div class="pl-meeting-agenda">
     <h2 class="hub-detail-label">Agenda</h2>
@@ -191,6 +202,17 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
             hx-target="#pl-meeting-item-list" hx-swap="outerHTML">+ Add item</button>
     {% endif %}
   </div>
+
+  {# ── "Your proposals" — a member's own proposal outcomes, under the agenda ── #}
+  {% include "hub/partials/_meeting_my_proposals.html" %}
+
+  {# ── Propose an item — members with can_propose_to_meeting who can't edit ── #}
+  {% if can_propose %}
+  <div class="pl-meeting-propose">
+    <button type="button" class="pl-btn pl-btn--secondary pl-meeting-propose-btn"
+            @click="$dispatch('open-modal', 'propose-item')">Propose an agenda item</button>
+  </div>
+  {% endif %}
 
   {# ── Attendance ── #}
   {% include "hub/partials/_meeting_attendance.html" %}
@@ -207,11 +229,31 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
   </div>
   {% endif %}
 
-  {% comment %}
-  Phase 3 placeholder: the footer — "Approve minutes" (primary, confirm modal) and
-  "Delete meeting" (danger, drafts only, calendar-aware confirm copy) — lands with
-  the lifecycle flows (spec §6.3 Footer / §8 phase 3).
-  {% endcomment %}
+  {# ── Footer: Approve minutes / Delete meeting (draft, editors — spec §6.3) ── #}
+  {% if is_editable %}
+  <div class="pl-meeting-footer" :class="dimClass()">
+    <button type="button" class="pl-btn pl-btn--primary"
+            @click="$dispatch('open-confirm', 'approve-meeting')">Approve minutes</button>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+            @click="$dispatch('open-confirm', 'delete-meeting')">Delete meeting</button>
+    {% url 'hub_meeting_approve' meeting.pk as approve_url %}
+    {% if meeting.guild %}
+    {% include "components/confirm_modal.html" with confirm_id="approve-meeting" confirm_title="Approve and lock these minutes?" confirm_message="This locks the whole page as the permanent record — no further edits without an admin unlock. Any pending proposals are declined. Guild members will be notified." confirm_action_url="" confirm_hx_post=approve_url confirm_button_text="Approve minutes" confirm_button_style="primary" %}
+    {% else %}
+    {% include "components/confirm_modal.html" with confirm_id="approve-meeting" confirm_title="Approve and lock these minutes?" confirm_message="This locks the whole page as the permanent record — no further edits without an admin unlock. Any pending proposals are declined. All guild leads will be notified." confirm_action_url="" confirm_hx_post=approve_url confirm_button_text="Approve minutes" confirm_button_style="primary" %}
+    {% endif %}
+    {% url 'hub_meeting_delete' meeting.pk as delete_url %}
+    {% if meeting.owns_event %}
+    {% include "components/confirm_modal.html" with confirm_id="delete-meeting" confirm_title="Delete this meeting?" confirm_message="Deletes this meeting, its agenda, attendance, and action items. Open action items here will no longer carry over. Its calendar event is also removed from the calendar, Google, and Discord." confirm_action_url="" confirm_hx_post=delete_url confirm_button_text="Delete meeting" %}
+    {% elif meeting.event and meeting.guild %}
+    {% include "components/confirm_modal.html" with confirm_id="delete-meeting" confirm_title="Delete this meeting?" confirm_message="Deletes this meeting, its agenda, attendance, and action items. Open action items here will no longer carry over. The linked calendar event stays on the calendar — cancel it separately from the guild's Events tab if the meeting really isn't happening." confirm_action_url="" confirm_hx_post=delete_url confirm_button_text="Delete meeting" %}
+    {% elif meeting.event %}
+    {% include "components/confirm_modal.html" with confirm_id="delete-meeting" confirm_title="Delete this meeting?" confirm_message="Deletes this meeting, its agenda, attendance, and action items. Open action items here will no longer carry over. The linked calendar event stays on the community calendar — an admin can cancel it from the events editor if the meeting really isn't happening." confirm_action_url="" confirm_hx_post=delete_url confirm_button_text="Delete meeting" %}
+    {% else %}
+    {% include "components/confirm_modal.html" with confirm_id="delete-meeting" confirm_title="Delete this meeting?" confirm_message="Deletes this meeting, its agenda, attendance, and action items. Open action items here will no longer carry over." confirm_action_url="" confirm_hx_post=delete_url confirm_button_text="Delete meeting" %}
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 
 {# ── The "+ Attach file or link" modal (house inline pl-modal pattern) ── #}
@@ -248,6 +290,48 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
         {% include "components/form_field.html" with field=attachment_form.url field_hint="Or paste a link (e.g. a Google Doc) instead of uploading." %}
         <div class="pl-modal__actions">
           <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Attach</button>
+          <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── The "Propose an agenda item" modal (house inline pl-modal pattern) ── #}
+{% if can_propose %}
+<div x-data="{ open: false }"
+     x-show="open"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-modal.window="if ($event.detail === 'propose-item') open = true"
+     @close-modal.window="if ($event.detail === 'propose-item') open = false"
+     @keydown.escape.window="open = false"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="propose-item-title">
+  <div class="pl-modal pl-modal--sm" @click.outside="open = false">
+    <div class="pl-modal__header">
+      <h2 class="pl-modal__title" id="propose-item-title">Propose an agenda item</h2>
+      <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+    </div>
+    <div class="pl-modal__body">
+      <form hx-post="{% url 'hub_meeting_propose' meeting.pk %}" hx-swap="none"
+            @htmx:after-request.camel="if ($event.detail.successful) { open = false; $event.target.reset(); }">
+        {% csrf_token %}
+        <div class="hub-form-group">
+          <label for="propose-item-topic">Topic</label>
+          <input type="text" id="propose-item-topic" name="title" maxlength="200" required>
+        </div>
+        <div class="hub-form-group">
+          <label for="propose-item-why">Why / what needs deciding</label>
+          <textarea id="propose-item-why" name="why" rows="3"></textarea>
+          <p class="pl-field-hint">Helps leadership slot it into the meeting.</p>
+        </div>
+        <div class="pl-modal__actions">
+          <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Propose it</button>
           <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
         </div>
       </form>

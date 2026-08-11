@@ -4,10 +4,13 @@ from django.views.generic import RedirectView
 from . import discord_views, meeting_views, notification_views, views
 
 urlpatterns = [
-    # --- Meetings workspace (spec §6.0 — phase 2; lifecycle/proposal/event routes land in phases 3/4) ---
+    # --- Meetings workspace (spec §6.0 — phases 2+3; the calendar-event routes land in phase 4) ---
     path("meetings/new/", meeting_views.hub_meeting_create, name="hub_meeting_create"),
     path("meetings/<int:pk>/", meeting_views.hub_meeting, name="hub_meeting"),
     path("meetings/<int:pk>/save/", meeting_views.hub_meeting_save, name="hub_meeting_save"),
+    path("meetings/<int:pk>/approve/", meeting_views.hub_meeting_approve, name="hub_meeting_approve"),
+    path("meetings/<int:pk>/unlock/", meeting_views.hub_meeting_unlock, name="hub_meeting_unlock"),
+    path("meetings/<int:pk>/delete/", meeting_views.hub_meeting_delete, name="hub_meeting_delete"),
     path("meetings/<int:pk>/items/add/", meeting_views.hub_meeting_item_add, name="hub_meeting_item_add"),
     path("meetings/items/<int:pk>/save/", meeting_views.hub_meeting_item_save, name="hub_meeting_item_save"),
     path("meetings/items/<int:pk>/move/", meeting_views.hub_meeting_item_move, name="hub_meeting_item_move"),
@@ -18,6 +21,11 @@ urlpatterns = [
         "meetings/actions/<int:pk>/delete/",
         meeting_views.hub_meeting_action_delete,
         name="hub_meeting_action_delete",
+    ),
+    path(
+        "meetings/actions/<int:pk>/carryover/",
+        meeting_views.hub_meeting_action_carryover,
+        name="hub_meeting_action_carryover",
     ),
     path(
         "meetings/<int:pk>/attachments/add/",
@@ -39,6 +47,17 @@ urlpatterns = [
         "meetings/attendees/<int:pk>/delete/",
         meeting_views.hub_meeting_attendee_delete,
         name="hub_meeting_attendee_delete",
+    ),
+    path("meetings/<int:pk>/propose/", meeting_views.hub_meeting_propose, name="hub_meeting_propose"),
+    path(
+        "meetings/proposals/<int:pk>/decide/",
+        meeting_views.hub_meeting_proposal_decide,
+        name="hub_meeting_proposal_decide",
+    ),
+    path(
+        "meetings/proposals/<int:pk>/withdraw/",
+        meeting_views.hub_meeting_proposal_withdraw,
+        name="hub_meeting_proposal_withdraw",
     ),
     path("guilds/voting/", views.guild_voting, name="hub_guild_voting"),
     path("guilds/voting/history/", views.snapshot_history, name="hub_snapshot_history"),

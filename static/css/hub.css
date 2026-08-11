@@ -5606,14 +5606,76 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     margin: 0;
 }
 
-/* --- Attention / approved tints (home strip + locked banner, later phases) --- */
+/* --- Attention / approved tints (home strip + locked banner) --- */
 .pl-meeting-attention { border-left: 3px solid var(--color-tuscan-yellow); }
 .pl-meeting-approved {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
     padding: 0.75rem 1rem;
     border-radius: 8px;
     background: var(--color-success-bg);
     color: var(--color-success);
     font-size: 0.9375rem;
+}
+
+/* --- Carryover panel (open action items from earlier meetings) --- */
+.pl-meeting-carryover {
+    padding: 1.5rem;
+    border-left: 3px solid var(--color-tuscan-yellow);
+}
+.pl-meeting-carryover__group { margin-top: 0.75rem; }
+.pl-meeting-carryover__source { font-size: 0.8125rem; margin: 0 0 0.5rem; }
+.pl-meeting-carryover__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.375rem 0;
+}
+.pl-meeting-carryover__name { flex: 1; font-size: 0.9375rem; }
+.pl-meeting-carryover__actions { display: flex; gap: 0.5rem; }
+
+/* --- Pending proposals review strip + the member "Your proposals" block --- */
+.pl-meeting-proposals { padding: 1.5rem; }
+.pl-meeting-proposal {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.625rem 0;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-meeting-proposal__info { flex: 1; min-width: 220px; }
+.pl-meeting-proposal__title { font-weight: 600; font-size: 0.9375rem; margin-right: 0.5rem; }
+.pl-meeting-proposal__by { font-size: 0.8125rem; }
+.pl-meeting-proposal__why { font-size: 0.8125rem; margin: 0.25rem 0 0; white-space: pre-line; }
+.pl-meeting-proposal__actions { display: flex; gap: 0.5rem; }
+.pl-meeting-decide__intro { margin: 0 0 1rem; font-size: 0.875rem; }
+.pl-meeting-myprops { padding: 1.5rem; }
+.pl-meeting-myprop {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.375rem 0;
+}
+.pl-meeting-myprop__title { font-size: 0.9375rem; }
+.pl-meeting-myprop__link { color: var(--hub-link); font-size: 0.875rem; }
+.pl-meeting-myprop__note { flex-basis: 100%; font-size: 0.8125rem; margin: 0; }
+.pl-meeting-propose { margin-top: 0.25rem; }
+
+/* --- Footer: Approve minutes / Delete meeting (rule 18 — clear of the card above) --- */
+.pl-meeting-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
 }
 
 /* --- Row-level busy pulse while an HTMX request is in flight --- */
@@ -5641,6 +5703,12 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     .pl-meeting-flag:not(.pl-meeting-flag--on),
     .pl-meeting-attendee-picker,
     .pl-meeting-calendar-slot,
+    .pl-meeting-carryover,
+    .pl-meeting-proposals,
+    .pl-meeting-myprops,
+    .pl-meeting-propose,
+    .pl-meeting-footer,
+    .pl-meeting-approved .pl-btn,
     .ql-toolbar {
         display: none !important;
     }

@@ -1,0 +1,41 @@
+{% comment %}
+"Your proposals" (Meetings spec §6.3) — the muted mini-block under the agenda for a
+member with proposals on this meeting. Never dead air: pending shows "Waiting for
+review" with a per-row Withdraw confirm (the _my_proposed_events idiom, HTMX row
+removal); approved links to the created item (which carries the credit); declined
+shows the reviewer's note when one was left. Withdrawn rows are excluded by the
+queryset. Renders in locked mode too — read-only, no × (a locked meeting has no
+pending rows anyway). Context: meeting, my_proposals, is_editable.
+{% endcomment %}
+{% if my_proposals %}
+<div class="hub-card pl-meeting-myprops" id="pl-meeting-myprops" {% if is_editable %}:class="dimClass()"{% endif %}>
+  <h2 class="hub-detail-label">Your proposals</h2>
+  {% for proposal in my_proposals %}
+  {% with prop_pk=proposal.pk|stringformat:"s" %}
+  <div class="pl-meeting-myprop" id="my-proposal-{{ proposal.pk }}">
+    <span class="pl-meeting-myprop__title">{{ proposal.title }}</span>
+    {% if proposal.state == "pending" %}
+    <span class="hub-pill hub-pill--neutral">Waiting for review</span>
+    {% if not meeting.is_locked %}
+    <button type="button" class="pl-meeting-row-delete" aria-label="Withdraw proposal"
+            @click="$dispatch('open-confirm', 'withdraw-prop-{{ proposal.pk }}')">&times;</button>
+    {% url 'hub_meeting_proposal_withdraw' proposal.pk as withdraw_url %}
+    {% include "components/confirm_modal.html" with confirm_id="withdraw-prop-"|add:prop_pk confirm_title="Withdraw this proposal?" confirm_message="It'll be removed and won't be reviewed." confirm_action_url="" confirm_hx_post=withdraw_url confirm_hx_target="#my-proposal-"|add:prop_pk confirm_button_text="Withdraw proposal" %}
+    {% endif %}
+    {% elif proposal.state == "approved" %}
+    {% if proposal.created_item %}
+    <a href="#item-{{ proposal.created_item.pk }}" class="pl-meeting-myprop__link">Added to the agenda ✓</a>
+    {% else %}
+    <span class="hub-pill hub-pill--ok">Added to the agenda ✓</span>
+    {% endif %}
+    {% elif proposal.state == "declined" %}
+    <span class="hub-pill hub-pill--danger">Declined</span>
+    {% if proposal.review_note %}
+    <p class="hub-text-muted pl-meeting-myprop__note"><strong>Reviewer note:</strong> {{ proposal.review_note }}</p>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endwith %}
+  {% endfor %}
+</div>
+{% endif %}
