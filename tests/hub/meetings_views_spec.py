@@ -10,7 +10,7 @@ guild-tab surfaces are phase 4.
 
 from __future__ import annotations
 
-from datetime import time, timedelta
+from datetime import datetime, time, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -26,6 +26,7 @@ from django.utils import timezone
 from core.models import EventDelivery
 from membership.models import (
     CommunityEvent,
+    Guild,
     GuildStaffMembership,
     Meeting,
     MeetingActionItem,
@@ -1445,3 +1446,670 @@ def describe_workspace_lifecycle_rendering():
             assert (
                 "Propose an agenda item" not in client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
             )
+
+
+# --- Phase 4: surfaces + rails (spec §6.1, §6.2, §6.3 calendar, §6.4) ----------
+
+
+def _cadence_guild(name: str = "Cadenced") -> Guild:
+    """A guild with a monthly cadence + time, so ``next_meeting_occurrence`` resolves."""
+    return GuildFactory(
+        name=name,
+        meeting_cadence=Guild.MeetingCadence.MONTHLY,
+        meeting_weekday=2,
+        meeting_week_of_month=2,
+        meeting_time=time(18, 30),
+    )
+
+
+@pytest.mark.django_db
+def describe_sidebar():
+    def it_marks_the_meetings_link_active_on_the_home(client: Client):
+        _member_client(client)
+        content = client.get(reverse("hub_meetings")).content.decode()
+        assert 'href="/meetings/" class="hub-sidebar__link active"' in content
+
+    def it_marks_the_meetings_link_active_on_a_workspace_page(client: Client):
+        _member_client(client)
+        meeting = MeetingFactory()
+        content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+        assert 'href="/meetings/" class="hub-sidebar__link active"' in content
+
+    def it_is_inactive_elsewhere_and_present_in_the_admin_sidebar(client: Client):
+        _admin_client(client)
+        content = client.get(reverse("hub_member_directory")).content.decode()
+        assert 'href="/meetings/" class="hub-sidebar__link "' in content
+        assert "active" not in content.split('href="/meetings/"')[1].split("</a>")[0].split(">")[0]
+
+
+@pytest.mark.django_db
+def describe_meetings_home():
+    def describe_zone_1_upcoming():
+        def it_lists_upcoming_meetings_soonest_first_with_status_chips(client: Client):
+            _member_client(client)
+            later = MeetingFactory(
+                guild=GuildFactory(name="Zebra"),
+                scheduled_date=timezone.localdate() + timedelta(days=10),
+                approved=True,
+            )
+            sooner = MeetingFactory(
+                guild=GuildFactory(name="Alpha"), scheduled_date=timezone.localdate() + timedelta(days=3)
+            )
+            content = client.get(reverse("hub_meetings")).content.decode()
+            upcoming_zone = content.split("Upcoming")[1].split("Meetings by guild")[0]
+            assert upcoming_zone.index(sooner.display_title) < upcoming_zone.index(later.display_title)
+            assert ">Draft</span>" in upcoming_zone
+            assert ">Approved</span>" in upcoming_zone
+
+        def it_shows_a_join_button_when_the_meeting_has_a_video_link(client: Client):
+            _member_client(client)
+            MeetingFactory(video_call_url="https://meet.example/home-zone")
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert 'href="https://meet.example/home-zone"' in content
+            assert "Join meeting" in content
+
+        def it_shows_topic_counts_to_everyone_but_proposal_counts_to_editors_only(client: Client):
+            guild = GuildFactory()
+            meeting = MeetingFactory(guild=guild)
+            MeetingAgendaItemFactory(meeting=meeting)
+            MeetingItemProposalFactory(meeting=meeting)
+            _member_client(client)
+            member_view = client.get(reverse("hub_meetings")).content.decode()
+            assert "1 topic" in member_view
+            assert "proposal" not in member_view.split("Upcoming")[1].split("Meetings by guild")[0]
+            client.logout()
+            _lead_client(client, guild)
+            lead_view = client.get(reverse("hub_meetings")).content.decode()
+            assert "1 proposal pending" in lead_view
+
+        def it_shows_the_empty_state(client: Client):
+            _member_client(client)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "No meetings scheduled. Guild leadership can create one." in content
+
+        def it_cards_an_upcoming_council_meeting_for_everyone(client: Client):
+            _member_client(client)
+            MeetingFactory(guild=None)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "Council — Monthly Meeting" in content.split("Upcoming")[1].split("Meetings by guild")[0]
+
+        def it_repeats_the_new_meeting_button_in_the_empty_state_for_editors(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "No meetings scheduled." in content
+            assert content.count("+ New meeting") == 2  # header + empty state
+
+    def describe_the_needs_attention_strip():
+        def it_shows_undated_and_past_dated_drafts_to_the_scopes_editor(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            MeetingFactory(guild=guild, scheduled_date=None)
+            MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=5), is_special=True)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "Needs attention" in content
+            assert "No date set" in content
+            assert "Awaiting approval" in content
+
+        def it_scopes_rows_to_the_editors_guilds(client: Client):
+            guild = GuildFactory(name="Mine")
+            other = GuildFactory(name="NotMine")
+            _lead_client(client, guild)
+            MeetingFactory(guild=other, scheduled_date=None)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "Needs attention" not in content
+
+        def it_includes_council_rows_for_council_editors(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)  # any-guild lead edits the council scope
+            MeetingFactory(guild=None, scheduled_date=None)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "Needs attention" in content
+            assert "Council — Monthly Meeting" in content
+
+        def it_never_renders_for_a_plain_member(client: Client):
+            _member_client(client)
+            MeetingFactory(scheduled_date=None)
+            assert "Needs attention" not in client.get(reverse("hub_meetings")).content.decode()
+
+        def it_is_hidden_when_everything_is_clean(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            MeetingFactory(guild=guild)  # future-dated draft — nothing to nudge
+            assert "Needs attention" not in client.get(reverse("hub_meetings")).content.decode()
+
+    def describe_zone_2_coordinator_table():
+        def it_puts_the_council_row_first(client: Client):
+            guild = GuildFactory(name="Atrium")
+            MeetingFactory(guild=guild)
+            _member_client(client)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            table = content.split('class="pl-meeting-dash"')[1].split("</table>")[0]
+            assert table.index("Council") < table.index("Atrium")
+
+        def it_shows_the_latest_past_meeting_with_a_tick_when_approved(client: Client):
+            guild = GuildFactory()
+            older = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=40), approved=True)
+            latest = MeetingFactory(
+                guild=guild, scheduled_date=timezone.localdate() - timedelta(days=10), approved=True
+            )
+            _member_client(client)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            table = content.split('class="pl-meeting-dash"')[1].split("</table>")[0]
+            assert reverse("hub_meeting", args=[latest.pk]) in table
+            assert reverse("hub_meeting", args=[older.pk]) not in table
+            assert 'class="pl-meeting-tick"' in table
+
+        def it_keeps_an_approved_future_meeting_out_of_most_recent(client: Client):
+            guild = GuildFactory()
+            future = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=5), approved=True)
+            _member_client(client)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            table = content.split('class="pl-meeting-dash"')[1].split("</table>")[0]
+            row = table.split("</tr>")[2]  # thead row, council row, then this guild's row
+            most_recent_cell = row.split('data-label="Most recent"')[1].split("</td>")[0]
+            next_cell = row.split('data-label="Next scheduled"')[1].split("</td>")[0]
+            assert reverse("hub_meeting", args=[future.pk]) not in most_recent_cell
+            assert reverse("hub_meeting", args=[future.pk]) in next_cell
+            assert "pl-meeting-tick" not in most_recent_cell
+
+        def it_renders_the_cadence_fallback_as_plain_text_for_members(client: Client):
+            _cadence_guild()
+            _member_client(client)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "(from schedule)" in content
+            assert "Start the agenda" not in content
+
+        def it_gives_that_guilds_editors_a_start_the_agenda_button_with_the_prefill(client: Client):
+            guild = _cadence_guild()
+            _lead_client(client, guild)
+            occurrence = guild.next_meeting_occurrence()
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "Start the agenda" in content
+            assert f'name="date" value="{occurrence.when:%Y-%m-%d}"' in content
+            assert 'name="time" value="18:30"' in content
+
+        def it_hides_start_the_agenda_from_editors_of_other_guilds(client: Client):
+            _cadence_guild()
+            other = GuildFactory(name="Elsewhere")
+            _lead_client(client, other)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "(from schedule)" in content
+            assert "Start the agenda" not in content
+
+        def it_shows_a_dash_when_there_is_neither_meeting_nor_cadence(client: Client):
+            GuildFactory(name="Quiet")
+            _member_client(client)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            table = content.split('class="pl-meeting-dash"')[1].split("</table>")[0]
+            assert "—" in table
+
+    def describe_zone_3_archive():
+        def it_lists_past_meetings_and_undated_drafts_with_no_date_last(client: Client):
+            _member_client(client)
+            dated = MeetingFactory(
+                guild=GuildFactory(name="Dated"), scheduled_date=timezone.localdate() - timedelta(days=3)
+            )
+            undated = MeetingFactory(guild=GuildFactory(name="Undated"), scheduled_date=None)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            archive = content.split(">Archive<")[1]
+            assert "No date" in archive
+            assert archive.index(dated.display_title) < archive.index(undated.display_title)
+
+        def it_keeps_undated_drafts_in_every_year_filter(client: Client):
+            _member_client(client)
+            MeetingFactory(guild=GuildFactory(name="Dated"), scheduled_date=timezone.localdate() - timedelta(days=3))
+            undated = MeetingFactory(guild=GuildFactory(name="Undated"), scheduled_date=None)
+            content = client.get(reverse("hub_meetings"), {"year": "1999"}).content.decode()
+            archive = content.split(">Archive<")[1]
+            assert undated.display_title in archive
+            assert "Dated — Monthly Meeting" not in archive
+
+        def it_filters_by_guild_and_by_council(client: Client):
+            _member_client(client)
+            mine = MeetingFactory(
+                guild=GuildFactory(name="Filtered"), scheduled_date=timezone.localdate() - timedelta(days=3)
+            )
+            council = MeetingFactory(guild=None, scheduled_date=timezone.localdate() - timedelta(days=4))
+            by_guild = client.get(reverse("hub_meetings"), {"guild": str(mine.guild.pk)}).content.decode()
+            assert mine.display_title in by_guild.split(">Archive<")[1]
+            assert "Council — Monthly Meeting" not in by_guild.split(">Archive<")[1]
+            by_council = client.get(reverse("hub_meetings"), {"guild": "council"}).content.decode()
+            assert council.display_title in by_council.split(">Archive<")[1]
+            assert "Filtered — Monthly Meeting" not in by_council.split(">Archive<")[1]
+
+        def it_paginates_at_25_per_page_preserving_filters(client: Client):
+            _member_client(client)
+            guild = GuildFactory(name="Paged")
+            for offset in range(26):
+                MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=offset + 1))
+            content = client.get(reverse("hub_meetings"), {"guild": str(guild.pk)}).content.decode()
+            assert "Page 1 of 2" in content
+            assert f"?page=2&guild={guild.pk}" in content
+
+        def it_shows_the_two_empty_states(client: Client):
+            _member_client(client)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "Nothing here yet — approved minutes will build up over time." in content
+            filtered = client.get(reverse("hub_meetings"), {"guild": "council"}).content.decode()
+            assert "No meetings match those filters." in filtered
+            assert "Clear filters" in filtered
+
+    def describe_the_create_modal():
+        def _scope_select(content: str) -> str:
+            return content.split('name="scope"')[1].split("</select>")[0]
+
+        def it_offers_a_lead_their_guild_plus_council(client: Client):
+            guild = GuildFactory(name="Leadable")
+            GuildFactory(name="Foreign")
+            _lead_client(client, guild)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            select = _scope_select(content)
+            assert "Leadable" in select
+            assert "Council" in select
+            assert "Foreign" not in select
+
+        def it_offers_an_admin_every_guild_plus_council(client: Client):
+            GuildFactory(name="Alpha")
+            GuildFactory(name="Beta")
+            _admin_client(client)
+            select = _scope_select(client.get(reverse("hub_meetings")).content.decode())
+            assert "Alpha" in select
+            assert "Beta" in select
+            assert "Council" in select
+
+        def it_renders_no_modal_for_a_plain_member(client: Client):
+            _member_client(client)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            assert "+ New meeting" not in content
+            assert 'name="scope"' not in content
+
+        def it_preselects_the_scope_from_the_guild_query_param(client: Client):
+            guild = GuildFactory(name="Presel")
+            _lead_client(client, guild)
+            content = client.get(reverse("hub_meetings"), {"guild": str(guild.pk)}).content.decode()
+            select = _scope_select(content)
+            assert f'value="{guild.pk}" selected' in select
+
+
+@pytest.mark.django_db
+def describe_guild_meetings_tab():
+    def it_renames_the_tab_and_maps_the_legacy_notes_deep_link(client: Client):
+        guild = GuildFactory()
+        _member_client(client)
+        content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+        assert "section === 'meetings'" in content
+        assert "section === 'notes'" not in content
+        assert "t === 'notes'" in content  # the ?tab=notes → meetings mapping in the Alpine init
+
+    def describe_the_next_meeting_card():
+        def it_shows_the_soonest_upcoming_meeting_with_join_and_topic_count(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=20))
+            soonest = MeetingFactory(
+                guild=guild,
+                scheduled_date=timezone.localdate() + timedelta(days=5),
+                scheduled_time=time(18, 0),
+                video_call_url="https://meet.example/guild-tab",
+            )
+            MeetingAgendaItemFactory(meeting=soonest)
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            card = content.split("Next meeting")[1].split("Recent minutes")[0]
+            assert reverse("hub_meeting", args=[soonest.pk]) in card
+            assert "6:00 PM" in card
+            assert "1 topic" in card
+            assert 'href="https://meet.example/guild-tab"' in card
+            assert "Propose an agenda item" in content
+
+        def it_shows_the_locked_hint_instead_of_the_propose_button(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            MeetingFactory(guild=guild, approved=True)
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            assert "The agenda is locked — proposals are closed for this one." in content
+            assert "Propose an agenda item" not in content
+
+        def it_falls_back_to_the_cadence_with_start_the_agenda_for_editors(client: Client):
+            guild = _cadence_guild("CadeLead")
+            _lead_client(client, guild)
+            occurrence = guild.next_meeting_occurrence()
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            assert "Next per schedule:" in content
+            assert "Start the agenda" in content
+            assert f'name="date" value="{occurrence.when:%Y-%m-%d}"' in content
+            assert 'name="time" value="18:30"' in content
+
+        def it_gives_members_the_explanatory_line_on_the_cadence_fallback(client: Client):
+            guild = _cadence_guild("CadeMember")
+            _guild_member_client(client, guild)
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            assert "Next per schedule:" in content
+            assert "Proposals open once leadership starts the agenda." in content
+            assert "Start the agenda" not in content
+
+        def it_shows_the_double_empty_state(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            assert "No meeting scheduled yet." in content
+
+    def describe_recent_minutes():
+        def it_lists_the_last_five_approved_meetings_with_links(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            meetings = [
+                MeetingFactory(
+                    guild=guild, scheduled_date=timezone.localdate() - timedelta(days=10 * (n + 1)), approved=True
+                )
+                for n in range(6)
+            ]
+            MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=5))  # draft — not minutes
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            section = content.split("Recent minutes")[1]
+            for meeting in meetings[:5]:
+                assert reverse("hub_meeting", args=[meeting.pk]) in section
+            assert reverse("hub_meeting", args=[meetings[5].pk]) not in section
+
+        def it_links_to_the_guild_filtered_archive(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            assert "See all in the archive →" in content
+            assert f"/meetings/?guild={guild.pk}" in content
+
+    def describe_editor_extras():
+        def it_gives_editors_the_new_meeting_entry_and_pending_chip(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            MeetingItemProposalFactory(meeting=meeting)
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            assert "+ New meeting" in content
+            assert f"/meetings/?guild={guild.pk}" in content
+            assert "1 proposal pending" in content
+
+        def it_hides_the_editor_extras_from_members(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            MeetingItemProposalFactory(meeting=MeetingFactory(guild=guild))
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            assert "+ New meeting" not in content
+            assert "proposal pending" not in content
+
+
+@pytest.mark.django_db
+def describe_calendar_rails():
+    def describe_the_create_endpoint():
+        def it_creates_an_owned_event_riding_schedule_or_go_live(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
+            with patch.object(CommunityEvent, "schedule_or_go_live") as go_live:
+                resp = client.post(reverse("hub_meeting_event", args=[meeting.pk]))
+            assert resp.status_code == 204
+            assert resp["HX-Redirect"] == reverse("hub_meeting", args=[meeting.pk])
+            go_live.assert_called_once()
+            meeting.refresh_from_db()
+            assert meeting.event is not None
+            assert meeting.owns_event is True
+            assert meeting.event_occurrence == meeting.scheduled_date
+            assert "On the calendar — Google and Discord will sync." in _messages(resp)
+
+        def it_422s_without_a_date_and_time(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild, scheduled_time=None)
+            resp = client.post(reverse("hub_meeting_event", args=[meeting.pk]))
+            assert resp.status_code == 422
+            assert "HX-Trigger" in resp.headers  # the error toast
+            meeting.refresh_from_db()
+            assert meeting.event is None
+
+        def it_422s_when_already_linked(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            event = CommunityEventFactory(guild=guild)
+            meeting = MeetingFactory(
+                guild=guild,
+                scheduled_time=time(18, 0),
+                event=event,
+                event_occurrence=timezone.localtime(event.starts_at).date(),
+            )
+            assert client.post(reverse("hub_meeting_event", args=[meeting.pk])).status_code == 422
+
+        def it_403s_a_plain_member_and_a_locked_meeting(client: Client):
+            guild = GuildFactory()
+            meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
+            _member_client(client)
+            assert client.post(reverse("hub_meeting_event", args=[meeting.pk])).status_code == 403
+            client.logout()
+            _lead_client(client, guild)
+            locked = MeetingFactory(guild=guild, scheduled_time=time(18, 0), approved=True)
+            assert client.post(reverse("hub_meeting_event", args=[locked.pk])).status_code == 403
+
+    def describe_the_link_existing_path():
+        def it_links_a_scope_event_without_owning_it(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            event = CommunityEventFactory(guild=guild)
+            meeting = MeetingFactory(guild=guild)
+            resp = client.post(reverse("hub_meeting_event", args=[meeting.pk]), {"event": str(event.pk)})
+            assert resp.status_code == 204
+            meeting.refresh_from_db()
+            assert meeting.event == event
+            assert meeting.owns_event is False
+            assert meeting.event_occurrence == timezone.localtime(event.starts_at).date()
+
+        def it_links_a_recurring_event_at_the_posted_occurrence(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            event = CommunityEventFactory(guild=guild, recurrence=CommunityEvent.Recurrence.MONTHLY)
+            meeting = MeetingFactory(guild=guild)
+            horizon = timezone.localdate() + timedelta(days=90)
+            occurrences = [
+                timezone.localtime(when).date() for when in event.occurrences_in(timezone.localdate(), horizon)
+            ]
+            chosen = occurrences[1]
+            resp = client.post(
+                reverse("hub_meeting_event", args=[meeting.pk]),
+                {"event": str(event.pk), "occurrence": chosen.isoformat()},
+            )
+            assert resp.status_code == 204
+            meeting.refresh_from_db()
+            assert meeting.event_occurrence == chosen
+
+        def it_422s_an_occurrence_that_is_not_one_of_the_events(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            event = CommunityEventFactory(guild=guild)
+            meeting = MeetingFactory(guild=guild)
+            bad = timezone.localtime(event.starts_at).date() + timedelta(days=1)
+            resp = client.post(
+                reverse("hub_meeting_event", args=[meeting.pk]),
+                {"event": str(event.pk), "occurrence": bad.isoformat()},
+            )
+            assert resp.status_code == 422
+            meeting.refresh_from_db()
+            assert meeting.event is None
+
+        def it_404s_an_event_outside_the_meetings_scope(client: Client):
+            guild = GuildFactory()
+            other = GuildFactory()
+            _lead_client(client, guild)
+            foreign = CommunityEventFactory(guild=other)
+            meeting = MeetingFactory(guild=guild)
+            resp = client.post(reverse("hub_meeting_event", args=[meeting.pk]), {"event": str(foreign.pk)})
+            assert resp.status_code == 404
+
+        def it_400s_a_garbage_event_pk(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            assert client.post(reverse("hub_meeting_event", args=[meeting.pk]), {"event": "nope"}).status_code == 400
+
+    def describe_the_unlink_endpoint():
+        def it_clears_the_link_and_leaves_the_event_alone(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            event = CommunityEventFactory(guild=guild)
+            meeting = MeetingFactory(
+                guild=guild, event=event, event_occurrence=timezone.localtime(event.starts_at).date(), owns_event=True
+            )
+            resp = client.post(reverse("hub_meeting_event_unlink", args=[meeting.pk]))
+            assert resp.status_code == 204
+            meeting.refresh_from_db()
+            assert meeting.event is None
+            assert meeting.event_occurrence is None
+            assert meeting.owns_event is False
+            assert CommunityEvent.objects.filter(pk=event.pk).exists()  # never deleted
+
+        def it_422s_when_nothing_is_linked(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            assert client.post(reverse("hub_meeting_event_unlink", args=[meeting.pk])).status_code == 422
+
+        def it_403s_non_editors(client: Client):
+            guild = GuildFactory()
+            event = CommunityEventFactory(guild=guild)
+            meeting = MeetingFactory(
+                guild=guild, event=event, event_occurrence=timezone.localtime(event.starts_at).date()
+            )
+            _member_client(client)
+            assert client.post(reverse("hub_meeting_event_unlink", args=[meeting.pk])).status_code == 403
+
+    def describe_the_workspace_calendar_block():
+        def it_offers_add_to_calendar_on_an_unlinked_draft(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "'add-to-calendar'" in content  # the modal trigger (the bare phrase appears in changelog copy)
+            assert "Create calendar event" in content
+            assert "Set a date and time first." not in content
+
+        def it_disables_create_with_the_hint_until_date_and_time_are_set(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild, scheduled_time=None)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Set a date and time first." in content
+
+        def it_lists_the_scopes_upcoming_events_with_occurrence_selects_for_recurring(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            CommunityEventFactory(guild=guild, title="One-off Social")
+            # Still "upcoming" (hasn't ended) but its start date is behind us — no
+            # linkable occurrence, so it must not clutter the select.
+            CommunityEventFactory(
+                guild=guild,
+                title="Started Yesterday",
+                starts_at=timezone.now() - timedelta(hours=20),
+                ends_at=timezone.now() + timedelta(hours=4),
+            )
+            CommunityEventFactory(guild=guild, title="Standing Sync", recurrence=CommunityEvent.Recurrence.MONTHLY)
+            CommunityEventFactory(guild=GuildFactory(name="Foreign"), title="Foreign Party")
+            meeting = MeetingFactory(guild=guild)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "One-off Social" in content
+            assert "Standing Sync" in content
+            assert "Foreign Party" not in content
+            assert "Started Yesterday" not in content
+            assert "Which occurrence?" in content
+            assert "Link this event" in content
+
+        def it_shows_the_linked_line_with_unlink_and_the_guild_hint(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            event = CommunityEventFactory(guild=guild, title="Woodshop Monthly")
+            occurrence = timezone.localtime(event.starts_at).date()
+            meeting = MeetingFactory(
+                guild=guild,
+                scheduled_date=occurrence,
+                scheduled_time=timezone.localtime(event.starts_at).time(),
+                event=event,
+                event_occurrence=occurrence,
+            )
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "On the calendar ✓" in content
+            assert "Woodshop Monthly" in content
+            assert reverse("hub_event_detail", args=[event.pk]) in content
+            assert "Unlink" in content
+            assert "edit or cancel it from the guild's Events tab." in content
+            assert "'add-to-calendar'" not in content
+
+        def it_uses_the_council_copy_for_a_council_meeting(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)  # any-guild lead edits council meetings
+            event = CommunityEventFactory(lead_meeting=True)
+            occurrence = timezone.localtime(event.starts_at).date()
+            meeting = MeetingFactory(guild=None, event=event, event_occurrence=occurrence)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "an admin can edit or cancel it from the events editor." in content
+
+        def it_shows_no_mismatch_warning_for_an_owned_synced_link(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting_date = timezone.localdate() + timedelta(days=7)
+            starts = timezone.make_aware(datetime.combine(meeting_date, time(18, 0)))
+            event = CommunityEventFactory(guild=guild, starts_at=starts)
+            meeting = MeetingFactory(
+                guild=guild,
+                scheduled_date=meeting_date,
+                scheduled_time=time(18, 0),
+                event=event,
+                event_occurrence=meeting_date,
+                owns_event=True,
+            )
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "unlink, or edit the event to match." not in content
+
+        def it_warns_when_a_merely_linked_event_no_longer_matches(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting_date = timezone.localdate() + timedelta(days=7)
+            starts = timezone.make_aware(datetime.combine(meeting_date, time(18, 0)))
+            event = CommunityEventFactory(guild=guild, starts_at=starts)
+            meeting = MeetingFactory(
+                guild=guild,
+                scheduled_date=meeting_date,
+                scheduled_time=time(19, 0),  # drifted from the event's 6 PM
+                event=event,
+                event_occurrence=meeting_date,
+                owns_event=False,
+            )
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Calendar event shows" in content
+            assert "unlink, or edit the event to match." in content
+
+        def it_warns_on_a_cleared_date_under_an_owned_link(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            event = CommunityEventFactory(guild=guild)
+            meeting = MeetingFactory(
+                guild=guild,
+                scheduled_date=None,
+                event=event,
+                event_occurrence=timezone.localtime(event.starts_at).date(),
+                owns_event=True,
+            )
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "unlink, or edit the event to match." in content
+
+        def it_shows_read_only_viewers_the_line_without_unlink(client: Client):
+            guild = GuildFactory()
+            _member_client(client)
+            event = CommunityEventFactory(guild=guild, title="Readable Link")
+            occurrence = timezone.localtime(event.starts_at).date()
+            meeting = MeetingFactory(
+                guild=guild,
+                scheduled_date=occurrence,
+                scheduled_time=timezone.localtime(event.starts_at).time(),
+                event=event,
+                event_occurrence=occurrence,
+            )
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "On the calendar ✓" in content
+            assert "Unlink" not in content
+            assert "'add-to-calendar'" not in content

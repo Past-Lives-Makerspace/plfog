@@ -31,7 +31,6 @@ from membership.models import (
     GuildMeetingNoteAttachment,
     GuildOrientationSettings,
     MapHotspot,
-    Meeting,
     MeetingAttachment,
     Member,
     MemberContact,
@@ -1177,12 +1176,11 @@ class MeetingCreateForm(forms.Form):
 
     def __init__(self, *args: Any, request: HttpRequest, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        from membership.permissions import can_edit_guild, can_edit_meeting
+        from membership.permissions import editable_meeting_scopes
 
-        choices: list[tuple[str, str]] = [
-            (str(guild.pk), guild.name) for guild in Guild.objects.order_by("name") if can_edit_guild(request, guild)
-        ]
-        if can_edit_meeting(request, Meeting()):  # an unsaved Meeting() is the council scope (guild NULL)
+        guilds, council = editable_meeting_scopes(request)
+        choices: list[tuple[str, str]] = [(str(guild.pk), guild.name) for guild in guilds]
+        if council:
             choices.append(("council", "Council"))
         cast(forms.ChoiceField, self.fields["scope"]).choices = choices
 

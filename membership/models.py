@@ -4559,6 +4559,11 @@ class Meeting(models.Model):
         DRAFT = "draft", "Draft"
         APPROVED = "approved", "Approved"
 
+    # Queryset annotations + per-viewer flag set by the Meetings home view (§6.2).
+    topic_count: int
+    pending_count: int
+    viewer_can_edit: bool
+
     guild = models.ForeignKey(
         Guild,
         null=True,
@@ -4716,6 +4721,35 @@ class Meeting(models.Model):
         from django.urls import reverse
 
         return f"{settings.MEMBER_BASE_URL}{reverse('hub_meeting', args=[self.pk])}"
+
+    @property
+    def linked_occurrence_starts_at(self) -> datetime_type | None:
+        """The linked occurrence's start: the event's local time-of-day on the pinned date.
+
+        ``None`` while unlinked. Recurring events expand virtually, so the pinned
+        ``event_occurrence`` date + the event's own start time IS the occurrence.
+        """
+        if self.event is None or self.event_occurrence is None:
+            return None
+        local = timezone.localtime(self.event.starts_at)
+        return local.replace(
+            year=self.event_occurrence.year, month=self.event_occurrence.month, day=self.event_occurrence.day
+        )
+
+    @property
+    def calendar_mismatch(self) -> bool:
+        """The §6.3 amber-warning predicate for the workspace's calendar line.
+
+        A merely-linked event is never mutated by the meeting, so the warning fires
+        when the meeting's start no longer matches the linked occurrence. An owned
+        event auto-syncs — the only owned drift is a cleared meeting date, which
+        ``sync_event`` deliberately refuses to guess about (§5.3).
+        """
+        if self.event is None:
+            return False
+        if self.owns_event:
+            return self.scheduled_date is None
+        return self.starts_at != self.linked_occurrence_starts_at
 
     def _event_location(self) -> str:
         """The linked event's location expression — the video link wins, then the guild's

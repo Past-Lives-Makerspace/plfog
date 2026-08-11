@@ -4,9 +4,16 @@ from django.views.generic import RedirectView
 from . import discord_views, meeting_views, notification_views, views
 
 urlpatterns = [
-    # --- Meetings workspace (spec §6.0 — phases 2+3; the calendar-event routes land in phase 4) ---
+    # --- Meetings (spec §6.0) ---
+    path("meetings/", meeting_views.hub_meetings, name="hub_meetings"),
     path("meetings/new/", meeting_views.hub_meeting_create, name="hub_meeting_create"),
     path("meetings/<int:pk>/", meeting_views.hub_meeting, name="hub_meeting"),
+    path("meetings/<int:pk>/event/", meeting_views.hub_meeting_event, name="hub_meeting_event"),
+    path(
+        "meetings/<int:pk>/event/unlink/",
+        meeting_views.hub_meeting_event_unlink,
+        name="hub_meeting_event_unlink",
+    ),
     path("meetings/<int:pk>/save/", meeting_views.hub_meeting_save, name="hub_meeting_save"),
     path("meetings/<int:pk>/approve/", meeting_views.hub_meeting_approve, name="hub_meeting_approve"),
     path("meetings/<int:pk>/unlock/", meeting_views.hub_meeting_unlock, name="hub_meeting_unlock"),

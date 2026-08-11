@@ -41,8 +41,10 @@ def describe_guild_overview():
         resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert resp.status_code == 200
         # The "Meetings TBA" chip is gone — no chip when there's nothing scheduled.
+        # (Target the chip's badge markup: the Meetings TAB's "Next meeting" card
+        # heading is always present since the Meetings feature, spec §6.4.)
         assert b"Meetings TBA" not in resp.content
-        assert b"Next meeting" not in resp.content
+        assert 'hub-badge">Next meeting'.encode() not in resp.content
 
     def it_lists_upcoming_classes_for_this_guild_only(client: Client):
         _member("ov2")

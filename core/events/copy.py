@@ -1233,14 +1233,25 @@ _CURATED: dict[str, EventCopy] = {
     # the EMAIL copy is authored (Discord inherits it via copy_for) so a channel can flip on
     # later with no new copy. Guild name is deliberately omitted (the key serves both guild and
     # site-wide events, and the renderer can't hide an empty guild for the site-wide case).
+    # join_line / join_cta are the linked meeting's "Join meeting" pieces (Meetings §6.6):
+    # the constrained renderer has no conditionals, so both arrive PRE-BUILT from
+    # membership.events._event_context and are empty strings when no meeting link exists —
+    # the guarded CTA without an {% if %}.
     "event.reminder": EventCopy(
-        placeholders=("event_title", "days_before", "when", "location", "event_url"),
+        placeholders=("event_title", "days_before", "when", "location", "event_url", "join_line", "join_cta"),
         sample_context={
             "event_title": "Forge Night",
             "days_before": "3",
             "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
             "location": "Main Studio",
             "event_url": "https://pastlives.example/events/5/",
+            "join_line": "Join the meeting: https://meet.example/abc-defg\n",
+            "join_cta": mark_safe(  # trusted app-built markup, like the voting chart sample
+                '<p style="text-align:center;margin:24px 0 8px;">'
+                '<a href="https://meet.example/abc-defg" '
+                'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">Join meeting</a></p>'
+            ),
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -1252,12 +1263,14 @@ _CURATED: dict[str, EventCopy] = {
                 body_text=(
                     "{{ event_title }} is coming up in {{ days_before }} day(s) — {{ when }}.\n"
                     "Where: {{ location }}\n\n"
+                    "{{ join_line }}"
                     "See the event details: {{ event_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<h2>{{ event_title }}</h2>"
                     "<p>Coming up in {{ days_before }} day(s) — {{ when }}</p>"
                     "<p>Where: {{ location }}</p>"
+                    "{{ join_cta }}"
                     '<p><a href="{{ event_url }}">See the event details</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),

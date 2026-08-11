@@ -119,6 +119,26 @@ def can_edit_meeting(request: HttpRequest, meeting: Meeting) -> bool:
     return member is not None and member.staffed_guilds.exists()
 
 
+def editable_meeting_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
+    """The guilds this request may edit (name-ordered) plus council editability, cheaply.
+
+    The bulk companion to :func:`can_edit_guild` / :func:`can_edit_meeting` for surfaces
+    that need every editable scope at once (the Meetings home §6.2, the create modal) —
+    two queries instead of one per guild, same answers. Effective staff edit everything;
+    otherwise the member's led/staffed guilds are editable, and holding lead/staff
+    authority in ANY guild grants the council scope (§5.1).
+    """
+    from membership.models import Guild
+
+    if is_effective_staff(request):
+        return list(Guild.objects.order_by("name")), True
+    member = _editing_member(request)
+    if member is None:
+        return [], False
+    guilds = list(member.staffed_guilds.order_by("name"))
+    return guilds, bool(guilds)
+
+
 def can_propose_to_meeting(request: HttpRequest, meeting: Meeting) -> bool:
     """True when this request may propose an agenda item for the meeting.
 

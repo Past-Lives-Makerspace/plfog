@@ -128,3 +128,67 @@ def describe_event_happening_now_occurrences():
         assert first == 1
         assert second == 0
         assert Notification.objects.filter(trigger="event.happening_now", user=member).count() == 1
+
+
+def describe_reminder_join_url():
+    """The Meetings §6.6 rail: a linked meeting's video-call link rides the reminder context."""
+
+    def _reminder_context(event: CommunityEvent) -> dict:
+        now = event.starts_at - timedelta(days=2)
+        occurrence = next(iter(event_reminder_occurrences(now)))
+        return occurrence.context
+
+    def it_carries_the_linked_meetings_video_call_url():
+        from tests.membership.factories import MeetingFactory
+
+        event = CommunityEventFactory(remind_3d=True)
+        occurrence_date = timezone.localtime(event.starts_at).date()
+        MeetingFactory(
+            guild=event.guild,
+            scheduled_date=occurrence_date,
+            event=event,
+            event_occurrence=occurrence_date,
+            video_call_url="https://meet.example/abc-defg",
+        )
+        context = _reminder_context(event)
+        assert context["join_url"] == "https://meet.example/abc-defg"
+        assert 'href="https://meet.example/abc-defg"' in context["join_cta"]
+        assert "Join meeting" in context["join_cta"]
+        assert context["join_line"] == "Join the meeting: https://meet.example/abc-defg\n"
+
+    def it_is_none_with_no_linked_meeting():
+        event = CommunityEventFactory(remind_3d=True)
+        context = _reminder_context(event)
+        assert context["join_url"] is None
+        # The copy always substitutes these two, so they must exist — empty, not [missing:].
+        assert context["join_cta"] == ""
+        assert context["join_line"] == ""
+
+    def it_is_none_when_the_linked_meeting_has_no_video_url():
+        from tests.membership.factories import MeetingFactory
+
+        event = CommunityEventFactory(remind_3d=True)
+        occurrence_date = timezone.localtime(event.starts_at).date()
+        MeetingFactory(
+            guild=event.guild,
+            scheduled_date=occurrence_date,
+            event=event,
+            event_occurrence=occurrence_date,
+            video_call_url="",
+        )
+        context = _reminder_context(event)
+        assert context["join_url"] is None
+
+    def it_ignores_a_meeting_pinned_to_a_different_occurrence():
+        from tests.membership.factories import MeetingFactory
+
+        event = CommunityEventFactory(remind_3d=True)
+        other_date = timezone.localtime(event.starts_at).date() + timedelta(days=28)
+        MeetingFactory(
+            guild=event.guild,
+            scheduled_date=other_date,
+            event=event,
+            event_occurrence=other_date,
+            video_call_url="https://meet.example/other",
+        )
+        assert _reminder_context(event)["join_url"] is None

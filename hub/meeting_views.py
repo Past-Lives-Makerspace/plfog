@@ -8,27 +8,30 @@ render for the add/move endpoints). An unlisted field is a 400 (fail loudly); an
 invalid value is a 422 + error toast.
 
 Lifecycle (approve / unlock / delete), the carryover panel, and the proposal
-routes (propose / decide / withdraw) are phase 3 and live at the bottom; the
-calendar-event routes are phase 4 and deliberately absent here.
+routes (propose / decide / withdraw) are phase 3; the Meetings home (§6.2) and
+the calendar-event routes (§6.3) are phase 4 and live at the bottom.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import date, time
+from datetime import date, time, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.core.validators import URLValidator
-from django.db.models import Prefetch, Q
+from django.db.models import Count, Prefetch, Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from core.html_sanitize import sanitize_rich_html
@@ -43,6 +46,7 @@ from hub.toast import trigger_toast
 from hub.view_as import ROLE_ADMIN, fog_admin_required
 from hub.views import _get_hub_context
 from membership.models import (
+    CommunityEvent,
     Guild,
     InvalidProposalTransition,
     Meeting,
@@ -54,7 +58,7 @@ from membership.models import (
     MeetingLockedError,
     Member,
 )
-from membership.permissions import can_edit_meeting, can_propose_to_meeting
+from membership.permissions import can_edit_meeting, can_propose_to_meeting, editable_meeting_scopes
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -249,6 +253,37 @@ def _attendee_picker_context(meeting: Meeting) -> dict[str, Any]:
     return {"roster_options": roster.exclude(pk__in=added).order_by("full_legal_name")}
 
 
+# Mirrors Guild.next_meeting_occurrence's forward window — a year of occurrences.
+_OCCURRENCE_HORIZON_DAYS = 370
+
+
+def _scope_events(meeting: Meeting) -> Any:
+    """The scope's published calendar events — a guild's own, or site-wide for council."""
+    if meeting.guild is not None:
+        return CommunityEvent.objects.published().filter(guild=meeting.guild)
+    return CommunityEvent.objects.published().filter(guild__isnull=True)
+
+
+def _linkable_events(meeting: Meeting) -> list[dict[str, Any]]:
+    """The 'link an existing event' candidates (§6.3): the scope's upcoming published
+    events, each with its concrete occurrence dates (recurring series expand virtually,
+    so the modal's occurrence ``<select>`` needs them pre-computed)."""
+    today = timezone.localdate()
+    horizon = today + timedelta(days=_OCCURRENCE_HORIZON_DAYS)
+    entries: list[dict[str, Any]] = []
+    for event in _scope_events(meeting).upcoming().order_by("starts_at"):
+        occurrences = [timezone.localtime(when).date() for when in event.occurrences_in(today, horizon)[:12]]
+        if occurrences:
+            entries.append(
+                {
+                    "event": event,
+                    "occurrences": occurrences,
+                    "recurring": event.recurrence != CommunityEvent.Recurrence.NONE,
+                }
+            )
+    return entries
+
+
 def _workspace_context(request: HttpRequest, meeting: Meeting) -> dict[str, Any]:
     """The full draft/locked × editor/read-only rendering context (§6.3)."""
     can_edit = can_edit_meeting(request, meeting)
@@ -286,6 +321,10 @@ def _workspace_context(request: HttpRequest, meeting: Meeting) -> dict[str, Any]
         "time_choices": half_hour_time_choices(required=False),
         "attachment_form": MeetingAttachmentForm(),
         "open_attachment_modal": False,
+        # The §6.3 calendar block: the link-existing candidates are only worth
+        # computing for an editable, still-unlinked draft (the modal's only home).
+        "linkable_events": _linkable_events(meeting) if is_editable and meeting.event_id is None else [],
+        "can_add_to_calendar": meeting.scheduled_date is not None and meeting.scheduled_time is not None,
         **_attendee_picker_context(meeting),
     }
 
@@ -683,9 +722,7 @@ def hub_meeting_delete(request: HttpRequest, pk: int) -> HttpResponse:
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
     meeting.remove(by=user)
     messages.success(request, "Meeting deleted.")
-    # Literal path on purpose — the hub_meetings home route lands in phase 4 (the
-    # same contract as the workspace JS's meeting-deleted redirect).
-    return _hx_redirect("/meetings/")
+    return _hx_redirect(reverse("hub_meetings"))
 
 
 # --- Carryover panel (§5.5, §6.3) ---------------------------------------------
@@ -824,3 +861,183 @@ def hub_meeting_proposal_withdraw(request: HttpRequest, pk: int) -> HttpResponse
     response = HttpResponse("")
     trigger_toast(response, "Withdrawn.", "success")
     return response
+
+
+# --- The Meetings home (§6.2) --------------------------------------------------
+
+_ARCHIVE_PAGE_SIZE = 25
+
+
+def _scope_is_editable(guild_id: int | None, editable_ids: set[int], council_editable: bool) -> bool:
+    """Whether one meeting scope (guild pk, or None for council) is viewer-editable."""
+    if guild_id is None:
+        return council_editable
+    return guild_id in editable_ids
+
+
+def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Meeting]) -> list[dict[str, Any]]:
+    """Zone 2's coordinator rows: the Council row first, then every active guild (§6.2).
+
+    'Most recent' is the latest PAST-DATED meeting only — an approved *future* meeting
+    belongs solely to 'Next scheduled'. A guild with no upcoming Meeting row falls back
+    to its cadence-derived ``next_meeting_occurrence()`` (no row to link — plain text
+    for members, 'Start the agenda' for that scope's editors).
+    """
+    latest_past: dict[int | None, Meeting] = {}
+    for meeting in Meeting.objects.past().select_related("guild").order_by("scheduled_date", "pk"):
+        latest_past[meeting.guild_id] = meeting  # ascending date order — the last write wins
+    next_up: dict[int | None, Meeting] = {}
+    for meeting in upcoming:  # already soonest-first — the first write wins
+        next_up.setdefault(meeting.guild_id, meeting)
+    rows: list[dict[str, Any]] = [
+        {
+            "guild": None,
+            "label": "Council",
+            "most_recent": latest_past.get(None),
+            "next_meeting": next_up.get(None),
+            "cadence": None,  # the council has no cadence config
+            "can_edit": council_editable,
+        }
+    ]
+    for guild in Guild.objects.filter(is_active=True).order_by("name").prefetch_related("events"):
+        next_meeting = next_up.get(guild.pk)
+        rows.append(
+            {
+                "guild": guild,
+                "label": guild.name,
+                "most_recent": latest_past.get(guild.pk),
+                "next_meeting": next_meeting,
+                "cadence": guild.next_meeting_occurrence() if next_meeting is None else None,
+                "can_edit": guild.pk in editable_ids,
+            }
+        )
+    return rows
+
+
+def _archive_page(request: HttpRequest) -> dict[str, Any]:
+    """Zone 3's filtered, paginated archive (§6.2): guild + year GET filters that never
+    hide undated drafts (they match every year — an interrupted draft's only copy must
+    stay findable), 25/page, undated rows last via the queryset's ``nulls_last``."""
+    guild_filter = request.GET.get("guild", "")
+    year_filter = request.GET.get("year", "")
+    archive_qs = Meeting.objects.archive().select_related("guild")
+    if guild_filter == "council":
+        archive_qs = archive_qs.filter(guild__isnull=True)
+    elif guild_filter.isdigit():
+        archive_qs = archive_qs.filter(guild_id=int(guild_filter))
+    if year_filter.isdigit():
+        archive_qs = archive_qs.filter(Q(scheduled_date__year=int(year_filter)) | Q(scheduled_date__isnull=True))
+    page = Paginator(archive_qs, _ARCHIVE_PAGE_SIZE).get_page(request.GET.get("page"))
+    params = {key: value for key, value in (("guild", guild_filter), ("year", year_filter)) if value}
+    return {
+        "archive_page": page,
+        "archive_guild_filter": guild_filter,
+        "archive_year_filter": year_filter,
+        "archive_years": [when.year for when in Meeting.objects.dates("scheduled_date", "year", order="DESC")],
+        "archive_filtered": bool(params),
+        "archive_base_params": urlencode(params),
+    }
+
+
+@login_required
+def hub_meetings(request: HttpRequest) -> HttpResponse:
+    """The Meetings home (§6.2): Upcoming, the editor 'Needs attention' strip, the
+    coordinator table, the filtered archive, and the '+ New meeting' modal."""
+    editable_guilds, council_editable = editable_meeting_scopes(request)
+    editable_ids = {guild.pk for guild in editable_guilds}
+    can_create = council_editable or bool(editable_ids)
+
+    upcoming = list(
+        Meeting.objects.upcoming()
+        .select_related("guild")
+        .annotate(
+            topic_count=Count("items", distinct=True),
+            pending_count=Count(
+                "proposals", filter=Q(proposals__state=MeetingItemProposal.State.PENDING), distinct=True
+            ),
+        )
+    )
+    for meeting in upcoming:
+        meeting.viewer_can_edit = _scope_is_editable(meeting.guild_id, editable_ids, council_editable)
+
+    attention: list[Meeting] = []
+    if can_create:
+        # Anyone with edit rights anywhere edits the council scope too (§5.1), so
+        # can_create ⇒ council rows belong in this editor's strip.
+        scope_q = Q(guild_id__in=editable_ids) | Q(guild__isnull=True)
+        attention = list(
+            Meeting.objects.needs_attention().filter(scope_q).select_related("guild").order_by("created_at")
+        )
+
+    guild_filter = request.GET.get("guild", "")
+    create_form = None
+    if can_create:
+        # The archive's ?guild filter doubles as the guild-tab entry point's preselect (§6.2/§6.4).
+        create_form = MeetingCreateForm(request=request, initial={"scope": guild_filter} if guild_filter else None)
+    return render(
+        request,
+        "hub/meetings_home.html",
+        {
+            **_get_hub_context(request),
+            "upcoming_meetings": upcoming,
+            "attention_meetings": attention,
+            "dash_rows": _dash_rows(editable_ids, council_editable, upcoming),
+            "can_create": can_create,
+            "create_form": create_form,
+            **_archive_page(request),
+        },
+    )
+
+
+# --- Calendar rails: create / link / unlink (§5.3, §6.3) -----------------------
+
+
+@login_required
+@require_POST
+def hub_meeting_event(request: HttpRequest, pk: int) -> HttpResponse:
+    """The Add-to-calendar modal POST: create + own an event, or link an existing one.
+
+    No ``event`` in the body → ``create_calendar_event`` (rides ``schedule_or_go_live``
+    — announce + Google + Discord + reminders on the existing rails). An ``event`` pk →
+    ``link_event`` with the posted occurrence date (defaulting to the event's own start
+    date for a non-recurring event). ValueErrors surface as 422 toasts (§6.3).
+    """
+    meeting = get_object_or_404(Meeting.objects.select_related("guild", "event"), pk=pk)
+    guard = _guard(request, meeting)
+    if guard is not None:
+        return guard
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    event_pk = request.POST.get("event", "").strip()
+    try:
+        if event_pk:
+            if not event_pk.isdigit():
+                return HttpResponse("Unknown event.", status=400)
+            event = get_object_or_404(_scope_events(meeting), pk=int(event_pk))
+            occurrence = _clean_date(request.POST.get("occurrence", ""))
+            if occurrence is None:
+                occurrence = timezone.localtime(event.starts_at).date()
+            meeting.link_event(event, occurrence, by=user)
+            messages.success(request, "Linked to the calendar event.")
+        else:
+            meeting.create_calendar_event(by=user)
+            messages.success(request, "On the calendar — Google and Discord will sync.")
+    except ValueError as exc:
+        return _invalid(str(exc))
+    return _hx_redirect(reverse("hub_meeting", args=[meeting.pk]))
+
+
+@login_required
+@require_POST
+def hub_meeting_event_unlink(request: HttpRequest, pk: int) -> HttpResponse:
+    """Drop the calendar link — never deletes or edits the event (§5.3)."""
+    meeting = get_object_or_404(Meeting.objects.select_related("guild", "event"), pk=pk)
+    guard = _guard(request, meeting)
+    if guard is not None:
+        return guard
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    try:
+        meeting.unlink_event(by=user)
+    except ValueError as exc:  # no event linked
+        return _invalid(str(exc))
+    messages.success(request, "Unlinked — the event stays on the calendar.")
+    return _hx_redirect(reverse("hub_meeting", args=[meeting.pk]))

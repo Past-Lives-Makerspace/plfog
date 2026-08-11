@@ -57,6 +57,8 @@ from membership.vote_calculator import compute_live_standings, compute_new_votes
 from membership.models import (
     FundingSnapshot,
     Guild,
+    Meeting,
+    MeetingItemProposal,
     Member,
     MemberContact,
     OrgInfoPage,
@@ -70,6 +72,7 @@ from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
 from membership.permissions import can_manage_orientations as _can_manage_orientations
+from membership.permissions import can_propose_to_meeting as _can_propose_to_meeting
 
 logger = logging.getLogger("hub")
 
@@ -456,7 +459,21 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     guilds_surface = getattr(request, "surface", "members") == "guilds"
     links = [guild.classes_link(guilds_surface=guilds_surface), *guild.links.all()]
     announcements = guild.announcements.published().active()[:5]
-    meeting_notes = guild.meeting_notes.prefetch_related("attachments")
+    # The §6.4 Meetings tab: the guild's soonest upcoming meeting + last 5 approved minutes.
+    next_guild_meeting = (
+        Meeting.objects.for_scope(guild).upcoming().select_related("guild").annotate(topic_count=Count("items")).first()
+    )
+    can_propose_next = (
+        next_guild_meeting is not None
+        and not can_edit_this_guild  # editors add agenda items directly (§6.3 gating)
+        and _can_propose_to_meeting(request, next_guild_meeting)
+    )
+    pending_proposal_count = (
+        next_guild_meeting.proposals.filter(state=MeetingItemProposal.State.PENDING).count()
+        if can_edit_this_guild and next_guild_meeting is not None
+        else 0
+    )
+    recent_minutes = Meeting.objects.for_scope(guild).approved().select_related("guild")[:5]
     # Gate the roster on the viewer, not just the guild opt-in: an anonymous guest
     # must never see member names/avatars (the count-only chip lives in the hero).
     roster = guild.roster_members() if guild.show_members and member is not None else None
@@ -515,7 +532,10 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "faq_items": faq_items,
             "links": links,
             "announcements": announcements,
-            "meeting_notes": meeting_notes,
+            "next_guild_meeting": next_guild_meeting,
+            "can_propose_next": can_propose_next,
+            "pending_proposal_count": pending_proposal_count,
+            "recent_minutes": recent_minutes,
             "roster": roster,
             "member": member,
             "is_member_of_guild": is_member_of_guild,

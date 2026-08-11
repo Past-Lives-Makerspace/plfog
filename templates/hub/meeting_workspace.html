@@ -132,11 +132,35 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
     {% endif %}
     {% endif %}
     {% comment %}
-    Phase 4 placeholder: the calendar block ("Add to calendar" modal, the linked
-    "On the calendar ✓" line, unlink + mismatch warnings) rides the CommunityEvent
-    rails and lands with spec §8 phase 4.
+    The §6.3 calendar block. Linked: the "On the calendar ✓" line (event title +
+    occurrence → event page), the amber mismatch warning (merely-linked drift, or a
+    cleared date under an owned link — sync won't guess), and the non-destructive
+    Unlink with its scope-aware hint. Unlinked + draft: the Add-to-calendar modal
+    trigger. Owned events follow the workspace via sync_event, so their line simply
+    shows the new date.
     {% endcomment %}
-    <div class="pl-meeting-calendar-slot"></div>
+    {% if meeting.event %}
+    <div class="pl-meeting-fact pl-meeting-calendar">
+      <span class="pl-meeting-calendar__line">On the calendar ✓ —
+        <a href="{% url 'hub_event_detail' meeting.event.pk %}">{{ meeting.event.title }}</a>,
+        {{ meeting.event_occurrence|date:"M j, Y" }}</span>
+      {% if meeting.calendar_mismatch %}
+      <span class="pl-meeting-calendar__warn">Calendar event shows {% if meeting.linked_occurrence_starts_at %}{{ meeting.linked_occurrence_starts_at|date:"M j, g:i A" }}{% else %}{{ meeting.event_occurrence|date:"M j, Y" }}{% endif %} — unlink, or edit the event to match.</span>
+      {% endif %}
+      {% if is_editable %}
+      <div class="pl-meeting-calendar__unlink">
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                hx-post="{% url 'hub_meeting_event_unlink' meeting.pk %}" hx-swap="none">Unlink</button>
+        <span class="hub-text-muted pl-meeting-calendar__hint">{% if meeting.guild %}Unlinking leaves the event on the calendar — edit or cancel it from the guild's Events tab.{% else %}Unlinking leaves the event on the community calendar — an admin can edit or cancel it from the events editor.{% endif %}</span>
+      </div>
+      {% endif %}
+    </div>
+    {% elif is_editable %}
+    <div class="pl-meeting-fact pl-meeting-calendar">
+      <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+              @click="$dispatch('open-modal', 'add-to-calendar')">Add to calendar</button>
+    </div>
+    {% endif %}
   </div>
 
   {# ── Attachments ── #}
@@ -293,6 +317,73 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
           <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── The "Add to calendar" modal (draft, editors, unlinked — spec §6.3) ── #}
+{% if is_editable and not meeting.event %}
+<div x-data="{ open: false, eventPk: '' }"
+     x-show="open"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-modal.window="if ($event.detail === 'add-to-calendar') open = true"
+     @close-modal.window="if ($event.detail === 'add-to-calendar') open = false"
+     @keydown.escape.window="open = false"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="add-to-calendar-title">
+  <div class="pl-modal pl-modal--sm" @click.outside="open = false">
+    <div class="pl-modal__header">
+      <h2 class="pl-modal__title" id="add-to-calendar-title">Add to calendar</h2>
+      <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+    </div>
+    <div class="pl-modal__body">
+      {# Create + own: rides schedule_or_go_live — announce + Google + Discord + reminders. #}
+      <form hx-post="{% url 'hub_meeting_event' meeting.pk %}" hx-swap="none">
+        {% csrf_token %}
+        {% if can_add_to_calendar %}
+        <button type="submit" class="pl-btn pl-btn--primary pl-meeting-calendar-create">Create calendar event</button>
+        {% else %}
+        <button type="submit" class="pl-btn pl-btn--primary pl-meeting-calendar-create" disabled>Create calendar event</button>
+        <p class="pl-field-hint">Set a date and time first.</p>
+        {% endif %}
+      </form>
+      {% if linkable_events %}
+      <div class="pl-meeting-calendar-or hub-text-muted">or link an existing event</div>
+      <form hx-post="{% url 'hub_meeting_event' meeting.pk %}" hx-swap="none">
+        {% csrf_token %}
+        <div class="hub-form-group">
+          <label for="link-event-select">Event</label>
+          <select name="event" id="link-event-select" x-model="eventPk">
+            <option value="">Choose an event…</option>
+            {% for entry in linkable_events %}
+            <option value="{{ entry.event.pk }}">{{ entry.event.title }} — {{ entry.event.when_display }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% for entry in linkable_events %}
+        {% if entry.recurring %}
+        {# Only the chosen event's occurrence select stays enabled — disabled controls never submit. #}
+        <div class="hub-form-group" x-show="eventPk === '{{ entry.event.pk }}'">
+          <label for="link-occurrence-{{ entry.event.pk }}">Which occurrence?</label>
+          <select name="occurrence" id="link-occurrence-{{ entry.event.pk }}" :disabled="eventPk !== '{{ entry.event.pk }}'">
+            {% for occurrence in entry.occurrences %}
+            <option value="{{ occurrence|date:'Y-m-d' }}">{{ occurrence|date:"D, M j, Y" }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        {% endfor %}
+        <div class="pl-modal__actions">
+          <button type="submit" class="pl-btn pl-btn--secondary" style="flex:1;" :disabled="!eventPk">Link this event</button>
+          <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+        </div>
+      </form>
+      {% endif %}
     </div>
   </div>
 </div>

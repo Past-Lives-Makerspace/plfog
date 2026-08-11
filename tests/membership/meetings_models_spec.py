@@ -752,3 +752,52 @@ def describe_MeetingAttachment():
         assert doc.is_file is True
         assert doc.display_name.startswith("agenda")
         assert doc.display_name.endswith(".pdf")
+
+
+def describe_calendar_mismatch():
+    """The §6.3 amber-warning predicate + the linked-occurrence helper (phase 4)."""
+
+    def _linked(*, owns: bool, meeting_time: time | None, event_time: time = time(18, 0)) -> Meeting:
+        meeting_date = timezone.localdate() + timedelta(days=7)
+        starts = timezone.make_aware(datetime.combine(meeting_date, event_time))
+        event = CommunityEventFactory(guild=None, community=True, starts_at=starts)
+        return MeetingFactory(
+            guild=None,
+            scheduled_date=meeting_date,
+            scheduled_time=meeting_time,
+            event=event,
+            event_occurrence=meeting_date,
+            owns_event=owns,
+        )
+
+    def it_is_false_while_unlinked():
+        assert MeetingFactory(event=None).calendar_mismatch is False
+
+    def it_is_false_when_a_merely_linked_occurrence_matches():
+        assert _linked(owns=False, meeting_time=time(18, 0)).calendar_mismatch is False
+
+    def it_is_true_when_a_merely_linked_occurrence_drifted():
+        assert _linked(owns=False, meeting_time=time(19, 0)).calendar_mismatch is True
+
+    def it_is_true_for_a_merely_linked_meeting_with_no_time_set():
+        # Blank time means midnight in starts_at — that never matches a 6 PM occurrence.
+        assert _linked(owns=False, meeting_time=None).calendar_mismatch is True
+
+    def it_ignores_drift_on_an_owned_link():
+        # Owned events auto-sync via sync_event — drift is impossible, so no warning.
+        assert _linked(owns=True, meeting_time=time(19, 0)).calendar_mismatch is False
+
+    def it_is_true_for_a_cleared_date_under_an_owned_link():
+        meeting = _linked(owns=True, meeting_time=time(18, 0))
+        meeting.scheduled_date = None
+        assert meeting.calendar_mismatch is True
+
+    def it_derives_the_linked_occurrence_from_the_pinned_date_and_event_time():
+        meeting = _linked(owns=False, meeting_time=time(18, 0))
+        occurrence = meeting.linked_occurrence_starts_at
+        assert occurrence is not None
+        assert occurrence.date() == meeting.event_occurrence
+        assert timezone.localtime(occurrence).time() == time(18, 0)
+
+    def it_has_no_linked_occurrence_while_unlinked():
+        assert MeetingFactory(event=None).linked_occurrence_starts_at is None

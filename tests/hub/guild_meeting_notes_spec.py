@@ -81,54 +81,9 @@ def describe_gating():
         assert resp["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=meeting_notes"
 
 
-@pytest.mark.django_db
-def describe_read_tab():
-    def it_hides_the_tab_for_non_staff_with_zero_notes(client: Client):
-        _user_with_role("r1")
-        guild = GuildFactory()
-        client.login(username="r1", password="pass")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        # Target the tab button's unique Alpine directive, not the bare phrase
-        # "Meeting Notes" — that phrase also appears in the release-notes/changelog
-        # copy rendered elsewhere on the hub page, which would false-positive here.
-        assert b"section = 'notes'" not in resp.content
-
-    def it_shows_the_tab_for_staff_with_zero_notes(client: Client):
-        user = _user_with_role("r2")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="r2", password="pass")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert b"section = 'notes'" in resp.content
-        assert b"Post your first agenda" in resp.content
-
-    def it_shows_the_tab_for_everyone_when_a_note_exists(client: Client):
-        _user_with_role("r3")
-        guild = GuildFactory()
-        GuildMeetingNoteFactory(guild=guild, title="June recap")
-        client.login(username="r3", password="pass")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert b"section = 'notes'" in resp.content
-        assert b"June recap" in resp.content
-
-    def it_renders_a_link_attachment_with_rel_and_target(client: Client):
-        _user_with_role("r4")
-        guild = GuildFactory()
-        note = GuildMeetingNoteFactory(guild=guild)
-        GuildMeetingNoteAttachmentFactory(note=note, label="Agenda", url="https://docs.example.com/x")
-        client.login(username="r4", password="pass")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert b'rel="noopener nofollow noreferrer"' in resp.content
-        assert b"Agenda" in resp.content
-
-    def it_renders_a_file_attachment_as_a_download_link(client: Client):
-        _user_with_role("r5")
-        guild = GuildFactory()
-        note = GuildMeetingNoteFactory(guild=guild)
-        GuildMeetingNoteAttachmentFactory(note=note, file_doc=True, label="Slides")
-        client.login(username="r5", password="pass")
-        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert b"download" in resp.content
-        assert b"Slides" in resp.content
+# The guild-detail read tab was replaced by the Meetings tab (Meetings spec §6.4 —
+# covered in tests/hub/meetings_views_spec.py); only the guild-edit management side
+# of the legacy notes feature remains below, until the phase-6 retirement.
 
 
 @pytest.mark.django_db

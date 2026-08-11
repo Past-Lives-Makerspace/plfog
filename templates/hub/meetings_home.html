@@ -1,0 +1,207 @@
+{% extends "hub/base.html" %}
+{% block title %}Meetings{% endblock %}
+{% block content %}
+
+{% comment %}
+The Meetings home (Meetings spec §6.2) — the sidebar's canonical landing:
+Zone 1 upcoming cards, the editor-only "Needs attention" strip, the Zone 2
+coordinator table (Council row first, Most recent ✓ / Next scheduled), and the
+Zone 3 archive with guild/year filters that never hide undated drafts. The
+"+ New meeting" modal (MeetingCreateForm) mounts here; ?guild= preselects its
+scope for the guild-tab entry point. The page header is the page_header.html
+layout inlined because its action must OPEN A MODAL, not follow a link.
+{% endcomment %}
+<div class="hub-page-header pl-meeting-home-header">
+    <div>
+        <h1 class="hub-page-title">Meetings</h1>
+        <p class="hub-text-muted pl-meeting-home-header__lead">Agendas and minutes for every guild — and the council.</p>
+    </div>
+    {% if can_create %}
+    <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'new-meeting')">+ New meeting</button>
+    {% endif %}
+</div>
+
+{# ── Zone 1 — Upcoming ── #}
+<div class="hub-card pl-meeting-zone">
+    <h2 class="hub-detail-label">Upcoming</h2>
+    {% for meeting in upcoming_meetings %}
+    <div class="pl-meeting-up">
+        <div class="pl-meeting-up__main">
+            <a href="{% url 'hub_meeting' meeting.pk %}" class="pl-meeting-up__title">{{ meeting.display_title }}</a>
+            {% if meeting.is_locked %}
+            <span class="pl-meeting-badge pl-meeting-badge--approved">Approved</span>
+            {% else %}
+            <span class="pl-meeting-badge pl-meeting-badge--draft">Draft</span>
+            {% endif %}
+            {% if meeting.video_call_url %}
+            <a href="{{ meeting.video_call_url }}" target="_blank" rel="noopener" class="pl-btn pl-btn--primary pl-btn--sm pl-meeting-up__join">Join meeting</a>
+            {% endif %}
+        </div>
+        <div class="hub-text-muted pl-meeting-up__meta">
+            {{ meeting.scheduled_date|date:"D, M j" }} ·
+            {% if meeting.scheduled_time %}{{ meeting.scheduled_time|time:"g:i A" }}{% else %}Time TBD{% endif %}
+            · {{ meeting.topic_count }} topic{{ meeting.topic_count|pluralize }}{% if meeting.viewer_can_edit %} · {{ meeting.pending_count }} proposal{{ meeting.pending_count|pluralize }} pending{% endif %}
+        </div>
+    </div>
+    {% empty %}
+    <p class="hub-text-muted pl-meeting-zone__empty">No meetings scheduled. Guild leadership can create one.</p>
+    {% if can_create %}
+    <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" @click="$dispatch('open-modal', 'new-meeting')">+ New meeting</button>
+    {% endif %}
+    {% endfor %}
+</div>
+
+{# ── Editor strip — "Needs attention" (editors only, their scopes only, hidden when clean) ── #}
+{% if attention_meetings %}
+<div class="hub-card pl-meeting-zone pl-meeting-attention">
+    <h2 class="hub-detail-label">Needs attention</h2>
+    {% for meeting in attention_meetings %}
+    <a href="{% url 'hub_meeting' meeting.pk %}" class="pl-meeting-attention__row">
+        <span class="pl-meeting-attention__title">{{ meeting.display_title }}</span>
+        <span class="hub-text-muted">created {{ meeting.created_at|date:"M j" }}</span>
+        {% if meeting.scheduled_date %}
+        <span class="pl-meeting-attention__flag">Awaiting approval</span>
+        {% else %}
+        <span class="pl-meeting-attention__flag">No date set</span>
+        {% endif %}
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+{# ── Zone 2 — the coordinator table (Council first; Most recent ✓ / Next scheduled) ── #}
+<div class="hub-card pl-meeting-zone">
+    <h2 class="hub-detail-label">Meetings by guild</h2>
+    <table class="pl-meeting-dash">
+        <thead>
+            <tr><th>Guild</th><th>Most recent</th><th>Next scheduled</th></tr>
+        </thead>
+        <tbody>
+            {% for row in dash_rows %}
+            <tr>
+                <td data-label="Guild" class="pl-meeting-dash__guild">{{ row.label }}</td>
+                <td data-label="Most recent">
+                    {% if row.most_recent %}
+                    <a href="{% url 'hub_meeting' row.most_recent.pk %}">{{ row.most_recent.scheduled_date|date:"M j, Y" }}</a>
+                    {% if row.most_recent.is_locked %}<span class="pl-meeting-tick">✓</span>{% endif %}
+                    {% else %}
+                    <span class="hub-text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td data-label="Next scheduled">
+                    {% if row.next_meeting %}
+                    <a href="{% url 'hub_meeting' row.next_meeting.pk %}">{{ row.next_meeting.scheduled_date|date:"D, M j" }}{% if row.next_meeting.scheduled_time %} · {{ row.next_meeting.scheduled_time|time:"g:i A" }}{% endif %}</a>
+                    {% elif row.cadence %}
+                    <span>{{ row.cadence.when|date:"D, M j" }}{% if row.cadence.has_time %} · {{ row.cadence.when|time:"g:i A" }}{% endif %} <span class="hub-text-muted">(from schedule)</span></span>
+                    {% if row.can_edit %}
+                    {# The §6.2 Start-the-agenda contract: POST guild+date+time to hub_meeting_create; an existing scope+date meeting redirects into it instead of a twin. #}
+                    <form method="post" action="{% url 'hub_meeting_create' %}" class="pl-meeting-dash__start">
+                        {% csrf_token %}
+                        <input type="hidden" name="scope" value="{% if row.guild %}{{ row.guild.pk }}{% else %}council{% endif %}">
+                        <input type="hidden" name="kind" value="monthly">
+                        <input type="hidden" name="date" value="{{ row.cadence.when|date:'Y-m-d' }}">
+                        <input type="hidden" name="time" value="{% if row.cadence.has_time %}{{ row.cadence.when|time:'H:i' }}{% endif %}">
+                        <button type="submit" class="pl-btn pl-btn--sm">Start the agenda</button>
+                    </form>
+                    {% endif %}
+                    {% else %}
+                    <span class="hub-text-muted">—</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{# ── Zone 3 — Archive (guild + year filters, undated drafts always reachable) ── #}
+<div class="hub-card pl-meeting-zone">
+    <h2 class="hub-detail-label">Archive</h2>
+    <form method="get" class="pl-meeting-filterbar">
+        <div class="hub-form-group">
+            <label for="archive-guild">Guild</label>
+            <select name="guild" id="archive-guild">
+                <option value="">All</option>
+                <option value="council" {% if archive_guild_filter == "council" %}selected{% endif %}>Council</option>
+                {% for guild in guilds %}
+                <option value="{{ guild.pk }}" {% if archive_guild_filter == guild.pk|stringformat:"s" %}selected{% endif %}>{{ guild.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="hub-form-group">
+            <label for="archive-year">Year</label>
+            <select name="year" id="archive-year">
+                <option value="">All years</option>
+                {% for year in archive_years %}
+                <option value="{{ year }}" {% if archive_year_filter == year|stringformat:"s" %}selected{% endif %}>{{ year }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary pl-meeting-filterbar__apply">Apply</button>
+    </form>
+    {% if archive_page.object_list %}
+    <div class="admin-table-wrap">
+        <table>
+            <thead>
+                <tr><th>Meeting</th><th>Date</th><th>Guild</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                {% for meeting in archive_page.object_list %}
+                <tr>
+                    <td><a href="{% url 'hub_meeting' meeting.pk %}" class="pl-meeting-archive__title">{{ meeting.display_title }}</a></td>
+                    <td>{% if meeting.scheduled_date %}{{ meeting.scheduled_date|date:"M j, Y" }}{% else %}<span class="hub-text-muted">No date</span>{% endif %}</td>
+                    <td><span class="hub-badge">{{ meeting.scope_label }}</span></td>
+                    <td>
+                        {% if meeting.is_locked %}
+                        <span class="pl-meeting-badge pl-meeting-badge--approved">✓ Approved</span>
+                        {% else %}
+                        <span class="pl-meeting-badge pl-meeting-badge--draft">Draft</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% include "components/table_pagination.html" with page=archive_page base_params=archive_base_params %}
+    </div>
+    {% elif archive_filtered %}
+    <p class="hub-text-muted pl-meeting-zone__empty">No meetings match those filters. <a href="{% url 'hub_meetings' %}">Clear filters</a></p>
+    {% else %}
+    <p class="hub-text-muted pl-meeting-zone__empty">Nothing here yet — approved minutes will build up over time.</p>
+    {% endif %}
+</div>
+
+{# ── The "+ New meeting" modal (house inline pl-modal pattern, as on the workspace) ── #}
+{% if can_create %}
+<div x-data="{ open: false }"
+     x-show="open"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-modal.window="if ($event.detail === 'new-meeting') open = true"
+     @close-modal.window="if ($event.detail === 'new-meeting') open = false"
+     @keydown.escape.window="open = false"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="new-meeting-title">
+    <div class="pl-modal pl-modal--sm" @click.outside="open = false">
+        <div class="pl-modal__header">
+            <h2 class="pl-modal__title" id="new-meeting-title">New meeting</h2>
+            <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+        </div>
+        <div class="pl-modal__body">
+            <form method="post" action="{% url 'hub_meeting_create' %}">
+                {% csrf_token %}
+                {% include "components/form_field.html" with field=create_form.scope %}
+                {% include "components/form_field.html" with field=create_form.kind %}
+                <div class="pl-modal__actions">
+                    <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Create meeting</button>
+                    <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
