@@ -69,7 +69,7 @@ class FindAccountForm(forms.Form):
             trigger_kind="core.find_account",
             text_body=(
                 f"Hi {member.preferred_name or member.full_legal_name},\n\n"
-                f"Your account email is: {member.primary_email}\n\n"
+                f"Welcome back! Your account email is: {member.primary_email}\n\n"
                 f"You can log in here:\n{login_url}\n\n"
                 f"If you didn't request this, you can safely ignore this email."
             ),

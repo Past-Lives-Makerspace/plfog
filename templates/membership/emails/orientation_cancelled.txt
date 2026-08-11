@@ -1,10 +1,12 @@
 Hi {{ greeting_name }},
 
-Your orientation for {{ guild.name }} has been cancelled.
+We're so sorry for the inconvenience! We've had to cancel your orientation
+for {{ guild.name }}.
 
   Was: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}
 
-You can request a new orientation any time on the guild page:
+We'd love to get you oriented ASAP, so visit your Guild's page to choose
+a new time:
 {{ guild_url }}
 
 {% include "membership/emails/_footer.txt" %}

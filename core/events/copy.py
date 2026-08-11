@@ -187,11 +187,12 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     "class_cancelled": EventCopy(
-        placeholders=("member_name", "class_title", "class_starts_at"),
+        placeholders=("member_name", "class_title", "class_starts_at", "classes_url"),
         sample_context={
             "member_name": "Robin Vale",
             "class_title": "Intro to Lost-Wax Casting",
             "class_starts_at": "Saturday, July 12",
+            "classes_url": "https://pastlives.example/classes/",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -202,13 +203,22 @@ _CURATED: dict[str, EventCopy] = {
                 subject="Cancelled: {{ class_title }}",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "Unfortunately {{ class_title }} on {{ class_starts_at }} has been cancelled. "
-                    "Any payment will be refunded.\n\nPast Lives Makerspace"
+                    "Life happens... and due to rare and unfortunate circumstances, {{ class_title }} "
+                    "on {{ class_starts_at }} has been cancelled. Any payment will be refunded in full, "
+                    "and we're really sorry for any inconvenience.\n\n"
+                    "We'd still love to see you in our space. Find another class: {{ classes_url }}\n\n"
+                    "Past Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
-                    "<p>Unfortunately <strong>{{ class_title }}</strong> on {{ class_starts_at }} "
-                    "has been cancelled. Any payment will be refunded.</p>"
+                    "<p>Life happens... and due to rare and unfortunate circumstances, "
+                    "<strong>{{ class_title }}</strong> on {{ class_starts_at }} has been cancelled. "
+                    "Any payment will be refunded in full, and we're really sorry for any inconvenience.</p>"
+                    "<p>We'd still love to see you in our space. Click below to find another class.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ classes_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Find a Class</a></p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
@@ -346,15 +356,14 @@ _CURATED: dict[str, EventCopy] = {
                 body_text=(
                     "Hi {{ member_name }},\n\n"
                     "Your tab balance is {{ balance }} of your {{ limit }} limit. Once you reach the "
-                    "limit your tab locks until it's paid down, so it's worth settling up before then.\n\n"
+                    "limit, your tab locks until it's paid down.\n\n"
                     "Pay down your tab: {{ tab_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
                     "<p>Your tab balance is <strong>{{ balance }}</strong> of your {{ limit }} limit. "
-                    "Once you reach the limit your tab locks until it's paid down, so it's worth "
-                    "settling up before then.</p>"
+                    "Once you reach the limit, your tab locks until it's paid down.</p>"
                     '<p><a href="{{ tab_url }}">Pay down your tab</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
@@ -378,15 +387,15 @@ _CURATED: dict[str, EventCopy] = {
                 subject="Refund issued for {{ class_title }}",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "We've refunded {{ amount }} for {{ class_title }}. Refunds usually land back on "
-                    "your original payment method within 5–10 business days.\n\n"
+                    "We've refunded {{ amount }} for {{ class_title }}. Refunds typically process "
+                    "within 5–10 business days.\n\n"
                     "View your booking: {{ registration_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
-                    "<p>We've refunded <strong>{{ amount }}</strong> for {{ class_title }}. Refunds usually "
-                    "land back on your original payment method within 5–10 business days.</p>"
+                    "<p>We've refunded <strong>{{ amount }}</strong> for {{ class_title }}. Refunds "
+                    "typically process within 5–10 business days.</p>"
                     '<p><a href="{{ registration_url }}">View your booking</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
@@ -410,16 +419,14 @@ _CURATED: dict[str, EventCopy] = {
                 body_text=(
                     "Hi {{ member_name }},\n\n"
                     "Your lease for {{ space_name }} ends on {{ end_date }} — about a month from now.\n\n"
-                    "If you'd like to renew, reply to this email or talk to a staff member at the space "
-                    "and we'll get it sorted before the end date.\n\n"
+                    "If you'd like to renew, reply to this email.\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
                     "<p>Your lease for <strong>{{ space_name }}</strong> ends on {{ end_date }} — "
                     "about a month from now.</p>"
-                    "<p>If you'd like to renew, reply to this email or talk to a staff member at the "
-                    "space and we'll get it sorted before the end date.</p>"
+                    "<p>If you'd like to renew, reply to this email.</p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
@@ -468,9 +475,13 @@ _CURATED: dict[str, EventCopy] = {
             ),
             Channel.EMAIL: ChannelCopy(
                 subject="{{ guild_name }}: {{ announcement_title }}",
-                body_text="{{ announcement_body }}\n\nVisit the guild: {{ guild_url }}\n\nPast Lives Makerspace",
+                body_text=(
+                    "{{ guild_name }} Announcement!\n\n{{ announcement_title }}\n\n{{ announcement_body }}\n\n"
+                    "Visit the guild: {{ guild_url }}\n\nPast Lives Makerspace"
+                ),
                 body_html=(
-                    "<h2>{{ announcement_title }}</h2>"
+                    "<h2>{{ guild_name }} Announcement!</h2>"
+                    "<h3>{{ announcement_title }}</h3>"
                     "<p>{{ announcement_body }}</p>"
                     '<p><a href="{{ guild_url }}">Visit {{ guild_name }}</a></p>'
                     "<p>Past Lives Makerspace</p>"
@@ -512,20 +523,17 @@ _CURATED: dict[str, EventCopy] = {
             Channel.EMAIL: ChannelCopy(
                 subject="You're invited to Past Lives Makerspace",
                 body_text=(
-                    "You've been invited to join Past Lives Makerspace!\n\n"
+                    "You've been invited to join the Past Lives Makerspace Member Portal.\n\n"
                     "Click the link below to create your account:\n\n"
-                    "{{ signup_url }}\n\n"
-                    "If you didn't expect this invite, you can ignore this email."
+                    "{{ signup_url }}"
                 ),
                 body_html=(
-                    "<p>You've been invited to join <strong>Past Lives Makerspace</strong>!</p>"
+                    "<p>You've been invited to join the <strong>Past Lives Makerspace</strong> Member Portal.</p>"
                     '<div style="text-align:center; margin:24px 0 0;">'
                     '<a href="{{ signup_url }}" style="display:inline-block; padding:12px 32px; '
                     "background-color:#EEB44B; color:#092E4C; font-size:14px; font-weight:700; "
                     'text-decoration:none; border-radius:6px;">Create your account</a>'
                     "</div>"
-                    '<p style="margin:16px 0 0; font-size:13px; color:#96ACBB;">'
-                    "If you didn't expect this invite, you can ignore this email.</p>"
                 ),
             ),
         },
@@ -541,22 +549,20 @@ _CURATED: dict[str, EventCopy] = {
                 subject="Sign in to Past Lives Makerspace",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "Your Past Lives Makerspace account is ready — you just haven't signed in yet.\n\n"
-                    "Use the link below to sign in for the first time. We'll email you a one-time "
-                    "code to finish:\n\n"
+                    "Your Past Lives Makerspace account is ready — now it's time to sign in.\n\n"
+                    "Click the link below, and we'll email you a one-time login code:\n\n"
                     "{{ login_url }}\n\n"
                     "See you at the space!\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
-                    "<p>Your <strong>Past Lives Makerspace</strong> account is ready — you just "
-                    "haven't signed in yet.</p>"
-                    "<p>Use the button below to sign in for the first time. We'll email you a "
-                    "one-time code to finish.</p>"
+                    "<p>Your <strong>Past Lives Makerspace</strong> account is ready — now it's "
+                    "time to sign in.</p>"
+                    "<p>Click below, and we'll email you a one-time login code.</p>"
                     '<div style="text-align:center; margin:24px 0 0;">'
                     '<a href="{{ login_url }}" style="display:inline-block; padding:12px 32px; '
                     "background-color:#EEB44B; color:#092E4C; font-size:14px; font-weight:700; "
-                    'text-decoration:none; border-radius:6px;">Sign in for the first time</a>'
+                    'text-decoration:none; border-radius:6px;">Activate your account</a>'
                     "</div>"
                     '<p style="margin:16px 0 0; font-size:13px; color:#96ACBB;">'
                     "See you at the space! — Past Lives Makerspace</p>"
@@ -601,7 +607,7 @@ _CURATED: dict[str, EventCopy] = {
                     "2nd: {{ vote_2nd }}\n"
                     "3rd: {{ vote_3rd }}\n\n"
                     "{{ turnout_count }} members have voted so far, and {{ pool_display }} goes to the guilds "
-                    "when the month rolls over. Results land in your inbox in the first week.\n\n"
+                    "when the month rolls over. Results will be shared in the first week of the month.\n\n"
                     "Change your vote any time before close: {{ voting_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
@@ -622,7 +628,7 @@ _CURATED: dict[str, EventCopy] = {
                     "</table>"
                     "<p><strong>{{ turnout_count }}</strong> members have voted so far, and "
                     "<strong>{{ pool_display }}</strong> goes to the guilds when the month rolls over. "
-                    "Results land in your inbox in the first week.</p>"
+                    "Results will be shared in the first week of the month.</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ voting_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
@@ -644,20 +650,20 @@ _CURATED: dict[str, EventCopy] = {
         channels={
             Channel.IN_APP: ChannelCopy(
                 subject="Vote soon — {{ cycle_label }}",
-                body_text="You haven't cast a {{ cycle_label }} guild funding vote yet — it closes {{ closes_on }}.",
+                body_text="You haven't cast a {{ cycle_label }} guild funding vote yet — voting closes {{ closes_on }}.",
             ),
             Channel.EMAIL: ChannelCopy(
                 subject="Your {{ cycle_label }} guild vote closes {{ closes_on }}",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "You haven't cast a guild funding vote yet for {{ cycle_label }} — it closes {{ closes_on }}. "
+                    "You haven't cast a guild funding vote yet for {{ cycle_label }} — voting closes {{ closes_on }}. "
                     "It takes a minute, and it decides how {{ pool_display }} is split between the guilds. "
                     "{{ turnout_count }} members have voted so far.\n\n"
                     "Cast your vote: {{ voting_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
-                    "<p>You haven't cast a guild funding vote yet for {{ cycle_label }} — it closes "
+                    "<p>You haven't cast a guild funding vote yet for {{ cycle_label }} — voting closes "
                     "<strong>{{ closes_on }}</strong>. It takes a minute, and it decides how "
                     "<strong>{{ pool_display }}</strong> is split between the guilds. "
                     "<strong>{{ turnout_count }}</strong> members have voted so far.</p>"
@@ -741,7 +747,7 @@ _CURATED: dict[str, EventCopy] = {
         ),
         sample_context={
             "member_name": "Robin Vale",
-            "intro_note": "Heads-up: this one's a little late — going forward results are automated.",
+            "intro_note": "",
             "cycle_label": "June 2026",
             "allocation_summary": "Metal Guild — $600.00 (45.0%)\nFiber Guild — $400.00 (30.0%)",
             # A two-bar sample so the live copy preview shows the real chart, not escaped
@@ -1153,14 +1159,14 @@ _CURATED: dict[str, EventCopy] = {
             Channel.EMAIL: ChannelCopy(
                 subject="Changes requested: {{ event_title }}",
                 body_text=(
-                    "A reviewer took a look at your proposed event, {{ event_title }}, and asked for a change "
-                    "before it goes live:\n\n{{ reviewer_notes }}\n\n"
+                    "We've reviewed your proposed event, {{ event_title }}, and have a change request:\n\n"
+                    "{{ reviewer_notes }}\n\n"
                     "Update and resubmit it: {{ edit_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>A reviewer took a look at your proposed event, "
-                    '<strong><a href="{{ edit_url }}">{{ event_title }}</a></strong>, and asked for a change '
-                    "before it goes live:</p>"
+                    "<p>We've reviewed your proposed event, "
+                    '<strong><a href="{{ edit_url }}">{{ event_title }}</a></strong>, and have a change '
+                    "request:</p>"
                     "<p>{{ reviewer_notes }}</p>"
                     '<p><a href="{{ edit_url }}">Update and resubmit your event</a></p>'
                     "<p>Past Lives Makerspace</p>"
@@ -1209,13 +1215,13 @@ _CURATED: dict[str, EventCopy] = {
             Channel.EMAIL: ChannelCopy(
                 subject="About your event proposal: {{ event_title }}",
                 body_text=(
-                    "Thanks for proposing {{ event_title }}. After a look, a reviewer decided not to add it to "
-                    "the calendar this time:\n\n{{ reviewer_notes }}\n\n"
+                    "Thanks for proposing {{ event_title }}. We can't approve the event at this "
+                    "time:\n\n{{ reviewer_notes }}\n\n"
                     "You're welcome to propose another event any time: {{ propose_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>Thanks for proposing <strong>{{ event_title }}</strong>. After a look, a reviewer decided "
-                    "not to add it to the calendar this time:</p>"
+                    "<p>Thanks for proposing <strong>{{ event_title }}</strong>. We can't approve the "
+                    "event at this time:</p>"
                     "<p>{{ reviewer_notes }}</p>"
                     '<p><a href="{{ propose_url }}">Propose another event</a></p>'
                     "<p>Past Lives Makerspace</p>"
@@ -1413,15 +1419,13 @@ _CURATED: dict[str, EventCopy] = {
                 body_text=(
                     "Good news — your request was approved.\n\n"
                     "{{ space_code }} · {{ price_display }}\n\n"
-                    "{{ audience_label }} will be in touch to finalize the paperwork; nothing is "
-                    "charged automatically.\n\n"
+                    "We'll be in touch soon to finalize the paperwork.\n\n"
                     "See it on the map: {{ space_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Good news — your request was approved.</p>"
                     '<p><strong><a href="{{ space_url }}">{{ space_code }}</a></strong> · {{ price_display }}</p>'
-                    "<p>{{ audience_label }} will be in touch to finalize the paperwork; nothing is "
-                    "charged automatically.</p>"
+                    "<p>We'll be in touch soon to finalize the paperwork.</p>"
                     '<p><a href="{{ space_url }}">See it on the map</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
@@ -1445,16 +1449,19 @@ _CURATED: dict[str, EventCopy] = {
             Channel.EMAIL: ChannelCopy(
                 subject="Update on your {{ space_code }} request",
                 body_text=(
-                    "Thanks for asking about {{ space_code }}. A reviewer wasn't able to say yes "
-                    "this time:\n\n{{ reviewer_notes }}\n\n"
-                    "You're welcome to ask about another space any time: {{ space_url }}\n\n"
+                    "Thanks for asking about {{ space_code }}. That space is not available at this "
+                    "time:\n\n{{ reviewer_notes }}\n\n"
+                    "Find a space: {{ space_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>Thanks for asking about <strong>{{ space_code }}</strong>. A reviewer wasn't able "
-                    "to say yes this time:</p>"
+                    "<p>Thanks for asking about <strong>{{ space_code }}</strong>. That space is not "
+                    "available at this time. Click below to find another space.</p>"
                     "<p>{{ reviewer_notes }}</p>"
-                    '<p><a href="{{ space_url }}">See what else is open on the map</a></p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ space_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Find a Space</a></p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

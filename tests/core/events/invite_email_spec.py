@@ -9,7 +9,7 @@ Email bodies are asserted on ``django.core.mail.outbox`` (the locmem backend the
 env installs) — ``TransactionalEmailLog`` stores no body, only the send metadata.
 The HTML alternative is ``mail.outbox[0].alternatives[0][0]``.
 
-Shell-presence is asserted with a SHELL-ONLY marker (footer ``Do It Together`` / the
+Shell-presence is asserted with a SHELL-ONLY marker (footer ``because you have a … Makerspace account`` footer line / the
 card ``#092E4C``), never the ``Past Lives`` wordmark — that also appears in the invite
 body copy and would false-positive.
 """
@@ -37,7 +37,7 @@ def describe_invite_email_is_branded():
         assert len(mail.outbox) == 1
         html = mail.outbox[0].alternatives[0][0]
         # Shell-only markers prove the wrap.
-        assert "Do It Together" in html
+        assert "because you have a Past Lives Makerspace account" in html
         assert "#092E4C" in html
         # The invite copy itself is still present inside the card.
         assert "Create your account" in html
@@ -55,12 +55,12 @@ def describe_invite_email_is_branded():
         _invite("noaccount@example.com").send_invite_email()
         message = mail.outbox[0]
         assert message.to == ["noaccount@example.com"]
-        assert "Do It Together" in message.alternatives[0][0]
+        assert "because you have a Past Lives Makerspace account" in message.alternatives[0][0]
 
     def it_leaves_the_plain_text_body_unwrapped():
         _invite().send_invite_email()
         text = mail.outbox[0].body
-        assert "Do It Together" not in text
+        assert "because you have a Past Lives Makerspace account" not in text
         assert "<html" not in text.lower()
         assert "#092E4C" not in text
         # The plain-text copy is intact.
@@ -83,7 +83,7 @@ def describe_invite_gold_cta_on_a_seeded_row():
         assert "Create your account" in html
         assert "/accounts/signup/" in html
         # Still branded.
-        assert "Do It Together" in html
+        assert "because you have a Past Lives Makerspace account" in html
 
     def it_keeps_a_plain_link_on_an_admin_overridden_row_but_still_brands_it():
         # An admin-overridden row keeps its hand-edited (old, plain-link) body after a
@@ -101,8 +101,8 @@ def describe_invite_gold_cta_on_a_seeded_row():
 
         _invite().send_invite_email()
         html = mail.outbox[0].alternatives[0][0]
-        # Branded by the shell (footer + tagline)...
-        assert "Do It Together" in html
+        # Branded by the shell (footer line)...
+        assert "because you have a Past Lives Makerspace account" in html
         # ...and the admin's own body is preserved verbatim.
         assert "Create your account" in html
         # ...but no gold CTA *button* reached the overridden row — only the seeded copy

@@ -153,7 +153,7 @@ def describe_auto_create_user_on_login():
 def describe_email_templates():
     def it_base_message_uses_past_lives_branding():
         content = render_to_string("account/email/base_message.txt", {"current_site": None})
-        assert "Past Lives Federation of Guilds" in content
+        assert "Past Lives Makerspace" in content
         assert "example.com" not in content
 
     def it_unknown_account_txt_is_branded():

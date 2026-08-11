@@ -4548,7 +4548,7 @@ def _release_announcement_initial() -> dict[str, str]:
     entries = current_line_entries(VERSION)
     latest_title = str(entries[0]["title"]) if entries else "What's new"
     return {
-        "subject": f"What's new at Past Lives: {latest_title}",
+        "subject": f"Heads-Up: New Member Portal Features — {latest_title}",
         "preheader": latest_title,
         "intro": "<p>We've just shipped an update — here's what's new.</p>",
     }

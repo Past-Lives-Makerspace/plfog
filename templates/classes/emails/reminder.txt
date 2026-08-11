@@ -7,7 +7,7 @@ Location: Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202
 A note from your instructor:
 {{ offering.welcome_email_body|rich_email_text }}
 {% endif %}
-Full class details (what to bring, parking, and more):
+Click to see full class details:
 {{ class_url }}
 
 Manage your registration:

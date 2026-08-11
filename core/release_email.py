@@ -269,7 +269,7 @@ def _release_text(subject: str, intro: str, cards: list[Card], cta_url: str) -> 
         lines += [f"• {bullet}" for bullet in card.bullets]
         lines.append("")
     lines += [f"{_CTA_LABEL}: {cta_url}", ""]
-    lines.append("You're getting this because you have a Past Lives account.")
+    lines.append("You're getting this message because you have a Past Lives Makerspace account.")
     lines.append(f"Manage your email preferences or unsubscribe: {settings.MEMBER_BASE_URL}/settings/")
     return "\n".join(lines)
 

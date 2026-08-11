@@ -800,6 +800,7 @@ class ClassOffering(HeroCropMixin, models.Model):
                 "member_name": "there",
                 "class_title": self.title,
                 "class_starts_at": self.cancellation_date_label,
+                "classes_url": f"{settings.BOOK_BASE_URL}/classes/",
             },
             url="/classes/",
             email_to=self.registrant_notice_emails,

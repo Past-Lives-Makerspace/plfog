@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.60"
+VERSION = "0.23.61"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.23.61",
+        "date": "2026-08-11",
+        "title": "Emails got a fresh coat of paint and clearer wording",
+        "changes": [
+            "Emails from Past Lives now use a clean white background around the navy card, so they're "
+            "easier to read — especially on phones.",
+            "Every email now says Past Lives Makerspace, and the wording across dozens of emails is "
+            "shorter and friendlier: class confirmations, waitlist updates, orientation emails, tab and "
+            "lease notices, voting reminders, and more.",
+            "If a class is cancelled or a space request doesn't work out, the email now has a button to "
+            "help you find another class or space.",
+        ],
+    },
     {
         "version": "0.23.60",
         "date": "2026-08-10",

@@ -1,7 +1,7 @@
 {% comment %}
 Light variant of the branded notification shell (EventType.email_shell == "light"):
 the hybrid release-email look for spine copy — lantern-logo hero band → white body →
-the reused _footer inside its own dark band (its cream/gold copy fails AA on white).
+the reused _footer (navy-on-light styling) on the pale page background below.
 The copy fragment arrives pre-styled for the light body by
 core.events.templates._style_copy_fragment(shell="light"); the wrapper div carries
 the slate text color it inherits. Standalone document, inline styles throughout —
@@ -26,24 +26,18 @@ Context: body_html (safe fragment).
     <td style="background-color: #092E4C; border-radius: 12px 12px 0 0; padding: 28px 28px 24px; text-align: center;">
         <a href="{% member_base_url %}" style="text-decoration: none;">
             <img src="{% member_base_url %}{% static 'img/favicon.png' %}" width="64" height="64" alt="Past Lives lantern" style="display: block; margin: 0 auto 10px; border: 0;">
-            <span style="font-size: 20px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em;">Past Lives</span>
+            <span style="font-size: 20px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em;">Past Lives Makerspace</span>
         </a>
     </td>
     </tr>
     <!-- White body -->
     <tr>
-    <td style="background-color: #FFFFFF; padding: 32px 28px 24px;">
+    <td style="background-color: #FFFFFF; border-radius: 0 0 12px 12px; padding: 32px 28px 24px;">
         <div style="color: #33424F; font-size: 15px; line-height: 1.6;">{{ body_html|safe }}</div>
     </td>
     </tr>
-    <!-- Footer band -->
-    <tr>
-    <td style="background-color: #092E4C; border-radius: 0 0 12px 12px; padding: 4px 20px 28px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-        {% include "membership/emails/_footer.html" %}
-        </table>
-    </td>
-    </tr>
+    <!-- Footer -->
+    {% include "membership/emails/_footer.html" %}
 </table>
 </td>
 </tr>

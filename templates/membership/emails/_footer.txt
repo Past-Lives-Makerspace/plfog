@@ -1,4 +1,4 @@
 
 {% load site_urls %}—
-Past Lives Federation of Guilds — {% member_base_url %}
+Past Lives Makerspace — {% member_base_url %}
 Manage your email preferences or unsubscribe: {% member_base_url %}/settings/
