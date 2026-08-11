@@ -1,0 +1,72 @@
+{% extends "hub/base.html" %}
+{% load membership_md %}
+{% block title %}Become an instructor — Past Lives{% endblock %}
+
+{% comment %}
+Instructor orientation (Spec D §6, Screen 1). Extends hub/base.html directly —
+NOT classes/teach/base.html, whose tab bar links four gated pages (showing
+locked tabs on the unlock page would be a wall of dead ends). One column of
+cards: the explainer banner (locked visitors only — it doubles as the redirect
+landing state), the seeded content, and either the acknowledge/unlock card or
+the completed state. No tour launcher here by design: Spec C's instructor tour
+auto-offers on the first post-unlock visit to the teach overview.
+{% endcomment %}
+
+{% block content %}
+<div class="pl-orientation" data-help-key="teach.become-instructor">
+
+    {% if not member.can_create_classes %}
+    <div class="hub-card pl-orientation-banner">
+        <h2 class="pl-orientation-banner__title">One quick step before you can teach</h2>
+        <p class="pl-orientation-banner__body">
+            The teaching portal unlocks after this short orientation. Read it once, tick the box, and you're in.
+        </p>
+    </div>
+    {% else %}
+    <div class="hub-card pl-orientation-done">
+        <h2 class="pl-orientation-done__title">✓ You're an instructor</h2>
+        <p class="pl-orientation-done__meta">Orientation completed {{ member.instructor_oriented_at|date }}.</p>
+        <div class="pl-orientation-done__actions">
+            <a class="pl-btn pl-btn--primary" href="{% url 'classes:teach_overview' %}">Go to the teaching portal</a>
+            <a class="pl-btn pl-btn--secondary" href="{% url 'classes:teach_class_create' %}">Create a class</a>
+            {% if guide %}
+            <a class="pl-btn pl-btn--secondary" href="{{ guide.get_absolute_url }}">{{ guide.title }}</a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="hub-card">
+        <h1 class="hub-page-title">Become an instructor at Past Lives</h1>
+        {% if article %}
+        <div class="pl-md pl-md--help">{{ article.body|help_markdown }}</div>
+        {% else %}
+        <p class="hub-text-muted">Orientation content hasn't been loaded yet — run the help-center seed command.</p>
+        {% endif %}
+        {% if guide %}
+        <p class="pl-orientation-guide-link">
+            Read the full guide: <a href="{{ guide.get_absolute_url }}"><strong>{{ guide.title }}</strong></a>
+        </p>
+        {% endif %}
+    </div>
+
+    {% if not member.can_create_classes %}
+    <div class="hub-card" x-data="{ ok: false }">
+        <form method="post" action="{% url 'classes:teach_orientation_complete' %}">
+            {% csrf_token %}
+            {% include "components/form_field.html" with field=form.acknowledge %}
+            {% if form.acknowledge.errors %}
+            {# toggle.html renders no error list, so the page shows the form's error itself. #}
+            <ul class="pl-field-errors">
+                {% for error in form.acknowledge.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+            </ul>
+            {% endif %}
+            <button type="submit" class="pl-btn pl-btn--primary pl-orientation-submit" :disabled="!ok">
+                Unlock teaching
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

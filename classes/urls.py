@@ -15,6 +15,9 @@ urlpatterns = [
     path("my/<str:token>/cancel/", views.my_registration_cancel, name="my_registration_cancel"),
     # Teaching portal (member self-serve for instructors)
     path("teach/", views.teach_overview, name="teach_overview"),
+    # Instructor orientation — reachable by any active member (it IS the unlock).
+    path("teach/orientation/", views.teach_orientation, name="teach_orientation"),
+    path("teach/orientation/complete/", views.teach_orientation_complete, name="teach_orientation_complete"),
     path("teach/classes/", views.teach_dashboard, name="teach_dashboard"),
     path("teach/classes/new/", views.teach_class_create, name="teach_class_create"),
     path("teach/classes/<int:pk>/edit/", views.teach_class_edit, name="teach_class_edit"),

@@ -20,7 +20,7 @@ from django.contrib.auth.views import redirect_to_login
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, QuerySet
 from django.forms import BaseInlineFormSet, BaseModelFormSet
-from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -4409,6 +4409,32 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "send_login_invite_url": reverse("hub_admin_member_send_login_invite", args=[member.pk]),
         },
     )
+
+
+@fog_admin_required
+@require_POST
+def admin_member_teaching_set(request: HttpRequest, pk: int) -> HttpResponse:
+    """Grant or revoke teaching-portal access from the member edit page (Spec D §6, Screen 3).
+
+    Full-page POST + Django message, matching this page's sibling actions.
+    ``action`` must be ``grant`` or ``revoke``; anything else is a 400 (never
+    reachable from the UI). Revoke's consequences are named in the confirm modal.
+    """
+    member = get_object_or_404(Member, pk=pk)
+    action = request.POST.get("action", "")
+    if action not in ("grant", "revoke"):
+        return HttpResponseBadRequest("Unknown action.")
+    assert request.user.is_authenticated  # fog_admin_required guarantees a real User
+    # None = a superuser acting without a linked Member (emergency access).
+    admin_member = Member.objects.filter(user=request.user).first()
+    display = member.display_name or member.full_legal_name or f"member #{member.pk}"
+    if action == "grant":
+        member.grant_teaching(granted_by=admin_member)
+        messages.success(request, f"Granted teaching access for {display}.")
+    else:
+        member.revoke_teaching(revoked_by=admin_member)
+        messages.success(request, f"Revoked teaching access for {display}.")
+    return redirect("hub_admin_member_edit", pk=member.pk)
 
 
 @fog_admin_required

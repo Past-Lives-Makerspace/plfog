@@ -19,6 +19,14 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "can see exactly where to click.",
             "It's not just for members: instructors get guides on creating and running their classes, and "
             "guild leads get guides on running their guild page, orientations, and announcements.",
+            "Guided tours now show you around in the app itself. New members get a 30-second spotlight "
+            "tour of the hub, and there are tours for guild leads and instructors too. Take one anytime "
+            "from the Help page, or turn tours off in Settings.",
+            "There's also a new Info View: flip it on from the top bar and hover anything highlighted to "
+            "get a plain-language explanation right there, with a link to the full guide.",
+            "Become an instructor: a short orientation now walks you through what we expect, how class "
+            "review works, and the quality bar. Complete it once and the teaching portal unlocks "
+            "automatically — no waiting on an admin. Already taught a class? You're grandfathered in.",
         ],
     },
     {

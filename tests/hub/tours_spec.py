@@ -158,8 +158,10 @@ def describe_guild_edit_tour_offer():
 
 
 def describe_teach_overview_tour_offer():
-    def it_offers_the_instructor_tour_to_an_active_member(client):
-        member = _login_member(client, "teach-offer")
+    # Spec D gated the teach portal on the instructor-orientation unlock, so the
+    # tour's audience is ``member.can_create_classes`` — these members are unlocked.
+    def it_offers_the_instructor_tour_to_an_unlocked_member(client):
+        member = _login_member(client, "teach-offer", instructor_oriented_at=timezone.now())
         response = client.get(reverse("classes:teach_overview"))
         content = response.content.decode()
         assert "pl-tour-offer" in content
@@ -167,7 +169,7 @@ def describe_teach_overview_tour_offer():
         assert TourState.objects.status_for(member.user, "instructor") == TourState.Status.OFFERED
 
     def it_renders_the_persistent_new_class_button_on_the_empty_state(client):
-        _login_member(client, "teach-empty")
+        _login_member(client, "teach-empty", instructor_oriented_at=timezone.now())
         content = client.get(reverse("classes:teach_overview")).content.decode()
         assert 'data-help-key="teach.create-class"' in content
         assert "+ New class" in content
@@ -175,7 +177,7 @@ def describe_teach_overview_tour_offer():
     def it_renders_the_persistent_new_class_button_with_classes(client):
         from classes.factories import ClassOfferingFactory
 
-        member = _login_member(client, "teach-full")
+        member = _login_member(client, "teach-full", instructor_oriented_at=timezone.now())
         ClassOfferingFactory(instructor=member)
         content = client.get(reverse("classes:teach_overview")).content.decode()
         assert 'data-help-key="teach.create-class"' in content
@@ -220,7 +222,9 @@ def describe_settings_tours_toggle():
 def describe_help_page_tours_card():
     def it_does_not_render_for_anonymous_visitors(client):
         content = client.get(reverse("hub_help")).content.decode()
-        assert "Guided tours" not in content
+        # The changelog modal legitimately mentions "Guided tours" on every page,
+        # so assert on the card's heading markup, not the bare phrase.
+        assert '<h3 class="hub-detail-label">Guided tours</h3>' not in content
 
     def it_lists_eligible_tours_with_start_links(client):
         _login_member(client, "help-rows")
@@ -229,8 +233,13 @@ def describe_help_page_tours_card():
         assert "Not taken" in content
         assert ">Start<" in content
         assert "?tour=member-welcome" in content
-        assert "?tour=instructor" in content
+        assert "?tour=instructor" not in content  # locked — hasn't unlocked teaching (Spec D)
         assert "?tour=guild-lead" not in content  # not a lead
+
+    def it_lists_the_instructor_tour_once_teaching_is_unlocked(client):
+        _login_member(client, "help-unlocked", instructor_oriented_at=timezone.now())
+        content = client.get(reverse("hub_help")).content.decode()
+        assert "?tour=instructor" in content
 
     def it_shows_taken_and_retake_for_a_completed_tour(client):
         member = _login_member(client, "help-done")

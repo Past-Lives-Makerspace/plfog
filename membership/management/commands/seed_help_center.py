@@ -75,12 +75,17 @@ class Command(BaseCommand):
     def _sync_article(
         page: Any, seed: dict[str, Any], categories: dict[str, Any], article_model: Any, *, dry_run: bool
     ) -> bool:
-        """Create or refresh one guide, keyed on ``(page, slug)``. Returns True when it is new."""
-        category = categories[seed["category"]]
+        """Create or refresh one guide, keyed on ``(page, slug)``. Returns True when it is new.
+
+        ``category: None`` seeds an uncategorized guide — the unlisted flow pages
+        (``UNLISTED_SLUGS``, e.g. the instructor orientation) live off the browsing
+        surfaces entirely, so they belong to no category.
+        """
+        category = categories[seed["category"]] if seed["category"] is not None else None
         values = {
             "title": seed["title"],
             "body": seed["body"],
-            "category": category if category.pk is not None else None,
+            "category": category if category is not None and category.pk is not None else None,
             "sort_order": seed["sort_order"],
         }
         existing = article_model.objects.filter(page=page, slug=seed["slug"]).first()

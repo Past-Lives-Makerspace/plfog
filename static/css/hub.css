@@ -5714,3 +5714,66 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
         min-height: 44px;
     }
 }
+
+/* ── Instructor orientation (Spec D) ──────────────────────────────────── */
+
+.pl-orientation {
+    max-width: 860px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* Friendly explainer — doubles as the redirect landing state. No error styling. */
+.pl-orientation-banner {
+    border-left: 4px solid var(--hub-accent, #c46a1b);
+}
+
+.pl-orientation-banner__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.1rem;
+}
+
+.pl-orientation-banner__body {
+    margin: 0;
+    color: var(--hub-text-muted);
+}
+
+.pl-orientation-done__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.1rem;
+}
+
+.pl-orientation-done__meta {
+    margin: 0 0 1rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-orientation-done__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.pl-orientation-guide-link {
+    margin: 1.5rem 0 0;
+}
+
+/* The submit clears the toggle above it (FRONTEND.md rule 18). */
+.pl-orientation-submit {
+    margin-top: 1.5rem;
+}
+
+.pl-orientation-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+    .pl-orientation-submit,
+    .pl-orientation-done__actions .pl-btn {
+        width: 100%;
+        text-align: center;
+    }
+}

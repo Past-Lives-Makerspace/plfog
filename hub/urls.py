@@ -335,6 +335,11 @@ urlpatterns = [
     ),
     path("manage/members/<int:pk>/edit/", views.admin_member_edit, name="hub_admin_member_edit"),
     path(
+        "manage/members/<int:pk>/teaching/",
+        views.admin_member_teaching_set,
+        name="hub_admin_member_teaching",
+    ),
+    path(
         "manage/members/<int:pk>/send-login-invite/",
         views.admin_member_send_login_invite,
         name="hub_admin_member_send_login_invite",

@@ -52,14 +52,12 @@ def _guild_lead_or_staff(member: Member) -> bool:
     return member.is_guild_lead or member.is_guild_staff
 
 
-def _active_member(member: Member) -> bool:
-    # Instructor-tour audience TODAY: any active member — mirrors
-    # classes.views.teaching_member_required, which admits any active member.
-    # When Spec D (instructor-orientation unlock) ships, this becomes
-    # ``member.can_create_classes`` — D's rewritten decorator 302s locked members
-    # off the teach overview, so both auto-offers and manual starts must gate on
-    # the unlock or they dead-loop. D flips this in its own build.
-    return member.status == member.Status.ACTIVE
+def _can_create_classes(member: Member) -> bool:
+    # Instructor-tour audience: the teaching unlock (Spec D). The rewritten
+    # ``teaching_member_required`` 302s locked members off the teach overview,
+    # so both auto-offers and manual starts must gate on the unlock or they
+    # dead-loop through the orientation redirect.
+    return member.can_create_classes
 
 
 def _first_staffed_guild_pk(member: Member) -> dict[str, Any]:
@@ -189,15 +187,12 @@ TOURS: dict[str, Tour] = {
         key="instructor",
         title="The teaching portal",
         entry_url_name="classes:teach_overview",
-        audience=_active_member,
-        # Step 1's copy ("Any active member can create a class here") is retouched by
-        # Spec D's build when the unlock ships (§7.3) — it becomes a statement about
-        # the unlocked member ("You're cleared to create classes here").
+        audience=_can_create_classes,
         steps=(
             TourStep(
                 target=None,
                 title="The teaching portal",
-                body="Any active member can create a class here. Here's the 20-second version of how it works.",
+                body="You're cleared to create classes here. Here's the 20-second version of how it works.",
             ),
             TourStep(
                 target='[data-help-key="teach.create-class"]',

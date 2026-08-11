@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone as _tz
 
 from membership import help_content
 from membership.models import Guild, Member, MembershipPlan
@@ -81,7 +82,12 @@ def _seed_personas() -> dict[str, Member]:
     traits: dict[str, dict[str, object]] = {
         "member": {"full_legal_name": "Morgan Member"},
         "guild_lead": {"full_legal_name": "Lee Guildlead"},
-        "instructor": {"full_legal_name": "Jules Instructor", "instructor_slug": "jules-instructor"},
+        "instructor": {
+            "full_legal_name": "Jules Instructor",
+            "instructor_slug": "jules-instructor",
+            # Spec D: the teach portal is gated on the orientation unlock.
+            "instructor_oriented_at": _tz.now(),
+        },
         "admin": {"full_legal_name": "Alex Admin", "fog_role": Member.FogRole.ADMIN},
     }
     personas: dict[str, Member] = {}

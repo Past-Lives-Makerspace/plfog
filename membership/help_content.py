@@ -658,11 +658,17 @@ The fine print:
         "sort_order": 10,
         "related": ["run-your-class", "taking-a-class"],
         "body": """\
-Any active member can teach a class at Past Lives. There is no application and no gatekeeping on the door: if your membership is active, the teaching portal is open to you.
+Any active member can become an instructor at Past Lives. There is no application to fill out and no waiting on approval — just a short, one-time orientation.
 
 What nobody can do is self-publish. Every class goes through review before it appears in the catalog, no matter who wrote it.
 
-One note on the word "instructor": an admin can set your role to Instructor, but all that does is create your public instructor page in the class catalog. It does not unlock anything in the teaching portal. You can draft and submit classes either way.
+### Complete the orientation {#teach-become-instructor}
+
+The first time you head for the teaching portal, you land on the [instructor orientation](/classes/teach/orientation/). It's one page: what we expect from instructors, how class review works, and the quality bar. Read it, tick the box, and the portal unlocks right away — no admin sign-off, and you only ever do it once.
+
+Already taught a class before the orientation existed? You're grandfathered in — the portal is already open for you.
+
+One note on the word "instructor": an admin can set your role to Instructor, which creates your public instructor page in the class catalog (and opens the teaching portal for you if it wasn't open already). The role and the unlock are separate things — you don't need the role to teach.
 
 ### Open the teaching portal
 
@@ -671,6 +677,8 @@ Three ways in:
 1. Click **Class Catalog** in the left menu, then **Manage My Classes**.
 2. Go straight to `/classes/teach/`.
 3. On any guild page, click **Teach a Class** in the Get Involved panel. That one jumps straight to the new class form.
+
+Haven't done the orientation yet? Any of these takes you there first — finish it and you're through.
 
 ![The teaching portal Overview: your drafts, classes in review, and recent sign-ups.](/static/help/become-an-instructor/01-teaching-portal.png)
 
@@ -720,6 +728,45 @@ Once a class is published (or archived), only an admin can edit it. Need a chang
                 "as_role": "instructor",
             },
         ],
+    },
+    {
+        # UNLISTED (§10.6 / Spec D): renders on the orientation page at
+        # /classes/teach/orientation/ and resolves at its own /help/ URL, but
+        # never appears on the landing, category pages, or search.
+        "slug": "instructor-orientation",
+        "category": None,
+        "title": "Instructor orientation",
+        "sort_order": 0,
+        "related": [],
+        "body": """\
+Teaching at Past Lives is open to every active member. This page is the one-time orientation: read it, tick the box at the bottom, and the teaching portal unlocks right away.
+
+## What we expect from instructors {#what-we-expect}
+
+- **Show up prepared.** Know your material, have your tools and supplies sorted, and start on time.
+- **Keep it safe.** You're responsible for how tools are used in your class. If a session uses guild equipment, make sure everyone in the room is cleared to use it — or build that training into the class.
+- **Be straight in your listing.** The title, description, and price should match what students actually get. No surprises on the day.
+- **Look after your students.** Answer questions, use the portal's email tool to keep registrants posted, and tell an admin early if you have to cancel.
+
+## How class review works {#how-review-works}
+
+You never self-publish — every class is reviewed before it appears in the catalog:
+
+1. You write a **draft**. Drafts are private; only you and admins can see them.
+2. You **submit it for review** when it's ready.
+3. If your class's category belongs to a guild with a lead, that **guild lead** reviews it first.
+4. An **admin** gives the final yes. Only then does it publish.
+
+Reviewers can approve, request changes, or decline — and they have to leave a note when sending something back, so you always know what to fix. You get an email as each decision lands.
+
+## The quality bar {#the-quality-bar}
+
+Before a class can be submitted it needs:
+
+- **At least one photo** — its own hero image or a gallery photo. Classes with real photos of the work get real sign-ups.
+- **A description that answers the basics** — what students will make or learn, what's provided, and what (if anything) to bring.
+- **Fair pricing** — cover your materials and time. If you set a member discount, members get it automatically when they register with their member email.""",
+        "screenshots": [],
     },
     {
         "slug": "run-your-class",

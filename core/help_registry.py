@@ -48,10 +48,20 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.create-class": {
         "title": "Create a class",
         "short_text": (
-            "Any active member can draft a class and submit it. A guild lead or admin reviews it before it goes live."
+            "Draft a class and submit it — the portal opens after the one-time instructor orientation. "
+            "A guild lead or admin reviews every class before it goes live."
         ),
         "article_slug": "become-an-instructor",
         "anchor": "teach-create-class",
+    },
+    "teach.become-instructor": {
+        "title": "Become an instructor",
+        "short_text": (
+            "Complete the short instructor orientation once and the teaching portal unlocks — "
+            "no waiting on an admin. Every class is still reviewed before it publishes."
+        ),
+        "article_slug": "become-an-instructor",
+        "anchor": "teach-become-instructor",
     },
     "guild.manage-staff": {
         "title": "Manage guild staff",

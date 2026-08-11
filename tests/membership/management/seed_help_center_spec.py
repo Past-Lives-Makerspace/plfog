@@ -39,7 +39,11 @@ def describe_seed_help_center():
             for seed in ARTICLES:
                 article = WikiArticle.objects.get(slug=seed["slug"])
                 assert article.is_published
-                assert article.category is not None and article.category.slug == seed["category"]
+                if seed["category"] is None:
+                    # Unlisted flow pages (Spec D's instructor orientation) seed uncategorized.
+                    assert article.category is None
+                else:
+                    assert article.category is not None and article.category.slug == seed["category"]
                 assert (article.title, article.body, article.sort_order) == (
                     seed["title"],
                     seed["body"],

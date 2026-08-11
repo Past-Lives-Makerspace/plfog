@@ -502,6 +502,14 @@ class Member(models.Model):
         default=True,
         help_text="When off, tours are never auto-offered. Manual starts from the Help page still work.",
     )
+    instructor_oriented_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the member completed the instructor orientation (or an admin granted teaching "
+            "access); null = teaching portal locked. Cleared when an admin revokes access."
+        ),
+    )
     leases = GenericRelation(
         "Lease",
         content_type_field="content_type",
@@ -923,6 +931,79 @@ class Member(models.Model):
         """True when this member has a public instructor profile (instructor_slug is set)."""
         return bool(self.instructor_slug)
 
+    @property
+    def can_create_classes(self) -> bool:
+        """True when this member may enter the teaching portal and create classes.
+
+        The single source of truth for the teaching gate (Spec D §4):
+        ``teaching_member_required`` reads only this. Deliberately independent of
+        the Instructor *role* (``instructor_slug`` — the public page) and of tour
+        state (deleting a ``TourState`` row must never revoke a permission).
+        """
+        return self.instructor_oriented_at is not None
+
+    def complete_instructor_orientation(self) -> None:
+        """Member-facing completion of the instructor orientation — unlocks the teaching portal.
+
+        Idempotent: an already-unlocked member returns without side effects, so a
+        double-submit never logs a second activity row. Writes no ``TourState``
+        (``instructor_oriented_at`` is the entire record — Spec D §4).
+
+        Raises:
+            ValueError: If the member is not ACTIVE — orientation can't fix an
+                inactive account (those keep their 403 at the portal door).
+        """
+        from core.models import SiteActivity
+
+        if self.status != self.Status.ACTIVE:
+            raise ValueError(f"Member {self.pk} is not active — cannot complete the instructor orientation")
+        if self.instructor_oriented_at is not None:
+            return
+        self.instructor_oriented_at = timezone.now()
+        self.save(update_fields=["instructor_oriented_at"])
+        SiteActivity.log(SiteActivity.Kind.INSTRUCTOR_ORIENTED, actor=self.user, target=self)
+
+    def grant_teaching(self, *, granted_by: "Member | None") -> None:
+        """Admin override: unlock the teaching portal for this member.
+
+        Idempotent — granting an already-unlocked member is a no-op (no duplicate
+        activity row, original timestamp kept). ``granted_by=None`` covers a
+        superuser acting without a linked Member (emergency access) — the
+        activity row is then system-attributed.
+        """
+        from core.models import SiteActivity
+
+        if self.instructor_oriented_at is not None:
+            return
+        self.instructor_oriented_at = timezone.now()
+        self.save(update_fields=["instructor_oriented_at"])
+        SiteActivity.log(
+            SiteActivity.Kind.TEACHING_GRANTED,
+            actor=granted_by.user if granted_by is not None else None,
+            target=self,
+        )
+
+    def revoke_teaching(self, *, revoked_by: "Member | None") -> None:
+        """Admin override: lock the teaching portal for this member.
+
+        Existing classes are untouched — drafts, pending, and published offerings
+        keep their status, registrations, and emails; the member simply can't enter
+        the teach portal or create new classes until re-unlocked. Two roads back:
+        an admin grant, or completing the orientation again. Idempotent — revoking
+        an already-locked member is a no-op (no log).
+        """
+        from core.models import SiteActivity
+
+        if self.instructor_oriented_at is None:
+            return
+        self.instructor_oriented_at = None
+        self.save(update_fields=["instructor_oriented_at"])
+        SiteActivity.log(
+            SiteActivity.Kind.TEACHING_REVOKED,
+            actor=revoked_by.user if revoked_by is not None else None,
+            target=self,
+        )
+
     def is_oriented_for(self, guild: Guild) -> bool:
         """True when the member has a completed orientation for this guild."""
         return self.orientation_bookings.filter(guild=guild, is_completed=True).exists()
@@ -960,6 +1041,7 @@ class Member(models.Model):
         if picked_role not in valid:
             raise ValueError(f"Invalid admin role token: {picked_role!r}")
 
+        unlocked_via_promotion = False
         if picked_role == self.ADMIN_ROLE_INSTRUCTOR:
             self.fog_role = self.FogRole.MEMBER
             self.status = self.Status.ACTIVE
@@ -971,12 +1053,32 @@ class Member(models.Model):
                     n += 1
                     slug = f"{base}-{n}"
                 self.instructor_slug = slug
+                # First-time promotion implies the teaching unlock (Spec D §5) — an
+                # explicit "make them an Instructor" must not strand them at the
+                # orientation redirect. Scoped to this slug-minting branch ON
+                # PURPOSE: admin_member_edit re-applies the role on every save and
+                # the form pre-fills "Instructor" for any slug holder, so an
+                # unscoped hook would silently re-grant a revoked instructor's
+                # access on any routine member edit.
+                if self.instructor_oriented_at is None:
+                    self.instructor_oriented_at = timezone.now()
+                    unlocked_via_promotion = True
         elif picked_role == self.ADMIN_ROLE_GUEST:
             self.fog_role = self.FogRole.MEMBER
             self.status = self.Status.FORMER
         else:
             self.fog_role = picked_role
         self.save()
+        if unlocked_via_promotion:
+            from core.models import SiteActivity
+
+            # System-attributed row (actor=None) — the method has no actor parameter.
+            SiteActivity.log(
+                SiteActivity.Kind.TEACHING_GRANTED,
+                actor=None,
+                target=self,
+                payload={"via": "instructor_promotion"},
+            )
 
     def set_fog_role(self, new_role: str, *, changed_by: Member) -> None:
         """Change this member's fog_role with permission checks.

@@ -89,7 +89,11 @@ def describe_TOURS():
             plain = _member("plain")
             assert TOURS["member-welcome"].audience(plain) is True
             assert TOURS["guild-lead"].audience(plain) is False
-            assert TOURS["instructor"].audience(plain) is True  # any ACTIVE member today (Spec D flips this)
+            assert TOURS["instructor"].audience(plain) is False  # locked until the orientation unlock (Spec D)
+
+        def it_admits_unlocked_members_to_the_instructor_tour():
+            unlocked = _member("unlocked", instructor_oriented_at=timezone.now())
+            assert TOURS["instructor"].audience(unlocked) is True
 
         def it_admits_guild_leads_and_staff_to_the_lead_tour():
             lead = _lead("lead")
@@ -103,16 +107,21 @@ def describe_TOURS():
 def describe_tours_for():
     def it_lists_only_tours_whose_audience_passes():
         plain = _member("tf-plain")
-        assert [t.key for t in tours_for(plain)] == ["member-welcome", "instructor"]
+        assert [t.key for t in tours_for(plain)] == ["member-welcome"]
+        unlocked = _member("tf-unlocked", instructor_oriented_at=timezone.now())
+        assert [t.key for t in tours_for(unlocked)] == ["member-welcome", "instructor"]
 
     def it_includes_the_lead_tour_for_leads():
         lead = _lead("tf-lead")
+        assert [t.key for t in tours_for(lead)] == ["member-welcome", "guild-lead"]
+        lead.instructor_oriented_at = timezone.now()
+        lead.save(update_fields=["instructor_oriented_at"])
         assert [t.key for t in tours_for(lead)] == ["member-welcome", "guild-lead", "instructor"]
 
 
 def describe_help_card_rows():
     def it_builds_a_row_per_eligible_tour_with_taken_state():
-        member = _member("rows")
+        member = _member("rows", instructor_oriented_at=timezone.now())
         TourState.objects.mark_completed(member.user, "member-welcome")
         rows = help_card_rows(member)
         assert [row["tour"].key for row in rows] == ["member-welcome", "instructor"]

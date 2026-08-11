@@ -27,15 +27,22 @@ def admin_user(db):
 
 @pytest.fixture
 def member_user(db):
+    from django.utils import timezone
+
     from membership.models import Member, MembershipPlan
 
     plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
     User = get_user_model()
     user, _ = User.objects.get_or_create(username="member@example.com", defaults={"email": "member@example.com"})
-    Member.objects.get_or_create(
+    member, _ = Member.objects.get_or_create(
         user=user,
         defaults={"full_legal_name": "Plain Member", "fog_role": Member.FogRole.MEMBER, "membership_plan": plan},
     )
+    # Teach-portal specs need the instructor-orientation unlock (Spec D) — set it
+    # unconditionally (the signal-created Member ignores the defaults above).
+    # Locked-member specs build their own member instead of using this fixture.
+    member.instructor_oriented_at = timezone.now()
+    member.save(update_fields=["instructor_oriented_at"])
     return user
 
 
