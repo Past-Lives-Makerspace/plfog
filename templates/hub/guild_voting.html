@@ -30,7 +30,7 @@
 </div>
 
 {# --- Vote Form --- #}
-<div class="hub-card" style="margin-bottom: 1.5rem;">
+<div class="hub-card" style="margin-bottom: 1.5rem;" data-help-key="voting.rank-guilds">
     <h2 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 1.25rem;">
         {% if preference %}Update Your Vote{% else %}Submit Your Vote{% endif %}
     </h2>
@@ -130,7 +130,7 @@
 {% endif %}
 
 {# --- Tabbed Standings / New Votes / Last Month --- #}
-<div class="hub-card" style="margin-bottom: 1.5rem;" x-data="{ tab: 'standings' }">
+<div class="hub-card" style="margin-bottom: 1.5rem;" x-data="{ tab: 'standings' }" data-help-key="voting.live-standings">
     <div class="vote-tab-nav pl-tabs">
         <button type="button"
                 @click="tab = 'standings'"
@@ -192,7 +192,7 @@
             </p>
             <div style="display: flex; gap: 0.5rem;">
                 <a href="{% url 'hub_snapshot_detail' latest_snapshot.pk %}" class="hub-btn hub-btn--secondary" style="font-size: 0.8rem; padding: 0.3rem 0.75rem;">Details</a>
-                <a href="{% url 'hub_snapshot_history' %}" class="hub-btn hub-btn--secondary" style="font-size: 0.8rem; padding: 0.3rem 0.75rem;">Full History</a>
+                <a href="{% url 'hub_snapshot_history' %}" class="hub-btn hub-btn--secondary" style="font-size: 0.8rem; padding: 0.3rem 0.75rem;" data-help-key="voting.results-history">Full History</a>
             </div>
         </div>
         {% with results=latest_snapshot.results.results %}

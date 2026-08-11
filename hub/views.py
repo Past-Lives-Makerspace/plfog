@@ -19,12 +19,13 @@ from django.contrib.auth.models import User
 from django.contrib.auth.views import redirect_to_login
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Prefetch, Q, QuerySet
-from django.forms import BaseInlineFormSet
-from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
+from django.forms import BaseInlineFormSet, BaseModelFormSet
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.http import require_POST, require_http_methods
+from django.utils.cache import patch_cache_control
+from django.views.decorators.http import condition, require_GET, require_POST, require_http_methods
 
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
@@ -49,6 +50,8 @@ from hub.forms import (
     SkillSuggestionForm,
     SlideshowSlideFormSet,
     SlideshowZoneFormSet,
+    TourSettingsForm,
+    TourStateForm,
     VotePreferenceForm,
 )
 from hub.toast import trigger_toast
@@ -57,6 +60,7 @@ from membership.vote_calculator import compute_live_standings, compute_new_votes
 from membership.models import (
     FundingSnapshot,
     Guild,
+    HelpCategory,
     Meeting,
     MeetingItemProposal,
     Member,
@@ -66,6 +70,7 @@ from membership.models import (
     SkillCategory,
     SpaceRequestQuerySet,
     VotePreference,
+    WikiArticle,
 )
 from membership.ical import ical_escape
 from membership.permissions import can_edit_category as _can_edit_category
@@ -127,6 +132,32 @@ def welcome_dismiss(request: HttpRequest) -> HttpResponse:
     if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
         return redirect(next_url)
     return redirect("hub_community_calendar")
+
+
+@login_required
+@require_POST
+def tour_state(request: HttpRequest, tour_key: str) -> HttpResponse:
+    """Record how a guided tour ended for this user (Spec C §5): completed or dismissed.
+
+    The offer card's *No thanks* and the tour runtime's ``onDestroyStarted`` hook both
+    POST here — there is deliberately no separate offer-dismiss endpoint. Unknown tour
+    → 404; bad status → 400 with the form errors. ``mark_dismissed`` is a no-op on a
+    completed row (completed is sticky), so a re-run Esc'd halfway never downgrades.
+    No toast — tour endings are self-evident on screen.
+    """
+    from core.models import TourState
+
+    form = TourStateForm(data={"tour_key": tour_key, "status": request.POST.get("status", "")})
+    if not form.is_valid():
+        if "tour_key" in form.errors:
+            raise Http404("Unknown tour.")
+        return JsonResponse({"errors": form.errors}, status=400)
+    user = cast(User, request.user)
+    if form.cleaned_data["status"] == "completed":
+        TourState.objects.mark_completed(user, tour_key)
+    else:
+        TourState.objects.mark_dismissed(user, tour_key)
+    return HttpResponse(status=204)
 
 
 @login_required
@@ -695,7 +726,13 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             return redirect("hub_guild_detail", slug=guild.slug)
         return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild, form=form))
 
-    return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild))
+    from core.tours import tour_offer_context
+
+    return render(
+        request,
+        "hub/guild_edit.html",
+        {**_guild_edit_context(request, guild), **tour_offer_context(request, "guild-lead")},
+    )
 
 
 @login_required
@@ -1451,6 +1488,28 @@ def guild_eyop_form(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "hub/partials/eyop_form.html", {"eyop_form": form, "guild": guild})
 
 
+def _handle_tours_form(
+    request: HttpRequest, member: Member | None
+) -> tuple[TourSettingsForm | None, HttpResponse | None]:
+    """The ``form_id="tours"`` branch of ``user_settings`` (Spec C §6.4).
+
+    Returns ``(form_for_render, response)`` — a non-None response short-circuits
+    the view (successful save → message + redirect back to the Notifications tab,
+    matching the tab's sibling forms; unlinked account → the established error path).
+    """
+    if not (request.method == "POST" and request.POST.get("form_id") == "tours"):
+        return (TourSettingsForm(instance=member) if member is not None else None), None
+    if member is None:
+        messages.error(request, "Your account is not linked to a membership.")
+        return None, redirect("hub_user_settings")
+    form = TourSettingsForm(request.POST, instance=member)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Guided tour preference saved.")
+        return form, redirect(f"{request.path}?tab=notifications")
+    return form, None
+
+
 @login_required
 def user_settings(request: HttpRequest) -> HttpResponse:
     """Tabbed user settings page — Profile + Emails + Notifications.
@@ -1509,6 +1568,10 @@ def user_settings(request: HttpRequest) -> HttpResponse:
         messages.success(request, "Notification preferences updated.")
         return redirect(f"{request.path}?tab=notifications")
 
+    tours_form, tours_response = _handle_tours_form(request, member)
+    if tours_response is not None:
+        return tours_response
+
     add_email_form = AddEmailForm(user=request.user)
     email_addresses = list(EmailAddress.objects.filter(user=request.user).order_by("-primary", "email"))
     primary_email = next((ea for ea in email_addresses if ea.primary), None)
@@ -1549,6 +1612,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "notif_matrix": notif_matrix,
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,
+            "tours_form": tours_form,
             "my_guilds_rows": build_my_guilds_rows(member),
             "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
             "photo_upload_hint": (
@@ -2314,25 +2378,71 @@ def spaces(request: HttpRequest) -> HttpResponse:
 
 
 def help_page(request: HttpRequest) -> HttpResponse:
-    """Public Help page — how the app works: intro, how-it-works guides, FAQ, conduct link.
+    """Public Help landing — category grid, search, Josh's reference blocks, FAQ, resources.
 
-    The reference half of the old combined ``/info/`` page. Public-read for the same reason
-    it always was: org-wide reference content, no member PII. Editing is admin-only via
-    ``help_edit``. Anything about the *building* now lives on ``spaces``; the makerspace's
-    full external knowledge base is the separate "Wiki" nav link.
+    Public-read for the same reason it always was: org-wide reference content, no member
+    PII. Editing is admin-only via ``help_edit``. Every category card lists its published
+    guides directly (one ``Prefetch`` into ``landing_articles`` — no per-category queries);
+    uncategorized published guides render in the permanent "All guides" fallback list, so
+    nothing vanishes between migrate and seed. ``legacy_anchor_map`` covers the old
+    ``/help/#slug`` deep links — filtered to targets that exist and are published,
+    resolved to full article URLs for the inline redirect JS.
     """
+    from membership.help_content import LEGACY_SLUG_MAP, UNLISTED_SLUGS
+
     if not SiteConfiguration.load().help_page_enabled:
         return redirect("hub_home")
 
     page = OrgInfoPage.load()
     org_ct = ContentType.objects.get_for_model(OrgInfoPage)
+    live_targets = {
+        a.slug: a
+        for a in WikiArticle.objects.published()
+        .filter(slug__in=set(LEGACY_SLUG_MAP.values()))
+        .select_related("category")
+    }
+    legacy_anchor_map = {
+        old: live_targets[new].get_absolute_url() for old, new in LEGACY_SLUG_MAP.items() if new in live_targets
+    }
+    # Guided-tours aside card (Spec C §6.5) — authenticated members only; the page
+    # itself is public-read, so no @login_required here.
+    from core.tours import help_card_rows
+
+    member = getattr(request.user, "member", None) if request.user.is_authenticated else None
+    tour_rows = help_card_rows(member) if member is not None else None
     return render(
         request,
         "hub/help.html",
         {
             **_get_hub_context(request),
             "page": page,
-            "articles": page.articles.filter(is_published=True).order_by("sort_order", "pk"),
+            "categories": (
+                HelpCategory.objects.with_published_counts()
+                .nonempty()
+                .landing_ranked()
+                .prefetch_related(
+                    Prefetch(
+                        "articles",
+                        queryset=(
+                            WikiArticle.objects.published()
+                            .exclude(slug__in=UNLISTED_SLUGS)
+                            # get_absolute_url reads article.category — join it here so
+                            # the card links stay inside the single prefetch query.
+                            .select_related("category")
+                            .order_by("sort_order", "pk")
+                        ),
+                        to_attr="landing_articles",
+                    )
+                )
+            ),
+            "uncategorized": (
+                WikiArticle.objects.published()
+                .filter(category__isnull=True)
+                .exclude(slug__in=UNLISTED_SLUGS)
+                .order_by("sort_order", "pk")
+            ),
+            "legacy_anchor_map": legacy_anchor_map,
+            "tour_rows": tour_rows,
             "faq_items": page.faq_items.all(),
             "links": page.links.all(),
             "can_edit": _viewing_as_admin(request),
@@ -2341,29 +2451,181 @@ def help_page(request: HttpRequest) -> HttpResponse:
     )
 
 
+def help_category(request: HttpRequest, category_slug: str) -> HttpResponse:
+    """Public category browse — the published guides in one category, in ``(sort_order, pk)`` order.
+
+    Admins additionally see the category's drafts, flagged with a Draft badge. Unlisted
+    guides never appear here (their canonical URL is the only way in, by design).
+    """
+    from membership.help_content import UNLISTED_SLUGS
+
+    if not SiteConfiguration.load().help_page_enabled:
+        return redirect("hub_home")
+
+    category = get_object_or_404(HelpCategory, slug=category_slug)
+    articles = category.articles.filter(is_published=True).exclude(slug__in=UNLISTED_SLUGS).order_by("sort_order", "pk")
+    is_admin = _viewing_as_admin(request)
+    drafts = (
+        category.articles.filter(is_published=False).order_by("sort_order", "pk")
+        if is_admin
+        else WikiArticle.objects.none()
+    )
+    return render(
+        request,
+        "hub/help_category.html",
+        {
+            **_get_hub_context(request),
+            "category": category,
+            "articles": articles,
+            "drafts": drafts,
+            "can_edit": is_admin,
+        },
+    )
+
+
+def help_article(request: HttpRequest, category_slug: str, article_slug: str) -> HttpResponse:
+    """Public article page — resolved by article slug alone (globally unique via the page constraint).
+
+    Missing → 404. Unpublished → 404 unless the viewer is an admin (who sees a Draft
+    banner). A stale ``category_slug`` (recategorized guide, hand-typed URL) 301s to the
+    canonical URL, so old article links never break when a guide moves categories.
+    Unlisted articles resolve normally here — the URL is the only way in, by design.
+    """
+    if not SiteConfiguration.load().help_page_enabled:
+        return redirect("hub_home")
+
+    article = WikiArticle.objects.filter(slug=article_slug).select_related("category").first()
+    if article is None:
+        raise Http404("No guide with that slug.")
+    is_admin = _viewing_as_admin(request)
+    if not article.is_published and not is_admin:
+        raise Http404("No guide with that slug.")
+    if category_slug != article.url_category_segment:
+        return redirect(article.get_absolute_url(), permanent=True)
+    siblings = (
+        list(article.category.articles.filter(is_published=True).order_by("sort_order", "pk"))
+        if article.category
+        else []
+    )
+    return render(
+        request,
+        "hub/help_article.html",
+        {
+            **_get_hub_context(request),
+            "article": article,
+            "toc": article.toc(),
+            "related": article.related_for_display(),
+            "previous_article": article.previous_in_category(),
+            "next_article": article.next_in_category(),
+            "siblings": siblings,
+            "has_other_siblings": any(s.pk != article.pk for s in siblings),
+            "can_edit": is_admin,
+        },
+    )
+
+
+def help_search(request: HttpRequest) -> HttpResponse:
+    """Public help search — plain GET ``?q=``, per-term AND across title/body/category name.
+
+    The view builds ``(article, snippet)`` pairs via ``search_snippet``; empty ``q``
+    renders the prompt state with the category list as suggestions.
+    """
+    if not SiteConfiguration.load().help_page_enabled:
+        return redirect("hub_home")
+
+    q = request.GET.get("q", "").strip()
+    results = [(article, article.search_snippet(q)) for article in WikiArticle.objects.search(q)]
+    return render(
+        request,
+        "hub/help_search.html",
+        {
+            **_get_hub_context(request),
+            "q": q,
+            "results": results,
+            "categories": HelpCategory.objects.with_published_counts().nonempty().landing_ranked(),
+        },
+    )
+
+
+def _help_topics_etag(request: HttpRequest) -> str | None:
+    """ETag for ``help_topics_json`` — keyed on (app VERSION, registry contents).
+
+    Every PR bumps VERSION, so deploys bust the browser cache and unchanged
+    deploys 304. ``None`` when the feature is off, so the 404 is never cached.
+    """
+    import hashlib
+
+    from core.help_registry import HELP_KEYS
+    from plfog.version import VERSION
+
+    if not SiteConfiguration.load().help_page_enabled:
+        return None
+    return '"' + hashlib.sha256(f"{VERSION}:{HELP_KEYS!r}".encode()).hexdigest()[:32] + '"'
+
+
+@require_GET
+@condition(etag_func=_help_topics_etag)
+def help_topics_json(request: HttpRequest) -> JsonResponse:
+    """Serve the in-code help-key registry for the Info View overlay (Spec B §5).
+
+    Public-read for the same reason ``help_page`` is: org-wide reference
+    content, no PII. The client gets a finished ``url`` per key (``url_for``
+    resolves article + anchor, degrading to ``/help/``) and needs zero URL
+    logic of its own.
+    """
+    from core.help_registry import HELP_KEYS, url_for
+    from plfog.version import VERSION
+
+    if not SiteConfiguration.load().help_page_enabled:
+        return JsonResponse({"detail": "Not found."}, status=404)
+    topics = {
+        key: {"title": t["title"], "short_text": t["short_text"], "url": url_for(key)} for key, t in HELP_KEYS.items()
+    }
+    response = JsonResponse({"version": VERSION, "topics": topics})
+    patch_cache_control(response, public=True, max_age=3600)
+    return response
+
+
 def _org_info_edit_context(
     request: HttpRequest,
     page: OrgInfoPage,
     *,
     form: OrgInfoPageForm | None = None,
+    faq_formset: BaseInlineFormSet | None = None,
+    link_formset: BaseInlineFormSet | None = None,
+    article_formset: BaseInlineFormSet | None = None,
+    category_formset: BaseModelFormSet | None = None,
+    active_tab: str | None = None,
 ) -> dict[str, Any]:
-    """Build the render context for the Space & Org Info editor (Content / Map / FAQ & Links).
+    """Build the render context for the Space & Org Info editor (Content / Map / FAQ & Links / …).
 
-    The main form covers Content + Map; the FAQ and Links formsets each save via their own
-    endpoint (they can't nest inside the main form), so they are always unbound here —
-    exactly the guild-editor idiom in ``_guild_edit_context``.
+    The main form covers Content + Map; the FAQ, Links, Articles, and Categories formsets each
+    save via their own endpoint (they can't nest inside the main form), so they render unbound
+    here unless the caller passes a bound one back in — the invalid-save re-render path, which
+    keeps field errors visible and the admin's edits intact. ``active_tab`` tells the template
+    which tab to open (it wins over the ``?tab=`` query param).
     """
-    from hub.forms import OrgFAQItemFormSet, OrgLinkFormSet, WikiArticleFormSet
+    from hub.forms import HelpCategoryFormSet, OrgFAQItemFormSet, OrgLinkFormSet, WikiArticleFormSet
+    from membership.help_content import ARTICLES
 
     ctx = _get_hub_context(request)
     return {
         **ctx,
         "page": page,
+        # Slugs owned by the seed pipeline — the Articles tab flags these rows with an
+        # overwrite warning (a deploy's seed_help_center refreshes their text in place).
+        "seeded_slugs": {article["slug"] for article in ARTICLES},
         "form": form if form is not None else OrgInfoPageForm(instance=page),
-        "faq_formset": OrgFAQItemFormSet(instance=page, prefix="faq"),
-        "link_formset": OrgLinkFormSet(instance=page, prefix="links"),
-        "article_formset": WikiArticleFormSet(instance=page, prefix="articles"),
+        "faq_formset": faq_formset if faq_formset is not None else OrgFAQItemFormSet(instance=page, prefix="faq"),
+        "link_formset": link_formset if link_formset is not None else OrgLinkFormSet(instance=page, prefix="links"),
+        "article_formset": (
+            article_formset if article_formset is not None else WikiArticleFormSet(instance=page, prefix="articles")
+        ),
+        "category_formset": (
+            category_formset if category_formset is not None else HelpCategoryFormSet(prefix="categories")
+        ),
         "is_admin": _viewing_as_admin(request),
+        "active_tab": active_tab,
     }
 
 
@@ -2403,9 +2665,12 @@ def org_info_faq_save(request: HttpRequest) -> HttpResponse:
     if formset.is_valid():
         formset.save()
         messages.success(request, "FAQ saved.")
-    else:
-        messages.error(request, "Couldn't save the FAQ — check the highlighted fields.")
-    return redirect(f"{reverse('hub_help_edit')}?tab=faq")
+        return redirect(f"{reverse('hub_help_edit')}?tab=faq")
+    return render(
+        request,
+        "hub/org_info_edit.html",
+        _org_info_edit_context(request, page, faq_formset=formset, active_tab="faq"),
+    )
 
 
 @login_required
@@ -2422,9 +2687,12 @@ def org_info_links_save(request: HttpRequest) -> HttpResponse:
     if formset.is_valid():
         formset.save()
         messages.success(request, "Links saved.")
-    else:
-        messages.error(request, "Couldn't save the links — check the highlighted fields.")
-    return redirect(f"{reverse('hub_help_edit')}?tab=faq")
+        return redirect(f"{reverse('hub_help_edit')}?tab=faq")
+    return render(
+        request,
+        "hub/org_info_edit.html",
+        _org_info_edit_context(request, page, link_formset=formset, active_tab="faq"),
+    )
 
 
 @login_required
@@ -2441,9 +2709,38 @@ def help_articles_save(request: HttpRequest) -> HttpResponse:
     if formset.is_valid():
         formset.save()
         messages.success(request, "Help guides saved.")
-    else:
-        messages.error(request, "Couldn't save the guides — check the highlighted fields.")
-    return redirect(f"{reverse('hub_help_edit')}?tab=articles")
+        return redirect(f"{reverse('hub_help_edit')}?tab=articles")
+    return render(
+        request,
+        "hub/org_info_edit.html",
+        _org_info_edit_context(request, page, article_formset=formset, active_tab="articles"),
+    )
+
+
+@login_required
+@require_POST
+def help_categories_save(request: HttpRequest) -> HttpResponse:
+    """Save the help-center categories from their own form on the Categories tab. Admin only.
+
+    Valid → save + redirect back to the tab. Invalid → re-render the editor with the *bound*
+    formset and the Categories tab active, so field errors show inline and no edit is lost.
+    """
+    from hub.forms import HelpCategoryFormSet
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    formset = HelpCategoryFormSet(request.POST, prefix="categories")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Categories saved.")
+        return redirect(f"{reverse('hub_help_edit')}?tab=categories")
+    page = OrgInfoPage.load()
+    return render(
+        request,
+        "hub/org_info_edit.html",
+        _org_info_edit_context(request, page, category_formset=formset, active_tab="categories"),
+    )
 
 
 @login_required
@@ -3491,9 +3788,14 @@ def home(request: HttpRequest) -> HttpResponse:
     ctx = _get_hub_context(request)
     if member is None:
         return render(request, "hub/home.html", {**ctx, "member": None})
+    from core.tours import tour_offer_context
     from hub.home import build_home_context
 
-    return render(request, "hub/home.html", {**ctx, "member": member, **build_home_context(member)})
+    return render(
+        request,
+        "hub/home.html",
+        {**ctx, "member": member, **build_home_context(member), **tour_offer_context(request, "member-welcome")},
+    )
 
 
 def community_calendar(request: HttpRequest) -> HttpResponse:
@@ -4151,6 +4453,32 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "send_login_invite_url": reverse("hub_admin_member_send_login_invite", args=[member.pk]),
         },
     )
+
+
+@fog_admin_required
+@require_POST
+def admin_member_teaching_set(request: HttpRequest, pk: int) -> HttpResponse:
+    """Grant or revoke teaching-portal access from the member edit page (Spec D §6, Screen 3).
+
+    Full-page POST + Django message, matching this page's sibling actions.
+    ``action`` must be ``grant`` or ``revoke``; anything else is a 400 (never
+    reachable from the UI). Revoke's consequences are named in the confirm modal.
+    """
+    member = get_object_or_404(Member, pk=pk)
+    action = request.POST.get("action", "")
+    if action not in ("grant", "revoke"):
+        return HttpResponseBadRequest("Unknown action.")
+    assert request.user.is_authenticated  # fog_admin_required guarantees a real User
+    # None = a superuser acting without a linked Member (emergency access).
+    admin_member = Member.objects.filter(user=request.user).first()
+    display = member.display_name or member.full_legal_name or f"member #{member.pk}"
+    if action == "grant":
+        member.grant_teaching(granted_by=admin_member)
+        messages.success(request, f"Granted teaching access for {display}.")
+    else:
+        member.revoke_teaching(revoked_by=admin_member)
+        messages.success(request, f"Revoked teaching access for {display}.")
+    return redirect("hub_admin_member_edit", pk=member.pk)
 
 
 @fog_admin_required

@@ -56,6 +56,36 @@
         <p class="hub-text-muted pl-person-invite__hint">Emails them a link to sign in for the first time.</p>
       </div>
       {% endif %}
+
+      {% comment %}
+      Teaching access (Spec D §6, Screen 3). Its own card with its own action —
+      grant/revoke is an event with an actor and an activity log, not a field to
+      batch-save with the form above. Grant is a plain POST; revoke names its
+      consequences in a confirm modal. Hidden in the non-member user-edit mode
+      (this whole branch is is_member-only).
+      {% endcomment %}
+      {% url 'hub_admin_member_teaching' member.pk as teaching_url %}
+      <div class="pl-teaching-access">
+        <h2 class="hub-detail-label">Teaching access</h2>
+        {% if member.can_create_classes %}
+          <p class="pl-teaching-access__status">Can create classes — unlocked {{ member.instructor_oriented_at|date }}.</p>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                  @click="$dispatch('open-confirm', 'revoke-teaching')">Revoke teaching access</button>
+        {% else %}
+          <p class="pl-teaching-access__status">Locked — hasn't completed the instructor orientation.</p>
+          <form method="post" action="{{ teaching_url }}">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="grant">
+            <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Grant teaching access</button>
+          </form>
+        {% endif %}
+        <p class="hub-text-muted pl-teaching-access__hint">
+          The Instructor <em>role</em> (public instructor page) is separate — set it with the Role dropdown above.
+        </p>
+      </div>
+      {% if member.can_create_classes %}
+        {% include "components/confirm_modal.html" with confirm_id="revoke-teaching" confirm_title="Revoke teaching access?" confirm_message=person_name|add:" will be locked out of the teaching portal and can't create new classes. Their existing classes and registrations are not affected. They can re-unlock by completing the orientation again." confirm_action_url=teaching_url confirm_field_name="action" confirm_field_value="revoke" confirm_button_text="Revoke access" %}
+      {% endif %}
     {% else %}
       {# Non-member user mode — read-only identity. #}
       <div class="pl-person-identity">

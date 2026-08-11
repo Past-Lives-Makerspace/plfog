@@ -2,9 +2,17 @@
 {% load classes_tags %}
 
 {% block tab_content %}
+{% comment %}Persistent header (Spec C §6.3): the "+ New class" action renders in BOTH the
+empty and has-classes branches — before it, the only create link was the empty-state CTA,
+so instructors with classes had no create button (and the tour's step-2 target was missing
+for exactly the people most likely to run it). data-help-key="teach.create-class" makes it
+the instructor tour's step-2 target.{% endcomment %}
+{% url 'classes:teach_class_create' as create_class_url %}
+{% include "components/page_header.html" with title="Teaching" description="Create classes, track what needs your attention, and manage sign-ups." action_url=create_class_url action_label="+ New class" action_help_key="teach.create-class" %}
+<a href="?tour=instructor" class="hub-btn hub-btn--sm hub-btn--ghost pl-tour-entry-link">Show me around</a>
 {% if is_guild_lead %}
   {# Guild-lead review queue: classes in a guild this member leads, waiting on them. #}
-  <section class="hub-card" style="margin:0 0 1.25rem;">
+  <section class="hub-card" style="margin:0 0 1.25rem;" data-help-key="guild.approve-classes">
     <h2 class="overview-title">Waiting on your review <span class="overview-title__count">({{ guild_lead_pending|length }})</span></h2>
     <p style="color:var(--hub-text-muted);margin:0 0 0.5rem;font-size:.9rem;">Classes in your guild waiting on your review.</p>
     {% for item in guild_lead_pending %}
@@ -28,13 +36,13 @@
       Set the details, add sessions, make it look great. We'll walk you through it —
       then an admin reviews it before it goes live.
     </p>
-    <a class="hub-btn" href="{% url 'classes:teach_class_create' %}">+ Create your first class</a>
+    <a class="hub-btn" href="{% url 'classes:teach_class_create' %}" data-help-key="teach.create-class">+ Create your first class</a>
   </div>
 {% else %}
   <div class="cms-overview" style="display:flex;flex-direction:column;gap:1.25rem;">
 
     {# ① Needs you: drafts to finish + classes awaiting admin review #}
-    <section class="hub-card" style="margin:0;">
+    <section class="hub-card" style="margin:0;" data-help-key="teach.review-pipeline">
       <h2 class="overview-title">Needs your attention <span class="overview-title__count">({{ stats.drafts|add:stats.pending }})</span></h2>
       {% for c in drafts %}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
@@ -57,7 +65,7 @@
     </section>
 
     {# ② Upcoming classes this week #}
-    <section class="hub-card" style="margin:0;">
+    <section class="hub-card" style="margin:0;" data-help-key="teach.roster">
       <h2 class="overview-title">Your classes this week</h2>
       {% for c in upcoming_classes %}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
@@ -81,7 +89,7 @@
     </section>
 
     {# ④ Waitlist pressure — compact strip #}
-    <section class="hub-card" style="margin:0;padding:0.75rem 1rem;">
+    <section class="hub-card" style="margin:0;padding:0.75rem 1rem;" data-help-key="teach.waitlists">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <h2 class="overview-title" style="margin:0;">Waitlists</h2>
         {% for c in waitlist_classes %}
@@ -125,3 +133,5 @@
   </div>
 {% endif %}
 {% endblock %}
+
+{% block extra_js %}{% include "hub/partials/_tour.html" %}{% endblock %}

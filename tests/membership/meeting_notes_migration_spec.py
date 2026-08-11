@@ -1,4 +1,4 @@
-"""Data-migration spec for 0107 — folding ``GuildMeetingNote`` rows into approved Meetings.
+"""Data-migration spec for 0112 — folding ``GuildMeetingNote`` rows into approved Meetings.
 
 Uses Django's ``MigrationExecutor`` (the 0086 precedent) so fixtures are built with the
 historical models at the pre-migration state. Each test restores the schema to head in a
@@ -15,10 +15,10 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
 _APP = "membership"
-_BEFORE = "0106_meeting_meetingagendaitem_meetingactionitem_and_more"
-_AFTER = "0107_migrate_meeting_notes"
+_BEFORE = "0111_meeting_meetingagendaitem_meetingactionitem_and_more"
+_AFTER = "0112_migrate_meeting_notes"
 
-_migration = import_module("membership.migrations.0107_migrate_meeting_notes")
+_migration = import_module("membership.migrations.0112_migrate_meeting_notes")
 
 
 def _migrate(target: str):
@@ -37,7 +37,7 @@ def _make_note(apps, guild, **kwargs):
 
 
 @pytest.mark.django_db(transaction=True)
-def describe_migration_0107_migrate_meeting_notes():
+def describe_migration_0112_migrate_meeting_notes():
     def it_maps_notes_to_approved_meetings_with_rendered_markdown():
         try:
             apps = _migrate(_BEFORE)
@@ -144,7 +144,7 @@ def describe_migration_0107_migrate_meeting_notes():
             hand_made = Meeting.objects.create(guild_id=guild.pk, status="draft")
             assert Meeting.objects.count() == 2
 
-            apps = _migrate(_BEFORE)  # unapplies 0107 — the real reverse runs
+            apps = _migrate(_BEFORE)  # unapplies 0112 — the real reverse runs
             Meeting = apps.get_model(_APP, "Meeting")
             assert list(Meeting.objects.values_list("pk", flat=True)) == [hand_made.pk]
             assert apps.get_model(_APP, "MeetingAttachment").objects.count() == 0

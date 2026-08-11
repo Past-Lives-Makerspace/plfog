@@ -8,7 +8,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0105_votingsettings_send_officer_reminder_enabled"),
+        ("membership", "0110_backfill_instructor_oriented"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

@@ -113,6 +113,10 @@ img {
     --pl-sync-pending: #8b97a8;
     --pl-sync-failed: #f0a0a0;
 
+    /* Help-center audience badges — the Admins violet (member/instructor/lead reuse
+       --hub-blue / --pl-sync-synced / the gold family). Theme pair overridden below. */
+    --pl-help-admin: #c4a3f5;
+
     --font-heading: 'Lato', system-ui, -apple-system, sans-serif;
     --font-body: 'Inter', system-ui, -apple-system, sans-serif;
 
@@ -162,6 +166,9 @@ img {
     --pl-sync-synced: #1f7a52;
     --pl-sync-pending: #5b6675;
     --pl-sync-failed: #b03030;
+
+    /* Help audience badges — darker violet that passes contrast on white cards. */
+    --pl-help-admin: #6d3fc0;
 }
 
 /* ========================================
@@ -1856,6 +1863,12 @@ a:hover { color: var(--hub-link-hover); }
     visibility: visible;
     transform: translateY(0);
 }
+/* Right-anchored variant for bubbles in the narrow right-hand aside — a
+   left-anchored 320px bubble would overflow the viewport there. */
+.pl-help--right .pl-help__bubble {
+    left: auto;
+    right: 0;
+}
 
 .tab-history-link {
     font-size: 0.85rem;
@@ -3235,6 +3248,194 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-wiki-toc a { color: var(--color-tuscan-yellow); text-decoration: none; }
 .pl-wiki-toc a:hover { text-decoration: underline; }
 .pl-wiki-article { scroll-margin-top: 1rem; }
+
+/* Help-profile prose: committed screenshots + anchor jumps that clear the topbar.
+   Scoped to .pl-md--help — the base .pl-md deliberately has no img rule. */
+.pl-md--help img { max-width: 100%; height: auto; border: 1px solid var(--hub-border); border-radius: 8px; margin: 0.75rem 0; }
+.pl-md--help [id] { scroll-margin-top: 1rem; }
+/* Guide headings run bigger than the base .pl-md ladder — Lato display treatment so
+   sections read as real landmarks inside a long guide (h4+ keep the base sizes). */
+.pl-md--help h2 {
+    font-family: var(--font-heading);
+    font-size: 1.55rem;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    margin-top: 2.4rem;
+    padding-bottom: 0.35rem;
+}
+.pl-md--help h3 {
+    font-family: var(--font-heading);
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin-top: 1.8rem;
+}
+
+/* Confluence-style callouts (help profile only) — `!!! note` / info / tip / warning.
+   Bordered card on the surface layer with a colored left edge + title row. All
+   colors are theme-aware tokens: --hub-blue and --hub-link swap under
+   [data-theme="light"], and --pl-sync-synced is the existing theme-aware green. */
+.pl-md--help .admonition { margin: 1rem 0; padding: 0.75rem 1rem; background: var(--hub-surface); border: 1px solid var(--hub-border); border-left: 4px solid var(--hub-blue); border-radius: 8px; }
+.pl-md--help .admonition > p { margin: 0 0 0.5rem; }
+.pl-md--help .admonition > p:last-child { margin-bottom: 0; }
+.pl-md--help .admonition .admonition-title { margin: 0 0 0.25rem; font-weight: 700; font-size: 0.9rem; color: var(--hub-blue); }
+.pl-md--help .admonition.tip { border-left-color: var(--pl-sync-synced); }
+.pl-md--help .admonition.tip .admonition-title { color: var(--pl-sync-synced); }
+.pl-md--help .admonition.warning { border-left-color: var(--color-tuscan-yellow); }
+.pl-md--help .admonition.warning .admonition-title { color: var(--hub-link); }
+
+/* Help center — landing grid, badges, breadcrumbs, rows, article chrome, search. */
+.pl-help-searchcard { margin-bottom: 1.5rem; padding: 0.75rem 1rem; }
+
+/* ── Help landing hero — title + intro lead + the search bar as the centerpiece.
+   Reuses the .pl-guild-hero backdrop machinery (banner + overlay, or the theme-aware
+   --noimg gradient); this block only centers the content and styles the search. ── */
+.pl-help-hero { align-items: center; justify-content: center; text-align: center; }
+/* Content sits mid-hero (not bottom-aligned like guild pages), so deepen the overlay
+   across the whole banner to keep the cream copy readable over any photo. */
+.pl-help-hero .pl-guild-hero__overlay { background: linear-gradient(180deg, rgba(9, 46, 76, 0.55) 0%, rgba(9, 46, 76, 0.85) 100%); }
+.pl-help-hero .pl-guild-hero__content {
+    width: 100%;
+    max-width: 680px;
+    padding: 2.75rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+}
+.pl-help-hero__lead { margin: 0; max-width: 58ch; }
+.pl-help-hero__lead p { margin: 0 0 0.35rem; color: inherit; }
+.pl-help-hero__lead p:last-child { margin-bottom: 0; }
+.pl-help-hero__lead a { color: var(--color-tuscan-yellow); }
+.pl-help-hero__search { display: flex; gap: 0.5rem; width: 100%; max-width: 560px; margin-top: 0.5rem; }
+.pl-help-hero__input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.8rem 1.1rem;
+    font-size: 1rem;
+    font-family: var(--font-body);
+    border: 1px solid var(--hub-input-border);
+    border-radius: 8px;
+    background: var(--hub-input-bg);
+    color: var(--hub-text);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.pl-help-hero__input:focus { outline: 2px solid var(--hub-blue); outline-offset: 1px; }
+[data-theme="light"] .pl-help-hero__input { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); }
+.pl-help-hero__admin {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    z-index: 2;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+/* The intro's admonition tail (the seeded tip) sits below the hero in normal flow. */
+.pl-help-intro-rest { margin-bottom: 1.5rem; }
+@media (max-width: 640px) {
+    .pl-help-hero__search { flex-direction: column; }
+    .pl-help-hero__search .pl-btn { width: 100%; }
+}
+/* Landing category sections — every published guide is linked right on the card
+   (Confluence-space style). auto-fit: a lone card in its audience group stretches
+   to a full-width row; the member group packs two-up. */
+.pl-helpcat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+.pl-helpcat-card { display: flex; flex-direction: column; gap: 0.5rem; padding: 1rem 1.25rem; background: var(--hub-card-bg); border: 1px solid var(--hub-border); border-radius: 8px; color: var(--hub-text); }
+.pl-helpcat-card__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.pl-helpcat-card__name { font-weight: 700; color: var(--hub-text); text-decoration: none; }
+.pl-helpcat-card__name:hover { color: var(--hub-link); }
+.pl-helpcat-card__desc { margin: 0; color: var(--hub-text-muted); font-size: 0.875rem; }
+.pl-helpcat-card__guides { list-style: none; margin: 0.25rem 0 0; padding: 0; }
+.pl-helpcat-card__guides li + li { border-top: 1px solid var(--hub-border); }
+.pl-helpcat-card__guides a { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0; color: var(--hub-link); text-decoration: none; font-size: 0.9rem; }
+.pl-helpcat-card__guides a:hover { color: var(--hub-link-hover); text-decoration: underline; }
+.pl-helpcat-card__chev { color: var(--hub-text-muted); font-size: 1rem; line-height: 1; }
+.pl-helpcat-card__guides a:hover .pl-helpcat-card__chev { color: var(--hub-link-hover); }
+.pl-helpcat-card__count { margin-top: auto; padding-top: 0.25rem; color: var(--hub-text-muted); font-size: 0.8rem; }
+.pl-help-badge { display: inline-block; padding: 0.1rem 0.5rem; border: 1px solid var(--hub-border); border-radius: 999px; background: var(--hub-surface); color: var(--hub-text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+/* Audience color coding — subtle tinted chips per HelpCategory.Audience value (the
+   plain badge above stays neutral for Draft and category-name chips). Tints derive
+   from theme tokens via color-mix, so both Obsidian and Slate stay legible. */
+.pl-help-badge--member {
+    color: var(--hub-blue);
+    border-color: color-mix(in srgb, var(--hub-blue) 40%, transparent);
+    background: color-mix(in srgb, var(--hub-blue) 12%, transparent);
+}
+.pl-help-badge--instructor {
+    color: var(--pl-sync-synced);
+    border-color: color-mix(in srgb, var(--pl-sync-synced) 40%, transparent);
+    background: color-mix(in srgb, var(--pl-sync-synced) 12%, transparent);
+}
+.pl-help-badge--guild_lead {
+    color: var(--hub-link);
+    border-color: color-mix(in srgb, var(--color-tuscan-yellow) 45%, transparent);
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 14%, transparent);
+}
+.pl-help-badge--admin {
+    color: var(--pl-help-admin);
+    border-color: color-mix(in srgb, var(--pl-help-admin) 40%, transparent);
+    background: color-mix(in srgb, var(--pl-help-admin) 12%, transparent);
+}
+.pl-help-cat-eyebrow { margin-bottom: 0.5rem; }
+.pl-help-breadcrumbs { margin-bottom: 0.75rem; font-size: 0.875rem; color: var(--hub-text-muted); }
+.pl-help-breadcrumbs a { color: var(--hub-text-muted); text-decoration: none; }
+.pl-help-breadcrumbs a:hover { color: var(--color-tuscan-yellow); }
+.pl-help-linklist { list-style: none; margin: 0; padding: 0; }
+.pl-help-linklist li { margin: 0 0 0.5rem; }
+.pl-help-linklist a { display: inline-block; margin-right: 0.5rem; color: var(--color-tuscan-yellow); text-decoration: none; }
+.pl-help-linklist a:hover { text-decoration: underline; }
+.pl-help-row { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 0.25rem; border-bottom: 1px solid var(--hub-border); text-decoration: none; color: var(--hub-text); }
+.pl-help-row:last-child { border-bottom: none; }
+.pl-help-row__body { flex: 1; min-width: 0; }
+.pl-help-row__title { display: block; color: var(--color-tuscan-yellow); font-weight: 600; }
+.pl-help-row:hover .pl-help-row__title { text-decoration: underline; }
+.pl-help-row__lead { display: block; font-size: 0.875rem; margin-top: 0.25rem; }
+.pl-help-row__chevron { color: var(--hub-text-muted); font-size: 1.25rem; }
+.pl-help-draftbanner { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; padding: 0.5rem 1rem; border: 1px solid var(--hub-border); border-radius: 8px; background: var(--hub-surface); color: var(--hub-text-muted); font-size: 0.875rem; }
+/* Related guides — equal-height compact cards: title, colored audience chip, one-line
+   lead (clamped). Grid rows stretch, so a lead-less card still matches its neighbors. */
+.pl-help-relatedgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; }
+.pl-help-relatedcard { display: flex; flex-direction: column; gap: 0.4rem; align-items: flex-start; padding: 0.85rem 1rem; background: var(--hub-card-bg); border: 1px solid var(--hub-border); border-radius: 8px; text-decoration: none; color: var(--hub-text); transition: border-color 0.15s ease, background 0.15s ease; }
+.pl-help-relatedcard:hover { border-color: var(--color-tuscan-yellow); background: var(--hub-surface); }
+.pl-help-relatedcard:hover .pl-help-relatedcard__title { color: var(--hub-link); }
+.pl-help-relatedcard__title { font-weight: 600; }
+.pl-help-relatedcard__lead {
+    color: var(--hub-text-muted);
+    font-size: 0.85rem;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+/* Docs-style pagination footer — hairline top rule, Previous left / Next pinned to the
+   right column even when it's the only side; each cell is label-over-title. */
+.pl-help-prevnext { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--hub-border); }
+.pl-help-prevnext__link { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.75rem 1rem; border: 1px solid var(--hub-border); border-radius: 8px; background: var(--hub-card-bg); text-decoration: none; color: var(--hub-text); transition: border-color 0.15s ease; }
+.pl-help-prevnext__link:hover { border-color: var(--color-tuscan-yellow); }
+.pl-help-prevnext__link:hover .pl-help-prevnext__title { color: var(--hub-link); }
+.pl-help-prevnext__link--prev { grid-column: 1; align-items: flex-start; text-align: left; }
+.pl-help-prevnext__link--next { grid-column: 2; align-items: flex-end; text-align: right; }
+.pl-help-prevnext__label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--hub-text-muted); }
+.pl-help-prevnext__title { font-weight: 600; }
+@media (max-width: 640px) {
+    .pl-help-prevnext { grid-template-columns: 1fr; }
+    .pl-help-prevnext__link--prev, .pl-help-prevnext__link--next { grid-column: auto; }
+}
+.pl-help-asidelist { list-style: none; margin: 0; padding: 0; }
+.pl-help-asidelist li { margin: 0 0 0.5rem; }
+.pl-help-asidelist a { color: var(--color-tuscan-yellow); text-decoration: none; }
+.pl-help-asidelist a:hover { text-decoration: underline; }
+.pl-help-searchcount { margin: 0 0 1rem; font-size: 0.875rem; }
+.pl-help-result { margin-bottom: 1rem; }
+.pl-help-result__title { display: inline-block; color: var(--color-tuscan-yellow); font-weight: 700; text-decoration: none; margin-right: 0.5rem; }
+.pl-help-result__title:hover { text-decoration: underline; }
+.pl-help-result__badges { display: inline-flex; gap: 0.5rem; vertical-align: middle; }
+.pl-help-result__snippet { margin: 0.5rem 0 0; color: var(--hub-text-muted); font-size: 0.9rem; }
+mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparent); color: inherit; border-radius: 3px; }
 
 .pl-guild-video { position: relative; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; background: #000; }
 .pl-guild-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
@@ -5284,6 +5485,484 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
   flex-wrap: wrap;
   gap: 0.5rem;
   justify-content: space-between;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Info View (Spec B) — help-mode toggle, target outlines, panel
+   ────────────────────────────────────────────────────────────── */
+
+/* Topbar ? toggle — copies .pl-topbar__theme-toggle's muted icon-button look. */
+.pl-topbar__help-toggle {
+    background: none;
+    border: none;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    padding: 0.375rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.pl-topbar__help-toggle:hover {
+    color: var(--hub-text);
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] .pl-topbar__help-toggle:hover {
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+/* Help mode ON — the same active-gold treatment as .pl-badge--version. */
+.pl-topbar__help-toggle[aria-pressed="true"] {
+    color: var(--color-tuscan-yellow);
+    background: rgba(238, 180, 75, 0.15);
+}
+
+/* Help-mode page treatment — one hook on <html>, tokens only. Elements with an
+   unregistered key (or no annotation) get none of this: indistinguishable from
+   plain page content. Mode off → zero CSS applies. */
+.pl-help-mode .pl-infoview-target {
+    outline: 2px dashed var(--hub-blue);
+    outline-offset: 2px;
+    border-radius: 4px;
+    cursor: help;
+}
+
+.pl-help-mode .pl-infoview-target:hover,
+.pl-help-mode .pl-infoview-target:focus-visible {
+    outline-style: solid;
+    box-shadow: 0 0 0 4px var(--hub-blue-soft);
+}
+
+.pl-help-mode .pl-infoview-target.pl-infoview-pinned {
+    outline: 2px solid var(--color-tuscan-yellow);
+    /* The gold soft-glow alpha mirrors the existing rgba(238,180,75,…) washes. */
+    box-shadow: 0 0 0 4px rgba(238, 180, 75, 0.18);
+}
+
+/* The docked panel (desktop >768px): corner-docked complementary panel.
+   z-index 600 — above .pl-modal-backdrop (500) so help mode still works on
+   annotated content inside an open modal; above dropdowns (100/200) and the
+   FAB (95); below the changelog overlay (9999). At mid-widths a lg modal can
+   overlap the panel's corner — accepted: the panel is dismissible and the
+   overlap obscures modal edge, not its controls. */
+.pl-infoview-panel {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 1.25rem;
+    width: 340px;
+    max-height: 40vh;
+    overflow-y: auto;
+    background: var(--hub-card-bg);
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    z-index: 600;
+}
+
+.pl-infoview-panel__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--hub-border-strong);
+}
+
+.pl-infoview-panel__mode {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-tuscan-yellow);
+}
+
+.pl-infoview-panel__close {
+    background: none;
+    border: none;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    font-size: 1.25rem;
+    line-height: 1;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+}
+
+.pl-infoview-panel__close:hover {
+    color: var(--hub-text);
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] .pl-infoview-panel__close:hover {
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+.pl-infoview-panel__body {
+    padding: 0.75rem;
+}
+
+.pl-infoview-panel__hint {
+    margin: 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--hub-text-muted);
+}
+
+.pl-infoview-panel__title {
+    margin: 0 0 0.375rem;
+    font-family: 'Lato', sans-serif;
+    font-weight: 700;
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+}
+
+.pl-infoview-panel__text {
+    margin: 0 0 0.625rem;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--hub-text);
+}
+
+.pl-infoview-panel__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.pl-infoview-panel__more {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--hub-link);
+}
+
+.pl-infoview-panel__unpin {
+    background: none;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    border-radius: 6px;
+}
+
+.pl-infoview-panel__unpin:hover {
+    color: var(--hub-text);
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] .pl-infoview-panel__unpin:hover {
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+/* ?highlight= flash (§6.9) — pulses the gold outline twice, then removed. */
+.pl-infoview-flash {
+    animation: pl-infoview-flash 1s ease-in-out 2;
+    border-radius: 4px;
+}
+
+@keyframes pl-infoview-flash {
+    0%, 100% { outline: 2px solid rgba(238, 180, 75, 0); box-shadow: none; }
+    50% { outline: 2px solid var(--color-tuscan-yellow); box-shadow: 0 0 0 4px rgba(238, 180, 75, 0.18); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* No animation — just the scroll plus a static ~2s outline (JS removes the class). */
+    .pl-infoview-flash {
+        animation: none;
+        outline: 2px solid var(--color-tuscan-yellow);
+        box-shadow: 0 0 0 4px rgba(238, 180, 75, 0.18);
+    }
+}
+
+/* Mobile (≤768px): the panel becomes a bottom bar/sheet; the feedback FAB
+   (mobile-only, same corner, z-95) is suppressed while help mode is on. */
+@media (max-width: 768px) {
+    .pl-infoview-panel {
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: auto;
+        border-radius: 12px 12px 0 0;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
+        max-height: 45vh;
+    }
+}
+
+.pl-help-mode .hub-feedback-fab {
+    display: none;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Guided tours (Spec C) — the offer card, entry links, the Help-page card,
+   and the Driver.js popover restyle. Every color is a theme token, so both
+   themes (Obsidian dark + Slate light) come free.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── The offer card (§6.1) — fixed bottom-right, non-blocking ── */
+.pl-tour-offer {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    z-index: 400; /* just below modals (backdrop 500) */
+    max-width: 20rem;
+    padding: 1rem;
+    background: var(--hub-elevated);
+    border: 1px solid var(--hub-border);
+    border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+.pl-tour-offer__lead {
+    margin: 0 0 0.75rem;
+    color: var(--hub-text);
+    font-size: 0.9rem;
+    line-height: 1.45;
+}
+
+.pl-tour-offer__actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    /* Stretches to a bottom bar that clears the 52px feedback FAB — both stay
+       fully visible and tappable (chosen over hiding the FAB). */
+    .pl-tour-offer {
+        left: 1rem;
+        right: 1rem;
+        max-width: none;
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem + 52px + 0.75rem);
+    }
+
+    .pl-tour-offer__actions .pl-btn {
+        flex: 1;
+        min-height: 44px;
+    }
+}
+
+/* ── "Show me around" entry link under a page header (§6.3) ── */
+.pl-tour-entry-link {
+    margin: -0.75rem 0 1.25rem;
+}
+
+/* ── Help-page "Guided tours" card rows (§6.5) ── */
+.pl-tour-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.pl-tour-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.pl-tour-card__heading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.pl-tour-card__heading .hub-detail-label {
+    margin-bottom: 0;
+}
+
+.pl-tour-card__explainer {
+    margin: 0.25rem 0 0.75rem;
+    font-size: 0.8125rem;
+}
+
+.pl-tour-row__title {
+    color: var(--hub-text);
+    font-size: 0.9rem;
+}
+
+/* Taken / not-taken state: a checked green circle vs an empty one. The green is
+   the theme-aware sync token, softened with color-mix for the fill so it reads
+   on both Obsidian and Slate cards. */
+.pl-tour-row__status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 50%;
+    border: 2px solid var(--hub-border-strong);
+}
+.pl-tour-row__status--done {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--pl-sync-synced) 22%, transparent);
+    color: var(--pl-sync-synced);
+}
+.pl-tour-row__status--done svg {
+    width: 0.75rem;
+    height: 0.75rem;
+}
+
+.pl-tour-row__btn {
+    margin-left: auto;
+}
+
+/* ── Driver.js popover restyle (§6.2) — scoped .driver-popover.pl-tour ── */
+.driver-popover.pl-tour {
+    background: var(--hub-elevated);
+    color: var(--hub-text);
+    border: 1px solid var(--hub-border);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    max-width: 20rem;
+    font-family: 'Inter', sans-serif;
+}
+
+.pl-tour .driver-popover-title {
+    font-family: 'Lato', sans-serif;
+    font-weight: 700;
+    color: var(--hub-text);
+}
+
+.pl-tour .driver-popover-description {
+    color: var(--hub-text-muted);
+    font-size: 0.9rem;
+}
+
+.pl-tour .driver-popover-progress-text {
+    color: var(--hub-text-muted);
+    font-size: 0.8rem;
+}
+
+.pl-tour .driver-popover-next-btn {
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+    text-shadow: none; /* driver's default text-shadow must be reset */
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-weight: 600;
+    padding: 0.35rem 0.85rem;
+}
+
+.pl-tour .driver-popover-next-btn:hover,
+.pl-tour .driver-popover-next-btn:focus {
+    background: #f5ca6e;
+    color: var(--color-navy);
+}
+
+.pl-tour .driver-popover-prev-btn {
+    background: transparent;
+    border: 1px solid var(--hub-border);
+    color: var(--hub-text);
+    text-shadow: none;
+    border-radius: 8px;
+    padding: 0.35rem 0.85rem;
+}
+
+.pl-tour .driver-popover-prev-btn:hover,
+.pl-tour .driver-popover-prev-btn:focus {
+    background: var(--hub-surface);
+    color: var(--hub-text);
+}
+
+.pl-tour .driver-popover-close-btn {
+    color: var(--hub-text-muted);
+}
+
+.pl-tour .driver-popover-close-btn:hover,
+.pl-tour .driver-popover-close-btn:focus {
+    color: var(--hub-text);
+}
+
+/* Driver arrows are CSS-border triangles — repaint the visible side per side. */
+.pl-tour .driver-popover-arrow-side-left {
+    border-left-color: var(--hub-elevated);
+}
+
+.pl-tour .driver-popover-arrow-side-right {
+    border-right-color: var(--hub-elevated);
+}
+
+.pl-tour .driver-popover-arrow-side-top {
+    border-top-color: var(--hub-elevated);
+}
+
+.pl-tour .driver-popover-arrow-side-bottom {
+    border-bottom-color: var(--hub-elevated);
+}
+
+@media (max-width: 768px) {
+    .driver-popover.pl-tour {
+        max-width: calc(100vw - 2rem);
+    }
+
+    .pl-tour .driver-popover-next-btn,
+    .pl-tour .driver-popover-prev-btn {
+        min-height: 44px;
+    }
+}
+
+/* ── Instructor orientation (Spec D) ──────────────────────────────────── */
+
+.pl-orientation {
+    max-width: 860px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* Friendly explainer — doubles as the redirect landing state. No error styling. */
+.pl-orientation-banner {
+    border-left: 4px solid var(--hub-accent, #c46a1b);
+}
+
+.pl-orientation-banner__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.1rem;
+}
+
+.pl-orientation-banner__body {
+    margin: 0;
+    color: var(--hub-text-muted);
+}
+
+.pl-orientation-done__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.1rem;
+}
+
+.pl-orientation-done__meta {
+    margin: 0 0 1rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-orientation-done__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.pl-orientation-guide-link {
+    margin: 1.5rem 0 0;
+}
+
+/* The submit clears the toggle above it (FRONTEND.md rule 18). */
+.pl-orientation-submit {
+    margin-top: 1.5rem;
+}
+
+.pl-orientation-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+    .pl-orientation-submit,
+    .pl-orientation-done__actions .pl-btn {
+        width: 100%;
+        text-align: center;
+    }
 }
 
 /* ========================================

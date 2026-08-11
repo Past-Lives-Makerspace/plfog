@@ -1,0 +1,54 @@
+{% extends guilds_page_base|default:"hub/base.html" %}
+{% block title %}{{ category.name }} — Help{% endblock %}
+
+{% comment %}
+Category browse: every published guide in one help category as whole-row links
+(title, lead text, chevron), ordered (sort_order, pk). Admins additionally see the
+category's drafts at the bottom, flagged with a Draft badge. An empty category
+renders a friendly "No guides here yet." with a way back — the landing hides empty
+categories, but the URL is shareable.
+{% endcomment %}
+
+{% block content %}
+
+<nav class="pl-help-breadcrumbs" aria-label="Breadcrumb">
+    <a href="{% url 'hub_help' %}">Help</a>
+</nav>
+
+{# Audience eyebrow — the same color-coded chip the landing cards carry. #}
+<div class="pl-help-cat-eyebrow">
+    <span class="pl-help-badge pl-help-badge--{{ category.audience }}">{{ category.get_audience_display }}</span>
+</div>
+
+{% if can_edit %}
+    {% url 'hub_help_edit' as help_edit_url %}
+    {% include "components/page_header.html" with title=category.name description=category.description action_url=help_edit_url|add:"?tab=articles" action_label="Edit guides" %}
+{% else %}
+    {% include "components/page_header.html" with title=category.name description=category.description %}
+{% endif %}
+
+<div class="hub-card">
+    {% for article in articles %}
+    <a class="pl-help-row" href="{{ article.get_absolute_url }}">
+        <span class="pl-help-row__body">
+            <span class="pl-help-row__title">{{ article.title }}</span>
+            {% if article.lead_text %}<span class="pl-help-row__lead hub-text-muted">{{ article.lead_text }}</span>{% endif %}
+        </span>
+        <span class="pl-help-row__chevron" aria-hidden="true">&rsaquo;</span>
+    </a>
+    {% endfor %}
+    {% for article in drafts %}
+    <a class="pl-help-row" href="{{ article.get_absolute_url }}">
+        <span class="pl-help-row__body">
+            <span class="pl-help-row__title">{{ article.title }} <span class="pl-help-badge">Draft</span></span>
+            {% if article.lead_text %}<span class="pl-help-row__lead hub-text-muted">{{ article.lead_text }}</span>{% endif %}
+        </span>
+        <span class="pl-help-row__chevron" aria-hidden="true">&rsaquo;</span>
+    </a>
+    {% endfor %}
+    {% if not articles and not drafts %}
+    <p class="hub-text-muted" style="margin:0 0 1rem;">No guides here yet.</p>
+    <a href="{% url 'hub_help' %}" class="pl-btn pl-btn--secondary pl-btn--sm">Back to Help</a>
+    {% endif %}
+</div>
+{% endblock %}

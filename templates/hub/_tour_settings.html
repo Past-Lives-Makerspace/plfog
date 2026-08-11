@@ -1,0 +1,17 @@
+{% comment %}
+The "Guided tours" card in Settings → Notifications (Spec C §6.4). Its own hub-card with
+its own Save, below the notification matrix card — the page's established form_id idiom.
+Turning the toggle off stops auto-offers everywhere immediately; manual starts from a
+page's "Show me around" button or the Help page still work (the description says so).
+{% endcomment %}
+{% if tours_form %}
+<div class="hub-card" style="margin-top:1.5rem;">
+    <h2 class="pl-notif-title">Guided tours</h2>
+    <form method="post" class="hub-form">
+        {% csrf_token %}
+        <input type="hidden" name="form_id" value="tours">
+        {% include "components/toggle.html" with field=tours_form.guided_tours_enabled toggle_label="Offer guided tours" toggle_description="Suggest a quick tour the first time you visit a new area. You can always start one yourself from a page's Show me around button or the Help page." %}
+        <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1.5rem;">Save</button>
+    </form>
+</div>
+{% endif %}

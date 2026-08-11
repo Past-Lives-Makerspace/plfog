@@ -53,6 +53,7 @@ from classes.forms import (
     ClassSessionFormSet,
     ClassSettingsForm,
     DiscountCodeForm,
+    InstructorOrientationCompleteForm,
     TeachClassOfferingForm,
     TeachWelcomeEmailForm,
     RegistrationForm,
@@ -839,8 +840,14 @@ def admin_required(view_func: _ViewFunc) -> _ViewFunc:
     return wrapper  # type: ignore[return-value]
 
 
-def teaching_member_required(view_func: _ViewFunc) -> _ViewFunc:
-    """Decorator: Teaching portal access — any active logged-in member may teach."""
+def active_member_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator: any active logged-in member — guards the orientation pages.
+
+    Exactly the pre-unlock teaching gate: login → active Member or 403 → set
+    ``request.teaching_member``. The orientation views use this (not
+    ``teaching_member_required``) so a *locked* member can still reach the page
+    that unlocks them.
+    """
 
     @wraps(view_func)
     @login_required
@@ -851,6 +858,32 @@ def teaching_member_required(view_func: _ViewFunc) -> _ViewFunc:
         member = MemberModel.objects.filter(user=request.user, status=MemberModel.Status.ACTIVE).first()
         if member is None:
             return HttpResponseForbidden("An active member account is required to access the teaching portal.")
+        request.teaching_member = member  # type: ignore[attr-defined]
+        return view_func(request, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
+def teaching_member_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator: Teaching portal access — active members who completed the instructor orientation.
+
+    Non-members and inactive members keep the 403 (orientation can't fix an
+    inactive account). An *active* member who hasn't unlocked teaching is 302'd
+    to the orientation page instead — entry links stay visible everywhere and a
+    locked click lands on the explainer, never a dead end (Spec D §5).
+    """
+
+    @wraps(view_func)
+    @login_required
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        from membership.models import Member as MemberModel
+
+        assert request.user.is_authenticated  # @login_required guarantees a real User
+        member = MemberModel.objects.filter(user=request.user, status=MemberModel.Status.ACTIVE).first()
+        if member is None:
+            return HttpResponseForbidden("An active member account is required to access the teaching portal.")
+        if not member.can_create_classes:
+            return redirect("classes:teach_orientation")
         request.teaching_member = member  # type: ignore[attr-defined]
         return view_func(request, *args, **kwargs)
 
@@ -927,6 +960,52 @@ def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> Q
     return qs
 
 
+def _orientation_context(member: Member, form: InstructorOrientationCompleteForm) -> dict[str, Any]:
+    """Context for the orientation page — the seeded article, the guide link, the form.
+
+    A missing seed must fail soft on the page (placeholder copy; the completion
+    card still works so the gate is never un-passable) but loudly in the logs.
+    """
+    import logging
+
+    from membership.models import WikiArticle
+
+    article = WikiArticle.objects.published().filter(slug="instructor-orientation").first()
+    if article is None:
+        logging.getLogger(__name__).warning(
+            "Instructor-orientation article is not seeded — run `manage.py seed_help_center`."
+        )
+    guide = WikiArticle.objects.published().filter(slug="become-an-instructor").select_related("category").first()
+    return {"member": member, "article": article, "guide": guide, "form": form}
+
+
+@active_member_required
+def teach_orientation(request: HttpRequest) -> HttpResponse:
+    """The instructor orientation page — the teaching gate's landing (Spec D §6).
+
+    Locked members see the explainer banner + content + the acknowledge/unlock
+    card; unlocked members get the completed state with the content still
+    readable (it stays the reference page).
+    """
+    member: Member = request.teaching_member  # type: ignore[attr-defined]
+    return render(
+        request, "classes/teach/orientation.html", _orientation_context(member, InstructorOrientationCompleteForm())
+    )
+
+
+@active_member_required
+@require_POST
+def teach_orientation_complete(request: HttpRequest) -> HttpResponse:
+    """Handle the "Unlock teaching" submit — form-enforced acknowledge, then unlock."""
+    member: Member = request.teaching_member  # type: ignore[attr-defined]
+    form = InstructorOrientationCompleteForm(request.POST)
+    if not form.is_valid():
+        return render(request, "classes/teach/orientation.html", _orientation_context(member, form))
+    member.complete_instructor_orientation()
+    messages.success(request, "Teaching unlocked — welcome, instructor.")
+    return redirect("classes:teach_overview")
+
+
 @teaching_member_required
 def teach_overview(request: HttpRequest) -> HttpResponse:
     """Teaching dashboard: the teaching member's drafts, classes awaiting review,
@@ -983,10 +1062,13 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     is_guild_lead = teaching_member.is_guild_lead
     guild_lead_pending = _guild_lead_review_queue(teaching_member) if is_guild_lead else []
 
+    from core.tours import tour_offer_context
+
     return render(
         request,
         "classes/teach/overview.html",
         {
+            **tour_offer_context(request, "instructor"),
             "active_tab": "overview",
             "instructor": teaching_member,
             "drafts": drafts,

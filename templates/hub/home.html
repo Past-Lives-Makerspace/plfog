@@ -6,7 +6,7 @@
 {% block content %}
 {% if member %}
 {% with greeting="Welcome back, "|add:member.display_name %}
-{% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." %}
+{% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." action_url="?tour=member-welcome" action_label="Show me around" %}
 {% endwith %}
 
 {# --- Get started onboarding checklist (shows until onboarded or dismissed) --- #}
@@ -154,3 +154,5 @@
 </div>
 {% endif %}
 {% endblock %}
+
+{% block extra_js %}{% include "hub/partials/_tour.html" %}{% endblock %}

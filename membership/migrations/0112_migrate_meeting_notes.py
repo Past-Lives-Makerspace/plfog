@@ -88,7 +88,7 @@ def unmigrate_meeting_notes(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0106_meeting_meetingagendaitem_meetingactionitem_and_more"),
+        ("membership", "0111_meeting_meetingagendaitem_meetingactionitem_and_more"),
     ]
 
     operations = [

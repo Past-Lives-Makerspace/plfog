@@ -1,4 +1,4 @@
-<form method="get" style="display:flex; gap:0.5rem; align-items:center; flex:1; max-width:340px;">
+<form method="get"{% if action %} action="{{ action }}"{% endif %} style="display:flex; gap:0.5rem; align-items:center; flex:1; max-width:340px;">
     <input type="search" name="q" value="{{ q }}" placeholder="{{ placeholder|default:'Search…' }}"
            style="flex:1; padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
     <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Search</button>
