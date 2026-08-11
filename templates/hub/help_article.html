@@ -53,7 +53,8 @@ alone. Admins previewing a draft get the Draft banner; members 404 instead.
                 {% for rel in related %}
                 <a class="pl-help-relatedcard" href="{{ rel.get_absolute_url }}">
                     <span class="pl-help-relatedcard__title">{{ rel.title }}</span>
-                    {% if rel.category %}<span class="pl-help-badge">{{ rel.category.name }}</span>{% endif %}
+                    <span class="pl-help-badge pl-help-badge--{{ rel.audience }}">{% if rel.category %}{{ rel.category.get_audience_display }}{% else %}Members{% endif %}</span>
+                    {% if rel.lead_text %}<span class="pl-help-relatedcard__lead">{{ rel.lead_text }}</span>{% endif %}
                 </a>
                 {% endfor %}
             </div>
@@ -61,10 +62,25 @@ alone. Admins previewing a draft get the Draft banner; members 404 instead.
         {% endif %}
 
         {% if previous_article or next_article %}
-        <div class="pl-help-prevnext">
-            <span>{% if previous_article %}<a class="pl-btn pl-btn--secondary pl-btn--sm" href="{{ previous_article.get_absolute_url }}">&larr; {{ previous_article.title }}</a>{% endif %}</span>
-            <span>{% if next_article %}<a class="pl-btn pl-btn--secondary pl-btn--sm" href="{{ next_article.get_absolute_url }}">{{ next_article.title }} &rarr;</a>{% endif %}</span>
-        </div>
+        {% comment %}
+        Docs-style pagination footer: hairline top border, Previous on the left / Next on
+        the right, each a small muted label over the guide title. A missing side simply
+        isn't rendered — the grid pins the Next cell to the right column regardless.
+        {% endcomment %}
+        <nav class="pl-help-prevnext" aria-label="More guides in this category">
+            {% if previous_article %}
+            <a class="pl-help-prevnext__link pl-help-prevnext__link--prev" href="{{ previous_article.get_absolute_url }}">
+                <span class="pl-help-prevnext__label">&larr; Previous</span>
+                <span class="pl-help-prevnext__title">{{ previous_article.title }}</span>
+            </a>
+            {% endif %}
+            {% if next_article %}
+            <a class="pl-help-prevnext__link pl-help-prevnext__link--next" href="{{ next_article.get_absolute_url }}">
+                <span class="pl-help-prevnext__label">Next &rarr;</span>
+                <span class="pl-help-prevnext__title">{{ next_article.title }}</span>
+            </a>
+            {% endif %}
+        </nav>
         {% endif %}
     </main>
 

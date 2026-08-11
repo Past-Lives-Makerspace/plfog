@@ -15,6 +15,11 @@ categories, but the URL is shareable.
     <a href="{% url 'hub_help' %}">Help</a>
 </nav>
 
+{# Audience eyebrow — the same color-coded chip the landing cards carry. #}
+<div class="pl-help-cat-eyebrow">
+    <span class="pl-help-badge pl-help-badge--{{ category.audience }}">{{ category.get_audience_display }}</span>
+</div>
+
 {% if can_edit %}
     {% url 'hub_help_edit' as help_edit_url %}
     {% include "components/page_header.html" with title=category.name description=category.description action_url=help_edit_url|add:"?tab=articles" action_label="Edit guides" %}

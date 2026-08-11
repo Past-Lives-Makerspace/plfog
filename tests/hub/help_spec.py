@@ -252,7 +252,7 @@ def describe_org_info_read_page():
             assert f'href="{reverse("hub_help_category", args=[category.slug])}"'.encode() in resp.content
             assert b"2 guides" in resp.content
             assert b"Voting and pages." in resp.content
-            assert b"pl-help-badge" in resp.content
+            assert b"pl-help-badge pl-help-badge--member" in resp.content
 
         def it_hides_a_category_with_no_published_guides(client: Client):
             HelpCategoryFactory(name="Empty category")
@@ -297,10 +297,27 @@ def describe_org_info_read_page():
                 client.get(reverse("hub_help"))
             assert len(grown) == len(baseline)
 
-    def describe_the_search_card():
-        def it_points_the_search_form_at_the_search_view(client: Client):
-            resp = client.get(reverse("hub_help"))
-            assert f'action="{reverse("hub_help_search")}"'.encode() in resp.content
+    def describe_the_hero():
+        def it_renders_the_search_form_inside_the_hero_pointed_at_the_search_view(client: Client):
+            content = client.get(reverse("hub_help")).content
+            assert b"pl-help-hero" in content
+            assert f'action="{reverse("hub_help_search")}"'.encode() in content
+            assert content.index(b"pl-help-hero") < content.index(b"pl-help-hero__input")
+
+        def it_uses_the_gradient_backdrop_when_no_banner_is_set(client: Client):
+            content = client.get(reverse("hub_help")).content
+            assert b"pl-guild-hero--noimg" in content
+
+        def it_drops_the_intro_admonition_below_the_hero_keeping_the_lead_inside(client: Client):
+            page = OrgInfoPage.load()
+            page.intro = "Welcome to the hub.\n\n!!! tip\n    Ask around."
+            page.save()
+            content = client.get(reverse("hub_help")).content
+            assert b"Welcome to the hub." in content
+            assert b"admonition tip" in content
+            # Lead renders inside the hero (before the search input); the tip after it.
+            assert content.index(b"Welcome to the hub.") < content.index(b"pl-help-hero__input")
+            assert content.index(b"admonition tip") > content.index(b"pl-help-hero__input")
 
     def describe_the_tours_card():
         def it_explains_what_a_tour_is_with_an_explainer_line_and_tooltip(client: Client):
@@ -690,6 +707,13 @@ def describe_help_category_page():
         assert f'href="{first.get_absolute_url()}"'.encode() in resp.content
         assert b"Everything guilds." in resp.content
 
+    def it_shows_the_color_coded_audience_chip(client: Client):
+        category = HelpCategoryFactory(name="Teaching", audience=HelpCategory.Audience.INSTRUCTOR)
+        WikiArticleFactory(category=category)
+        resp = client.get(reverse("hub_help_category", args=[category.slug]))
+        assert b"pl-help-badge pl-help-badge--instructor" in resp.content
+        assert b"Instructors" in resp.content
+
     def it_renders_the_breadcrumb_back_to_help(client: Client):
         category = HelpCategoryFactory()
         WikiArticleFactory(category=category)
@@ -761,9 +785,16 @@ def describe_help_article_page():
         upcoming = WikiArticleFactory(title="Upcoming guide", category=category, sort_order=30)
         resp = client.get(article.get_absolute_url())
         assert b"Related guides" in resp.content
+        assert b"pl-help-badge pl-help-badge--member" in resp.content
         assert b"pl-help-prevnext" in resp.content
         assert f'href="{previous.get_absolute_url()}"'.encode() in resp.content
         assert f'href="{upcoming.get_absolute_url()}"'.encode() in resp.content
+        # Footer nav cells carry the small direction label with the guide title under it.
+        content = resp.content.decode()
+        assert "&larr; Previous" in content
+        assert "Next &rarr;" in content
+        assert '<span class="pl-help-prevnext__title">Previous guide</span>' in content
+        assert '<span class="pl-help-prevnext__title">Upcoming guide</span>' in content
 
     def it_hides_the_related_footer_and_prevnext_when_alone(client: Client):
         article = WikiArticleFactory(title="Loner guide")
@@ -833,6 +864,7 @@ def describe_help_search_page():
         assert b"<mark>kiln</mark>" in resp.content
         assert b"Guilds" in resp.content
         assert b"Guild leads &amp; staff" in resp.content
+        assert b"pl-help-badge pl-help-badge--guild_lead" in resp.content
 
     def it_renders_the_prompt_state_with_category_suggestions_for_an_empty_q(client: Client):
         category = HelpCategoryFactory(name="Getting started")

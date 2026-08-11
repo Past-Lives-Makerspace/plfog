@@ -2218,6 +2218,26 @@ class OrgInfoPage(HeroCropMixin, models.Model):
         """True when a written body or an external link is set — drives the section/nav."""
         return bool(self.code_of_conduct or self.code_of_conduct_url)
 
+    def intro_parts(self) -> dict[str, SafeString]:
+        """The rendered intro split for the Help hero — the lead HTML vs. the admonition tail.
+
+        The Help landing hero shows only the intro's lead copy; admonition blocks (the
+        seeded ``!!! tip``) drop into normal flow below the hero. Splits the *rendered*
+        page-content HTML at the first admonition ``<div>``, so it behaves the same for
+        Markdown and rich-editor HTML intros (the latter simply has no admonitions).
+        Both halves are sanitized by ``render_page_content`` — safe to render directly.
+        """
+        from django.utils.safestring import mark_safe
+
+        from membership.markdown import render_page_content
+
+        html = render_page_content(self.intro or "", profile="help")
+        match = re.search(r'<div[^>]*class="[^"]*admonition', html)
+        if match is None:
+            return {"lead": mark_safe(html), "admonitions": mark_safe("")}  # noqa: S308 — sanitized above
+        idx = match.start()
+        return {"lead": mark_safe(html[:idx]), "admonitions": mark_safe(html[idx:])}  # noqa: S308 — sanitized above
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         from django.conf import settings
 

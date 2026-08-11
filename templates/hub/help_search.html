@@ -29,9 +29,9 @@ state with the category list as suggestions; no results renders the tip plus a
         <span class="pl-help-result__badges">
             {% if article.category %}
             <span class="pl-help-badge">{{ article.category.name }}</span>
-            <span class="pl-help-badge">{{ article.category.get_audience_display }}</span>
+            <span class="pl-help-badge pl-help-badge--{{ article.category.audience }}">{{ article.category.get_audience_display }}</span>
             {% else %}
-            <span class="pl-help-badge">Members</span>
+            <span class="pl-help-badge pl-help-badge--member">Members</span>
             {% endif %}
         </span>
         <p class="pl-help-result__snippet">{{ snippet|safe }}</p>
