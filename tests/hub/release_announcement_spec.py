@@ -210,7 +210,7 @@ def describe_release_compose_view():
             # The HTML alternative is the sectioned release email, not the flat card.
             member_msg = next(m for m in mailoutbox if "act@x.com" in m.to)
             html_alt = next(body for body, mime in member_msg.alternatives if mime == "text/html")
-            assert "What's new" in html_alt
+            assert "Heads-Up: New Member Portal Features" in html_alt
             assert "Home dashboard" in html_alt
 
         def it_delivers_a_corrective_resend(client, release_env, mailoutbox):

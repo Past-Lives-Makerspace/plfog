@@ -70,7 +70,7 @@ def describe_wrap_email_html():
         # ...inside the branded shell (wordmark + navy card + footer).
         assert "Past Lives" in wrapped
         assert "#092E4C" in wrapped
-        assert "Do It Together" in wrapped
+        assert "because you have a Past Lives Makerspace account" in wrapped
 
     def it_returns_a_plain_str_not_a_safestring():
         # The admin preview iframe relies on this being attribute-escapable plain str.
@@ -87,7 +87,7 @@ def describe_wrap_email_html():
             assert "favicon.png" in wrapped
             assert "#FFFFFF" in wrapped
             # Its footer band still carries the brand line.
-            assert "Do It Together" in wrapped
+            assert "because you have a Past Lives Makerspace account" in wrapped
 
         def it_colors_bare_paragraphs_slate_not_cream():
             # On the white body the copy paragraph must be slate (#33424F), not the dark
@@ -125,7 +125,7 @@ def describe_rendered_message_email_wrapping():
         assert message.html_body is not None
         # Shell-only markers prove the wrap (use the footer / card color, NOT the
         # "Past Lives" wordmark, which also appears in the copy body).
-        assert "Do It Together" in message.html_body
+        assert "because you have a Past Lives Makerspace account" in message.html_body
         assert "#092E4C" in message.html_body
         # The rendered fragment content is still present inside the shell.
         assert "Casting" in message.html_body
@@ -137,7 +137,7 @@ def describe_rendered_message_email_wrapping():
             {"member_name": "Jo", "class_title": "Casting", "class_starts_at": "Sat", "class_url": "/c/1/"},
         )
         assert message.html_body is not None
-        assert "Do It Together" in message.html_body
+        assert "because you have a Past Lives Makerspace account" in message.html_body
         assert "Casting" in message.html_body
 
     def it_does_not_wrap_a_non_email_channel_even_when_it_has_an_html_body():
@@ -149,7 +149,7 @@ def describe_rendered_message_email_wrapping():
             {"member_name": "Jo", "class_title": "Casting", "class_starts_at": "Sat", "class_url": "/c/1/"},
         )
         assert message.html_body is not None
-        assert "Do It Together" not in message.html_body
+        assert "because you have a Past Lives Makerspace account" not in message.html_body
         assert "#092E4C" not in message.html_body
         assert "Casting" in message.html_body
 
@@ -162,7 +162,7 @@ def describe_rendered_message_email_wrapping():
         # In-app copy carries no HTML body, so there is nothing to (and we never) wrap.
         assert message.html_body is None
         assert "Casting" in message.body
-        assert "Do It Together" not in message.body
+        assert "because you have a Past Lives Makerspace account" not in message.body
 
     def it_uses_the_events_registered_shell_for_a_light_shell_event():
         # voting.closing_soon declares email_shell="light" — its email must render in the
@@ -177,7 +177,9 @@ def describe_rendered_message_email_wrapping():
         assert message.html_body is not None
         assert "favicon.png" in message.html_body  # light shell only
         assert "#33424F" in message.html_body  # slate copy on the white body
-        assert "Do It Together" in message.html_body  # wrapped in the branded shell (footer band present)
+        assert (
+            "because you have a Past Lives Makerspace account" in message.html_body
+        )  # wrapped in the branded shell (footer band present)
 
     def it_leaves_an_empty_html_body_as_none_without_rendering_the_shell():
         # An email row with a blank HTML body must NOT render the shell around nothing.

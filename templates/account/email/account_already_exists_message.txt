@@ -1,7 +1,7 @@
 {% extends "account/email/base_message.txt" %}
 {% load i18n %}
 
-{% block content %}{% autoescape off %}Someone tried to create a new Past Lives Makerspace account with this email address ({{ email }}), but you already have an account.
+{% block content %}{% autoescape off %}Someone has already created an account with this email address.
 
 To sign in, just visit the login page and enter your email — we'll send you a code.
 {% if login_url %}

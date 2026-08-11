@@ -6,7 +6,7 @@ confirm your requested orientation time.
 A note from the guild lead:
 {{ booking.lead_note }}
 {% endif %}
-You're welcome to pick another time on the guild page:
+We'd love to get you oriented ASAP. Pick another time on the guild page:
 {{ guild_url }}
 
 {% include "membership/emails/_footer.txt" %}

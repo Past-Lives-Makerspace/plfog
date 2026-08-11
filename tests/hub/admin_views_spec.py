@@ -992,7 +992,7 @@ def describe_admin_site_settings_announcements():
         # "Draft from latest release" enters the sectioned Release composer with a
         # prefilled subject from the current release line's changelog.
         assert response.context["release_mode"] is True
-        assert b"What&#x27;s new at Past Lives:" in response.content
+        assert b"Heads-Up: New Member Portal Features" in response.content
 
 
 def describe_fog_admin_required():

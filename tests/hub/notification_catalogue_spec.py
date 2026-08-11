@@ -144,7 +144,7 @@ def describe_preview_copy():
         wrapped = response.context["wrapped_html"]
         # The fragment, inside the branded shell (shell-only footer marker).
         assert "Intro to Lost-Wax Casting" in wrapped
-        assert "Do It Together" in wrapped
+        assert "because you have a Past Lives Makerspace account" in wrapped
         # Rendered as an iframe panel.
         assert b"As it arrives (branded)" in response.content
         assert b"srcdoc=" in response.content

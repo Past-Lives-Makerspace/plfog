@@ -1,7 +1,7 @@
 {% comment %}
 Hybrid layout for the member-facing release-update email: dark brand hero band →
-light feature body → the reused _footer inside its own dark band (its cream/gold
-copy fails AA on white, so it needs a dark band to sit legibly). Standalone document
+light feature body → the reused _footer (navy-on-light styling) on the pale page
+background below. Standalone document
 (does NOT extend the dark _base.html, which is tuned for transactional copy). ~600px.
 Inline styles throughout — email clients strip <style> blocks.
 Context: preheader, minor_label, release_date, intro_html (safe), cards, cta_url, cta_label.
@@ -12,7 +12,7 @@ Context: preheader, minor_label, release_date, intro_html (safe), cards, cta_url
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
 <meta name="supported-color-schemes" content="light dark">
-<title>What's new at Past Lives</title>
+<title>Heads-Up: New Member Portal Features</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #eef0f3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
 <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">{{ preheader }}</div>
@@ -22,7 +22,7 @@ Context: preheader, minor_label, release_date, intro_html (safe), cards, cta_url
     <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
     <tr>
         <td style="text-align: center; padding-bottom: 16px;">
-            <a href="{{ cta_url }}" style="font-size: 20px; font-weight: 700; color: #092E4C; letter-spacing: 0.02em; text-decoration: none;">Past Lives</a>
+            <a href="{{ cta_url }}" style="font-size: 20px; font-weight: 700; color: #092E4C; letter-spacing: 0.02em; text-decoration: none;">Past Lives Makerspace</a>
         </td>
     </tr>
     {% include "membership/emails/_hero.html" with minor_label=minor_label release_date=release_date %}
@@ -33,13 +33,7 @@ Context: preheader, minor_label, release_date, intro_html (safe), cards, cta_url
             {% include "membership/emails/_button.html" with href=cta_url label=cta_label %}
         </td>
     </tr>
-    <tr>
-        <td style="background-color: #092E4C; border-radius: 0 0 12px 12px; padding: 4px 20px 12px;">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-            {% include "membership/emails/_footer.html" %}
-            </table>
-        </td>
-    </tr>
+    {% include "membership/emails/_footer.html" %}
     </table>
 </td>
 </tr>

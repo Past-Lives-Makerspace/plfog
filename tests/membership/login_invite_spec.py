@@ -27,10 +27,10 @@ def describe_send_login_invite():
         assert msg.to == ["newbie@example.com"]
         html = msg.alternatives[0][0]
         # Branded shell marker (proves it inherited the v0.19.11 branded email shell).
-        assert "Do It Together" in html
+        assert "because you have a Past Lives Makerspace account" in html
         # The CTA points at the login-code page with the member's email pre-filled.
         assert "/accounts/login/code/?email=newbie%40example.com" in html
-        assert "Sign in for the first time" in html
+        assert "Activate your account" in html
 
     def it_provisions_the_member_before_sending(mailoutbox):
         member = MemberFactory(_pre_signup_email="provisionme@example.com")

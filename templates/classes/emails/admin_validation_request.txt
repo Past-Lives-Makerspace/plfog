@@ -6,8 +6,8 @@ Price {{ offering.price_cents }} cents · Capacity {{ offering.capacity }}
 {% if offering.member_discount_pct %}{{ offering.member_discount_pct }}% member discount{% endif %}
 
 {{ guild_lead_name }} and {{ instructor_name }} request executive validation
-to publish this class. The guild lead has already approved it; your sign-off
-is the final step before it goes live.
+to publish this class. The Guild Lead has approved this class. Please
+review to approve.
 
 Open the review page:
 {{ review_url }}
