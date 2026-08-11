@@ -28,7 +28,7 @@
 
   {# ── Basic Information ───────────────────────────────────────────── #}
   <div x-show="section === 'basic'">
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.edit-page">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Basic Information</h2>
       {% include "components/form_field.html" with field=form.name %}
       {% include "components/form_field.html" with field=form.about %}
@@ -86,7 +86,7 @@
       {% include "components/image_field.html" with field=form.banner_image current_image=guild.banner_image delete_url=guild_banner_delete_url modal_id="delete-guild-banner" label="Hero / banner image" shape="rect" thumbnail_width="240px" thumbnail_height="80px" delete_button_text="Delete banner" confirm_title="Delete banner image?" confirm_message="The banner will be removed from this guild's page and from our storage. This can't be undone." hint_html="Optional. Shown across the top of the guild page." %}
     </div>
 
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.photo-gallery">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Gallery</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Optional. Photos shown in the gallery section. Images save instantly — no need to hit Save.</p>
       {% url 'hub_guild_image_upload' guild.pk as upload_url %}
@@ -428,7 +428,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
 <div x-show="section === 'content'" x-cloak>
   <form method="post" action="{% url 'hub_guild_faq_save' guild.pk %}" class="hub-form" enctype="multipart/form-data">
     {% csrf_token %}
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.manage-faq">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">{{ guild.faq_label|default:"FAQ" }}</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Each answer can also embed a YouTube video and attach one document — upload a file <em>or</em> paste a link. Rename this section's heading on the <strong>Basic Information</strong> tab.</p>
       {{ faq_formset.management_form }}
@@ -496,7 +496,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
   <form method="post" action="{% url 'hub_guild_links_save' guild.pk %}" class="hub-form">
     {% csrf_token %}
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.manage-links">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Links</h2>
       {{ link_formset.management_form }}
       <div id="link-rows" style="display:flex; flex-direction:column; gap:1rem;">
@@ -592,7 +592,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
   {# Custom (non-member) addresses — its own form/endpoint. #}
   <form method="post" action="{% url 'hub_guild_mailing_list_save' guild.pk %}" class="hub-form">
     {% csrf_token %}
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.contact-emails">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Custom addresses</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Add non-member addresses — a booster, a partner org, your own inbox — that should also receive this guild's announcement emails.</p>
       {{ mailing_list_formset.management_form }}
@@ -726,7 +726,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 {# ── Staff (separate add/remove forms, live outside the main form) ──── #}
 <div x-show="section === 'staff'" x-cloak>
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.manage-staff">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Staff</h2>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
       Guild Leads, secretaries, treasurers, and orientators. Every staff member gets the same access as the

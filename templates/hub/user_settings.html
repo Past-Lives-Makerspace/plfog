@@ -36,7 +36,8 @@
     <div x-show="tab === 'profile'" x-cloak>
         {% if member %}
         <div x-data="{ ptab: 'member' }">
-        <h2 class="pl-profile-heading">Edit your profile</h2>
+        {# Deliberately the heading row, NOT the whole pane — contact-methods and skills are annotated inside it (§6.8 non-overlap rule). #}
+        <h2 class="pl-profile-heading" data-help-key="settings.profile">Edit your profile</h2>
         {% if member.is_instructor %}
         <div class="pl-subtabs" role="tablist" aria-label="Profile sections">
             <button type="button" @click="ptab = 'member'" :class="{ 'vote-tab--active': ptab === 'member' }" class="vote-tab" role="tab">Member</button>
@@ -261,7 +262,7 @@
             </div>
 
             {# ── Contact methods (unified labeled list, saved with the profile form) ── #}
-            <div class="pl-profile-section">
+            <div class="pl-profile-section" data-help-key="settings.contact-methods">
                 <h2 class="pl-profile-section__title">Contact methods</h2>
                 <p class="hub-text-muted" style="margin-bottom:1rem;">
                     Other ways to reach you — a website, Instagram, a booking email. You choose where each one shows.
@@ -377,7 +378,7 @@
         </form>
 
         {# Skills are edited through their own HTMX endpoints, so they live OUTSIDE the profile form (no nested forms). #}
-        <div class="pl-profile-section">
+        <div class="pl-profile-section" data-help-key="settings.skills">
             <h2 class="pl-profile-section__title">My skills</h2>
             <p class="hub-text-muted">List what you make and do — members can search the directory by skill.</p>
             {% include "hub/partials/profile_skills.html" %}
@@ -398,7 +399,7 @@
     {# -------- Emails tab -------- #}
     <div x-show="tab === 'emails'" x-cloak>
         {# --- Manage Email Addresses card --- #}
-        <div class="hub-card" style="margin-bottom: 1.5rem;"
+        <div class="hub-card" style="margin-bottom: 1.5rem;" data-help-key="settings.email-addresses"
              x-data='{ selectedVerified: {{ primary_verified_json|default:"true" }} }'>
             <h2 style="font-size: 1rem; font-weight: 600; margin: 0 0 0.25rem;">Manage Email Addresses</h2>
             <p class="hub-text-muted" style="margin-bottom: 1rem; font-size: 0.85rem;">
@@ -462,14 +463,14 @@
     </div>
 
     {# -------- Notifications tab -------- #}
-    <div x-show="tab === 'notifications'" x-cloak>
+    <div x-show="tab === 'notifications'" x-cloak data-help-key="settings.notifications">
         {% include "hub/_notifications_settings.html" %}
     </div>
 
     {# -------- Guilds tab -------- #}
     {% comment %}Sits outside every <form>: its per-row toggles carry their own hx-post, so a
        wrapping <form> would orphan them (the nested-form/submit bug). No page Save.{% endcomment %}
-    <div x-show="tab === 'guilds'" x-cloak>
+    <div x-show="tab === 'guilds'" x-cloak data-help-key="settings.your-guilds">
         {% include "hub/partials/_my_guilds.html" %}
     </div>
 </div>

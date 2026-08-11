@@ -3,10 +3,13 @@
 {% block title %}Member Directory{% endblock %}
 
 {% block content %}
+{# The visibility note lives in the shared page_header's description, so the wrapper carries the help key. #}
+<div data-help-key="directory.visibility">
 {% include "components/page_header.html" with title="Member Directory" description="Find other members, see their skills, and connect — you control what of yours appears here from your Settings." %}
+</div>
 <p class="hub-text-muted" style="margin-bottom: 1rem;">{{ members|length }} active member{{ members|length|pluralize }}.</p>
 
-<form method="get" class="pl-directory-filters">
+<form method="get" class="pl-directory-filters" data-help-key="directory.search-filter">
     {% if guilds %}
     <label class="pl-filter-field">
         <span class="pl-filter-label">Guild</span>

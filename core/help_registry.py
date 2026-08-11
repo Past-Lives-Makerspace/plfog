@@ -393,6 +393,145 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": "approving-classes",
         "anchor": "guild-approve-classes",
     },
+    # ── Annotation-only keys (Spec B / Info View §6.8) ──────────────────────
+    # Stamped as data-help-key targets before their article sections exist;
+    # article_slug=None per §5.1(c), so url_for degrades to /help/.
+    "voting.results-history": {
+        "title": "Past results",
+        "short_text": (
+            "Every month's locked-in results live here. Open any month to see the final "
+            "standings and how the funding split landed."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.staff-roster": {
+        "title": "Who runs this guild",
+        "short_text": (
+            "The guild lead and staff who keep this guild running. Click the lead's name to see their contact card."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.faq": {
+        "title": "Guild FAQ",
+        "short_text": (
+            "Answers from the guild itself — house rules, tools, and how things work in this "
+            "shop. Guild leads keep this list up to date."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.manage-faq": {
+        "title": "Edit the FAQ",
+        "short_text": (
+            "The questions and answers members see on your guild page. Each answer can embed "
+            "a video or attach one document. Save with the Save FAQ button."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.manage-links": {
+        "title": "Edit guild links",
+        "short_text": (
+            "Links shown on your guild page — your site, docs, sign-up sheets. Add or remove rows, then hit Save Links."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.contact-emails": {
+        "title": "Custom mailing-list addresses",
+        "short_text": (
+            "Extra, non-member addresses that also get this guild's announcement emails — "
+            "a booster, a partner org, your own inbox."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.review-pipeline": {
+        "title": "Needs your attention",
+        "short_text": (
+            "Drafts you haven't submitted yet, plus classes waiting on review. Finish a "
+            "draft and submit it to send it to its reviewers."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.waitlists": {
+        "title": "Class waitlists",
+        "short_text": (
+            "Sold-out classes collect a waitlist. When a spot opens, the next person in "
+            "line is emailed a link to claim it automatically."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-schedule": {
+        "title": "Dates & sessions",
+        "short_text": (
+            "Add one date for a one-off class, or every date in a series — students sign up once for all of them."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-pricing": {
+        "title": "Pricing & discounts",
+        "short_text": (
+            "Set the member discount and optional sale pricing. Members get member pricing "
+            "automatically when they register with their member email."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "settings.profile": {
+        "title": "Your member profile",
+        "short_text": (
+            "What other members see about you in the directory. Every field has its own "
+            "show/hide eye — you control what appears."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "settings.contact-methods": {
+        "title": "Contact methods",
+        "short_text": (
+            "Other ways to reach you — a website, Instagram, a booking email. You pick where each one shows."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "settings.skills": {
+        "title": "Your skills",
+        "short_text": (
+            "List what you make and do. Members can search the directory by skill, so this is how people find you."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "settings.your-guilds": {
+        "title": "Your guilds",
+        "short_text": ("The guilds you belong to. Join or leave here — leaving keeps your orientation history."),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "settings.email-addresses": {
+        "title": "Your sign-in emails",
+        "short_text": (
+            "Every address you can sign in with. Add one, verify it, and set your primary — "
+            "login codes work with any verified address."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "settings.notifications": {
+        "title": "Notification preferences",
+        "short_text": (
+            "Choose which emails and push notifications you get. Turning something off here "
+            "stops just that kind of message, nothing else."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
 }
 
 # THE key regex — Specs B/C import this instead of restating their own.

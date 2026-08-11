@@ -20,7 +20,7 @@ Member-facing orientation section on the guild page. Context:
     {% else %}
     <p style="margin:0 0 0.75rem; font-size:0.85rem; color:#7bdcb5;">Confirmed — see you there!</p>
     {% endif %}
-    <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" @click="$dispatch('open-confirm', 'cancel-my-orientation')">Cancel my orientation</button>
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" data-help-key="orientation.cancel-booking" @click="$dispatch('open-confirm', 'cancel-my-orientation')">Cancel my orientation</button>
     {% url 'hub_orientation_cancel_mine' orientation_booking.pk as cancel_mine_url %}
     {% include "components/confirm_modal.html" with confirm_id="cancel-my-orientation" confirm_title="Cancel your orientation?" confirm_message="You can request a new orientation any time." confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" %}
 
@@ -33,7 +33,7 @@ Member-facing orientation section on the guild page. Context:
     {% if orientation.info %}<p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">{{ orientation.info|truncatewords:40 }}</p>{% endif %}
     {% if orientation_slots %}
     {# Show 5 at a time with prev/next arrows so a long run of slots stays compact. #}
-    <div x-data="{ page: 0, size: 5, total: {{ orientation_slots|length }} }">
+    <div x-data="{ page: 0, size: 5, total: {{ orientation_slots|length }} }" data-help-key="orientation.book-slot">
       <div class="pl-orient-slots__head">
         <span class="pl-orient-slots__date">Date</span>
         <span class="pl-orient-slots__time">Time</span>
@@ -71,7 +71,7 @@ Member-facing orientation section on the guild page. Context:
     {% endif %}
     {% if orientation.allow_custom_requests %}
     {% if user.is_authenticated %}
-    <div x-data="{ showCustom: false }" style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);">
+    <div x-data="{ showCustom: false }" style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);" data-help-key="orientation.request-custom-time">
       <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="!showCustom" @click="showCustom = true">
         None of these times work? Request a custom time
       </button>
