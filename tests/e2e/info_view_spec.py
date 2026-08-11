@@ -50,7 +50,10 @@ def describe_info_view():
         page.goto(f"{live_server.url}{reverse('hub_guild_voting')}")
 
         page.click("[data-help-toggle]")
-        target = page.locator('[data-help-key="voting.rank-guilds"]')
+        # Scoped to the page content: Spec C also stamps voting.rank-guilds on the
+        # sidebar's Guild Voting link (the member tour's step-5 target), so the bare
+        # selector matches two elements. The ballot card in <main> is the one under test.
+        target = page.locator('main [data-help-key="voting.rank-guilds"]')
         expect(target).to_have_class(re.compile(r"(^|\s)pl-infoview-target(\s|$)"))  # outline appears post-fetch
         target.hover()
 

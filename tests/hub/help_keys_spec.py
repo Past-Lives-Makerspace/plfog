@@ -15,7 +15,12 @@ from pathlib import Path
 from core.help_registry import HELP_KEYS, KEY_PATTERN
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
-HELP_KEY_ATTR = re.compile(r'data-help-key="([^"]*)"')
+# Excludes brace-bearing values: components/page_header.html renders a parametrized
+# data-help-key="{{ action_help_key }}" — the literal keys flow in at call sites via
+# the action_help_key= include param, which HELP_KEY_PARAM collects below, so a
+# typo'd key in an include still fails here.
+HELP_KEY_ATTR = re.compile(r'data-help-key="([^"{}]*)"')
+HELP_KEY_PARAM = re.compile(r'action_help_key="([^"{}]*)"')
 
 
 def _referenced_keys() -> list[tuple[str, str]]:
@@ -23,7 +28,8 @@ def _referenced_keys() -> list[tuple[str, str]]:
     return [
         (str(path.relative_to(TEMPLATES_DIR)), key)
         for path in sorted(TEMPLATES_DIR.rglob("*.html"))
-        for key in HELP_KEY_ATTR.findall(path.read_text(encoding="utf-8"))
+        for text in [path.read_text(encoding="utf-8")]
+        for key in HELP_KEY_ATTR.findall(text) + HELP_KEY_PARAM.findall(text)
     ]
 
 

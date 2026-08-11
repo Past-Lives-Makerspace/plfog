@@ -5,20 +5,23 @@
 <div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || '{{ active_tab|default:'basic' }}' }">
 <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:0.5rem;">
   <h1 class="hub-page-title" style="margin:0;">{{ guild.name }} Settings</h1>
-  <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Guild Page</a>
+  <span style="display:flex; gap:8px; flex-wrap:wrap;">
+    <a href="?tour=guild-lead" class="hub-btn hub-btn--sm">Show me around</a>
+    <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Guild Page</a>
+  </span>
 </div>
 
-<div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;">
+<div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;" data-help-key="guild.edit-tabs">
   <button type="button" class="vote-tab" :class="section === 'basic' ? 'vote-tab--active' : ''" @click="section = 'basic'">Basic Information</button>
   <button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>
   <button type="button" class="vote-tab" :class="section === 'studio_hours' ? 'vote-tab--active' : ''" @click="section = 'studio_hours'">Studio Hours</button>
   <button type="button" class="vote-tab" :class="section === 'meeting_notes' ? 'vote-tab--active' : ''" @click="section = 'meeting_notes'">Meeting Notes</button>
   <button type="button" class="vote-tab" :class="section === 'events' ? 'vote-tab--active' : ''" @click="section = 'events'">Events</button>
-  <button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>
+  <button type="button" class="vote-tab" data-help-key="guild.run-orientations" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>
   <button type="button" class="vote-tab" :class="section === 'images' ? 'vote-tab--active' : ''" @click="section = 'images'">Images</button>
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ &amp; Links</button>
-  <button type="button" class="vote-tab" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements/Emails</button>
-  <button type="button" class="vote-tab" :class="section === 'staff' ? 'vote-tab--active' : ''" @click="section = 'staff'">Staff</button>
+  <button type="button" class="vote-tab" data-help-key="guild.announcements" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements/Emails</button>
+  <button type="button" class="vote-tab" data-help-key="guild.manage-staff" :class="section === 'staff' ? 'vote-tab--active' : ''" @click="section = 'staff'">Staff</button>
 </div>
 
 <form method="post" enctype="multipart/form-data" class="hub-form">
@@ -784,3 +787,5 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 </div>{# /x-data #}
 {% endblock %}
+
+{% block extra_js %}{% include "hub/partials/_tour.html" %}{% endblock %}

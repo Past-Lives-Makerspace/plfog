@@ -247,6 +247,9 @@ urlpatterns = [
         name="hub_guild_product_delete",
     ),
     path("welcome/dismiss/", views.welcome_dismiss, name="hub_welcome_dismiss"),
+    # Guided tours (Spec C): the one state-recording endpoint — the offer card's
+    # "No thanks" and the tour runtime's end-of-tour hook both POST here.
+    path("tours/<slug:tour_key>/state/", views.tour_state, name="hub_tour_state"),
     path("settings/onboarding/dismiss/", views.onboarding_dismiss, name="hub_onboarding_dismiss"),
     path("settings/", views.user_settings, name="hub_user_settings"),
     path(

@@ -6,7 +6,7 @@ and hasn't dismissed it). Each row is a navigation link to the page that complet
 only real action is the dismiss ✕, which POSTs to hub_onboarding_dismiss (empty 200) so the
 outerHTML swap removes the whole card, then shows an info toast naming where to finish setup.
 {% endcomment %}
-<div class="hub-card pl-onboarding">
+<div class="hub-card pl-onboarding" data-help-key="home.get-started">
     <button type="button" class="pl-onboarding__close"
             aria-label="Dismiss the Get started checklist"
             hx-post="{% url 'hub_onboarding_dismiss' %}"

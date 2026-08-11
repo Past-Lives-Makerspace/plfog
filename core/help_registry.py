@@ -532,6 +532,87 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": None,
         "anchor": None,
     },
+    # ── Annotation-only keys (Spec C / guided tours §7) ─────────────────────
+    # Stamped as tour step targets per §5.1(c); article_slug=None until their
+    # article sections exist, so url_for degrades to /help/.
+    "nav.sidebar": {
+        "title": "The sidebar",
+        "short_text": (
+            "The sidebar gets you everywhere: guilds, classes, the calendar, your settings. "
+            "On a phone, the menu button opens it."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "nav.guilds": {
+        "title": "Guilds in the sidebar",
+        "short_text": (
+            "Every guild has its own page. Open one to see meetings, orientations, and how to join — "
+            "this section collapses if you want it out of the way."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "nav.calendar": {
+        "title": "Community calendar",
+        "short_text": (
+            "Classes, guild meetups, and events all land on one calendar. Filter it, open any event, "
+            "or subscribe from your own calendar app."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "nav.help": {
+        "title": "The Help page",
+        "short_text": ("Short guides to how the makerspace and this app work, plus who to contact and the FAQ."),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "home.get-started": {
+        "title": "Your Get started list",
+        "short_text": (
+            "A short checklist to finish setting up — profile, photo, first guild. "
+            "It disappears on its own when you're done."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.edit-tabs": {
+        "title": "Guild settings tabs",
+        "short_text": (
+            "Each tab covers one job of running your guild. Basic Information is your public page; "
+            "every other tab saves on its own."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.run-orientations": {
+        "title": "Orientations tab",
+        "short_text": (
+            "Set your orientation hours and open slots here. Bookings land on the Orientations "
+            "dashboard, where you confirm them and mark them done."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.announcements": {
+        "title": "Announcements tab",
+        "short_text": (
+            "Write to your members with the compose wizard, and review announcements members propose. "
+            "Nothing posts until you approve it."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.roster": {
+        "title": "Your classes and rosters",
+        "short_text": (
+            "Click any class to see who signed up, manage the waitlist, email your registrants, "
+            "or export the roster as a CSV."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
 }
 
 # THE key regex — Specs B/C import this instead of restating their own.

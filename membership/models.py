@@ -498,6 +498,10 @@ class Member(models.Model):
             "dismissed. Does NOT affect is_onboarded — only hides the card."
         ),
     )
+    guided_tours_enabled = models.BooleanField(
+        default=True,
+        help_text="When off, tours are never auto-offered. Manual starts from the Help page still work.",
+    )
     leases = GenericRelation(
         "Lease",
         content_type_field="content_type",
@@ -587,6 +591,19 @@ class Member(models.Model):
         """Mark the first-login profile welcome modal as dismissed so it never shows again."""
         self.welcome_dismissed_at = timezone.now()
         self.save(update_fields=["welcome_dismissed_at"])
+
+    def has_completed_tour(self, key: str) -> bool:
+        """Whether this member finished the guided tour ``key`` (Spec C/D's frozen contract).
+
+        Raises ``ValueError`` on a key not registered in ``core.tours.TOURS``
+        (via the manager's fail-loud validation).
+        """
+        from core.models import TourState
+
+        user = self.user
+        if user is None:
+            return False
+        return TourState.objects.status_for(user, key) == TourState.Status.COMPLETED
 
     # --- Home onboarding ("Get started" checklist) ---
 

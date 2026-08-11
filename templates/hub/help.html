@@ -170,6 +170,31 @@ are re-pointed at their article pages by the legacy-anchor script at the bottom.
     </main>
 
     <aside>
+        {% if tour_rows is not None %}
+        {% comment %}Guided tours (Spec C §6.5) — authenticated members only, audience-filtered
+        rows. Start = never taken or dismissed; Retake = completed. The empty state is in
+        practice unreachable (member-welcome matches every member) but guarded anyway.{% endcomment %}
+        <div class="hub-card" style="margin-bottom:1rem;">
+            <h3 class="hub-detail-label">Guided tours</h3>
+            {% if tour_rows %}
+            <div class="pl-tour-rows">
+                {% for row in tour_rows %}
+                <div class="pl-tour-row">
+                    <span class="pl-tour-row__title">{{ row.tour.title }}</span>
+                    {% if row.completed %}
+                    <span class="hub-pill pl-tour-row__pill">✓ Taken</span>
+                    {% else %}
+                    <span class="hub-pill pl-tour-row__pill pl-tour-row__pill--muted">Not taken</span>
+                    {% endif %}
+                    <a href="{{ row.url }}" class="hub-btn hub-btn--sm pl-tour-row__btn">{% if row.completed %}Retake{% else %}Start{% endif %}</a>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="hub-text-muted" style="margin:0;">No tours for your role yet.</p>
+            {% endif %}
+        </div>
+        {% endif %}
         {% if page.code_of_conduct_url or links %}
         <div class="hub-card">
             <h3 class="hub-detail-label">Resources</h3>

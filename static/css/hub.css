@@ -5539,3 +5539,178 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-help-mode .hub-feedback-fab {
     display: none;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Guided tours (Spec C) — the offer card, entry links, the Help-page card,
+   and the Driver.js popover restyle. Every color is a theme token, so both
+   themes (Obsidian dark + Slate light) come free.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── The offer card (§6.1) — fixed bottom-right, non-blocking ── */
+.pl-tour-offer {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    z-index: 400; /* just below modals (backdrop 500) */
+    max-width: 20rem;
+    padding: 1rem;
+    background: var(--hub-elevated);
+    border: 1px solid var(--hub-border);
+    border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+.pl-tour-offer__lead {
+    margin: 0 0 0.75rem;
+    color: var(--hub-text);
+    font-size: 0.9rem;
+    line-height: 1.45;
+}
+
+.pl-tour-offer__actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    /* Stretches to a bottom bar that clears the 52px feedback FAB — both stay
+       fully visible and tappable (chosen over hiding the FAB). */
+    .pl-tour-offer {
+        left: 1rem;
+        right: 1rem;
+        max-width: none;
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem + 52px + 0.75rem);
+    }
+
+    .pl-tour-offer__actions .pl-btn {
+        flex: 1;
+        min-height: 44px;
+    }
+}
+
+/* ── "Show me around" entry link under a page header (§6.3) ── */
+.pl-tour-entry-link {
+    margin: -0.75rem 0 1.25rem;
+}
+
+/* ── Help-page "Guided tours" card rows (§6.5) ── */
+.pl-tour-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.pl-tour-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.pl-tour-row__title {
+    color: var(--hub-text);
+    font-size: 0.9rem;
+}
+
+.pl-tour-row__pill--muted {
+    color: var(--hub-text-muted);
+}
+
+.pl-tour-row__btn {
+    margin-left: auto;
+}
+
+/* ── Driver.js popover restyle (§6.2) — scoped .driver-popover.pl-tour ── */
+.driver-popover.pl-tour {
+    background: var(--hub-elevated);
+    color: var(--hub-text);
+    border: 1px solid var(--hub-border);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    max-width: 20rem;
+    font-family: 'Inter', sans-serif;
+}
+
+.pl-tour .driver-popover-title {
+    font-family: 'Lato', sans-serif;
+    font-weight: 700;
+    color: var(--hub-text);
+}
+
+.pl-tour .driver-popover-description {
+    color: var(--hub-text-muted);
+    font-size: 0.9rem;
+}
+
+.pl-tour .driver-popover-progress-text {
+    color: var(--hub-text-muted);
+    font-size: 0.8rem;
+}
+
+.pl-tour .driver-popover-next-btn {
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+    text-shadow: none; /* driver's default text-shadow must be reset */
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-weight: 600;
+    padding: 0.35rem 0.85rem;
+}
+
+.pl-tour .driver-popover-next-btn:hover,
+.pl-tour .driver-popover-next-btn:focus {
+    background: #f5ca6e;
+    color: var(--color-navy);
+}
+
+.pl-tour .driver-popover-prev-btn {
+    background: transparent;
+    border: 1px solid var(--hub-border);
+    color: var(--hub-text);
+    text-shadow: none;
+    border-radius: 8px;
+    padding: 0.35rem 0.85rem;
+}
+
+.pl-tour .driver-popover-prev-btn:hover,
+.pl-tour .driver-popover-prev-btn:focus {
+    background: var(--hub-surface);
+    color: var(--hub-text);
+}
+
+.pl-tour .driver-popover-close-btn {
+    color: var(--hub-text-muted);
+}
+
+.pl-tour .driver-popover-close-btn:hover,
+.pl-tour .driver-popover-close-btn:focus {
+    color: var(--hub-text);
+}
+
+/* Driver arrows are CSS-border triangles — repaint the visible side per side. */
+.pl-tour .driver-popover-arrow-side-left {
+    border-left-color: var(--hub-elevated);
+}
+
+.pl-tour .driver-popover-arrow-side-right {
+    border-right-color: var(--hub-elevated);
+}
+
+.pl-tour .driver-popover-arrow-side-top {
+    border-top-color: var(--hub-elevated);
+}
+
+.pl-tour .driver-popover-arrow-side-bottom {
+    border-bottom-color: var(--hub-elevated);
+}
+
+@media (max-width: 768px) {
+    .driver-popover.pl-tour {
+        max-width: calc(100vw - 2rem);
+    }
+
+    .pl-tour .driver-popover-next-btn,
+    .pl-tour .driver-popover-prev-btn {
+        min-height: 44px;
+    }
+}

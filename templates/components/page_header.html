@@ -15,6 +15,7 @@ Parameters (pass via {% include "components/page_header.html" with … %}):
   action_url   — optional. When set, renders a right-aligned action button linking here.
   action_label — required when action_url is set. Button text.
   action_class — optional. Button classes (default: "hub-btn hub-btn--sm").
+  action_help_key — optional. Stamps data-help-key on the action button (Info View / tour target).
 
 Examples:
   {% include "components/page_header.html" with title="Member Directory" description="Find other members and connect." %}
@@ -26,7 +27,7 @@ Examples:
         <h1 class="hub-page-title"{% if description %} style="margin-bottom:0.5rem;"{% endif %}>{{ title }}</h1>
         {% if description %}<p class="hub-text-muted" style="margin:0;max-width:65ch;">{{ description }}</p>{% endif %}
     </div>
-    <a href="{{ action_url }}" class="{{ action_class|default:'hub-btn hub-btn--sm' }}">{{ action_label }}</a>
+    <a href="{{ action_url }}" class="{{ action_class|default:'hub-btn hub-btn--sm' }}"{% if action_help_key %} data-help-key="{{ action_help_key }}"{% endif %}>{{ action_label }}</a>
 </div>
 {% else %}
 <h1 class="hub-page-title">{{ title }}</h1>

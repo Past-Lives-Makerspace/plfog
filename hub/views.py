@@ -50,6 +50,8 @@ from hub.forms import (
     SkillSuggestionForm,
     SlideshowSlideFormSet,
     SlideshowZoneFormSet,
+    TourSettingsForm,
+    TourStateForm,
     VotePreferenceForm,
 )
 from hub.toast import trigger_toast
@@ -127,6 +129,32 @@ def welcome_dismiss(request: HttpRequest) -> HttpResponse:
     if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
         return redirect(next_url)
     return redirect("hub_community_calendar")
+
+
+@login_required
+@require_POST
+def tour_state(request: HttpRequest, tour_key: str) -> HttpResponse:
+    """Record how a guided tour ended for this user (Spec C §5): completed or dismissed.
+
+    The offer card's *No thanks* and the tour runtime's ``onDestroyStarted`` hook both
+    POST here — there is deliberately no separate offer-dismiss endpoint. Unknown tour
+    → 404; bad status → 400 with the form errors. ``mark_dismissed`` is a no-op on a
+    completed row (completed is sticky), so a re-run Esc'd halfway never downgrades.
+    No toast — tour endings are self-evident on screen.
+    """
+    from core.models import TourState
+
+    form = TourStateForm(data={"tour_key": tour_key, "status": request.POST.get("status", "")})
+    if not form.is_valid():
+        if "tour_key" in form.errors:
+            raise Http404("Unknown tour.")
+        return JsonResponse({"errors": form.errors}, status=400)
+    user = cast(User, request.user)
+    if form.cleaned_data["status"] == "completed":
+        TourState.objects.mark_completed(user, tour_key)
+    else:
+        TourState.objects.mark_dismissed(user, tour_key)
+    return HttpResponse(status=204)
 
 
 @login_required
@@ -678,7 +706,13 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             return redirect("hub_guild_detail", slug=guild.slug)
         return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild, form=form))
 
-    return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild))
+    from core.tours import tour_offer_context
+
+    return render(
+        request,
+        "hub/guild_edit.html",
+        {**_guild_edit_context(request, guild), **tour_offer_context(request, "guild-lead")},
+    )
 
 
 @login_required
@@ -1434,6 +1468,28 @@ def guild_eyop_form(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "hub/partials/eyop_form.html", {"eyop_form": form, "guild": guild})
 
 
+def _handle_tours_form(
+    request: HttpRequest, member: Member | None
+) -> tuple[TourSettingsForm | None, HttpResponse | None]:
+    """The ``form_id="tours"`` branch of ``user_settings`` (Spec C §6.4).
+
+    Returns ``(form_for_render, response)`` — a non-None response short-circuits
+    the view (successful save → message + redirect back to the Notifications tab,
+    matching the tab's sibling forms; unlinked account → the established error path).
+    """
+    if not (request.method == "POST" and request.POST.get("form_id") == "tours"):
+        return (TourSettingsForm(instance=member) if member is not None else None), None
+    if member is None:
+        messages.error(request, "Your account is not linked to a membership.")
+        return None, redirect("hub_user_settings")
+    form = TourSettingsForm(request.POST, instance=member)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Guided tour preference saved.")
+        return form, redirect(f"{request.path}?tab=notifications")
+    return form, None
+
+
 @login_required
 def user_settings(request: HttpRequest) -> HttpResponse:
     """Tabbed user settings page — Profile + Emails + Notifications.
@@ -1492,6 +1548,10 @@ def user_settings(request: HttpRequest) -> HttpResponse:
         messages.success(request, "Notification preferences updated.")
         return redirect(f"{request.path}?tab=notifications")
 
+    tours_form, tours_response = _handle_tours_form(request, member)
+    if tours_response is not None:
+        return tours_response
+
     add_email_form = AddEmailForm(user=request.user)
     email_addresses = list(EmailAddress.objects.filter(user=request.user).order_by("-primary", "email"))
     primary_email = next((ea for ea in email_addresses if ea.primary), None)
@@ -1532,6 +1592,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "notif_matrix": notif_matrix,
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,
+            "tours_form": tours_form,
             "my_guilds_rows": build_my_guilds_rows(member),
             "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
             "photo_upload_hint": (
@@ -2321,6 +2382,12 @@ def help_page(request: HttpRequest) -> HttpResponse:
     legacy_anchor_map = {
         old: live_targets[new].get_absolute_url() for old, new in LEGACY_SLUG_MAP.items() if new in live_targets
     }
+    # Guided-tours aside card (Spec C §6.5) — authenticated members only; the page
+    # itself is public-read, so no @login_required here.
+    from core.tours import help_card_rows
+
+    member = getattr(request.user, "member", None) if request.user.is_authenticated else None
+    tour_rows = help_card_rows(member) if member is not None else None
     return render(
         request,
         "hub/help.html",
@@ -2335,6 +2402,7 @@ def help_page(request: HttpRequest) -> HttpResponse:
                 .order_by("sort_order", "pk")
             ),
             "legacy_anchor_map": legacy_anchor_map,
+            "tour_rows": tour_rows,
             "faq_items": page.faq_items.all(),
             "links": page.links.all(),
             "can_edit": _viewing_as_admin(request),
@@ -3676,9 +3744,14 @@ def home(request: HttpRequest) -> HttpResponse:
     ctx = _get_hub_context(request)
     if member is None:
         return render(request, "hub/home.html", {**ctx, "member": None})
+    from core.tours import tour_offer_context
     from hub.home import build_home_context
 
-    return render(request, "hub/home.html", {**ctx, "member": member, **build_home_context(member)})
+    return render(
+        request,
+        "hub/home.html",
+        {**ctx, "member": member, **build_home_context(member), **tour_offer_context(request, "member-welcome")},
+    )
 
 
 def community_calendar(request: HttpRequest) -> HttpResponse:

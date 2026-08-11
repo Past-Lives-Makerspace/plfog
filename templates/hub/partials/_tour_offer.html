@@ -1,0 +1,14 @@
+{% comment %}
+The guided-tour offer card (Spec C §6.1) — a compact fixed card, bottom-right, rendered
+only when show_tour_offer is true. Non-blocking: no backdrop, no focus trap; role="status"
+announces it politely without stealing focus. Buttons are wired by pl_tour.js (the
+data-pl-tour-init attribute it stamps guards double-binding on boosted re-execution).
+"No thanks" posts status=dismissed to hub_tour_state — ignoring the card is not declining.
+{% endcomment %}
+<div class="pl-tour-offer" role="status" data-pl-tour-offer>
+    <p class="pl-tour-offer__lead"><strong>New here?</strong> Take a 30-second tour — {{ tour.title }}.</p>
+    <div class="pl-tour-offer__actions">
+        <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" data-tour-accept>Show me around</button>
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-tour-decline>No thanks</button>
+    </div>
+</div>

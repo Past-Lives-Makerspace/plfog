@@ -2526,3 +2526,31 @@ class SpaceRequestDecisionForm(forms.Form):
         if decision == "decline" and not notes:
             self.add_error("notes", "Add a note so the member knows why.")
         return cleaned
+
+
+class TourStateForm(forms.Form):
+    """Validation for the guided-tour state endpoint (Spec C §5).
+
+    ``tour_key`` comes from the URL and is injected into the form's data by the
+    view; an unknown key is a 404, a bad ``status`` a 400. A client can only
+    ever write ``completed`` or ``dismissed`` — never ``offered``.
+    """
+
+    tour_key = forms.CharField()
+    status = forms.ChoiceField(choices=[("completed", "completed"), ("dismissed", "dismissed")])
+
+    def clean_tour_key(self) -> str:
+        from core.tours import TOURS
+
+        tour_key = self.cleaned_data["tour_key"]
+        if tour_key not in TOURS:
+            raise forms.ValidationError("Unknown tour.")
+        return cast(str, tour_key)
+
+
+class TourSettingsForm(forms.ModelForm):
+    """The one-toggle "Guided tours" card in Settings → Notifications (Spec C §6.4)."""
+
+    class Meta:
+        model = Member
+        fields = ["guided_tours_enabled"]
