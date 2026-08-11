@@ -105,17 +105,44 @@ def _seed_help_extras(personas: dict[str, Member]) -> None:
 
     On top of ``_seed()`` + ``_seed_member_hub()``: the guild-lead persona leads
     the Ceramics Guild (which also gets a staff member), an upcoming bookable
-    orientation slot, and a funding vote from the member persona.
+    orientation slot, and a funding vote from the member persona. Plus the
+    states the how-to shots must not capture empty: the instructor persona's
+    published class (with registrations and a waitlist), a pending announcement
+    proposal and a requested orientation booking for Ceramics, and a PENDING
+    class waiting on the guild lead's undecided review gate.
     """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, RegistrationFactory
+    from classes.models import ClassApproval, ClassOffering, Registration
     from tests.membership.factories import (
+        GuildAnnouncementFactory,
         GuildStaffMembershipFactory,
+        OrientationBookingFactory,
         OrientationSlotFactory,
         VotePreferenceFactory,
     )
 
+    # GATED surfaces stay out of the pictures, not just the prose (§10.5 rule 4):
+    # the flag defaults on, which would leak My Tab, the balance pill, and the
+    # Buyables guild tab into every screenshot.
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.load()
+    config.tab_payments_enabled = False
+    config.save(update_fields=["tab_payments_enabled"])
+
     ceramics = Guild.objects.get(name="Ceramics Guild")
     textiles = Guild.objects.get(name="Textiles Guild")
     woodshop = Guild.objects.get(name="Woodshop Guild")
+
+    # The running-a-guild ShotSpecs hardcode /guilds/1/… paths (and /guilds/1/
+    # form-action selectors); Ceramics is the first guild _seed_member_hub
+    # creates, so in this fresh capture DB it must be pk 1. Fail loudly here if
+    # that assumption ever breaks rather than 404ing every guild-lead shot.
+    assert ceramics.pk == 1, f"Ceramics Guild is pk {ceramics.pk}, not 1 — fix the /guilds/1/… ShotSpecs"
 
     # A guild with a lead and staff — the guild-lead persona's editable surface.
     ceramics.guild_lead = personas["guild_lead"]
@@ -123,10 +150,75 @@ def _seed_help_extras(personas: dict[str, Member]) -> None:
     GuildStaffMembershipFactory(guild=ceramics)
 
     # An upcoming orientation slot (its factory enables orientation settings).
-    OrientationSlotFactory(guild=ceramics)
+    slot = OrientationSlotFactory(guild=ceramics)
 
     # A funding vote, so voting pages show live standings instead of empty state.
     VotePreferenceFactory(member=personas["member"], guild_1st=ceramics, guild_2nd=textiles, guild_3rd=woodshop)
+
+    # A second signed-up member fronts the request states below, so the member
+    # persona's own booking/proposal surfaces stay in their pristine how-to state.
+    # (Creating the User auto-provisions a linked Member via signal, so update
+    # that row rather than creating a colliding one.)
+    requester_user, _ = get_user_model().objects.get_or_create(
+        username="casey@example.com", defaults={"email": "casey@example.com"}
+    )
+    requester, _ = Member.objects.update_or_create(
+        user=requester_user,
+        defaults={
+            "full_legal_name": "Casey Requester",
+            "membership_plan": MembershipPlan.objects.get(name="Standard"),
+            "status": Member.Status.ACTIVE,
+        },
+    )
+
+    # The instructor persona's own published class, with confirmed sign-ups and
+    # a waitlisted student — the teaching-portal shots show a live roster.
+    ceramics_category = CategoryFactory(name="Ceramics", slug="ceramics", guild=ceramics)
+    taught = ClassOfferingFactory(
+        title="Wheel-Throwing Fundamentals",
+        slug="wheel-throwing-fundamentals",
+        category=ceramics_category,
+        instructor=personas["instructor"],
+        status=ClassOffering.Status.PUBLISHED,
+        is_private=False,
+        price_cents=5500,
+        capacity=6,
+        description="Center, pull, and trim your first cylinders on the wheel. Clay and firing included.",
+    )
+    starts = timezone.now() + timedelta(days=14)
+    ClassSessionFactory(class_offering=taught, starts_at=starts, ends_at=starts + timedelta(hours=2))
+    RegistrationFactory(class_offering=taught, first_name="Noa", last_name="Park", status=Registration.Status.CONFIRMED)
+    RegistrationFactory(class_offering=taught, first_name="Ira", last_name="Vale", status=Registration.Status.CONFIRMED)
+    RegistrationFactory(
+        class_offering=taught, first_name="Kit", last_name="Moss", status=Registration.Status.WAITLISTED
+    )
+
+    # A pending member proposal for Ceramics — the announcement review queue shot.
+    GuildAnnouncementFactory(
+        guild=ceramics,
+        pending=True,
+        submitted_by=requester_user,
+        title="Raku firing night?",
+        body="A few of us want to try a raku firing next month — could the guild host one?",
+    )
+
+    # A requested (unconfirmed) orientation booking — the dashboard's Respond row.
+    OrientationBookingFactory(slot=slot, member=requester)
+
+    # A PENDING class in a Ceramics-linked category with the guild lead's review
+    # gate still undecided — the "Waiting on your review" teach-overview panel.
+    pending = ClassOfferingFactory(
+        title="Glaze Chemistry Basics",
+        slug="glaze-chemistry-basics",
+        category=ceramics_category,
+        instructor=requester,
+        status=ClassOffering.Status.PENDING,
+        is_private=False,
+        price_cents=4000,
+        description="Mix, test, and read glaze recipes without the guesswork.",
+    )
+    ClassApproval.objects.create(class_offering=pending, role=ClassApproval.Role.GUILD_LEAD)
+    ClassApproval.objects.create(class_offering=pending, role=ClassApproval.Role.ADMIN)
 
 
 def _resolve_path(page_ref: str) -> str:

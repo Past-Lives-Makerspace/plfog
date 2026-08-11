@@ -1,8 +1,9 @@
-"""Auto-take the month-end funding snapshot once per cycle (admin-confirmed results).
+"""Auto-take the month-end funding snapshot once per cycle, then auto-send results.
 
 Runs on the 15-minute cron (always-run list). Once the calendar rolls into a new
-month it captures the cycle that just closed — but it never emails members:
-``FundingSnapshot.take`` only logs the snapshot + pings admins to review & send.
+month it captures the cycle that just closed and immediately calls
+``snapshot.send_results()`` — every active member is emailed the funding split
+(voters get their own ballot recap) with no admin action required.
 
 Idempotency is layered, modeled on ``send_lease_expiry_reminders``:
 

@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.23.60"
+VERSION = "0.24.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.24.0",
+        "date": "2026-08-11",
+        "title": "A real Help Center",
+        "changes": [
+            "The Help page grew into a full Help Center. Every guide now has its own page, and the guides "
+            "are organized by what you're trying to do — getting started, guilds, taking classes, and "
+            "events & community.",
+            "There's a search box now. Type what you're stuck on, like 'book an orientation', and the "
+            "matching guides come up with the relevant line highlighted.",
+            "The how-to guides walk you through step by step, with screenshots of the actual app so you "
+            "can see exactly where to click.",
+            "It's not just for members: instructors get guides on creating and running their classes, and "
+            "guild leads get guides on running their guild page, orientations, and announcements.",
+        ],
+    },
     {
         "version": "0.23.60",
         "date": "2026-08-10",

@@ -80,6 +80,319 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": "member-directory",
         "anchor": "directory-search-filter",
     },
+    "home.dashboard": {
+        "title": "Your home dashboard",
+        "short_text": (
+            "Your home base: what's coming up, the latest from your guilds, and quick links into the rest of FOG."
+        ),
+        "article_slug": "welcome-to-fog",
+        "anchor": "home-dashboard",
+    },
+    "guild.join-leave": {
+        "title": "Join or leave a guild",
+        "short_text": (
+            "Join free from any guild page — you're on the roster and its announcement emails. "
+            "Leave any time from the Guilds tab in Settings."
+        ),
+        "article_slug": "guilds-and-guild-pages",
+        "anchor": "guild-join-leave",
+    },
+    "orientation.request-custom-time": {
+        "title": "Request a custom time",
+        "short_text": (
+            "If no posted time works, propose your own. A guild lead still has to confirm it. "
+            "Only shown when the guild allows custom requests."
+        ),
+        "article_slug": "getting-oriented",
+        "anchor": "orientation-request-custom-time",
+    },
+    "orientation.cancel-booking": {
+        "title": "Cancel your orientation",
+        "short_text": (
+            "Cancel from the guild page or any orientation email, before or after it's confirmed. "
+            "Request a new time whenever you're ready."
+        ),
+        "article_slug": "getting-oriented",
+        "anchor": "orientation-cancel-booking",
+    },
+    "voting.monthly-cycle": {
+        "title": "The monthly voting cycle",
+        "short_text": (
+            "Each cycle is a calendar month, closing on its last day. Minutes into the new month the standings "
+            "are snapshotted and results are emailed to every active member automatically."
+        ),
+        "article_slug": "guild-voting",
+        "anchor": "voting-monthly-cycle",
+    },
+    "voting.live-standings": {
+        "title": "Live standings",
+        "short_text": (
+            "Watch the tally move all month. Current Standings is live; Last Month's Results shows the latest "
+            "locked-in snapshot and funding split."
+        ),
+        "article_slug": "guild-voting",
+        "anchor": "voting-live-standings",
+    },
+    "class.register": {
+        "title": "Register for a class",
+        "short_text": (
+            "Sign up from the class page — no account needed. Free classes confirm right away; "
+            "paid ones go through a secure checkout. Your member email applies member pricing automatically."
+        ),
+        "article_slug": "taking-a-class",
+        "anchor": "class-register",
+    },
+    "class.join-waitlist": {
+        "title": "Join the waitlist",
+        "short_text": (
+            "Sold-out class? Join the waitlist free. When a spot opens, "
+            "the next person in line gets an email with a link to claim it."
+        ),
+        "article_slug": "taking-a-class",
+        "anchor": "class-join-waitlist",
+    },
+    "class.manage-registration": {
+        "title": "Manage your registration",
+        "short_text": (
+            "Your confirmation email has a personal link to view or cancel your registration — "
+            "no login needed. Refunds for paid classes are handled by an admin."
+        ),
+        "article_slug": "taking-a-class",
+        "anchor": "class-manage-registration",
+    },
+    "calendar.filter": {
+        "title": "Show or hide calendars",
+        "short_text": (
+            "Click a colored filter chip to hide or show that guild or calendar. Your picks are saved on this device."
+        ),
+        "article_slug": "community-calendar",
+        "anchor": "calendar-filter",
+    },
+    "event.propose": {
+        "title": "Propose an event",
+        "short_text": (
+            "Any member can propose an event for the Community Calendar. "
+            "A guild lead or admin reviews it before it publishes."
+        ),
+        "article_slug": "propose-an-event",
+        "anchor": "event-propose",
+    },
+    "announcement.propose": {
+        "title": "Suggest an announcement",
+        "short_text": (
+            "Anyone can suggest an announcement for a guild. "
+            "A guild lead or admin approves it before it appears on the guild page."
+        ),
+        "article_slug": "announcements",
+        "anchor": "announcement-propose",
+    },
+    "directory.visibility": {
+        "title": "Your directory card",
+        "short_text": (
+            "Set your whole listing to Public or Hidden, then toggle each field on your card. "
+            "Anything hidden stays private to staff."
+        ),
+        "article_slug": "member-directory",
+        "anchor": "directory-visibility",
+    },
+    "teach.submit-for-review": {
+        "title": "Submit a class for review",
+        "short_text": (
+            "Submitting sends your draft to its guild lead (if the guild has one), then an admin. "
+            "It publishes only when every reviewer approves."
+        ),
+        "article_slug": "become-an-instructor",
+        "anchor": "teach-submit-for-review",
+    },
+    "teach.email-students": {
+        "title": "Email your students",
+        "short_text": (
+            "Tick students on the Registrations tab, write your message, and send. "
+            "You can only email people registered for your own classes."
+        ),
+        "article_slug": "run-your-class",
+        "anchor": "teach-email-students",
+    },
+    "teach.duplicate-run": {
+        "title": "Offer a class on new dates",
+        "short_text": (
+            "One click clones your class as a dateless draft that stays grouped with the original. "
+            "Add the new dates, then submit it for review."
+        ),
+        "article_slug": "run-your-class",
+        "anchor": "teach-duplicate-run",
+    },
+    "admin.invite-member": {
+        "title": "Invite a member",
+        "short_text": (
+            "Emails a signup link that expires in 14 days. Resend or revoke any un-accepted invite "
+            "from the panel on Manage Members."
+        ),
+        "article_slug": "members-and-invites",
+        "anchor": "admin-invite-member",
+    },
+    "admin.email-aliases": {
+        "title": "Manage sign-in emails",
+        "short_text": (
+            "Add, verify, or remove the addresses a person can sign in with. "
+            "Any verified address works with the emailed sign-in code."
+        ),
+        "article_slug": "members-and-invites",
+        "anchor": "admin-email-aliases",
+    },
+    "admin.review-queue": {
+        "title": "The class review queue",
+        "short_text": (
+            "Classes waiting on review. The guild lead's gate (when there is one) comes before yours; "
+            "a class publishes only when every gate approves."
+        ),
+        "article_slug": "reviewing-classes-admin",
+        "anchor": "admin-review-queue",
+    },
+    "admin.refund-registration": {
+        "title": "Mark a registration refunded",
+        "short_text": (
+            "Frees the spot, promotes the waitlist, and records the refund. It moves no money: "
+            "issue the actual refund in the Stripe dashboard."
+        ),
+        "article_slug": "reviewing-classes-admin",
+        "anchor": "admin-refund-registration",
+    },
+    "voting.take-snapshot": {
+        "title": "Take a funding snapshot",
+        "short_text": (
+            "Freezes the live vote state into an immutable record. Analyzer filters do not apply; "
+            "the commit always captures everything."
+        ),
+        "article_slug": "voting-admin",
+        "anchor": "voting-take-snapshot",
+    },
+    "voting.send-results": {
+        "title": "Send results emails",
+        "short_text": (
+            "Emails every voter their allocations and recorded vote, once per snapshot. "
+            "The month-end auto-snapshot sends these on its own."
+        ),
+        "article_slug": "voting-admin",
+        "anchor": "voting-send-results",
+    },
+    "voting.settings": {
+        "title": "Voting settings",
+        "short_text": (
+            "Reminder timing, the pool floor, and the on/off switches for reminders and the "
+            "automatic month-end snapshot."
+        ),
+        "article_slug": "voting-admin",
+        "anchor": "voting-settings",
+    },
+    "guild.edit-page": {
+        "title": "Edit your guild page",
+        "short_text": (
+            "Leads, staff, and admins edit a guild page from the Guild Settings button. "
+            "Each tab saves with its own button, so save before you switch."
+        ),
+        "article_slug": "your-guild-page",
+        "anchor": "guild-edit-page",
+    },
+    "guild.photo-gallery": {
+        "title": "Guild photo gallery",
+        "short_text": (
+            "Up to 10 photos on the Images tab. They save the moment you upload; "
+            "drag to reorder and add alt text so everyone can follow along."
+        ),
+        "article_slug": "your-guild-page",
+        "anchor": "guild-photo-gallery",
+    },
+    "guild.staff-authority": {
+        "title": "Staff share full authority",
+        "short_text": (
+            "Every staff role, preset or custom, carries the full authority of the guild lead. "
+            "Titles are labels, not permission tiers."
+        ),
+        "article_slug": "guild-staff-roles",
+        "anchor": "guild-staff-authority",
+    },
+    "orientation.recurring-hours": {
+        "title": "Recurring orientation hours",
+        "short_text": (
+            "Weekly windows that turn into bookable slots automatically. Saving regenerates "
+            "slots right away; a nightly job keeps future weeks open."
+        ),
+        "article_slug": "running-orientations",
+        "anchor": "orientation-recurring-hours",
+    },
+    "orientation.respond-requests": {
+        "title": "Respond to a request",
+        "short_text": (
+            "A request stays pending until a lead or staff member confirms it. Confirm or "
+            "decline from the app or the email links; the member is emailed either way."
+        ),
+        "article_slug": "running-orientations",
+        "anchor": "orientation-respond-requests",
+    },
+    "orientation.dashboard": {
+        "title": "The Orientations dashboard",
+        "short_text": (
+            "Track requests and completions for the guilds you help run. Filter, export CSV, "
+            "add a member to a slot, and mark orientations done."
+        ),
+        "article_slug": "running-orientations",
+        "anchor": "orientation-dashboard",
+    },
+    "announcements.compose": {
+        "title": "Compose an announcement",
+        "short_text": (
+            "Three steps: write the message, design the email, pick the Discord channel. "
+            "Everyone in the audience always sees it in the app."
+        ),
+        "article_slug": "guild-announcements",
+        "anchor": "announcements-compose",
+    },
+    "announcements.review-proposals": {
+        "title": "Review member proposals",
+        "short_text": (
+            "Any member can propose an announcement for your guild. Nothing posts until a "
+            "lead, staff member, or admin approves it."
+        ),
+        "article_slug": "guild-announcements",
+        "anchor": "announcements-review-proposals",
+    },
+    "guild.events": {
+        "title": "Guild events",
+        "short_text": (
+            "Events you add publish straight to the community calendar and your guild "
+            "calendar; no approval step. Members get a heads-up in the app."
+        ),
+        "article_slug": "guild-events-hours-notes",
+        "anchor": "guild-events",
+    },
+    "guild.studio-hours": {
+        "title": "Studio hours",
+        "short_text": (
+            "Weekly windows when someone is around, shown on your guild page. "
+            "Ambient only: saving them never announces or pings anyone."
+        ),
+        "article_slug": "guild-events-hours-notes",
+        "anchor": "guild-studio-hours",
+    },
+    "guild.meeting-notes": {
+        "title": "Meeting notes",
+        "short_text": (
+            "Post agendas and recaps with attachments so members can catch up. "
+            "Add, edit, and delete them from the Meeting Notes tab."
+        ),
+        "article_slug": "guild-events-hours-notes",
+        "anchor": "guild-meeting-notes",
+    },
+    "guild.approve-classes": {
+        "title": "Approve guild classes",
+        "short_text": (
+            "Classes in your guild's categories wait on your review first. Approving sends "
+            "the class on to an admin; it publishes only after both say yes."
+        ),
+        "article_slug": "approving-classes",
+        "anchor": "guild-approve-classes",
+    },
 }
 
 # THE key regex — Specs B/C import this instead of restating their own.

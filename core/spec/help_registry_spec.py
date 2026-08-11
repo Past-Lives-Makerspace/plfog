@@ -36,6 +36,22 @@ def describe_help_registry():
             for key, key_entry in HELP_KEYS.items():
                 assert (key_entry["article_slug"] is None) == (key_entry["anchor"] is None), key
 
+        def it_carries_every_anchor_as_a_heading_id_in_its_seeded_article_body():
+            # Phase-6 content resolution: for entries pointing at a seeded article,
+            # the anchor must exist as a {#anchor} heading id in that body — a hover
+            # panel's "Learn more" link may never land on a missing anchor. Entries
+            # pointing at pending/unseeded articles are tolerated (§5.1).
+            from membership.help_content import ARTICLES
+
+            bodies = {article["slug"]: article["body"] for article in ARTICLES}
+            for key, key_entry in HELP_KEYS.items():
+                slug = key_entry["article_slug"]
+                if slug not in bodies:
+                    continue
+                assert f"{{#{key_entry['anchor']}}}" in bodies[slug], (
+                    f"{key}: anchor {key_entry['anchor']!r} is not a heading id in article {slug!r}"
+                )
+
     def describe_entry():
         def it_returns_the_registry_entry_for_a_known_key():
             assert entry("voting.rank-guilds")["article_slug"] == "guild-voting"

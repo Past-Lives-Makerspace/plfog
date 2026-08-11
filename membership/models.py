@@ -5366,7 +5366,10 @@ class VotingSettings(models.Model):
     )
     auto_snapshot_enabled = models.BooleanField(
         default=True,
-        help_text="Master switch for the automated cycle-end snapshot (it never auto-emails members).",
+        help_text=(
+            "Master switch for the automated cycle-end snapshot, which also auto-emails the results "
+            "(voters get their own ballot recap)."
+        ),
     )
 
     class Meta:
