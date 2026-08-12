@@ -18,12 +18,24 @@ def describe_sync_discord_guild_roles():
         out = StringIO()
         with patch(
             "membership.discord_sync.reconcile_reactions",
-            return_value=ReconcileStats(added=2, removed=1, skipped_guilds=0, nudged=3, ran=True),
+            return_value=ReconcileStats(added=2, removed=1, skipped_guilds=0, nudged=3, welcomed=4, ran=True),
         ):
             call_command("sync_discord_guild_roles", stdout=out)
         assert "+2 added" in out.getvalue()
         assert "-1 removed" in out.getvalue()
         assert "3 unlinked reactor(s) nudged" in out.getvalue()
+        assert "4 new joiner(s) welcomed" in out.getvalue()
+        assert "member fetch incomplete" not in out.getvalue()
+
+    def it_flags_an_incomplete_member_fetch():
+        out = StringIO()
+        with patch(
+            "membership.discord_sync.reconcile_reactions",
+            return_value=ReconcileStats(welcomed=1, welcome_fetch_complete=False, ran=True),
+        ):
+            call_command("sync_discord_guild_roles", stdout=out)
+        assert "1 new joiner(s) welcomed" in out.getvalue()
+        assert "member fetch incomplete — check Server Members Intent" in out.getvalue()
 
     def it_reports_a_skip_when_unconfigured():
         out = StringIO()

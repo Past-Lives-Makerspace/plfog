@@ -74,6 +74,16 @@ def describe_discord_settings_save():
         assert config.discord_leadership_webhook_url == _HOOK
         assert config.discord_officers_webhook_url == _HOOK
 
+    def it_persists_the_joiner_nudge_toggle(client: Client):
+        _superuser(client)
+        assert SiteConfiguration.load().discord_joiner_nudge_enabled is True  # default on
+        resp = client.post(reverse("hub_admin_site_settings"), _settings_post())  # checkbox absent → off
+        assert resp.status_code == 302
+        assert SiteConfiguration.load().discord_joiner_nudge_enabled is False
+        resp = client.post(reverse("hub_admin_site_settings"), _settings_post(discord_joiner_nudge_enabled="on"))
+        assert resp.status_code == 302
+        assert SiteConfiguration.load().discord_joiner_nudge_enabled is True
+
     def it_rejects_a_malformed_webhook_url(client: Client):
         _superuser(client)
         resp = client.post(
@@ -105,6 +115,8 @@ def describe_discord_tab_render():
         content = resp.content.decode()
         assert 'name="discord_server_id"' in content
         assert 'name="discord_role_message_id"' in content
+        assert 'name="discord_joiner_nudge_enabled"' in content
+        assert "New-joiner welcome DM" in content
         assert "Emoji → guild map" in content
         assert "No emoji mappings yet" in content  # empty state
         assert "Guild → Discord role" in content
@@ -245,6 +257,7 @@ def describe_guild_role_editor():
         assert content.count('name="discord_general_webhook_url"') == 1
         assert content.count('name="discord_leadership_webhook_url"') == 1
         assert content.count('name="discord_officers_webhook_url"') == 1
+        assert content.count('name="discord_joiner_nudge_enabled"') == 1
 
     def it_places_the_fields_inside_the_main_settings_form(client: Client):
         _superuser(client)
@@ -252,3 +265,4 @@ def describe_guild_role_editor():
         # The field must appear before the first </form> — i.e. inside #site-settings-form,
         # not in the separate announcements composer that follows it.
         assert content.index('name="discord_general_webhook_url"') < content.index("</form>")
+        assert content.index('name="discord_joiner_nudge_enabled"') < content.index("</form>")
