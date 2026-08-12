@@ -535,11 +535,18 @@ def _single_item_response(request: HttpRequest, item: MeetingAgendaItem) -> Http
 @login_required
 @require_POST
 def hub_meeting_item_upvote(request: HttpRequest, pk: int) -> HttpResponse:
-    """Toggle the current user's +1 on an agenda item."""
-    item = get_object_or_404(
-        MeetingAgendaItem.objects.select_related("meeting__guild").prefetch_related("upvoters"), pk=pk
-    )
+    """Toggle the current user's +1 on an agenda item.
+
+    Scoped through Meeting.objects.visible_to so item PK enumeration is bounded
+    by the same visibility gate as the workspace read view.
+    """
     user: Any = request.user
+    item = get_object_or_404(
+        MeetingAgendaItem.objects.select_related("meeting__guild")
+        .prefetch_related("upvoters")
+        .filter(meeting__in=Meeting.objects.visible_to(user)),
+        pk=pk,
+    )
     item.toggle_upvote(user)
     return _single_item_response(request, item)
 
