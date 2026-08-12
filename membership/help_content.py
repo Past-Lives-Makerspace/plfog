@@ -124,6 +124,7 @@ CATEGORIES: list[dict[str, Any]] = [
     {"slug": "guilds", "name": "Guilds", "audience": "member", "sort_order": 20},
     {"slug": "classes", "name": "Taking classes", "audience": "member", "sort_order": 30},
     {"slug": "events-community", "name": "Events & community", "audience": "member", "sort_order": 40},
+    {"slug": "contributing", "name": "Contributing & under the hood", "audience": "member", "sort_order": 50},
     {"slug": "teaching", "name": "Teaching", "audience": "instructor", "sort_order": 50},
     {"slug": "running-a-guild", "name": "Running a guild", "audience": "guild_lead", "sort_order": 60},
     {"slug": "admin", "name": "Admin", "audience": "admin", "sort_order": 70},
@@ -1500,5 +1501,194 @@ Your approval doesn't publish the class. It opens the admin gate: an admin gets 
                 "as_role": "guild_lead",
             },
         ],
+    },
+    # ── Contributing & under the hood (added after P1 — the technical/contributor section) ──
+    {
+        "slug": "fog-is-open-source",
+        "category": "contributing",
+        "title": "FOG is open source: how to contribute",
+        "sort_order": 10,
+        "related": ["the-fog-api", "how-fog-runs"],
+        "body": """FOG — this app — is open source. All of its code is public on GitHub under the MIT license, and any member can read it, report problems, suggest features, or change it directly.
+
+The repository lives at [github.com/Past-Lives-Makerspace/plfog](https://github.com/Past-Lives-Makerspace/plfog).
+
+## Ways to contribute (no coding required)
+
+- **Report a bug or share an idea in the app.** The **Feedback** link at the bottom of the sidebar goes straight to the people who build FOG.
+- **Open a GitHub issue.** If you have a GitHub account, [open an issue](https://github.com/Past-Lives-Makerspace/plfog/issues) describing the bug or idea. Screenshots help a lot.
+- **Improve these guides.** The Help Center articles live in the code too — typo fixes and clearer wording are real contributions.
+
+## Contributing code
+
+FOG is a Django (Python) web app. If you can write Python, HTML, or CSS, you can work on it.
+
+1. **Get it running locally.** The README in the repository walks through setup. Local development runs entirely in Docker Compose — you don't need Python or a database installed, just Docker.
+2. **Make your change on a branch**, with tests. The project keeps 100% test coverage, so changes come with tests that prove they work.
+3. **Open a pull request** (see below).
+
+## What's a pull request?
+
+A pull request (a "PR") is how changes get into a shared codebase safely. Instead of editing the live code directly, you publish your proposed change as a bundle that others can read, comment on, and approve — like handing in a draft for review rather than gluing pages straight into the library's only copy.
+
+When you open a PR against FOG, two things happen automatically:
+
+- **The robots check it.** GitHub runs the full test suite, database checks, and code-style linters against your change. If anything fails, the PR is marked red and can't ship until it's fixed.
+- **A person checks it.** Every PR needs at least **one approving review** before it can merge. Nothing lands in the main branch unreviewed.
+
+## What happens when a PR merges
+
+Merging to the main branch **is** deploying. Render (our hosting platform) watches the main branch: on every merge it builds the app, runs database migrations, and swaps the new version live — usually within a few minutes. That's why the review gate matters: main is production.
+
+!!! note
+    You don't need permission to start. Fork the repository, experiment, and open a PR — the worst that happens is a friendly code review. If you'd like a tour of the codebase first, ask in Discord.""",
+        "screenshots": [],
+    },
+    {
+        "slug": "the-fog-api",
+        "category": "contributing",
+        "title": "The FOG API",
+        "sort_order": 20,
+        "related": ["fog-is-open-source", "how-fog-runs"],
+        "body": """FOG has a REST API — the same data you see in the app, as JSON, for scripts, bots, and integrations built by members. Our own Discord bot and admin tooling use it.
+
+The base URL is `https://members.pastlives.space/api/v1/`.
+
+## Try it right now
+
+If you're logged into FOG in your browser, open [members.pastlives.space/api/v1/](https://members.pastlives.space/api/v1/) — you'll get a browsable version of the API you can click through. Every endpoint shows its data and format right on the page.
+
+## Authentication
+
+Every request must be authenticated — there is no anonymous access. Two ways in:
+
+- **Your browser session.** Being logged into FOG is enough for the browsable API above.
+- **A token**, for scripts and bots. Send it as a header: `Authorization: Token YOUR_TOKEN`. Tokens are issued by a FOG admin — ask in Discord if you're building something and need one.
+
+Example:
+
+```
+curl -H "Authorization: Token YOUR_TOKEN" https://members.pastlives.space/api/v1/guilds/
+```
+
+## Endpoints
+
+| Endpoint | Read | Write |
+|---|---|---|
+| `/api/v1/guilds/` | Any member | Read-only |
+| `/api/v1/events/` | Any member | Admins |
+| `/api/v1/announcements/` | Any member | Admins |
+| `/api/v1/members/` | Admins only | Admins only |
+| `/api/v1/plans/` | Admins only | Admins only |
+
+Member data and membership plans are admin-only for privacy. Everything else is readable by any authenticated member.
+
+Writes do real things: creating an event through `POST /api/v1/events/` also pushes it to the Google Calendar and announces it on Discord, exactly as if an admin had created it in the app. Posting an announcement notifies the guild's members. The API is a first-class door into the app, not a side channel.
+
+## Format details
+
+- Responses are JSON, paginated 50 items per page. Follow the `next` link (or pass `?page=2`) for more.
+- List endpoints support the standard REST shapes: `/guilds/` for the list, `/guilds/<id>/` for one record.
+
+!!! tip
+    Building something on the API — a dashboard, a bot, a shop-status display? Post about it in Discord. If the API is missing a field or an endpoint you need, [open a GitHub issue](https://github.com/Past-Lives-Makerspace/plfog/issues) or add it yourself (see [FOG is open source](/help/contributing/fog-is-open-source/)).""",
+        "screenshots": [],
+    },
+    {
+        "slug": "how-fog-runs",
+        "category": "contributing",
+        "title": "How FOG runs: under the hood",
+        "sort_order": 30,
+        "related": ["the-fog-api", "logins-and-usernames"],
+        "body": """A tour of the machinery for the curious: what FOG is built with, where it runs, and what it talks to.
+
+## The stack
+
+- **Django** (Python 3.13) — the web framework. One app serves the member hub, the class catalog, and the API.
+- **PostgreSQL** — the database.
+- **Render** — the hosting platform. It builds and runs the app, the database, and the scheduled jobs.
+- **Cloudflare R2** — stores uploaded images (guild photos, class images, avatars).
+- **Resend** — delivers the app's email (login codes, class confirmations, announcements).
+
+FOG is also an installable web app: "Add to Home Screen" on your phone gives you an app icon and push notifications.
+
+## Merging code is deploying
+
+There are no release days. When a change merges to the main branch on GitHub (after tests pass and a human approves — see [FOG is open source](/help/contributing/fog-is-open-source/)), Render picks it up automatically: it installs dependencies, runs database migrations, refreshes seeded content like these help guides, and swaps the new version live. A typical change is in production minutes after merge.
+
+## What FOG talks to
+
+- **Airtable** — the membership roster lives there; FOG pulls members, spaces, and leases in on a schedule, and pushes guild-voting results back out.
+- **Discord** — the Fog Bot mirrors community events into Discord's event list, posts guild announcements and new classes, and links member accounts (see [Discord and FOG](/help/contributing/discord-and-fog/)).
+- **Google Calendar** — community events are pushed to the shared calendar automatically.
+
+## Scheduled jobs
+
+Some things run on a clock rather than a click: the nightly Airtable and Discord syncs, class reminder emails, and orientation slot generation all run as scheduled jobs on Render.
+
+## Where to see all this
+
+Every piece above is defined in the public repository — the Render blueprint, the sync code, the API, the lot. If this page made you curious, [the code](https://github.com/Past-Lives-Makerspace/plfog) is the full story.""",
+        "screenshots": [],
+    },
+    {
+        "slug": "logins-and-usernames",
+        "category": "contributing",
+        "title": "How logins and usernames work",
+        "sort_order": 40,
+        "related": ["discord-and-fog", "welcome-to-fog"],
+        "body": """FOG has no passwords. Here's what happens instead, and why login "just works" with your email.
+
+## Logging in
+
+Enter your email on the login page and FOG emails you a one-time code. Type it in and you're logged in. The code expires after 5 minutes, and your session sticks around afterwards — you won't be asked again every visit.
+
+There's nothing to forget and nothing to reuse from another site, which is the point: a leaked password list somewhere else can never open your FOG account.
+
+## Where your account came from
+
+You never "signed up" for FOG, and there's no open registration page. Accounts are created from the makerspace's membership roster — when you became a member, an account was provisioned for the email you gave us. New members get theirs by invite.
+
+That's also the fix when a login code never arrives: the email you typed probably isn't the one on file. Ask a staff member to check.
+
+## More than one email
+
+You can attach extra email addresses to your account under **Settings → Emails**. Once verified, **any** of your emails works for login, and you choose which one FOG uses to reach you.
+
+## So what's my username?
+
+You don't have one — at least not one you ever need to know. Internally the system files your account under your email address, and everything other members see (the directory, announcements, class rosters) uses the display name from your profile. Change it anytime under **Settings → Profile**.""",
+        "screenshots": [],
+    },
+    {
+        "slug": "discord-and-fog",
+        "category": "contributing",
+        "title": "Discord and FOG",
+        "sort_order": 50,
+        "related": ["logins-and-usernames", "community-calendar"],
+        "body": """Past Lives runs on two systems that talk to each other: FOG (this app) for the official record — membership, classes, voting, events — and Discord for the day-to-day conversation. The Fog Bot is the bridge.
+
+## What the bot does on its own
+
+Without you doing anything, the Fog Bot:
+
+- Mirrors the community calendar into **Discord's event list**, so events show up where you already hang out.
+- Posts **guild announcements** to Discord channels (for guilds that turn that on).
+- Posts **new classes** when they're published.
+
+## Linking your accounts
+
+Linking tells FOG which Discord user is you. Two ways:
+
+- **From FOG:** go to **Settings → Notifications** and hit **Connect Discord**. You'll bounce to Discord to approve, then land back in FOG.
+- **From Discord:** click the link the bot posts in the server. If your Discord account's verified email matches your Past Lives email, you're linked in one click — no FOG login needed.
+
+## What linking gets you
+
+- **Guild sync, both directions.** Reacted to the guild role message in Discord? Those guilds are set up for you in FOG. Join or leave a guild in FOG and your Discord roles follow.
+- One identity across both systems, so your guild channels, roles, and FOG account always agree.
+
+Linking is safe by design: a Discord account can only ever be linked to one member, and FOG will never silently swap or reassign a link. You can disconnect anytime from the same settings tab.""",
+        "screenshots": [],
     },
 ]

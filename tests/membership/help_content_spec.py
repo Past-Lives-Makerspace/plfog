@@ -78,12 +78,13 @@ def describe_help_content():
                     )
 
     def describe_seed_data_integrity():
-        def it_seeds_the_seven_approved_categories_in_audience_order():
+        def it_seeds_the_eight_approved_categories_in_audience_order():
             assert [(c["slug"], c["audience"], c["sort_order"]) for c in help_content.CATEGORIES] == [
                 ("getting-started", "member", 10),
                 ("guilds", "member", 20),
                 ("classes", "member", 30),
                 ("events-community", "member", 40),
+                ("contributing", "member", 50),
                 ("teaching", "instructor", 50),
                 ("running-a-guild", "guild_lead", 60),
                 ("admin", "admin", 70),
@@ -116,6 +117,12 @@ def describe_help_content():
                 "members-and-invites": "admin",
                 "reviewing-classes-admin": "admin",
                 "voting-admin": "admin",
+                # The contributor/technical section (post-P1, owner-approved 2026-08-11).
+                "fog-is-open-source": "contributing",
+                "the-fog-api": "contributing",
+                "how-fog-runs": "contributing",
+                "logins-and-usernames": "contributing",
+                "discord-and-fog": "contributing",
             }
             listed = {a["slug"]: a["category"] for a in _articles() if a["slug"] not in help_content.UNLISTED_SLUGS}
             assert listed == approved

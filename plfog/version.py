@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
-VERSION = "0.24.1"
+VERSION = "0.25.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.25.0",
+        "date": "2026-08-11",
+        "title": "FOG is open source — come build it with us",
+        "changes": [
+            "The Help Center has a new section: Contributing & under the hood. FOG's code has always "
+            "been public on GitHub, and now there's a guide that shows you how to report bugs, suggest "
+            "features, or submit changes yourself — including a plain-language explanation of how a "
+            "pull request works. No coding experience required to get involved.",
+            "The FOG API is now documented. Any member can browse live guild, event, and announcement "
+            "data straight from their browser, and the guide covers how to get a token if you want to "
+            "build a bot, dashboard, or integration of your own.",
+            "Curious how the app actually works? New guides explain the tech FOG runs on, how "
+            "passwordless login and your account emails work, and how the Fog Bot connects FOG to "
+            "our Discord.",
+        ],
+    },
     {
         "version": "0.24.1",
         "date": "2026-08-11",
