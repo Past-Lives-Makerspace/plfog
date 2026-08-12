@@ -3828,6 +3828,40 @@ class DiscordLinkNudge(models.Model):
         return f"Link nudge → {self.discord_user_id}"
 
 
+class DiscordJoinWelcome(models.Model):
+    """The one-time welcome DM guard for new Discord server joiners.
+
+    A row here means the welcome was handled forever for that Discord user — sent, or
+    undeliverable because their DMs are closed (403) — and must never be sent again,
+    even if they later link and unlink, or leave the server and rejoin (a returner's
+    fresh ``joined_at`` puts them back inside the cron's 48-hour window, but the row
+    still blocks a second DM — one welcome per Discord user, ever). Rows are written
+    only by the reconcile cron (:func:`membership.discord_sync.reconcile_reactions`)
+    and the manual ``nudge_unlinked_discord_members`` sweep, always via
+    ``get_or_create`` so an overlapping cron tick and sweep can't race into an
+    ``IntegrityError``.
+    """
+
+    discord_user_id = models.CharField(
+        max_length=32,
+        help_text=(
+            "The Discord account id (snowflake) of the server joiner who was sent the one-time welcome DM. "
+            "One welcome ever per Discord user."
+        ),
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="When the welcome DM was sent (or skipped because the user's DMs are closed)."
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["discord_user_id"], name="uq_discordjoinwelcome_discord_user_id"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Join welcome → {self.discord_user_id}"
+
+
 class SkillCategory(models.Model):
     """A grouping of related skills shown in the skills picker and directory filter."""
 

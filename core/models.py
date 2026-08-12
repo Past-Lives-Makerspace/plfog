@@ -255,6 +255,15 @@ class SiteConfiguration(models.Model):
         help_text="The id of the reaction-role message — update if it's reposted. "
         "Blank disables the inbound reaction sync.",
     )
+    discord_joiner_nudge_enabled = models.BooleanField(
+        default=True,
+        verbose_name="DM new Discord joiners",
+        help_text=(
+            "When on (and the guild-role sync connection above is configured), Fog Bot sends each NEW "
+            "server joiner one welcome DM prompting them to create their member portal account and link "
+            "Discord. Each person is ever DMed once. Turning this off also disables the manual sweep command."
+        ),
+    )
     google_analytics_measurement_id = models.CharField(
         max_length=50,
         blank=True,

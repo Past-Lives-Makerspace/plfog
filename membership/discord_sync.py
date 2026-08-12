@@ -12,7 +12,9 @@ Three entry points:
 * :func:`reconcile_reactions` — the 15-minute cron: keep ``source="discord"`` memberships
   in step with the reaction-role message, adding and (guardedly) removing. Also DMs a
   one-time "you're halfway there" nudge to reactors with no linked member, so a guild
-  pick from an unlinked Discord account isn't silently ignored.
+  pick from an unlinked Discord account isn't silently ignored, and a one-time welcome
+  DM to brand-new server joiners (unlinked humans whose ``joined_at`` is inside the
+  last 48 hours) pointing them at account creation and ``/link``.
 
 The whole thing no-ops when Discord is unconfigured (blank bot token / server / message
 ids). Inbound only ever writes ``source="discord"`` rows; outbound only ever writes
@@ -25,13 +27,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import timedelta
 from enum import Enum
 from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.urls import reverse
+from django.utils import timezone
 
-from core.events import discord_dm, discord_reactions, discord_roles
+from core.events import discord_dm, discord_members, discord_reactions, discord_roles
 from core.events.discord_dm import bot_token
 from core.events.discord_oauth import DiscordOAuthError, exchange_code, fetch_identity, resolve_member_from_code
 from core.events.senders import emit_with_email_shell
@@ -70,7 +74,24 @@ class ReconcileStats:
     removed: int = 0
     skipped_guilds: int = 0
     nudged: int = 0
+    welcomed: int = 0
+    welcome_fetch_complete: bool = True
     ran: bool = True
+
+
+@dataclass(frozen=True)
+class JoinWelcomeStats:
+    """Counts returned by :func:`_send_join_welcomes` (cron step and manual sweep alike).
+
+    ``welcomed`` + ``undeliverable`` is the number of ledger rows written this run;
+    the two ``skipped_*`` counts partition the remaining human candidates (a linked
+    member who also has a ledger row counts only as ``skipped_linked``).
+    """
+
+    welcomed: int = 0
+    undeliverable: int = 0
+    skipped_linked: int = 0
+    skipped_ledgered: int = 0
 
 
 class LinkOutcome(Enum):
@@ -166,7 +187,7 @@ def reconcile_reactions() -> ReconcileStats:
     config = _reconcile_config()
     if config is None:
         return ReconcileStats(ran=False)
-    _server_id, channel_id, message_id = config
+    server_id, channel_id, message_id = config
 
     reacted_by_guild: dict[int, set[str]] = {}
     complete_by_guild: dict[int, bool] = {}
@@ -207,7 +228,19 @@ def reconcile_reactions() -> ReconcileStats:
     # failure can't block the reconcile itself.
     nudged = _nudge_unlinked_reactors({user_id for ids in reacted_by_guild.values() for user_id in ids})
 
-    return ReconcileStats(added=added, removed=removed, skipped_guilds=skipped_guilds, nudged=nudged, ran=True)
+    # Welcome brand-new server joiners (once ever, DM only). Also after the membership
+    # work, for the same reason: a DM failure can't block the reconcile itself.
+    welcomed, welcome_fetch_complete = _welcome_new_joiners(server_id)
+
+    return ReconcileStats(
+        added=added,
+        removed=removed,
+        skipped_guilds=skipped_guilds,
+        nudged=nudged,
+        welcomed=welcomed,
+        welcome_fetch_complete=welcome_fetch_complete,
+        ran=True,
+    )
 
 
 def _link_nudge_content() -> str:
@@ -251,6 +284,88 @@ def _nudge_unlinked_reactors(reactor_ids: set[str]) -> int:
         DiscordLinkNudge.objects.create(discord_user_id=discord_user_id)
         nudged += 1
     return nudged
+
+
+def _join_welcome_content() -> str:
+    """The one-time new-joiner welcome DM body, with the absolute link URL.
+
+    Points at the same one-click link flow as :func:`_link_nudge_content` — it handles
+    both "no account yet" (NEEDS_LOGIN landing → sign in/up, then link) and "account
+    exists, just link".
+    """
+    link_url = _absolute_url(reverse("hub_discord_link_start"))
+    return (
+        "Welcome to Past Lives! 👋 Your member portal account is how you sign up for classes, join "
+        "guilds, and vote on funding — and it takes about a minute to set up."
+        f"\n\nGet started here: {link_url}"
+        "\n\nThat link walks you through creating your account and connecting your Discord (or type "
+        "/link in the server anytime). Once you're linked, swing by #choose-your-guild to pick your "
+        "guilds. No rush — everything will still be here when you're ready."
+    )
+
+
+def _send_join_welcomes(candidates: list[discord_members.GuildMemberInfo]) -> JoinWelcomeStats:
+    """DM the one-time join welcome to every candidate who is unlinked and unwelcomed.
+
+    The shared core of the reconcile cron step and the manual sweep command. Bots are
+    dropped; linked members and already-ledgered users are skipped. Each remaining
+    Discord user is welcomed AT MOST ONCE ever — a :class:`DiscordJoinWelcome` row is
+    the guard, written even when the user's DMs are closed (undeliverable forever ≠
+    retry forever) and via ``get_or_create`` so an overlapping cron tick and sweep skip
+    silently instead of ``IntegrityError``-aborting the loop. Any other Discord failure
+    raises: no row is written, the caller surfaces the error loudly, and the remaining
+    unwelcomed ids are retried next run.
+    """
+    from membership.models import DiscordJoinWelcome, Member
+
+    humans = {candidate.user_id for candidate in candidates if not candidate.bot}
+    if not humans:
+        return JoinWelcomeStats()
+    linked = set(Member.objects.filter(discord_user_id__in=humans).values_list("discord_user_id", flat=True))
+    ledgered = set(
+        DiscordJoinWelcome.objects.filter(discord_user_id__in=humans).values_list("discord_user_id", flat=True)
+    )
+    welcomed = 0
+    undeliverable = 0
+    for discord_user_id in sorted(humans - linked - ledgered):
+        if discord_dm.send_dm_text(discord_user_id, _join_welcome_content()):
+            welcomed += 1
+        else:
+            undeliverable += 1
+            logger.info("Discord join welcome to %s skipped (DMs closed); marked welcomed anyway.", discord_user_id)
+        DiscordJoinWelcome.objects.get_or_create(discord_user_id=discord_user_id)
+    return JoinWelcomeStats(
+        welcomed=welcomed,
+        undeliverable=undeliverable,
+        skipped_linked=len(linked),
+        skipped_ledgered=len(ledgered - linked),
+    )
+
+
+def _welcome_new_joiners(server_id: str) -> tuple[int, bool]:
+    """The cron step: welcome humans who joined the server within the last 48 hours.
+
+    Returns ``(rows_written, fetch_complete)`` — rows written this tick (sent +
+    undeliverable, same semantics as ``nudged``) and whether the member fetch ran to
+    the end. Returns ``(0, True)`` immediately when the site-settings toggle is off.
+    An incomplete fetch is safe to act on (everyone seen genuinely joined, the ledger
+    dedupes) but is logged and surfaced in the cron stdout: a persistent 403 usually
+    means the bot's Server Members Intent was revoked and would otherwise look like a
+    healthy "0 welcomed" forever.
+    """
+    from core.models import SiteConfiguration
+
+    if not SiteConfiguration.load().discord_joiner_nudge_enabled:
+        return (0, True)
+    page = discord_members.fetch_guild_members(server_id)
+    if not page.complete:
+        logger.warning(
+            "Discord member fetch incomplete; welcoming whoever was seen (check the bot's Server Members Intent)."
+        )
+    cutoff = timezone.now() - timedelta(hours=48)
+    fresh = [member for member in page.members if member.joined_at is not None and member.joined_at >= cutoff]
+    stats = _send_join_welcomes(fresh)
+    return (stats.welcomed + stats.undeliverable, page.complete)
 
 
 def link_and_import(code: str, redirect_uri: str, *, member: Member | None = None) -> LinkResult:

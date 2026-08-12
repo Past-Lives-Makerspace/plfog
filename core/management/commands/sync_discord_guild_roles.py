@@ -24,10 +24,11 @@ class Command(BaseCommand):
         if not stats.ran:
             self.stdout.write("Discord guild-role sync skipped (not configured).")
             return
+        suffix = "" if stats.welcome_fetch_complete else " (member fetch incomplete — check Server Members Intent)"
         self.stdout.write(
             self.style.SUCCESS(
                 f"Discord guild-role sync: +{stats.added} added, -{stats.removed} removed, "
                 f"{stats.skipped_guilds} guild(s) skipped (incomplete fetch), "
-                f"{stats.nudged} unlinked reactor(s) nudged."
+                f"{stats.nudged} unlinked reactor(s) nudged, {stats.welcomed} new joiner(s) welcomed.{suffix}"
             )
         )

@@ -603,6 +603,7 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_server_id",
             "discord_role_message_channel_id",
             "discord_role_message_id",
+            "discord_joiner_nudge_enabled",
             "tab_payments_enabled",
             "class_registration_enabled",
             "class_registration_disabled_note",

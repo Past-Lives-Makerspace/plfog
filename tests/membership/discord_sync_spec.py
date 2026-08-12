@@ -6,6 +6,8 @@ provenance/anti-oscillation behavior, the completeness guardrail, and every link
 
 from __future__ import annotations
 
+import logging
+from datetime import timedelta
 from urllib.parse import unquote
 
 import httpx
@@ -15,17 +17,19 @@ from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
 from django.core import mail
 from django.db.models.signals import post_save
+from django.utils import timezone
 from factory.django import mute_signals
 
 from membership import discord_sync
 from membership.discord_sync import LinkOutcome
-from membership.models import DiscordLinkNudge, GuildMembership
+from membership.models import DiscordJoinWelcome, DiscordLinkNudge, GuildMembership
 from tests.membership.factories import DiscordGuildEmojiFactory, GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
 
 _REACTIONS_RE = r"https://discord\.com/api/v10/channels/.+/messages/.+/reactions/.+"
 _ROLE_RE = r"https://discord\.com/api/v10/guilds/.+/members/.+/roles/.+"
+_MEMBERS_RE = r"https://discord\.com/api/v10/guilds/.+/members\?.*"
 _TOKEN_URL = "https://discord.com/api/v10/oauth2/token"
 _IDENTITY_URL = "https://discord.com/api/v10/users/@me"
 _REDIRECT = "http://pastlives.test:8000/discord/link/callback/"
@@ -69,6 +73,23 @@ def _mock_dm(message_response: httpx.Response | None = None):
     respx.post(_DM_CHANNELS_URL).mock(return_value=httpx.Response(200, json={"id": "dm99"}))
     return respx.post(_DM_MESSAGES_URL).mock(
         return_value=message_response if message_response is not None else httpx.Response(200, json={"id": "m1"})
+    )
+
+
+def _member_entry(user_id: str, *, hours_ago: float | None = 1.0, bot: bool = False) -> dict:
+    """One raw guild-member payload entry. ``hours_ago=None`` omits ``joined_at`` entirely."""
+    entry: dict = {"user": {"id": user_id}}
+    if bot:
+        entry["user"]["bot"] = True  # Discord OMITS the flag for humans
+    if hours_ago is not None:
+        entry["joined_at"] = (timezone.now() - timedelta(hours=hours_ago)).isoformat()
+    return entry
+
+
+def _mock_members(entries: list[dict] | None = None):
+    """Mock the paginated guild-members endpoint with a single complete page."""
+    return respx.get(url__regex=_MEMBERS_RE).mock(
+        return_value=httpx.Response(200, json=entries if entries is not None else [])
     )
 
 
@@ -156,6 +177,7 @@ def describe_reconcile_reactions():
         DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
         member = MemberFactory(discord_user_id="u1")
         _mock_reactions({"🔥": ["u1"]})
+        _mock_members()
         stats = discord_sync.reconcile_reactions()
         assert stats.added == 1
         assert GuildMembership.objects.filter(
@@ -166,6 +188,7 @@ def describe_reconcile_reactions():
     def it_ignores_a_reactor_with_no_linked_member(sync_config):
         DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
         _mock_reactions({"🔥": ["unknown-id"]})
+        _mock_members()
         _mock_dm()  # the unlinked reactor gets the one-time nudge, never a membership
         stats = discord_sync.reconcile_reactions()
         assert stats.added == 0
@@ -177,6 +200,7 @@ def describe_reconcile_reactions():
         member = MemberFactory(discord_user_id="u1")
         GuildMembership.objects.record_discord_join(guild, member)
         _mock_reactions({"🔥": []})  # complete fetch, nobody reacts
+        _mock_members()
         stats = discord_sync.reconcile_reactions()
         assert stats.removed == 1
         assert not GuildMembership.objects.filter(guild=guild, member=member).exists()
@@ -188,6 +212,7 @@ def describe_reconcile_reactions():
         member = MemberFactory(discord_user_id="u1")
         GuildMembership.objects.record_app_join(guild, member)  # explicit in-app join
         _mock_reactions({"🔥": []})
+        _mock_members()
         discord_sync.reconcile_reactions()
         assert GuildMembership.objects.filter(guild=guild, member=member, source=GuildMembership.Source.APP).exists()
 
@@ -198,6 +223,7 @@ def describe_reconcile_reactions():
         member = MemberFactory(discord_user_id="u1")
         GuildMembership.objects.record_discord_join(guild, member)
         _mock_reactions({"🔥": []}, flaky=["🔥"])  # 429 → incomplete
+        _mock_members()
         stats = discord_sync.reconcile_reactions()
         assert stats.removed == 0
         assert stats.skipped_guilds == 1
@@ -211,6 +237,7 @@ def describe_reconcile_reactions():
         m1 = MemberFactory(discord_user_id="u1")
         m2 = MemberFactory(discord_user_id="u2")
         _mock_reactions({"✍️": ["u1"], "🔥": ["u2"]})
+        _mock_members()
         stats = discord_sync.reconcile_reactions()
         assert stats.added == 2  # both members joined the one Glass guild
         assert GuildMembership.objects.filter(guild=glass, member=m1).exists()
@@ -222,6 +249,7 @@ def describe_reconcile_nudges_unlinked_reactors():
     def it_dms_a_one_time_nudge_with_the_absolute_link_url(sync_config, settings):
         DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
         _mock_reactions({"🔥": ["stranger"]})
+        _mock_members()
         msg = _mock_dm()
         stats = discord_sync.reconcile_reactions()
         assert stats.nudged == 1
@@ -235,6 +263,7 @@ def describe_reconcile_nudges_unlinked_reactors():
     def it_does_not_dm_the_same_reactor_twice(sync_config):
         DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
         _mock_reactions({"🔥": ["stranger"]})
+        _mock_members()
         msg = _mock_dm()
         discord_sync.reconcile_reactions()
         stats = discord_sync.reconcile_reactions()  # the next 15-minute tick
@@ -247,6 +276,7 @@ def describe_reconcile_nudges_unlinked_reactors():
         DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
         MemberFactory(discord_user_id="u1")
         _mock_reactions({"🔥": ["u1"]})
+        _mock_members()
         msg = _mock_dm()
         stats = discord_sync.reconcile_reactions()
         assert stats.nudged == 0
@@ -257,6 +287,7 @@ def describe_reconcile_nudges_unlinked_reactors():
     def it_marks_the_reactor_nudged_when_their_dms_are_closed(sync_config):
         DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
         _mock_reactions({"🔥": ["stranger"]})
+        _mock_members()
         _mock_dm(message_response=httpx.Response(403, json={"code": 50007, "message": "Cannot send messages"}))
         stats = discord_sync.reconcile_reactions()  # swallowed — never raises
         assert stats.nudged == 1
@@ -269,6 +300,7 @@ def describe_reconcile_nudges_unlinked_reactors():
         # quiet, permanent "undeliverable" — the guard row is written so it's never retried.
         DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
         _mock_reactions({"🔥": ["stranger"]})
+        _mock_members()
         _mock_dm(message_response=httpx.Response(403, json={"message": "Missing Access"}))
         stats = discord_sync.reconcile_reactions()  # must not raise
         assert stats.nudged == 1
@@ -295,6 +327,120 @@ def describe_reconcile_nudges_unlinked_reactors():
         discord_sync.import_member_guilds(member)
         assert not msg.called
         assert not DiscordLinkNudge.objects.exists()
+
+
+def describe_reconcile_welcomes_new_joiners():
+    @respx.mock
+    def it_welcomes_an_unlinked_human_who_just_joined(sync_config, settings):
+        _mock_members([_member_entry("newbie")])
+        msg = _mock_dm()
+        stats = discord_sync.reconcile_reactions()
+        assert stats.welcomed == 1
+        assert stats.welcome_fetch_complete is True
+        body = msg.calls.last.request.read().decode()
+        assert f"{settings.MEMBER_BASE_URL}/discord/link/" in body  # absolute, not a bare path
+        assert "/link" in body
+        assert "#choose-your-guild" in body
+        assert DiscordJoinWelcome.objects.filter(discord_user_id="newbie").exists()
+
+    @respx.mock
+    def it_does_not_welcome_the_same_joiner_twice(sync_config):
+        _mock_members([_member_entry("newbie")])
+        msg = _mock_dm()
+        discord_sync.reconcile_reactions()
+        stats = discord_sync.reconcile_reactions()  # the next 15-minute tick
+        assert stats.welcomed == 0
+        assert msg.call_count == 1
+        assert DiscordJoinWelcome.objects.count() == 1
+
+    @respx.mock
+    def it_never_rewelcomes_a_rejoiner(sync_config):
+        # A leave-and-rejoin puts them back inside the 48 h window with a fresh
+        # joined_at — the ledger row still blocks a second DM, forever, by design.
+        DiscordJoinWelcome.objects.create(discord_user_id="returner")
+        _mock_members([_member_entry("returner")])
+        msg = _mock_dm()
+        stats = discord_sync.reconcile_reactions()
+        assert stats.welcomed == 0
+        assert not msg.called
+        assert DiscordJoinWelcome.objects.count() == 1
+
+    @respx.mock
+    def it_never_welcomes_a_linked_member(sync_config):
+        MemberFactory(discord_user_id="u1")
+        _mock_members([_member_entry("u1")])
+        msg = _mock_dm()
+        stats = discord_sync.reconcile_reactions()
+        assert stats.welcomed == 0
+        assert not msg.called
+        assert not DiscordJoinWelcome.objects.exists()
+
+    @respx.mock
+    def it_skips_bots(sync_config):
+        _mock_members([_member_entry("beep", bot=True)])
+        msg = _mock_dm()
+        stats = discord_sync.reconcile_reactions()
+        assert stats.welcomed == 0
+        assert not msg.called
+
+    @respx.mock
+    def it_skips_old_joiners_and_missing_join_dates(sync_config):
+        _mock_members([_member_entry("old-timer", hours_ago=100), _member_entry("dateless", hours_ago=None)])
+        msg = _mock_dm()
+        stats = discord_sync.reconcile_reactions()
+        assert stats.welcomed == 0
+        assert not msg.called
+        assert not DiscordJoinWelcome.objects.exists()
+
+    @respx.mock
+    def it_marks_the_joiner_welcomed_when_their_dms_are_closed(sync_config):
+        _mock_members([_member_entry("newbie")])
+        _mock_dm(message_response=httpx.Response(403, json={"code": 50007, "message": "Cannot send messages"}))
+        stats = discord_sync.reconcile_reactions()  # swallowed — never raises
+        assert stats.welcomed == 1  # rows written this tick, same semantics as nudged
+        assert DiscordJoinWelcome.objects.filter(discord_user_id="newbie").exists()  # never retried
+
+    @respx.mock
+    def it_raises_and_leaves_the_joiner_unmarked_on_any_other_dm_error(sync_config):
+        _mock_members([_member_entry("newbie")])
+        _mock_dm(message_response=httpx.Response(500, text="boom"))
+        with pytest.raises(httpx.HTTPStatusError):
+            discord_sync.reconcile_reactions()
+        assert not DiscordJoinWelcome.objects.exists()  # unmarked → retried next tick
+
+    @respx.mock
+    def it_never_fetches_members_when_the_toggle_is_off(sync_config):
+        sync_config.discord_joiner_nudge_enabled = False
+        sync_config.save()
+        members_route = _mock_members([_member_entry("newbie")])
+        stats = discord_sync.reconcile_reactions()
+        assert stats.welcomed == 0
+        assert stats.welcome_fetch_complete is True
+        assert not members_route.called
+        assert not DiscordJoinWelcome.objects.exists()
+
+    @respx.mock
+    def it_welcomes_whoever_was_seen_on_an_incomplete_fetch(sync_config, caplog):
+        # A truncated fetch is safe: everyone seen genuinely joined and the ledger
+        # dedupes — but the incomplete flag must surface (a persistent 403 from a
+        # revoked Server Members Intent would otherwise look like "0 welcomed" forever).
+        filler = [_member_entry(f"old{n}", hours_ago=100) for n in range(999)]
+        full_page = [*filler, _member_entry("seen")]
+        respx.get(url__regex=_MEMBERS_RE).mock(
+            side_effect=[httpx.Response(200, json=full_page), httpx.Response(500, text="boom")]
+        )
+        _mock_dm()
+        with caplog.at_level(logging.WARNING, logger="membership.discord_sync"):
+            stats = discord_sync.reconcile_reactions()
+        assert stats.welcomed == 1
+        assert stats.welcome_fetch_complete is False
+        assert DiscordJoinWelcome.objects.filter(discord_user_id="seen").exists()
+        assert "incomplete" in caplog.text
+
+
+def describe_DiscordJoinWelcome():
+    def it_renders_the_welcomed_discord_user_id():
+        assert str(DiscordJoinWelcome(discord_user_id="42")) == "Join welcome → 42"
 
 
 def describe_DiscordLinkNudge():
