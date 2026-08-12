@@ -84,7 +84,7 @@ def describe_help_content():
                 ("guilds", "member", 20),
                 ("classes", "member", 30),
                 ("events-community", "member", 40),
-                ("contributing", "member", 50),
+                ("contributing", "developer", 50),
                 ("teaching", "instructor", 50),
                 ("running-a-guild", "guild_lead", 60),
                 ("admin", "admin", 70),

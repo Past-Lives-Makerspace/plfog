@@ -8,7 +8,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "0.25.0",
         "date": "2026-08-11",
-        "title": "FOG is open source — come build it with us",
+        "title": "Come build FOG with us — it's open source",
         "changes": [
             "The Help Center has a new section: Contributing & under the hood. FOG's code has always "
             "been public on GitHub, and now there's a guide that shows you how to report bugs, suggest "

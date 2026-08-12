@@ -124,7 +124,7 @@ CATEGORIES: list[dict[str, Any]] = [
     {"slug": "guilds", "name": "Guilds", "audience": "member", "sort_order": 20},
     {"slug": "classes", "name": "Taking classes", "audience": "member", "sort_order": 30},
     {"slug": "events-community", "name": "Events & community", "audience": "member", "sort_order": 40},
-    {"slug": "contributing", "name": "Contributing & under the hood", "audience": "member", "sort_order": 50},
+    {"slug": "contributing", "name": "Contributing & under the hood", "audience": "developer", "sort_order": 50},
     {"slug": "teaching", "name": "Teaching", "audience": "instructor", "sort_order": 50},
     {"slug": "running-a-guild", "name": "Running a guild", "audience": "guild_lead", "sort_order": 60},
     {"slug": "admin", "name": "Admin", "audience": "admin", "sort_order": 70},
