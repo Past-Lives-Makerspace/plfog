@@ -6223,19 +6223,46 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 .pl-meeting-add-item-input:focus { outline: none; border-color: var(--hub-link); }
 
-/* --- Item edit pencil --- */
-.pl-meeting-item__edit-btn {
+/* --- Item row actions (upvote + edit + trash) --- */
+.pl-meeting-item__row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
     margin-left: auto;
-    padding: 0.15rem 0.4rem;
+    flex-shrink: 0;
+}
+.pl-meeting-item__icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
     background: transparent;
     border: none;
     color: var(--hub-text-muted);
-    font-size: 0.85rem;
     cursor: pointer;
-    border-radius: 4px;
-    flex-shrink: 0;
+    border-radius: 6px;
 }
-.pl-meeting-item__edit-btn:hover { color: var(--hub-link); background: var(--hub-hover-bg); }
+.pl-meeting-item__icon-btn svg { width: 1rem; height: 1rem; }
+.pl-meeting-item__icon-btn:hover { color: var(--hub-link); background: var(--hub-hover-bg); }
+.pl-meeting-item__icon-btn--danger:hover { color: var(--color-error, #e53e3e); background: var(--hub-hover-bg); }
+.pl-meeting-item__upvote-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.4rem;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--hub-text-muted);
+    font-size: 0.8rem;
+    cursor: pointer;
+    border-radius: 6px;
+}
+.pl-meeting-item__upvote-btn svg { width: 0.9rem; height: 0.9rem; }
+.pl-meeting-item__upvote-btn:hover { color: var(--hub-link); border-color: var(--hub-border); }
+.pl-meeting-item__upvote-btn--active { color: var(--hub-link); border-color: var(--hub-link); }
+.pl-meeting-item__upvote-count { font-weight: 600; }
 
 /* --- Action items --- */
 .pl-meeting-actions {

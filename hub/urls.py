@@ -22,6 +22,7 @@ urlpatterns = [
     path("meetings/items/<int:pk>/save/", meeting_views.hub_meeting_item_save, name="hub_meeting_item_save"),
     path("meetings/items/<int:pk>/move/", meeting_views.hub_meeting_item_move, name="hub_meeting_item_move"),
     path("meetings/items/<int:pk>/delete/", meeting_views.hub_meeting_item_delete, name="hub_meeting_item_delete"),
+    path("meetings/items/<int:pk>/upvote/", meeting_views.hub_meeting_item_upvote, name="hub_meeting_item_upvote"),
     path("meetings/items/<int:pk>/actions/add/", meeting_views.hub_meeting_action_add, name="hub_meeting_action_add"),
     path("meetings/actions/<int:pk>/save/", meeting_views.hub_meeting_action_save, name="hub_meeting_action_save"),
     path(

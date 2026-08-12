@@ -315,7 +315,8 @@ def _workspace_context(request: HttpRequest, meeting: Meeting) -> dict[str, Any]
     return {
         **_get_hub_context(request),
         "meeting": meeting,
-        "items": meeting.items.all(),
+        "items": meeting.items.prefetch_related("actions", "upvoters"),
+        "upvoted_item_ids": _upvoted_ids(meeting, user),
         "attendees": meeting.attendees.all(),
         "attachments": meeting.attachments.all(),
         "can_edit": can_edit,
@@ -448,9 +449,10 @@ def _items_response(request: HttpRequest, meeting: Meeting, *, new_item_pk: int 
         "hub/partials/_meeting_items.html",
         {
             "meeting": meeting,
-            "items": meeting.items.prefetch_related("actions"),
+            "items": meeting.items.prefetch_related("actions", "upvoters"),
             "is_editable": True,
             "new_item_pk": new_item_pk,
+            "upvoted_item_ids": _upvoted_ids(meeting, request.user),
         },
     )
     _set_saved_trigger(response)
@@ -507,6 +509,37 @@ def hub_meeting_item_delete(request: HttpRequest, pk: int) -> HttpResponse:
     response = HttpResponse("")  # empty outerHTML swap removes the row
     trigger_toast(response, "Topic deleted.", "success")
     return response
+
+
+def _upvoted_ids(meeting: Meeting, user: Any) -> set[int]:
+    """PKs of this meeting's items the given user has upvoted."""
+    return set(meeting.items.filter(upvoters=user).values_list("pk", flat=True))
+
+
+def _single_item_response(request: HttpRequest, item: MeetingAgendaItem) -> HttpResponse:
+    """Re-render one agenda item row (HTMX outerHTML swap for upvote toggle)."""
+    user: Any = request.user
+    meeting = item.meeting
+    return render(
+        request,
+        "hub/partials/_meeting_item.html",
+        {
+            "item": item,
+            "meeting": meeting,
+            "is_editable": can_edit_meeting(request, meeting),
+            "upvoted_item_ids": {item.pk} if item.upvoters.filter(pk=user.pk).exists() else set(),
+        },
+    )
+
+
+@login_required
+@require_POST
+def hub_meeting_item_upvote(request: HttpRequest, pk: int) -> HttpResponse:
+    """Toggle the current user's +1 on an agenda item."""
+    item = get_object_or_404(MeetingAgendaItem.objects.select_related("meeting__guild").prefetch_related("upvoters"), pk=pk)
+    user: Any = request.user
+    item.toggle_upvote(user)
+    return _single_item_response(request, item)
 
 
 # --- Action items -------------------------------------------------------------

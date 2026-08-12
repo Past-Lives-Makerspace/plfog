@@ -5559,6 +5559,12 @@ class MeetingAgendaItem(models.Model):
     sort_order = models.PositiveIntegerField(
         default=0, help_text="Position on the agenda; the up/down buttons swap these."
     )
+    upvoters = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="upvoted_agenda_items",
+        blank=True,
+        help_text="Members who have +1'd this item to signal interest.",
+    )
 
     class Meta:
         ordering = ["sort_order", "pk"]
@@ -5579,6 +5585,19 @@ class MeetingAgendaItem(models.Model):
         """Open actions under this topic (the collapsed-item 'N★' badge). Counts in
         Python so a ``prefetch_related("items__actions")`` workspace query stays N+1-free."""
         return sum(1 for action in self.actions.all() if action.status == MeetingActionItem.Status.OPEN)
+
+    @property
+    def upvote_count(self) -> int:
+        """Number of +1s. Uses the prefetch cache when upvoters are prefetched."""
+        return sum(1 for _ in self.upvoters.all())
+
+    def toggle_upvote(self, user: User) -> bool:
+        """Add or remove this user's +1. Returns True if now upvoted, False if removed."""
+        if self.upvoters.filter(pk=user.pk).exists():
+            self.upvoters.remove(user)
+            return False
+        self.upvoters.add(user)
+        return True
 
     def move(self, *, direction: str) -> None:
         """Swap this item one position up or down the agenda; a clamped no-op at the ends.
