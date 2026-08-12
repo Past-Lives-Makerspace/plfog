@@ -11,7 +11,7 @@ a proposal approval's response appends this item to the accordion out-of-band).
      {% if oob_append %}hx-swap-oob="beforeend:#pl-meeting-item-list"{% endif %}
      :class="itemClass({{ item.pk }})"
      {% if item.pk == new_item_pk %}x-init="$nextTick(() => openAgendaItem({{ item.pk }}, true))"{% endif %}>
-  <div class="pl-meeting-item__row" @click="toggleAgendaItem({{ item.pk }})">
+  <div class="pl-meeting-item__row" {% if not is_editable %}@click="toggleAgendaItem({{ item.pk }})"{% endif %}>
     {% if is_editable %}
     <span class="pl-meeting-item__chevrons" x-show="openItem === null">
       <button type="button" class="pl-meeting-chevron" aria-label="Move up" @click.stop
@@ -29,6 +29,11 @@ a proposal approval's response appends this item to the accordion out-of-band).
     </span>
     {% if item.open_action_count %}
     <span class="pl-meeting-badge pl-meeting-badge--actions">{{ item.open_action_count }}★</span>
+    {% endif %}
+    {% if is_editable %}
+    <button type="button" class="pl-meeting-item__edit-btn" aria-label="Edit item"
+            x-show="openItem === null || openItem === {{ item.pk }}"
+            @click.stop="toggleAgendaItem({{ item.pk }})">✏</button>
     {% endif %}
   </div>
   <div class="pl-meeting-item__body" x-show="openItem === {{ item.pk }}">

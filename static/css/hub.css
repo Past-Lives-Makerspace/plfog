@@ -6223,6 +6223,20 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 .pl-meeting-add-item-input:focus { outline: none; border-color: var(--hub-link); }
 
+/* --- Item edit pencil --- */
+.pl-meeting-item__edit-btn {
+    margin-left: auto;
+    padding: 0.15rem 0.4rem;
+    background: transparent;
+    border: none;
+    color: var(--hub-text-muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+.pl-meeting-item__edit-btn:hover { color: var(--hub-link); background: var(--hub-hover-bg); }
+
 /* --- Action items --- */
 .pl-meeting-actions {
     display: flex;

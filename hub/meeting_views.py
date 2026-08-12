@@ -467,8 +467,8 @@ def hub_meeting_item_add(request: HttpRequest, pk: int) -> HttpResponse:
         return guard
     name = _clean_char(200)(request.POST.get("name", ""))
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    item = meeting.add_item(by=user, name=name)
-    return _items_response(request, meeting, new_item_pk=item.pk)
+    meeting.add_item(by=user, name=name)
+    return _items_response(request, meeting)
 
 
 @login_required
