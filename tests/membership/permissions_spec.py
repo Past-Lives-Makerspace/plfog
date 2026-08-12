@@ -22,6 +22,7 @@ from membership.permissions import (
     can_edit_event,
     can_edit_guild,
     can_manage_orientations,
+    editable_meeting_scopes,
     is_effective_staff,
 )
 from tests.membership.factories import (
@@ -230,3 +231,53 @@ def describe_can_edit_event():
         request.user = AnonymousUser()
         assert can_edit_event(request, CommunityEventFactory(community=True)) is False
         assert can_edit_event(request, CommunityEventFactory(guild=GuildFactory())) is False
+
+
+def describe_editable_meeting_scopes():
+    """The bulk scope helper behind the Meetings home + create modal (§6.2) — the
+    same answers as can_edit_guild / can_edit_meeting, two queries total."""
+
+    def _request(user, *, roles: set[str] | None = None, picked: str | None = None):
+        request = RequestFactory().get("/")
+        request.user = user
+        if roles is not None:
+            request.view_as = ViewAs(actual=frozenset(roles), picked=picked)
+        return request
+
+    def it_returns_nothing_for_an_anonymous_request():
+        GuildFactory()
+        request = _request(AnonymousUser())
+        assert editable_meeting_scopes(request) == ([], False)
+
+    def it_returns_nothing_for_an_authenticated_request_with_no_member():
+        GuildFactory()
+        request = _request(UserFactory(username="scopeless@example.com"), roles={ROLE_MEMBER})
+        request.user.member.delete()
+        request.user.refresh_from_db()
+        assert editable_meeting_scopes(request) == ([], False)
+
+    def it_gives_effective_staff_every_guild_plus_council():
+        beta = GuildFactory(name="Beta")
+        alpha = GuildFactory(name="Alpha")
+        request = _request(UserFactory(username="scopeadmin@example.com"), roles={ROLE_ADMIN, ROLE_MEMBER})
+        guilds, council = editable_meeting_scopes(request)
+        assert guilds == [alpha, beta]  # name-ordered
+        assert council is True
+
+    def it_gives_a_lead_their_guilds_plus_council():
+        MembershipPlanFactory()
+        member = UserFactory().member
+        led = GuildFactory(name="Led", guild_lead=member)
+        staffed = GuildFactory(name="Staffed")
+        GuildStaffMembershipFactory(guild=staffed, member=member)
+        GuildFactory(name="Unrelated")
+        request = _request(member.user, roles={ROLE_MEMBER})
+        guilds, council = editable_meeting_scopes(request)
+        assert guilds == [led, staffed]
+        assert council is True
+
+    def it_denies_council_to_a_member_with_no_authority_anywhere():
+        MembershipPlanFactory()
+        GuildFactory()
+        request = _request(UserFactory().member.user, roles={ROLE_MEMBER})
+        assert editable_meeting_scopes(request) == ([], False)

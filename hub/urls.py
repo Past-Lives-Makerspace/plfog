@@ -1,9 +1,71 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import discord_views, notification_views, views
+from . import discord_views, meeting_views, notification_views, views
 
 urlpatterns = [
+    # --- Meetings (spec §6.0) ---
+    path("meetings/", meeting_views.hub_meetings, name="hub_meetings"),
+    path("meetings/new/", meeting_views.hub_meeting_create, name="hub_meeting_create"),
+    path("meetings/<int:pk>/", meeting_views.hub_meeting, name="hub_meeting"),
+    path("meetings/<int:pk>/event/", meeting_views.hub_meeting_event, name="hub_meeting_event"),
+    path(
+        "meetings/<int:pk>/event/unlink/",
+        meeting_views.hub_meeting_event_unlink,
+        name="hub_meeting_event_unlink",
+    ),
+    path("meetings/<int:pk>/save/", meeting_views.hub_meeting_save, name="hub_meeting_save"),
+    path("meetings/<int:pk>/approve/", meeting_views.hub_meeting_approve, name="hub_meeting_approve"),
+    path("meetings/<int:pk>/unlock/", meeting_views.hub_meeting_unlock, name="hub_meeting_unlock"),
+    path("meetings/<int:pk>/delete/", meeting_views.hub_meeting_delete, name="hub_meeting_delete"),
+    path("meetings/<int:pk>/items/add/", meeting_views.hub_meeting_item_add, name="hub_meeting_item_add"),
+    path("meetings/items/<int:pk>/save/", meeting_views.hub_meeting_item_save, name="hub_meeting_item_save"),
+    path("meetings/items/<int:pk>/move/", meeting_views.hub_meeting_item_move, name="hub_meeting_item_move"),
+    path("meetings/items/<int:pk>/delete/", meeting_views.hub_meeting_item_delete, name="hub_meeting_item_delete"),
+    path("meetings/items/<int:pk>/actions/add/", meeting_views.hub_meeting_action_add, name="hub_meeting_action_add"),
+    path("meetings/actions/<int:pk>/save/", meeting_views.hub_meeting_action_save, name="hub_meeting_action_save"),
+    path(
+        "meetings/actions/<int:pk>/delete/",
+        meeting_views.hub_meeting_action_delete,
+        name="hub_meeting_action_delete",
+    ),
+    path(
+        "meetings/actions/<int:pk>/carryover/",
+        meeting_views.hub_meeting_action_carryover,
+        name="hub_meeting_action_carryover",
+    ),
+    path(
+        "meetings/<int:pk>/attachments/add/",
+        meeting_views.hub_meeting_attachment_add,
+        name="hub_meeting_attachment_add",
+    ),
+    path(
+        "meetings/attachments/<int:pk>/delete/",
+        meeting_views.hub_meeting_attachment_delete,
+        name="hub_meeting_attachment_delete",
+    ),
+    path("meetings/<int:pk>/attendees/add/", meeting_views.hub_meeting_attendee_add, name="hub_meeting_attendee_add"),
+    path(
+        "meetings/attendees/<int:pk>/save/",
+        meeting_views.hub_meeting_attendee_save,
+        name="hub_meeting_attendee_save",
+    ),
+    path(
+        "meetings/attendees/<int:pk>/delete/",
+        meeting_views.hub_meeting_attendee_delete,
+        name="hub_meeting_attendee_delete",
+    ),
+    path("meetings/<int:pk>/propose/", meeting_views.hub_meeting_propose, name="hub_meeting_propose"),
+    path(
+        "meetings/proposals/<int:pk>/decide/",
+        meeting_views.hub_meeting_proposal_decide,
+        name="hub_meeting_proposal_decide",
+    ),
+    path(
+        "meetings/proposals/<int:pk>/withdraw/",
+        meeting_views.hub_meeting_proposal_withdraw,
+        name="hub_meeting_proposal_withdraw",
+    ),
     path("guilds/voting/", views.guild_voting, name="hub_guild_voting"),
     path("guilds/voting/history/", views.snapshot_history, name="hub_snapshot_history"),
     path("guilds/voting/history/<int:pk>/", views.snapshot_detail, name="hub_snapshot_detail"),

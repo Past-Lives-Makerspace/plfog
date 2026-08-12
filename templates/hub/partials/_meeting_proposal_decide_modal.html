@@ -1,0 +1,46 @@
+{% comment %}
+The decision modal's HTMX-loaded body (Meetings spec §5.4/§6.3) — one form per
+mode. Approve IS edit-then-approve: the prefilled Topic/Why can be tweaked before
+confirming, and the proposer stays credited on the created item. Decline carries
+an optional note back to the proposer. The POST targets the strip row (removed on
+success) and the response OOB-appends the item partial on approval; a successful
+request closes the shell. Context: proposal, mode ("approve"|"decline"), proposer_name.
+{% endcomment %}
+{% if mode == "approve" %}
+<form hx-post="{% url 'hub_meeting_proposal_decide' proposal.pk %}"
+      hx-target="#proposal-{{ proposal.pk }}" hx-swap="outerHTML"
+      @htmx:after-request.camel="if ($event.detail.successful) $dispatch('close-modal', 'proposal-decide')">
+  {% csrf_token %}
+  <input type="hidden" name="decision" value="approve">
+  <p class="hub-text-muted pl-meeting-decide__intro">Tweak the wording if needed — {{ proposer_name }} stays credited on the item.</p>
+  <div class="hub-form-group">
+    <label for="decide-title-{{ proposal.pk }}">Topic</label>
+    <input type="text" id="decide-title-{{ proposal.pk }}" name="title" maxlength="200" required
+           value="{{ proposal.title }}">
+  </div>
+  <div class="hub-form-group">
+    <label for="decide-why-{{ proposal.pk }}">Why / what needs deciding</label>
+    <textarea id="decide-why-{{ proposal.pk }}" name="why" rows="3">{{ proposal.why }}</textarea>
+  </div>
+  <div class="pl-modal__actions">
+    <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Add to agenda</button>
+    <button type="button" @click="$dispatch('close-modal', 'proposal-decide')" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+  </div>
+</form>
+{% else %}
+<form hx-post="{% url 'hub_meeting_proposal_decide' proposal.pk %}"
+      hx-target="#proposal-{{ proposal.pk }}" hx-swap="outerHTML"
+      @htmx:after-request.camel="if ($event.detail.successful) $dispatch('close-modal', 'proposal-decide')">
+  {% csrf_token %}
+  <input type="hidden" name="decision" value="decline">
+  <p class="hub-text-muted pl-meeting-decide__intro">Turns down "{{ proposal.title }}" — {{ proposer_name }} is notified either way.</p>
+  <div class="hub-form-group">
+    <label for="decide-note-{{ proposal.pk }}">Note to the proposer (optional)</label>
+    <textarea id="decide-note-{{ proposal.pk }}" name="note" rows="3"></textarea>
+  </div>
+  <div class="pl-modal__actions">
+    <button type="submit" class="pl-btn pl-btn--danger" style="flex:1;">Decline</button>
+    <button type="button" @click="$dispatch('close-modal', 'proposal-decide')" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+  </div>
+</form>
+{% endif %}

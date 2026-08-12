@@ -1,0 +1,118 @@
+{% comment %}
+The guild detail "Meetings" tab (Meetings spec §6.4) — a filtered window into the
+Meetings feature: the guild's next meeting (with propose gating per §6.3, the
+locked-agenda hint, and the cadence "Start the agenda" fallback), its last 5
+approved minutes, and the editor extras (+ New meeting via the Meetings home's
+preselected modal, pending-proposals chip). Context comes from guild_detail:
+next_guild_meeting (topic_count annotated), can_propose_next, recent_minutes,
+pending_proposal_count, plus guild / can_edit_this_guild.
+{% endcomment %}
+<section class="pl-guild-section pl-guild-meetings">
+    {% if can_edit_this_guild %}
+    <div class="pl-guild-meetings__toolbar">
+        <a href="{% url 'hub_meetings' %}?guild={{ guild.pk }}" class="pl-btn pl-btn--primary pl-btn--sm">+ New meeting</a>
+        {% if pending_proposal_count %}
+        <a href="{% url 'hub_meeting' next_guild_meeting.pk %}" class="hub-badge pl-guild-meetings__pending">{{ pending_proposal_count }} proposal{{ pending_proposal_count|pluralize }} pending</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="hub-card pl-guild-meetings__card">
+        <h3 class="hub-detail-label">Next meeting</h3>
+        {% if next_guild_meeting %}
+        <a href="{% url 'hub_meeting' next_guild_meeting.pk %}" class="pl-guild-meetings__title">{{ next_guild_meeting.display_title }}</a>
+        <div class="hub-text-muted pl-guild-meetings__meta">
+            {{ next_guild_meeting.scheduled_date|date:"l, F j" }} ·
+            {% if next_guild_meeting.scheduled_time %}{{ next_guild_meeting.scheduled_time|time:"g:i A" }}{% else %}Time TBD{% endif %}
+            · {{ next_guild_meeting.topic_count }} topic{{ next_guild_meeting.topic_count|pluralize }}
+        </div>
+        {% if next_guild_meeting.video_call_url %}
+        <a href="{{ next_guild_meeting.video_call_url }}" target="_blank" rel="noopener" class="pl-btn pl-btn--primary pl-btn--sm pl-guild-meetings__join">Join meeting</a>
+        {% endif %}
+        {% if can_propose_next %}
+        <div class="pl-guild-meetings__propose">
+            <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('open-modal', 'propose-item')">Propose an agenda item</button>
+        </div>
+        {% elif next_guild_meeting.is_locked %}
+        <p class="hub-text-muted pl-guild-meetings__hint">The agenda is locked — proposals are closed for this one.</p>
+        {% endif %}
+        {% else %}
+        {% with cadence=guild.next_meeting_occurrence %}
+        {% if cadence %}
+        <div class="pl-guild-meetings__meta">Next per schedule: {{ cadence.when|date:"l, F j" }}{% if cadence.has_time %} · {{ cadence.when|time:"g:i A" }}{% endif %}</div>
+        {% if can_edit_this_guild %}
+        {# The §6.2 Start-the-agenda contract — an existing scope+date meeting redirects into it, no twin. #}
+        <form method="post" action="{% url 'hub_meeting_create' %}" class="pl-guild-meetings__start">
+            {% csrf_token %}
+            <input type="hidden" name="scope" value="{{ guild.pk }}">
+            <input type="hidden" name="kind" value="monthly">
+            <input type="hidden" name="date" value="{{ cadence.when|date:'Y-m-d' }}">
+            <input type="hidden" name="time" value="{% if cadence.has_time %}{{ cadence.when|time:'H:i' }}{% endif %}">
+            <button type="submit" class="pl-btn pl-btn--sm">Start the agenda</button>
+        </form>
+        {% else %}
+        <p class="hub-text-muted pl-guild-meetings__hint">Proposals open once leadership starts the agenda.</p>
+        {% endif %}
+        {% else %}
+        <p class="hub-text-muted">No meeting scheduled yet.</p>
+        {% endif %}
+        {% endwith %}
+        {% endif %}
+    </div>
+
+    <div class="hub-card pl-guild-meetings__card">
+        <h3 class="hub-detail-label">Recent minutes</h3>
+        {% for meeting in recent_minutes %}
+        <div class="pl-guild-meetings__minute">
+            <a href="{% url 'hub_meeting' meeting.pk %}">{{ meeting.display_title }}</a>
+            <span class="hub-text-muted">{{ meeting.scheduled_date|date:"M j, Y" }}</span>
+            <span class="pl-meeting-badge pl-meeting-badge--approved">✓</span>
+        </div>
+        {% empty %}
+        <p class="hub-text-muted">No approved minutes yet.</p>
+        {% endfor %}
+        <a href="{% url 'hub_meetings' %}?guild={{ guild.pk }}" class="pl-guild-meetings__archive-link">See all in the archive →</a>
+    </div>
+</section>
+
+{# ── The propose modal (same as the workspace's §6.3 modal, targeted at the next meeting) ── #}
+{% if can_propose_next %}
+<div x-data="{ open: false }"
+     x-show="open"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-modal.window="if ($event.detail === 'propose-item') open = true"
+     @close-modal.window="if ($event.detail === 'propose-item') open = false"
+     @keydown.escape.window="open = false"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="propose-item-title">
+  <div class="pl-modal pl-modal--sm" @click.outside="open = false">
+    <div class="pl-modal__header">
+      <h2 class="pl-modal__title" id="propose-item-title">Propose an agenda item</h2>
+      <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+    </div>
+    <div class="pl-modal__body">
+      <form hx-post="{% url 'hub_meeting_propose' next_guild_meeting.pk %}" hx-swap="none"
+            @htmx:after-request.camel="if ($event.detail.successful) { open = false; $event.target.reset(); }">
+        {% csrf_token %}
+        <div class="hub-form-group">
+          <label for="propose-item-topic">Topic</label>
+          <input type="text" id="propose-item-topic" name="title" maxlength="200" required>
+        </div>
+        <div class="hub-form-group">
+          <label for="propose-item-why">Why / what needs deciding</label>
+          <textarea id="propose-item-why" name="why" rows="3"></textarea>
+          <p class="pl-field-hint">Helps leadership slot it into the meeting.</p>
+        </div>
+        <div class="pl-modal__actions">
+          <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Propose it</button>
+          <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}

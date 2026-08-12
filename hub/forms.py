@@ -13,6 +13,7 @@ from django.utils.text import slugify
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+    from django.http import HttpRequest
 
 from core.html_sanitize import sanitize_rich_html
 from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
@@ -32,6 +33,7 @@ from membership.models import (
     GuildOrientationSettings,
     HelpCategory,
     MapHotspot,
+    MeetingAttachment,
     Member,
     MemberContact,
     MemberSkill,
@@ -1243,6 +1245,91 @@ GuildMeetingNoteAttachmentFormSet = forms.inlineformset_factory(
     extra=0,
     can_delete=True,
 )
+
+
+class MeetingCreateForm(forms.Form):
+    """The '+ New meeting' modal (Meetings spec §6.2): For scope + Type, both per-user.
+
+    The For choices are permission-derived — the guilds this user can edit, plus
+    Council for everyone who passes :func:`~membership.permissions.can_edit_meeting`
+    for the council scope (admins AND any guild's lead/staff). A posted scope outside
+    the list is therefore a permission failure, which the create view returns as 403.
+    """
+
+    KIND_CHOICES = [("monthly", "Monthly"), ("special", "Special")]
+
+    scope = forms.ChoiceField(label="For", choices=[])
+    kind = forms.ChoiceField(label="Type", choices=KIND_CHOICES, initial="monthly")
+
+    def __init__(self, *args: Any, request: HttpRequest, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        from membership.permissions import editable_meeting_scopes
+
+        guilds, council = editable_meeting_scopes(request)
+        choices: list[tuple[str, str]] = [(str(guild.pk), guild.name) for guild in guilds]
+        if council:
+            choices.append(("council", "Council"))
+        cast(forms.ChoiceField, self.fields["scope"]).choices = choices
+
+    def scope_guild(self) -> Guild | None:
+        """The chosen scope as a Guild, or ``None`` for the council. Valid forms only."""
+        value = self.cleaned_data["scope"]
+        if value == "council":
+            return None
+        return Guild.objects.get(pk=int(value))
+
+
+class MeetingItemProposalForm(forms.Form):
+    """The 'Propose an agenda item' modal (Meetings spec §6.3): Topic + optional Why."""
+
+    title = forms.CharField(label="Topic", max_length=200)
+    why = forms.CharField(
+        label="Why / what needs deciding",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+
+
+class MeetingProposalDecisionForm(forms.Form):
+    """The reviewer decision modal POST (Meetings spec §5.4/§6.3).
+
+    Approve is the edit-then-approve path — the possibly-tweaked Title/Why land on the
+    created agenda item, so a topic is required. Decline carries only an optional note
+    back to the proposer (the locked decision — unlike event declines).
+    """
+
+    DECISION_CHOICES = [("approve", "Approve"), ("decline", "Decline")]
+
+    decision = forms.ChoiceField(choices=DECISION_CHOICES)
+    title = forms.CharField(max_length=200, required=False)
+    why = forms.CharField(required=False, widget=forms.Textarea)
+    note = forms.CharField(required=False, widget=forms.Textarea)
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if cleaned.get("decision") == "approve" and not cleaned.get("title"):
+            raise forms.ValidationError("Give the agenda item a topic.")
+        return cleaned
+
+
+class MeetingAttachmentForm(forms.ModelForm):
+    """The workspace's '+ Attach file or link' modal — exactly one of file / url.
+
+    Copies the meeting-note attachment XOR idiom (the user-facing guard in front of
+    the model's ``ck_meetingattachment_file_xor_url`` constraint).
+    """
+
+    class Meta:
+        model = MeetingAttachment
+        fields = ["label", "file", "url"]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        has_file = bool(cleaned.get("file"))
+        has_url = bool(cleaned.get("url"))
+        if has_file == has_url:  # both empty or both filled
+            raise forms.ValidationError("Pick a file or paste a link, not both.")
+        return cleaned
 
 
 class GuildOrientationSettingsForm(forms.ModelForm):

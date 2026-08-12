@@ -1,0 +1,52 @@
+{% comment %}
+The pending-proposals review strip (Meetings spec §6.3) — draft mode, editors only,
+rendered only when pending proposals exist (the include site guards all three).
+Add to agenda / Decline load the decision modal's body via HTMX (GET on the decide
+route) into the shared shell below and open it; the decision POST removes the row
+and (on approval) OOB-appends the new item partial to the accordion.
+Context: meeting, pending_proposals.
+{% endcomment %}
+<div class="hub-card pl-meeting-proposals" id="pl-meeting-proposals" :class="dimClass()">
+  <h2 class="hub-detail-label">Proposed agenda items ({{ pending_proposals|length }})</h2>
+  {% for proposal in pending_proposals %}
+  <div class="pl-meeting-proposal" id="proposal-{{ proposal.pk }}">
+    <div class="pl-meeting-proposal__info">
+      <span class="pl-meeting-proposal__title">{{ proposal.title }}</span>
+      <span class="hub-text-muted pl-meeting-proposal__by">{% firstof proposal.proposed_by.member.display_name proposal.proposed_by.username %}</span>
+      {% if proposal.why %}<p class="hub-text-muted pl-meeting-proposal__why">{{ proposal.why }}</p>{% endif %}
+    </div>
+    <div class="pl-meeting-proposal__actions">
+      <button type="button" class="pl-btn pl-btn--sm"
+              @click="$dispatch('open-modal', 'proposal-decide')"
+              hx-get="{% url 'hub_meeting_proposal_decide' proposal.pk %}?mode=approve"
+              hx-target="#proposal-decide-body" hx-swap="innerHTML">Add to agenda</button>
+      <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+              @click="$dispatch('open-modal', 'proposal-decide')"
+              hx-get="{% url 'hub_meeting_proposal_decide' proposal.pk %}?mode=decline"
+              hx-target="#proposal-decide-body" hx-swap="innerHTML">Decline</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# ── The shared decision modal shell — its body is HTMX-loaded per proposal ── #}
+<div x-data="{ open: false }"
+     x-show="open"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-modal.window="if ($event.detail === 'proposal-decide') open = true"
+     @close-modal.window="if ($event.detail === 'proposal-decide') open = false"
+     @keydown.escape.window="open = false"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="proposal-decide-title">
+  <div class="pl-modal pl-modal--sm" @click.outside="open = false">
+    <div class="pl-modal__header">
+      <h2 class="pl-modal__title" id="proposal-decide-title">Review proposal</h2>
+      <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+    </div>
+    <div class="pl-modal__body" id="proposal-decide-body"></div>
+  </div>
+</div>

@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
-VERSION = "0.24.0"
+VERSION = "0.24.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.24.1",
+        "date": "2026-08-11",
+        "title": "Every guild meeting now has a live agenda page that becomes the minutes",
+        "changes": [
+            "There's a new Meetings section in the sidebar. Every guild meeting — and the council "
+            "meeting — gets one page that starts as the agenda before the meeting and becomes the "
+            "official minutes after, with attendance, discussion notes, and action items all in one place.",
+            "Got something you want discussed? You can suggest agenda topics for an upcoming meeting right "
+            "from its meeting page. Guild leadership reviews each one, and when yours is approved you're "
+            "credited on the item.",
+            "Action items carry over from meeting to meeting until they're checked off, so nothing "
+            "falls through the cracks between meetings.",
+            "If a meeting has a video call link, a Join meeting button shows up everywhere the meeting "
+            "appears — one click and you're in.",
+            "Browse any guild's past minutes (and the council's) in the Meetings archive, with filters "
+            "by guild and year.",
+            "Your guild's old meeting notes moved over automatically — they're all in the new Meetings "
+            "section, attachments included.",
+        ],
+    },
     {
         "version": "0.24.0",
         "date": "2026-08-11",

@@ -29,6 +29,11 @@ from membership.models import (
     HelpCategory,
     Lease,
     MapHotspot,
+    Meeting,
+    MeetingActionItem,
+    MeetingAgendaItem,
+    MeetingAttendee,
+    MeetingItemProposal,
     Member,
     MemberContact,
     MemberEmail,
@@ -291,6 +296,65 @@ class CommunityEventFactory(factory.django.DjangoModelFactory):
             google_ical_uid=factory.Sequence(lambda n: f"gevent{n}@google.com"),
             sync_state=CommunityEvent.SyncState.SYNCED,
         )
+
+
+class MeetingFactory(factory.django.DjangoModelFactory):
+    """A draft guild Monthly meeting a week out. Pass ``guild=None`` for the council
+    scope, ``scheduled_date=None`` for an undated draft; the ``approved`` trait locks it."""
+
+    class Meta:
+        model = Meeting
+
+    guild = factory.SubFactory(GuildFactory)
+    scheduled_date = factory.LazyFunction(lambda: timezone.localdate() + timedelta(days=7))
+
+    class Params:
+        approved = factory.Trait(
+            status=Meeting.Status.APPROVED,
+            approved_by=factory.SubFactory(UserFactory),
+            approved_at=factory.LazyFunction(timezone.now),
+        )
+
+
+class MeetingAgendaItemFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = MeetingAgendaItem
+
+    meeting = factory.SubFactory(MeetingFactory)
+    name = factory.Sequence(lambda n: f"Topic {n}")
+
+
+class MeetingActionItemFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = MeetingActionItem
+
+    item = factory.SubFactory(MeetingAgendaItemFactory)
+    name = factory.Sequence(lambda n: f"Action {n}")
+
+
+class MeetingAttendeeFactory(factory.django.DjangoModelFactory):
+    """A roster-member attendance row by default. Use the ``guest`` trait for a
+    free-text guest (member XOR guest_name is a check constraint)."""
+
+    class Meta:
+        model = MeetingAttendee
+
+    meeting = factory.SubFactory(MeetingFactory)
+    member = factory.SubFactory(MemberFactory)
+    guest_name = ""
+
+    class Params:
+        guest = factory.Trait(member=None, guest_name=factory.Sequence(lambda n: f"Guest {n}"))
+
+
+class MeetingItemProposalFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = MeetingItemProposal
+
+    meeting = factory.SubFactory(MeetingFactory)
+    title = factory.Sequence(lambda n: f"Proposed topic {n}")
+    why = "It needs a decision."
+    proposed_by = factory.SubFactory(UserFactory)
 
 
 class GuildMembershipFactory(factory.django.DjangoModelFactory):

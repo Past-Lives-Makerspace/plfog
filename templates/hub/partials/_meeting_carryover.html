@@ -1,0 +1,37 @@
+{% comment %}
+The carryover panel (Meetings spec §5.5/§6.3) — open action items from the scope's
+earlier meetings, grouped by source meeting. Draft mode + editors only; the include
+site guards is_editable, and this partial renders nothing when there's nothing to
+carry, so the carryover POST's outerHTML re-render removes the panel once the last
+row is closed. Done/Dismiss are cheap status flips — no confirm modals (the row's
+history stays on its source meeting). Context: meeting, carryover_actions.
+{% endcomment %}
+{% if carryover_actions %}
+<div class="hub-card pl-meeting-carryover" id="pl-meeting-carryover" :class="dimClass()">
+  <h2 class="hub-detail-label">Carried over — still open from earlier meetings</h2>
+  {% regroup carryover_actions by item.meeting as carryover_groups %}
+  {% for group in carryover_groups %}
+  <div class="pl-meeting-carryover__group">
+    <p class="hub-text-muted pl-meeting-carryover__source">From {{ group.grouper.display_title }}, {{ group.grouper.scheduled_date|date:"F j, Y" }}</p>
+    {% for action in group.list %}
+    <div class="pl-meeting-carryover__row" id="carryover-{{ action.pk }}">
+      <span class="pl-meeting-carryover__name">
+        {% if action.is_flagged %}<span class="pl-meeting-flag pl-meeting-flag--on pl-meeting-flag--static" aria-hidden="true">⚑</span>{% endif %}
+        {% if action.name %}{{ action.name }}{% else %}<span class="hub-text-muted">Untitled action</span>{% endif %}
+      </span>
+      <span class="pl-meeting-carryover__actions">
+        <button type="button" class="pl-btn pl-btn--sm"
+                hx-post="{% url 'hub_meeting_action_carryover' action.pk %}"
+                hx-vals='{"op": "complete", "meeting": "{{ meeting.pk }}"}'
+                hx-target="#pl-meeting-carryover" hx-swap="outerHTML">Done</button>
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                hx-post="{% url 'hub_meeting_action_carryover' action.pk %}"
+                hx-vals='{"op": "dismiss", "meeting": "{{ meeting.pk }}"}'
+                hx-target="#pl-meeting-carryover" hx-swap="outerHTML">Dismiss</button>
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

@@ -16,11 +16,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from django.utils import timezone
+
 if TYPE_CHECKING:
     from django.http import HttpRequest
 
     from classes.models import Category, ClassOffering
-    from membership.models import CommunityEvent, Guild, Member
+    from membership.models import CommunityEvent, Guild, Meeting, Member
 
 
 def is_effective_staff(request: HttpRequest) -> bool:
@@ -97,6 +99,67 @@ def can_edit_event(request: HttpRequest, event: CommunityEvent) -> bool:
         view_as = getattr(request, "view_as", None)
         return view_as is not None and view_as.is_admin
     return can_edit_guild(request, guild)
+
+
+def can_edit_meeting(request: HttpRequest, meeting: Meeting) -> bool:
+    """True when this request may edit the meeting's workspace.
+
+    A guild meeting defers to :func:`can_edit_guild` (lead / staff / admin / officer).
+    A council meeting (no guild) is editable by effective staff or anyone holding
+    lead/staff authority in ANY guild — the same membership test the
+    ``all_guild_leads`` resolver applies. Honors ``view_as`` preview like the other
+    helpers.
+    """
+    guild = meeting.guild
+    if guild is not None:
+        return can_edit_guild(request, guild)
+    if is_effective_staff(request):
+        return True
+    member = _editing_member(request)
+    return member is not None and member.staffed_guilds.exists()
+
+
+def editable_meeting_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
+    """The guilds this request may edit (name-ordered) plus council editability, cheaply.
+
+    The bulk companion to :func:`can_edit_guild` / :func:`can_edit_meeting` for surfaces
+    that need every editable scope at once (the Meetings home §6.2, the create modal) —
+    two queries instead of one per guild, same answers. Effective staff edit everything;
+    otherwise the member's led/staffed guilds are editable, and holding lead/staff
+    authority in ANY guild grants the council scope (§5.1).
+    """
+    from membership.models import Guild
+
+    if is_effective_staff(request):
+        return list(Guild.objects.order_by("name")), True
+    member = _editing_member(request)
+    if member is None:
+        return [], False
+    guilds = list(member.staffed_guilds.order_by("name"))
+    return guilds, bool(guilds)
+
+
+def can_propose_to_meeting(request: HttpRequest, meeting: Meeting) -> bool:
+    """True when this request may propose an agenda item for the meeting.
+
+    Guild meeting: any active member of that guild (its leadership and admins
+    trivially). Council: guild leads/staff/admins only. Always ``False`` once the
+    meeting is locked or its date has passed.
+    """
+    from membership.models import Member
+
+    if meeting.is_locked:
+        return False
+    if meeting.scheduled_date is not None and meeting.scheduled_date < timezone.localdate():
+        return False
+    if can_edit_meeting(request, meeting):
+        return True
+    if meeting.guild is None:
+        return False
+    member = _editing_member(request)
+    if member is None or member.status != Member.Status.ACTIVE:
+        return False
+    return meeting.guild.memberships.filter(member=member).exists()
 
 
 def can_edit_category(request: HttpRequest, category: Category) -> bool:

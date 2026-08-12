@@ -1,0 +1,18 @@
+{% comment %}
+The agenda list container — the HTMX swap unit for the add + move endpoints.
+Full-list re-renders are safe: reordering and adding only happen while no item is
+open (the chevrons hide and a dim-click collapses first), so a swap can never
+destroy an open item's DOM or its live Quill. The empty-state line hides itself
+via CSS whenever rows exist (:only-child), so HTMX appends need no bookkeeping.
+Context: meeting, items, is_editable, new_item_pk (optional — arrives auto-open).
+{% endcomment %}
+<div id="pl-meeting-item-list" class="pl-meeting-item-list">
+  {% if is_editable %}
+  <p class="pl-meeting-empty hub-text-muted">No agenda topics yet. Add the first one — or wait for member proposals to roll in.</p>
+  {% else %}
+  <p class="pl-meeting-empty hub-text-muted">The agenda hasn't been written yet.</p>
+  {% endif %}
+  {% for item in items %}
+  {% include "hub/partials/_meeting_item.html" %}
+  {% endfor %}
+</div>
