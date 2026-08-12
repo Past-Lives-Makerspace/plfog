@@ -5,16 +5,20 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('membership', '0113_alter_helpcategory_audience'),
+        ("membership", "0113_alter_helpcategory_audience"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='meetingagendaitem',
-            name='upvoters',
-            field=models.ManyToManyField(blank=True, help_text="Members who have +1'd this item to signal interest.", related_name='upvoted_agenda_items', to=settings.AUTH_USER_MODEL),
+            model_name="meetingagendaitem",
+            name="upvoters",
+            field=models.ManyToManyField(
+                blank=True,
+                help_text="Members who have +1'd this item to signal interest.",
+                related_name="upvoted_agenda_items",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
     ]

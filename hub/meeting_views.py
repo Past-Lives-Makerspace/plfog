@@ -536,7 +536,9 @@ def _single_item_response(request: HttpRequest, item: MeetingAgendaItem) -> Http
 @require_POST
 def hub_meeting_item_upvote(request: HttpRequest, pk: int) -> HttpResponse:
     """Toggle the current user's +1 on an agenda item."""
-    item = get_object_or_404(MeetingAgendaItem.objects.select_related("meeting__guild").prefetch_related("upvoters"), pk=pk)
+    item = get_object_or_404(
+        MeetingAgendaItem.objects.select_related("meeting__guild").prefetch_related("upvoters"), pk=pk
+    )
     user: Any = request.user
     item.toggle_upvote(user)
     return _single_item_response(request, item)
