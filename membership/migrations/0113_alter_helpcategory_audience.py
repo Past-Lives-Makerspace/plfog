@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0110_backfill_instructor_oriented"),
+        ("membership", "0112_migrate_meeting_notes"),
     ]
 
     operations = [
