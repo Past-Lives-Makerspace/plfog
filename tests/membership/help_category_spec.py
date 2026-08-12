@@ -18,9 +18,10 @@ def describe_HelpCategory():
     def it_defaults_the_audience_to_member(db):
         assert HelpCategoryFactory().audience == HelpCategory.Audience.MEMBER
 
-    def it_offers_the_four_audience_choices(db):
+    def it_offers_the_five_audience_choices(db):
         assert [choice for choice, _ in HelpCategory.Audience.choices] == [
             "member",
+            "developer",
             "guild_lead",
             "instructor",
             "admin",

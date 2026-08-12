@@ -2591,10 +2591,10 @@ def _org_info_edit_context(
     page: OrgInfoPage,
     *,
     form: OrgInfoPageForm | None = None,
-    faq_formset: BaseInlineFormSet | None = None,
-    link_formset: BaseInlineFormSet | None = None,
-    article_formset: BaseInlineFormSet | None = None,
-    category_formset: BaseModelFormSet | None = None,
+    faq_formset: BaseInlineFormSet[Any, Any, Any] | None = None,
+    link_formset: BaseInlineFormSet[Any, Any, Any] | None = None,
+    article_formset: BaseInlineFormSet[Any, Any, Any] | None = None,
+    category_formset: BaseModelFormSet[Any, Any] | None = None,
     active_tab: str | None = None,
 ) -> dict[str, Any]:
     """Build the render context for the Space & Org Info editor (Content / Map / FAQ & Links / …).

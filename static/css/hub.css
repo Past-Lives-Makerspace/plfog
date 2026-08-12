@@ -113,9 +113,11 @@ img {
     --pl-sync-pending: #8b97a8;
     --pl-sync-failed: #f0a0a0;
 
-    /* Help-center audience badges — the Admins violet (member/instructor/lead reuse
-       --hub-blue / --pl-sync-synced / the gold family). Theme pair overridden below. */
+    /* Help-center audience badges — the Admins violet and Developers magenta
+       (member/instructor/lead reuse --hub-blue / --pl-sync-synced / the gold
+       family). Theme pairs overridden below. */
     --pl-help-admin: #c4a3f5;
+    --pl-help-developer: #ef9fce;
 
     --font-heading: 'Lato', system-ui, -apple-system, sans-serif;
     --font-body: 'Inter', system-ui, -apple-system, sans-serif;
@@ -167,8 +169,9 @@ img {
     --pl-sync-pending: #5b6675;
     --pl-sync-failed: #b03030;
 
-    /* Help audience badges — darker violet that passes contrast on white cards. */
+    /* Help audience badges — darker violet/magenta that pass contrast on white cards. */
     --pl-help-admin: #6d3fc0;
+    --pl-help-developer: #a83a85;
 }
 
 /* ========================================
@@ -3385,6 +3388,11 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     color: var(--pl-help-admin);
     border-color: color-mix(in srgb, var(--pl-help-admin) 40%, transparent);
     background: color-mix(in srgb, var(--pl-help-admin) 12%, transparent);
+}
+.pl-help-badge--developer {
+    color: var(--pl-help-developer);
+    border-color: color-mix(in srgb, var(--pl-help-developer) 40%, transparent);
+    background: color-mix(in srgb, var(--pl-help-developer) 12%, transparent);
 }
 .pl-help-cat-eyebrow { margin-bottom: 0.5rem; }
 .pl-help-breadcrumbs { margin-bottom: 0.75rem; font-size: 0.875rem; color: var(--hub-text-muted); }

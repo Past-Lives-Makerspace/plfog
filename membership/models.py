@@ -2348,7 +2348,7 @@ class HelpCategoryQuerySet(models.QuerySet):
         return self.filter(published_count__gt=0)
 
     def landing_ranked(self) -> "HelpCategoryQuerySet":
-        """Audience-rank ordering for the Help landing: member → instructor → guild_lead → admin.
+        """Audience-rank ordering for the Help landing: member → developer → instructor → guild_lead → admin.
 
         ``{% regroup %}`` only groups *adjacent* rows, so this ordering is what keeps each
         audience heading contiguous on the landing grid (global ``(sort_order, pk)`` alone
@@ -2356,13 +2356,15 @@ class HelpCategoryQuerySet(models.QuerySet):
         """
         rank = Case(
             When(audience=HelpCategory.Audience.MEMBER, then=Value(0)),
-            When(audience=HelpCategory.Audience.INSTRUCTOR, then=Value(1)),
-            When(audience=HelpCategory.Audience.GUILD_LEAD, then=Value(2)),
-            When(audience=HelpCategory.Audience.ADMIN, then=Value(3)),
+            When(audience=HelpCategory.Audience.DEVELOPER, then=Value(1)),
+            When(audience=HelpCategory.Audience.INSTRUCTOR, then=Value(2)),
+            When(audience=HelpCategory.Audience.GUILD_LEAD, then=Value(3)),
+            When(audience=HelpCategory.Audience.ADMIN, then=Value(4)),
             output_field=models.IntegerField(),
         )
         heading = Case(
             When(audience=HelpCategory.Audience.MEMBER, then=Value("For every member")),
+            When(audience=HelpCategory.Audience.DEVELOPER, then=Value("For developers")),
             When(audience=HelpCategory.Audience.INSTRUCTOR, then=Value("Teaching")),
             When(audience=HelpCategory.Audience.GUILD_LEAD, then=Value("Running a guild")),
             When(audience=HelpCategory.Audience.ADMIN, then=Value("Admin")),
@@ -2376,6 +2378,7 @@ class HelpCategory(models.Model):
 
     class Audience(models.TextChoices):
         MEMBER = "member", "Members"
+        DEVELOPER = "developer", "Developers"
         GUILD_LEAD = "guild_lead", "Guild leads & staff"
         INSTRUCTOR = "instructor", "Instructors"
         ADMIN = "admin", "Admins"

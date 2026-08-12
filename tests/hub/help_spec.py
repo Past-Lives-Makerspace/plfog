@@ -232,17 +232,20 @@ def describe_org_info_read_page():
                 (HelpCategory.Audience.ADMIN, "Admin tools", 10),
                 (HelpCategory.Audience.GUILD_LEAD, "Running a guild", 20),
                 (HelpCategory.Audience.INSTRUCTOR, "Teaching things", 30),
+                (HelpCategory.Audience.DEVELOPER, "Contributing", 35),
                 (HelpCategory.Audience.MEMBER, "Getting started", 40),
             ]:
                 WikiArticleFactory(category=HelpCategoryFactory(name=name, audience=audience, sort_order=sort))
             content = client.get(reverse("hub_help")).content
             positions = [
                 content.index(b"For every member"),
+                content.index(b"For developers"),
                 content.index(b"Teaching"),
                 content.index(b"Running a guild"),
                 content.index(b"Admin"),
             ]
             assert positions == sorted(positions)
+            assert b">Developers<" in content  # the audience badge label on the developer card
 
         def it_renders_the_card_with_count_badge_and_category_link(client: Client):
             category = HelpCategoryFactory(name="Guilds", description="Voting and pages.")
