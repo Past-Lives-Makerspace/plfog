@@ -11,6 +11,12 @@ Authored to the §10.5 working agreement of
 ``docs/superpowers/plans/2026-08-10-help-center-knowledge-base.md``: every
 claim code-verified, ELI14 register, permission caveats kept, GATED surfaces
 (Tab/payments, Discord connect, slash commands) never mentioned.
+
+Amendment (owner decision, 2026-08-12): the Discord-connect gate is lifted —
+the prod bot has been live and member-announced since v0.22.9, and the owner
+requested Discord documentation for the contributing section, so
+``discord-and-fog`` documents the connect/link flows. Tab/payments and
+slash-command docs stay gated.
 """
 
 from __future__ import annotations
