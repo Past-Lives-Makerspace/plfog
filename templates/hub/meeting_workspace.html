@@ -223,9 +223,14 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
     <h2 class="hub-detail-label">Agenda</h2>
     {% include "hub/partials/_meeting_items.html" %}
     {% if is_editable %}
-    <button type="button" class="pl-meeting-add-item"
-            hx-post="{% url 'hub_meeting_item_add' meeting.pk %}"
-            hx-target="#pl-meeting-item-list" hx-swap="outerHTML">+ Add item</button>
+    <form class="pl-meeting-add-item-form"
+          hx-post="{% url 'hub_meeting_item_add' meeting.pk %}"
+          hx-target="#pl-meeting-item-list" hx-swap="outerHTML"
+          hx-on::after-request="if(event.detail.successful) this.reset()">
+      <input type="text" name="name" maxlength="200" placeholder="Add an agenda item…"
+             class="pl-meeting-add-item-input" required>
+      <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Add</button>
+    </form>
     {% endif %}
   </div>
 

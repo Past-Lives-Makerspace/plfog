@@ -57,6 +57,7 @@ from membership.models import (
     MeetingItemProposal,
     MeetingLockedError,
     Member,
+    NextMeeting,
 )
 from membership.permissions import can_edit_meeting, can_propose_to_meeting, editable_meeting_scopes
 
@@ -257,6 +258,27 @@ def _attendee_picker_context(meeting: Meeting) -> dict[str, Any]:
 _OCCURRENCE_HORIZON_DAYS = 370
 
 
+def _council_cadence() -> NextMeeting | None:
+    """The soonest upcoming occurrence of any published LEAD_MEETING event (site-wide).
+
+    Mirrors Guild.next_meeting_occurrence for the council row, which has no Guild FK to
+    derive a cadence from. Returns None when no published lead-meeting event exists.
+    """
+    today = timezone.localdate()
+    horizon = today + timedelta(days=_OCCURRENCE_HORIZON_DAYS)
+    now = timezone.now()
+    events = CommunityEvent.objects.filter(
+        event_type=CommunityEvent.EventType.LEAD_MEETING,
+        moderation_state=CommunityEvent.ModerationState.PUBLISHED,
+        guild__isnull=True,
+    )
+    for event in events:
+        for occurrence in event.occurrences_in(today, horizon):
+            if occurrence >= now:
+                return NextMeeting(when=occurrence, location=event.location, has_time=True)
+    return None
+
+
 def _scope_events(meeting: Meeting) -> Any:
     """The scope's published calendar events — a guild's own, or site-wide for council."""
     if meeting.guild is not None:
@@ -438,13 +460,14 @@ def _items_response(request: HttpRequest, meeting: Meeting, *, new_item_pk: int 
 @login_required
 @require_POST
 def hub_meeting_item_add(request: HttpRequest, pk: int) -> HttpResponse:
-    """Append an empty agenda item; the response arrives auto-expanded + focused."""
+    """Append an agenda item with the submitted name; response swaps the full item list."""
     meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
     guard = _guard(request, meeting)
     if guard is not None:
         return guard
+    name = _clean_char(request.POST.get("name", ""), max_length=200)
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    item = meeting.add_item(by=user)
+    item = meeting.add_item(by=user, name=name)
     return _items_response(request, meeting, new_item_pk=item.pk)
 
 
@@ -889,13 +912,14 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
     next_up: dict[int | None, Meeting] = {}
     for meeting in upcoming:  # already soonest-first — the first write wins
         next_up.setdefault(meeting.guild_id, meeting)
+    council_next = next_up.get(None)
     rows: list[dict[str, Any]] = [
         {
             "guild": None,
             "label": "Council",
             "most_recent": latest_past.get(None),
-            "next_meeting": next_up.get(None),
-            "cadence": None,  # the council has no cadence config
+            "next_meeting": council_next,
+            "cadence": None if council_next else _council_cadence(),
             "can_edit": council_editable,
         }
     ]

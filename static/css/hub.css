@@ -6207,17 +6207,21 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     border: 1px solid var(--hub-input-border);
     border-radius: 6px;
 }
-.pl-meeting-add-item {
-    width: 100%;
-    padding: 0.75rem;
-    border: 1px dashed var(--hub-border-strong);
-    border-radius: 8px;
-    background: transparent;
-    color: var(--hub-text-muted);
-    font-size: 0.9375rem;
-    cursor: pointer;
+.pl-meeting-add-item-form {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
 }
-.pl-meeting-add-item:hover { color: var(--hub-link); border-color: var(--hub-link); }
+.pl-meeting-add-item-input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 6px;
+    background: var(--hub-input-bg, var(--hub-card-bg));
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+}
+.pl-meeting-add-item-input:focus { outline: none; border-color: var(--hub-link); }
 
 /* --- Action items --- */
 .pl-meeting-actions {
@@ -6594,7 +6598,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-meeting-header__actions,
     .pl-meeting-breadcrumb,
     .pl-meeting-item__chevrons,
-    .pl-meeting-add-item,
+    .pl-meeting-add-item-form,
     .pl-meeting-attach-btn,
     .pl-meeting-item__footer,
     .pl-meeting-row-delete,

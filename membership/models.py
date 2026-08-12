@@ -5414,14 +5414,14 @@ class Meeting(models.Model):
             event.delete()
         self.delete()
 
-    def add_item(self, *, by: User) -> MeetingAgendaItem:
-        """Append an EMPTY agenda item (create-empty-then-fill) and return it.
+    def add_item(self, *, by: User, name: str = "") -> MeetingAgendaItem:
+        """Append an agenda item and return it.
 
         Raises:
             MeetingLockedError: If the minutes are locked.
         """
         self.assert_editable()
-        return MeetingAgendaItem.objects.create(meeting=self)
+        return MeetingAgendaItem.objects.create(meeting=self, name=name)
 
     def add_attendee(self, *, member: Member | None = None, guest_name: str = "") -> MeetingAttendee:
         """Add a roster member OR a free-text guest to the attendance list.
