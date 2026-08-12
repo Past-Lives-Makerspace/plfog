@@ -762,7 +762,7 @@ def describe_delete():
         user = _lead_client(client, guild)
         meeting = MeetingFactory(guild=guild)
         event = CommunityEventFactory(guild=guild)
-        meeting.link_event(event, event.starts_at.date(), by=user)
+        meeting.link_event(event, timezone.localdate(event.starts_at), by=user)
         with patch.object(CommunityEvent, "remove_from_google") as google:
             resp = client.post(reverse("hub_meeting_delete", args=[meeting.pk]))
         assert resp.status_code == 204
@@ -1263,7 +1263,7 @@ def describe_workspace_lifecycle_rendering():
             user = _lead_client(client, guild)
             meeting = MeetingFactory(guild=guild)
             event = CommunityEventFactory(guild=guild)
-            meeting.link_event(event, event.starts_at.date(), by=user)
+            meeting.link_event(event, timezone.localdate(event.starts_at), by=user)
             content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
             assert "cancel it separately from the guild's Events tab" in content
 

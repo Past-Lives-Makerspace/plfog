@@ -14,7 +14,7 @@ a stale select. Context: meeting, roster_options, oob (optional).
       <option value="{{ roster_member.pk }}">{{ roster_member.display_name }}</option>
       {% endfor %}
     </select>
-    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+    <button type="button" class="pl-btn pl-btn--secondary"
             hx-post="{% url 'hub_meeting_attendee_add' meeting.pk %}"
             hx-include="#pl-meeting-roster-select"
             hx-target="#pl-meeting-attendee-list" hx-swap="beforeend">Add</button>
@@ -22,7 +22,7 @@ a stale select. Context: meeting, roster_options, oob (optional).
   <div class="hub-form-group pl-meeting-picker-group">
     <label for="pl-meeting-guest-input" class="sr-only">Guest name</label>
     <input type="text" id="pl-meeting-guest-input" name="guest_name" maxlength="120" placeholder="Guest name">
-    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+    <button type="button" class="pl-btn pl-btn--secondary"
             hx-post="{% url 'hub_meeting_attendee_add' meeting.pk %}"
             hx-include="#pl-meeting-guest-input"
             hx-target="#pl-meeting-attendee-list" hx-swap="beforeend">Add guest</button>

@@ -409,7 +409,7 @@ def describe_Meeting():
         def it_links_without_taking_ownership():
             meeting = MeetingFactory()
             event = CommunityEventFactory(guild=meeting.guild)
-            occurrence = event.starts_at.date()
+            occurrence = timezone.localdate(event.starts_at)
             meeting.link_event(event, occurrence, by=_user("l1"))
             meeting.refresh_from_db()
             assert meeting.event == event
@@ -420,12 +420,12 @@ def describe_Meeting():
             meeting = MeetingFactory()
             event = CommunityEventFactory(guild=meeting.guild)
             with pytest.raises(ValueError, match="not an occurrence"):
-                meeting.link_event(event, event.starts_at.date() + timedelta(days=1), by=_user("l2"))
+                meeting.link_event(event, timezone.localdate(event.starts_at) + timedelta(days=1), by=_user("l2"))
 
         def it_accepts_a_projected_occurrence_of_a_recurring_event():
             meeting = MeetingFactory()
             event = CommunityEventFactory(guild=meeting.guild, recurrence=CommunityEvent.Recurrence.MONTHLY)
-            horizon_start = event.starts_at.date() + timedelta(days=20)
+            horizon_start = timezone.localdate(event.starts_at) + timedelta(days=20)
             occurrences = event.occurrences_in(horizon_start, horizon_start + timedelta(days=40))
             meeting.link_event(event, occurrences[0].date(), by=_user("l3"))
             assert meeting.event_occurrence == occurrences[0].date()
@@ -433,9 +433,9 @@ def describe_Meeting():
         def it_refuses_when_already_linked():
             meeting = MeetingFactory()
             event = CommunityEventFactory(guild=meeting.guild)
-            meeting.link_event(event, event.starts_at.date(), by=_user("l4"))
+            meeting.link_event(event, timezone.localdate(event.starts_at), by=_user("l4"))
             with pytest.raises(ValueError, match="already linked"):
-                meeting.link_event(event, event.starts_at.date(), by=_user("l5"))
+                meeting.link_event(event, timezone.localdate(event.starts_at), by=_user("l5"))
 
     def describe_sync_event():
         @pytest.fixture
@@ -494,7 +494,7 @@ def describe_Meeting():
         def it_never_mutates_a_merely_linked_event():
             meeting = MeetingFactory()
             event = CommunityEventFactory(guild=meeting.guild, title="Their event")
-            meeting.link_event(event, event.starts_at.date(), by=_user("s1"))
+            meeting.link_event(event, timezone.localdate(event.starts_at), by=_user("s1"))
             with patch.object(CommunityEvent, "push_to_google") as google:
                 meeting.sync_event()
             google.assert_not_called()
@@ -509,7 +509,7 @@ def describe_Meeting():
             editor = _user("u1")
             meeting = MeetingFactory()
             event = CommunityEventFactory(guild=meeting.guild)
-            meeting.link_event(event, event.starts_at.date(), by=editor)
+            meeting.link_event(event, timezone.localdate(event.starts_at), by=editor)
             meeting.unlink_event(by=editor)
             meeting.refresh_from_db()
             assert meeting.event is None
@@ -554,7 +554,7 @@ def describe_Meeting():
             editor = _user("r2")
             meeting = MeetingFactory()
             event = CommunityEventFactory(guild=meeting.guild)
-            meeting.link_event(event, event.starts_at.date(), by=editor)
+            meeting.link_event(event, timezone.localdate(event.starts_at), by=editor)
             with patch.object(CommunityEvent, "remove_from_google") as google:
                 meeting.remove(by=editor)
             google.assert_not_called()

@@ -207,7 +207,7 @@ def describe_meeting_save():
                 resp = _save(client, "hub_meeting_save", meeting.pk, "scheduled_date", new_date.isoformat())
             assert resp.status_code == 204
             event.refresh_from_db()
-            assert event.starts_at.date() == new_date
+            assert timezone.localdate(event.starts_at) == new_date
             assert google.called
             assert discord.called
 

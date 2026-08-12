@@ -36,7 +36,10 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
             x-text="saveStateLabel()"
             aria-live="polite">Saved ✓</span>
       {% endif %}
-      <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" onclick="window.print()">Print / Save as PDF</button>
+      <button type="button" class="pl-btn pl-btn--secondary pl-meeting-print" onclick="window.print()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+        Print / Save as PDF
+      </button>
     </div>
   </div>
 
@@ -57,34 +60,33 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
   <div class="hub-card pl-meeting-facts" :class="dimClass()">
     {% if is_editable %}
     <div class="pl-meeting-fact pl-meeting-fact--special">
-      <div class="pl-toggle-row">
-        <div class="pl-toggle-info">
-          <div class="pl-toggle-label">Special meeting</div>
-        </div>
+      <span class="pl-meeting-fact__label" id="pl-meeting-special-label">Special meeting</span>
+      <div class="pl-meeting-fact__control">
         <label class="pl-toggle">
-          <input type="checkbox" {% if meeting.is_special %}checked{% endif %} @change="onSpecialToggle($event)">
+          <input type="checkbox" {% if meeting.is_special %}checked{% endif %}
+                 aria-labelledby="pl-meeting-special-label" @change="onSpecialToggle($event)">
           <span class="pl-toggle__slider"></span>
           <span class="sr-only">Special meeting</span>
         </label>
       </div>
-      <div class="hub-form-group pl-meeting-special-name" x-show="isSpecial">
-        <label for="pl-meeting-special-title">Meeting name</label>
-        <input type="text" id="pl-meeting-special-title" name="value" maxlength="120"
-               placeholder="Emergency, Planning…"
-               value="{{ meeting.special_title }}"
-               data-autosave data-saved="{{ meeting.special_title }}"
-               @input="specialTitle = $event.target.value"
-               hx-post="{% url 'hub_meeting_save' meeting.pk %}"
-               hx-vals='{"field": "special_title"}'
-               hx-trigger="change" hx-swap="none">
-      </div>
+    </div>
+    <div class="hub-form-group pl-meeting-fact pl-meeting-special-name" x-show="isSpecial">
+      <label for="pl-meeting-special-title">Meeting name</label>
+      <input type="text" id="pl-meeting-special-title" name="value" maxlength="120"
+             placeholder="Emergency, Planning…"
+             value="{{ meeting.special_title }}"
+             data-autosave data-saved="{{ meeting.special_title }}"
+             @input="specialTitle = $event.target.value"
+             hx-post="{% url 'hub_meeting_save' meeting.pk %}"
+             hx-vals='{"field": "special_title"}'
+             hx-trigger="change" hx-swap="none">
     </div>
     <div class="pl-meeting-fact hub-form-group">
       <label for="pl-meeting-date">Date</label>
       <input type="date" id="pl-meeting-date" class="pl-meeting-date" name="value"
              value="{{ meeting.scheduled_date|date:'Y-m-d' }}"
              data-autosave data-saved="{{ meeting.scheduled_date|date:'Y-m-d' }}"
-             @click="try { $event.currentTarget.showPicker() } catch (e) {}"
+             @click="openPicker($event)"
              hx-post="{% url 'hub_meeting_save' meeting.pk %}"
              hx-vals='{"field": "scheduled_date"}'
              hx-trigger="change" hx-swap="none">
@@ -436,6 +438,12 @@ document.addEventListener('alpine:init', () => {
   Alpine.data('plMeetingWorkspace', () => ({
     openItem: null,
     saveState: 'saved',
+    // Rule 14: whole field opens the native picker; the try/catch swallows the
+    // harmless "already open" error. A real method — a try statement inside an
+    // @click expression is a SyntaxError in Alpine's expression compiler.
+    openPicker(event) {
+      try { event.currentTarget.showPicker() } catch (e) { /* already open */ }
+    },
     editable: {{ is_editable|yesno:'true,false' }},
     isSpecial: {{ meeting.is_special|yesno:'true,false' }},
     specialTitle: '{{ meeting.special_title|escapejs }}',
