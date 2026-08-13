@@ -499,28 +499,13 @@ def describe_admin_invite_clear_expired():
 
 
 def describe_admin_member_edit_role_dispatch():
-    def it_promotes_to_instructor(client):
-        _create_superuser(client)
-        target = _create_member_user(username="becomeinst")
-        response = client.post(
-            reverse("hub_admin_member_edit", args=[target.member.pk]),
-            data={
-                "full_legal_name": target.member.full_legal_name,
-                "preferred_name": "",
-                "pronouns": "",
-                "discord_handle": "",
-                "about_me": "",
-                "status": Member.Status.ACTIVE,
-                "member_type": Member.MemberType.STANDARD,
-                "role": "instructor",
-                "show_in_directory": "on",
-            },
-        )
-        assert response.status_code == 302
-        target.member.refresh_from_db()
-        assert target.member.fog_role == Member.FogRole.MEMBER
-        assert target.member.status == Member.Status.ACTIVE
-        assert target.member.instructor_slug != ""
+    def it_no_longer_offers_instructor_as_a_role(client):
+        # Instructor moved to a Permissions-tab toggle (grant via hub_admin_member_teaching);
+        # the Role dropdown must not offer it, or two controls would fight over the same state.
+        from hub.forms import MemberAdminEditForm
+
+        choices = dict(MemberAdminEditForm().fields["role"].choices)
+        assert "instructor" not in choices
 
     def it_demotes_to_guest_by_setting_status_former(client):
         _create_superuser(client)
@@ -544,7 +529,7 @@ def describe_admin_member_edit_role_dispatch():
         assert target.member.status == Member.Status.FORMER
         assert target.member.fog_role == Member.FogRole.MEMBER
 
-    def it_initial_role_reflects_existing_instructor_record(client):
+    def it_shows_an_instructors_underlying_role_not_instructor(client):
         from classes.factories import InstructorFactory
 
         _create_superuser(client)
@@ -552,7 +537,8 @@ def describe_admin_member_edit_role_dispatch():
         InstructorFactory(user=target)
         response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
         assert response.status_code == 200
-        assert response.context["form"]["role"].initial == "instructor"
+        # Instructor is a permission now, not a role — the dropdown shows their hierarchy role.
+        assert response.context["form"]["role"].initial == "member"
 
     def it_initial_role_reflects_inactive_status_as_guest(client):
         _create_superuser(client)
@@ -582,7 +568,7 @@ def describe_admin_member_edit():
         target = _create_member_user(username="target3")
         response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
         assert response.status_code == 200
-        assert b"Save member" in response.content
+        assert b">Save</button>" in response.content  # the Details form's save button
 
     def it_saves_changes_and_redirects(client):
         _create_superuser(client)
@@ -1314,7 +1300,7 @@ def describe_admin_user_edit():
         assert "Non-member user" in content
         assert "ue3@x.com" in content
         assert response.context["is_member"] is False
-        assert "Save member" not in content
+        assert ">Save</button>" not in content  # no member-edit save form in non-member mode
 
     def it_redirects_to_member_edit_when_the_user_has_a_member(client):
         _create_superuser(client)

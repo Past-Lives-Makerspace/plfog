@@ -39,6 +39,7 @@ from hub.forms import (
     GuildEditForm,
     GuildRoleFormSet,
     MemberAdminEditForm,
+    MemberCapabilitiesForm,
     MemberContactForm,
     MemberContactFormSet,
     MemberSkillForm,
@@ -58,6 +59,7 @@ from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
 from membership.vote_calculator import compute_live_standings, compute_new_votes_since
 from membership.models import (
+    AdminCapability,
     FundingSnapshot,
     Guild,
     HelpCategory,
@@ -1212,6 +1214,18 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
     )
     view_as = getattr(request, "view_as", None)
     member = _get_member(request)
+    # Guilds the member may manage orientations for: lead OR any staff role (co-lead,
+    # secretary, treasurer, orienter) — the same set the "Mine" scope filter uses. The
+    # "Mark done" action must track this, not lead-only, or staff can't record completions.
+    my_leadership_guild_ids = (
+        set(
+            Guild.objects.filter(Q(guild_lead=member) | Q(staff_memberships__member=member)).values_list(
+                "pk", flat=True
+            )
+        )
+        if member is not None
+        else set()
+    )
     return render(
         request,
         "hub/orientations_dashboard.html",
@@ -1224,6 +1238,7 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
             "add_member_form": OrientationAddMemberForm(slot_queryset=_manageable_slots(request)),
             "is_admin": view_as is not None and view_as.has_actual("admin"),
             "my_member_id": member.pk if member is not None else None,
+            "my_leadership_guild_ids": my_leadership_guild_ids,
             "guild_filter": request.GET.get("guild", ""),
             "scope": request.GET.get("scope", ""),
             "status_filter": request.GET.get("status", ""),
@@ -1510,7 +1525,47 @@ def _handle_tours_form(
     return form, None
 
 
-@login_required
+def _notification_prefs_via_token(request: HttpRequest) -> HttpResponse:
+    """Render/save ONLY the notification matrix for a logged-out member via an email token.
+
+    The token (``t``) is minted per-recipient in the email footer's "manage preferences"
+    link. A missing or invalid token falls back to the normal login redirect, so
+    ``/settings/`` stays login-gated for everyone else; a valid one authorizes editing the
+    notification matrix and nothing else.
+    """
+    from django.contrib.auth.views import redirect_to_login
+
+    from core.email_prefs import read_prefs_token
+    from core.events import settings_matrix
+
+    token = request.POST.get("t") or request.GET.get("t") or ""
+    resolved = read_prefs_token(token)
+    if resolved is None:
+        return redirect_to_login(request.get_full_path())
+    user = cast(User, resolved)
+
+    if request.method == "POST" and request.POST.get("form_id") == "notifications":
+        settings_matrix.save_matrix(user, request.POST)
+        messages.success(request, "Notification preferences updated.")
+        return redirect(f"{reverse('hub_user_settings')}?tab=notifications&t={token}")
+
+    notif_channels = [
+        (channel, settings_matrix.CHANNEL_LABELS[channel]) for channel in settings_matrix.visible_channels(user)
+    ]
+    return render(
+        request,
+        "hub/settings_notifications_token.html",
+        {
+            "notif_matrix": settings_matrix.build_matrix(user),
+            "notif_channels": notif_channels,
+            "notif_channel_labels": {channel.value: label for channel, label in notif_channels},
+            "prefs_token": token,
+            "prefs_email": user.email,
+            "member": None,
+        },
+    )
+
+
 def user_settings(request: HttpRequest) -> HttpResponse:
     """Tabbed user settings page — Profile + Emails + Notifications.
 
@@ -1521,6 +1576,11 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     redirect back here after each action. The Notifications tab is the unified
     preferences matrix (design §2.7) sourced from the event registry.
     """
+    if not request.user.is_authenticated:
+        # Logged-out visitors are bounced to login, except the email "manage preferences"
+        # link, which carries a token that opens the notifications matrix alone.
+        return _notification_prefs_via_token(request)
+
     from allauth.account.forms import AddEmailForm
     from allauth.account.models import EmailAddress
 
@@ -1595,6 +1655,14 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     # Channel labels keyed by channel value, so each matrix cell can build its own
     # screen-reader name (event × channel) via the get_item template filter.
     notif_channel_labels = {channel.value: label for channel, label in notif_channels}
+    # Full admins get a shortcut from the Staff & leadership section to their own capability
+    # checkboxes (the master switch for those emails). Only admins can edit capabilities, so
+    # the link is theirs alone; guild leads see the section but manage it via channel toggles.
+    capabilities_url = (
+        f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
+        if member is not None and member.fog_role == Member.FogRole.ADMIN
+        else None
+    )
 
     return render(
         request,
@@ -1602,6 +1670,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
         {
             **ctx,
             "member": member,
+            "capabilities_url": capabilities_url,
             "profile_form": profile_form,
             "contact_formset": contact_formset,
             "skill_categories": _skill_categories_with_approved(),
@@ -3281,10 +3350,13 @@ class _ReviewScope:
 
 
 def _reviewer_guild_scope(request: HttpRequest) -> _ReviewScope:
-    """The requester's event-review authority (admin / lead-scoped / none)."""
+    """The requester's event-review authority (admin / capability / lead-scoped / none)."""
     if _viewing_as_admin(request):
         return _ReviewScope(can_review=True, is_admin=True)
     member = _get_member(request)
+    if member is not None and member.has_admin_capability(AdminCapability.Capability.EVENTS_APPROVER):
+        # A Calendar Administrator reviews every calendar proposal site-wide, like an admin.
+        return _ReviewScope(can_review=True, is_admin=True)
     if member is not None and member.staffed_guilds.exists():
         return _ReviewScope(can_review=True, guilds=member.staffed_guilds)
     return _ReviewScope(can_review=False)
@@ -4403,10 +4475,31 @@ def admin_members(request: HttpRequest) -> HttpResponse:
 
 @fog_admin_required
 def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Hub-native tabbed edit page for a single Member (Details + Emails)."""
+    """Hub-native tabbed edit page for a single Member (Details, Permissions, Notifications, Emails).
+
+    Three independent save forms, dispatched by a hidden ``form_id``: the Details form
+    (role + profile), the Permissions capability toggles, and the Notifications tab's
+    matrix (so an admin can edit a member's notification preferences for them).
+    """
+    from core.events import settings_matrix
+
     member = get_object_or_404(Member, pk=pk)
+    permissions_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
 
     if request.method == "POST":
+        form_id = request.POST.get("form_id")
+        if form_id == "capabilities":
+            cap_form = MemberCapabilitiesForm(request.POST)
+            if cap_form.is_valid():
+                member.sync_admin_capabilities(cap_form.selected(), granted_by=cast(User, request.user))
+                messages.success(request, "Saved admin capabilities.")
+            return redirect(permissions_url)
+        if form_id == "notifications":
+            target = member.user
+            if target is not None:
+                settings_matrix.save_matrix(target, request.POST)
+                messages.success(request, "Saved notification settings.")
+            return redirect(permissions_url)
         form = MemberAdminEditForm(request.POST, instance=member)
         if form.is_valid():
             obj = form.save(commit=False)
@@ -4432,6 +4525,14 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if user
         else []
     )
+    # Permissions tab: capability toggles (always) + this member's notification matrix
+    # (only when they have a linked account to hold preferences on).
+    cap_form = MemberCapabilitiesForm(initial=MemberCapabilitiesForm.initial_for(member))
+    notif_matrix = notif_channels = notif_channel_labels = None
+    if user is not None:
+        notif_matrix = settings_matrix.build_matrix(user)
+        notif_channels = [(c, settings_matrix.CHANNEL_LABELS[c]) for c in settings_matrix.visible_channels(user)]
+        notif_channel_labels = {channel.value: label for channel, label in notif_channels}
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -4441,6 +4542,10 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "is_member": True,
             "member": member,
             "form": form,
+            "capabilities_form": cap_form,
+            "notif_matrix": notif_matrix,
+            "notif_channels": notif_channels,
+            "notif_channel_labels": notif_channel_labels,
             "person_name": member.full_legal_name or member.display_name or "Member",
             "primary_email": member.primary_email,
             "has_signed_in": has_signed_in,
@@ -4458,9 +4563,10 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def admin_member_teaching_set(request: HttpRequest, pk: int) -> HttpResponse:
-    """Grant or revoke teaching-portal access from the member edit page (Spec D §6, Screen 3).
+    """Grant or revoke the Instructor permission from the member edit Permissions tab.
 
-    Full-page POST + Django message, matching this page's sibling actions.
+    Grants/revokes the public instructor page AND teaching access together (the unified
+    Instructor toggle). Full-page POST + Django message, matching this page's sibling actions.
     ``action`` must be ``grant`` or ``revoke``; anything else is a 400 (never
     reachable from the UI). Revoke's consequences are named in the confirm modal.
     """
@@ -4473,12 +4579,12 @@ def admin_member_teaching_set(request: HttpRequest, pk: int) -> HttpResponse:
     admin_member = Member.objects.filter(user=request.user).first()
     display = member.display_name or member.full_legal_name or f"member #{member.pk}"
     if action == "grant":
-        member.grant_teaching(granted_by=admin_member)
-        messages.success(request, f"Granted teaching access for {display}.")
+        member.grant_instructor(granted_by=admin_member)
+        messages.success(request, f"Made {display} an instructor (public page + teaching access).")
     else:
-        member.revoke_teaching(revoked_by=admin_member)
-        messages.success(request, f"Revoked teaching access for {display}.")
-    return redirect("hub_admin_member_edit", pk=member.pk)
+        member.revoke_instructor(revoked_by=admin_member)
+        messages.success(request, f"Removed instructor access for {display}.")
+    return redirect(f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions")
 
 
 @fog_admin_required
@@ -5376,10 +5482,13 @@ class _MapReviewScope:
 
 
 def _map_reviewer_scope(request: HttpRequest) -> _MapReviewScope:
-    """The requester's space-request review authority (admin / lead-scoped / none)."""
+    """The requester's space-request review authority (admin / capability / lead-scoped / none)."""
     if _viewing_as_admin(request):
         return _MapReviewScope(can_review=True, is_admin=True)
     member = _get_member(request) if request.user.is_authenticated else None
+    if member is not None and member.has_admin_capability(AdminCapability.Capability.SPACE_APPROVER):
+        # A Space & Cubby Administrator reviews every space request site-wide, like an admin.
+        return _MapReviewScope(can_review=True, is_admin=True)
     if member is not None and member.staffed_guilds.exists():
         return _MapReviewScope(can_review=True, guilds=member.staffed_guilds)
     return _MapReviewScope(can_review=False)

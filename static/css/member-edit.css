@@ -47,6 +47,23 @@
     flex-wrap: wrap;
     margin-top: 0.5rem;
 }
+/* Permissions tab: capability toggles (via components/toggle.html) + the member's
+   notification matrix. */
+.pl-permissions-hint {
+    max-width: 680px;
+    font-size: 0.85rem;
+    margin: 0.15rem 0 1rem;
+}
+/* Clear breathing room before a new Permissions sub-section (e.g. Instructor) below the
+   Save capabilities button (FRONTEND.md Rule 18). */
+.pl-permissions-section {
+    margin-top: 2rem;
+}
+/* Off-screen form the Instructor toggle submits to grant (not display:none on an x-show
+   element — this is a static helper form, so a plain hidden class is fine). */
+.pl-hidden-form {
+    display: none;
+}
 .pl-person-email-line {
     max-width: 680px;
     margin: 1.25rem 0 0;
@@ -152,7 +169,10 @@
 .pl-email-add {
     display: flex;
     gap: 0.75rem;
-    align-items: flex-start;
+    /* Center the Add button against the field so it lines up with the INPUT, not the label
+       above or the hint below it. The label and hint are equal-height single lines
+       (both 0.8125rem), so the input sits at the field's vertical center. */
+    align-items: center;
     flex-wrap: wrap;
     max-width: 680px;
 }

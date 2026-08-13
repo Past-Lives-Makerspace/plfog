@@ -313,7 +313,7 @@ def _past_confirmed_booking(guild: object) -> OrientationBooking:
 
 
 def describe_complete_orientation():
-    def it_marks_complete_and_sends_the_thankyou_email():
+    def it_marks_complete_and_sends_the_guilds_custom_thankyou_email():
         guild = GuildFactory()
         GuildOrientationSettingsFactory(
             guild=guild,
@@ -331,9 +331,38 @@ def describe_complete_orientation():
         assert mail.outbox[0].subject == "Thanks!"
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_COMPLETED).exists()
 
-    def it_skips_the_email_when_not_configured():
-        guild = GuildFactory()
+    def it_sends_the_standard_thankyou_when_enabled_with_no_custom_copy():
+        # thankyou_email_enabled defaults True and the guild left subject/body blank,
+        # so the standard copy from membership.orientation_copy stands in.
+        from membership.orientation_copy import STANDARD_THANKYOU_BODY, standard_thankyou_subject
+
+        guild = GuildFactory(name="Fallback Guild")
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
+
+        orientations.complete_orientation(booking)
+
+        booking.refresh_from_db()
+        assert booking.is_completed is True
+        assert mail.outbox[0].subject == standard_thankyou_subject("Fallback Guild")
+        assert STANDARD_THANKYOU_BODY in mail.outbox[0].body
+
+    def it_sends_the_standard_thankyou_when_the_guild_has_no_orientation_settings_at_all():
+        from membership.orientation_copy import STANDARD_THANKYOU_BODY, standard_thankyou_subject
+
+        guild = GuildFactory(name="No Settings Guild")
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild, enabled_settings=False))
+
+        orientations.complete_orientation(booking)
+
+        booking.refresh_from_db()
+        assert booking.is_completed is True
+        assert mail.outbox[0].subject == standard_thankyou_subject("No Settings Guild")
+        assert STANDARD_THANKYOU_BODY in mail.outbox[0].body
+
+    def it_skips_the_email_when_the_guild_turned_it_off():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True, thankyou_email_enabled=False)
         booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
 
         orientations.complete_orientation(booking)

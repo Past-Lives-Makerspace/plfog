@@ -248,6 +248,32 @@ def describe_user_settings():
         assert "add_email_form" in response.context
         assert "email_addresses" in response.context
 
+    def it_shows_admins_a_capabilities_link_in_the_staff_section(client: Client):
+        from membership.models import Member
+
+        user = User.objects.create_user(username="adminsettings", password="pass")
+        member = user.member
+        member.fog_role = Member.FogRole.ADMIN
+        member.save()
+        client.login(username="adminsettings", password="pass")
+
+        response = client.get("/settings/?tab=notifications")
+
+        assert response.status_code == 200
+        # The link points at the Permissions tab (where the capability toggles live).
+        assert "tab=permissions" in response.context["capabilities_url"]
+        assert b"Manage your admin duties" in response.content
+
+    def it_hides_the_capabilities_link_from_non_admins(client: Client):
+        User.objects.create_user(username="plainsettings", password="pass")
+        client.login(username="plainsettings", password="pass")
+
+        response = client.get("/settings/?tab=notifications")
+
+        assert response.status_code == 200
+        assert response.context["capabilities_url"] is None
+        assert b"Manage your admin duties" not in response.content
+
     def it_defaults_to_profile_tab(client: Client):
         User.objects.create_user(username="tabdefault", password="pass")
         client.login(username="tabdefault", password="pass")

@@ -6,28 +6,28 @@
 <meta name="supported-color-schemes" content="light dark">
 <title>Review update on {{ offering.title }}</title>
 </head>
-<body style="margin:0;padding:24px;background:#FFFFFF;font-family:Helvetica,Arial,sans-serif;color:#33424F;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#092E4C;border-radius:10px;overflow:hidden;">
+<body style="margin:0;padding:24px;background:#eef0f3;font-family:Helvetica,Arial,sans-serif;color:#33424F;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#eef0f3;border-radius:10px;overflow:hidden;">
     <tr><td style="padding:24px 28px 8px;">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.18em;color:#EEB44B;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.18em;color:#0d4876;">
         {% if fully_approved %}Published
         {% elif approval.decision == 'approved' %}{{ approval.get_role_display }} approved
         {% elif approval.decision == 'changes_requested' %}Changes requested
         {% else %}Declined
         {% endif %}
       </div>
-      <h1 style="font-family:'Lato',sans-serif;font-size:26px;font-weight:800;margin:8px 0 4px;color:#F4EFDD;">{% if public_url %}<a href="{{ public_url }}" style="color:#F4EFDD;text-decoration:none;">{{ offering.title }}</a>{% else %}{{ offering.title }}{% endif %}</h1>
+      <h1 style="font-family:'Lato',sans-serif;font-size:26px;font-weight:800;margin:8px 0 4px;color:#092E4C;">{% if public_url %}<a href="{{ public_url }}" style="color:#092E4C;text-decoration:none;">{{ offering.title }}</a>{% else %}{{ offering.title }}{% endif %}</h1>
     </td></tr>
     <tr><td style="padding:14px 28px;">
       {% if fully_approved %}
-        <p style="margin:0 0 14px;color:#F4EFDD;font-size:15px;line-height:1.55;">
+        <p style="margin:0 0 14px;color:#33424f;font-size:15px;line-height:1.55;">
           Your class is approved and is now live on the website's public Classes page.
         </p>
         <p style="margin:18px 0;">
-          <a href="{{ public_url }}" style="display:inline-block;padding:12px 22px;background:#EEB44B;color:#092E4C;font-weight:800;letter-spacing:0.04em;text-decoration:none;border-radius:6px;font-size:13px;text-transform:uppercase;">View public page</a>
+          <a href="{{ public_url }}" style="display:inline-block;padding:12px 22px;background:#0d4876;color:#FFFFFF;font-weight:800;letter-spacing:0.04em;text-decoration:none;border-radius:6px;font-size:13px;text-transform:uppercase;">View public page</a>
         </p>
       {% elif approval.decision == 'approved' %}
-        <p style="margin:0 0 10px;color:#F4EFDD;font-size:15px;line-height:1.55;">
+        <p style="margin:0 0 10px;color:#33424f;font-size:15px;line-height:1.55;">
           {{ approval.get_role_display }} approved your class.
           {% if pending_rows %}
             Waiting on: {% for p in pending_rows %}{{ p.get_role_display }}{% if not forloop.last %}, {% endif %}{% endfor %}.
@@ -36,25 +36,25 @@
           {% endif %}
         </p>
       {% elif approval.decision == 'changes_requested' %}
-        <p style="margin:0 0 10px;color:#F4EFDD;font-size:15px;line-height:1.55;">
+        <p style="margin:0 0 10px;color:#33424f;font-size:15px;line-height:1.55;">
           {{ approval.get_role_display }} reviewed your class and asked for changes before approving.
           The class is back in Draft so you can edit and resubmit.
         </p>
         {% if approval.notes %}
-        <div style="margin:12px 0;padding:14px 16px;background:rgba(238,180,75,0.06);border:1px solid rgba(238,180,75,0.25);border-radius:6px;color:#F4EFDD;font-size:14px;line-height:1.55;white-space:pre-wrap;">{{ approval.notes }}</div>
+        <div style="margin:12px 0;padding:14px 16px;background:rgba(238,180,75,0.06);border:1px solid rgba(238,180,75,0.25);border-radius:6px;color:#33424f;font-size:14px;line-height:1.55;white-space:pre-wrap;">{{ approval.notes }}</div>
         {% endif %}
       {% else %}
-        <p style="margin:0 0 10px;color:#F4EFDD;font-size:15px;line-height:1.55;">
+        <p style="margin:0 0 10px;color:#33424f;font-size:15px;line-height:1.55;">
           {{ approval.get_role_display }} declined your class. The class is back in Draft.
-          If you'd like to discuss, reach out to the studio at <a href="mailto:info@pastlives.space" style="color:#EEB44B;">info@pastlives.space</a>.
+          If you'd like to discuss, reach out to the studio at <a href="mailto:info@pastlives.space" style="color:#0d4876;">info@pastlives.space</a>.
         </p>
         {% if approval.notes %}
-        <div style="margin:12px 0;padding:14px 16px;background:rgba(248,113,113,0.06);border:1px solid rgba(248,113,113,0.25);border-radius:6px;color:#F4EFDD;font-size:14px;line-height:1.55;white-space:pre-wrap;">{{ approval.notes }}</div>
+        <div style="margin:12px 0;padding:14px 16px;background:rgba(248,113,113,0.06);border:1px solid rgba(248,113,113,0.25);border-radius:6px;color:#33424f;font-size:14px;line-height:1.55;white-space:pre-wrap;">{{ approval.notes }}</div>
         {% endif %}
       {% endif %}
       {% if not fully_approved %}
       <p style="margin:18px 0;">
-        <a href="{{ edit_url }}" style="display:inline-block;padding:12px 22px;background:#EEB44B;color:#092E4C;font-weight:800;letter-spacing:0.04em;text-decoration:none;border-radius:6px;font-size:13px;text-transform:uppercase;">Open class</a>
+        <a href="{{ edit_url }}" style="display:inline-block;padding:12px 22px;background:#0d4876;color:#FFFFFF;font-weight:800;letter-spacing:0.04em;text-decoration:none;border-radius:6px;font-size:13px;text-transform:uppercase;">Open class</a>
       </p>
       {% endif %}
     </td></tr>

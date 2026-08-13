@@ -85,7 +85,7 @@ def describe_Guild_staff_helpers():
             GuildStaffMembershipFactory(guild=guild, member=MemberFactory(), role=Role.ORIENTER)
             GuildStaffMembershipFactory(guild=guild, member=MemberFactory(), role=Role.CO_LEAD)
             labels = [label for label, _ in guild.staff_by_role()]
-            assert labels == ["Guild Lead", "Secretary", "Orientator"]
+            assert labels == ["Co-Lead", "Secretary", "Orientator"]
 
         def it_sorts_members_within_a_role_by_name():
             guild = GuildFactory()
@@ -137,7 +137,7 @@ def describe_Guild_staff_helpers():
             GuildStaffMembershipFactory(guild=guild, member=member, custom=True, custom_title="Glaze Technician")
             GuildStaffMembershipFactory(guild=guild, member=member, role=Role.CO_LEAD)
             titles = [sm.display_title for sm in guild.staff_by_member()[0][1]]
-            assert titles == ["Guild Lead", "Treasurer", "Glaze Technician", "Studio Technician"]
+            assert titles == ["Co-Lead", "Treasurer", "Glaze Technician", "Studio Technician"]
 
         def it_sorts_members_by_name_case_insensitively():
             guild = GuildFactory()

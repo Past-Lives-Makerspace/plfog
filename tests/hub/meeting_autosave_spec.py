@@ -8,7 +8,7 @@ trigger, the move endpoint, and the attendee add XOR + duplicate backstop.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -135,6 +135,30 @@ def describe_meeting_save():
         assert _save(client, "hub_meeting_save", meeting.pk, "scheduled_time", "").status_code == 204
         meeting.refresh_from_db()
         assert meeting.scheduled_time is None
+
+    def it_saves_a_half_hour_end_time(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
+        assert _save(client, "hub_meeting_save", meeting.pk, "scheduled_end_time", "19:30").status_code == 204
+        meeting.refresh_from_db()
+        assert meeting.scheduled_end_time is not None and meeting.scheduled_end_time.strftime("%H:%M") == "19:30"
+
+    def it_422s_an_end_time_at_or_before_the_start(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
+        resp = _save(client, "hub_meeting_save", meeting.pk, "scheduled_end_time", "18:00")
+        assert resp.status_code == 422
+        meeting.refresh_from_db()
+        assert meeting.scheduled_end_time is None  # the invalid end was not saved
+
+    def it_422s_a_start_time_moved_past_the_end(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0), scheduled_end_time=time(19, 0))
+        resp = _save(client, "hub_meeting_save", meeting.pk, "scheduled_time", "20:00")
+        assert resp.status_code == 422
 
     def it_rejects_a_bad_date_with_422(client: Client):
         guild = GuildFactory()

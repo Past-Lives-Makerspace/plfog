@@ -20,7 +20,7 @@ from factory.django import mute_signals
 from billing.models import TabCharge
 from billing.notifications import notify_admin_charge_failed, send_receipt
 from core.models import Notification, SiteActivity, TransactionalEmailLog
-from membership.models import Member
+from membership.models import AdminCapability, Member
 from tests.billing.factories import TabChargeFactory, TabEntryFactory, TabFactory
 from tests.membership.factories import MemberFactory
 
@@ -40,6 +40,18 @@ def _linked_member(*, email: str = "member@example.com", **member_kwargs) -> Mem
     member.user = user
     member.save(update_fields=["user"])
     return member
+
+
+def _billing_admin(email: str = "admin@example.com") -> Member:
+    """A linked admin holding the Billing Administrator capability (rollout-backfill parity).
+
+    The admin charge-failed alert now routes to BILLING_APPROVERS: capability holders get
+    it by default, other admins only if they opt in. The rollout backfill grants every
+    existing admin every capability, so this stands in for one.
+    """
+    admin = _linked_member(email=email, fog_role=Member.FogRole.ADMIN)
+    admin.admin_capabilities.create(capability=AdminCapability.Capability.BILLING_APPROVER)
+    return admin
 
 
 def describe_send_receipt():
@@ -118,7 +130,7 @@ def describe_send_receipt():
 
 def describe_notify_admin_charge_failed():
     def it_emails_the_fog_admins():
-        _linked_member(email="admin@example.com", fog_role=Member.FogRole.ADMIN)
+        _billing_admin()
         member = _linked_member(email="payer@example.com", preferred_name="Jane")
         tab = TabFactory(member=member)
         charge = TabChargeFactory(
@@ -138,7 +150,7 @@ def describe_notify_admin_charge_failed():
         assert "Card declined" in email.body
 
     def it_logs_failure_with_correct_trigger_kind():
-        _linked_member(email="admin@example.com", fog_role=Member.FogRole.ADMIN)
+        _billing_admin()
         member = _linked_member(email="payer@example.com", preferred_name="Alex")
         tab = TabFactory(member=member)
         charge = TabChargeFactory(
@@ -156,7 +168,7 @@ def describe_notify_admin_charge_failed():
         assert log.status == TransactionalEmailLog.Status.SENT
 
     def it_writes_member_in_app_row():
-        _linked_member(email="admin@example.com", fog_role=Member.FogRole.ADMIN)
+        _billing_admin()
         member = _linked_member(email="payer@example.com")
         tab = TabFactory(member=member)
         charge = TabChargeFactory(tab=tab, status=TabCharge.Status.FAILED, amount=Decimal("20.00"))
@@ -167,7 +179,7 @@ def describe_notify_admin_charge_failed():
         assert rows.count() == 1
 
     def it_logs_exactly_one_tab_charge_failed_activity():
-        _linked_member(email="admin@example.com", fog_role=Member.FogRole.ADMIN)
+        _billing_admin()
         member = _linked_member(email="fail@example.com")
         tab = TabFactory(member=member)
         charge = TabChargeFactory(tab=tab, status=TabCharge.Status.FAILED, amount=Decimal("20.00"))

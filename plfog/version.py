@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-VERSION = "0.26.0"
+VERSION = "1.0.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.0.0",
+        "date": "2026-08-13",
+        "title": "Past Lives 1.0 is here — our official launch",
+        "changes": [
+            "This is the official 1.0 launch of the Past Lives app. Thank you for helping us build it. Here's what's new.",
+            "Every email got a clean refresh: a lighter, easier-to-read white-background look across the board.",
+            "Manage your own notifications, or unsubscribe, straight from any email footer. No sign-in needed.",
+            "Finish a guild orientation and you'll now get a thank-you email automatically; guilds can personalize it or turn it off.",
+            "Guild and site-wide announcements have a new 'mark as urgent' option that reaches even members who have turned that email off.",
+            "Approval and admin alerts are organized now: admins hand out specific duties (like Class Administrator), and only those folks get and can act on the matching requests. They all live in one 'Staff & leadership' group in your notification settings, and regular members don't see it.",
+            "When you create a meeting you can now set how long it runs, not just when it starts.",
+            "On the interactive space map, admins can click an available space to flip it to Reserved (click again to switch it back); hold Alt and click for the full editor.",
+            "Canceling a class registration now removes that class's Mailchimp tags, so you stop getting marketing emails for it.",
+        ],
+    },
     {
         "version": "0.26.0",
         "date": "2026-08-12",

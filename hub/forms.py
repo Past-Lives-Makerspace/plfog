@@ -20,6 +20,7 @@ from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichTextEditorWidget
 from membership.markdown import sanitize_page_submission
 from membership.models import (
+    AdminCapability,
     CommunityEvent,
     DiscordGuildEmoji,
     Floorplan,
@@ -534,7 +535,6 @@ class MemberAdminEditForm(forms.ModelForm):
         (Member.FogRole.ADMIN, "Admin"),
         (Member.FogRole.GUILD_OFFICER, "Guild Officer"),
         (Member.FogRole.MEMBER, "Member"),
-        (Member.ADMIN_ROLE_INSTRUCTOR, "Instructor"),
         (Member.ADMIN_ROLE_GUEST, "Guest"),
     ]
 
@@ -543,8 +543,8 @@ class MemberAdminEditForm(forms.ModelForm):
         label="Role",
         help_text=(
             "Admin / Guild Officer / Member set the hierarchy role. "
-            "Instructor also grants teaching access. "
-            "Guest deactivates the member (no hub access)."
+            "Guest deactivates the member (no hub access). "
+            "Instructor is now a permission on the Permissions tab, not a role."
         ),
     )
 
@@ -572,11 +572,72 @@ class MemberAdminEditForm(forms.ModelForm):
 
     @staticmethod
     def _derive_initial_role(member: Member) -> str:
+        # Instructor is a permission now (Permissions tab), not a role — an instructor
+        # shows as their underlying hierarchy role here.
         if member.status != Member.Status.ACTIVE:
             return Member.ADMIN_ROLE_GUEST
-        if member.is_instructor and member.fog_role == Member.FogRole.MEMBER:
-            return Member.ADMIN_ROLE_INSTRUCTOR
         return member.fog_role
+
+
+class MemberCapabilitiesForm(forms.Form):
+    """A member's scoped, site-wide admin duties, one BooleanField per capability.
+
+    Each field renders as a labeled toggle (``components/toggle.html``) on the member
+    edit Permissions tab. A capability is the master switch: holding it both routes the
+    matching approval/alert emails to this member AND lets them act on that object type,
+    without granting full admin. These are SITE-WIDE — per-guild lead/staff authority is
+    managed on the guild's own Staff tab, not here.
+
+    Build for GET with ``MemberCapabilitiesForm(initial=MemberCapabilitiesForm.initial_for(member))``;
+    on POST, ``form.selected()`` returns the checked capability values for
+    :meth:`membership.models.Member.sync_admin_capabilities`.
+    """
+
+    cap_class_approver = forms.BooleanField(
+        required=False,
+        label="Class Administrator",
+        help_text="Approves and publishes classes for every guild, and gets class-review emails.",
+    )
+    cap_space_approver = forms.BooleanField(
+        required=False,
+        label="Space & Cubby Administrator",
+        help_text="Reviews space and cubby requests, and gets those request emails.",
+    )
+    cap_discount_approver = forms.BooleanField(
+        required=False,
+        label="Discount Code Administrator",
+        help_text="Approves discount codes, and gets discount-request emails.",
+    )
+    cap_events_approver = forms.BooleanField(
+        required=False,
+        label="Calendar Administrator",
+        help_text="Reviews Community Calendar and meeting proposals, and gets those emails.",
+    )
+    cap_billing_approver = forms.BooleanField(
+        required=False,
+        label="Billing Administrator",
+        help_text="Gets an alert when a member's automatic payment fails.",
+    )
+
+    # Field name → the capability it grants. The single source of truth both
+    # ``initial_for`` and ``selected`` read, so the two never drift.
+    _FIELD_TO_CAP: dict[str, str] = {
+        "cap_class_approver": AdminCapability.Capability.CLASS_APPROVER,
+        "cap_space_approver": AdminCapability.Capability.SPACE_APPROVER,
+        "cap_discount_approver": AdminCapability.Capability.DISCOUNT_APPROVER,
+        "cap_events_approver": AdminCapability.Capability.EVENTS_APPROVER,
+        "cap_billing_approver": AdminCapability.Capability.BILLING_APPROVER,
+    }
+
+    @classmethod
+    def initial_for(cls, member: Member) -> dict[str, bool]:
+        """The checked-state map for ``member``'s currently held capabilities."""
+        held = set(member.admin_capabilities.values_list("capability", flat=True))
+        return {name: cap in held for name, cap in cls._FIELD_TO_CAP.items()}
+
+    def selected(self) -> list[str]:
+        """The capability values whose toggles are checked (call after ``is_valid``)."""
+        return [cap for name, cap in self._FIELD_TO_CAP.items() if self.cleaned_data.get(name)]
 
 
 class SiteSettingsForm(forms.ModelForm):
@@ -1414,7 +1475,9 @@ class GuildEmailsForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
-        self._require_subject_and_body(cleaned, "thankyou_email", "thank-you")
+        # The thank-you email is on by default and falls back to the standard copy, so enabling
+        # it needs no subject/body. The join/welcome email has no standard fallback, so it still
+        # requires both before it can be turned on.
         self._require_subject_and_body(cleaned, "join_email", "welcome")
         return cleaned
 
@@ -2149,6 +2212,12 @@ class AnnouncementComposeForm(forms.Form):
         "the bell and Discord get a plain-text version.",
     )
     send_email = forms.BooleanField(required=False, initial=True, label="Also send as email")
+    mark_as_urgent = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Mark as urgent",
+        help_text="Sends the email as transactional, overriding user email preferences.",
+    )
     email_recipients = _RecipientChoiceField(
         required=False,
         widget=forms.CheckboxSelectMultiple,

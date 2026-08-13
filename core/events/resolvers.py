@@ -149,6 +149,87 @@ def guild_leadership_or_admins(context: dict[str, Any]) -> list[Recipient]:
     return _dedupe([*guild_leadership(context), *fog_admins(context)])  # type: ignore[list-item]
 
 
+# --- Capability-scoped resolvers (§ admin capabilities) ----------------------
+
+
+def _capability_recipients(capability: str) -> list[Recipient]:
+    """Every member holding ``capability`` — the sole recipients of its notifications.
+
+    A capability is the master switch: holding it both routes the matching approval/alert
+    notifications here AND grants the action. A ``fog_role=ADMIN`` member who does NOT hold
+    the capability receives nothing — they can self-grant it on their member page if they
+    want in. Holders are tagged ``capability:<name>`` so the settings page can badge the row.
+    """
+    from membership.models import Member
+
+    holders = list(Member.objects.filter(admin_capabilities__capability=capability).select_related("user").distinct())
+    return _members_to_recipients(holders, f"capability:{capability}")
+
+
+def class_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """Class Administrators — holders only; a plain admin gets nothing until granted."""
+    from membership.models import AdminCapability
+
+    return _capability_recipients(AdminCapability.Capability.CLASS_APPROVER)
+
+
+def guild_leadership_or_class_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """COMPOSITION — a guild's leadership when present, else the Class Administrators.
+
+    A guild-led class routes to that guild's lead + staff ONLY (via
+    :func:`guild_leadership`); a lead-less category (``context["guild"]`` is ``None``)
+    routes to :func:`class_approvers`. This is composition, not the union
+    :func:`guild_leadership_or_admins` performs — a guild-led review never also blasts
+    every admin. A missing ``guild`` key still fails loudly (a programming error).
+    """
+    guild: Guild | None = _require(context, "guild")
+    if guild is not None:
+        return guild_leadership(context)
+    return class_approvers(context)
+
+
+def space_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """Space & Cubby Administrators — holders only; a plain admin gets nothing until granted."""
+    from membership.models import AdminCapability
+
+    return _capability_recipients(AdminCapability.Capability.SPACE_APPROVER)
+
+
+def discount_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """Discount Code Administrators — holders only; a plain admin gets nothing until granted."""
+    from membership.models import AdminCapability
+
+    return _capability_recipients(AdminCapability.Capability.DISCOUNT_APPROVER)
+
+
+def events_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """Calendar Administrators — holders only; a plain admin gets nothing until granted."""
+    from membership.models import AdminCapability
+
+    return _capability_recipients(AdminCapability.Capability.EVENTS_APPROVER)
+
+
+def guild_leadership_or_events_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """COMPOSITION — a guild's leadership when present, else the Calendar Administrators.
+
+    The proposal-queue audience for a Community Calendar event or a meeting agenda item:
+    a guild-scoped proposal routes to that guild's lead + staff ONLY; a site-wide/council
+    proposal (``context["guild"]`` is ``None``) routes to :func:`events_approvers`. Same
+    composition shape as :func:`guild_leadership_or_class_approvers`.
+    """
+    guild: Guild | None = _require(context, "guild")
+    if guild is not None:
+        return guild_leadership(context)
+    return events_approvers(context)
+
+
+def billing_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """Billing Administrators — holders only; a plain admin gets nothing until granted."""
+    from membership.models import AdminCapability
+
+    return _capability_recipients(AdminCapability.Capability.BILLING_APPROVER)
+
+
 def guild_lead(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — the lead only (staff excluded), for lead-only events."""
     guild: Guild = _require(context, "guild")
@@ -471,6 +552,13 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.FOG_ADMINS: fog_admins,
     Recipients.GUILD_LEADERSHIP: guild_leadership,
     Recipients.GUILD_LEADERSHIP_OR_ADMINS: guild_leadership_or_admins,
+    Recipients.CLASS_APPROVERS: class_approvers,
+    Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: guild_leadership_or_class_approvers,
+    Recipients.SPACE_APPROVERS: space_approvers,
+    Recipients.DISCOUNT_APPROVERS: discount_approvers,
+    Recipients.EVENTS_APPROVERS: events_approvers,
+    Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: guild_leadership_or_events_approvers,
+    Recipients.BILLING_APPROVERS: billing_approvers,
     Recipients.GUILD_LEAD: guild_lead,
     Recipients.GUILD_MEMBERS: guild_members,
     Recipients.GUILD_ORIENTERS: guild_orienters,

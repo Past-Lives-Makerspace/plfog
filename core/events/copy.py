@@ -88,6 +88,17 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.GUILD_LEADERSHIP_OR_ADMINS: (
         "The guild's lead and staff, plus all admins (admins only for site-wide events)."
     ),
+    Recipients.CLASS_APPROVERS: "The Class Administrators (holders only).",
+    Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: (
+        "The guild's lead and staff; for a lead-less category, the Class Administrators (holders only)."
+    ),
+    Recipients.SPACE_APPROVERS: "The Space & Cubby Administrators (holders only).",
+    Recipients.DISCOUNT_APPROVERS: "The Discount Code Administrators (holders only).",
+    Recipients.EVENTS_APPROVERS: "The Calendar Administrators (holders only).",
+    Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: (
+        "The guild's lead and staff; for a site-wide or council proposal, the Calendar Administrators (holders only)."
+    ),
+    Recipients.BILLING_APPROVERS: "The Billing Administrators (holders only).",
     Recipients.GUILD_LEAD: "The guild's lead only.",
     Recipients.GUILD_MEMBERS: "Every active member of the guild.",
     Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orienter role.",

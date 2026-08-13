@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from core.events import preferences
-from core.events.registry import Channel, EventType, all_events
+from core.events.registry import Channel, EventType, Recipients, all_events
 from core.models import NotificationPreference
 
 if TYPE_CHECKING:
@@ -58,6 +58,8 @@ CHANNEL_LABELS: dict[Channel, str] = {
 _DISCORD_LINK_HINT = "Connect your Discord account first to receive DMs."
 
 # Stable category display order; any category not listed falls to the end, alpha.
+# STAFF_SECTION is always forced dead-last by _ordered_categories, so it is not
+# listed here.
 CATEGORY_ORDER: tuple[str, ...] = (
     "Classes",
     "Teaching",
@@ -68,6 +70,36 @@ CATEGORY_ORDER: tuple[str, ...] = (
     "Spaces",
     "Announcements",
     "Security",
+)
+
+# The single display section that collects every staff / leadership / admin event
+# (approval requests + admin-only alerts) instead of scattering them through the
+# member-facing categories. Rendered first and shown ONLY to eligible viewers
+# (see _is_staff_or_leadership); a plain member never sees it.
+STAFF_SECTION = "Staff & leadership"
+
+# Recipients that target staff, leadership, or admins rather than an individual
+# member. Every event routed to one of these is grouped under STAFF_SECTION and
+# gated behind _is_staff_or_leadership. Member-facing recipients (REGISTRANT,
+# INSTRUCTOR, the SINGLE_USER approval-*outcome* notices the proposer receives,
+# broadcast audiences, …) are deliberately absent — those stay in their own
+# category and remain visible to everyone.
+STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
+    {
+        Recipients.FOG_ADMINS,
+        Recipients.GUILD_LEADERSHIP,
+        Recipients.GUILD_LEADERSHIP_OR_ADMINS,
+        Recipients.GUILD_LEAD,
+        Recipients.ALL_GUILD_LEADS,
+        Recipients.GUILD_ORIENTERS,
+        Recipients.CLASS_APPROVERS,
+        Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS,
+        Recipients.SPACE_APPROVERS,
+        Recipients.DISCOUNT_APPROVERS,
+        Recipients.EVENTS_APPROVERS,
+        Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS,
+        Recipients.BILLING_APPROVERS,
+    }
 )
 
 
@@ -91,16 +123,23 @@ class Cell:
     present: bool
     available: bool = True
     hint: str = ""
+    badge: str = ""
 
 
 @dataclass(frozen=True)
 class Row:
-    """One event row in the matrix: its label/description + a cell per user channel."""
+    """One event row in the matrix: its label/description + a cell per user channel.
+
+    ``badge`` is a short note explaining a non-obvious reason the user receives this
+    event — set when they're a default recipient via an admin capability (e.g. "You get
+    this as a Class Administrator") rather than by a plain opt-in.
+    """
 
     event_key: str
     label: str
     description: str
     cells: list[Cell]
+    badge: str = ""
 
 
 def field_name(event_key: str, channel: Channel) -> str:
@@ -108,26 +147,124 @@ def field_name(event_key: str, channel: Channel) -> str:
     return f"pref__{event_key}__{channel.value}"
 
 
+def _section_for(event: EventType) -> str:
+    """The settings-page section an event renders under.
+
+    Staff/leadership/admin events collapse into the single STAFF_SECTION; every
+    other event keeps its own member-facing ``category``. This is display grouping
+    only — an event's ``category`` (which also drives the email ``X-Category``
+    header) is left untouched.
+    """
+    return STAFF_SECTION if event.recipient in STAFF_RECIPIENTS else event.category
+
+
+@dataclass(frozen=True)
+class _StaffProfile:
+    """A viewer's staff / leadership standing, computed once per settings page.
+
+    Drives per-row visibility in the STAFF_SECTION: a capability row shows ONLY to a holder
+    of that capability; a role-scoped row shows ONLY to that role. So an admin who does not
+    hold (say) the Discount capability neither sees nor receives discount-code alerts, and
+    what the page shows always equals what the send path delivers.
+    """
+
+    is_admin: bool
+    is_active: bool
+    is_officer: bool
+    leads_guild: bool
+    staffs_guild: bool
+    is_orienter: bool
+    capabilities: frozenset[str]
+
+    @property
+    def is_leadership(self) -> bool:
+        return self.leads_guild or self.staffs_guild
+
+
+def _staff_profile(user: User) -> _StaffProfile:
+    """Compute ``user``'s staff/leadership standing in a handful of bounded queries.
+
+    A user with no linked member is a plain member on every axis (an all-``False`` profile),
+    so none of the staff rows are eligible.
+    """
+    from membership.models import GuildStaffMembership, Member
+
+    member = Member.objects.filter(user=user).only("id", "fog_role", "status").first()
+    if member is None:
+        return _StaffProfile(False, False, False, False, False, False, frozenset())
+    staff_roles = set(member.guild_staff_roles.values_list("role", flat=True))
+    return _StaffProfile(
+        is_admin=member.fog_role == Member.FogRole.ADMIN,
+        is_active=member.status == Member.Status.ACTIVE,
+        is_officer=member.fog_role == Member.FogRole.GUILD_OFFICER,
+        leads_guild=member.led_guilds.exists(),
+        staffs_guild=bool(staff_roles),
+        is_orienter=GuildStaffMembership.Role.ORIENTER in staff_roles,
+        capabilities=frozenset(member.admin_capabilities.values_list("capability", flat=True)),
+    )
+
+
+def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
+    """Whether ``profile`` should see (and receive) a staff row routed to ``recipient``.
+
+    Capability rows show only to holders of that capability; role rows only to that role.
+    A composite ``GUILD_LEADERSHIP_OR_*`` row shows to guild leadership OR the capability
+    holder (its two send-time audiences). Mirrors the resolvers so page == delivery.
+    """
+    from membership.models import AdminCapability
+
+    cap = AdminCapability.Capability
+    caps = profile.capabilities
+    lead = profile.is_leadership
+    checks: dict[Recipients, bool] = {
+        Recipients.FOG_ADMINS: profile.is_admin,
+        Recipients.GUILD_LEADERSHIP: lead,
+        Recipients.GUILD_LEADERSHIP_OR_ADMINS: lead or profile.is_admin,
+        Recipients.GUILD_LEAD: profile.leads_guild,
+        # all_guild_leads resolves against Member.objects.active(), so a FORMER/SUSPENDED
+        # lead/officer would see this row but never receive the mail — gate on is_active too.
+        Recipients.ALL_GUILD_LEADS: (lead or profile.is_officer) and profile.is_active,
+        Recipients.GUILD_ORIENTERS: profile.leads_guild or profile.is_orienter,
+        Recipients.CLASS_APPROVERS: cap.CLASS_APPROVER in caps,
+        Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: lead or cap.CLASS_APPROVER in caps,
+        Recipients.SPACE_APPROVERS: cap.SPACE_APPROVER in caps,
+        Recipients.DISCOUNT_APPROVERS: cap.DISCOUNT_APPROVER in caps,
+        Recipients.EVENTS_APPROVERS: cap.EVENTS_APPROVER in caps,
+        Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: lead or cap.EVENTS_APPROVER in caps,
+        Recipients.BILLING_APPROVERS: cap.BILLING_APPROVER in caps,
+    }
+    return checks[recipient]
+
+
 def _visible_events(user: User) -> list[EventType]:
     """Events whose preference row should be shown to ``user``.
 
-    Every registered event that declares at least one *user* channel is shown — the
-    page is the full catalogue of how the app can reach you. (Audience scoping is the
-    resolver's job at send time; the page lists every event so a user always sees,
-    e.g., the teaching events even before they teach. Forced rows make the operational
-    ones visible-but-locked rather than hidden.)
+    Every registered *member-facing* event that declares a user channel is shown — the page
+    is the full catalogue of how the app can reach you. (Audience scoping is the resolver's
+    job at send time; the page lists every member event so a user always sees, e.g., the
+    teaching events even before they teach.)
+
+    A STAFF_SECTION event (approval request or admin alert) is shown only to a viewer who is
+    actually eligible to receive it — a holder of its capability or a member of its role
+    (:func:`_eligible_for`). A plain member sees none of them; an admin sees only the duties
+    they hold plus the admin/leadership alerts.
     """
+    profile = _staff_profile(user)
     out: list[EventType] = []
     for event in all_events():
-        if any(event.has_channel(channel) for channel in USER_CHANNELS):
-            out.append(event)
+        if not any(event.has_channel(channel) for channel in USER_CHANNELS):
+            continue
+        if event.recipient in STAFF_RECIPIENTS and not _eligible_for(event.recipient, profile):
+            continue
+        out.append(event)
     return out
 
 
 def _ordered_categories(categories: set[str]) -> list[str]:
+    head = [STAFF_SECTION] if STAFF_SECTION in categories else []
     ranked = [c for c in CATEGORY_ORDER if c in categories]
-    rest = sorted(c for c in categories if c not in CATEGORY_ORDER)
-    return ranked + rest
+    rest = sorted(c for c in categories if c not in CATEGORY_ORDER and c != STAFF_SECTION)
+    return head + ranked + rest
 
 
 def _member_discord_linked(user: User) -> bool:
@@ -167,12 +304,51 @@ def visible_channels(user: User) -> list[Channel]:
     return [channel for channel in USER_CHANNELS if any(event.channel(channel) is not None for event in events)]
 
 
+# Each capability-scoped recipient maps to the capability whose holders receive the
+# event by default; a member holding it gets a "You get this as a …" badge on the row.
+_CAPABILITY_BY_RECIPIENT: dict[Recipients, str] = {
+    Recipients.CLASS_APPROVERS: "class_approver",
+    Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: "class_approver",
+    Recipients.SPACE_APPROVERS: "space_approver",
+    Recipients.DISCOUNT_APPROVERS: "discount_approver",
+    Recipients.EVENTS_APPROVERS: "events_approver",
+    Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: "events_approver",
+    Recipients.BILLING_APPROVERS: "billing_approver",
+}
+
+
+def _capability_badges(user: User, events: list[EventType]) -> dict[str, str]:
+    """Map each visible event the user receives via a held capability to its row badge.
+
+    One bounded query for the member's capabilities (not a resolver call per row): a row
+    is badged only when the event routes to a capability the member actually holds.
+    """
+    from membership.models import AdminCapability, Member
+
+    member = Member.objects.filter(user=user).only("id").first()
+    if member is None:
+        return {}
+    held = set(member.admin_capabilities.values_list("capability", flat=True))
+    if not held:
+        return {}
+    labels = {choice.value: choice.label for choice in AdminCapability.Capability}
+    badges: dict[str, str] = {}
+    for event in events:
+        capability = _CAPABILITY_BY_RECIPIENT.get(event.recipient)
+        if capability is not None and capability in held:
+            badges[event.key] = f"You get this as a {labels[capability]}"
+    return badges
+
+
 def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
     """Assemble the matrix for ``user`` — a list of ``(category, [Row, ...])``.
 
     For each visible event, one :class:`Row` with a :class:`Cell` per user channel:
     forced cells locked-on, opt-out-able cells reflecting the saved preference (or the
-    event's channel default). Categories are returned in :data:`CATEGORY_ORDER`.
+    event's channel default). A row the user receives via an admin capability carries a
+    badge. Sections are returned in :data:`CATEGORY_ORDER`, with every staff/leadership
+    event collected into a single :data:`STAFF_SECTION` rendered first (and only for
+    eligible viewers — see :func:`_visible_events`).
     """
     events = _visible_events(user)
     channels = visible_channels(user)
@@ -180,6 +356,7 @@ def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
     # query) rather than re-deriving it for every cell.
     discord_linked = _member_discord_linked(user)
     availability = {channel: channel_availability(user, channel, discord_linked=discord_linked) for channel in channels}
+    capability_badges = _capability_badges(user, events)
     by_category: dict[str, list[Row]] = {}
     for event in events:
         cells: list[Cell] = []
@@ -204,8 +381,14 @@ def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
                     hint=hint,
                 )
             )
-        row = Row(event_key=event.key, label=event.label, description=event.description, cells=cells)
-        by_category.setdefault(event.category, []).append(row)
+        row = Row(
+            event_key=event.key,
+            label=event.label,
+            description=event.description,
+            cells=cells,
+            badge=capability_badges.get(event.key, ""),
+        )
+        by_category.setdefault(_section_for(event), []).append(row)
     return [(category, by_category[category]) for category in _ordered_categories(set(by_category))]
 
 

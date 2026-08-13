@@ -4,40 +4,40 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin: 0; padding: 0; background-color: #12121f; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #12121f; padding: 40px 20px;">
+<body style="margin: 0; padding: 0; background-color: #eef0f3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #eef0f3; padding: 40px 20px;">
 <tr>
 <td align="center">
 <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width: 480px; width: 100%;">
     <!-- Header -->
     <tr>
     <td style="text-align: center; padding-bottom: 32px;">
-        <a href="https://members.pastlives.space" style="font-size: 22px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em; text-decoration:none;">Past Lives</a>
+        <a href="https://members.pastlives.space" style="font-size: 22px; font-weight: 700; color: #092E4C; letter-spacing: 0.02em; text-decoration:none;">Past Lives Makerspace</a>
     </td>
     </tr>
     <!-- Card -->
     <tr>
-    <td style="background-color: #092E4C; border-radius: 12px; padding: 40px 32px;">
-        <p style="margin: 0 0 8px; font-size: 12px; color: #EEB44B; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;">New registration</p>
-        <p style="margin: 0 0 24px; font-size: 16px; color: #F4EFDD; line-height: 1.5;">{{ registration.first_name }} {{ registration.last_name }} ({{ registration.email }}) just registered for <a href="{{ class_url }}" style="color: #EEB44B; text-decoration: none; font-weight: 700;">{{ offering.title }}</a>.</p>
+    <td style="background-color: #eef0f3; border-radius: 12px; padding: 40px 32px;">
+        <p style="margin: 0 0 8px; font-size: 12px; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;">New registration</p>
+        <p style="margin: 0 0 24px; font-size: 16px; color: #33424f; line-height: 1.5;">{{ registration.first_name }} {{ registration.last_name }} ({{ registration.email }}) just registered for <a href="{{ class_url }}" style="color: #0d4876; text-decoration: none; font-weight: 700;">{{ offering.title }}</a>.</p>
 
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
             <tr>
-            <td style="padding: 10px 0; border-top: 1px solid rgba(244, 239, 221, 0.1);">
-                <span style="font-size: 12px; color: #96ACBB; text-transform: uppercase; letter-spacing: 0.08em;">Status</span><br>
-                <span style="font-size: 14px; color: #F4EFDD;">{{ registration.get_status_display }}</span>
+            <td style="padding: 10px 0; border-top: 1px solid rgba(13, 72, 118, 0.12);">
+                <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">Status</span><br>
+                <span style="font-size: 14px; color: #33424f;">{{ registration.get_status_display }}</span>
             </td>
             </tr>
             <tr>
-            <td style="padding: 10px 0; border-top: 1px solid rgba(244, 239, 221, 0.1);">
-                <span style="font-size: 12px; color: #96ACBB; text-transform: uppercase; letter-spacing: 0.08em;">Paid</span><br>
-                <span style="font-size: 14px; color: #F4EFDD;">${{ amount_paid }}</span>
+            <td style="padding: 10px 0; border-top: 1px solid rgba(13, 72, 118, 0.12);">
+                <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">Paid</span><br>
+                <span style="font-size: 14px; color: #33424f;">${{ amount_paid }}</span>
             </td>
             </tr>
             <tr>
-            <td style="padding: 10px 0; border-top: 1px solid rgba(244, 239, 221, 0.1);">
-                <span style="font-size: 12px; color: #96ACBB; text-transform: uppercase; letter-spacing: 0.08em;">Spots filled</span><br>
-                <span style="font-size: 14px; color: #F4EFDD;">{{ spots_filled }}/{{ capacity }}</span>
+            <td style="padding: 10px 0; border-top: 1px solid rgba(13, 72, 118, 0.12);">
+                <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">Spots filled</span><br>
+                <span style="font-size: 14px; color: #33424f;">{{ spots_filled }}/{{ capacity }}</span>
             </td>
             </tr>
         </table>
@@ -45,10 +45,10 @@
         {% if manage_url %}
         <!-- CTA -->
         <div style="text-align: center; margin: 24px 0 0;">
-            <a href="{{ manage_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Manage my class</a>
+            <a href="{{ manage_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Manage my class</a>
         </div>
         {% endif %}
-        <p style="margin: 16px 0 0; font-size: 12px; color: #96ACBB; text-align: center;"><a href="{{ class_url }}" style="color: #EEB44B; text-decoration: none;">View the class page</a></p>
+        <p style="margin: 16px 0 0; font-size: 12px; color: #55697a; text-align: center;"><a href="{{ class_url }}" style="color: #0d4876; text-decoration: none;">View the class page</a></p>
     </td>
     </tr>
     <!-- Footer -->

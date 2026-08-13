@@ -13,8 +13,29 @@ from classes.emails import (
 )
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassApproval, ClassOffering
-from membership.models import GuildStaffMembership, Member
+from membership.models import AdminCapability, GuildStaffMembership, Member
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MemberFactory
+
+
+def _class_admin(email: str) -> Member:
+    """A Member holding the CLASS_APPROVER capability, with a linked, email-bearing User.
+
+    Class-review/validation now route to capability holders (not a static admin blast), and
+    the resolver only addresses members whose linked User carries an email — so the holder
+    needs a real User. Signals are muted so create_user doesn't auto-provision a second
+    Member for the one-to-one ``user`` key.
+    """
+    from django.contrib.auth.models import User
+    from django.db.models.signals import post_save
+    from factory.django import mute_signals
+
+    member = MemberFactory(_pre_signup_email=email)
+    with mute_signals(post_save):
+        user = User.objects.create_user(username=email, email=email)
+    member.user = user
+    member.save(update_fields=["user"])
+    member.admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
+    return member
 
 
 def describe_admin_recipients():
@@ -142,9 +163,9 @@ def describe_guild_lead_review_request_no_double_send():
 
 
 def describe_send_admin_review_request():
-    def it_emails_the_admins_and_the_instructor(db, settings):
-        """Stage one for lead-less categories: admins get the request."""
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
+    def it_emails_the_class_administrators_and_the_instructor(db, settings):
+        """Stage one for lead-less categories: the Class Administrators get the request."""
+        _class_admin("classadmin@example.com")
         inst_user = UserFactory(username="inst3@example.com")
         instructor = InstructorFactory(user=inst_user, full_legal_name="Inst3", instructor_slug="inst3")
         offering = ClassOfferingFactory(
@@ -157,14 +178,14 @@ def describe_send_admin_review_request():
         send_admin_review_request(offering, row)
 
         assert len(mail.outbox) == 2
-        review_email = next(m for m in mail.outbox if m.to == ["admin@example.com"])
+        review_email = next(m for m in mail.outbox if m.to == ["classadmin@example.com"])
         assert offering.title in review_email.subject
 
 
 def describe_send_admin_validation_request():
-    def it_emails_admins_with_executive_validation_wording(db, settings):
-        """Stage two: admins get the executive-validation request after a lead approves."""
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
+    def it_emails_class_administrators_with_executive_validation_wording(db, settings):
+        """Stage two: the Class Administrators get the executive-validation request after a lead approves."""
+        _class_admin("classadmin@example.com")
         cat = _make_guilded_category()
         offering = ClassOfferingFactory(category=cat, status=ClassOffering.Status.PENDING)
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
@@ -173,13 +194,13 @@ def describe_send_admin_validation_request():
 
         assert len(mail.outbox) == 1
         email = mail.outbox[0]
-        assert email.to == ["admin@example.com"]
+        assert email.to == ["classadmin@example.com"]
         assert "validation" in email.subject.lower()
         assert "executive validation" in email.body.lower()
         assert f"/classes/review/{row.token}/" in email.body
 
-    def it_does_nothing_when_no_admin_recipients(db, settings):
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+    def it_does_nothing_when_there_are_no_class_administrators(db):
+        # No CLASS_APPROVER holders → the event resolves to nobody → no email.
         offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING)
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
 

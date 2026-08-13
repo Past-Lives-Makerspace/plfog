@@ -197,6 +197,7 @@ _MEETING_FIELDS: dict[str, Callable[[str], Any]] = {
     "special_title": _clean_char(120),
     "scheduled_date": _clean_date,
     "scheduled_time": _clean_half_hour,
+    "scheduled_end_time": _clean_half_hour,
     "video_call_url": _clean_url,
     "special_notes": sanitize_rich_html,
     "other_notes": sanitize_rich_html,
@@ -204,7 +205,9 @@ _MEETING_FIELDS: dict[str, Callable[[str], Any]] = {
 
 # Saves that must reach an OWNED calendar event (§5.2) — sync_event() itself
 # no-ops without an owned link, so calling it unconditionally here is safe.
-_EVENT_SYNC_FIELDS = frozenset({"scheduled_date", "scheduled_time", "is_special", "special_title", "video_call_url"})
+_EVENT_SYNC_FIELDS = frozenset(
+    {"scheduled_date", "scheduled_time", "scheduled_end_time", "is_special", "special_title", "video_call_url"}
+)
 
 
 def _apply_meeting_save(meeting: Meeting, field: str, value: Any) -> None:
@@ -216,6 +219,22 @@ def _apply_meeting_save(meeting: Meeting, field: str, value: Any) -> None:
     """
     if field == "special_title" and not meeting.is_special and value:
         raise ValueError("Turn on Special meeting before naming it.")
+    # End must be after start — checked against the other field's current value (autosave
+    # writes one field at a time), for a change to either the start or the end.
+    if (
+        field == "scheduled_end_time"
+        and value is not None
+        and meeting.scheduled_time is not None
+        and value <= meeting.scheduled_time
+    ):
+        raise ValueError("End time must be after the start time.")
+    if (
+        field == "scheduled_time"
+        and value is not None
+        and meeting.scheduled_end_time is not None
+        and value >= meeting.scheduled_end_time
+    ):
+        raise ValueError("Start time must be before the end time.")
     setattr(meeting, field, value)
     update_fields = [field, "updated_at"]
     if field == "is_special" and value is False:
@@ -526,7 +545,7 @@ def _single_item_response(request: HttpRequest, item: MeetingAgendaItem) -> Http
         {
             "item": item,
             "meeting": meeting,
-            "is_editable": can_edit_meeting(request, meeting),
+            "is_editable": can_edit_meeting(request, meeting) and not meeting.is_locked,
             "upvoted_item_ids": {item.pk} if item.upvoters.filter(pk=user.pk).exists() else set(),
         },
     )
@@ -547,7 +566,10 @@ def hub_meeting_item_upvote(request: HttpRequest, pk: int) -> HttpResponse:
         .filter(meeting__in=Meeting.objects.visible_to(user)),
         pk=pk,
     )
-    item.toggle_upvote(user)
+    try:
+        item.toggle_upvote(user)
+    except MeetingLockedError:
+        return HttpResponse("Approved minutes are locked.", status=403)
     return _single_item_response(request, item)
 
 

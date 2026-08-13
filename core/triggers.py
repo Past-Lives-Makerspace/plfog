@@ -84,6 +84,7 @@ TRIGGERS: list[Trigger] = [
         "Class needs your review",
         "An instructor submitted a class in a guild you lead — review it.",
         "Teaching",
+        email_default=True,
     ),
     Trigger(
         "class_validation_requested",
@@ -91,6 +92,7 @@ TRIGGERS: list[Trigger] = [
         "A guild lead approved a class; it needs admin sign-off to publish.",
         "Teaching",
         Audience.STAFF_ONLY,
+        email_default=True,
     ),
     # Guild activity
     Trigger("guild_announcement", "Guild announcement", "A guild you're in posted an announcement.", "Guilds"),

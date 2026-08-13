@@ -313,6 +313,17 @@
     margin-top: 0.1rem;
 }
 
+.pl-notif-matrix__event-badge {
+    display: inline-block;
+    margin-top: 0.3rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--hub-accent, #EEB44B);
+    background: rgba(238, 180, 75, 0.14);
+}
+
 .pl-notif-matrix__cell {
     display: flex;
     align-items: center;
@@ -395,6 +406,12 @@
 
 .pl-notif-section + .pl-notif-section {
     margin-top: 0.5rem;
+}
+
+/* Sub-heading note under the Staff & leadership section explaining who sees it. */
+.pl-notif-section-note {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
 }
 
 /* Bulk on/off controls (the top "Everything" row and each section's). */

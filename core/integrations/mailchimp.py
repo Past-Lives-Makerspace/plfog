@@ -146,3 +146,40 @@ class MailchimpClient:
             response.text[:300],
         )
         return False
+
+    def member_tags_remove(self, email: str, tags: list[str]) -> bool:
+        """Remove tags from a subscriber."""
+        if not self.enabled:
+            return False
+        if self.config is None:
+            return False
+
+        try:
+            datacenter_url = self.config.base_url
+        except ValueError:
+            return False
+
+        subscriber_hash = hashlib.md5(email.lower().encode()).hexdigest()  # noqa: S324
+        url = f"{datacenter_url}/lists/{self.config.list_id}/members/{subscriber_hash}/tags"
+        payload = {"tags": [{"name": tag, "status": "inactive"} for tag in tags]}
+
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                auth=("anystring", self.config.api_key),
+                timeout=_DEFAULT_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as exc:
+            logger.warning("Mailchimp tag-remove network error for %s: %s", email, exc)
+            return False
+
+        if response.ok:
+            return True
+        logger.warning(
+            "Mailchimp tag-remove failed for %s: %s %s",
+            email,
+            response.status_code,
+            response.text[:300],
+        )
+        return False

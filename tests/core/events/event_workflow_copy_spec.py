@@ -73,5 +73,5 @@ def describe_decision_audiences():
         recipients = resolve(event.recipient, {"user": submitter})
         assert {u.pk for u, _ in recipients} == {submitter.pk}
 
-    def it_routes_submitted_to_the_union_resolver():
-        assert get_event("event.submitted").recipient.value == "guild_leadership_or_admins"
+    def it_routes_submitted_to_the_events_approver_composition_resolver():
+        assert get_event("event.submitted").recipient.value == "guild_leadership_or_events_approvers"

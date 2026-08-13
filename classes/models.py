@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, NamedTuple, cast
 
 from django.conf import settings
 from django.db import IntegrityError, models, transaction
-from django.db.models import CheckConstraint, F, Q
+from django.db.models import CheckConstraint, Exists, F, OuterRef, Q
 from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.html import strip_tags
@@ -1698,6 +1698,18 @@ class DiscountCode(models.Model):
                 actor=self.created_by,
                 payload={"code": self.code, "auto_apply": self.auto_apply},
             )
+            from core.events.emit import emit
+
+            emit(
+                "discount_code.requested",
+                actor=self.created_by,
+                target=self,
+                context={},
+                title="A discount code needs approval",
+                body=f"The discount code {self.code} was created and needs approval before it can be used.",
+                url="/classes/admin/discount-codes/",
+                period=f"discount:{self.pk}:requested",
+            )
 
     def apply_to(self, price_cents: int) -> int:
         if self.discount_pct is not None:
@@ -1735,10 +1747,26 @@ class DiscountCode(models.Model):
         """
         if user is None or not getattr(user, "is_authenticated", False):
             return DiscountApprover(user_pk=None, approves_any=False, self_approves=False)
-        from membership.models import Member
+        from membership.models import AdminCapability, Member
 
-        member = Member.objects.filter(user_id=cast("int | str", user.pk), status=Member.Status.ACTIVE).first()
-        approves_any = bool(getattr(user, "is_superuser", False) or (member is not None and member.is_fog_admin))
+        # Fold the DISCOUNT_APPROVER check into the Member lookup as an EXISTS subquery so
+        # the whole resolution stays a single query (the docstring's contract) instead of a
+        # second round-trip via ``has_admin_capability``.
+        member = (
+            Member.objects.filter(user_id=cast("int | str", user.pk), status=Member.Status.ACTIVE)
+            .annotate(
+                _holds_discount_cap=Exists(
+                    AdminCapability.objects.filter(
+                        member=OuterRef("pk"), capability=AdminCapability.Capability.DISCOUNT_APPROVER
+                    )
+                )
+            )
+            .first()
+        )
+        approves_any = bool(
+            getattr(user, "is_superuser", False)
+            or (member is not None and (member.is_fog_admin or getattr(member, "_holds_discount_cap")))
+        )
         self_approves = member is not None and member.can_self_approve_discounts
         return DiscountApprover(user_pk=user.pk, approves_any=approves_any, self_approves=self_approves)
 
@@ -2063,6 +2091,15 @@ class Registration(models.Model):
         )
         if previously_held_a_spot:
             self.class_offering.promote_next_from_waitlist()
+
+        try:
+            from classes.services.mailchimp_subscribe import unsubscribe_registration
+
+            unsubscribe_registration(self)
+        except Exception:
+            # Mailchimp must never block a cancellation, but a failure here (a bug or an
+            # unexpected error) must not vanish — log it with a traceback instead.
+            logger.exception("Mailchimp unsubscribe failed for registration %s", self.pk)
 
     def mark_refunded(self, reason: str = "", actor: "User | None" = None) -> None:
         """Record this registration as refunded — record-only, issues no Stripe refund.

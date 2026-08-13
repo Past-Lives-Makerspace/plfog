@@ -121,14 +121,30 @@ def describe_GuildEmailsForm_email_timestamps():
 
 
 def describe_GuildEmailsForm_validation():
-    def it_rejects_a_thankyou_email_with_no_subject():
+    def it_allows_enabling_the_thankyou_email_with_no_subject_or_body():
+        # Blank thank-you subject/body is now valid — it just falls back to the
+        # standard copy (membership.orientation_copy) instead of raising.
         settings_obj = GuildOrientationSettingsFactory()
         form = GuildEmailsForm(
-            data=_form_data_from(settings_obj, thankyou_email_enabled="on", thankyou_email_body="Thanks!"),
+            data=_form_data_from(
+                settings_obj, thankyou_email_enabled="on", thankyou_email_subject="", thankyou_email_body=""
+            ),
+            instance=settings_obj,
+        )
+        assert form.is_valid(), form.errors
+        saved = form.save()
+        assert saved.thankyou_email_enabled is True
+        assert saved.thankyou_email_subject == ""
+        assert saved.thankyou_email_body == ""
+
+    def it_rejects_a_welcome_email_with_no_subject():
+        settings_obj = GuildOrientationSettingsFactory()
+        form = GuildEmailsForm(
+            data=_form_data_from(settings_obj, join_email_enabled="on", join_email_body="Glad you joined."),
             instance=settings_obj,
         )
         assert not form.is_valid()
-        assert "thankyou_email_subject" in form.errors
+        assert "join_email_subject" in form.errors
 
     def it_rejects_a_welcome_email_with_no_body():
         settings_obj = GuildOrientationSettingsFactory()
@@ -139,19 +155,22 @@ def describe_GuildEmailsForm_validation():
         assert not form.is_valid()
         assert "join_email_body" in form.errors
 
-    def it_treats_an_empty_quill_doc_as_a_missing_body_when_enabling():
+    def it_treats_an_empty_quill_doc_as_a_missing_body_when_enabling_the_welcome_email():
+        # The welcome/join email still has no standard-copy fallback, so it still
+        # requires a real subject and body — a Quill doc with only an empty paragraph
+        # must still count as "no body".
         settings_obj = GuildOrientationSettingsFactory()
         form = GuildEmailsForm(
             data=_form_data_from(
                 settings_obj,
-                thankyou_email_enabled="on",
-                thankyou_email_subject="Thanks",
-                thankyou_email_body="<p><br></p>",
+                join_email_enabled="on",
+                join_email_subject="Welcome",
+                join_email_body="<p><br></p>",
             ),
             instance=settings_obj,
         )
         assert not form.is_valid()
-        assert "thankyou_email_body" in form.errors
+        assert "join_email_body" in form.errors
 
 
 def describe_GuildEmailsForm_sanitization():
@@ -194,17 +213,32 @@ def describe_guild_emails_save():
         assert settings_obj.thankyou_email_subject == "Thanks for coming"
         assert settings_obj.thankyou_email_updated_at is not None
 
-    def it_rejects_a_thankyou_email_with_no_subject(client: Client):
+    def it_allows_saving_a_thankyou_email_with_no_subject_or_body(client: Client):
+        # Blank thank-you subject/body is valid now — it falls back to the standard
+        # copy, so enabling it no longer requires the guild to write their own.
         _user_with_role("em_nosub", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="em_nosub", password="pass")
         response = client.post(
             reverse("hub_guild_emails_save", args=[guild.pk]),
-            {"thankyou_email_enabled": "on", "thankyou_email_body": "Thanks!"},
+            {"thankyou_email_enabled": "on"},
+        )
+        assert response.status_code == 302
+        settings_obj = GuildOrientationSettings.objects.get(guild=guild)
+        assert settings_obj.thankyou_email_enabled is True
+        assert settings_obj.thankyou_email_subject == ""
+
+    def it_rejects_a_welcome_email_with_no_subject(client: Client):
+        _user_with_role("em_join_nosub", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="em_join_nosub", password="pass")
+        response = client.post(
+            reverse("hub_guild_emails_save", args=[guild.pk]),
+            {"join_email_enabled": "on", "join_email_body": "Glad you joined."},
         )
         assert response.status_code == 200
-        assert "thankyou_email_subject" in response.context["emails_form"].errors
-        assert GuildOrientationSettings.objects.get(guild=guild).thankyou_email_enabled is False
+        assert "join_email_subject" in response.context["emails_form"].errors
+        assert GuildOrientationSettings.objects.get(guild=guild).join_email_enabled is False
 
     def it_rejects_a_welcome_email_with_no_body(client: Client):
         _user_with_role("em_nobody", fog_role=Member.FogRole.ADMIN)

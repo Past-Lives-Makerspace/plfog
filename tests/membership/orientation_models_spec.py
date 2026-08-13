@@ -22,24 +22,34 @@ pytestmark = pytest.mark.django_db
 
 
 def describe_GuildOrientationSettings():
-    def describe_thankyou_email_ready():
-        def it_is_true_when_enabled_with_subject_and_body():
-            settings = GuildOrientationSettingsFactory(
-                thankyou_email_enabled=True, thankyou_email_subject="Hi", thankyou_email_body="Welcome"
-            )
-            assert settings.thankyou_email_ready is True
+    def describe_thankyou_email_enabled():
+        def it_defaults_to_true():
+            # The thank-you is on by default (falls back to standard copy) — a guild has
+            # to actively opt out, not opt in.
+            settings = GuildOrientationSettingsFactory()
+            assert settings.thankyou_email_enabled is True
 
-        def it_is_false_when_disabled():
-            settings = GuildOrientationSettingsFactory(
-                thankyou_email_enabled=False, thankyou_email_subject="Hi", thankyou_email_body="Welcome"
-            )
-            assert settings.thankyou_email_ready is False
+    def describe_resolved_thankyou_subject():
+        def it_returns_the_custom_subject_when_set():
+            settings = GuildOrientationSettingsFactory(thankyou_email_subject="Hi there")
+            assert settings.resolved_thankyou_subject == "Hi there"
 
-        def it_is_false_when_body_missing():
-            settings = GuildOrientationSettingsFactory(
-                thankyou_email_enabled=True, thankyou_email_subject="Hi", thankyou_email_body=""
-            )
-            assert settings.thankyou_email_ready is False
+        def it_returns_the_standard_subject_when_blank():
+            from membership.orientation_copy import standard_thankyou_subject
+
+            settings = GuildOrientationSettingsFactory(thankyou_email_subject="")
+            assert settings.resolved_thankyou_subject == standard_thankyou_subject(settings.guild.name)
+
+    def describe_resolved_thankyou_body():
+        def it_returns_the_custom_body_when_set():
+            settings = GuildOrientationSettingsFactory(thankyou_email_body="Welcome aboard.")
+            assert settings.resolved_thankyou_body == "Welcome aboard."
+
+        def it_returns_the_standard_body_when_blank():
+            from membership.orientation_copy import STANDARD_THANKYOU_BODY
+
+            settings = GuildOrientationSettingsFactory(thankyou_email_body="")
+            assert settings.resolved_thankyou_body == STANDARD_THANKYOU_BODY
 
     def describe_join_email_ready():
         def it_requires_enabled_subject_and_body():

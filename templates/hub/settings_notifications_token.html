@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% load static %}
+{% comment %}
+Logged-out notification-preferences page, reached from the "manage preferences /
+unsubscribe" link in an email. A signed token (hidden field ``t``, carried by the
+included matrix form) identifies the member; it authorizes editing THIS page only.
+Everything else still requires a real sign-in. Context: notif_matrix, notif_channels,
+notif_channel_labels, prefs_token, prefs_email; member is deliberately absent so the
+partial's Discord CTA (which needs a login) is skipped.
+{% endcomment %}
+{% block title %}Notification preferences — Past Lives Makerspace{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/hub.css' %}">
+<link rel="stylesheet" href="{% static 'css/components.css' %}">
+{% endblock %}
+{% block content %}
+<div class="pl-prefs-token" style="max-width: 760px; margin: 24px auto; padding: 0 16px;">
+  <div class="hub-card" style="margin-bottom: 16px;">
+    <h1 style="margin: 0 0 6px; font-size: 1.3rem;">Your email preferences</h1>
+    <p class="hub-text-muted" style="margin: 0;">
+      You're editing notification preferences for <strong>{{ prefs_email }}</strong> straight from your
+      email, no sign-in needed. To change anything else on your account,
+      <a href="{% url 'account_login' %}">sign in</a>.
+    </p>
+  </div>
+  {% include "hub/_notifications_settings.html" %}
+</div>
+{% endblock %}

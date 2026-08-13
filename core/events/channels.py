@@ -134,6 +134,22 @@ class InAppAdapter:
         )
 
 
+def email_category_for(trigger_kind: str) -> str | None:
+    """The event's registry category for the ``X-Category`` header, or ``None``.
+
+    ``trigger_kind`` is the event key for spine sends; an empty fallback or a
+    non-event kind has no registry category, so the header is simply omitted.
+    """
+    if not trigger_kind:
+        return None
+    from core.events.registry import get_event
+
+    try:
+        return get_event(trigger_kind).category
+    except KeyError:
+        return None
+
+
 class EmailAdapter:
     """Sends through the ``core.email.send`` choke-point (audited, best-effort).
 
@@ -156,6 +172,7 @@ class EmailAdapter:
             html_body=message.html_body,
             best_effort=True,
             attachments=attachments,
+            category=email_category_for(message.trigger_kind),
         )
 
 
@@ -216,6 +233,7 @@ class ScheduledEmailAdapter:
             html_body=message.html_body,
             best_effort=True,
             attachments=attachments,
+            category=email_category_for(message.trigger_kind),
         )
 
     @staticmethod

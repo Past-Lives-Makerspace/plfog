@@ -1,4 +1,4 @@
 
 {% load site_urls %}—
 Past Lives Makerspace — {% member_base_url %}
-Manage your email preferences or unsubscribe: {% member_base_url %}/settings/
+Manage your email preferences or unsubscribe: {% member_base_url %}/settings/?tab=notifications&t=__PL_PREFS_TOKEN__

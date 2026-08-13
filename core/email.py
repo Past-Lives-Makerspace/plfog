@@ -25,16 +25,19 @@ def _deliver(
     recipients: list[str],
     attachments: list[Attachment] | None,
     bcc: list[str] | None = None,
+    category: str | None = None,
 ) -> None:
     """Hand the message to Django's mail backend.
 
-    Uses the plain ``send_mail`` path when there are no attachments and no BCC
-    (unchanged behaviour for the vast majority of sends); switches to
-    ``EmailMultiAlternatives`` when attachments OR a BCC list are present, since
-    ``send_mail`` cannot carry either. The BCC list preserves recipient privacy
-    for bulk sends (instructor/admin class emails BCC every registrant).
+    Uses the plain ``send_mail`` path when there are no attachments, no BCC, and no
+    category (unchanged behaviour for the vast majority of sends); switches to
+    ``EmailMultiAlternatives`` when attachments, a BCC list, OR a category are
+    present, since ``send_mail`` cannot carry any of the three. The BCC list
+    preserves recipient privacy for bulk sends (instructor/admin class emails BCC
+    every registrant); the category rides an ``X-Category`` header so the ESP and
+    mail-client rules can filter by workflow.
     """
-    if not attachments and not bcc:
+    if not attachments and not bcc and not category:
         send_mail(
             subject=subject,
             message=text_body,
@@ -46,6 +49,8 @@ def _deliver(
     message = EmailMultiAlternatives(
         subject=subject, body=text_body, from_email=from_email, to=recipients, bcc=bcc or None
     )
+    if category:
+        message.extra_headers["X-Category"] = category
     if html_body:
         message.attach_alternative(html_body, "text/html")
     for filename, content, mimetype in attachments or []:
@@ -64,6 +69,7 @@ def send(
     best_effort: bool = False,
     attachments: list[Attachment] | None = None,
     bcc: str | list[str] | None = None,
+    category: str | None = None,
 ) -> TransactionalEmailLog:
     """Send a transactional email and log the attempt.
 
@@ -82,6 +88,10 @@ def send(
             recipients private (instructor/admin class emails BCC every
             registrant). BCC addresses are recorded in the audit row's ``to_email``
             so the log reflects everyone who received the message.
+        category: Optional workflow category (e.g. the event's registry category
+            like "Billing" or "Voting"). When set, it rides an ``X-Category``
+            header — and forces the multipart send path — so ESP and mail-client
+            rules can filter by workflow.
 
     Returns:
         The TransactionalEmailLog row written for this attempt.
@@ -92,6 +102,11 @@ def send(
     recipients = [to] if isinstance(to, str) else list(to)
     bcc_list = [bcc] if isinstance(bcc, str) else list(bcc or [])
     joined = ", ".join(recipients + bcc_list)
+    # Personalize the footer's "manage preferences / unsubscribe" link with this
+    # recipient's no-login token (a no-op when the footer placeholder is absent).
+    from core.email_prefs import finalize_manage_prefs_link
+
+    text_body, html_body = finalize_manage_prefs_link(text_body, html_body, recipients)
     try:
         _deliver(
             subject=subject,
@@ -101,6 +116,7 @@ def send(
             recipients=recipients,
             attachments=attachments,
             bcc=bcc_list or None,
+            category=category,
         )
     except Exception as exc:  # noqa: BLE001 — we log then re-raise unless best_effort
         log = TransactionalEmailLog.objects.create(

@@ -868,6 +868,31 @@ class Member(models.Model):
         """True when fog_role is guild_officer (admin access without site settings)."""
         return self.fog_role == self.FogRole.GUILD_OFFICER
 
+    def has_admin_capability(self, capability: str) -> bool:
+        """True when this member holds the given :class:`AdminCapability` grant.
+
+        A capability is a scoped admin authority (approve classes, spaces, discount
+        codes, calendar proposals, or billing alerts) that both routes the matching
+        notifications to the holder and lets them act on that object type — decoupling
+        those duties from the all-or-nothing ``fog_role == admin`` tier.
+        """
+        return self.admin_capabilities.filter(capability=capability).exists()
+
+    def sync_admin_capabilities(self, capabilities: list[str], *, granted_by: "User | None" = None) -> None:
+        """Reconcile this member's admin capabilities to exactly ``capabilities``.
+
+        Grants each newly-checked capability (recording ``granted_by`` for audit) and
+        revokes each unchecked one, leaving unchanged grants untouched. Idempotent — the
+        admin member-edit form calls it with the posted checkbox set on every save.
+        """
+        desired = set(capabilities)
+        current = set(self.admin_capabilities.values_list("capability", flat=True))
+        to_remove = current - desired
+        if to_remove:
+            self.admin_capabilities.filter(capability__in=to_remove).delete()
+        for capability in desired - current:
+            self.admin_capabilities.create(capability=capability, granted_by=granted_by)
+
     def can_edit_guild(self, guild: Guild) -> bool:
         """True when this member may edit the given guild.
 
@@ -1003,6 +1028,63 @@ class Member(models.Model):
             actor=revoked_by.user if revoked_by is not None else None,
             target=self,
         )
+
+    def grant_instructor(self, *, granted_by: "Member | None") -> None:
+        """Make this member a public instructor: a bio page (``instructor_slug``) + teaching access.
+
+        The single "Instructor" permission unifies the two grants. Mints a unique slug from
+        their name if they don't already have one (the public instructor page), then unlocks
+        the teaching portal via :meth:`grant_teaching`. Idempotent. A member who already
+        completed the instructor orientation just gains the bio page — and that page going live
+        is still audited: ``grant_teaching`` no-ops when teaching was already unlocked, so the
+        slug mint logs its own ``SiteActivity`` here rather than going unrecorded.
+        """
+        from django.utils.text import slugify
+
+        from core.models import SiteActivity
+
+        already_teaching = self.instructor_oriented_at is not None
+        minted = not self.instructor_slug
+        if minted:
+            base = slugify(self.display_name or self.full_legal_name) or f"instructor-{self.pk}"
+            slug = base
+            n = 1
+            while Member.objects.filter(instructor_slug=slug).exclude(pk=self.pk).exists():
+                n += 1
+                slug = f"{base}-{n}"
+            self.instructor_slug = slug
+            self.save(update_fields=["instructor_slug"])
+        self.grant_teaching(granted_by=granted_by)  # logs TEACHING_GRANTED unless already unlocked
+        if minted and already_teaching:
+            # The teaching half no-op'd, but the public page just went live — record it.
+            SiteActivity.log(
+                SiteActivity.Kind.TEACHING_GRANTED,
+                actor=granted_by.user if granted_by is not None else None,
+                target=self,
+            )
+
+    def revoke_instructor(self, *, revoked_by: "Member | None") -> None:
+        """Remove the instructor permission: clears the public bio page AND locks teaching.
+
+        The public instructor page (``instructor_slug``) is removed and the teaching portal is
+        locked via :meth:`revoke_teaching`. Existing classes are untouched (they keep their
+        status, registrations, and emails). Idempotent. When teaching was already locked,
+        ``revoke_teaching`` no-ops, so the page removal logs its own ``SiteActivity`` here.
+        """
+        from core.models import SiteActivity
+
+        was_teaching = self.instructor_oriented_at is not None
+        had_slug = bool(self.instructor_slug)
+        if had_slug:
+            self.instructor_slug = ""
+            self.save(update_fields=["instructor_slug"])
+        self.revoke_teaching(revoked_by=revoked_by)  # logs TEACHING_REVOKED unless already locked
+        if had_slug and not was_teaching:
+            SiteActivity.log(
+                SiteActivity.Kind.TEACHING_REVOKED,
+                actor=revoked_by.user if revoked_by is not None else None,
+                target=self,
+            )
 
     def is_oriented_for(self, guild: Guild) -> bool:
         """True when the member has a completed orientation for this guild."""
@@ -1838,7 +1920,7 @@ class GuildStaffMembership(models.Model):
     """
 
     class Role(models.TextChoices):
-        CO_LEAD = "co_lead", "Guild Lead"
+        CO_LEAD = "co_lead", "Co-Lead"
         SECRETARY = "secretary", "Secretary"
         TREASURER = "treasurer", "Treasurer"
         ORIENTER = "orienter", "Orientator"
@@ -1901,6 +1983,61 @@ class GuildStaffMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member.display_name} — {self.display_title} of {self.guild.name}"
+
+
+class AdminCapability(models.Model):
+    """A scoped admin authority granted to a member, beyond the ``fog_role`` tier.
+
+    Each capability both *routes* the matching approval/alert notifications to the
+    holder (so the right people hear about a class awaiting review, a space request, a
+    discount code, a calendar proposal, or a failed charge) and *grants the action* —
+    a holder can approve or decline that object type. This lets the makerspace hand out
+    a single duty (e.g. "you review classes") without promoting someone to full admin.
+    The capability is the master switch: ONLY holders receive the matching notifications
+    (and see them on the settings page). A plain Admin who does not hold it gets nothing
+    until it is granted — they can self-grant on their own member page. See
+    :func:`core.events.resolvers._capability_recipients`.
+    """
+
+    class Capability(models.TextChoices):
+        CLASS_APPROVER = "class_approver", "Class Administrator"
+        SPACE_APPROVER = "space_approver", "Space & Cubby Administrator"
+        DISCOUNT_APPROVER = "discount_approver", "Discount Code Administrator"
+        EVENTS_APPROVER = "events_approver", "Calendar Administrator"
+        BILLING_APPROVER = "billing_approver", "Billing Administrator"
+
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="admin_capabilities",
+        help_text="The member granted this capability.",
+    )
+    capability = models.CharField(
+        max_length=30,
+        choices=Capability.choices,
+        help_text="Which scoped admin authority this grant confers.",
+    )
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who granted this capability (audit; nulled if they're deleted).",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this capability was granted.")
+
+    class Meta:
+        ordering = ["member__full_legal_name", "capability"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["member", "capability"],
+                name="uq_admincapability_member_capability",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name} — {self.get_capability_display()}"
 
 
 class GuildImage(models.Model):
@@ -2885,6 +3022,7 @@ class GuildAnnouncement(models.Model):
         email_message: "Message | None" = None,
         selected_user_ids: "set[int] | None" = None,
         selected_custom_emails: "list[str] | None" = None,
+        override_preferences: bool = False,
     ) -> None:
         """Emit ``guild.announcement`` to the guild's members (Decision 4).
 
@@ -2921,6 +3059,10 @@ class GuildAnnouncement(models.Model):
                 addresses (lower-cased). ``None`` (every existing caller) sends the FULL custom
                 list — the mailing-list feature is never regressed; a list narrows the additive
                 ``extra_emails`` to those addresses only. A selection only ever *narrows*.
+            override_preferences: The "mark as urgent" flag — sends the email transactionally so it
+                reaches members who have opted out of this announcement's email. It affects EMAIL
+                only; it never adds a Discord ping (the ping is exactly ``discord_mention``, the
+                author's explicit choice), matching the site-wide path.
         """
         from django.urls import reverse
 
@@ -2967,6 +3109,7 @@ class GuildAnnouncement(models.Model):
             discord_mention=discord_mention,
             extra_emails=extra_emails,
             email_only_user_ids=selected_user_ids,
+            override_preferences=override_preferences,
         )
 
     # --- Review lifecycle (member proposals) ----------------------------------
@@ -3319,6 +3462,10 @@ class AnnouncementDraft(models.Model):
         default=True,
         help_text="Also send this announcement as a branded email (in-app bell fires regardless).",
     )
+    mark_as_urgent = models.BooleanField(
+        default=False,
+        help_text="Sends the email as transactional, overriding user email preferences.",
+    )
     email_recipient_selection = models.JSONField(
         default=dict,
         blank=True,
@@ -3431,6 +3578,7 @@ class AnnouncementDraft(models.Model):
         draft.title = cd["title"]
         draft.body = cd["body"]  # already sanitized by the form's clean_body
         draft.send_email = cd["send_email"]
+        draft.mark_as_urgent = cd.get("mark_as_urgent", False)
         # Empty dict = "everyone" (the default); a present selection = exactly these recipients.
         draft.email_recipient_selection = cd.get("email_recipient_selection") or {}
         draft.discord_channel = cd["discord_channel"]
@@ -3500,6 +3648,7 @@ class AnnouncementDraft(models.Model):
                 suppress_broadcast=(webhook == ""),
                 suppress_email=not self.send_email,
                 discord_mention=mention_str,
+                override_preferences=self.mark_as_urgent,
             )
             total = result.recipient_count
             counts = (total if self.send_email else 0, total)
@@ -3524,6 +3673,7 @@ class AnnouncementDraft(models.Model):
                 email_message=self.build_email_message(guild_url),
                 selected_user_ids=selected_user_ids,
                 selected_custom_emails=selected_custom_emails,
+                override_preferences=self.mark_as_urgent,
             )
 
         self.sent_at = timezone.now()
@@ -4992,8 +5142,13 @@ class MeetingQuerySet(models.QuerySet):
         )
 
     def needs_attention(self) -> MeetingQuerySet:
-        """Drafts an editor forgot: undated drafts + past-dated drafts still unapproved."""
-        return self.filter(status=Meeting.Status.DRAFT).filter(
+        """Unfinished meetings an editor forgot: undated + past-dated meetings not yet approved.
+
+        Excludes only APPROVED (locked) minutes, so both DRAFT and PUBLISHED meetings that
+        have slipped past their date without being approved surface here — publishing an
+        agenda must not drop it out of the approval reminder.
+        """
+        return self.exclude(status=Meeting.Status.APPROVED).filter(
             Q(scheduled_date__isnull=True) | Q(scheduled_date__lt=timezone.localdate())
         )
 
@@ -5069,6 +5224,11 @@ class Meeting(models.Model):
         null=True,
         blank=True,
         help_text="Start time. Always a half-hour value from the shared dropdown; blank = time TBD.",
+    )
+    scheduled_end_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="End time. A half-hour value from the shared dropdown; blank = a default length on the calendar.",
     )
     video_call_url = models.URLField(
         blank=True,
@@ -5186,6 +5346,13 @@ class Meeting(models.Model):
         if self.scheduled_date is None:
             return None
         return timezone.make_aware(datetime_type.combine(self.scheduled_date, self.scheduled_time or time_type()))
+
+    @property
+    def ends_at(self) -> datetime_type | None:
+        """Aware end datetime from date + end time, or ``None`` when either is unset."""
+        if self.scheduled_date is None or self.scheduled_end_time is None:
+            return None
+        return timezone.make_aware(datetime_type.combine(self.scheduled_date, self.scheduled_end_time))
 
     @property
     def absolute_url(self) -> str:
@@ -5324,6 +5491,7 @@ class Meeting(models.Model):
         if self.scheduled_date is None or self.scheduled_time is None:
             raise ValueError("Set a date and time before adding the meeting to the calendar.")
         starts = timezone.make_aware(datetime_type.combine(self.scheduled_date, self.scheduled_time))
+        ends = self.ends_at or starts + timedelta(minutes=90)  # scheduled end, else a default length
         event = CommunityEvent(
             title=self.display_title,
             event_type=(
@@ -5333,7 +5501,7 @@ class Meeting(models.Model):
             ),
             guild=self.guild,
             starts_at=starts,
-            ends_at=starts + timedelta(minutes=90),
+            ends_at=ends,
             location=self._event_location(),
             recurrence=CommunityEvent.Recurrence.NONE,
             created_by=by,
@@ -5384,9 +5552,10 @@ class Meeting(models.Model):
         event.location = self._event_location()
         starts = self.starts_at
         if starts is not None:
-            duration = event.ends_at - event.starts_at
+            # A scheduled end wins; otherwise preserve the event's existing duration.
+            preserved_duration = event.ends_at - event.starts_at
             event.starts_at = starts
-            event.ends_at = starts + duration
+            event.ends_at = self.ends_at or starts + preserved_duration
             if self.event_occurrence != self.scheduled_date:
                 self.event_occurrence = self.scheduled_date
                 self.save(update_fields=["event_occurrence", "updated_at"])
@@ -5607,7 +5776,13 @@ class MeetingAgendaItem(models.Model):
         return sum(1 for _ in self.upvoters.all())
 
     def toggle_upvote(self, user: User) -> bool:
-        """Add or remove this user's +1. Returns True if now upvoted, False if removed."""
+        """Add or remove this user's +1. Returns True if now upvoted, False if removed.
+
+        Raises:
+            MeetingLockedError: If the meeting's minutes are approved (locked) — a +1 is
+                a mutating path, and approved minutes are the permanent record.
+        """
+        self.meeting.assert_editable()
         if self.upvoters.filter(pk=user.pk).exists():
             self.upvoters.remove(user)
             return False
@@ -6950,7 +7125,11 @@ class GuildOrientationSettings(models.Model):
         max_length=300, blank=True, default="", help_text="Shown while closed, e.g. 'On vacation till Sept 8'."
     )
     thankyou_email_enabled = models.BooleanField(
-        default=False, help_text="Send a thank-you / next-steps email once an orientation is completed."
+        default=True,
+        help_text=(
+            "Send a thank-you / next-steps email once an orientation is completed. On by default; "
+            "leave the subject and body blank to send the standard thank-you, or write your own."
+        ),
     )
     thankyou_email_subject = models.CharField(
         max_length=200, blank=True, default="", help_text="Subject line of the thank-you email."
@@ -6984,9 +7163,18 @@ class GuildOrientationSettings(models.Model):
         return f"Orientation settings for {self.guild.name}"
 
     @property
-    def thankyou_email_ready(self) -> bool:
-        """True when the thank-you email is enabled and has both subject and body."""
-        return self.thankyou_email_enabled and bool(self.thankyou_email_subject) and bool(self.thankyou_email_body)
+    def resolved_thankyou_subject(self) -> str:
+        """The guild's custom thank-you subject, or the standard one when they left it blank."""
+        from membership.orientation_copy import standard_thankyou_subject
+
+        return self.thankyou_email_subject or standard_thankyou_subject(self.guild.name)
+
+    @property
+    def resolved_thankyou_body(self) -> str:
+        """The guild's custom thank-you body, or the standard copy when they left it blank."""
+        from membership.orientation_copy import STANDARD_THANKYOU_BODY
+
+        return self.thankyou_email_body or STANDARD_THANKYOU_BODY
 
     @property
     def join_email_ready(self) -> bool:

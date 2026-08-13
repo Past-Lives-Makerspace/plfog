@@ -22,6 +22,7 @@
 - `MembershipPlan` — tiered pricing (monthly_price, deposit_required)
 - `Guild` — interest guild; members vote on which guild receives funding
 - `GuildStaffMembership` — guild staff roles (co-lead/secretary/treasurer/orienter); each grants full lead authority
+- `AdminCapability` — scoped admin authority per member (class/space/discount/calendar/billing approver); routes the matching approval/alert notifications AND grants the action, decoupled from the `fog_role=admin` tier
 - `GuildMembership` — a member's membership in a guild
 - `GuildOrientationSettings` / `GuildFAQItem` / `GuildLink` / `GuildAnnouncement` / `GuildImage` — guild-page content & orientations
 - `VotePreference` — persistent 3-choice ranked vote per member (synced to Airtable)

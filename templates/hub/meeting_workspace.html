@@ -114,6 +114,20 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
         {% endfor %}
       </select>
     </div>
+    <div class="pl-meeting-fact hub-form-group">
+      <label for="pl-meeting-end-time">End time</label>
+      <select id="pl-meeting-end-time" name="value"
+              data-autosave data-saved="{{ meeting.scheduled_end_time|time:'H:i' }}"
+              hx-post="{% url 'hub_meeting_save' meeting.pk %}"
+              hx-vals='{"field": "scheduled_end_time"}'
+              hx-trigger="change" hx-swap="none">
+        {% for choice_value, choice_label in time_choices %}
+        <option value="{{ choice_value }}" {% if meeting.scheduled_end_time|time:"H:i" == choice_value %}selected{% endif %}>
+          {% if choice_value %}{{ choice_label }}{% else %}End TBD{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
     <div class="pl-meeting-fact hub-form-group pl-meeting-fact--video">
       <label for="pl-meeting-video">Video call link</label>
       <div class="pl-meeting-video-row">
@@ -134,7 +148,7 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
     </div>
     <div class="pl-meeting-fact pl-meeting-fact--static">
       <span class="pl-meeting-fact__label">Time</span>
-      <span>{% if meeting.scheduled_time %}{{ meeting.scheduled_time|time:"g:i A" }}{% else %}Time TBD{% endif %}</span>
+      <span>{% if meeting.scheduled_time %}{{ meeting.scheduled_time|time:"g:i A" }}{% if meeting.scheduled_end_time %} &ndash; {{ meeting.scheduled_end_time|time:"g:i A" }}{% endif %}{% else %}Time TBD{% endif %}</span>
     </div>
     {% if meeting.video_call_url %}
     <div class="pl-meeting-fact pl-meeting-fact--static">

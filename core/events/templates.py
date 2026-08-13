@@ -70,19 +70,20 @@ def rendered_copy(event_key: str, channel: Channel, context: dict[str, Any]) -> 
     return rendering.render_copy(subject=subject, body_text=body_text, body_html=body_html, context=context)
 
 
-# Shell name → (template path, paragraph style, bare-link style). The dark card wants
-# cream text and gold links; the light body wants slate text and navy links (gold on
-# white fails AA). Keyed by ``EventType.email_shell``.
+# Shell name → (template path, paragraph style, bare-link style). Both shells now
+# sit on a light card (the v1.0.0 white-background rebrand): slate #33424F body text
+# and navy #0d4876 links read on white; cream/gold would be invisible there.
+# Keyed by ``EventType.email_shell``.
 _EMAIL_SHELLS: dict[str, tuple[str, str, str]] = {
     "dark": (
         "membership/emails/notification_shell.html",
-        "margin:0 0 16px;color:#F4EFDD;font-size:15px;line-height:1.6;",
-        "color:#EEB44B;text-decoration:none;font-weight:600;",
+        "margin:0 0 16px;color:#33424F;font-size:15px;line-height:1.6;",
+        "color:#0d4876;text-decoration:underline;font-weight:600;",
     ),
     "light": (
         "membership/emails/notification_shell_light.html",
         "margin:0 0 16px;color:#33424F;font-size:15px;line-height:1.6;",
-        "color:#092E4C;text-decoration:underline;font-weight:600;",
+        "color:#0d4876;text-decoration:underline;font-weight:600;",
     ),
 }
 
@@ -114,9 +115,9 @@ def _style_copy_fragment(fragment: str, *, shell: str = "dark") -> str:
     """Inline-style the unbranded copy fragment so it's readable on its shell's card.
 
     Copy bodies are authored as bare ``<p>`` / ``<a>`` / ``<strong>`` with no color.
-    On the dark ``#092E4C`` card a bare ``<p>`` falls back to near-black text and an
-    ``<a>`` to the client's default link color (color does not inherit into anchors),
-    so the body comes out invisible / unbranded. We inject inline styles — which every
+    On the light card a bare ``<a>`` falls back to the client's default link color
+    (color does not inherit into anchors), so the link comes out unbranded, and a bare
+    ``<p>`` needs its slate color set explicitly. We inject inline styles — which every
     mail client honors, unlike a ``<style>`` block — for exactly the tags the copy uses,
     with the palette picked by ``shell``. Tags the author already styled
     (``<p style=...>``) don't match and are left as-is. Text color is carried by the
@@ -138,22 +139,23 @@ def _style_copy_fragment(fragment: str, *, shell: str = "dark") -> str:
 
 
 # Inline styles for the richer rich-text-editor tag set, keyed by tag. The shell's
-# wrapper <div> carries the cream text color (inherited into <p>/<strong>); these add
+# wrapper <div> carries the slate text color (inherited into <p>/<strong>); these add
 # the margins, sizes, list indentation, and the blockquote rule that mail clients won't
-# supply from a stripped <style> block. Link gold is handled by _style_copy_fragment.
+# supply from a stripped <style> block. Headings and bold take a darker navy for
+# emphasis on the light card; link navy is handled by _style_copy_fragment.
 _RICH_TAG_STYLES = {
-    "h2": "margin:24px 0 12px;color:#F4EFDD;font-size:20px;line-height:1.3;font-weight:700;",
-    "h3": "margin:20px 0 10px;color:#F4EFDD;font-size:17px;line-height:1.35;font-weight:700;",
-    "ul": "margin:0 0 16px;padding-left:24px;color:#F4EFDD;font-size:15px;line-height:1.6;",
-    "ol": "margin:0 0 16px;padding-left:24px;color:#F4EFDD;font-size:15px;line-height:1.6;",
+    "h2": "margin:24px 0 12px;color:#092E4C;font-size:20px;line-height:1.3;font-weight:700;",
+    "h3": "margin:20px 0 10px;color:#092E4C;font-size:17px;line-height:1.35;font-weight:700;",
+    "ul": "margin:0 0 16px;padding-left:24px;color:#33424F;font-size:15px;line-height:1.6;",
+    "ol": "margin:0 0 16px;padding-left:24px;color:#33424F;font-size:15px;line-height:1.6;",
     "li": "margin:0 0 6px;",
-    "blockquote": "margin:0 0 16px;padding:4px 0 4px 16px;border-left:3px solid #EEB44B;color:#F4EFDD;font-style:italic;",
-    "strong": "color:#F4EFDD;font-weight:700;",
+    "blockquote": "margin:0 0 16px;padding:4px 0 4px 16px;border-left:3px solid #0d4876;color:#33424F;font-style:italic;",
+    "strong": "color:#092E4C;font-weight:700;",
 }
 
 
 def style_rich_email_fragment(fragment: str) -> str:
-    """Inline-style the richer editor tag set so a stored body reads well on the dark card.
+    """Inline-style the richer editor tag set so a stored body reads well on the light card.
 
     Extends :func:`_style_copy_fragment` (which styles ``<p>``/``<a>``) to also cover
     ``h2``/``h3``/``ul``/``ol``/``li``/``blockquote``/``strong``. A tag the sanitizer

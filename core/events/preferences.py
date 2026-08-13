@@ -37,10 +37,9 @@ if TYPE_CHECKING:
 def wants(user: User, event_key: str, channel: Channel) -> bool:
     """Return whether ``user`` should receive ``event_key`` on ``channel``.
 
-    FORCED channels always return ``True``; IN_APP always returns ``True`` (when the
-    event declares it). For every other channel, an explicit per-channel
-    :class:`NotificationPreference` row wins; absent one, the event's channel default
-    decides.
+    FORCED channels always return ``True`` (a forced channel is an essential the user can't
+    opt out of). IN_APP is always on, else an explicit per-channel row wins, else the
+    event's channel default decides.
     """
     event = get_event(event_key)
     spec = event.channel(channel)

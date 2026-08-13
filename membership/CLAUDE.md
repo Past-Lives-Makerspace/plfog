@@ -64,6 +64,28 @@ A guild's lead is **only** the `Guild.guild_lead` FK (→ Member). That FK alone
 
 Beyond the single `guild_lead` FK, a guild has `GuildStaffMembership` rows (`role` ∈ co_lead / secretary / treasurer / orienter), managed by leads/staff on the **Staff tab** of the guild edit page. **Every staff role grants the same authority as the lead** — `can_edit_guild`/`can_edit_class`/`can_manage_orientations` all treat staff like the lead, and `editable_by`/`awaiting_guild_lead` include staffed guilds. Lead-facing emails and notifications (class-review requests, orientation requests) fan out to `Guild.leadership_members()` (lead + all staff, deduped). The former orientation-only `Guild.orienters` M2M was folded into the `orienter` staff role (migration `0049`); orienters now get full lead permissions. Use `Member.is_guild_staff` / `Member.staffed_guilds` and `Guild.is_staffed_by` / `staff_by_role` / `leadership_members`.
 
+**Vocabulary (keep it straight in copy and code):** *lead* = the single `Guild.guild_lead` holder; *staff* = a `GuildStaffMembership` role holder; *guild leadership* = lead + staff together (the term the resolvers use). These are **per-guild**. Never call any of them a "Guild Administrator" — "Administrator" is reserved for the five **site-wide** Admin Capabilities (Class / Space & Cubby / Discount Code / Calendar / Billing Administrator). A surface whose audience is lead + staff should say "lead or staff," not "lead" (that undersold who can act and hid a real authorization bug on the orientations dashboard).
+
+## Admin Capabilities
+
+`AdminCapability` grants a member a **scoped admin duty** without promoting them to the full `fog_role=admin` tier. Each capability does two things at once: it **routes** the matching approval/alert notifications to the holder, and it **grants the action** (the holder can actually approve/decline that object type).
+
+| Capability (`AdminCapability.Capability`) | Routes these notifications | Grants this action |
+|---|---|---|
+| `CLASS_APPROVER` (Class Administrator) | `class_review_requested` (lead-less categories), `class_validation_requested` | approve/validate classes |
+| `SPACE_APPROVER` (Space & Cubby Administrator) | `space.lease_requested`, `space.cubby_requested` | review space requests (`hub._map_reviewer_scope` grants admin-level review) |
+| `DISCOUNT_APPROVER` (Discount Code Administrator) | `discount_code.requested` | approve any discount code (`DiscountCode.approver_for` → `approves_any`) |
+| `EVENTS_APPROVER` (Calendar Administrator) | `event.submitted`, `meeting.item_proposed` (site-wide/council) | review calendar proposals (`hub._reviewer_guild_scope` grants admin-level review) |
+| `BILLING_APPROVER` (Billing Administrator) | `billing.charge_failed_admin` | (alert-only — no approve action; the billing dashboard stays `fog_admin`-gated) |
+
+Helpers on `Member`: `has_admin_capability(cap)` (the authorization gate) and `sync_admin_capabilities([...], granted_by=…)` (reconcile-to-set, used by the admin member-edit form). Assign/revoke on the **Details tab** of the hub Member edit page (`MemberAdminEditForm.capabilities`, admin-only, same surface as `can_self_approve_discounts`).
+
+**Routing mechanics (`core/events/resolvers.py`):** a capability resolver (e.g. `class_approvers`) returns ONLY the capability holders, tagged `capability:<name>`. The capability is the master switch: a `fog_role=admin` member who does not hold it receives nothing (and does not see the row on their settings page — see below); they can self-grant it to opt in. The `guild_leadership_or_{class,events}_approvers` resolvers **compose** (guild present → that guild's leadership ONLY; guild absent → the capability holders) — never a union. Migration `0118` backfills every existing admin with every capability so nobody loses a blanket notification on rollout.
+
+**Settings-page grouping (`core/events/settings_matrix.py`):** every staff/leadership/admin event is collected into one **"Staff & leadership"** section (rendered first), out of the member-facing categories. Each row is shown per-recipient: a capability row only to a holder of that capability, a role row only to that role (`_eligible_for`) — so what the page shows equals what the send path delivers. Plain members never see the section; full admins get a "Manage your admin duties" link to their own capability checkboxes.
+
+**Meeting-item proposal decide is NOT capability-gated:** `hub_meeting_proposal_decide` runs through `can_edit_meeting` (full meeting-workspace edit), so an `EVENTS_APPROVER` who isn't also a guild lead/staff/admin is notified but can't act there — left as-is because widening `can_edit_meeting` would over-grant guild-page/class authority.
+
 ## Key QuerySet Methods
 
 - `Member.objects.active()` — status=ACTIVE

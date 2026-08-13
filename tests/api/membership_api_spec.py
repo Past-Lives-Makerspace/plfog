@@ -74,6 +74,15 @@ def describe_MemberViewSet():
             response = admin_client.post(f"/api/v1/members/{admin_member.id}/set-role/", {"role": "supervillain"})
             assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+        def it_rejects_instructor_which_is_a_permission_not_a_role(admin_client, admin_member):
+            # Instructor moved to a Permissions-tab toggle; set-role must not accept it (the old
+            # path also reset fog_role/status, silently demoting an admin/officer).
+            target = MemberFactory(fog_role=Member.FogRole.ADMIN)
+            response = admin_client.post(f"/api/v1/members/{target.id}/set-role/", {"role": "instructor"})
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            target.refresh_from_db()
+            assert target.fog_role == Member.FogRole.ADMIN  # not demoted
+
 
 def describe_GuildViewSet():
     def describe_list():
