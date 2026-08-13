@@ -34,8 +34,17 @@
       <form method="post" class="pl-person-form">
         {% csrf_token %}
         {% for field in form %}
-          {% include "components/form_field.html" with field=field %}
+          {% if field.name != "capabilities" %}
+            {% include "components/form_field.html" with field=field %}
+          {% endif %}
         {% endfor %}
+        {# Admin capabilities: a real multi-checkbox set, rendered explicitly so it is not
+           collapsed into the single-toggle branch of the shared form_field component. #}
+        <div class="pl-person-capabilities">
+          <div class="hub-detail-label">{{ form.capabilities.label }}</div>
+          <div class="hub-text-muted pl-person-capabilities__hint">{{ form.capabilities.help_text }}</div>
+          {{ form.capabilities }}
+        </div>
         <div class="pl-person-actions">
           <button type="submit" class="hub-btn hub-btn--primary">Save member</button>
           <a href="{% url 'hub_admin_members' %}" class="hub-btn hub-btn--ghost" hx-boost="false">Cancel</a>

@@ -73,6 +73,16 @@ class Recipients(str, Enum):
     FOG_ADMINS = "fog_admins"
     GUILD_LEADERSHIP = "guild_leadership"
     GUILD_LEADERSHIP_OR_ADMINS = "guild_leadership_or_admins"
+    # Capability-scoped audiences (§ admin capabilities): the holders of a capability
+    # first, then every other admin as an OPTIONAL opt-in recipient (see
+    # ``core.events.resolvers._capability_recipients``).
+    CLASS_APPROVERS = "class_approvers"
+    GUILD_LEADERSHIP_OR_CLASS_APPROVERS = "guild_leadership_or_class_approvers"
+    SPACE_APPROVERS = "space_approvers"
+    DISCOUNT_APPROVERS = "discount_approvers"
+    EVENTS_APPROVERS = "events_approvers"
+    GUILD_LEADERSHIP_OR_EVENTS_APPROVERS = "guild_leadership_or_events_approvers"
+    BILLING_APPROVERS = "billing_approvers"
     GUILD_LEAD = "guild_lead"
     GUILD_MEMBERS = "guild_members"
     GUILD_ORIENTERS = "guild_orienters"
@@ -204,8 +214,11 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "instructor_class_approved": Recipients.INSTRUCTOR,
     "instructor_changes_requested": Recipients.INSTRUCTOR,
     "instructor_new_registration": Recipients.INSTRUCTOR,
-    "class_review_requested": Recipients.GUILD_LEADERSHIP,
-    "class_validation_requested": Recipients.FOG_ADMINS,
+    # A guild-led class routes to that guild's leadership; a lead-less category (guild
+    # is None in context) routes to the Class Administrators (composition, not union).
+    "class_review_requested": Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS,
+    # The admin validation stage always routes to the Class Administrators.
+    "class_validation_requested": Recipients.CLASS_APPROVERS,
     # Guild activity
     "guild_announcement": Recipients.ALL_ACTIVE_MEMBERS,
     "orientation_requested": Recipients.GUILD_ORIENTERS,
@@ -351,6 +364,8 @@ MEETING_ITEM_PROPOSED = "meeting.item_proposed"
 MEETING_ITEM_DECIDED = "meeting.item_decided"
 MEETING_MINUTES_APPROVED = "meeting.minutes_approved"
 MEETING_COUNCIL_MINUTES_APPROVED = "meeting.council_minutes_approved"
+DISCOUNT_CODE_REQUESTED = "discount_code.requested"  # a new code awaits approval (Discount Admins)
+BILLING_CHARGE_FAILED_ADMIN = "billing.charge_failed_admin"  # a member's tab charge failed (Billing Admins)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -593,7 +608,7 @@ _NEW_EVENTS: list[EventType] = [
         label="Event proposal submitted",
         description="A member proposed a Community Calendar event that needs review.",
         category="Events",
-        recipient=Recipients.GUILD_LEADERSHIP_OR_ADMINS,
+        recipient=Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
@@ -695,7 +710,7 @@ _NEW_EVENTS: list[EventType] = [
         label="Studio lease requested",
         description="A member asked to lease a studio from the space map.",
         category="Spaces",
-        recipient=Recipients.FOG_ADMINS,
+        recipient=Recipients.SPACE_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
     ),
@@ -709,7 +724,7 @@ _NEW_EVENTS: list[EventType] = [
         label="Shelf requested",
         description="A member asked for a shelf from the space map.",
         category="Spaces",
-        recipient=Recipients.FOG_ADMINS,
+        recipient=Recipients.SPACE_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
     ),
@@ -770,7 +785,7 @@ _NEW_EVENTS: list[EventType] = [
         label="Agenda item proposed",
         description="A member proposed an agenda item for an upcoming meeting.",
         category="Meetings",
-        recipient=Recipients.GUILD_LEADERSHIP_OR_ADMINS,
+        recipient=Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
@@ -810,6 +825,33 @@ _NEW_EVENTS: list[EventType] = [
         recipient=Recipients.ALL_GUILD_LEADS,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
         activity_kind="meeting_approved",
+    ),
+    # 32. discount_code.requested — a new discount code was created and awaits approval.
+    #     Routes to the Discount Code Administrators (capability holders get it by default;
+    #     other admins opt in). A per-person admin ping: in-app + email, no Discord. The
+    #     DiscountCode.save creating-branch already logs the CmsActivity, so emit logs none.
+    EventType(
+        key=DISCOUNT_CODE_REQUESTED,
+        label="Discount code needs approval",
+        description="A member created a discount code that needs approval before it can be used.",
+        category="Teaching",
+        recipient=Recipients.DISCOUNT_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 33. billing.charge_failed_admin — a member's monthly tab charge failed. The admin-facing
+    #     half of the failure notice (the member's own ``tab_charge_failed`` bell row is a
+    #     separate emit). Routes to the Billing Administrators (holders by default; other admins
+    #     opt in): in-app + email, no Discord. ``activity_kind`` is None — the member-facing
+    #     ``tab_charge_failed`` emit logs the single TAB_CHARGE_FAILED SiteActivity.
+    EventType(
+        key=BILLING_CHARGE_FAILED_ADMIN,
+        label="Tab charge failed (admin alert)",
+        description="A member's monthly tab charge failed — the admin heads-up to follow up.",
+        category="Billing",
+        recipient=Recipients.BILLING_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
     ),
 ]
 

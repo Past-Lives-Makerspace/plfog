@@ -51,6 +51,7 @@
               <div class="pl-notif-matrix__event" role="rowheader">
                 <div class="pl-notif-matrix__event-label">{{ row.label }}</div>
                 <div class="hub-text-muted pl-notif-matrix__event-desc">{{ row.description }}</div>
+                {% if row.badge %}<div class="pl-notif-matrix__event-badge">{{ row.badge }}</div>{% endif %}
               </div>
               {% for cell in row.cells %}
                 <div class="pl-notif-matrix__cell" role="cell">

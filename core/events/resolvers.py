@@ -31,6 +31,14 @@ if TYPE_CHECKING:
 # A resolved recipient: the User and a short human reason for why they're included.
 Recipient = tuple["User", str]
 
+# The ``reason`` stamped on an admin who is offered a capability-scoped notification but
+# does NOT hold the capability. :func:`core.events.emit.emit` reads this reason and fans
+# such a recipient out as *optional* — no implicit channel default, no always-on in-app
+# bell; they receive a channel ONLY when they've explicitly opted in via a saved
+# ``NotificationPreference`` row. Capability holders carry a ``capability:<name>`` reason
+# instead and get the event's normal channel defaults.
+OPTIONAL_RECIPIENT_REASON = "fog_admin_optional"
+
 
 class ResolverFn(Protocol):
     """A recipient resolver: ``context`` mapping → list of ``(User, reason)``."""
@@ -147,6 +155,95 @@ def guild_leadership_or_admins(context: dict[str, Any]) -> list[Recipient]:
     resolvers exactly as :func:`release_audience` composes its members.
     """
     return _dedupe([*guild_leadership(context), *fog_admins(context)])  # type: ignore[list-item]
+
+
+# --- Capability-scoped resolvers (§ admin capabilities) ----------------------
+
+
+def _capability_recipients(capability: str) -> list[Recipient]:
+    """Holders of ``capability`` FIRST, then every other admin as an OPTIONAL recipient.
+
+    Capability holders are tagged ``capability:<name>`` and receive the event on its
+    normal channel defaults (a holder can act, so they should hear about it by default).
+    Every *other* ``fog_role=ADMIN`` member is appended tagged
+    :data:`OPTIONAL_RECIPIENT_REASON` — offered the notification but only reached on a
+    channel they've explicitly opted into.
+
+    The ordering is load-bearing: holders are concatenated BEFORE the optionals so that
+    :func:`_dedupe` (keep-first-reason) keeps a holder-who-is-also-an-admin as a default
+    recipient (``capability:<name>``), never demoting them to optional.
+    """
+    from membership.models import Member
+
+    holders = list(Member.objects.filter(admin_capabilities__capability=capability).select_related("user").distinct())
+    admins = list(Member.objects.filter(fog_role=Member.FogRole.ADMIN).select_related("user"))
+    holder_recipients = [_member_user(m, f"capability:{capability}") for m in holders]
+    optional_recipients = [_member_user(m, OPTIONAL_RECIPIENT_REASON) for m in admins]
+    return _dedupe([*holder_recipients, *optional_recipients])
+
+
+def class_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """Class Administrators (holders first), then every other admin as optional."""
+    from membership.models import AdminCapability
+
+    return _capability_recipients(AdminCapability.Capability.CLASS_APPROVER)
+
+
+def guild_leadership_or_class_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """COMPOSITION — a guild's leadership when present, else the Class Administrators.
+
+    A guild-led class routes to that guild's lead + staff ONLY (via
+    :func:`guild_leadership`); a lead-less category (``context["guild"]`` is ``None``)
+    routes to :func:`class_approvers`. This is composition, not the union
+    :func:`guild_leadership_or_admins` performs — a guild-led review never also blasts
+    every admin. A missing ``guild`` key still fails loudly (a programming error).
+    """
+    guild: Guild | None = _require(context, "guild")
+    if guild is not None:
+        return guild_leadership(context)
+    return class_approvers(context)
+
+
+def space_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """Space & Cubby Administrators (holders first), then every other admin as optional."""
+    from membership.models import AdminCapability
+
+    return _capability_recipients(AdminCapability.Capability.SPACE_APPROVER)
+
+
+def discount_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """Discount Code Administrators (holders first), then every other admin as optional."""
+    from membership.models import AdminCapability
+
+    return _capability_recipients(AdminCapability.Capability.DISCOUNT_APPROVER)
+
+
+def events_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """Calendar Administrators (holders first), then every other admin as optional."""
+    from membership.models import AdminCapability
+
+    return _capability_recipients(AdminCapability.Capability.EVENTS_APPROVER)
+
+
+def guild_leadership_or_events_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """COMPOSITION — a guild's leadership when present, else the Calendar Administrators.
+
+    The proposal-queue audience for a Community Calendar event or a meeting agenda item:
+    a guild-scoped proposal routes to that guild's lead + staff ONLY; a site-wide/council
+    proposal (``context["guild"]`` is ``None``) routes to :func:`events_approvers`. Same
+    composition shape as :func:`guild_leadership_or_class_approvers`.
+    """
+    guild: Guild | None = _require(context, "guild")
+    if guild is not None:
+        return guild_leadership(context)
+    return events_approvers(context)
+
+
+def billing_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """Billing Administrators (holders first), then every other admin as optional."""
+    from membership.models import AdminCapability
+
+    return _capability_recipients(AdminCapability.Capability.BILLING_APPROVER)
 
 
 def guild_lead(context: dict[str, Any]) -> list[Recipient]:
@@ -471,6 +568,13 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.FOG_ADMINS: fog_admins,
     Recipients.GUILD_LEADERSHIP: guild_leadership,
     Recipients.GUILD_LEADERSHIP_OR_ADMINS: guild_leadership_or_admins,
+    Recipients.CLASS_APPROVERS: class_approvers,
+    Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: guild_leadership_or_class_approvers,
+    Recipients.SPACE_APPROVERS: space_approvers,
+    Recipients.DISCOUNT_APPROVERS: discount_approvers,
+    Recipients.EVENTS_APPROVERS: events_approvers,
+    Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: guild_leadership_or_events_approvers,
+    Recipients.BILLING_APPROVERS: billing_approvers,
     Recipients.GUILD_LEAD: guild_lead,
     Recipients.GUILD_MEMBERS: guild_members,
     Recipients.GUILD_ORIENTERS: guild_orienters,

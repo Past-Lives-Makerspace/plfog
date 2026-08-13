@@ -21,7 +21,7 @@ from billing.webhook_handlers import (
     handle_payment_method_updated,
     handle_setup_intent_succeeded,
 )
-from membership.models import Member
+from membership.models import AdminCapability, Member
 from tests.billing.factories import TabChargeFactory, TabFactory
 from tests.membership.factories import MemberFactory
 
@@ -29,18 +29,20 @@ pytestmark = pytest.mark.django_db
 
 
 def _seed_fog_admin(email: str = "admin@example.com") -> Member:
-    """A Member with the Admin FOG role + a linked, email-bearing User.
+    """A Member with the Admin FOG role + the Billing Administrator capability + a linked User.
 
-    The charge-failure admin email resolves recipients via the FOG_ADMINS resolver
-    (Phase 4 — replacing the old ``BILLING_ADMIN_EMAILS`` static list), so a test
-    asserting the email fires must seed at least one such admin. Signals are muted
-    so creating the User does not auto-create a second colliding Member.
+    The charge-failure admin email now routes via the BILLING_APPROVERS resolver:
+    capability holders get it by default, other admins only if they opt in. The rollout
+    backfill grants every existing admin every capability, so a test asserting the email
+    fires seeds an admin who holds it. Signals are muted so creating the User does not
+    auto-create a second colliding Member.
     """
     member = MemberFactory(_pre_signup_email=email, fog_role=Member.FogRole.ADMIN)
     with mute_signals(post_save):
         user = User.objects.create_user(username=f"admin_{member.pk}", email=email)
     member.user = user
     member.save(update_fields=["user"])
+    member.admin_capabilities.create(capability=AdminCapability.Capability.BILLING_APPROVER)
     return member
 
 

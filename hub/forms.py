@@ -20,6 +20,7 @@ from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichTextEditorWidget
 from membership.markdown import sanitize_page_submission
 from membership.models import (
+    AdminCapability,
     CommunityEvent,
     DiscordGuildEmoji,
     Floorplan,
@@ -548,6 +549,17 @@ class MemberAdminEditForm(forms.ModelForm):
         ),
     )
 
+    capabilities = forms.MultipleChoiceField(
+        choices=AdminCapability.Capability.choices,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="Admin capabilities",
+        help_text=(
+            "Scoped admin duties: each routes the matching approval or alert emails to this member "
+            "and lets them act on that object type, without granting full admin."
+        ),
+    )
+
     class Meta:
         model = Member
         fields = [
@@ -569,6 +581,9 @@ class MemberAdminEditForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
             self.fields["role"].initial = self._derive_initial_role(self.instance)
+            self.fields["capabilities"].initial = list(
+                self.instance.admin_capabilities.values_list("capability", flat=True)
+            )
 
     @staticmethod
     def _derive_initial_role(member: Member) -> str:

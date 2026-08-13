@@ -71,6 +71,32 @@ def describe_wants():
             assert preferences.wants(_user(), "class_reminder", Channel.DISCORD) is False
 
 
+def describe_optional_recipient():
+    # class_validation_requested declares: in_app on, email on (email_default), push off.
+    def it_receives_nothing_without_an_explicit_row():
+        user = _user()
+        assert preferences.wants(user, "class_validation_requested", Channel.IN_APP, is_optional=True) is False
+        assert preferences.wants(user, "class_validation_requested", Channel.EMAIL, is_optional=True) is False
+        assert preferences.enabled_channels(user, "class_validation_requested", is_optional=True) == []
+
+    def it_ignores_the_in_app_always_on_shortcut_when_optional():
+        user = _user()
+        # Non-optional: in-app is always on. Optional: in-app needs an explicit opt-in row.
+        assert preferences.wants(user, "class_validation_requested", Channel.IN_APP, is_optional=False) is True
+        assert preferences.wants(user, "class_validation_requested", Channel.IN_APP, is_optional=True) is False
+
+    def it_fires_only_an_explicitly_enabled_channel():
+        user = _user()
+        _pref(user, "class_validation_requested", Channel.EMAIL, True)
+        assert preferences.wants(user, "class_validation_requested", Channel.EMAIL, is_optional=True) is True
+        assert preferences.enabled_channels(user, "class_validation_requested", is_optional=True) == [Channel.EMAIL]
+
+    def it_still_forces_a_forced_channel_even_when_optional():
+        user = _user()
+        # member.invited forces email — forced beats the optional gate.
+        assert preferences.wants(user, "member.invited", Channel.EMAIL, is_optional=True) is True
+
+
 def describe_enabled_channels():
     def it_lists_in_app_only_by_default():
         # class_reminder: in_app on, email off, push off, no discord → only in_app.

@@ -72,42 +72,52 @@ def send_receipt(charge: TabCharge) -> None:
 
 
 def notify_admin_charge_failed(charge: TabCharge) -> None:
-    """Notify admins (email) and the member (in-app) when a charge fails.
+    """Notify the member (in-app) and the Billing Administrators (email + in-app) on a failure.
 
-    Emits one ``tab_charge_failed`` event covering both audiences: the admin email
-    (preserved shell) goes via ``email_to`` to the FOG_ADMINS-resolved addresses —
-    the Phase-4 consistency change that collapses the old ``BILLING_ADMIN_EMAILS``
-    static list into the role×scope resolver layer — while the resolver's in-app row
-    goes to the member's linked user (the member's own ``tab_charge_failed`` email is
-    opt-in/default-off, so they keep getting only the bell row as before). One emit
-    logs exactly one ``tab_charge_failed`` activity row and eliminates the prior
-    un-suppressed ``dispatch`` double-send.
+    Two events on the spine:
+
+    * ``tab_charge_failed`` (member-facing) writes the member's bell row — their own
+      charge-failed email is opt-in/default-off — and logs the single TAB_CHARGE_FAILED
+      SiteActivity.
+    * ``billing.charge_failed_admin`` (admin-facing) carries the preserved admin email
+      shell to the Billing Administrators via the BILLING_APPROVERS resolver (capability
+      holders by default; other admins only if they opt in), replacing the old static
+      all-admin ``email_to`` blast. It logs no activity, so exactly one activity row is
+      written across the pair.
     """
-    from core.events import resolvers
-    from core.events.registry import Recipients
+    from core.events.emit import emit
     from core.events.senders import emit_with_email_shell
 
     member = charge.tab.member
+
+    emit(
+        "tab_charge_failed",
+        actor=member.user,
+        target=charge,
+        context={"member": member},
+        title="Tab charge failed",
+        body="A charge to your tab failed — please update your payment method.",
+        url="/tab/",
+        period=f"charge:{charge.pk}",
+    )
+
     template_context = {
         "member": member,
         "charge": charge,
         "dashboard_url": _member_url(reverse("billing_admin_dashboard")),
     }
-
-    admin_emails = [user.email for user, _ in resolvers.resolve(Recipients.FOG_ADMINS, {})]
-
     emit_with_email_shell(
-        "tab_charge_failed",
+        "billing.charge_failed_admin",
         actor=member.user,
         target=charge,
-        context={"member": member},
+        context={},
         subject=f"[Billing] Failed charge for {member.display_name} — ${charge.amount}",
         text_template="billing/email/charge_failed_admin.txt",
         html_template="billing/email/charge_failed_admin.html",
         template_context=template_context,
         in_app_title="Tab charge failed",
-        in_app_body="A charge to your tab failed — please update your payment method.",
+        in_app_body=f"A tab charge for {member.display_name} failed — follow up in the billing dashboard.",
         url="/tab/",
-        email_to=admin_emails,
-        period=f"charge:{charge.pk}",
+        email_trigger_kind="tab_charge_failed",
+        period=f"charge:{charge.pk}:admin",
     )

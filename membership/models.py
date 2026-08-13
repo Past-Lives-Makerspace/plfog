@@ -868,6 +868,31 @@ class Member(models.Model):
         """True when fog_role is guild_officer (admin access without site settings)."""
         return self.fog_role == self.FogRole.GUILD_OFFICER
 
+    def has_admin_capability(self, capability: str) -> bool:
+        """True when this member holds the given :class:`AdminCapability` grant.
+
+        A capability is a scoped admin authority (approve classes, spaces, discount
+        codes, calendar proposals, or billing alerts) that both routes the matching
+        notifications to the holder and lets them act on that object type — decoupling
+        those duties from the all-or-nothing ``fog_role == admin`` tier.
+        """
+        return self.admin_capabilities.filter(capability=capability).exists()
+
+    def sync_admin_capabilities(self, capabilities: list[str], *, granted_by: "User | None" = None) -> None:
+        """Reconcile this member's admin capabilities to exactly ``capabilities``.
+
+        Grants each newly-checked capability (recording ``granted_by`` for audit) and
+        revokes each unchecked one, leaving unchanged grants untouched. Idempotent — the
+        admin member-edit form calls it with the posted checkbox set on every save.
+        """
+        desired = set(capabilities)
+        current = set(self.admin_capabilities.values_list("capability", flat=True))
+        to_remove = current - desired
+        if to_remove:
+            self.admin_capabilities.filter(capability__in=to_remove).delete()
+        for capability in desired - current:
+            self.admin_capabilities.create(capability=capability, granted_by=granted_by)
+
     def can_edit_guild(self, guild: Guild) -> bool:
         """True when this member may edit the given guild.
 
@@ -1901,6 +1926,59 @@ class GuildStaffMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member.display_name} — {self.display_title} of {self.guild.name}"
+
+
+class AdminCapability(models.Model):
+    """A scoped admin authority granted to a member, beyond the ``fog_role`` tier.
+
+    Each capability both *routes* the matching approval/alert notifications to the
+    holder (so the right people hear about a class awaiting review, a space request, a
+    discount code, a calendar proposal, or a failed charge) and *grants the action* —
+    a holder can approve or decline that object type. This lets the makerspace hand out
+    a single duty (e.g. "you review classes") without promoting someone to full admin.
+    Members with the Admin ``fog_role`` are additionally offered these notifications as
+    optional opt-ins (see :func:`core.events.resolvers._capability_recipients`).
+    """
+
+    class Capability(models.TextChoices):
+        CLASS_APPROVER = "class_approver", "Class Administrator"
+        SPACE_APPROVER = "space_approver", "Space & Cubby Administrator"
+        DISCOUNT_APPROVER = "discount_approver", "Discount Code Administrator"
+        EVENTS_APPROVER = "events_approver", "Calendar Administrator"
+        BILLING_APPROVER = "billing_approver", "Billing Administrator"
+
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="admin_capabilities",
+        help_text="The member granted this capability.",
+    )
+    capability = models.CharField(
+        max_length=30,
+        choices=Capability.choices,
+        help_text="Which scoped admin authority this grant confers.",
+    )
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who granted this capability (audit; nulled if they're deleted).",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this capability was granted.")
+
+    class Meta:
+        ordering = ["member__full_legal_name", "capability"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["member", "capability"],
+                name="uq_admincapability_member_capability",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name} — {self.get_capability_display()}"
 
 
 class GuildImage(models.Model):

@@ -47,6 +47,28 @@
     flex-wrap: wrap;
     margin-top: 0.5rem;
 }
+.pl-person-capabilities {
+    max-width: 680px;
+    margin: 1rem 0 0;
+}
+.pl-person-capabilities__hint {
+    font-size: 0.8rem;
+    margin: 0.15rem 0 0.5rem;
+}
+.pl-person-capabilities ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+.pl-person-capabilities li label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
 .pl-person-email-line {
     max-width: 680px;
     margin: 1.25rem 0 0;

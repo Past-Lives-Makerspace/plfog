@@ -46,6 +46,8 @@ _BRAND_NEW_KEYS = {
     "meeting.item_decided",
     "meeting.minutes_approved",
     "meeting.council_minutes_approved",
+    "discount_code.requested",
+    "billing.charge_failed_admin",
 }
 
 
@@ -138,8 +140,11 @@ def describe_event_registry():
             for event in registry.EVENTS:
                 assert isinstance(event.recipient, Recipients)
 
-        def it_routes_class_review_to_guild_leadership():
-            assert get_event("class_review_requested").recipient is Recipients.GUILD_LEADERSHIP
+        def it_routes_class_review_to_guild_leadership_or_class_approvers():
+            assert get_event("class_review_requested").recipient is Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS
+
+        def it_routes_class_validation_to_class_approvers():
+            assert get_event("class_validation_requested").recipient is Recipients.CLASS_APPROVERS
 
         def it_routes_orientation_requested_to_orienters():
             assert get_event("orientation_requested").recipient is Recipients.GUILD_ORIENTERS

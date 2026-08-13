@@ -191,7 +191,12 @@ def emit(
     delivered: list[tuple[int, Channel]] = []
     skipped_duplicates: list[tuple[int, Channel]] = []
     suppress_user_email = bool(explicit_emails) or suppress_email
-    for user, _reason in recipients:
+    for user, reason in recipients:
+        # A capability-scoped resolver tags a non-holder admin with OPTIONAL_RECIPIENT_REASON:
+        # they were offered the event but only receive a channel they've explicitly opted into
+        # (no implicit default, no always-on bell). Holders (and every other resolver's reason)
+        # get the event's normal channel defaults.
+        is_optional = reason == resolvers.OPTIONAL_RECIPIENT_REASON
         # Per-announcement EMAIL subset: drop ONLY this user's email when a selection is given
         # and they're not in it. The in-app bell + push still fan out to everyone below (only
         # ``suppress_email`` for the EMAIL channel is flipped), and the per-user preference gate
@@ -208,6 +213,7 @@ def emit(
             period=period,
             suppress_email=user_suppress_email,
             override_preferences=override_preferences,
+            is_optional=is_optional,
             delivered=delivered,
             skipped_duplicates=skipped_duplicates,
         )
@@ -360,6 +366,7 @@ def _per_recipient_fan_out(
     period: str,
     suppress_email: bool,
     override_preferences: bool,
+    is_optional: bool = False,
     delivered: list[tuple[int, Channel]],
     skipped_duplicates: list[tuple[int, Channel]],
 ) -> None:
@@ -368,13 +375,18 @@ def _per_recipient_fan_out(
     Each (event, user, channel) delivery is claimed once on the :class:`core.models.EventDelivery` ledger so a re-emit does not double-send. When
     ``suppress_email`` is set the EMAIL channel is skipped here (the email goes to an
     explicit ``email_to`` address instead — see :func:`_explicit_email_fan_out`).
+
+    ``is_optional`` marks a capability-scoped non-holder admin: it's threaded into
+    :func:`core.events.preferences.enabled_channels` so they receive only channels they've
+    explicitly opted into (no defaults, no always-on bell). ``override_preferences`` still
+    wins — it delivers every declared channel regardless.
     """
     from core.events.registry import get_event
 
     channels = (
         [spec.channel for spec in get_event(event_key).channels]
         if override_preferences
-        else preferences.enabled_channels(user, event_key)
+        else preferences.enabled_channels(user, event_key, is_optional=is_optional)
     )
     for channel in channels:
         if channel is Channel.EMAIL and suppress_email:

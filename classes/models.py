@@ -1698,6 +1698,18 @@ class DiscountCode(models.Model):
                 actor=self.created_by,
                 payload={"code": self.code, "auto_apply": self.auto_apply},
             )
+            from core.events.emit import emit
+
+            emit(
+                "discount_code.requested",
+                actor=self.created_by,
+                target=self,
+                context={},
+                title="A discount code needs approval",
+                body=f"The discount code {self.code} was created and needs approval before it can be used.",
+                url="/classes/admin/discount-codes/",
+                period=f"discount:{self.pk}:requested",
+            )
 
     def apply_to(self, price_cents: int) -> int:
         if self.discount_pct is not None:
@@ -1735,10 +1747,16 @@ class DiscountCode(models.Model):
         """
         if user is None or not getattr(user, "is_authenticated", False):
             return DiscountApprover(user_pk=None, approves_any=False, self_approves=False)
-        from membership.models import Member
+        from membership.models import AdminCapability, Member
 
         member = Member.objects.filter(user_id=cast("int | str", user.pk), status=Member.Status.ACTIVE).first()
-        approves_any = bool(getattr(user, "is_superuser", False) or (member is not None and member.is_fog_admin))
+        approves_any = bool(
+            getattr(user, "is_superuser", False)
+            or (
+                member is not None
+                and (member.is_fog_admin or member.has_admin_capability(AdminCapability.Capability.DISCOUNT_APPROVER))
+            )
+        )
         self_approves = member is not None and member.can_self_approve_discounts
         return DiscountApprover(user_pk=user.pk, approves_any=approves_any, self_approves=self_approves)
 

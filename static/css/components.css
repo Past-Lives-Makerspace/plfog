@@ -313,6 +313,17 @@
     margin-top: 0.1rem;
 }
 
+.pl-notif-matrix__event-badge {
+    display: inline-block;
+    margin-top: 0.3rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--hub-accent, #EEB44B);
+    background: rgba(238, 180, 75, 0.14);
+}
+
 .pl-notif-matrix__cell {
     display: flex;
     align-items: center;

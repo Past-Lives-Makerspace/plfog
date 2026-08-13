@@ -58,6 +58,7 @@ from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
 from membership.vote_calculator import compute_live_standings, compute_new_votes_since
 from membership.models import (
+    AdminCapability,
     FundingSnapshot,
     Guild,
     HelpCategory,
@@ -3326,10 +3327,13 @@ class _ReviewScope:
 
 
 def _reviewer_guild_scope(request: HttpRequest) -> _ReviewScope:
-    """The requester's event-review authority (admin / lead-scoped / none)."""
+    """The requester's event-review authority (admin / capability / lead-scoped / none)."""
     if _viewing_as_admin(request):
         return _ReviewScope(can_review=True, is_admin=True)
     member = _get_member(request)
+    if member is not None and member.has_admin_capability(AdminCapability.Capability.EVENTS_APPROVER):
+        # A Calendar Administrator reviews every calendar proposal site-wide, like an admin.
+        return _ReviewScope(can_review=True, is_admin=True)
     if member is not None and member.staffed_guilds.exists():
         return _ReviewScope(can_review=True, guilds=member.staffed_guilds)
     return _ReviewScope(can_review=False)
@@ -4457,6 +4461,7 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             obj = form.save(commit=False)
             obj.save()
             obj.apply_admin_role(form.cleaned_data["role"])
+            obj.sync_admin_capabilities(form.cleaned_data["capabilities"], granted_by=request.user)
             display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
             messages.success(request, f"Saved {display}.")
             return redirect("hub_admin_members")
@@ -5421,10 +5426,13 @@ class _MapReviewScope:
 
 
 def _map_reviewer_scope(request: HttpRequest) -> _MapReviewScope:
-    """The requester's space-request review authority (admin / lead-scoped / none)."""
+    """The requester's space-request review authority (admin / capability / lead-scoped / none)."""
     if _viewing_as_admin(request):
         return _MapReviewScope(can_review=True, is_admin=True)
     member = _get_member(request) if request.user.is_authenticated else None
+    if member is not None and member.has_admin_capability(AdminCapability.Capability.SPACE_APPROVER):
+        # A Space & Cubby Administrator reviews every space request site-wide, like an admin.
+        return _MapReviewScope(can_review=True, is_admin=True)
     if member is not None and member.staffed_guilds.exists():
         return _MapReviewScope(can_review=True, guilds=member.staffed_guilds)
     return _MapReviewScope(can_review=False)

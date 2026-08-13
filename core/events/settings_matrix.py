@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from core.events import preferences
-from core.events.registry import Channel, EventType, all_events
+from core.events.registry import Channel, EventType, Recipients, all_events
 from core.models import NotificationPreference
 
 if TYPE_CHECKING:
@@ -91,16 +91,23 @@ class Cell:
     present: bool
     available: bool = True
     hint: str = ""
+    badge: str = ""
 
 
 @dataclass(frozen=True)
 class Row:
-    """One event row in the matrix: its label/description + a cell per user channel."""
+    """One event row in the matrix: its label/description + a cell per user channel.
+
+    ``badge`` is a short note explaining a non-obvious reason the user receives this
+    event — set when they're a default recipient via an admin capability (e.g. "You get
+    this as a Class Administrator") rather than by a plain opt-in.
+    """
 
     event_key: str
     label: str
     description: str
     cells: list[Cell]
+    badge: str = ""
 
 
 def field_name(event_key: str, channel: Channel) -> str:
@@ -167,12 +174,49 @@ def visible_channels(user: User) -> list[Channel]:
     return [channel for channel in USER_CHANNELS if any(event.channel(channel) is not None for event in events)]
 
 
+# Each capability-scoped recipient maps to the capability whose holders receive the
+# event by default; a member holding it gets a "You get this as a …" badge on the row.
+_CAPABILITY_BY_RECIPIENT: dict[Recipients, str] = {
+    Recipients.CLASS_APPROVERS: "class_approver",
+    Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: "class_approver",
+    Recipients.SPACE_APPROVERS: "space_approver",
+    Recipients.DISCOUNT_APPROVERS: "discount_approver",
+    Recipients.EVENTS_APPROVERS: "events_approver",
+    Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: "events_approver",
+    Recipients.BILLING_APPROVERS: "billing_approver",
+}
+
+
+def _capability_badges(user: User, events: list[EventType]) -> dict[str, str]:
+    """Map each visible event the user receives via a held capability to its row badge.
+
+    One bounded query for the member's capabilities (not a resolver call per row): a row
+    is badged only when the event routes to a capability the member actually holds.
+    """
+    from membership.models import AdminCapability, Member
+
+    member = Member.objects.filter(user=user).only("id").first()
+    if member is None:
+        return {}
+    held = set(member.admin_capabilities.values_list("capability", flat=True))
+    if not held:
+        return {}
+    labels = {choice.value: choice.label for choice in AdminCapability.Capability}
+    badges: dict[str, str] = {}
+    for event in events:
+        capability = _CAPABILITY_BY_RECIPIENT.get(event.recipient)
+        if capability is not None and capability in held:
+            badges[event.key] = f"You get this as a {labels[capability]}"
+    return badges
+
+
 def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
     """Assemble the matrix for ``user`` — a list of ``(category, [Row, ...])``.
 
     For each visible event, one :class:`Row` with a :class:`Cell` per user channel:
     forced cells locked-on, opt-out-able cells reflecting the saved preference (or the
-    event's channel default). Categories are returned in :data:`CATEGORY_ORDER`.
+    event's channel default). A row the user receives via an admin capability carries a
+    badge. Categories are returned in :data:`CATEGORY_ORDER`.
     """
     events = _visible_events(user)
     channels = visible_channels(user)
@@ -180,6 +224,7 @@ def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
     # query) rather than re-deriving it for every cell.
     discord_linked = _member_discord_linked(user)
     availability = {channel: channel_availability(user, channel, discord_linked=discord_linked) for channel in channels}
+    capability_badges = _capability_badges(user, events)
     by_category: dict[str, list[Row]] = {}
     for event in events:
         cells: list[Cell] = []
@@ -204,7 +249,13 @@ def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
                     hint=hint,
                 )
             )
-        row = Row(event_key=event.key, label=event.label, description=event.description, cells=cells)
+        row = Row(
+            event_key=event.key,
+            label=event.label,
+            description=event.description,
+            cells=cells,
+            badge=capability_badges.get(event.key, ""),
+        )
         by_category.setdefault(event.category, []).append(row)
     return [(category, by_category[category]) for category in _ordered_categories(set(by_category))]
 

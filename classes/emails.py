@@ -382,18 +382,19 @@ def send_guild_lead_review_request(offering: "ClassOffering", approval: "ClassAp
 
 
 def send_admin_review_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
-    """Stage one for lead-less categories: email admins the review request.
+    """Stage one for lead-less categories: notify the Class Administrators.
 
-    Used when a category has no guild lead, so the Admin gate is stage one. The review
-    email goes to the ``_admin_recipients()`` set (byte-identical to today) with no in-app
-    row (the admin branch was email-only — the ``None`` guild yields no leadership bell
-    row); the instructor still gets the explainer.
+    Used when a category has no guild lead, so the Class Administrator gate is stage one.
+    The review email + in-app row ride the ``class_review_requested`` resolver — with a
+    ``None`` guild it composes to the Class Administrators (capability holders by default;
+    other admins only if they've opted in) instead of blasting a static admin address list.
+    The instructor still gets the explainer.
     """
     instructor_name = offering.instructor.display_name if offering.instructor is not None else "An instructor"
     _emit_review_request(
         offering,
         approval,
-        recipients=_admin_recipients(),
+        recipients=[],
         role_label="Admin",
         guild=None,
         instructor_name=instructor_name,
@@ -406,14 +407,14 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
 
     Fired from ``ClassOffering._escalate_to_admin`` when a Guild Lead approves and the
     Admin gate opens. One ``class_validation_requested`` event: the structural
-    ``admin_validation_request.{txt,html}`` shell is preserved as the email (to the
-    same admin recipients as before — ``_admin_recipients()``), and the in-app row
-    resolves to the FOG_ADMINS audience. ``class_validation_requested`` logs no
-    SiteActivity, so the emit introduces no activity-row duplication.
+    ``admin_validation_request.{txt,html}`` shell is preserved as the email, and both the
+    email and in-app row ride the CLASS_APPROVERS resolver — the Class Administrators get
+    it by default and other admins only if they've opted in, replacing the static
+    ``_admin_recipients()`` blast. ``class_validation_requested`` logs no SiteActivity, so
+    the emit introduces no activity-row duplication.
     """
     from core.events.senders import emit_with_email_shell
 
-    recipients = _admin_recipients()
     review_url = _absolute_url(reverse("classes:class_review", kwargs={"token": approval.token}))
     guild = offering.category.guild if offering.category_id else None
     lead = guild.guild_lead if guild else None
@@ -437,7 +438,6 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
         in_app_title="A class needs executive validation",
         in_app_body=f"{lead_name} and {instructor_name} request executive validation to publish this class.",
         url="/classes/admin/",
-        email_to=recipients,
         period=f"approval:{approval.pk}:validation",
     )
 

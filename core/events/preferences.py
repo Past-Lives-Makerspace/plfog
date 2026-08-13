@@ -34,13 +34,23 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
 
-def wants(user: User, event_key: str, channel: Channel) -> bool:
+def wants(user: User, event_key: str, channel: Channel, *, is_optional: bool = False) -> bool:
     """Return whether ``user`` should receive ``event_key`` on ``channel``.
 
-    FORCED channels always return ``True``; IN_APP always returns ``True`` (when the
-    event declares it). For every other channel, an explicit per-channel
-    :class:`NotificationPreference` row wins; absent one, the event's channel default
-    decides.
+    FORCED channels always return ``True`` (even for an optional recipient — a forced
+    channel is an essential the user can't opt out of).
+
+    ``is_optional`` marks a recipient who was *offered* the event but does not hold the
+    capability that owns it (a plain admin on a capability-scoped send — see
+    :data:`core.events.resolvers.OPTIONAL_RECIPIENT_REASON`). For such a recipient there
+    is NO implicit channel default and NO always-on IN_APP shortcut: the ONLY way a
+    channel fires is an explicit :class:`NotificationPreference` row with ``enabled=True``.
+    So an optional recipient with no saved preference receives the event on nothing — the
+    bell included.
+
+    For a normal recipient (``is_optional=False`` — every existing caller) the behavior is
+    unchanged: IN_APP is always on, else an explicit per-channel row wins, else the event's
+    channel default decides.
     """
     event = get_event(event_key)
     spec = event.channel(channel)
@@ -49,6 +59,15 @@ def wants(user: User, event_key: str, channel: Channel) -> bool:
         return False
     if spec.is_forced:
         return True
+    if is_optional:
+        # Optional recipient: no default, no always-on in-app — an explicit opt-in row is
+        # the only path to a channel firing.
+        pref = (
+            NotificationPreference.objects.filter(user=user, event_key=event_key, channel=channel.value)
+            .only("enabled")
+            .first()
+        )
+        return pref is not None and pref.enabled
     if channel is Channel.IN_APP:
         # In-app is always delivered (the bell row is non-optional).
         return True
@@ -64,7 +83,11 @@ def wants(user: User, event_key: str, channel: Channel) -> bool:
     return pref.enabled
 
 
-def enabled_channels(user: User, event_key: str) -> list[Channel]:
-    """All channels ``user`` should receive ``event_key`` on, in declared order."""
+def enabled_channels(user: User, event_key: str, *, is_optional: bool = False) -> list[Channel]:
+    """All channels ``user`` should receive ``event_key`` on, in declared order.
+
+    ``is_optional`` is threaded through to :func:`wants` — an optional recipient with no
+    saved preferences resolves to an empty list (nothing fires, in-app included).
+    """
     event = get_event(event_key)
-    return [spec.channel for spec in event.channels if wants(user, event_key, spec.channel)]
+    return [spec.channel for spec in event.channels if wants(user, event_key, spec.channel, is_optional=is_optional)]

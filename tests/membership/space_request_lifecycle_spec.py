@@ -13,7 +13,7 @@ from django.db.models import ProtectedError
 from django.utils import timezone
 
 from core.models import EventDelivery, SiteActivity
-from membership.models import InvalidSpaceRequestTransition, Lease, Member, Space, SpaceRequest
+from membership.models import AdminCapability, InvalidSpaceRequestTransition, Lease, Member, Space, SpaceRequest
 from tests.membership.factories import (
     GuildFactory,
     MapHotspotFactory,
@@ -45,6 +45,9 @@ def _admin(username: str = "admin") -> Member:
     member = _member_with_user(username)
     member.fog_role = Member.FogRole.ADMIN
     member.save()
+    # Space requests route to Space & Cubby Administrators; the rollout backfill grants
+    # every existing admin every capability, so a test admin stands in for one that holds it.
+    member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_APPROVER)
     return member
 
 
