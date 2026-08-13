@@ -35,17 +35,6 @@
   {# ── Details tab ────────────────────────────────────────────────────── #}
   <div x-show="section === 'details'">
     {% if is_member %}
-      <form method="post" class="pl-person-form">
-        {% csrf_token %}
-        {% for field in form %}
-          {% include "components/form_field.html" with field=field %}
-        {% endfor %}
-        <div class="pl-person-actions">
-          <button type="submit" class="hub-btn hub-btn--primary">Save member</button>
-          <a href="{% url 'hub_admin_members' %}" class="hub-btn hub-btn--ghost" hx-boost="false">Cancel</a>
-        </div>
-      </form>
-
       <p class="pl-person-email-line">
         <span class="hub-text-muted">Email:</span> {{ primary_email|default:"—" }}
         — <a href="#" @click.prevent="section = 'emails'">manage in Emails tab →</a>
@@ -60,6 +49,17 @@
         <p class="hub-text-muted pl-person-invite__hint">Emails them a link to sign in for the first time.</p>
       </div>
       {% endif %}
+
+      <form method="post" class="pl-person-form">
+        {% csrf_token %}
+        {% for field in form %}
+          {% include "components/form_field.html" with field=field %}
+        {% endfor %}
+        <div class="pl-person-actions">
+          <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+          <a href="{% url 'hub_admin_members' %}" class="hub-btn hub-btn--ghost" hx-boost="false">Cancel</a>
+        </div>
+      </form>
     {% else %}
       {# Non-member user mode — read-only identity. #}
       <div class="pl-person-identity">
@@ -81,30 +81,14 @@
   {# ── Permissions tab ────────────────────────────────────────────────── #}
   {% if is_member %}
   <div x-show="section === 'permissions'" x-cloak>
-    <form method="post" class="pl-person-form">
-      {% csrf_token %}
-      <input type="hidden" name="form_id" value="capabilities">
-      <h2 class="hub-detail-label">Admin capabilities</h2>
-      <p class="hub-text-muted pl-permissions-hint">
-        Site-wide duties. Each one both sends this member the matching approval or alert emails and
-        lets them act on it, without granting full admin. Per-guild lead and staff roles are managed
-        on each guild's own Staff tab, not here.
-      </p>
-      {% for field in capabilities_form %}
-        {% include "components/toggle.html" with field=field toggle_label=field.label toggle_description=field.help_text %}
-      {% endfor %}
-      <div class="pl-person-actions">
-        <button type="submit" class="hub-btn hub-btn--primary">Save capabilities</button>
-      </div>
-    </form>
-
     {% comment %}
-    Instructor: an immediate-effect permission (not batch-saved with the capabilities form).
-    Turning it on grants a public instructor page AND teaching access; turning it off removes
-    both, so the off-flip opens a confirm before the revoke POST.
+    Instructor first (an immediate-effect permission, no Save button): turning it on grants a
+    public instructor page AND teaching access; turning it off removes both, so the off-flip
+    opens a confirm before the revoke POST. The batch-saved capabilities form comes LAST so its
+    Save button is at the very bottom with nothing beneath it (FRONTEND.md Rule 20).
     {% endcomment %}
     {% url 'hub_admin_member_teaching' member.pk as instructor_url %}
-    <h2 class="hub-detail-label pl-permissions-section">Instructor</h2>
+    <h2 class="hub-detail-label">Instructor</h2>
     <div class="pl-toggle-row">
       <div class="pl-toggle-info">
         <div class="pl-toggle-label">Instructor</div>
@@ -122,6 +106,23 @@
       <input type="hidden" name="action" value="grant">
     </form>
     {% include "components/confirm_modal.html" with confirm_id="revoke-instructor" confirm_title="Remove instructor access?" confirm_message=person_name|add:" will lose their public instructor page and can no longer create new classes. Their existing classes and registrations are not affected." confirm_action_url=instructor_url confirm_field_name="action" confirm_field_value="revoke" confirm_button_text="Remove access" %}
+
+    <form method="post" class="pl-person-form">
+      {% csrf_token %}
+      <input type="hidden" name="form_id" value="capabilities">
+      <h2 class="hub-detail-label pl-permissions-section">Admin capabilities</h2>
+      <p class="hub-text-muted pl-permissions-hint">
+        Site-wide duties. Each one both sends this member the matching approval or alert emails and
+        lets them act on it, without granting full admin. Per-guild lead and staff roles are managed
+        on each guild's own Staff tab, not here.
+      </p>
+      {% for field in capabilities_form %}
+        {% include "components/toggle.html" with field=field toggle_label=field.label toggle_description=field.help_text %}
+      {% endfor %}
+      <div class="pl-person-actions">
+        <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+      </div>
+    </form>
   </div>
   {% endif %}
 

@@ -169,7 +169,9 @@
 .pl-email-add {
     display: flex;
     gap: 0.75rem;
-    align-items: flex-start;
+    /* Align the Add button with the input, not the label above it — the field's
+       bottom is the input's bottom once form_field's margin is trimmed below. */
+    align-items: flex-end;
     flex-wrap: wrap;
     max-width: 680px;
 }

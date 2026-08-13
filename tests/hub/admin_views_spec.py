@@ -568,7 +568,7 @@ def describe_admin_member_edit():
         target = _create_member_user(username="target3")
         response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
         assert response.status_code == 200
-        assert b"Save member" in response.content
+        assert b">Save</button>" in response.content  # the Details form's save button
 
     def it_saves_changes_and_redirects(client):
         _create_superuser(client)
@@ -1300,7 +1300,7 @@ def describe_admin_user_edit():
         assert "Non-member user" in content
         assert "ue3@x.com" in content
         assert response.context["is_member"] is False
-        assert "Save member" not in content
+        assert ">Save</button>" not in content  # no member-edit save form in non-member mode
 
     def it_redirects_to_member_edit_when_the_user_has_a_member(client):
         _create_superuser(client)
