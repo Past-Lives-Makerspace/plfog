@@ -167,7 +167,7 @@ def _capability_recipients(capability: str) -> list[Recipient]:
 
 
 def class_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """Class Administrators (holders first), then every other admin as optional."""
+    """Class Administrators — holders only; a plain admin gets nothing until granted."""
     from membership.models import AdminCapability
 
     return _capability_recipients(AdminCapability.Capability.CLASS_APPROVER)
@@ -189,21 +189,21 @@ def guild_leadership_or_class_approvers(context: dict[str, Any]) -> list[Recipie
 
 
 def space_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """Space & Cubby Administrators (holders first), then every other admin as optional."""
+    """Space & Cubby Administrators — holders only; a plain admin gets nothing until granted."""
     from membership.models import AdminCapability
 
     return _capability_recipients(AdminCapability.Capability.SPACE_APPROVER)
 
 
 def discount_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """Discount Code Administrators (holders first), then every other admin as optional."""
+    """Discount Code Administrators — holders only; a plain admin gets nothing until granted."""
     from membership.models import AdminCapability
 
     return _capability_recipients(AdminCapability.Capability.DISCOUNT_APPROVER)
 
 
 def events_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """Calendar Administrators (holders first), then every other admin as optional."""
+    """Calendar Administrators — holders only; a plain admin gets nothing until granted."""
     from membership.models import AdminCapability
 
     return _capability_recipients(AdminCapability.Capability.EVENTS_APPROVER)
@@ -224,7 +224,7 @@ def guild_leadership_or_events_approvers(context: dict[str, Any]) -> list[Recipi
 
 
 def billing_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """Billing Administrators (holders first), then every other admin as optional."""
+    """Billing Administrators — holders only; a plain admin gets nothing until granted."""
     from membership.models import AdminCapability
 
     return _capability_recipients(AdminCapability.Capability.BILLING_APPROVER)

@@ -129,3 +129,16 @@ def describe_staff_section():
             GuildFactory(guild_lead=Member.objects.get(user=user))
             assert _section_of(user, COMPOSITE_EVENT) == settings_matrix.STAFF_SECTION
             assert _section_of(user, CAP_EVENT) is None
+
+    def describe_a_guild_officer():
+        # voting.officers_closing_soon routes to ALL_GUILD_LEADS, whose resolver filters to
+        # active members — so the row must track Member.status, not just the role.
+        ALL_LEADS_EVENT = "voting.officers_closing_soon"
+
+        def it_shows_all_guild_leads_rows_to_an_active_officer(db):
+            user = _member_user("officer1", fog_role=Member.FogRole.GUILD_OFFICER)
+            assert _section_of(user, ALL_LEADS_EVENT) == settings_matrix.STAFF_SECTION
+
+        def it_hides_all_guild_leads_rows_from_a_former_officer(db):
+            user = _member_user("officer2", fog_role=Member.FogRole.GUILD_OFFICER, status=Member.Status.FORMER)
+            assert _section_of(user, ALL_LEADS_EVENT) is None

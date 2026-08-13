@@ -73,8 +73,8 @@ class Recipients(str, Enum):
     FOG_ADMINS = "fog_admins"
     GUILD_LEADERSHIP = "guild_leadership"
     GUILD_LEADERSHIP_OR_ADMINS = "guild_leadership_or_admins"
-    # Capability-scoped audiences (§ admin capabilities): the holders of a capability
-    # first, then every other admin as an OPTIONAL opt-in recipient (see
+    # Capability-scoped audiences (§ admin capabilities): the holders of a capability ONLY
+    # (a plain admin who doesn't hold it gets nothing until granted — see
     # ``core.events.resolvers._capability_recipients``).
     CLASS_APPROVERS = "class_approvers"
     GUILD_LEADERSHIP_OR_CLASS_APPROVERS = "guild_leadership_or_class_approvers"
@@ -827,8 +827,8 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind="meeting_approved",
     ),
     # 32. discount_code.requested — a new discount code was created and awaits approval.
-    #     Routes to the Discount Code Administrators (capability holders get it by default;
-    #     other admins opt in). A per-person admin ping: in-app + email, no Discord. The
+    #     Routes to the Discount Code Administrators (capability holders only). A per-person
+    #     admin ping: in-app + email, no Discord. The
     #     DiscountCode.save creating-branch already logs the CmsActivity, so emit logs none.
     EventType(
         key=DISCOUNT_CODE_REQUESTED,
@@ -841,8 +841,8 @@ _NEW_EVENTS: list[EventType] = [
     ),
     # 33. billing.charge_failed_admin — a member's monthly tab charge failed. The admin-facing
     #     half of the failure notice (the member's own ``tab_charge_failed`` bell row is a
-    #     separate emit). Routes to the Billing Administrators (holders by default; other admins
-    #     opt in): in-app + email, no Discord. ``activity_kind`` is None — the member-facing
+    #     separate emit). Routes to the Billing Administrators (holders only): in-app + email,
+    #     no Discord. ``activity_kind`` is None — the member-facing
     #     ``tab_charge_failed`` emit logs the single TAB_CHARGE_FAILED SiteActivity.
     EventType(
         key=BILLING_CHARGE_FAILED_ADMIN,

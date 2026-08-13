@@ -260,7 +260,8 @@ def describe_user_settings():
         response = client.get("/settings/?tab=notifications")
 
         assert response.status_code == 200
-        assert response.context["capabilities_url"]
+        # The link points at the Permissions tab (where the capability toggles live).
+        assert "tab=permissions" in response.context["capabilities_url"]
         assert b"Manage your admin duties" in response.content
 
     def it_hides_the_capabilities_link_from_non_admins(client: Client):

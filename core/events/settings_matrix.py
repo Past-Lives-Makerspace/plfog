@@ -169,6 +169,7 @@ class _StaffProfile:
     """
 
     is_admin: bool
+    is_active: bool
     is_officer: bool
     leads_guild: bool
     staffs_guild: bool
@@ -188,12 +189,13 @@ def _staff_profile(user: User) -> _StaffProfile:
     """
     from membership.models import GuildStaffMembership, Member
 
-    member = Member.objects.filter(user=user).only("id", "fog_role").first()
+    member = Member.objects.filter(user=user).only("id", "fog_role", "status").first()
     if member is None:
-        return _StaffProfile(False, False, False, False, False, frozenset())
+        return _StaffProfile(False, False, False, False, False, False, frozenset())
     staff_roles = set(member.guild_staff_roles.values_list("role", flat=True))
     return _StaffProfile(
         is_admin=member.fog_role == Member.FogRole.ADMIN,
+        is_active=member.status == Member.Status.ACTIVE,
         is_officer=member.fog_role == Member.FogRole.GUILD_OFFICER,
         leads_guild=member.led_guilds.exists(),
         staffs_guild=bool(staff_roles),
@@ -219,7 +221,9 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         Recipients.GUILD_LEADERSHIP: lead,
         Recipients.GUILD_LEADERSHIP_OR_ADMINS: lead or profile.is_admin,
         Recipients.GUILD_LEAD: profile.leads_guild,
-        Recipients.ALL_GUILD_LEADS: lead or profile.is_officer,
+        # all_guild_leads resolves against Member.objects.active(), so a FORMER/SUSPENDED
+        # lead/officer would see this row but never receive the mail — gate on is_active too.
+        Recipients.ALL_GUILD_LEADS: (lead or profile.is_officer) and profile.is_active,
         Recipients.GUILD_ORIENTERS: profile.leads_guild or profile.is_orienter,
         Recipients.CLASS_APPROVERS: cap.CLASS_APPROVER in caps,
         Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: lead or cap.CLASS_APPROVER in caps,

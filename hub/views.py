@@ -1646,7 +1646,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     # checkboxes (the master switch for those emails). Only admins can edit capabilities, so
     # the link is theirs alone; guild leads see the section but manage it via channel toggles.
     capabilities_url = (
-        f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=details"
+        f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
         if member is not None and member.fog_role == Member.FogRole.ADMIN
         else None
     )
