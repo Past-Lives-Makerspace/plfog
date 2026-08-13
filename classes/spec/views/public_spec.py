@@ -606,6 +606,35 @@ def describe_public_class_detail():
         assert 'name="description"' in html
         assert escape(published_class.seo_description[:30]) in html
 
+    def describe_related_classes():
+        def it_recommends_upcoming_classes_in_the_same_category(published_class, client):
+            soon = timezone.now() + timedelta(days=14)
+            upcoming = ClassOfferingFactory(
+                title="Advanced Glazing",
+                slug="advanced-glazing",
+                category=published_class.category,
+                status=ClassOffering.Status.PUBLISHED,
+            )
+            ClassSessionFactory(class_offering=upcoming, starts_at=soon, ends_at=soon + timedelta(hours=2))
+
+            response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+            assert upcoming in list(response.context["related_offerings"])
+            assert b"Advanced Glazing" in response.content
+
+        def it_never_recommends_a_class_whose_dates_have_passed(published_class, client):
+            past_start = timezone.now() - timedelta(days=30)
+            past = ClassOfferingFactory(
+                title="Holiday Ornaments",
+                slug="holiday-ornaments",
+                category=published_class.category,
+                status=ClassOffering.Status.PUBLISHED,
+            )
+            ClassSessionFactory(class_offering=past, starts_at=past_start, ends_at=past_start + timedelta(hours=2))
+
+            response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+            assert past not in list(response.context["related_offerings"])
+            assert b"Holiday Ornaments" not in response.content
+
 
 def describe_catalog_grouping():
     def _publish(title, slug, category, instructor, days_out, capacity=6):

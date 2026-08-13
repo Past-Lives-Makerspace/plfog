@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.0.1",
+        "date": "2026-08-13",
+        "title": "Updated class cancellation policy",
+        "changes": [
+            "We've simplified our class cancellation policy. Cancel 48+ hours ahead and there's no fee: "
+            "just email classes@pastlives.space so we can offer your seat to someone on the waitlist. "
+            "For cancellations inside 48 hours and no-shows, there's no fee either, but those seats aren't "
+            "refundable. Emergencies are still handled case by case, so reach out and we'll work with you.",
+            "Class pages no longer suggest classes whose dates have already passed.",
+        ],
+    },
     {
         "version": "1.0.0",
         "date": "2026-08-13",

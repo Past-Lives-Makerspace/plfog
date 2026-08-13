@@ -372,12 +372,15 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         for sibling in sibling_offerings:
             sibling.spots_left = sib_spots.get(sibling.pk, sibling.capacity)
 
+    # Only classes you could still sign up for — never surface a run whose dates
+    # have already passed. ``bookable()`` drops any dated class once its first
+    # session begins (and keeps flexible, arrange-with-instructor ones), already
+    # ordered soonest-first.
     related_offerings = list(
-        ClassOffering.objects.public()
+        ClassOffering.objects.bookable()
         .filter(category=offering.category)
         .exclude(pk=offering.pk)
-        .select_related("instructor")
-        .order_by("-created_at")[:3]
+        .select_related("instructor")[:3]
     )
     from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
     from membership.permissions import can_edit_category as can_edit_category_perm
