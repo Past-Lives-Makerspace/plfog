@@ -30,6 +30,29 @@ a proposal approval's response appends this item to the accordion out-of-band).
     {% if item.open_action_count %}
     <span class="pl-meeting-badge pl-meeting-badge--actions">{{ item.open_action_count }}★</span>
     {% endif %}
+    <span class="pl-meeting-item__row-actions">
+      <button type="button"
+              class="pl-meeting-item__upvote-btn {% if item.pk in upvoted_item_ids %}pl-meeting-item__upvote-btn--active{% endif %}"
+              hx-post="{% url 'hub_meeting_item_upvote' item.pk %}"
+              hx-target="#item-{{ item.pk }}" hx-swap="outerHTML"
+              aria-label="{% if item.pk in upvoted_item_ids %}Remove +1{% else %}+1 this item{% endif %}"
+              @click.stop>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>
+        {% if item.upvote_count %}<span class="pl-meeting-item__upvote-count">{{ item.upvote_count }}</span>{% endif %}
+      </button>
+      {% if is_editable %}
+      <button type="button" class="pl-meeting-item__icon-btn" aria-label="Edit item"
+              x-show="openItem === null || openItem === {{ item.pk }}"
+              @click.stop="toggleAgendaItem({{ item.pk }})">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+      </button>
+      <button type="button" class="pl-meeting-item__icon-btn pl-meeting-item__icon-btn--danger" aria-label="Delete item"
+              x-show="openItem === null"
+              @click.stop="openDeleteItemConfirm({{ item.pk }}, '{% url 'hub_meeting_item_delete' item.pk %}', {{ item.actions.all|length }})">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+      </button>
+      {% endif %}
+    </span>
   </div>
   <div class="pl-meeting-item__body" x-show="openItem === {{ item.pk }}">
     {% if is_editable %}
@@ -71,12 +94,8 @@ a proposal approval's response appends this item to the accordion out-of-band).
               hx-post="{% url 'hub_meeting_action_add' item.pk %}"
               hx-target="#action-list-{{ item.pk }}" hx-swap="beforeend">+ Add action item</button>
       <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
-              @click="$dispatch('open-confirm', 'del-item-{{ item.pk }}')">Delete item</button>
+              @click="openDeleteItemConfirm({{ item.pk }}, '{% url 'hub_meeting_item_delete' item.pk %}', {{ item.actions.all|length }})">Delete topic</button>
     </div>
-    {% url 'hub_meeting_item_delete' item.pk as item_delete_url %}
-    {% with action_count=item.actions.all|length|stringformat:"s" %}
-    {% include "components/confirm_modal.html" with confirm_id="del-item-"|add:item_pk confirm_title="Delete this topic?" confirm_message="Deletes this topic and its "|add:action_count|add:" action items." confirm_action_url="" confirm_hx_post=item_delete_url confirm_hx_target="#item-"|add:item_pk confirm_button_text="Delete topic" %}
-    {% endwith %}
     {% else %}
     {% if item.description %}
     <p class="pl-meeting-item__description">{{ item.description }}</p>

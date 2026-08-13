@@ -57,6 +57,7 @@ from membership.models import (
     MeetingItemProposal,
     MeetingLockedError,
     Member,
+    NextMeeting,
 )
 from membership.permissions import can_edit_meeting, can_propose_to_meeting, editable_meeting_scopes
 
@@ -257,6 +258,27 @@ def _attendee_picker_context(meeting: Meeting) -> dict[str, Any]:
 _OCCURRENCE_HORIZON_DAYS = 370
 
 
+def _council_cadence() -> NextMeeting | None:
+    """The soonest upcoming occurrence of any published LEAD_MEETING event (site-wide).
+
+    Mirrors Guild.next_meeting_occurrence for the council row, which has no Guild FK to
+    derive a cadence from. Returns None when no published lead-meeting event exists.
+    """
+    today = timezone.localdate()
+    horizon = today + timedelta(days=_OCCURRENCE_HORIZON_DAYS)
+    now = timezone.now()
+    events = CommunityEvent.objects.filter(
+        event_type=CommunityEvent.EventType.LEAD_MEETING,
+        moderation_state=CommunityEvent.ModerationState.PUBLISHED,
+        guild__isnull=True,
+    )
+    for event in events:
+        for occurrence in event.occurrences_in(today, horizon):
+            if occurrence >= now:
+                return NextMeeting(when=occurrence, location=event.location, has_time=True)
+    return None
+
+
 def _scope_events(meeting: Meeting) -> Any:
     """The scope's published calendar events — a guild's own, or site-wide for council."""
     if meeting.guild is not None:
@@ -293,7 +315,8 @@ def _workspace_context(request: HttpRequest, meeting: Meeting) -> dict[str, Any]
     return {
         **_get_hub_context(request),
         "meeting": meeting,
-        "items": meeting.items.all(),
+        "items": meeting.items.prefetch_related("actions", "upvoters"),
+        "upvoted_item_ids": _upvoted_ids(meeting, user),
         "attendees": meeting.attendees.all(),
         "attachments": meeting.attachments.all(),
         "can_edit": can_edit,
@@ -426,9 +449,10 @@ def _items_response(request: HttpRequest, meeting: Meeting, *, new_item_pk: int 
         "hub/partials/_meeting_items.html",
         {
             "meeting": meeting,
-            "items": meeting.items.prefetch_related("actions"),
+            "items": meeting.items.prefetch_related("actions", "upvoters"),
             "is_editable": True,
             "new_item_pk": new_item_pk,
+            "upvoted_item_ids": _upvoted_ids(meeting, request.user),
         },
     )
     _set_saved_trigger(response)
@@ -438,14 +462,15 @@ def _items_response(request: HttpRequest, meeting: Meeting, *, new_item_pk: int 
 @login_required
 @require_POST
 def hub_meeting_item_add(request: HttpRequest, pk: int) -> HttpResponse:
-    """Append an empty agenda item; the response arrives auto-expanded + focused."""
+    """Append an agenda item with the submitted name; response swaps the full item list."""
     meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
     guard = _guard(request, meeting)
     if guard is not None:
         return guard
+    name = _clean_char(200)(request.POST.get("name", ""))
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    item = meeting.add_item(by=user)
-    return _items_response(request, meeting, new_item_pk=item.pk)
+    meeting.add_item(by=user, name=name)
+    return _items_response(request, meeting)
 
 
 @login_required
@@ -484,6 +509,46 @@ def hub_meeting_item_delete(request: HttpRequest, pk: int) -> HttpResponse:
     response = HttpResponse("")  # empty outerHTML swap removes the row
     trigger_toast(response, "Topic deleted.", "success")
     return response
+
+
+def _upvoted_ids(meeting: Meeting, user: Any) -> set[int]:
+    """PKs of this meeting's items the given user has upvoted."""
+    return set(meeting.items.filter(upvoters=user).values_list("pk", flat=True))
+
+
+def _single_item_response(request: HttpRequest, item: MeetingAgendaItem) -> HttpResponse:
+    """Re-render one agenda item row (HTMX outerHTML swap for upvote toggle)."""
+    user: Any = request.user
+    meeting = item.meeting
+    return render(
+        request,
+        "hub/partials/_meeting_item.html",
+        {
+            "item": item,
+            "meeting": meeting,
+            "is_editable": can_edit_meeting(request, meeting),
+            "upvoted_item_ids": {item.pk} if item.upvoters.filter(pk=user.pk).exists() else set(),
+        },
+    )
+
+
+@login_required
+@require_POST
+def hub_meeting_item_upvote(request: HttpRequest, pk: int) -> HttpResponse:
+    """Toggle the current user's +1 on an agenda item.
+
+    Scoped through Meeting.objects.visible_to so item PK enumeration is bounded
+    by the same visibility gate as the workspace read view.
+    """
+    user: Any = request.user
+    item = get_object_or_404(
+        MeetingAgendaItem.objects.select_related("meeting__guild")
+        .prefetch_related("upvoters")
+        .filter(meeting__in=Meeting.objects.visible_to(user)),
+        pk=pk,
+    )
+    item.toggle_upvote(user)
+    return _single_item_response(request, item)
 
 
 # --- Action items -------------------------------------------------------------
@@ -674,6 +739,21 @@ def hub_meeting_attachment_delete(request: HttpRequest, pk: int) -> HttpResponse
 
 
 # --- Lifecycle: approve / unlock / delete (§5.3, §6.3 banner + footer) ---------
+
+
+@login_required
+@require_POST
+def hub_meeting_publish(request: HttpRequest, pk: int) -> HttpResponse:
+    """Publish the agenda — transitions DRAFT → PUBLISHED (header button → redirect)."""
+    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
+    if not can_edit_meeting(request, meeting):
+        return HttpResponse("Forbidden", status=403)
+    try:
+        meeting.publish()
+    except (ValueError, MeetingLockedError) as exc:
+        return _invalid(str(exc))
+    messages.success(request, "Agenda published.")
+    return redirect(reverse("hub_meeting", args=[meeting.pk]))
 
 
 @login_required
@@ -889,13 +969,14 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
     next_up: dict[int | None, Meeting] = {}
     for meeting in upcoming:  # already soonest-first — the first write wins
         next_up.setdefault(meeting.guild_id, meeting)
+    council_next = next_up.get(None)
     rows: list[dict[str, Any]] = [
         {
             "guild": None,
             "label": "Council",
             "most_recent": latest_past.get(None),
-            "next_meeting": next_up.get(None),
-            "cadence": None,  # the council has no cadence config
+            "next_meeting": council_next,
+            "cadence": None if council_next else _council_cadence(),
             "can_edit": council_editable,
         }
     ]

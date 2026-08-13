@@ -30,11 +30,20 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
       {% endif %}
     </div>
     <div class="pl-meeting-header__actions">
+      {% if is_editable and meeting.status == 'draft' %}
+      <form method="post" action="{% url 'hub_meeting_publish' meeting.pk %}" style="display:inline">
+        {% csrf_token %}
+        <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Publish agenda</button>
+      </form>
+      {% elif meeting.status == 'published' and not meeting.is_locked %}
+      <span class="pl-meeting-published-badge">Published</span>
+      {% endif %}
       {% if is_editable %}
       <span class="pl-meeting-savestate"
             :class="'pl-meeting-savestate--' + saveState"
+            x-show="savePillVisible()"
             x-text="saveStateLabel()"
-            aria-live="polite">Saved ✓</span>
+            aria-live="polite"></span>
       {% endif %}
       <button type="button" class="pl-btn pl-btn--secondary pl-meeting-print" onclick="window.print()">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
@@ -223,9 +232,14 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
     <h2 class="hub-detail-label">Agenda</h2>
     {% include "hub/partials/_meeting_items.html" %}
     {% if is_editable %}
-    <button type="button" class="pl-meeting-add-item"
-            hx-post="{% url 'hub_meeting_item_add' meeting.pk %}"
-            hx-target="#pl-meeting-item-list" hx-swap="outerHTML">+ Add item</button>
+    <form class="pl-meeting-add-item-form"
+          hx-post="{% url 'hub_meeting_item_add' meeting.pk %}"
+          hx-target="#pl-meeting-item-list" hx-swap="outerHTML"
+          hx-on::after-request="if(event.detail.successful) this.reset()">
+      <input type="text" name="name" maxlength="200" placeholder="Add an agenda item…"
+             class="pl-meeting-add-item-input" required>
+      <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Add</button>
+    </form>
     {% endif %}
   </div>
 
@@ -280,6 +294,27 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
     {% endif %}
   </div>
   {% endif %}
+
+  {# ── Shared delete-item confirm (workspace-level — outside HTMX-swapped list to avoid x-teleport race) ── #}
+  <div x-show="deleteConfirm.open"
+       x-transition.opacity
+       class="pl-confirm-overlay"
+       @click.self="deleteConfirm.open = false"
+       @keydown.escape.window="if (deleteConfirm.open) deleteConfirm.open = false"
+       role="dialog" aria-modal="true"
+       aria-label="Delete topic confirmation">
+    <div class="pl-confirm-dialog">
+      <h3 class="pl-confirm-dialog__title">Delete this topic?</h3>
+      <p class="pl-confirm-dialog__message"
+         x-text="'Deletes this topic and its ' + deleteConfirm.actionCount + ' action item(s).'"></p>
+      <div class="pl-confirm-dialog__actions">
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                @click="deleteConfirm.open = false">Cancel</button>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                @click="executeDeleteItem()">Delete topic</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 {# ── The "+ Attach file or link" modal (house inline pl-modal pattern) ── #}
@@ -437,7 +472,12 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
 document.addEventListener('alpine:init', () => {
   Alpine.data('plMeetingWorkspace', () => ({
     openItem: null,
-    saveState: 'saved',
+    deleteConfirm: { open: false, pk: null, url: '', actionCount: 0 },
+    saveState: 'idle',
+    savedAt: 0,
+    _tick: 0,
+    _saveHideTimer: null,
+    _tickInterval: null,
     // Rule 14: whole field opens the native picker; the try/catch swallows the
     // harmless "already open" error. A real method — a try statement inside an
     // @click expression is a SyntaxError in Alpine's expression compiler.
@@ -463,8 +503,24 @@ document.addEventListener('alpine:init', () => {
       ['clean'],
     ],
 
+    openDeleteItemConfirm(pk, url, actionCount) {
+      this.deleteConfirm = { open: true, pk: pk, url: url, actionCount: actionCount };
+    },
+    executeDeleteItem() {
+      htmx.ajax('POST', this.deleteConfirm.url, {
+        target: '#item-' + this.deleteConfirm.pk,
+        swap: 'outerHTML',
+      });
+      this.deleteConfirm.open = false;
+    },
+
     init() {
-      this.initNotes();
+      if (window.Quill) {
+        this.initNotes();
+      } else {
+        window.addEventListener('load', () => this.initNotes(), { once: true });
+      }
+      this._tickInterval = setInterval(() => { this._tick++; }, 10000);
     },
 
     // --- Computed header title (derives live from the facts strip) ---
@@ -474,15 +530,28 @@ document.addEventListener('alpine:init', () => {
     },
 
     // --- Savestate pill (§5.2 feedback) ---
+    savePillVisible() {
+      return this.saveState === 'saving' || this.saveState === 'saved' || this.saveState === 'error';
+    },
     saveStateLabel() {
-      return {
-        saved: 'Saved ✓',
-        saving: 'Saving…',
-        error: "Couldn't save — check your connection",
-      }[this.saveState];
+      void this._tick; // reactive dependency — forces re-eval every 10s
+      if (this.saveState === 'saving') return 'Saving…';
+      if (this.saveState === 'error') return "Couldn't save — check your connection";
+      if (this.saveState === 'saved') {
+        const secs = Math.floor((Date.now() - this.savedAt) / 1000);
+        if (secs < 10) return 'Saved ✓ just now';
+        if (secs < 90) return 'Saved ✓ a moment ago';
+        return 'Saved ✓ a few mins ago';
+      }
+      return '';
     },
     onBeforeRequest() { this.saveState = 'saving'; },
-    onSaved() { this.saveState = 'saved'; },
+    onSaved() {
+      this.savedAt = Date.now();
+      this.saveState = 'saved';
+      if (this._saveHideTimer) clearTimeout(this._saveHideTimer);
+      this._saveHideTimer = setTimeout(() => { this.saveState = 'idle'; }, 120000);
+    },
     onAfterRequest(evt) {
       if (!evt.detail.successful) return;
       const elt = evt.detail.elt;
@@ -570,11 +639,13 @@ document.addEventListener('alpine:init', () => {
     onDimClick(evt) {
       if (this.openItem === null) return;
       if (evt.target.closest('.pl-meeting-item--open') !== null) return;
-      // A dim-click only collapses — never both (§6.3): the collapse flushes the
-      // open item's dirty saves and the SECOND click acts normally.
-      evt.preventDefault();
-      evt.stopPropagation();
       this.collapseItem();
+      // Let interactive elements (inputs, checkboxes, buttons, links) act immediately.
+      // Passive background clicks are prevented so stray taps don't navigate or submit.
+      if (!evt.target.closest('button, a, input, select, textarea, label, [role="button"]')) {
+        evt.preventDefault();
+        evt.stopPropagation();
+      }
     },
     toggleAgendaItem(pk) {
       if (this.openItem === pk) { this.collapseItem(); return; }

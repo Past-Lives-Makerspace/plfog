@@ -106,7 +106,7 @@ def describe_workspace_get():
             assert "Special meeting" in content  # the toggle
             assert "Time TBD" in content  # the half-hour select's blank choice
             assert '<input type="time"' not in content  # rule 19
-            assert "+ Add item" in content
+            assert "pl-meeting-add-item-form" in content
             assert "pl-meeting-attendee-picker" in content
             assert "+ Attach file or link" in content
             assert "Print / Save as PDF" in content
@@ -173,7 +173,7 @@ def describe_workspace_get():
             assert "Read me first" in content
             assert "pl-meeting-savestate" not in content
             assert "data-autosave" not in content
-            assert "+ Add item" not in content
+            assert "pl-meeting-add-item-form" not in content
             assert "+ Attach file or link" not in content
 
         def it_renders_the_read_only_agenda_empty_state(client: Client):
@@ -217,7 +217,7 @@ def describe_workspace_get():
             assert "Off agenda" in content
             assert "pl-meeting-savestate" not in content
             assert "data-autosave" not in content
-            assert "+ Add item" not in content
+            assert "pl-meeting-add-item-form" not in content
             assert "pl-meeting-attendee-picker" not in content
             assert "Print / Save as PDF" in content  # both modes
 
@@ -430,17 +430,17 @@ def describe_create():
 
 @pytest.mark.django_db
 def describe_item_add():
-    def it_appends_an_empty_item_that_arrives_auto_expanded(client: Client):
+    def it_adds_a_named_item_collapsed_with_no_auto_expand(client: Client):
         guild = GuildFactory()
         _lead_client(client, guild)
         meeting = MeetingFactory(guild=guild)
-        resp = client.post(reverse("hub_meeting_item_add", args=[meeting.pk]))
+        resp = client.post(reverse("hub_meeting_item_add", args=[meeting.pk]), data={"name": "New topic"})
         assert resp.status_code == 200
         item = meeting.items.get()
-        assert item.name == ""  # create-empty-then-fill
+        assert item.name == "New topic"
         content = resp.content.decode()
         assert f'id="item-{item.pk}"' in content
-        assert f"openAgendaItem({item.pk}, true)" in content  # auto-expand + focus
+        assert f"openAgendaItem({item.pk}, true)" not in content  # no auto-expand
         assert "meeting-saved" in resp["HX-Trigger"]
 
     def it_lands_new_items_at_the_bottom(client: Client):
@@ -2113,3 +2113,42 @@ def describe_calendar_rails():
             assert "On the calendar ✓" in content
             assert "Unlink" not in content
             assert "'add-to-calendar'" not in content
+
+
+@pytest.mark.django_db
+def describe_publish():
+    def it_transitions_draft_to_published_and_redirects(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        resp = client.post(reverse("hub_meeting_publish", args=[meeting.pk]))
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("hub_meeting", args=[meeting.pk])
+        assert "Agenda published." in _messages(resp)
+        meeting.refresh_from_db()
+        assert meeting.status == Meeting.Status.PUBLISHED
+
+    def it_403s_a_non_editor(client: Client):
+        _member_client(client)
+        meeting = MeetingFactory()
+        assert client.post(reverse("hub_meeting_publish", args=[meeting.pk])).status_code == 403
+
+    def it_422s_an_already_published_meeting(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, published=True)
+        resp = client.post(reverse("hub_meeting_publish", args=[meeting.pk]))
+        assert resp.status_code == 422
+
+    def it_422s_an_approved_meeting(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, approved=True)
+        resp = client.post(reverse("hub_meeting_publish", args=[meeting.pk]))
+        assert resp.status_code == 422
+
+    def it_405s_a_get(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        assert client.get(reverse("hub_meeting_publish", args=[meeting.pk])).status_code == 405

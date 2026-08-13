@@ -6040,6 +6040,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text);
     animation: pl-meeting-pulse 1.2s ease-in-out infinite;
 }
+.pl-meeting-savestate--saved {
+    color: var(--color-success, #38a169);
+    border-color: var(--color-success, #38a169);
+}
 .pl-meeting-savestate--error {
     color: var(--color-error);
     border-color: var(--color-error);
@@ -6048,6 +6052,52 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 @keyframes pl-meeting-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.45; }
+}
+
+/* --- Published badge (header — between draft and approval) --- */
+.pl-meeting-published-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-success, #38a169);
+    background: transparent;
+    font-size: 0.8125rem;
+    color: var(--color-success, #38a169);
+    white-space: nowrap;
+}
+
+/* --- Workspace-level delete confirm dialog --- */
+.pl-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+.pl-confirm-dialog {
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    max-width: 400px;
+    width: 90%;
+}
+.pl-confirm-dialog__title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+    color: var(--hub-text);
+}
+.pl-confirm-dialog__message {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    margin: 0 0 1.25rem;
+}
+.pl-confirm-dialog__actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
 }
 
 /* --- Focus-mode dimming: opacity via class, never inline (§6.3) --- */
@@ -6207,17 +6257,62 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     border: 1px solid var(--hub-input-border);
     border-radius: 6px;
 }
-.pl-meeting-add-item {
-    width: 100%;
-    padding: 0.75rem;
-    border: 1px dashed var(--hub-border-strong);
-    border-radius: 8px;
-    background: transparent;
-    color: var(--hub-text-muted);
-    font-size: 0.9375rem;
-    cursor: pointer;
+.pl-meeting-add-item-form {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
 }
-.pl-meeting-add-item:hover { color: var(--hub-link); border-color: var(--hub-link); }
+.pl-meeting-add-item-input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 6px;
+    background: var(--hub-input-bg, var(--hub-card-bg));
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+}
+.pl-meeting-add-item-input:focus { outline: none; border-color: var(--hub-link); }
+
+/* --- Item row actions (upvote + edit + trash) --- */
+.pl-meeting-item__row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+.pl-meeting-item__icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    border-radius: 6px;
+}
+.pl-meeting-item__icon-btn svg { width: 1rem; height: 1rem; }
+.pl-meeting-item__icon-btn:hover { color: var(--hub-link); background: var(--hub-hover-bg); }
+.pl-meeting-item__icon-btn--danger:hover { color: var(--color-error, #e53e3e); background: var(--hub-hover-bg); }
+.pl-meeting-item__upvote-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.4rem;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--hub-text-muted);
+    font-size: 0.8rem;
+    cursor: pointer;
+    border-radius: 6px;
+}
+.pl-meeting-item__upvote-btn svg { width: 0.9rem; height: 0.9rem; }
+.pl-meeting-item__upvote-btn:hover { color: var(--hub-link); border-color: var(--hub-border); }
+.pl-meeting-item__upvote-btn--active { color: var(--hub-link); border-color: var(--hub-link); }
+.pl-meeting-item__upvote-count { font-weight: 600; }
 
 /* --- Action items --- */
 .pl-meeting-actions {
@@ -6594,7 +6689,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-meeting-header__actions,
     .pl-meeting-breadcrumb,
     .pl-meeting-item__chevrons,
-    .pl-meeting-add-item,
+    .pl-meeting-add-item-form,
     .pl-meeting-attach-btn,
     .pl-meeting-item__footer,
     .pl-meeting-row-delete,

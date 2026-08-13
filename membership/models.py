@@ -5028,6 +5028,7 @@ class Meeting(models.Model):
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
+        PUBLISHED = "published", "Published"
         APPROVED = "approved", "Approved"
 
     # Queryset annotations + per-viewer flag set by the Meetings home view (§6.2).
@@ -5057,7 +5058,7 @@ class Meeting(models.Model):
         max_length=20,
         choices=Status.choices,
         default=Status.DRAFT,
-        help_text="Draft = editable workspace. Approved = locked minutes of record.",
+        help_text="Draft = editable workspace. Published = agenda finalised, visible. Approved = locked minutes of record.",
     )
     scheduled_date = models.DateField(
         null=True,
@@ -5234,6 +5235,20 @@ class Meeting(models.Model):
         """
         if self.is_locked:
             raise MeetingLockedError("Approved minutes are locked.")
+
+    def publish(self) -> None:
+        """Transition from draft to published — agenda is finalised and visible.
+
+        Raises:
+            MeetingLockedError: If the minutes are already approved.
+            ValueError: If the meeting is not in DRAFT status.
+        """
+        if self.status == self.Status.APPROVED:
+            raise MeetingLockedError("Approved minutes cannot be published again.")
+        if self.status != self.Status.DRAFT:
+            raise ValueError(f"Cannot publish a meeting with status {self.status!r}.")
+        self.status = self.Status.PUBLISHED
+        self.save(update_fields=["status"])
 
     def approve(self, *, by: User) -> None:
         """Approve and lock the minutes: stamp, auto-decline pending proposals, notify.
@@ -5414,14 +5429,14 @@ class Meeting(models.Model):
             event.delete()
         self.delete()
 
-    def add_item(self, *, by: User) -> MeetingAgendaItem:
-        """Append an EMPTY agenda item (create-empty-then-fill) and return it.
+    def add_item(self, *, by: User, name: str = "") -> MeetingAgendaItem:
+        """Append an agenda item and return it.
 
         Raises:
             MeetingLockedError: If the minutes are locked.
         """
         self.assert_editable()
-        return MeetingAgendaItem.objects.create(meeting=self)
+        return MeetingAgendaItem.objects.create(meeting=self, name=name)
 
     def add_attendee(self, *, member: Member | None = None, guest_name: str = "") -> MeetingAttendee:
         """Add a roster member OR a free-text guest to the attendance list.
@@ -5559,6 +5574,12 @@ class MeetingAgendaItem(models.Model):
     sort_order = models.PositiveIntegerField(
         default=0, help_text="Position on the agenda; the up/down buttons swap these."
     )
+    upvoters = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="upvoted_agenda_items",
+        blank=True,
+        help_text="Members who have +1'd this item to signal interest.",
+    )
 
     class Meta:
         ordering = ["sort_order", "pk"]
@@ -5579,6 +5600,19 @@ class MeetingAgendaItem(models.Model):
         """Open actions under this topic (the collapsed-item 'N★' badge). Counts in
         Python so a ``prefetch_related("items__actions")`` workspace query stays N+1-free."""
         return sum(1 for action in self.actions.all() if action.status == MeetingActionItem.Status.OPEN)
+
+    @property
+    def upvote_count(self) -> int:
+        """Number of +1s. Uses the prefetch cache when upvoters are prefetched."""
+        return sum(1 for _ in self.upvoters.all())
+
+    def toggle_upvote(self, user: User) -> bool:
+        """Add or remove this user's +1. Returns True if now upvoted, False if removed."""
+        if self.upvoters.filter(pk=user.pk).exists():
+            self.upvoters.remove(user)
+            return False
+        self.upvoters.add(user)
+        return True
 
     def move(self, *, direction: str) -> None:
         """Swap this item one position up or down the agenda; a clamped no-op at the ends.
