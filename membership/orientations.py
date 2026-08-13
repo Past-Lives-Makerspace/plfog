@@ -384,15 +384,21 @@ def complete_orientation(booking: OrientationBooking) -> None:
     booking.mark_completed()
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_COMPLETED, actor=None, target=booking)
     settings_obj = GuildOrientationSettings.objects.filter(guild=booking.guild).first()
-    if settings_obj is not None and settings_obj.thankyou_email_ready:
-        ctx = _context(booking, body=settings_obj.thankyou_email_body)
+    # The thank-you is on by default: send unless a guild explicitly turned it off. When the
+    # guild hasn't written their own subject/body, the standard copy stands in.
+    if settings_obj is None or settings_obj.thankyou_email_enabled:
+        from membership.orientation_copy import STANDARD_THANKYOU_BODY, standard_thankyou_subject
+
+        subject = settings_obj.resolved_thankyou_subject if settings_obj else standard_thankyou_subject(booking.guild.name)
+        body = settings_obj.resolved_thankyou_body if settings_obj else STANDARD_THANKYOU_BODY
+        ctx = _context(booking, body=body)
         # Email-only thank-you (no in-app pair today) → suppress the in-app by giving the
         # registrant resolver no member; the email goes to the explicit member address.
         emit_with_email_shell(
             "orientation_update",
             target=booking,
             context={"member": None},
-            subject=settings_obj.thankyou_email_subject,
+            subject=subject,
             text_template="membership/emails/orientation_thankyou.txt",
             html_template="membership/emails/orientation_thankyou.html",
             template_context=ctx,

@@ -74,12 +74,11 @@ def build_sample_data() -> SampleData:
     guild.save()
     GuildOrientationSettingsFactory(
         guild=guild,
+        # Left blank on purpose so the gallery renders the STANDARD thank-you (on by
+        # default). A guild that writes its own subject/body overrides it.
         thankyou_email_enabled=True,
-        thankyou_email_subject="Thanks for getting oriented with the Ceramics Guild!",
-        thankyou_email_body=(
-            "It was lovely meeting you today. Your studio access is live — come throw a pot any "
-            "open-studio night, and ask in the guild channel if you get stuck. — Mara"
-        ),
+        thankyou_email_subject="",
+        thankyou_email_body="",
         join_email_enabled=True,
         join_email_subject="Welcome to the Ceramics Guild!",
         join_email_body=(
@@ -398,13 +397,18 @@ ORIENTATION_SUBJECTS: dict[str, str] = {
 
 
 def orientation_thankyou_context(data: SampleData) -> dict[str, Any]:
-    """Mirrors ``membership.orientations.complete_orientation`` (guild-authored)."""
+    """Mirrors ``membership.orientations.complete_orientation``.
+
+    The sample guild leaves the thank-you copy blank, so this renders the STANDARD
+    thank-you (the on-by-default copy) via the resolved_* fallbacks — what most members
+    actually receive.
+    """
     from membership.models import GuildOrientationSettings
 
     settings_obj = GuildOrientationSettings.objects.get(guild=data.guild)
     return {
-        "subject": settings_obj.thankyou_email_subject,
-        "template_context": _orientation_context(data, body=settings_obj.thankyou_email_body),
+        "subject": settings_obj.resolved_thankyou_subject,
+        "template_context": _orientation_context(data, body=settings_obj.resolved_thankyou_body),
     }
 
 

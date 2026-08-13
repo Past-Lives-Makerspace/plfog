@@ -6974,7 +6974,11 @@ class GuildOrientationSettings(models.Model):
         max_length=300, blank=True, default="", help_text="Shown while closed, e.g. 'On vacation till Sept 8'."
     )
     thankyou_email_enabled = models.BooleanField(
-        default=False, help_text="Send a thank-you / next-steps email once an orientation is completed."
+        default=True,
+        help_text=(
+            "Send a thank-you / next-steps email once an orientation is completed. On by default; "
+            "leave the subject and body blank to send the standard thank-you, or write your own."
+        ),
     )
     thankyou_email_subject = models.CharField(
         max_length=200, blank=True, default="", help_text="Subject line of the thank-you email."
@@ -7008,9 +7012,18 @@ class GuildOrientationSettings(models.Model):
         return f"Orientation settings for {self.guild.name}"
 
     @property
-    def thankyou_email_ready(self) -> bool:
-        """True when the thank-you email is enabled and has both subject and body."""
-        return self.thankyou_email_enabled and bool(self.thankyou_email_subject) and bool(self.thankyou_email_body)
+    def resolved_thankyou_subject(self) -> str:
+        """The guild's custom thank-you subject, or the standard one when they left it blank."""
+        from membership.orientation_copy import standard_thankyou_subject
+
+        return self.thankyou_email_subject or standard_thankyou_subject(self.guild.name)
+
+    @property
+    def resolved_thankyou_body(self) -> str:
+        """The guild's custom thank-you body, or the standard copy when they left it blank."""
+        from membership.orientation_copy import STANDARD_THANKYOU_BODY
+
+        return self.thankyou_email_body or STANDARD_THANKYOU_BODY
 
     @property
     def join_email_ready(self) -> bool:

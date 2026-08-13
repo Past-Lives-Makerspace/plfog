@@ -1414,7 +1414,9 @@ class GuildEmailsForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
-        self._require_subject_and_body(cleaned, "thankyou_email", "thank-you")
+        # The thank-you email is on by default and falls back to the standard copy, so enabling
+        # it needs no subject/body. The join/welcome email has no standard fallback, so it still
+        # requires both before it can be turned on.
         self._require_subject_and_body(cleaned, "join_email", "welcome")
         return cleaned
 

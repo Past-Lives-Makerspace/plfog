@@ -341,10 +341,21 @@ def build_site(out_dir: Path, data: SampleData) -> list[RenderedEmail]:
     assert_registry_complete()
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    from core.email_prefs import PREFS_TOKEN_PLACEHOLDER
+
     rendered: list[RenderedEmail] = []
     for email in gallery_emails():
         try:
-            rendered.append(render_one(email, data))
+            item = render_one(email, data)
+            # The footer's manage-preferences link carries a per-recipient token injected
+            # at real send time; strip the placeholder so the preview shows a clean link.
+            item = RenderedEmail(
+                email=item.email,
+                subject=item.subject,
+                html=item.html.replace(PREFS_TOKEN_PLACEHOLDER, ""),
+                text=item.text.replace(PREFS_TOKEN_PLACEHOLDER, ""),
+            )
+            rendered.append(item)
             print(f"  {email.key}: ok")
         except Exception:
             print(f"  {email.key}: FAILED")

@@ -1510,7 +1510,47 @@ def _handle_tours_form(
     return form, None
 
 
-@login_required
+def _notification_prefs_via_token(request: HttpRequest) -> HttpResponse:
+    """Render/save ONLY the notification matrix for a logged-out member via an email token.
+
+    The token (``t``) is minted per-recipient in the email footer's "manage preferences"
+    link. A missing or invalid token falls back to the normal login redirect, so
+    ``/settings/`` stays login-gated for everyone else; a valid one authorizes editing the
+    notification matrix and nothing else.
+    """
+    from django.contrib.auth.views import redirect_to_login
+
+    from core.email_prefs import read_prefs_token
+    from core.events import settings_matrix
+
+    token = request.POST.get("t") or request.GET.get("t") or ""
+    resolved = read_prefs_token(token)
+    if resolved is None:
+        return redirect_to_login(request.get_full_path())
+    user = cast(User, resolved)
+
+    if request.method == "POST" and request.POST.get("form_id") == "notifications":
+        settings_matrix.save_matrix(user, request.POST)
+        messages.success(request, "Notification preferences updated.")
+        return redirect(f"{reverse('hub_user_settings')}?tab=notifications&t={token}")
+
+    notif_channels = [
+        (channel, settings_matrix.CHANNEL_LABELS[channel]) for channel in settings_matrix.visible_channels(user)
+    ]
+    return render(
+        request,
+        "hub/settings_notifications_token.html",
+        {
+            "notif_matrix": settings_matrix.build_matrix(user),
+            "notif_channels": notif_channels,
+            "notif_channel_labels": {channel.value: label for channel, label in notif_channels},
+            "prefs_token": token,
+            "prefs_email": user.email,
+            "member": None,
+        },
+    )
+
+
 def user_settings(request: HttpRequest) -> HttpResponse:
     """Tabbed user settings page — Profile + Emails + Notifications.
 
@@ -1521,6 +1561,11 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     redirect back here after each action. The Notifications tab is the unified
     preferences matrix (design §2.7) sourced from the event registry.
     """
+    if not request.user.is_authenticated:
+        # Logged-out visitors are bounced to login, except the email "manage preferences"
+        # link, which carries a token that opens the notifications matrix alone.
+        return _notification_prefs_via_token(request)
+
     from allauth.account.forms import AddEmailForm
     from allauth.account.models import EmailAddress
 

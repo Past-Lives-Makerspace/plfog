@@ -20,6 +20,7 @@
   <form method="post" class="hub-form">
     {% csrf_token %}
     <input type="hidden" name="form_id" value="notifications">
+    {% if prefs_token %}<input type="hidden" name="t" value="{{ prefs_token }}">{% endif %}
     <div class="pl-notif-bulk pl-notif-bulk--all">
       <span class="pl-notif-bulk__label">Everything</span>
       <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('form'), true)">All on</button>

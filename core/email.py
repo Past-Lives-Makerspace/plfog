@@ -102,6 +102,11 @@ def send(
     recipients = [to] if isinstance(to, str) else list(to)
     bcc_list = [bcc] if isinstance(bcc, str) else list(bcc or [])
     joined = ", ".join(recipients + bcc_list)
+    # Personalize the footer's "manage preferences / unsubscribe" link with this
+    # recipient's no-login token (a no-op when the footer placeholder is absent).
+    from core.email_prefs import finalize_manage_prefs_link
+
+    text_body, html_body = finalize_manage_prefs_link(text_body, html_body, recipients)
     try:
         _deliver(
             subject=subject,

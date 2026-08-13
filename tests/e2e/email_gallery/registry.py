@@ -354,13 +354,13 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
     ),
     GalleryEmail(
         key="orientation_thankyou",
-        name="Orientation thank-you (guild-authored)",
+        name="Orientation thank-you",
         section="Guilds & Orientations",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when an orientation is marked complete and the guild has written and enabled a "
-            "thank-you email. The subject and body are the guild lead's own words. Goes to the "
-            "member who completed the orientation."
+            "Sent when an orientation is marked complete. ON by default: every guild sends it "
+            "unless they turn it off. This card shows the standard copy; a guild may write its own "
+            "subject and body to override it. Goes to the member who completed the orientation."
         ),
         edit_pointer=(
             "Guild-authored (guild page → Orientations settings); "
