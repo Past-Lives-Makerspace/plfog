@@ -75,6 +75,9 @@ def describe_admin_member_edit_permissions():
         assert 'name="cap_class_approver"' in content
         assert "Class Administrator" in content
         assert "Billing Administrator" in content
+        # Notifications live on their own tab (not under Permissions), rendering the matrix.
+        assert "section === 'notifications'" in content
+        assert "pl-notif-matrix" in content
 
     def it_revokes_unchecked_capabilities(client: Client):
         _member_user("boss2", fog_role=Member.FogRole.ADMIN)

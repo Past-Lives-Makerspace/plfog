@@ -4462,11 +4462,11 @@ def admin_members(request: HttpRequest) -> HttpResponse:
 
 @fog_admin_required
 def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Hub-native tabbed edit page for a single Member (Details, Permissions, Emails).
+    """Hub-native tabbed edit page for a single Member (Details, Permissions, Notifications, Emails).
 
     Three independent save forms, dispatched by a hidden ``form_id``: the Details form
-    (role + profile), the Permissions capability toggles, and the member's notification
-    matrix (so an admin can edit a member's notifications for them).
+    (role + profile), the Permissions capability toggles, and the Notifications tab's
+    matrix (so an admin can edit a member's notification preferences for them).
     """
     from core.events import settings_matrix
 

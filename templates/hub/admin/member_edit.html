@@ -27,6 +27,7 @@
     <button type="button" class="vote-tab" :class="section === 'details' ? 'vote-tab--active' : ''" @click="section = 'details'">Details</button>
     {% if is_member %}
     <button type="button" class="vote-tab" :class="section === 'permissions' ? 'vote-tab--active' : ''" @click="section = 'permissions'">Permissions</button>
+    <button type="button" class="vote-tab" :class="section === 'notifications' ? 'vote-tab--active' : ''" @click="section = 'notifications'">Notifications</button>
     {% endif %}
     <button type="button" class="vote-tab" :class="section === 'emails' ? 'vote-tab--active' : ''" @click="section = 'emails'">Emails</button>
   </div>
@@ -126,9 +127,13 @@
         <button type="submit" class="hub-btn hub-btn--primary">Save capabilities</button>
       </div>
     </form>
+  </div>
+  {% endif %}
 
+  {# ── Notifications tab ──────────────────────────────────────────────── #}
+  {% if is_member %}
+  <div x-show="section === 'notifications'" x-cloak>
     {% if has_user %}
-      <h2 class="hub-detail-label pl-permissions-notif-heading">Notification settings</h2>
       <p class="hub-text-muted pl-permissions-hint">
         How this member is notified. They can change these from their own settings; you can adjust
         them here too.

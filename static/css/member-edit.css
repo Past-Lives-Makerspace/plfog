@@ -54,11 +54,6 @@
     font-size: 0.85rem;
     margin: 0.15rem 0 1rem;
 }
-/* Clear breathing room between the Save capabilities button and the Notification
-   settings heading below it (FRONTEND.md Rule 18). */
-.pl-permissions-notif-heading {
-    margin-top: 2rem;
-}
 .pl-person-email-line {
     max-width: 680px;
     margin: 1.25rem 0 0;
