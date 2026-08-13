@@ -216,6 +216,9 @@ def _sidebar_html(counts: dict[str, int], no_email_count: int) -> str:
         for section in SECTIONS
     ]
     items.append(
+        f'<li><a href="#section-{_slug(ORG_INFO_SECTION)}">{_esc(ORG_INFO_SECTION)} <span class="count">3</span></a></li>'
+    )
+    items.append(
         f'<li><a href="#section-no-email">{_esc(NO_EMAIL_SECTION)} <span class="count">{no_email_count}</span></a></li>'
     )
     return "<ul>" + "".join(items) + "</ul>"
@@ -223,6 +226,49 @@ def _sidebar_html(counts: dict[str, int], no_email_count: int) -> str:
 
 def _slug(section: str) -> str:
     return "".join(c if c.isalnum() else "-" for c in section.lower()).strip("-")
+
+
+# The Space & Org Info page copy, surfaced for copy review alongside the emails. Rendered from
+# the shipped launch defaults (membership.help_content) — the same blocks seed_help_center fills
+# into a blank OrgInfoPage. The code of conduct is authored per-org and links out by default, so
+# it has no shipped copy to review here.
+ORG_INFO_SECTION = "Space & Org Info page"
+
+
+def _org_info_section_html() -> str:
+    """One review section of Org Info copy cards (welcome, parking, who-to-contact)."""
+    from membership.help_content import PAGE_INTRO, PAGE_PARKING, PAGE_WHO_TO_CONTACT
+    from membership.markdown import render_page_content
+
+    blocks = [
+        ("org-info-intro", "Welcome / intro", "The welcome and overview blurb at the top of the page.", PAGE_INTRO),
+        ("org-info-parking", "Parking & arrival", "Parking and arrival info.", PAGE_PARKING),
+        (
+            "org-info-who",
+            "Who's who / who to contact",
+            "Org structure and who to contact for what.",
+            PAGE_WHO_TO_CONTACT,
+        ),
+    ]
+    cards = "\n".join(
+        f'<article class="card" id="{_esc(key)}" data-section-key="{_esc(key)}">\n'
+        f"  <h3>{_esc(name)}</h3>\n"
+        f'  <dl class="card-meta">\n'
+        f"    <div><dt>Where shown</dt><dd>The public Space &amp; Org Info page (/help)</dd></div>\n"
+        f"    <div><dt>What</dt><dd>{_esc(note)}</dd></div>\n"
+        f"    <div><dt>Where to edit</dt><dd>Hub &rarr; Help &rarr; Edit Org Info</dd></div>\n"
+        f"  </dl>\n"
+        f'  <div class="card-page-content">{render_page_content(source)}</div>\n'
+        f"</article>"
+        for key, name, note, source in blocks
+    )
+    return (
+        f'<h2 id="section-{_slug(ORG_INFO_SECTION)}">{_esc(ORG_INFO_SECTION)}</h2>'
+        '<p class="section-desc">The org-level page copy that ships as the launch default '
+        "(welcome, parking, who to contact). The code of conduct is authored per-org and links out "
+        "by default, so it has no shipped copy to review here.</p>\n"
+        f"{cards}"
+    )
 
 
 _PAGE_CSS = """
@@ -249,6 +295,12 @@ _PAGE_CSS = """
   .section-desc { color: #666; margin: 0 0 20px; font-size: 14px; }
   .card { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 20px; margin: 0 0 28px; }
   .card h3 { margin: 0 0 8px; }
+  .card-page-content { border-top: 1px solid #eee; padding-top: 14px; margin-top: 4px; }
+  .card-page-content h1, .card-page-content h2, .card-page-content h3 { border: 0; margin: 16px 0 8px; padding: 0; }
+  .card-page-content h2 { font-size: 18px; }
+  .card-page-content h3 { font-size: 16px; }
+  .card-page-content p, .card-page-content ul, .card-page-content ol { margin: 0 0 12px; }
+  .card-page-content img { max-width: 100%; height: auto; }
   .inbox-row { margin: 0 0 12px; padding: 10px 12px; background: #f2f2ee; border-radius: 6px;
                font-size: 14px; overflow-wrap: anywhere; }
   .inbox-row .from { color: #666; }
@@ -374,6 +426,7 @@ def build_site(out_dir: Path, data: SampleData) -> list[RenderedEmail]:
             f'<h2 id="section-{_slug(section)}">{_esc(section)}</h2>'
             f'<p class="section-desc">{_esc(_SECTION_DESCRIPTIONS[section])}</p>\n{body}'
         )
+    sections_html.append(_org_info_section_html())
     no_email_rows = "\n".join(
         f'<tr><td><strong>{_esc(event.label)}</strong><br><span style="color:#777">{_esc(event.key)}</span></td>'
         f"<td>{_esc(reason)}</td></tr>"

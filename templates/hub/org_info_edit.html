@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% block title %}Edit Space & Org Info{% endblock %}
+{% block title %}Edit Org Info{% endblock %}
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
 {% comment %}The text areas here are dual-mode rich-text editors (PageContentEditorWidget):
@@ -12,7 +12,7 @@ each clone handler calls window.plRteInitAll() — the shared, idempotent initia
 rich_editor_assets.html.{% endcomment %}
 {# The server-set active_tab (bound re-render after an invalid save) wins over the ?tab= query param. #}
 <div x-data="{ section: '{{ active_tab|default_if_none:'' }}' || new URLSearchParams(window.location.search).get('tab') || 'content' }">
-<h1 class="hub-page-title">Edit Space &amp; Org Info</h1>
+<h1 class="hub-page-title">Edit Org Info</h1>
 <p class="hub-text-muted" style="margin-bottom:1.5rem; max-width:65ch;">How the organization works: parking, who to contact, the FAQ, and the code of conduct. Members see it at <a href="{% url 'hub_help' %}" style="color:var(--color-tuscan-yellow);">/help/</a>. The live space map is edited separately, on the Spaces page.</p>
 
 <div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;">
