@@ -5225,6 +5225,11 @@ class Meeting(models.Model):
         blank=True,
         help_text="Start time. Always a half-hour value from the shared dropdown; blank = time TBD.",
     )
+    scheduled_end_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="End time. A half-hour value from the shared dropdown; blank = a default length on the calendar.",
+    )
     video_call_url = models.URLField(
         blank=True,
         default="",
@@ -5341,6 +5346,13 @@ class Meeting(models.Model):
         if self.scheduled_date is None:
             return None
         return timezone.make_aware(datetime_type.combine(self.scheduled_date, self.scheduled_time or time_type()))
+
+    @property
+    def ends_at(self) -> datetime_type | None:
+        """Aware end datetime from date + end time, or ``None`` when either is unset."""
+        if self.scheduled_date is None or self.scheduled_end_time is None:
+            return None
+        return timezone.make_aware(datetime_type.combine(self.scheduled_date, self.scheduled_end_time))
 
     @property
     def absolute_url(self) -> str:
@@ -5479,6 +5491,7 @@ class Meeting(models.Model):
         if self.scheduled_date is None or self.scheduled_time is None:
             raise ValueError("Set a date and time before adding the meeting to the calendar.")
         starts = timezone.make_aware(datetime_type.combine(self.scheduled_date, self.scheduled_time))
+        ends = self.ends_at or starts + timedelta(minutes=90)  # scheduled end, else a default length
         event = CommunityEvent(
             title=self.display_title,
             event_type=(
@@ -5488,7 +5501,7 @@ class Meeting(models.Model):
             ),
             guild=self.guild,
             starts_at=starts,
-            ends_at=starts + timedelta(minutes=90),
+            ends_at=ends,
             location=self._event_location(),
             recurrence=CommunityEvent.Recurrence.NONE,
             created_by=by,
@@ -5539,9 +5552,10 @@ class Meeting(models.Model):
         event.location = self._event_location()
         starts = self.starts_at
         if starts is not None:
-            duration = event.ends_at - event.starts_at
+            # A scheduled end wins; otherwise preserve the event's existing duration.
+            preserved_duration = event.ends_at - event.starts_at
             event.starts_at = starts
-            event.ends_at = starts + duration
+            event.ends_at = self.ends_at or starts + preserved_duration
             if self.event_occurrence != self.scheduled_date:
                 self.event_occurrence = self.scheduled_date
                 self.save(update_fields=["event_occurrence", "updated_at"])

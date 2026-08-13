@@ -91,6 +91,18 @@ def describe_Meeting():
         def it_is_none_while_undated():
             assert MeetingFactory(scheduled_date=None).starts_at is None
 
+    def describe_ends_at():
+        def it_combines_the_date_and_end_time():
+            meeting = MeetingFactory(scheduled_date=timezone.localdate(), scheduled_end_time=time(19, 30))
+            expected = timezone.make_aware(datetime.combine(timezone.localdate(), time(19, 30)))
+            assert meeting.ends_at == expected
+
+        def it_is_none_without_an_end_time():
+            assert MeetingFactory(scheduled_date=timezone.localdate(), scheduled_end_time=None).ends_at is None
+
+        def it_is_none_without_a_date():
+            assert MeetingFactory(scheduled_date=None, scheduled_end_time=time(19, 30)).ends_at is None
+
     def describe_constraints():
         def it_rejects_a_special_title_on_a_non_special_meeting():
             with pytest.raises(IntegrityError), transaction.atomic():
@@ -391,6 +403,18 @@ def describe_Meeting():
             assert meeting.event_occurrence == meeting.scheduled_date
             assert meeting.owns_event is True
 
+        def it_uses_the_scheduled_end_time_for_the_event_end():
+            meeting = MeetingFactory(scheduled_time=time(18, 0), scheduled_end_time=time(19, 30))
+            with patch.object(CommunityEvent, "schedule_or_go_live"):
+                event = meeting.create_calendar_event(by=_user("cend"))
+            assert event.ends_at == meeting.ends_at
+
+        def it_falls_back_to_a_default_length_without_an_end_time():
+            meeting = MeetingFactory(scheduled_time=time(18, 0), scheduled_end_time=None)
+            with patch.object(CommunityEvent, "schedule_or_go_live"):
+                event = meeting.create_calendar_event(by=_user("cdef"))
+            assert event.ends_at == event.starts_at + timedelta(minutes=90)
+
         def it_prefers_the_video_call_url_as_the_location():
             guild = GuildFactory(meeting_location="Studio B")
             meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0), video_call_url="https://meet.example/x")
@@ -484,6 +508,17 @@ def describe_Meeting():
             google.assert_called_once()
             discord.assert_called_once()
             announce.assert_not_called()  # a reschedule is a sync, never a re-announcement
+
+        def it_pushes_a_scheduled_end_time_to_the_owned_event(owned):
+            owned.scheduled_end_time = time(20, 0)
+            owned.save(update_fields=["scheduled_end_time"])
+            with (
+                patch.object(CommunityEvent, "push_to_google"),
+                patch.object(CommunityEvent, "push_to_discord"),
+            ):
+                owned.sync_event()
+            event = CommunityEvent.objects.get(pk=owned.event_id)
+            assert event.ends_at == owned.ends_at
 
         def it_propagates_a_changed_video_call_url_into_the_location(owned):
             owned.video_call_url = "https://meet.example/new"

@@ -2,36 +2,23 @@
 
 from __future__ import annotations
 
-VERSION = "1.0.2"
+VERSION = "1.0.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.0.2",
-        "date": "2026-08-12",
-        "title": "Email refresh, self-service preferences, announcements, and the space map",
+        "version": "1.0.0",
+        "date": "2026-08-13",
+        "title": "Past Lives 1.0 is here — our official launch",
         "changes": [
-            "Every Past Lives email now uses the clean white-background branding for a lighter, easier-to-read look.",
-            "You can now manage your notification preferences, or unsubscribe, straight from any email. Just tap the link in the footer, no sign-in needed.",
-            "Guild and site-wide announcements have a new 'mark as urgent' option that emails the announcement even to members who have turned that email off.",
-            "On the interactive space map, admins can click an available space to flip it to Reserved (click again to switch it back); hold Alt and click to open the full space editor.",
+            "This is the official 1.0 launch of the Past Lives app. Thank you for helping us build it. Here's what's new.",
+            "Every email got a clean refresh: a lighter, easier-to-read white-background look across the board.",
+            "Manage your own notifications, or unsubscribe, straight from any email footer. No sign-in needed.",
+            "Finish a guild orientation and you'll now get a thank-you email automatically; guilds can personalize it or turn it off.",
+            "Guild and site-wide announcements have a new 'mark as urgent' option that reaches even members who have turned that email off.",
+            "Approval and admin alerts are organized now: admins hand out specific duties (like Class Administrator), and only those folks get and can act on the matching requests. They all live in one 'Staff & leadership' group in your notification settings, and regular members don't see it.",
+            "When you create a meeting you can now set how long it runs, not just when it starts.",
+            "On the interactive space map, admins can click an available space to flip it to Reserved (click again to switch it back); hold Alt and click for the full editor.",
             "Canceling a class registration now removes that class's Mailchimp tags, so you stop getting marketing emails for it.",
-        ],
-    },
-    {
-        "version": "1.0.2",
-        "date": "2026-08-12",
-        "title": "Automatic orientation thank-you",
-        "changes": [
-            "After you finish a guild orientation you'll now get a thank-you email automatically. Every guild sends one by default; guilds can write their own version or turn it off.",
-        ],
-    },
-    {
-        "version": "1.0.2",
-        "date": "2026-08-12",
-        "title": "Admins can choose who gets approval emails",
-        "changes": [
-            "Approval requests (class reviews, space and cubby requests, discount codes, and calendar proposals) no longer email every admin. Admins can now give specific people a duty like Class Administrator or Space Administrator, and only those folks get the emails and can approve them. Any admin can still opt back in to any of these from their notification settings.",
-            "All of these approval and admin alerts now live together in one 'Staff & leadership' group at the top of your notification settings. You only see the alerts for duties you actually hold, and regular members don't see the group at all.",
         ],
     },
     {
