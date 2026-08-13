@@ -2069,7 +2069,9 @@ class Registration(models.Model):
 
             unsubscribe_registration(self)
         except Exception:
-            pass
+            # Mailchimp must never block a cancellation, but a failure here (a bug or an
+            # unexpected error) must not vanish — log it with a traceback instead.
+            logger.exception("Mailchimp unsubscribe failed for registration %s", self.pk)
 
     def mark_refunded(self, reason: str = "", actor: "User | None" = None) -> None:
         """Record this registration as refunded — record-only, issues no Stripe refund.

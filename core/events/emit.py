@@ -413,9 +413,11 @@ def _explicit_email_fan_out(
     if not explicit_emails:
         return
     from core.email import send as send_email
+    from core.events.channels import email_category_for
 
     message = message_for(Channel.EMAIL)
     attachments = channel_attachments.get(Channel.EMAIL)
+    category = email_category_for(message.trigger_kind or event_key)
     seen: set[str] = set()
     for raw in explicit_emails:
         address = (raw or "").strip()
@@ -431,6 +433,7 @@ def _explicit_email_fan_out(
                 html_body=message.html_body,
                 best_effort=True,
                 attachments=attachments,
+                category=category,
             )
             delivered.append((0, Channel.EMAIL))
         else:

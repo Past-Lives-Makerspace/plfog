@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.0.0",
+        "version": "1.0.1",
         "date": "2026-08-12",
-        "title": "Email Branding, Announcements, Map Updates, and Mailchimp Suppression",
+        "title": "Email branding, announcements, map toggles, and Mailchimp",
         "changes": [
-            "Guild and Site-wide announcements now have a 'mark as urgent' option to send the email as transactional, overriding user email preferences.",
-            "Transactional emails now include a Category header for better filtering.",
-            "Interactive map component now supports real-time availability toggling, letting admins click an available space to change its status to 'Reserved'.",
-            "Canceling a class registration now removes the registrant from the Mailchimp mailing list.",
-            "All Pastlives emails now use the white background branding for a cleaner look.",
+            "Every Past Lives email now uses the clean white-background branding for a lighter, easier-to-read look.",
+            "Guild and site-wide announcements have a new 'mark as urgent' option that emails the announcement even to members who have turned that email off.",
+            "On the interactive space map, admins can click an available space to flip it to Reserved (click again to switch it back); hold Alt and click to open the full space editor.",
+            "Canceling a class registration now removes that class's Mailchimp tags, so you stop getting marketing emails for it.",
         ],
     },
     {

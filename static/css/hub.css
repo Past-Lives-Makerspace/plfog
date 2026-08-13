@@ -6312,6 +6312,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-meeting-item__upvote-btn svg { width: 0.9rem; height: 0.9rem; }
 .pl-meeting-item__upvote-btn:hover { color: var(--hub-link); border-color: var(--hub-border); }
 .pl-meeting-item__upvote-btn--active { color: var(--hub-link); border-color: var(--hub-link); }
+/* Locked (approved) minutes: the +1 tally stays visible as a read-only record, not a control. */
+.pl-meeting-item__upvote-btn--static { cursor: default; }
+.pl-meeting-item__upvote-btn--static:hover { color: var(--hub-text-muted); border-color: transparent; }
 .pl-meeting-item__upvote-count { font-weight: 600; }
 
 /* --- Action items --- */

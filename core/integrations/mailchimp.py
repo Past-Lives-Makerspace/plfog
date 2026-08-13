@@ -170,7 +170,16 @@ class MailchimpClient:
                 auth=("anystring", self.config.api_key),
                 timeout=_DEFAULT_TIMEOUT_SECONDS,
             )
-        except requests.RequestException:
+        except requests.RequestException as exc:
+            logger.warning("Mailchimp tag-remove network error for %s: %s", email, exc)
             return False
 
-        return response.ok
+        if response.ok:
+            return True
+        logger.warning(
+            "Mailchimp tag-remove failed for %s: %s %s",
+            email,
+            response.status_code,
+            response.text[:300],
+        )
+        return False

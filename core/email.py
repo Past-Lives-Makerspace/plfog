@@ -29,13 +29,15 @@ def _deliver(
 ) -> None:
     """Hand the message to Django's mail backend.
 
-    Uses the plain ``send_mail`` path when there are no attachments and no BCC
-    (unchanged behaviour for the vast majority of sends); switches to
-    ``EmailMultiAlternatives`` when attachments OR a BCC list are present, since
-    ``send_mail`` cannot carry either. The BCC list preserves recipient privacy
-    for bulk sends (instructor/admin class emails BCC every registrant).
+    Uses the plain ``send_mail`` path when there are no attachments, no BCC, and no
+    category (unchanged behaviour for the vast majority of sends); switches to
+    ``EmailMultiAlternatives`` when attachments, a BCC list, OR a category are
+    present, since ``send_mail`` cannot carry any of the three. The BCC list
+    preserves recipient privacy for bulk sends (instructor/admin class emails BCC
+    every registrant); the category rides an ``X-Category`` header so the ESP and
+    mail-client rules can filter by workflow.
     """
-    if not attachments and not bcc:
+    if not attachments and not bcc and not category:
         send_mail(
             subject=subject,
             message=text_body,
@@ -48,7 +50,6 @@ def _deliver(
         subject=subject, body=text_body, from_email=from_email, to=recipients, bcc=bcc or None
     )
     if category:
-        message.extra_headers = message.extra_headers or {}
         message.extra_headers["X-Category"] = category
     if html_body:
         message.attach_alternative(html_body, "text/html")
@@ -87,6 +88,10 @@ def send(
             recipients private (instructor/admin class emails BCC every
             registrant). BCC addresses are recorded in the audit row's ``to_email``
             so the log reflects everyone who received the message.
+        category: Optional workflow category (e.g. the event's registry category
+            like "Billing" or "Voting"). When set, it rides an ``X-Category``
+            header — and forces the multipart send path — so ESP and mail-client
+            rules can filter by workflow.
 
     Returns:
         The TransactionalEmailLog row written for this attempt.

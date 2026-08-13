@@ -82,8 +82,15 @@ class GalleryEmail:
     context_builder: str | None = None
 
 
+# The section that leads the page: opt-in notification emails. These events default their
+# EMAIL channel OFF, so only members who opt in receive them — but an email IS sent (the
+# generic notification copy), so it belongs in the gallery, not the "No email" note. Kept
+# first so reviewers see the newly surfaced emails, and the "what changed" callout, up top.
+OPT_IN_SECTION = "Opt-in notification emails"
+
 # Sidebar order. The closing "No email is sent" note-section is appended after these.
 SECTIONS: list[str] = [
+    OPT_IN_SECTION,
     "Classes",
     "Teaching",
     "Guilds & Orientations",
@@ -604,15 +611,29 @@ def _spine_trigger_note(event: EventType) -> str:
     return f"Sent when {desc}. Goes to: {_spine_audience(event)}"
 
 
-def _spine_entry(event: EventType) -> GalleryEmail:
-    """Build the derived SPINE_COPY gallery entry for one emailing spine event."""
-    section = _CATEGORY_SECTIONS[event.category]
+# Appended to an opt-in card's trigger note so reviewers know the email is off by default.
+_OPT_IN_NOTE = (
+    " Email is OFF by default for this event, so only members who opt in receive it — "
+    "this card shows the generic notification copy they get."
+)
+
+
+def _spine_entry(event: EventType, *, section: str | None = None, opt_in: bool = False) -> GalleryEmail:
+    """Build the derived SPINE_COPY gallery entry for one emailing spine event.
+
+    ``section`` overrides the category-derived group (the opt-in events all land in
+    :data:`OPT_IN_SECTION`); ``opt_in`` appends the off-by-default qualifier to the note.
+    """
+    resolved_section = section or _CATEGORY_SECTIONS[event.category]
+    trigger_note = _spine_trigger_note(event)
+    if opt_in:
+        trigger_note += _OPT_IN_NOTE
     return GalleryEmail(
         key=event.key,
         name=event.label,
-        section=section,
+        section=resolved_section,
         renderer=Renderer.SPINE_COPY,
-        trigger_note=_spine_trigger_note(event),
+        trigger_note=trigger_note,
         edit_pointer="Edit in Site Settings → Notifications",
         audience=_spine_audience(event),
         event_keys=frozenset({event.key}),
@@ -620,12 +641,13 @@ def _spine_entry(event: EventType) -> GalleryEmail:
 
 
 def _no_email_reason(event: EventType) -> str:
-    """Why an event sends no email card — shown in the closing note-section."""
-    email = event.channel(Channel.EMAIL)
-    if email is None:
-        channels = " + ".join(c.value.replace("_", " ") for c in event.channel_list)
-        return f"{channels} only — no email channel"
-    return "email is opt-in (off by default); members who opt in receive the generic notification copy"
+    """Why an event sends no email at all — shown in the closing note-section.
+
+    Only reached for events with NO email channel (Discord / in-app only); opt-in
+    events (an EMAIL channel defaulted OFF) are carded under :data:`OPT_IN_SECTION`.
+    """
+    channels = " + ".join(c.value.replace("_", " ") for c in event.channel_list)
+    return f"{channels} only — no email channel"
 
 
 def gallery_emails() -> list[GalleryEmail]:
@@ -633,27 +655,38 @@ def gallery_emails() -> list[GalleryEmail]:
 
     Family-1 derivation order (M2): the structural dedup check runs BEFORE the
     EMAIL-off classification, so a member-OFF event whose email ships via a shell
-    template renders as its structural card.
+    template renders as its structural card. An event whose EMAIL channel is defaulted
+    OFF (opt-in) still SENDS an email — the generic notification copy — so it is carded
+    under :data:`OPT_IN_SECTION` at the top of the page rather than dropped into the
+    "No email is sent" note. Only events with no EMAIL channel at all are omitted here.
     """
     derived: list[GalleryEmail] = []
     for event in all_events():
         if event.key in _STRUCTURAL_EVENT_KEYS:
             continue  # its email ships as a structural template — rendered by that entry
         email = event.channel(Channel.EMAIL)
-        if email is None or email.default is ChannelDefault.OFF:
-            continue  # listed in the "No email is sent" section instead
-        derived.append(_spine_entry(event))
+        if email is None:
+            continue  # no email channel at all — listed in the "No email is sent" section
+        if email.default is ChannelDefault.OFF:
+            derived.append(_spine_entry(event, section=OPT_IN_SECTION, opt_in=True))
+        else:
+            derived.append(_spine_entry(event))
     return list(STRUCTURAL_EMAILS) + derived
 
 
 def no_email_events() -> list[tuple[EventType, str]]:
-    """Every spine event that gets no card, with the plain-language reason."""
+    """Every spine event that sends NO email at all, with the plain-language reason.
+
+    Only events with no EMAIL channel (Discord / in-app only) land here. Opt-in events
+    (an EMAIL channel defaulted OFF) do send an email and are carded under
+    :data:`OPT_IN_SECTION` instead — they used to be mislabeled here as sending no email.
+    """
     out: list[tuple[EventType, str]] = []
     for event in all_events():
         if event.key in _STRUCTURAL_EVENT_KEYS:
             continue
         email = event.channel(Channel.EMAIL)
-        if email is None or email.default is ChannelDefault.OFF:
+        if email is None:
             out.append((event, _no_email_reason(event)))
     return out
 

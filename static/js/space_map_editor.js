@@ -6,9 +6,12 @@
  *     percentages of the canvas — to the marker's position endpoint. Mirrors hero_cropper.js:
  *     a permission-gated JSON save that touches only the coordinate columns, so it can never
  *     fight the modal editor.
- *  2. Click a tile (a pointer-up with no drag) to open the "Edit marker" modal — its status
- *     and every detail members see — loaded over htmx. "+ Add a marker" creates a centred tile
- *     and opens the same modal. A saved/created/deleted tile swaps itself on the map out-of-band.
+ *  2. Click an available or reserved tile (a pointer-up with no drag) to toggle its
+ *     availability the other way — available <-> reserved — a quick, reversible status flip
+ *     (click again to undo) that writes through to Airtable. Alt-click (or keyboard
+ *     Enter/Space) opens the full "Edit marker" modal instead; a click on any other status
+ *     opens that modal directly. "+ Add a marker" creates a centred tile and opens the same
+ *     modal. A saved/created/deleted tile swaps itself on the map out-of-band.
  *  3. Keep drag-and-drop image upload alive on cloned floor rows (cloned innerHTML never runs
  *     its own <script>, so the drop zones are driven from one delegated listener here).
  */
@@ -63,6 +66,7 @@
     }
 
     function updateSpaceStatus(root, marker, newStatus) {
+        var prevStatus = marker.getAttribute('data-status');
         var url = editUrl(root, marker).replace('/edit/', '/status/');
         var formData = new URLSearchParams();
         formData.append('status', newStatus);
@@ -87,7 +91,7 @@
             }
             setStatus(root, 'Status updated to ' + newStatus + '.', false);
             marker.setAttribute('data-status', newStatus);
-            marker.classList.remove('pl-map-marker--available');
+            if (prevStatus) marker.classList.remove('pl-map-marker--' + prevStatus);
             marker.classList.add('pl-map-marker--' + newStatus);
         })
         .catch(function () {
@@ -151,9 +155,13 @@
             active = null;
             if (stage.releasePointerCapture) stage.releasePointerCapture(event.pointerId);
             if (!moved) {
-                // A click, not a drag: open the tile's editor, and never re-save an unchanged position.
-                if (marker.getAttribute('data-status') === 'available') {
-                    updateSpaceStatus(root, marker, 'reserved');
+                // A click, not a drag (never re-saves an unchanged position). A plain click on an
+                // available/reserved tile flips its availability the other way — reversible, click
+                // again to undo. Alt-click (or keyboard) opens the full editor instead; any other
+                // status opens the editor directly.
+                var status = marker.getAttribute('data-status');
+                if (!event.altKey && (status === 'available' || status === 'reserved')) {
+                    updateSpaceStatus(root, marker, status === 'available' ? 'reserved' : 'available');
                     return;
                 }
                 openEditor(editUrl(root, marker));

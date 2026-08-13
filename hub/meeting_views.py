@@ -526,7 +526,7 @@ def _single_item_response(request: HttpRequest, item: MeetingAgendaItem) -> Http
         {
             "item": item,
             "meeting": meeting,
-            "is_editable": can_edit_meeting(request, meeting),
+            "is_editable": can_edit_meeting(request, meeting) and not meeting.is_locked,
             "upvoted_item_ids": {item.pk} if item.upvoters.filter(pk=user.pk).exists() else set(),
         },
     )
@@ -547,7 +547,10 @@ def hub_meeting_item_upvote(request: HttpRequest, pk: int) -> HttpResponse:
         .filter(meeting__in=Meeting.objects.visible_to(user)),
         pk=pk,
     )
-    item.toggle_upvote(user)
+    try:
+        item.toggle_upvote(user)
+    except MeetingLockedError:
+        return HttpResponse("Approved minutes are locked.", status=403)
     return _single_item_response(request, item)
 
 

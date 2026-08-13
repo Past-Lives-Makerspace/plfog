@@ -2922,6 +2922,10 @@ class GuildAnnouncement(models.Model):
                 addresses (lower-cased). ``None`` (every existing caller) sends the FULL custom
                 list — the mailing-list feature is never regressed; a list narrows the additive
                 ``extra_emails`` to those addresses only. A selection only ever *narrows*.
+            override_preferences: The "mark as urgent" flag — sends the email transactionally so it
+                reaches members who have opted out of this announcement's email. It affects EMAIL
+                only; it never adds a Discord ping (the ping is exactly ``discord_mention``, the
+                author's explicit choice), matching the site-wide path.
         """
         from django.urls import reverse
 
@@ -2965,7 +2969,7 @@ class GuildAnnouncement(models.Model):
             messages={Channel.EMAIL: email_message} if email_message is not None else None,
             suppress_email=not self.send_email,
             suppress_guild_broadcast=(webhook == ""),
-            discord_mention=discord_mention or ("@here" if override_preferences else ""),
+            discord_mention=discord_mention,
             extra_emails=extra_emails,
             email_only_user_ids=selected_user_ids,
             override_preferences=override_preferences,
@@ -5001,8 +5005,13 @@ class MeetingQuerySet(models.QuerySet):
         )
 
     def needs_attention(self) -> MeetingQuerySet:
-        """Drafts an editor forgot: undated drafts + past-dated drafts still unapproved."""
-        return self.filter(status=Meeting.Status.DRAFT).filter(
+        """Unfinished meetings an editor forgot: undated + past-dated meetings not yet approved.
+
+        Excludes only APPROVED (locked) minutes, so both DRAFT and PUBLISHED meetings that
+        have slipped past their date without being approved surface here — publishing an
+        agenda must not drop it out of the approval reminder.
+        """
+        return self.exclude(status=Meeting.Status.APPROVED).filter(
             Q(scheduled_date__isnull=True) | Q(scheduled_date__lt=timezone.localdate())
         )
 
@@ -5616,7 +5625,13 @@ class MeetingAgendaItem(models.Model):
         return sum(1 for _ in self.upvoters.all())
 
     def toggle_upvote(self, user: User) -> bool:
-        """Add or remove this user's +1. Returns True if now upvoted, False if removed."""
+        """Add or remove this user's +1. Returns True if now upvoted, False if removed.
+
+        Raises:
+            MeetingLockedError: If the meeting's minutes are approved (locked) — a +1 is
+                a mutating path, and approved minutes are the permanent record.
+        """
+        self.meeting.assert_editable()
         if self.upvoters.filter(pk=user.pk).exists():
             self.upvoters.remove(user)
             return False

@@ -130,9 +130,41 @@ def subscribe_registration(registration: Registration) -> None:
     _stamp_profile_subscribed(registration)
 
 
+def _tags_still_justified(registration: Registration) -> set[str]:
+    """Tags the registrant still legitimately holds via their OTHER confirmed registrations.
+
+    A member with two confirmed registrations who cancels one must keep the tags the
+    surviving registration still earns (``class-registrant``, a shared category/guild,
+    a same-instructor tag). We union ``derive_tags`` across every *other* still-confirmed
+    registration at this email so the cancel only strips tags unique to it.
+    """
+    others = Registration.objects.filter(
+        email__iexact=registration.email,
+        status=Registration.Status.CONFIRMED,
+    ).exclude(pk=registration.pk)
+    held: set[str] = set()
+    for other in others:
+        held.update(derive_tags(other))
+    return held
+
+
 def unsubscribe_registration(registration: Registration) -> None:
-    """Unsubscribe a confirmed registrant from Mailchimp by removing tags."""
+    """Remove this registration's unique Mailchimp tags when it is cancelled.
+
+    Only strips tags this registration alone justifies — tags a surviving confirmed
+    registration still earns (see :func:`_tags_still_justified`) are left in place so the
+    member stays in the segments they still belong to. Clears
+    ``subscribed_to_mailchimp`` only when the removal actually succeeds (or there was
+    nothing unique to remove), so a failed call is logged and can be retried rather than
+    silently marked done.
+    """
     if not registration.subscribed_to_mailchimp:
+        return
+
+    tags_to_remove = [tag for tag in derive_tags(registration) if tag not in _tags_still_justified(registration)]
+    if not tags_to_remove:
+        registration.subscribed_to_mailchimp = False
+        registration.save(update_fields=["subscribed_to_mailchimp"])
         return
 
     from core.integrations.mailchimp import MailchimpClient
@@ -141,7 +173,10 @@ def unsubscribe_registration(registration: Registration) -> None:
     if not client.enabled:
         return
 
-    client.member_tags_remove(registration.email, derive_tags(registration))
+    if not client.member_tags_remove(registration.email, tags_to_remove):
+        logger.warning("Mailchimp tag-remove did not complete for registration %s; leaving flag set", registration.pk)
+        return
+
     registration.subscribed_to_mailchimp = False
     registration.save(update_fields=["subscribed_to_mailchimp"])
 

@@ -21,6 +21,7 @@ from tests.e2e.email_gallery.comment_widget import COPY_REVIEW_WIDGET  # TEMPORA
 from tests.e2e.email_gallery.context import ORIENTATION_SUBJECTS, SampleData
 from tests.e2e.email_gallery.registry import (
     NO_EMAIL_SECTION,
+    OPT_IN_SECTION,
     SECTIONS,
     GalleryEmail,
     Renderer,
@@ -236,7 +237,13 @@ _PAGE_CSS = """
   nav.toc .count { color: #888; font-size: 12px; }
   main { flex: 1 1 auto; min-width: 0; }
   h1 { margin: 0 0 4px; }
-  .meta { color: #666; margin: 0 0 32px; font-size: 14px; }
+  .meta { color: #666; margin: 0 0 24px; font-size: 14px; }
+  .changed-callout { background: #eef4fb; border: 1px solid #cfe0f2; border-left: 4px solid #0d4876;
+    border-radius: 8px; padding: 16px 20px; margin: 0 0 36px; }
+  .changed-callout h2 { margin: 0 0 8px; border: 0; padding: 0; font-size: 17px; color: #092e4c; }
+  .changed-callout p { margin: 0 0 8px; font-size: 14px; color: #33424f; }
+  .changed-callout ul { margin: 0; padding-left: 20px; font-size: 14px; color: #33424f; }
+  .changed-callout li { margin: 0 0 5px; }
   h2 { margin: 48px 0 4px; border-bottom: 2px solid #ddd; padding-bottom: 6px; }
   h2:first-of-type { margin-top: 0; }
   .section-desc { color: #666; margin: 0 0 20px; font-size: 14px; }
@@ -251,7 +258,7 @@ _PAGE_CSS = """
   .card-meta dt::after { content: ": "; }
   .card-meta dd { display: inline; margin: 0; color: #555; }
   iframe.card-email { width: 100%; border: 1px solid #ccc; border-radius: 6px; display: block;
-                      max-height: 900px; background: #12121f; }
+                      max-height: 900px; background: #eef0f3; }
   iframe.card-email.sized { max-height: none; }
   .card-text { margin-top: 10px; }
   .card-text summary { cursor: pointer; font-size: 13.5px; color: #1a4e77; }
@@ -284,7 +291,33 @@ _PAGE_JS = """
   }
 """
 
+# The "what changed" highlight at the top of the page — the delta reviewers should look at
+# this round (the email copy + design refresh, finished in the white-background rebrand).
+_CHANGED_CALLOUT = """<section class="changed-callout" aria-label="What changed in the emails">
+  <h2>What changed in the emails</h2>
+  <p>Since the last copy review the emails got a fresh coat of paint and clearer wording. What to look at:</p>
+  <ul>
+    <li><strong>New white-background look.</strong> The old dark navy card is gone. Bodies are now
+      dark slate text on a light card, with navy links and navy buttons (the gold accents were retired).</li>
+    <li><strong>Friendlier, shorter wording, consistent name.</strong> Every email now says
+      “Past Lives Makerspace,” and copy across dozens of emails was tightened: class confirmations,
+      waitlist updates, orientations, tab and lease notices, and voting reminders.</li>
+    <li><strong>Buttons instead of bare links</strong> where they matter: Find a Class, Find a Space,
+      Activate your account, View guild page, and more.</li>
+    <li><strong>New this release:</strong> announcements can be marked <em>urgent</em> (emailed even to
+      members who opted out of that announcement’s email), transactional emails carry a filtering
+      category header, and the opt-in notification emails below are shown here for the first time.</li>
+  </ul>
+</section>"""
+
+
 _SECTION_DESCRIPTIONS: dict[str, str] = {
+    OPT_IN_SECTION: (
+        "Notification emails that are OFF by default — a member only gets them after opting in "
+        "on their email settings. They used to be listed under “No email is sent,” which was "
+        "wrong: an email IS sent to members who opt in. Each card shows the generic notification "
+        "copy those members receive."
+    ),
     "Classes": "Emails a class registrant receives, from sign-up through reminders.",
     "Teaching": "Emails to instructors and reviewers around the class workflow.",
     "Guilds & Orientations": "Guild life: orientations, joins, announcements, and Discord linking.",
@@ -337,8 +370,9 @@ def build_site(out_dir: Path, data: SampleData) -> list[RenderedEmail]:
     )
     sections_html.append(
         f'<h2 id="section-no-email">{_esc(NO_EMAIL_SECTION)}</h2>'
-        '<p class="section-desc">Notification events that never email (or only email members who opt in) — '
-        "listed so this index is provably complete.</p>"
+        '<p class="section-desc">Notification events that send no email at all — Discord and/or in-app '
+        "only, with no email channel. (Opt-in emails, which do send when a member opts in, are now "
+        "carded up top under “Opt-in notification emails.”) Listed so this index is provably complete.</p>"
         f'<table class="no-email"><tr><th>Event</th><th>Why there is no email card</th></tr>{no_email_rows}</table>'
         '<p class="section-desc" style="margin-top:20px">Not shown here: free-text “email the class” blasts '
         "(instructor/admin-authored each time — no standing copy), allauth's packaged templates for flows this "
@@ -366,6 +400,7 @@ def build_site(out_dir: Path, data: SampleData) -> list[RenderedEmail]:
 <main>
 <h1>Email copy review</h1>
 <p class="meta">{_esc(meta)}</p>
+{_CHANGED_CALLOUT}
 {chr(10).join(sections_html)}
 </main>
 </div>
