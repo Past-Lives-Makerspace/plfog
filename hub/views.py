@@ -4563,9 +4563,10 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def admin_member_teaching_set(request: HttpRequest, pk: int) -> HttpResponse:
-    """Grant or revoke teaching-portal access from the member edit page (Spec D §6, Screen 3).
+    """Grant or revoke the Instructor permission from the member edit Permissions tab.
 
-    Full-page POST + Django message, matching this page's sibling actions.
+    Grants/revokes the public instructor page AND teaching access together (the unified
+    Instructor toggle). Full-page POST + Django message, matching this page's sibling actions.
     ``action`` must be ``grant`` or ``revoke``; anything else is a 400 (never
     reachable from the UI). Revoke's consequences are named in the confirm modal.
     """
@@ -4578,12 +4579,12 @@ def admin_member_teaching_set(request: HttpRequest, pk: int) -> HttpResponse:
     admin_member = Member.objects.filter(user=request.user).first()
     display = member.display_name or member.full_legal_name or f"member #{member.pk}"
     if action == "grant":
-        member.grant_teaching(granted_by=admin_member)
-        messages.success(request, f"Granted teaching access for {display}.")
+        member.grant_instructor(granted_by=admin_member)
+        messages.success(request, f"Made {display} an instructor (public page + teaching access).")
     else:
-        member.revoke_teaching(revoked_by=admin_member)
-        messages.success(request, f"Revoked teaching access for {display}.")
-    return redirect("hub_admin_member_edit", pk=member.pk)
+        member.revoke_instructor(revoked_by=admin_member)
+        messages.success(request, f"Removed instructor access for {display}.")
+    return redirect(f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions")
 
 
 @fog_admin_required

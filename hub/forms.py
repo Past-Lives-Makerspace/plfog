@@ -535,7 +535,6 @@ class MemberAdminEditForm(forms.ModelForm):
         (Member.FogRole.ADMIN, "Admin"),
         (Member.FogRole.GUILD_OFFICER, "Guild Officer"),
         (Member.FogRole.MEMBER, "Member"),
-        (Member.ADMIN_ROLE_INSTRUCTOR, "Instructor"),
         (Member.ADMIN_ROLE_GUEST, "Guest"),
     ]
 
@@ -544,8 +543,8 @@ class MemberAdminEditForm(forms.ModelForm):
         label="Role",
         help_text=(
             "Admin / Guild Officer / Member set the hierarchy role. "
-            "Instructor also grants teaching access. "
-            "Guest deactivates the member (no hub access)."
+            "Guest deactivates the member (no hub access). "
+            "Instructor is now a permission on the Permissions tab, not a role."
         ),
     )
 
@@ -573,10 +572,10 @@ class MemberAdminEditForm(forms.ModelForm):
 
     @staticmethod
     def _derive_initial_role(member: Member) -> str:
+        # Instructor is a permission now (Permissions tab), not a role — an instructor
+        # shows as their underlying hierarchy role here.
         if member.status != Member.Status.ACTIVE:
             return Member.ADMIN_ROLE_GUEST
-        if member.is_instructor and member.fog_role == Member.FogRole.MEMBER:
-            return Member.ADMIN_ROLE_INSTRUCTOR
         return member.fog_role
 
 

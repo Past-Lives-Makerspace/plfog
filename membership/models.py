@@ -1029,6 +1029,39 @@ class Member(models.Model):
             target=self,
         )
 
+    def grant_instructor(self, *, granted_by: "Member | None") -> None:
+        """Make this member a public instructor: a bio page (``instructor_slug``) + teaching access.
+
+        The single "Instructor" permission unifies the two grants. Mints a unique slug from
+        their name if they don't already have one (the public instructor page), then unlocks
+        the teaching portal via :meth:`grant_teaching`. Both halves are idempotent, so a
+        member who already completed the instructor orientation just gains the bio page.
+        """
+        from django.utils.text import slugify
+
+        if not self.instructor_slug:
+            base = slugify(self.display_name or self.full_legal_name) or f"instructor-{self.pk}"
+            slug = base
+            n = 1
+            while Member.objects.filter(instructor_slug=slug).exclude(pk=self.pk).exists():
+                n += 1
+                slug = f"{base}-{n}"
+            self.instructor_slug = slug
+            self.save(update_fields=["instructor_slug"])
+        self.grant_teaching(granted_by=granted_by)
+
+    def revoke_instructor(self, *, revoked_by: "Member | None") -> None:
+        """Remove the instructor permission: clears the public bio page AND locks teaching.
+
+        The public instructor page (``instructor_slug``) is removed and the teaching portal is
+        locked via :meth:`revoke_teaching`. Existing classes are untouched (they keep their
+        status, registrations, and emails). Idempotent.
+        """
+        if self.instructor_slug:
+            self.instructor_slug = ""
+            self.save(update_fields=["instructor_slug"])
+        self.revoke_teaching(revoked_by=revoked_by)
+
     def is_oriented_for(self, guild: Guild) -> bool:
         """True when the member has a completed orientation for this guild."""
         return self.orientation_bookings.filter(guild=guild, is_completed=True).exists()

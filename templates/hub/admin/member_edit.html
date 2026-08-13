@@ -60,36 +60,6 @@
         <p class="hub-text-muted pl-person-invite__hint">Emails them a link to sign in for the first time.</p>
       </div>
       {% endif %}
-
-      {% comment %}
-      Teaching access (Spec D §6, Screen 3). Its own card with its own action —
-      grant/revoke is an event with an actor and an activity log, not a field to
-      batch-save with the form above. Grant is a plain POST; revoke names its
-      consequences in a confirm modal. Hidden in the non-member user-edit mode
-      (this whole branch is is_member-only).
-      {% endcomment %}
-      {% url 'hub_admin_member_teaching' member.pk as teaching_url %}
-      <div class="pl-teaching-access">
-        <h2 class="hub-detail-label">Teaching access</h2>
-        {% if member.can_create_classes %}
-          <p class="pl-teaching-access__status">Can create classes — unlocked {{ member.instructor_oriented_at|date }}.</p>
-          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
-                  @click="$dispatch('open-confirm', 'revoke-teaching')">Revoke teaching access</button>
-        {% else %}
-          <p class="pl-teaching-access__status">Locked — hasn't completed the instructor orientation.</p>
-          <form method="post" action="{{ teaching_url }}">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="grant">
-            <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Grant teaching access</button>
-          </form>
-        {% endif %}
-        <p class="hub-text-muted pl-teaching-access__hint">
-          The Instructor <em>role</em> (public instructor page) is separate — set it with the Role dropdown above.
-        </p>
-      </div>
-      {% if member.can_create_classes %}
-        {% include "components/confirm_modal.html" with confirm_id="revoke-teaching" confirm_title="Revoke teaching access?" confirm_message=person_name|add:" will be locked out of the teaching portal and can't create new classes. Their existing classes and registrations are not affected. They can re-unlock by completing the orientation again." confirm_action_url=teaching_url confirm_field_name="action" confirm_field_value="revoke" confirm_button_text="Revoke access" %}
-      {% endif %}
     {% else %}
       {# Non-member user mode — read-only identity. #}
       <div class="pl-person-identity">
@@ -127,6 +97,31 @@
         <button type="submit" class="hub-btn hub-btn--primary">Save capabilities</button>
       </div>
     </form>
+
+    {% comment %}
+    Instructor: an immediate-effect permission (not batch-saved with the capabilities form).
+    Turning it on grants a public instructor page AND teaching access; turning it off removes
+    both, so the off-flip opens a confirm before the revoke POST.
+    {% endcomment %}
+    {% url 'hub_admin_member_teaching' member.pk as instructor_url %}
+    <h2 class="hub-detail-label pl-permissions-section">Instructor</h2>
+    <div class="pl-toggle-row">
+      <div class="pl-toggle-info">
+        <div class="pl-toggle-label">Instructor</div>
+        <div class="pl-toggle-desc">Gives them a public instructor page and lets them create their own classes. Turning this off removes both (their existing classes are untouched).</div>
+      </div>
+      <label class="pl-toggle">
+        <input type="checkbox" {% if member.is_instructor %}checked{% endif %}
+               @change="if ($event.target.checked) { $refs.grantInstructor.requestSubmit() } else { $event.target.checked = true; $dispatch('open-confirm', 'revoke-instructor') }"
+               aria-label="Instructor permission">
+        <span class="pl-toggle__slider"></span>
+      </label>
+    </div>
+    <form method="post" action="{{ instructor_url }}" x-ref="grantInstructor" class="pl-hidden-form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="grant">
+    </form>
+    {% include "components/confirm_modal.html" with confirm_id="revoke-instructor" confirm_title="Remove instructor access?" confirm_message=person_name|add:" will lose their public instructor page and can no longer create new classes. Their existing classes and registrations are not affected." confirm_action_url=instructor_url confirm_field_name="action" confirm_field_value="revoke" confirm_button_text="Remove access" %}
   </div>
   {% endif %}
 

@@ -54,6 +54,16 @@
     font-size: 0.85rem;
     margin: 0.15rem 0 1rem;
 }
+/* Clear breathing room before a new Permissions sub-section (e.g. Instructor) below the
+   Save capabilities button (FRONTEND.md Rule 18). */
+.pl-permissions-section {
+    margin-top: 2rem;
+}
+/* Off-screen form the Instructor toggle submits to grant (not display:none on an x-show
+   element — this is a static helper form, so a plain hidden class is fine). */
+.pl-hidden-form {
+    display: none;
+}
 .pl-person-email-line {
     max-width: 680px;
     margin: 1.25rem 0 0;
