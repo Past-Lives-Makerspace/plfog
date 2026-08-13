@@ -97,6 +97,8 @@ a proposal approval's response appends this item to the accordion out-of-band).
       <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
               hx-post="{% url 'hub_meeting_action_add' item.pk %}"
               hx-target="#action-list-{{ item.pk }}" hx-swap="beforeend">+ Add action item</button>
+      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+              @click="$dispatch('open-confirm', 'del-item-{{ item.pk }}')">Delete topic</button>
     </div>
     {% else %}
     {% if item.description %}
