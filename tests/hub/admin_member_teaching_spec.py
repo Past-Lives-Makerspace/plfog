@@ -70,6 +70,22 @@ def describe_grant_and_revoke_instructor_models():
         assert not target.is_instructor
         assert not target.can_create_classes
 
+    def it_logs_exactly_once_on_a_fresh_grant(db):
+        target = _target_member()
+        target.grant_instructor(granted_by=None)
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_GRANTED, target_id=target.pk).count() == 1
+
+    def it_logs_the_page_grant_for_an_already_oriented_member(db):
+        # The teaching half no-ops (already oriented), but the public page going live is audited.
+        target = _target_member(instructor_oriented_at=timezone.now())
+        target.grant_instructor(granted_by=None)
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_GRANTED, target_id=target.pk).count() == 1
+
+    def it_logs_the_page_removal_when_teaching_was_already_off(db):
+        target = _target_member(instructor_slug="target-member")  # bio page, but never had teaching
+        target.revoke_instructor(revoked_by=None)
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_REVOKED, target_id=target.pk).count() == 1
+
 
 def describe_admin_member_teaching_set():
     def it_denies_a_non_admin(client):

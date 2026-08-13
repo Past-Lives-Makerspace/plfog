@@ -1034,12 +1034,18 @@ class Member(models.Model):
 
         The single "Instructor" permission unifies the two grants. Mints a unique slug from
         their name if they don't already have one (the public instructor page), then unlocks
-        the teaching portal via :meth:`grant_teaching`. Both halves are idempotent, so a
-        member who already completed the instructor orientation just gains the bio page.
+        the teaching portal via :meth:`grant_teaching`. Idempotent. A member who already
+        completed the instructor orientation just gains the bio page — and that page going live
+        is still audited: ``grant_teaching`` no-ops when teaching was already unlocked, so the
+        slug mint logs its own ``SiteActivity`` here rather than going unrecorded.
         """
         from django.utils.text import slugify
 
-        if not self.instructor_slug:
+        from core.models import SiteActivity
+
+        already_teaching = self.instructor_oriented_at is not None
+        minted = not self.instructor_slug
+        if minted:
             base = slugify(self.display_name or self.full_legal_name) or f"instructor-{self.pk}"
             slug = base
             n = 1
@@ -1048,19 +1054,37 @@ class Member(models.Model):
                 slug = f"{base}-{n}"
             self.instructor_slug = slug
             self.save(update_fields=["instructor_slug"])
-        self.grant_teaching(granted_by=granted_by)
+        self.grant_teaching(granted_by=granted_by)  # logs TEACHING_GRANTED unless already unlocked
+        if minted and already_teaching:
+            # The teaching half no-op'd, but the public page just went live — record it.
+            SiteActivity.log(
+                SiteActivity.Kind.TEACHING_GRANTED,
+                actor=granted_by.user if granted_by is not None else None,
+                target=self,
+            )
 
     def revoke_instructor(self, *, revoked_by: "Member | None") -> None:
         """Remove the instructor permission: clears the public bio page AND locks teaching.
 
         The public instructor page (``instructor_slug``) is removed and the teaching portal is
         locked via :meth:`revoke_teaching`. Existing classes are untouched (they keep their
-        status, registrations, and emails). Idempotent.
+        status, registrations, and emails). Idempotent. When teaching was already locked,
+        ``revoke_teaching`` no-ops, so the page removal logs its own ``SiteActivity`` here.
         """
-        if self.instructor_slug:
+        from core.models import SiteActivity
+
+        was_teaching = self.instructor_oriented_at is not None
+        had_slug = bool(self.instructor_slug)
+        if had_slug:
             self.instructor_slug = ""
             self.save(update_fields=["instructor_slug"])
-        self.revoke_teaching(revoked_by=revoked_by)
+        self.revoke_teaching(revoked_by=revoked_by)  # logs TEACHING_REVOKED unless already locked
+        if had_slug and not was_teaching:
+            SiteActivity.log(
+                SiteActivity.Kind.TEACHING_REVOKED,
+                actor=revoked_by.user if revoked_by is not None else None,
+                target=self,
+            )
 
     def is_oriented_for(self, guild: Guild) -> bool:
         """True when the member has a completed orientation for this guild."""
