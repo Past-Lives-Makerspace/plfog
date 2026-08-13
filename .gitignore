@@ -60,3 +60,6 @@ screenshots/
 
 # Empty local test DB artifact
 test_db.sqlite3
+
+# Email copy gallery build output (scripts/build-email-gallery.sh)
+email-gallery/
