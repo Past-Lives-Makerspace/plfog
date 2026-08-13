@@ -743,6 +743,21 @@ def hub_meeting_attachment_delete(request: HttpRequest, pk: int) -> HttpResponse
 
 @login_required
 @require_POST
+def hub_meeting_publish(request: HttpRequest, pk: int) -> HttpResponse:
+    """Publish the agenda — transitions DRAFT → PUBLISHED (header button → redirect)."""
+    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
+    if not can_edit_meeting(request, meeting):
+        return HttpResponse("Forbidden", status=403)
+    try:
+        meeting.publish()
+    except (ValueError, MeetingLockedError) as exc:
+        return _invalid(str(exc))
+    messages.success(request, "Agenda published.")
+    return redirect(reverse("hub_meeting", args=[meeting.pk]))
+
+
+@login_required
+@require_POST
 def hub_meeting_approve(request: HttpRequest, pk: int) -> HttpResponse:
     """Approve and lock the minutes (footer confirm modal → redirect to locked mode)."""
     meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)

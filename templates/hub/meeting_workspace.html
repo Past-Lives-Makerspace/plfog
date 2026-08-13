@@ -30,6 +30,14 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
       {% endif %}
     </div>
     <div class="pl-meeting-header__actions">
+      {% if is_editable and meeting.status == 'draft' %}
+      <form method="post" action="{% url 'hub_meeting_publish' meeting.pk %}" style="display:inline">
+        {% csrf_token %}
+        <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Publish agenda</button>
+      </form>
+      {% elif meeting.status == 'published' and not meeting.is_locked %}
+      <span class="pl-meeting-published-badge">Published</span>
+      {% endif %}
       {% if is_editable %}
       <span class="pl-meeting-savestate"
             :class="'pl-meeting-savestate--' + saveState"
@@ -286,6 +294,27 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
     {% endif %}
   </div>
   {% endif %}
+
+  {# ── Shared delete-item confirm (workspace-level — outside HTMX-swapped list to avoid x-teleport race) ── #}
+  <div x-show="deleteConfirm.open"
+       x-transition.opacity
+       class="pl-confirm-overlay"
+       @click.self="deleteConfirm.open = false"
+       @keydown.escape.window="if (deleteConfirm.open) deleteConfirm.open = false"
+       role="dialog" aria-modal="true"
+       aria-label="Delete topic confirmation">
+    <div class="pl-confirm-dialog">
+      <h3 class="pl-confirm-dialog__title">Delete this topic?</h3>
+      <p class="pl-confirm-dialog__message"
+         x-text="'Deletes this topic and its ' + deleteConfirm.actionCount + ' action item(s).'"></p>
+      <div class="pl-confirm-dialog__actions">
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                @click="deleteConfirm.open = false">Cancel</button>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                @click="executeDeleteItem()">Delete topic</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 {# ── The "+ Attach file or link" modal (house inline pl-modal pattern) ── #}
@@ -443,6 +472,7 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
 document.addEventListener('alpine:init', () => {
   Alpine.data('plMeetingWorkspace', () => ({
     openItem: null,
+    deleteConfirm: { open: false, pk: null, url: '', actionCount: 0 },
     saveState: 'idle',
     savedAt: 0,
     _tick: 0,
@@ -473,8 +503,23 @@ document.addEventListener('alpine:init', () => {
       ['clean'],
     ],
 
+    openDeleteItemConfirm(pk, url, actionCount) {
+      this.deleteConfirm = { open: true, pk: pk, url: url, actionCount: actionCount };
+    },
+    executeDeleteItem() {
+      htmx.ajax('POST', this.deleteConfirm.url, {
+        target: '#item-' + this.deleteConfirm.pk,
+        swap: 'outerHTML',
+      });
+      this.deleteConfirm.open = false;
+    },
+
     init() {
-      this.initNotes();
+      if (window.Quill) {
+        this.initNotes();
+      } else {
+        window.addEventListener('load', () => this.initNotes(), { once: true });
+      }
       this._tickInterval = setInterval(() => { this._tick++; }, 10000);
     },
 
@@ -594,11 +639,13 @@ document.addEventListener('alpine:init', () => {
     onDimClick(evt) {
       if (this.openItem === null) return;
       if (evt.target.closest('.pl-meeting-item--open') !== null) return;
-      // A dim-click only collapses — never both (§6.3): the collapse flushes the
-      // open item's dirty saves and the SECOND click acts normally.
-      evt.preventDefault();
-      evt.stopPropagation();
       this.collapseItem();
+      // Let interactive elements (inputs, checkboxes, buttons, links) act immediately.
+      // Passive background clicks are prevented so stray taps don't navigate or submit.
+      if (!evt.target.closest('button, a, input, select, textarea, label, [role="button"]')) {
+        evt.preventDefault();
+        evt.stopPropagation();
+      }
     },
     toggleAgendaItem(pk) {
       if (this.openItem === pk) { this.collapseItem(); return; }

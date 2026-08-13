@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
-VERSION = "0.25.0"
+VERSION = "0.26.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "0.26.0",
+        "date": "2026-08-12",
+        "title": "Meetings: agenda building, upvotes, and publishing",
+        "changes": [
+            "Adding agenda topics is now instant: just type in the box at the bottom of the agenda "
+            "and hit Add. No more clicking to create an empty item first.",
+            "Click any agenda topic to expand it and edit the details. Tap the pencil icon or the "
+            "row itself — they both work.",
+            "Any member can +1 an agenda topic to signal they really want to discuss it. Counts "
+            "show on the row so the council can see what's on people's minds.",
+            "Guild leads and council can now publish an agenda once it's ready. Look for the "
+            "Publish agenda button at the top of the meeting page.",
+            "Delete a topic from the row (trash icon) or from inside the topic detail — both open "
+            "a confirmation before removing.",
+        ],
+    },
     {
         "version": "0.25.0",
         "date": "2026-08-11",

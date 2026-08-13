@@ -5028,6 +5028,7 @@ class Meeting(models.Model):
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
+        PUBLISHED = "published", "Published"
         APPROVED = "approved", "Approved"
 
     # Queryset annotations + per-viewer flag set by the Meetings home view (§6.2).
@@ -5057,7 +5058,7 @@ class Meeting(models.Model):
         max_length=20,
         choices=Status.choices,
         default=Status.DRAFT,
-        help_text="Draft = editable workspace. Approved = locked minutes of record.",
+        help_text="Draft = editable workspace. Published = agenda finalised, visible. Approved = locked minutes of record.",
     )
     scheduled_date = models.DateField(
         null=True,
@@ -5234,6 +5235,20 @@ class Meeting(models.Model):
         """
         if self.is_locked:
             raise MeetingLockedError("Approved minutes are locked.")
+
+    def publish(self) -> None:
+        """Transition from draft to published — agenda is finalised and visible.
+
+        Raises:
+            MeetingLockedError: If the minutes are already approved.
+            ValueError: If the meeting is not in DRAFT status.
+        """
+        if self.status == self.Status.APPROVED:
+            raise MeetingLockedError("Approved minutes cannot be published again.")
+        if self.status != self.Status.DRAFT:
+            raise ValueError(f"Cannot publish a meeting with status {self.status!r}.")
+        self.status = self.Status.PUBLISHED
+        self.save(update_fields=["status"])
 
     def approve(self, *, by: User) -> None:
         """Approve and lock the minutes: stamp, auto-decline pending proposals, notify.

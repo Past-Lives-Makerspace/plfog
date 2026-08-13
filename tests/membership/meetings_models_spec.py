@@ -268,6 +268,24 @@ def describe_Meeting():
             # Timestamped period → the corrected minutes announce again instead of deduping.
             assert _deliveries("meeting.minutes_approved") == 2
 
+    def describe_publish():
+        def it_transitions_draft_to_published(db):
+            meeting = MeetingFactory()
+            meeting.publish()
+            meeting.refresh_from_db()
+            assert meeting.status == Meeting.Status.PUBLISHED
+            assert meeting.is_locked is False
+
+        def it_raises_when_already_published(db):
+            meeting = MeetingFactory(published=True)
+            with pytest.raises(ValueError):
+                meeting.publish()
+
+        def it_raises_MeetingLockedError_when_approved(db):
+            meeting = MeetingFactory(approved=True)
+            with pytest.raises(MeetingLockedError):
+                meeting.publish()
+
     def describe_unlock():
         def it_reopens_the_draft_and_keeps_the_stamps_as_history():
             approver = _user("appr")

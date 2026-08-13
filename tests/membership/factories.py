@@ -314,6 +314,9 @@ class MeetingFactory(factory.django.DjangoModelFactory):
             approved_by=factory.SubFactory(UserFactory),
             approved_at=factory.LazyFunction(timezone.now),
         )
+        published = factory.Trait(
+            status=Meeting.Status.PUBLISHED,
+        )
 
 
 class MeetingAgendaItemFactory(factory.django.DjangoModelFactory):
