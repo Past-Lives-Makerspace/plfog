@@ -25,6 +25,9 @@
   {# ── Tabs ───────────────────────────────────────────────────────────── #}
   <div class="pl-person-tabs">
     <button type="button" class="vote-tab" :class="section === 'details' ? 'vote-tab--active' : ''" @click="section = 'details'">Details</button>
+    {% if is_member %}
+    <button type="button" class="vote-tab" :class="section === 'permissions' ? 'vote-tab--active' : ''" @click="section = 'permissions'">Permissions</button>
+    {% endif %}
     <button type="button" class="vote-tab" :class="section === 'emails' ? 'vote-tab--active' : ''" @click="section = 'emails'">Emails</button>
   </div>
 
@@ -34,17 +37,8 @@
       <form method="post" class="pl-person-form">
         {% csrf_token %}
         {% for field in form %}
-          {% if field.name != "capabilities" %}
-            {% include "components/form_field.html" with field=field %}
-          {% endif %}
+          {% include "components/form_field.html" with field=field %}
         {% endfor %}
-        {% comment %}Admin capabilities: a real multi-checkbox set, rendered explicitly so it is not
-        collapsed into the single-toggle branch of the shared form_field component.{% endcomment %}
-        <div class="pl-person-capabilities">
-          <div class="hub-detail-label">{{ form.capabilities.label }}</div>
-          <div class="hub-text-muted pl-person-capabilities__hint">{{ form.capabilities.help_text }}</div>
-          {{ form.capabilities }}
-        </div>
         <div class="pl-person-actions">
           <button type="submit" class="hub-btn hub-btn--primary">Save member</button>
           <a href="{% url 'hub_admin_members' %}" class="hub-btn hub-btn--ghost" hx-boost="false">Cancel</a>
@@ -112,6 +106,41 @@
       </div>
     {% endif %}
   </div>
+
+  {# ── Permissions tab ────────────────────────────────────────────────── #}
+  {% if is_member %}
+  <div x-show="section === 'permissions'" x-cloak>
+    <form method="post" class="pl-person-form">
+      {% csrf_token %}
+      <input type="hidden" name="form_id" value="capabilities">
+      <h2 class="hub-detail-label">Admin capabilities</h2>
+      <p class="hub-text-muted pl-permissions-hint">
+        Site-wide duties. Each one both sends this member the matching approval or alert emails and
+        lets them act on it, without granting full admin. Per-guild lead and staff roles are managed
+        on each guild's own Staff tab, not here.
+      </p>
+      {% for field in capabilities_form %}
+        {% include "components/toggle.html" with field=field toggle_label=field.label toggle_description=field.help_text %}
+      {% endfor %}
+      <div class="pl-person-actions">
+        <button type="submit" class="hub-btn hub-btn--primary">Save capabilities</button>
+      </div>
+    </form>
+
+    {% if has_user %}
+      <h2 class="hub-detail-label pl-permissions-notif-heading">Notification settings</h2>
+      <p class="hub-text-muted pl-permissions-hint">
+        How this member is notified. They can change these from their own settings; you can adjust
+        them here too.
+      </p>
+      {% include "hub/partials/_notification_matrix.html" with matrix_self=False %}
+    {% else %}
+      <p class="hub-text-muted pl-permissions-hint">
+        Link an account (add an email in the Emails tab) to manage this member's notifications.
+      </p>
+    {% endif %}
+  </div>
+  {% endif %}
 
   {# ── Emails tab ─────────────────────────────────────────────────────── #}
   <div x-show="section === 'emails'" x-cloak>

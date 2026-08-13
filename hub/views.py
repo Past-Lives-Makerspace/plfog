@@ -39,6 +39,7 @@ from hub.forms import (
     GuildEditForm,
     GuildRoleFormSet,
     MemberAdminEditForm,
+    MemberCapabilitiesForm,
     MemberContactForm,
     MemberContactFormSet,
     MemberSkillForm,
@@ -4461,16 +4462,36 @@ def admin_members(request: HttpRequest) -> HttpResponse:
 
 @fog_admin_required
 def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Hub-native tabbed edit page for a single Member (Details + Emails)."""
+    """Hub-native tabbed edit page for a single Member (Details, Permissions, Emails).
+
+    Three independent save forms, dispatched by a hidden ``form_id``: the Details form
+    (role + profile), the Permissions capability toggles, and the member's notification
+    matrix (so an admin can edit a member's notifications for them).
+    """
+    from core.events import settings_matrix
+
     member = get_object_or_404(Member, pk=pk)
+    permissions_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
 
     if request.method == "POST":
+        form_id = request.POST.get("form_id")
+        if form_id == "capabilities":
+            cap_form = MemberCapabilitiesForm(request.POST)
+            if cap_form.is_valid():
+                member.sync_admin_capabilities(cap_form.selected(), granted_by=cast(User, request.user))
+                messages.success(request, "Saved admin capabilities.")
+            return redirect(permissions_url)
+        if form_id == "notifications":
+            target = member.user
+            if target is not None:
+                settings_matrix.save_matrix(target, request.POST)
+                messages.success(request, "Saved notification settings.")
+            return redirect(permissions_url)
         form = MemberAdminEditForm(request.POST, instance=member)
         if form.is_valid():
             obj = form.save(commit=False)
             obj.save()
             obj.apply_admin_role(form.cleaned_data["role"])
-            obj.sync_admin_capabilities(form.cleaned_data["capabilities"], granted_by=request.user)
             display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
             messages.success(request, f"Saved {display}.")
             return redirect("hub_admin_members")
@@ -4491,6 +4512,14 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if user
         else []
     )
+    # Permissions tab: capability toggles (always) + this member's notification matrix
+    # (only when they have a linked account to hold preferences on).
+    cap_form = MemberCapabilitiesForm(initial=MemberCapabilitiesForm.initial_for(member))
+    notif_matrix = notif_channels = notif_channel_labels = None
+    if user is not None:
+        notif_matrix = settings_matrix.build_matrix(user)
+        notif_channels = [(c, settings_matrix.CHANNEL_LABELS[c]) for c in settings_matrix.visible_channels(user)]
+        notif_channel_labels = {channel.value: label for channel, label in notif_channels}
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -4500,6 +4529,10 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "is_member": True,
             "member": member,
             "form": form,
+            "capabilities_form": cap_form,
+            "notif_matrix": notif_matrix,
+            "notif_channels": notif_channels,
+            "notif_channel_labels": notif_channel_labels,
             "person_name": member.full_legal_name or member.display_name or "Member",
             "primary_email": member.primary_email,
             "has_signed_in": has_signed_in,

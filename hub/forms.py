@@ -549,17 +549,6 @@ class MemberAdminEditForm(forms.ModelForm):
         ),
     )
 
-    capabilities = forms.MultipleChoiceField(
-        choices=AdminCapability.Capability.choices,
-        required=False,
-        widget=forms.CheckboxSelectMultiple,
-        label="Admin capabilities",
-        help_text=(
-            "Scoped admin duties: each routes the matching approval or alert emails to this member "
-            "and lets them act on that object type, without granting full admin."
-        ),
-    )
-
     class Meta:
         model = Member
         fields = [
@@ -581,9 +570,6 @@ class MemberAdminEditForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
             self.fields["role"].initial = self._derive_initial_role(self.instance)
-            self.fields["capabilities"].initial = list(
-                self.instance.admin_capabilities.values_list("capability", flat=True)
-            )
 
     @staticmethod
     def _derive_initial_role(member: Member) -> str:
@@ -592,6 +578,67 @@ class MemberAdminEditForm(forms.ModelForm):
         if member.is_instructor and member.fog_role == Member.FogRole.MEMBER:
             return Member.ADMIN_ROLE_INSTRUCTOR
         return member.fog_role
+
+
+class MemberCapabilitiesForm(forms.Form):
+    """A member's scoped, site-wide admin duties, one BooleanField per capability.
+
+    Each field renders as a labeled toggle (``components/toggle.html``) on the member
+    edit Permissions tab. A capability is the master switch: holding it both routes the
+    matching approval/alert emails to this member AND lets them act on that object type,
+    without granting full admin. These are SITE-WIDE — per-guild lead/staff authority is
+    managed on the guild's own Staff tab, not here.
+
+    Build for GET with ``MemberCapabilitiesForm(initial=MemberCapabilitiesForm.initial_for(member))``;
+    on POST, ``form.selected()`` returns the checked capability values for
+    :meth:`membership.models.Member.sync_admin_capabilities`.
+    """
+
+    cap_class_approver = forms.BooleanField(
+        required=False,
+        label="Class Administrator",
+        help_text="Approves and publishes classes for every guild, and gets class-review emails.",
+    )
+    cap_space_approver = forms.BooleanField(
+        required=False,
+        label="Space & Cubby Administrator",
+        help_text="Reviews space and cubby requests, and gets those request emails.",
+    )
+    cap_discount_approver = forms.BooleanField(
+        required=False,
+        label="Discount Code Administrator",
+        help_text="Approves discount codes, and gets discount-request emails.",
+    )
+    cap_events_approver = forms.BooleanField(
+        required=False,
+        label="Calendar Administrator",
+        help_text="Reviews Community Calendar and meeting proposals, and gets those emails.",
+    )
+    cap_billing_approver = forms.BooleanField(
+        required=False,
+        label="Billing Administrator",
+        help_text="Gets an alert when a member's automatic payment fails.",
+    )
+
+    # Field name → the capability it grants. The single source of truth both
+    # ``initial_for`` and ``selected`` read, so the two never drift.
+    _FIELD_TO_CAP: dict[str, str] = {
+        "cap_class_approver": AdminCapability.Capability.CLASS_APPROVER,
+        "cap_space_approver": AdminCapability.Capability.SPACE_APPROVER,
+        "cap_discount_approver": AdminCapability.Capability.DISCOUNT_APPROVER,
+        "cap_events_approver": AdminCapability.Capability.EVENTS_APPROVER,
+        "cap_billing_approver": AdminCapability.Capability.BILLING_APPROVER,
+    }
+
+    @classmethod
+    def initial_for(cls, member: Member) -> dict[str, bool]:
+        """The checked-state map for ``member``'s currently held capabilities."""
+        held = set(member.admin_capabilities.values_list("capability", flat=True))
+        return {name: cap in held for name, cap in cls._FIELD_TO_CAP.items()}
+
+    def selected(self) -> list[str]:
+        """The capability values whose toggles are checked (call after ``is_valid``)."""
+        return [cap for name, cap in self._FIELD_TO_CAP.items() if self.cleaned_data.get(name)]
 
 
 class SiteSettingsForm(forms.ModelForm):
