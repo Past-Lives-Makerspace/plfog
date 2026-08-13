@@ -133,7 +133,7 @@ class EventType:
     recipient: Recipients
     channels: tuple[ChannelSpec, ...] = field(default_factory=tuple)
     activity_kind: str | None = None
-    email_shell: str = "dark"
+    email_shell: str = "light"
 
     def channel(self, channel: Channel) -> ChannelSpec | None:
         """Return this event's spec for ``channel``, or ``None`` if not declared."""

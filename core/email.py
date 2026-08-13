@@ -25,6 +25,7 @@ def _deliver(
     recipients: list[str],
     attachments: list[Attachment] | None,
     bcc: list[str] | None = None,
+    category: str | None = None,
 ) -> None:
     """Hand the message to Django's mail backend.
 
@@ -46,6 +47,9 @@ def _deliver(
     message = EmailMultiAlternatives(
         subject=subject, body=text_body, from_email=from_email, to=recipients, bcc=bcc or None
     )
+    if category:
+        message.extra_headers = message.extra_headers or {}
+        message.extra_headers["X-Category"] = category
     if html_body:
         message.attach_alternative(html_body, "text/html")
     for filename, content, mimetype in attachments or []:
@@ -64,6 +68,7 @@ def send(
     best_effort: bool = False,
     attachments: list[Attachment] | None = None,
     bcc: str | list[str] | None = None,
+    category: str | None = None,
 ) -> TransactionalEmailLog:
     """Send a transactional email and log the attempt.
 
@@ -101,6 +106,7 @@ def send(
             recipients=recipients,
             attachments=attachments,
             bcc=bcc_list or None,
+            category=category,
         )
     except Exception as exc:  # noqa: BLE001 — we log then re-raise unless best_effort
         log = TransactionalEmailLog.objects.create(

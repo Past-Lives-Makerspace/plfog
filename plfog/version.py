@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "0.26.0"
+VERSION = "1.0.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.0.0",
+        "date": "2026-08-12",
+        "title": "Email Branding, Announcements, Map Updates, and Mailchimp Suppression",
+        "changes": [
+            "Guild and Site-wide announcements now have a 'mark as urgent' option to send the email as transactional, overriding user email preferences.",
+            "Transactional emails now include a Category header for better filtering.",
+            "Interactive map component now supports real-time availability toggling, letting admins click an available space to change its status to 'Reserved'.",
+            "Canceling a class registration now removes the registrant from the Mailchimp mailing list.",
+            "All Pastlives emails now use the white background branding for a cleaner look.",
+        ],
+    },
     {
         "version": "0.26.0",
         "date": "2026-08-12",

@@ -1,10 +1,10 @@
 {% extends "membership/emails/_base.html" %}
 {% load rich_text %}
 {% block content %}
-<p style="margin: 0 0 8px; font-size: 14px; color: #96ACBB;">Hi {{ greeting_name }},</p>
-<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #F4EFDD;">Welcome to <a href="{{ guild_url }}" style="color: #EEB44B; text-decoration: none;">{{ guild.name }}</a>!</p>
-<div style="font-size: 14px; color: #F4EFDD; line-height: 1.7;">{{ body|rich_email_body }}</div>
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Welcome to <a href="{{ guild_url }}" style="color: #0d4876; text-decoration: none;">{{ guild.name }}</a>!</p>
+<div style="font-size: 14px; color: #33424f; line-height: 1.7;">{{ body|rich_email_body }}</div>
 <div style="text-align: center; margin: 24px 0 0;">
-    <a href="{{ guild_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View guild page</a>
+    <a href="{{ guild_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View guild page</a>
 </div>
 {% endblock %}

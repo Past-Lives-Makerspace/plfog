@@ -1,11 +1,11 @@
 {% extends "membership/emails/_base.html" %}
 {% block content %}
-<p style="margin: 0 0 8px; font-size: 14px; color: #96ACBB;">Hi {{ greeting_name }},</p>
-<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #F4EFDD;">Orientation cancelled</p>
-<p style="margin: 0 0 8px; font-size: 14px; color: #F4EFDD; line-height: 1.6;">We're so sorry for the inconvenience! We've had to cancel your orientation for <strong><a href="{{ guild_url }}" style="color: #EEB44B; text-decoration: none;">{{ guild.name }}</a></strong>.</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Orientation cancelled</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">We're so sorry for the inconvenience! We've had to cancel your orientation for <strong><a href="{{ guild_url }}" style="color: #0d4876; text-decoration: none;">{{ guild.name }}</a></strong>.</p>
 {% include "membership/emails/_slot.html" %}
-<p style="margin: 0 0 16px; font-size: 13px; color: #96ACBB; line-height: 1.6;">We'd love to get you oriented ASAP, so visit your Guild's page to choose a new time.</p>
+<p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">We'd love to get you oriented ASAP, so visit your Guild's page to choose a new time.</p>
 <div style="text-align: center; margin: 24px 0 0;">
-    <a href="{{ guild_url }}" style="display: inline-block; padding: 12px 32px; background-color: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View guild page</a>
+    <a href="{{ guild_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View guild page</a>
 </div>
 {% endblock %}

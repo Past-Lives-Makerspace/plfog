@@ -2064,6 +2064,12 @@ class Registration(models.Model):
         if previously_held_a_spot:
             self.class_offering.promote_next_from_waitlist()
 
+        try:
+            from classes.services.mailchimp_subscribe import unsubscribe_registration
+            unsubscribe_registration(self)
+        except Exception:
+            pass
+
     def mark_refunded(self, reason: str = "", actor: "User | None" = None) -> None:
         """Record this registration as refunded — record-only, issues no Stripe refund.
 

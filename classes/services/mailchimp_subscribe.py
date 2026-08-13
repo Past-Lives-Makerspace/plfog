@@ -130,6 +130,22 @@ def subscribe_registration(registration: Registration) -> None:
     _stamp_profile_subscribed(registration)
 
 
+def unsubscribe_registration(registration: Registration) -> None:
+    """Unsubscribe a confirmed registrant from Mailchimp by removing tags."""
+    if not registration.subscribed_to_mailchimp:
+        return
+
+    from core.integrations.mailchimp import MailchimpClient
+
+    client = MailchimpClient.from_site_config()
+    if not client.enabled:
+        return
+
+    client.member_tags_remove(registration.email, derive_tags(registration))
+    registration.subscribed_to_mailchimp = False
+    registration.save(update_fields=["subscribed_to_mailchimp"])
+
+
 def _stamp_profile_subscribed(registration: Registration) -> None:
     """Mirror the opt-in onto the registrant's UserProfile when one exists.
 

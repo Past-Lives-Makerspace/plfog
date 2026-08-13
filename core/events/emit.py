@@ -61,6 +61,7 @@ def emit(
     suppress_email: bool = False,
     suppress_guild_broadcast: bool = False,
     discord_mention: str = "",
+    override_preferences: bool = False,
 ) -> EmitResult:
     """Emit one event: log activity, resolve recipients, fan out to channels.
 
@@ -206,6 +207,7 @@ def emit(
             channel_attachments=channel_attachments,
             period=period,
             suppress_email=user_suppress_email,
+            override_preferences=override_preferences,
             delivered=delivered,
             skipped_duplicates=skipped_duplicates,
         )
@@ -357,17 +359,23 @@ def _per_recipient_fan_out(
     channel_attachments: dict[Channel, list[Attachment]],
     period: str,
     suppress_email: bool,
+    override_preferences: bool,
     delivered: list[tuple[int, Channel]],
     skipped_duplicates: list[tuple[int, Channel]],
 ) -> None:
     """Fan one recipient out across their enabled, implemented, non-broadcast channels.
 
-    Each (event, user, channel) delivery is claimed once on the
-    :class:`core.models.EventDelivery` ledger so a re-emit does not double-send. When
+    Each (event, user, channel) delivery is claimed once on the :class:`core.models.EventDelivery` ledger so a re-emit does not double-send. When
     ``suppress_email`` is set the EMAIL channel is skipped here (the email goes to an
     explicit ``email_to`` address instead — see :func:`_explicit_email_fan_out`).
     """
-    for channel in preferences.enabled_channels(user, event_key):
+    from core.events.registry import get_event
+    channels = (
+        [spec.channel for spec in get_event(event_key).channels]
+        if override_preferences
+        else preferences.enabled_channels(user, event_key)
+    )
+    for channel in channels:
         if channel is Channel.EMAIL and suppress_email:
             continue
         if not channel_module.is_implemented(channel):

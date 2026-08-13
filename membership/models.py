@@ -2885,6 +2885,7 @@ class GuildAnnouncement(models.Model):
         email_message: "Message | None" = None,
         selected_user_ids: "set[int] | None" = None,
         selected_custom_emails: "list[str] | None" = None,
+        override_preferences: bool = False,
     ) -> None:
         """Emit ``guild.announcement`` to the guild's members (Decision 4).
 
@@ -2964,9 +2965,10 @@ class GuildAnnouncement(models.Model):
             messages={Channel.EMAIL: email_message} if email_message is not None else None,
             suppress_email=not self.send_email,
             suppress_guild_broadcast=(webhook == ""),
-            discord_mention=discord_mention,
+            discord_mention=discord_mention or ("@here" if self.mark_as_urgent else ""),
             extra_emails=extra_emails,
             email_only_user_ids=selected_user_ids,
+            override_preferences=override_preferences,
         )
 
     # --- Review lifecycle (member proposals) ----------------------------------
@@ -3319,6 +3321,10 @@ class AnnouncementDraft(models.Model):
         default=True,
         help_text="Also send this announcement as a branded email (in-app bell fires regardless).",
     )
+    mark_as_urgent = models.BooleanField(
+        default=False,
+        help_text="Sends the email as transactional, overriding user email preferences.",
+    )
     email_recipient_selection = models.JSONField(
         default=dict,
         blank=True,
@@ -3431,6 +3437,7 @@ class AnnouncementDraft(models.Model):
         draft.title = cd["title"]
         draft.body = cd["body"]  # already sanitized by the form's clean_body
         draft.send_email = cd["send_email"]
+        draft.mark_as_urgent = cd.get("mark_as_urgent", False)
         # Empty dict = "everyone" (the default); a present selection = exactly these recipients.
         draft.email_recipient_selection = cd.get("email_recipient_selection") or {}
         draft.discord_channel = cd["discord_channel"]
@@ -3500,6 +3507,7 @@ class AnnouncementDraft(models.Model):
                 suppress_broadcast=(webhook == ""),
                 suppress_email=not self.send_email,
                 discord_mention=mention_str,
+                override_preferences=self.mark_as_urgent,
             )
             total = result.recipient_count
             counts = (total if self.send_email else 0, total)
@@ -3524,6 +3532,7 @@ class AnnouncementDraft(models.Model):
                 email_message=self.build_email_message(guild_url),
                 selected_user_ids=selected_user_ids,
                 selected_custom_emails=selected_custom_emails,
+                override_preferences=self.mark_as_urgent,
             )
 
         self.sent_at = timezone.now()

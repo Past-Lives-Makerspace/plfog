@@ -2149,6 +2149,9 @@ class AnnouncementComposeForm(forms.Form):
         "the bell and Discord get a plain-text version.",
     )
     send_email = forms.BooleanField(required=False, initial=True, label="Also send as email")
+    mark_as_urgent = forms.BooleanField(
+        required=False, initial=False, label="Mark as urgent", help_text="Sends the email as transactional, overriding user email preferences."
+    )
     email_recipients = _RecipientChoiceField(
         required=False,
         widget=forms.CheckboxSelectMultiple,

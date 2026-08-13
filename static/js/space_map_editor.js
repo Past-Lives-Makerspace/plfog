@@ -62,6 +62,39 @@
         });
     }
 
+    function updateSpaceStatus(root, marker, newStatus) {
+        var url = editUrl(root, marker).replace('/edit/', '/status/');
+        var formData = new URLSearchParams();
+        formData.append('status', newStatus);
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': root.getAttribute('data-csrf') || ''
+            },
+            body: formData.toString()
+        })
+        .then(function (response) {
+            return response.json().then(function (data) {
+                return { ok: response.ok, data: data };
+            });
+        })
+        .then(function (result) {
+            if (!result.ok) {
+                setStatus(root, result.data.error || "Status couldn't be updated.", true);
+                return;
+            }
+            setStatus(root, 'Status updated to ' + newStatus + '.', false);
+            marker.setAttribute('data-status', newStatus);
+            marker.classList.remove('pl-map-marker--available');
+            marker.classList.add('pl-map-marker--' + newStatus);
+        })
+        .catch(function () {
+            setStatus(root, "Status couldn't be updated — check your connection.", true);
+        });
+    }
+
     function editUrl(root, marker) {
         var template = root.getAttribute('data-edit-url-template') || '';
         return template.replace(/0\/edit\/$/, marker.getAttribute('data-editor-marker') + '/edit/');
@@ -119,6 +152,10 @@
             if (stage.releasePointerCapture) stage.releasePointerCapture(event.pointerId);
             if (!moved) {
                 // A click, not a drag: open the tile's editor, and never re-save an unchanged position.
+                if (marker.getAttribute('data-status') === 'available') {
+                    updateSpaceStatus(root, marker, 'reserved');
+                    return;
+                }
                 openEditor(editUrl(root, marker));
                 return;
             }

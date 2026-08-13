@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "612054639844",
+    "project_id": "pastlives-fog",
+    "storage_bucket": "pastlives-fog.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:612054639844:android:6a93e31f81f50c373978f1",
+        "android_client_info": {
+          "package_name": "app.pastlives.hub"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAcp_WEV5xyP18Yi-Gb9q-nY9mfNcE1wxU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
