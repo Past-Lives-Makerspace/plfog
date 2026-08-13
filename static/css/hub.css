@@ -6040,6 +6040,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text);
     animation: pl-meeting-pulse 1.2s ease-in-out infinite;
 }
+.pl-meeting-savestate--saved {
+    color: var(--color-success, #38a169);
+    border-color: var(--color-success, #38a169);
+}
 .pl-meeting-savestate--error {
     color: var(--color-error);
     border-color: var(--color-error);
