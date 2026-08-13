@@ -386,9 +386,8 @@ def send_admin_review_request(offering: "ClassOffering", approval: "ClassApprova
 
     Used when a category has no guild lead, so the Class Administrator gate is stage one.
     The review email + in-app row ride the ``class_review_requested`` resolver — with a
-    ``None`` guild it composes to the Class Administrators (capability holders by default;
-    other admins only if they've opted in) instead of blasting a static admin address list.
-    The instructor still gets the explainer.
+    ``None`` guild it composes to the Class Administrators (holders only) instead of
+    blasting a static admin address list. The instructor still gets the explainer.
     """
     instructor_name = offering.instructor.display_name if offering.instructor is not None else "An instructor"
     _emit_review_request(
@@ -408,8 +407,8 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
     Fired from ``ClassOffering._escalate_to_admin`` when a Guild Lead approves and the
     Admin gate opens. One ``class_validation_requested`` event: the structural
     ``admin_validation_request.{txt,html}`` shell is preserved as the email, and both the
-    email and in-app row ride the CLASS_APPROVERS resolver — the Class Administrators get
-    it by default and other admins only if they've opted in, replacing the static
+    email and in-app row ride the CLASS_APPROVERS resolver — the Class Administrators
+    (holders only) get it, replacing the static
     ``_admin_recipients()`` blast. ``class_validation_requested`` logs no SiteActivity, so
     the emit introduces no activity-row duplication.
     """

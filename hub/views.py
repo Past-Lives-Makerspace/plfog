@@ -1214,6 +1214,18 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
     )
     view_as = getattr(request, "view_as", None)
     member = _get_member(request)
+    # Guilds the member may manage orientations for: lead OR any staff role (co-lead,
+    # secretary, treasurer, orienter) — the same set the "Mine" scope filter uses. The
+    # "Mark done" action must track this, not lead-only, or staff can't record completions.
+    my_leadership_guild_ids = (
+        set(
+            Guild.objects.filter(Q(guild_lead=member) | Q(staff_memberships__member=member)).values_list(
+                "pk", flat=True
+            )
+        )
+        if member is not None
+        else set()
+    )
     return render(
         request,
         "hub/orientations_dashboard.html",
@@ -1226,6 +1238,7 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
             "add_member_form": OrientationAddMemberForm(slot_queryset=_manageable_slots(request)),
             "is_admin": view_as is not None and view_as.has_actual("admin"),
             "my_member_id": member.pk if member is not None else None,
+            "my_leadership_guild_ids": my_leadership_guild_ids,
             "guild_filter": request.GET.get("guild", ""),
             "scope": request.GET.get("scope", ""),
             "status_filter": request.GET.get("status", ""),

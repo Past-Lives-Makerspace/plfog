@@ -94,6 +94,22 @@ def describe_orientations_dashboard():
         assert reverse("hub_orientation_respond", args=[my_booking.pk]).encode() in response.content
         assert reverse("hub_orientation_respond", args=[their_booking.pk]).encode() not in response.content
 
+    def it_lets_guild_staff_mark_bookings_done_not_only_the_lead(client: Client):
+        # A co-lead/secretary/etc. manages orientations just like the lead — the "Mark done"
+        # action must show for a booking in a guild they staff, not only guilds they lead.
+        from membership.models import GuildStaffMembership
+        from tests.membership.factories import GuildStaffMembershipFactory
+
+        lead = _user_with_role("d_slead", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=lead.member)
+        staffer = _user_with_role("d_staff", fog_role=Member.FogRole.MEMBER)
+        GuildStaffMembershipFactory(guild=guild, member=staffer.member, role=GuildStaffMembership.Role.SECRETARY)
+        _past_booking(guild, "Staffed Booking")
+        client.login(username="d_staff", password="pass")
+        response = client.get(reverse("hub_orientations_dashboard"))
+        assert response.status_code == 200
+        assert b"Mark done" in response.content
+
 
 def describe_orientations_export():
     def it_streams_a_csv(client: Client):

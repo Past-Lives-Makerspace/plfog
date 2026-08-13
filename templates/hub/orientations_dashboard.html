@@ -3,7 +3,7 @@
 {% block title %}Orientations{% endblock %}
 {% block content %}
 <div x-data="{}">
-  {% include "components/page_header.html" with title="Orientations" description="Track and manage orientation requests and completions for the guilds you lead. Members request an orientation from each guild's own page — this is where leads respond to, schedule, and record them." %}
+  {% include "components/page_header.html" with title="Orientations" description="Track and manage orientation requests and completions for the guilds you lead or staff. Members request an orientation from each guild's own page — this is where leads and staff respond to, schedule, and record them." %}
 
   {% if upcoming %}
   <div class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem;">
@@ -32,7 +32,7 @@
     </select>
     <select name="scope" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;">
       <option value="">All</option>
-      <option value="mine"{% if scope == "mine" %} selected{% endif %}>Mine (guilds I lead)</option>
+      <option value="mine"{% if scope == "mine" %} selected{% endif %}>Mine (my guilds)</option>
     </select>
     <select name="status" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;">
       <option value="">Any status</option>
@@ -72,7 +72,7 @@
         <td>{{ b.get_status_display }}</td>
         <td>{{ b.oriented_by.display_name|default:"—" }}</td>
         <td>
-          {% if is_admin or b.guild.guild_lead_id == my_member_id %}
+          {% if is_admin or b.guild.pk in my_leadership_guild_ids %}
           <form method="post" action="{% url 'hub_orientation_toggle_completed' b.pk %}" style="margin:0;">
             {% csrf_token %}
             <button type="submit" class="hub-btn hub-btn--sm{% if b.is_completed %} hub-btn--primary{% endif %}">{% if b.is_completed %}✓ Done{% else %}Mark done{% endif %}</button>

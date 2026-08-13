@@ -66,7 +66,7 @@ def describe_page_header_rollout():
         response = client.get(reverse("hub_orientations_dashboard"))
         assert response.status_code == 200
         assert b"Track and manage orientation requests" in response.content
-        assert b"for the guilds you lead" in response.content
+        assert b"for the guilds you lead or staff" in response.content
 
     def it_shows_the_purpose_blurb_on_the_member_directory(client: Client):
         MembershipPlanFactory()
