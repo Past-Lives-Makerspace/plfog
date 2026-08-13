@@ -389,7 +389,9 @@ def complete_orientation(booking: OrientationBooking) -> None:
     if settings_obj is None or settings_obj.thankyou_email_enabled:
         from membership.orientation_copy import STANDARD_THANKYOU_BODY, standard_thankyou_subject
 
-        subject = settings_obj.resolved_thankyou_subject if settings_obj else standard_thankyou_subject(booking.guild.name)
+        subject = (
+            settings_obj.resolved_thankyou_subject if settings_obj else standard_thankyou_subject(booking.guild.name)
+        )
         body = settings_obj.resolved_thankyou_body if settings_obj else STANDARD_THANKYOU_BODY
         ctx = _context(booking, body=body)
         # Email-only thank-you (no in-app pair today) → suppress the in-app by giving the
