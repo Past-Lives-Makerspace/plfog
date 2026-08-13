@@ -2965,7 +2965,7 @@ class GuildAnnouncement(models.Model):
             messages={Channel.EMAIL: email_message} if email_message is not None else None,
             suppress_email=not self.send_email,
             suppress_guild_broadcast=(webhook == ""),
-            discord_mention=discord_mention or ("@here" if self.mark_as_urgent else ""),
+            discord_mention=discord_mention or ("@here" if override_preferences else ""),
             extra_emails=extra_emails,
             email_only_user_ids=selected_user_ids,
             override_preferences=override_preferences,

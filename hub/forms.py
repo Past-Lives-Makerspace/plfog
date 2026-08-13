@@ -2150,7 +2150,10 @@ class AnnouncementComposeForm(forms.Form):
     )
     send_email = forms.BooleanField(required=False, initial=True, label="Also send as email")
     mark_as_urgent = forms.BooleanField(
-        required=False, initial=False, label="Mark as urgent", help_text="Sends the email as transactional, overriding user email preferences."
+        required=False,
+        initial=False,
+        label="Mark as urgent",
+        help_text="Sends the email as transactional, overriding user email preferences.",
     )
     email_recipients = _RecipientChoiceField(
         required=False,

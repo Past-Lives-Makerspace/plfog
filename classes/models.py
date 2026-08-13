@@ -2066,6 +2066,7 @@ class Registration(models.Model):
 
         try:
             from classes.services.mailchimp_subscribe import unsubscribe_registration
+
             unsubscribe_registration(self)
         except Exception:
             pass

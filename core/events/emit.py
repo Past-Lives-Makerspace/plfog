@@ -370,6 +370,7 @@ def _per_recipient_fan_out(
     explicit ``email_to`` address instead — see :func:`_explicit_email_fan_out`).
     """
     from core.events.registry import get_event
+
     channels = (
         [spec.channel for spec in get_event(event_key).channels]
         if override_preferences
