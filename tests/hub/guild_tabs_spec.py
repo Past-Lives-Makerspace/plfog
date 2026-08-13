@@ -210,3 +210,32 @@ def describe_guild_gallery_tab():
         # The Gallery heading now lives only in the gallery panel, which sits after the
         # overview panel closes — so the gallery section must come after the gallery x-show.
         assert body.index(b"section === 'gallery'") < body.index(b'pl-guild-section__h2">Gallery')
+
+
+@pytest.mark.django_db
+def describe_guild_wishlist_tab():
+    def it_shows_the_wishlist_tab_and_panel_when_set(client: Client):
+        _member("w1")
+        client.login(username="w1", password="pw")
+        guild = GuildFactory(wishlist="A pug mill would change our lives")
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
+        assert b">Wishlist</button>" in body
+        assert b"section === 'wishlist'" in body
+        assert b"A pug mill would change our lives" in body
+
+    def it_shows_a_donate_button_when_a_donate_url_is_set(client: Client):
+        _member("w2")
+        client.login(username="w2", password="pw")
+        guild = GuildFactory(donate_url="https://example.com/give")
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
+        assert b">Wishlist</button>" in body
+        assert b'href="https://example.com/give"' in body
+        assert b"Donate to" in body
+
+    def it_omits_the_wishlist_tab_and_panel_when_empty(client: Client):
+        _member("w3")
+        client.login(username="w3", password="pw")
+        guild = GuildFactory()
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
+        assert b">Wishlist</button>" not in body
+        assert b"section === 'wishlist'" not in body

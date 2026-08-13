@@ -123,6 +123,8 @@ class GuildEditForm(forms.ModelForm):
         fields = [
             "name",
             "about",
+            "wishlist",
+            "donate_url",
             "essential_rules",
             "banner_image",
             "calendar_url",
@@ -151,6 +153,13 @@ class GuildEditForm(forms.ModelForm):
             "about": forms.Textarea(
                 attrs={"rows": 5, "placeholder": "Tell members what this guild is about..."},
             ),
+            "wishlist": forms.Textarea(
+                attrs={
+                    "rows": 5,
+                    "placeholder": "e.g. A pug mill, kiln shelves, underglazes. What would help this guild most?",
+                },
+            ),
+            "donate_url": forms.URLInput(attrs={"placeholder": "https://..."}),
             "essential_rules": forms.Textarea(
                 attrs={
                     "rows": 3,
@@ -174,6 +183,8 @@ class GuildEditForm(forms.ModelForm):
         }
         labels = {
             "about": "About",
+            "wishlist": "Wishlist",
+            "donate_url": "Donate link (optional)",
             "essential_rules": "Essential / safety rules (for the flyer)",
             "banner_image": "Banner image",
             "calendar_url": "Google Calendar iCal URL",

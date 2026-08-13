@@ -121,6 +121,7 @@
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
     {% if tab_payments_enabled and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
+    {% if guild.wishlist or guild.donate_url %}<button type="button" class="vote-tab" :class="section === 'wishlist' ? 'vote-tab--active' : ''" @click="section = 'wishlist'">Wishlist</button>{% endif %}
     {% if not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>{% endif %}
     {% if gallery_images %}<button type="button" class="vote-tab" :class="section === 'gallery' ? 'vote-tab--active' : ''" @click="section = 'gallery'">Gallery</button>{% endif %}
 </nav>
@@ -422,6 +423,22 @@
     <section class="pl-guild-section">
         <h2 class="pl-guild-section__h2">Gallery</h2>
         {% include "hub/_guild_gallery.html" %}
+    </section>
+</div>
+{% endif %}
+
+{% if guild.wishlist or guild.donate_url %}
+<div x-show="section === 'wishlist'" x-cloak>
+    <section class="pl-guild-section">
+        <h2 class="pl-guild-section__h2">Wishlist</h2>
+        {% if guild.wishlist %}
+        <div class="pl-md">{{ guild.wishlist|guild_markdown }}</div>
+        {% else %}
+        <p class="hub-text-muted">This guild hasn't listed anything yet.</p>
+        {% endif %}
+        {% if guild.donate_url %}
+        <p style="margin-top:1rem;"><a href="{{ guild.donate_url }}" class="pl-btn pl-btn--primary" target="_blank" rel="noopener noreferrer">Donate to {{ guild.name }}</a></p>
+        {% endif %}
     </section>
 </div>
 {% endif %}

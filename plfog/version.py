@@ -8,6 +8,16 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "1.0.1",
         "date": "2026-08-13",
+        "title": "Guild wishlists: ask for the gear you need",
+        "changes": [
+            "Every guild page has a new Wishlist tab. Guild leads can list the tools, materials, and "
+            "equipment they're hoping someone will donate (a pug mill, kiln shelves, an instrument library, "
+            "you name it), and add a link where people can donate to that guild directly.",
+        ],
+    },
+    {
+        "version": "1.0.1",
+        "date": "2026-08-13",
         "title": "Updated class cancellation policy",
         "changes": [
             "We've simplified our class cancellation policy. Cancel 48+ hours ahead and there's no fee: "

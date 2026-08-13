@@ -1437,6 +1437,19 @@ class Guild(HeroCropMixin, models.Model):
         default="",
         help_text="Member-facing description or announcement shown on the guild page.",
     )
+    wishlist = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Things this guild is hoping to receive as donations — tools, materials, equipment. "
+            "Shown on a Wishlist tab on the guild page. Markdown is supported."
+        ),
+    )
+    donate_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional link where people can donate to this guild directly. Shown as a Donate button on the Wishlist tab.",
+    )
     essential_rules = models.TextField(
         blank=True,
         default="",
