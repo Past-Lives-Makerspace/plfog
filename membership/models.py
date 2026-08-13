@@ -1896,7 +1896,7 @@ class GuildStaffMembership(models.Model):
     """
 
     class Role(models.TextChoices):
-        CO_LEAD = "co_lead", "Guild Lead"
+        CO_LEAD = "co_lead", "Co-Lead"
         SECRETARY = "secretary", "Secretary"
         TREASURER = "treasurer", "Treasurer"
         ORIENTER = "orienter", "Orientator"
