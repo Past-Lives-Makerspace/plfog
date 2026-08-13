@@ -65,13 +65,14 @@ def describe_email_visual_preview():
         assert "favicon.png" in body  # light-shell logo, attribute-escaped inside srcdoc
         assert "Subject" in body
 
-    def it_uses_the_dark_shell_for_a_transactional_email(client: Client):
+    def it_renders_a_framed_transactional_email(client: Client):
         _superuser(client)
         url = reverse("hub_admin_notification_visual", args=["registration_confirmed"])
         body = client.get(url).content.decode()
         assert 'class="pl-email-preview__frame"' in body
-        # The dark transactional card, not the light voting shell.
-        assert "favicon.png" not in body
+        # Since the v1.0.0 white-background rebrand, transactional emails carry the same
+        # branded logo as the rest — the old cream/gold dark card is gone.
+        assert "favicon.png" in body
 
     def it_is_admin_only(client: Client):
         from django.contrib.auth.models import User

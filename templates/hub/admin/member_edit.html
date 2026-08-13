@@ -38,8 +38,8 @@
             {% include "components/form_field.html" with field=field %}
           {% endif %}
         {% endfor %}
-        {# Admin capabilities: a real multi-checkbox set, rendered explicitly so it is not
-           collapsed into the single-toggle branch of the shared form_field component. #}
+        {% comment %}Admin capabilities: a real multi-checkbox set, rendered explicitly so it is not
+        collapsed into the single-toggle branch of the shared form_field component.{% endcomment %}
         <div class="pl-person-capabilities">
           <div class="hub-detail-label">{{ form.capabilities.label }}</div>
           <div class="hub-text-muted pl-person-capabilities__hint">{{ form.capabilities.help_text }}</div>

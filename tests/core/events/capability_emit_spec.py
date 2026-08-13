@@ -1,4 +1,5 @@
-"""emit() honors the capability optional tier: holders get defaults, other admins opt in."""
+"""emit() routes a capability event to holders only — a non-holder admin gets nothing,
+even with a saved preference (the capability is the master switch)."""
 
 from __future__ import annotations
 
@@ -29,20 +30,13 @@ def describe_capability_fan_out():
         assert (holder.user_id, Channel.IN_APP) in result.delivered
         assert (holder.user_id, Channel.EMAIL) in result.delivered
 
-    def it_delivers_nothing_to_a_non_holder_admin_without_a_preference(linked_member):
+    def it_delivers_nothing_to_a_non_holder_admin_even_with_a_preference(linked_member):
         holder = linked_member()
         _grant(holder, AdminCapability.Capability.CLASS_APPROVER)
         admin = linked_member(fog_role=Member.FogRole.ADMIN)
-        result = emit(_EVENT, context={}, title="Validate", body="b")
-        # The optional admin gets no channel at all — the bell included.
-        assert not any(pk == admin.user_id for pk, _ in result.delivered)
-        assert not Notification.objects.filter(user=admin.user, trigger=_EVENT).exists()
-
-    def it_delivers_only_the_opted_in_channel_to_an_optional_admin(linked_member):
-        holder = linked_member()
-        _grant(holder, AdminCapability.Capability.CLASS_APPROVER)
-        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        # An explicit opt-in used to reach an "optional" admin; holders-only routing means
+        # a non-holder admin is not a recipient at all, so even a saved preference is inert.
         NotificationPreference.objects.create(user=admin.user, event_key=_EVENT, channel="email", enabled=True)
         result = emit(_EVENT, context={}, title="Validate", body="b")
-        assert (admin.user_id, Channel.EMAIL) in result.delivered
-        assert (admin.user_id, Channel.IN_APP) not in result.delivered
+        assert not any(pk == admin.user_id for pk, _ in result.delivered)
+        assert not Notification.objects.filter(user=admin.user, trigger=_EVENT).exists()

@@ -1,8 +1,8 @@
-"""Capability-scoped recipient resolvers: holders first (default), other admins optional.
+"""Capability-scoped recipient resolvers: only holders of the capability receive.
 
-The load-bearing case is a holder who is ALSO an admin — the holder concatenation must
-come first so ``_dedupe`` (keep-first-reason) keeps them a DEFAULT recipient, never
-demoting them to the optional opt-in tier.
+A capability is the master switch — holding it routes the notification here and grants the
+action. A ``fog_role=admin`` member who does NOT hold it receives nothing (they can
+self-grant it). A holder who is also an admin still appears exactly once.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 import pytest
 
 from core.events import resolvers
-from core.events.resolvers import OPTIONAL_RECIPIENT_REASON
 from membership.models import AdminCapability, Member
 from tests.membership.factories import GuildFactory
 
@@ -31,22 +30,22 @@ def describe_capability_recipients():
         _grant(holder, AdminCapability.Capability.CLASS_APPROVER)
         assert _reasons(resolvers.class_approvers({}))[holder.user.pk] == "capability:class_approver"
 
-    def it_tags_a_non_holder_admin_as_optional(linked_member):
+    def it_excludes_a_non_holder_admin(linked_member):
         holder = linked_member()
         _grant(holder, AdminCapability.Capability.CLASS_APPROVER)
         admin = linked_member(fog_role=Member.FogRole.ADMIN)
-        assert _reasons(resolvers.class_approvers({}))[admin.user.pk] == OPTIONAL_RECIPIENT_REASON
+        pks = {user.pk for user, _ in resolvers.class_approvers({})}
+        assert admin.user.pk not in pks
+        assert pks == {holder.user.pk}
 
-    def it_keeps_a_holder_who_is_also_an_admin_as_a_default_not_optional(linked_member):
+    def it_includes_a_holder_who_is_also_an_admin_exactly_once(linked_member):
         both = linked_member(fog_role=Member.FogRole.ADMIN)
         _grant(both, AdminCapability.Capability.CLASS_APPROVER)
         recipients = resolvers.class_approvers({})
-        # The default (capability) reason wins — ordering keeps the holder ahead of the
-        # optional admin sweep — and they appear exactly once.
         assert _reasons(recipients)[both.user.pk] == "capability:class_approver"
         assert [user.pk for user, _ in recipients].count(both.user.pk) == 1
 
-    def it_returns_nobody_when_there_are_no_holders_or_admins(db):
+    def it_returns_nobody_when_there_are_no_holders(db):
         assert resolvers.billing_approvers({}) == []
 
     def it_drops_a_holder_without_a_usable_user(db):

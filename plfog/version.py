@@ -31,6 +31,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "Admins can choose who gets approval emails",
         "changes": [
             "Approval requests (class reviews, space and cubby requests, discount codes, and calendar proposals) no longer email every admin. Admins can now give specific people a duty like Class Administrator or Space Administrator, and only those folks get the emails and can approve them. Any admin can still opt back in to any of these from their notification settings.",
+            "All of these approval and admin alerts now live together in one 'Staff & leadership' group at the top of your notification settings. You only see the alerts for duties you actually hold, and regular members don't see the group at all.",
         ],
     },
     {

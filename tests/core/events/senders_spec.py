@@ -43,7 +43,11 @@ def describe_email_shell_override_is_not_double_wrapped():
 def describe_fixed_html_body_is_not_wrapped():
     def it_delivers_an_explicit_full_document_verbatim():
         # The login-code email renders a standalone full document and passes it to emit
-        # as html_body (the fixed-message path) — it must arrive byte-identical.
+        # as html_body (the fixed-message path) — it must arrive un-wrapped (no shell
+        # card). The only edit the send path may make is finalizing the footer's
+        # manage-preferences placeholder into the recipient's real signed token.
+        from core.email_prefs import PREFS_TOKEN_PLACEHOLDER, read_prefs_token
+
         user = User.objects.create_user(username="nl", email="nl@example.com")
         doc = render_to_string("account/email/login_code_message.html", {"code": "123456"})
         emit(
@@ -55,5 +59,11 @@ def describe_fixed_html_body_is_not_wrapped():
             html_body=doc,
         )
         html = mail.outbox[0].alternatives[0][0]
-        assert html == doc
+        # Verbatim except the one prefs-token placeholder, now a per-recipient token.
+        assert doc.count(PREFS_TOKEN_PLACEHOLDER) == 1
+        prefix, suffix = doc.split(PREFS_TOKEN_PLACEHOLDER)
+        assert html.startswith(prefix)
+        assert html.endswith(suffix)
+        token = html[len(prefix) : len(html) - len(suffix)]
+        assert read_prefs_token(token).pk == user.pk
         assert html.count("because you have a Past Lives Makerspace account") == 1

@@ -408,6 +408,12 @@
     margin-top: 0.5rem;
 }
 
+/* Sub-heading note under the Staff & leadership section explaining who sees it. */
+.pl-notif-section-note {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+}
+
 /* Bulk on/off controls (the top "Everything" row and each section's). */
 .pl-notif-bulk {
     display: inline-flex;

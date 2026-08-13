@@ -31,14 +31,6 @@ if TYPE_CHECKING:
 # A resolved recipient: the User and a short human reason for why they're included.
 Recipient = tuple["User", str]
 
-# The ``reason`` stamped on an admin who is offered a capability-scoped notification but
-# does NOT hold the capability. :func:`core.events.emit.emit` reads this reason and fans
-# such a recipient out as *optional* — no implicit channel default, no always-on in-app
-# bell; they receive a channel ONLY when they've explicitly opted in via a saved
-# ``NotificationPreference`` row. Capability holders carry a ``capability:<name>`` reason
-# instead and get the event's normal channel defaults.
-OPTIONAL_RECIPIENT_REASON = "fog_admin_optional"
-
 
 class ResolverFn(Protocol):
     """A recipient resolver: ``context`` mapping → list of ``(User, reason)``."""
@@ -161,25 +153,17 @@ def guild_leadership_or_admins(context: dict[str, Any]) -> list[Recipient]:
 
 
 def _capability_recipients(capability: str) -> list[Recipient]:
-    """Holders of ``capability`` FIRST, then every other admin as an OPTIONAL recipient.
+    """Every member holding ``capability`` — the sole recipients of its notifications.
 
-    Capability holders are tagged ``capability:<name>`` and receive the event on its
-    normal channel defaults (a holder can act, so they should hear about it by default).
-    Every *other* ``fog_role=ADMIN`` member is appended tagged
-    :data:`OPTIONAL_RECIPIENT_REASON` — offered the notification but only reached on a
-    channel they've explicitly opted into.
-
-    The ordering is load-bearing: holders are concatenated BEFORE the optionals so that
-    :func:`_dedupe` (keep-first-reason) keeps a holder-who-is-also-an-admin as a default
-    recipient (``capability:<name>``), never demoting them to optional.
+    A capability is the master switch: holding it both routes the matching approval/alert
+    notifications here AND grants the action. A ``fog_role=ADMIN`` member who does NOT hold
+    the capability receives nothing — they can self-grant it on their member page if they
+    want in. Holders are tagged ``capability:<name>`` so the settings page can badge the row.
     """
     from membership.models import Member
 
     holders = list(Member.objects.filter(admin_capabilities__capability=capability).select_related("user").distinct())
-    admins = list(Member.objects.filter(fog_role=Member.FogRole.ADMIN).select_related("user"))
-    holder_recipients = [_member_user(m, f"capability:{capability}") for m in holders]
-    optional_recipients = [_member_user(m, OPTIONAL_RECIPIENT_REASON) for m in admins]
-    return _dedupe([*holder_recipients, *optional_recipients])
+    return _members_to_recipients(holders, f"capability:{capability}")
 
 
 def class_approvers(context: dict[str, Any]) -> list[Recipient]:

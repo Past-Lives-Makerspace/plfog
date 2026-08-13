@@ -37,6 +37,9 @@
           <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('.pl-notif-section'), false)">All off</button>
         </div>
       </div>
+      {% if category == 'Staff & leadership' %}
+        <p class="hub-text-muted pl-notif-section-note">You see a row here only for a duty you hold or a role you have. Class, space, discount, calendar, and billing alerts are controlled by your admin capabilities.{% if capabilities_url %} <a href="{{ capabilities_url }}" hx-boost="false">Manage your admin duties →</a>{% endif %}</p>
+      {% endif %}
       <div class="pl-notif-matrix__scroll">
         <div class="pl-notif-matrix" role="table" aria-label="{{ category }} notification preferences"
              style="--pl-notif-cols: {{ notif_channels|length }};">

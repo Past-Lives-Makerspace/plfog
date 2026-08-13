@@ -1936,8 +1936,10 @@ class AdminCapability(models.Model):
     discount code, a calendar proposal, or a failed charge) and *grants the action* —
     a holder can approve or decline that object type. This lets the makerspace hand out
     a single duty (e.g. "you review classes") without promoting someone to full admin.
-    Members with the Admin ``fog_role`` are additionally offered these notifications as
-    optional opt-ins (see :func:`core.events.resolvers._capability_recipients`).
+    The capability is the master switch: ONLY holders receive the matching notifications
+    (and see them on the settings page). A plain Admin who does not hold it gets nothing
+    until it is granted — they can self-grant on their own member page. See
+    :func:`core.events.resolvers._capability_recipients`.
     """
 
     class Capability(models.TextChoices):

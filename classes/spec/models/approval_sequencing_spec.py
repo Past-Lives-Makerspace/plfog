@@ -110,10 +110,15 @@ def describe_escalation_notifications():
         assert "Iris Smith" in note.body
         assert "Forge Guild" in note.body
 
-    def it_notifies_fog_admins_on_guild_lead_approval(guilded_offering, guild_lead_user, admin_user):
-        # The validation in-app now resolves to FOG_ADMINS (was is_staff) — admin_user
-        # is a fog admin, so they receive it. The copy names the guild lead by display
-        # name (unified with the email shell) rather than by username.
+    def it_notifies_class_administrators_on_guild_lead_approval(guilded_offering, guild_lead_user, admin_user):
+        # The validation in-app resolves to CLASS_APPROVERS (the capability holders).
+        # admin_user holds the capability here, so they receive it. The copy names the
+        # guild lead by display name (unified with the email shell) rather than by username.
+        from membership.models import AdminCapability, Member
+
+        Member.objects.get(user=admin_user).admin_capabilities.create(
+            capability=AdminCapability.Capability.CLASS_APPROVER
+        )
         (gl_row,) = guilded_offering.submit_for_review()
         gl_row.decide(ClassApproval.Decision.APPROVED, user=guild_lead_user)
         note = Notification.objects.get(user=admin_user, trigger="class_validation_requested")

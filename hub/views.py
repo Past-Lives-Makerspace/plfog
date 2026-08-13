@@ -1641,6 +1641,14 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     # Channel labels keyed by channel value, so each matrix cell can build its own
     # screen-reader name (event × channel) via the get_item template filter.
     notif_channel_labels = {channel.value: label for channel, label in notif_channels}
+    # Full admins get a shortcut from the Staff & leadership section to their own capability
+    # checkboxes (the master switch for those emails). Only admins can edit capabilities, so
+    # the link is theirs alone; guild leads see the section but manage it via channel toggles.
+    capabilities_url = (
+        f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=details"
+        if member is not None and member.fog_role == Member.FogRole.ADMIN
+        else None
+    )
 
     return render(
         request,
@@ -1648,6 +1656,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
         {
             **ctx,
             "member": member,
+            "capabilities_url": capabilities_url,
             "profile_form": profile_form,
             "contact_formset": contact_formset,
             "skill_categories": _skill_categories_with_approved(),

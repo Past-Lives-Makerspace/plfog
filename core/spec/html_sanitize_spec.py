@@ -80,7 +80,7 @@ def describe_rich_html_to_text():
 
 
 def describe_render_rich_email_body():
-    def it_styles_editor_html_for_the_dark_card():
+    def it_styles_editor_html_for_the_light_card():
         raw = (
             "<h2>Welcome</h2><p>Bring <strong>tools</strong>.</p>"
             '<ul><li>Pencil</li></ul><p><a href="http://x.com">link</a></p>'
@@ -89,14 +89,14 @@ def describe_render_rich_email_body():
         assert "margin:24px" in result  # h2 carries an inline style
         assert "font-weight:700" in result  # strong styled
         assert "padding-left:24px" in result  # list indented
-        assert "color:#EEB44B" in result  # link gold
+        assert "color:#0d4876" in result  # link navy (white-background rebrand)
         assert 'target="_blank"' in result  # link hardened
 
     def it_paragraph_izes_legacy_plain_text():
         result = render_rich_email_body("First para.\n\nSecond line\nwrapped.")
         assert result.count("<p") == 2  # blank line → new paragraph
         assert "<br>" in result  # single newline → <br>
-        assert "color:#F4EFDD" in result  # styled for the dark card
+        assert "color:#33424F" in result  # slate body text styled for the light card
 
     def it_returns_empty_for_blank_input():
         assert render_rich_email_body("") == ""
